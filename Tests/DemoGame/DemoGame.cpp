@@ -48,13 +48,12 @@ using namespace HotBite::Engine::Systems;
 using namespace HotBite::Engine::Components;
 using namespace HotBite::Engine::UI;
 
-
 /**
  * The main Game class. It's child of DXCore as the main game engine module and also EventListener to
  * subscribe to the engine events. You can also send your own events using the coordinator, just check how
  * is done it's done the engine (like in DXCore class).
  */
-class ParticleTest : public DXCore, public ECS::EventListener
+class GameDemoApplication : public DXCore, public ECS::EventListener
 {
 private:
 
@@ -78,7 +77,7 @@ private:
 	float3 fireball_spawn_position = {};
 
 public:
-	ParticleTest(HINSTANCE hInstance) :DXCore(hInstance, "HotBiteDemoGame", 0, 0, true, false) {
+	GameDemoApplication(HINSTANCE hInstance) :DXCore(hInstance, "HotBiteDemoGame", 1920, 1080, true, true) {
 		root = "..\\..\\..\\Tests\\DemoGame\\";
 		//Initialize core DirectX
 		InitWindow();
@@ -109,10 +108,10 @@ public:
 		//Subscribe to mouse events to move camera, this can be done in your own camera system instead the main game module.
 		//Look for "EventId" in the engine to look for all the available events, no documentation available yet.
 		//You can add your own events very easy, just check how it works in the engine.       
-		AddEventListener(World::EVENT_ID_MATERIALS_LOADED, std::bind(&ParticleTest::OnMaterialsLoaded, this, std::placeholders::_1));
-		AddEventListener(World::EVENT_ID_TEMPLATES_LOADED, std::bind(&ParticleTest::OnMaterialsLoaded, this, std::placeholders::_1));
-		AddEventListener(GamePlayerSystem::EVENT_ID_PLAYER_DAMAGED, std::bind(&ParticleTest::OnPlayerDamaged, this, std::placeholders::_1));
-		AddEventListener(GamePlayerSystem::EVENT_ID_PLAYER_DEAD, std::bind(&ParticleTest::OnPlayerDead, this, std::placeholders::_1));
+		AddEventListener(World::EVENT_ID_MATERIALS_LOADED, std::bind(&GameDemoApplication::OnMaterialsLoaded, this, std::placeholders::_1));
+		AddEventListener(World::EVENT_ID_TEMPLATES_LOADED, std::bind(&GameDemoApplication::OnMaterialsLoaded, this, std::placeholders::_1));
+		AddEventListener(GamePlayerSystem::EVENT_ID_PLAYER_DAMAGED, std::bind(&GameDemoApplication::OnPlayerDamaged, this, std::placeholders::_1));
+		AddEventListener(GamePlayerSystem::EVENT_ID_PLAYER_DEAD, std::bind(&GameDemoApplication::OnPlayerDead, this, std::placeholders::_1));
 		
 		//Load the scene
 		world.Load(root + "demo_game_scene.json");
@@ -143,8 +142,8 @@ public:
 		grass[1] = HotBite::Engine::Core::LoadTexture(root + "\\Assets\\grass\\grass2.png");
 		grass[2] = HotBite::Engine::Core::LoadTexture(root + "\\Assets\\grass\\grass3.png");
 
-		AddEventListener(World::EVENT_ID_UPDATE_BACKGROUND, std::bind(&ParticleTest::UpdateSystems, this, std::placeholders::_1));
-		AddEventListener(RenderSystem::EVENT_ID_PREPARE_SHADER, std::bind(&ParticleTest::OnPrepare, this, std::placeholders::_1));
+		AddEventListener(World::EVENT_ID_UPDATE_BACKGROUND, std::bind(&GameDemoApplication::UpdateSystems, this, std::placeholders::_1));
+		AddEventListener(RenderSystem::EVENT_ID_PREPARE_SHADER, std::bind(&GameDemoApplication::OnPrepare, this, std::placeholders::_1));
 
 		//Load and set post effect chain to renderer
 		int w = GetWidth();
@@ -298,7 +297,7 @@ public:
 		world.Run(target_fps);
 	}
 
-	virtual ~ParticleTest() {
+	virtual ~GameDemoApplication() {
 		for (int i = 0; i < NGRASS; ++i) {
 			grass[i]->Release();
 		}
@@ -387,7 +386,7 @@ public:
 				//This is a timer to update every second the information of the sky component (time of day, time speed and cloud density)
 				ECS::Coordinator* c = world.GetCoordinator();
 				std::lock_guard<std::recursive_mutex> l(c->GetSystem<RenderSystem>()->mutex);
-				label2->SetText("Time: %02d:%02d:%02d\nTime Speed: x%0.2f\nClouds: %0.2f\n",
+				label2->SetText("Time: %02d:%02d:%02d\nTime Speed (U/I): x%0.2f\nClouds(O/P): %0.2f\n",
 				(sky->current_minute / 60) % 24, sky->current_minute % 60,
 				(int)sky->second_of_day % 60, sky->second_speed, sky->cloud_density);
 				return true;
@@ -683,6 +682,6 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 	_In_ LPWSTR    lpCmdLine,
 	_In_ int       nCmdShow)
 {
-	ParticleTest test(hInstance);
+	GameDemoApplication test(hInstance);
 	test.Run();
 }

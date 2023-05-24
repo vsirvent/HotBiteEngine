@@ -41,14 +41,27 @@ void main(
 	inout TriangleStream< GSOutput > output
 )
 {
-#if 1
+#if 0
 	bool process = false;
-	matrix worldViewProj = mul(view, projection);
 
 	float4 p[3];
 	uint i = 0;
 	for (i = 0; i < 3; i++) {
-		p[i] = mul(input[i].worldPos, worldViewProj);
+		p[i] = mul(input[i].worldPos, view);
+	}
+	if (p[0].z < 0 && p[2].z < 0 && p[2].z < 0) {
+		return;
+	}
+	else {
+		process = true;
+	}
+	for (i = 0; i < 3; i++) {
+		p[i] = mul(p[i], projection);
+	}
+	/*
+	uint i = 0;
+	for (i = 0; i < 3; i++) {
+		p[i] = mul(input[i].worldPos, mul(view, projection));
 	}
 	for (i = 0; i < 3; i++) {
 		float2 pos;
@@ -57,13 +70,18 @@ void main(
 		pos.y /= -p[i].w;
 		pos.x = (pos.x + 1.0f) * 0.5f;
 		pos.y = (pos.y + 1.0f) * 0.5f;
-		if (pos.x > -screenW * 0.1f && pos.x < screenW && pos.y > -screenH * 0.1f && pos.y < screenH) {
+		if (pos.x > -screenW * 2.0f && pos.x < screenW * 2.0f && pos.y > -screenH * 2.0f && pos.y < screenH * 2.0f) {
 			process = true;
 			break;
 		}
-	}	
+	}*/	
 #else
 	bool process = true;
+	float4 p[3];
+	uint i = 0;
+	for (i = 0; i < 3; i++) {
+		p[i] = mul(input[i].worldPos, mul(view, projection));
+	}
 #endif
 	if (process) {
 		// Edges of the triangle : postion delta

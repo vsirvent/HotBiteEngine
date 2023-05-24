@@ -242,6 +242,9 @@
       <AdditionalLibraryDirectories>$(SolutionDir)..\FbxSdk\lib;$(SolutionDir)..\enet\out\build\x64-Debug;$(SolutionDir)..\React3d\out\build\x64-Debug;$(SolutionDir)x64\Debug;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalDependencies>$(CoreLibraryDependencies);%(AdditionalDependencies); </AdditionalDependencies>
     </Link>
+    <PostBuildEvent>
+      <Command>copy $(SolutionDir)\..\FbxSdk\lib\libfbxsdk.dll  $(OutputPath)</Command>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
@@ -264,6 +267,9 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalLibraryDirectories>$(SolutionDir)..\FbxSdk\lib;$(SolutionDir)..\React3d\out\build\x64-Release;$(SolutionDir)x64\Release;$(SolutionDir)..\enet\out\build\x64-Release;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
+    <PostBuildEvent>
+      <Command>copy $(SolutionDir)\..\FbxSdk\lib\libfbxsdk.dll  $(OutputPath)</Command>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release_Production|x64'">
     <ClCompile>

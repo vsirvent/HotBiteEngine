@@ -83,7 +83,7 @@ float DirShadowPCF(float4 position, DirLight light, int index)
 	p.x = (p.x + 1.0f) / 2.0f;
 	p.y = 1.0f - ((p.y + 1.0f) / 2.0f);
 	if (p.x < 0.0f || p.x > 1.0f || p.y < 0.0f || p.y > 1.0f) {
-		return 1.0f;
+		return 0.5f;
 	}
 	//This code is commented as static shadows are disabled
 	//float4 sp = mul(float4(position, 1.0f), DirStaticPerspectiveMatrix[index]);
@@ -94,8 +94,8 @@ float DirShadowPCF(float4 position, DirLight light, int index)
 	float count = 0.00001f;
 	for (float x = -0.0004f; x < 0.0004f; x += step) {
 		for (float y = -0.0004f; y < 0.0004f; y += step) {
-			att1 += DirShadowMapTexture[index].SampleCmpLevelZero(PCFSampler, float2(p.x + x, p.y + y), p.z);
-			count += 1.0f;
+			att1 += DirShadowMapTexture[index].SampleCmpLevelZero(PCFSampler, float2(p.x + x, p.y + y), p.z).r;
+			count += 0.8f;
 		}
 	}
 	att1 /= count;
@@ -110,9 +110,9 @@ float DirShadowPCFFAST(float4 position, DirLight light, int index)
 	p.x = (p.x + 1.0f) / 2.0f;
 	p.y = 1.0f - ((p.y + 1.0f) / 2.0f);
 	if (p.x < 0.0f || p.x > 1.0f || p.y < 0.0f || p.y > 1.0f) {
-		return 1.0f;
+		return 0.5f;
 	}
-	float att1 = DirShadowMapTexture[index].SampleCmpLevelZero(PCFSampler, float2(p.x, p.y), p.z);
+	float att1 = DirShadowMapTexture[index].SampleCmpLevelZero(PCFSampler, float2(p.x, p.y), p.z).r;
 	return saturate(att1);
 }
 

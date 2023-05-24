@@ -103,9 +103,9 @@ void main(
 	inout TriangleStream< GSOutput > output
 )
 {
-#if 1
-	bool process = false;
 	matrix worldViewProj = mul(view, projection);
+#if 0
+	bool process = false;
 	uint i = 0;
 	float4 p[3];
 	for (i = 0; i < 3; i++) {
@@ -125,6 +125,11 @@ void main(
 	}
 #else
 	bool process = true;
+	float4 p[3];
+	uint i = 0;
+	for (i = 0; i < 3; i++) {
+		p[i] = mul(input[i].worldPos, worldViewProj);
+	}
 #endif
 	if (process) {
 

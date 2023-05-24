@@ -1,6 +1,6 @@
 {
   "world": {
-    "path": "..\\..\\..\\Tests\\ParticleTest\\",
+    "path": "..\\..\\..\\Tests\\DemoGame\\",
     "level": {
       "file": ".\\Assets\\particle_test.fbx",
       "triangulate": false
