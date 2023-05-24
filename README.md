@@ -26,7 +26,7 @@ The demo game shows how to use the engine and makes use of most of the features 
 The player does nothing when attacking enemies so it's a good exercise to add this behaviour to the player and see how it works.
 
 ## The game demo
-Here a small video of the game demo showing most of the features used:
+Here a small video of the game demo included in the engine showing most of the features used:
 
 [![IMAGE ALT TEXT HERE](https://i9.ytimg.com/vi_webp/l186BhOkz1A/mq3.webp?sqp=CMiyuqMG-oaymwEmCMACELQB8quKqQMa8AEB-AH-CYAC0AWKAgwIABABGH8gNSg1MA8=&rs=AOn4CLBy61B4n8bewmEp4_lYLBv4h-AZsg)](https://www.youtube.com/watch?v=l186BhOkz1A&list=PLqLQI8-PKvbv1rFbgl-D0gZPfVsZkwFXF&index=19)
 
