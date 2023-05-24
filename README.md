@@ -6,10 +6,10 @@ The HotBite Game Engine
 ## Dependencies:
 
 ### React3d Physics engine (https://github.com/DanielChappuis/reactphysics3d)
-- Open folder with visual studio 2022 and compile Release version using cmake.
+- Open folder with visual studio 2022 and compile Debug and Release version using cmake.
 
 ### Enet (https://github.com/lsalzman/enet)
-- Open folder with visual studio 2022 and compile Release version using cmake.
+- Open folder with visual studio 2022 and compile Debug and Release version using cmake.
 
 ## Engine:
 ### HotBite Engine:
@@ -54,7 +54,7 @@ License Details: The ENet License is included in the source code repository.
 
 Description: FBX SDK is a library for reading, writing, and manipulating FBX files, a 3D file format.
 Author(s): Autodesk, Inc.
-License Details: [The FBX SDK License is included in the source code repository.](https://www.autodesk.com/developer-network/platform-technologies/fbx-sdk-2020-0)
+License Details: [The FBX SDK License is included during installation of the SDK.](https://www.autodesk.com/developer-network/platform-technologies/fbx-sdk-2020-0)
 
 ## Reporting Copyright Infringement
 If you believe that this project infringes upon your copyright or that of a third party, please contact us with the following information:
