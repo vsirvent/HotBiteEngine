@@ -1,0 +1,499 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Archivos de recursos">
+      <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
+      <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
+    </Filter>
+    <Filter Include="Engine">
+      <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
+      <Extensions>cpp;c;cc;cxx;c++;cppm;ixx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
+    </Filter>
+    <Filter Include="Engine\ECS">
+      <UniqueIdentifier>{961bcd5f-be5e-4b9b-81a3-042d712f3f66}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Engine\Components">
+      <UniqueIdentifier>{8638bc3c-fe37-408d-8976-99fce9a45ef0}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Engine\Systems">
+      <UniqueIdentifier>{95873460-3f77-48c4-bd32-90167557184a}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Engine\Core">
+      <UniqueIdentifier>{78408ebb-9fa9-451d-9c2c-9aa70e10d1ed}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Engine\Core\Shaders">
+      <UniqueIdentifier>{ba149da0-30e1-46ad-b5fc-b81419322e57}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Engine\Core\Shaders\Common">
+      <UniqueIdentifier>{f4dfec87-2fdb-490f-b73d-d3a4f118a617}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Engine\Core\Shaders\DepthRender">
+      <UniqueIdentifier>{e827d0e6-c999-4432-ad0e-1a658e55354a}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Engine\Core\Shaders\MainRender">
+      <UniqueIdentifier>{80e251d4-a57d-4907-98f9-8be627935425}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Engine\Core\Shaders\PostProcess">
+      <UniqueIdentifier>{3d25cfd6-6f59-4d8e-a925-d85b15452d62}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Engine\Core\Shaders\ShadowRender">
+      <UniqueIdentifier>{8942afe3-41cc-4106-b17f-acd2f7fd9d41}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Engine\Loader">
+      <UniqueIdentifier>{ed04c9f5-9858-4823-bb27-562e797a0612}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Engine\Core\Shaders\SkyRender">
+      <UniqueIdentifier>{b6309c62-c955-45b8-bca3-57753a158f95}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Engine\Network">
+      <UniqueIdentifier>{f668490c-9e61-4243-a37d-dbcfeb0a60f9}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Engine\GUI">
+      <UniqueIdentifier>{94d90f53-a82a-4238-888d-7e98fc8e9bfb}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Engine\Core\Shaders\GUI">
+      <UniqueIdentifier>{58c27881-42e3-4176-beda-f01355993ee4}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Engine\Algorithms">
+      <UniqueIdentifier>{e3e2b681-09bd-478c-a37e-c2483b4cbf64}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Engine\Core\Shaders\Effects">
+      <UniqueIdentifier>{c7ed12d2-0d70-4b94-8d5a-f4599c466f36}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Engine\Core\Shaders\Particles">
+      <UniqueIdentifier>{ca08d637-0c00-46fa-9dbe-a0f17c587074}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="Engine\Core\DXCore.cpp">
+      <Filter>Engine\Core</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\Core\Scheduler.cpp">
+      <Filter>Engine\Core</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\Core\Texture.cpp">
+      <Filter>Engine\Core</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\Core\Vertex.cpp">
+      <Filter>Engine\Core</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\Core\SimpleShader.cpp">
+      <Filter>Engine\Core</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\Core\PostProcess.cpp">
+      <Filter>Engine\Core</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\Core\Material.cpp">
+      <Filter>Engine\Core</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\Systems\StaticMeshSystem.cpp">
+      <Filter>Engine\Systems</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\Systems\PhysicsSystem.cpp">
+      <Filter>Engine\Systems</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\Components\Physics.cpp">
+      <Filter>Engine\Components</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\Core\PhysicsCommon.cpp">
+      <Filter>Engine\Core</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\Systems\PlayerSystem.cpp">
+      <Filter>Engine\Systems</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\Components\Lights.cpp">
+      <Filter>Engine\Components</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\Systems\DirectionalLightSystem.cpp">
+      <Filter>Engine\Systems</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\Systems\CameraSystem.cpp">
+      <Filter>Engine\Systems</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\Defines.cpp">
+      <Filter>Engine</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\Systems\PointLightSystem.cpp">
+      <Filter>Engine\Systems</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\Loader\FBXLoader.cpp">
+      <Filter>Engine\Loader</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\Loader\FBXUtil.cpp">
+      <Filter>Engine\Loader</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\Core\Mesh.cpp">
+      <Filter>Engine\Core</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\Core\Utils.cpp">
+      <Filter>Engine\Core</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\World.cpp">
+      <Filter>Engine</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\Systems\RenderSystem.cpp">
+      <Filter>Engine\Systems</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\Systems\SkySystem.cpp">
+      <Filter>Engine\Systems</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\Systems\RTSCameraSystem.cpp">
+      <Filter>Engine\Systems</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\Components\Base.cpp">
+      <Filter>Engine\Components</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\Systems\AnimationSystem.cpp">
+      <Filter>Engine\Systems</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\Network\LockStepClient.cpp">
+      <Filter>Engine\Network</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\Network\Commons.cpp">
+      <Filter>Engine\Network</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\Network\LockStepServer.cpp">
+      <Filter>Engine\Network</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\GUI\GUI.cpp">
+      <Filter>Engine\GUI</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\Utils\AStar.cpp">
+      <Filter>Engine\Algorithms</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\GUI\Widget.cpp">
+      <Filter>Engine\GUI</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\Components\Camera.cpp">
+      <Filter>Engine\Components</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\Systems\ParticleSystem.cpp">
+      <Filter>Engine\Systems</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\Core\RGBANoise.cpp">
+      <Filter>Engine\Core</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="Engine\ECS\ComponentArray.h">
+      <Filter>Engine\ECS</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\ECS\ComponentManager.h">
+      <Filter>Engine\ECS</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\ECS\Coordinator.h">
+      <Filter>Engine\ECS</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\ECS\EntityManager.h">
+      <Filter>Engine\ECS</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\ECS\System.h">
+      <Filter>Engine\ECS</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\ECS\SystemManager.h">
+      <Filter>Engine\ECS</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\ECS\Types.h">
+      <Filter>Engine\ECS</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\ECS\Event.h">
+      <Filter>Engine\ECS</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\ECS\EventManager.h">
+      <Filter>Engine\ECS</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\Defines.h">
+      <Filter>Engine</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\Components\Base.h">
+      <Filter>Engine\Components</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\World.h">
+      <Filter>Engine</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\Core\DXCore.h">
+      <Filter>Engine\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\Core\Scheduler.h">
+      <Filter>Engine\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\Core\Interfaces.h">
+      <Filter>Engine\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\Core\Texture.h">
+      <Filter>Engine\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\Core\Vertex.h">
+      <Filter>Engine\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\Core\SimpleShader.h">
+      <Filter>Engine\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\Core\PostProcess.h">
+      <Filter>Engine\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\Core\Material.h">
+      <Filter>Engine\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\Systems\PhysicsSystem.h">
+      <Filter>Engine\Systems</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\Systems\StaticMeshSystem.h">
+      <Filter>Engine\Systems</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\Components\Physics.h">
+      <Filter>Engine\Components</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\Core\PhysicsCommon.h">
+      <Filter>Engine\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\Systems\PlayerSystem.h">
+      <Filter>Engine\Systems</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\Components\Lights.h">
+      <Filter>Engine\Components</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\Systems\DirectionalLightSystem.h">
+      <Filter>Engine\Systems</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\Systems\CameraSystem.h">
+      <Filter>Engine\Systems</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\Systems\PointLightSystem.h">
+      <Filter>Engine\Systems</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\Systems\RenderSystem.h">
+      <Filter>Engine\Systems</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\ECS\EntityVector.h">
+      <Filter>Engine\ECS</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\Core\Json.h">
+      <Filter>Engine\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\Loader\FBXLoader.h">
+      <Filter>Engine\Loader</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\Loader\FBXUtil.h">
+      <Filter>Engine\Loader</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\Core\Mesh.h">
+      <Filter>Engine\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\Core\Utils.h">
+      <Filter>Engine\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\Components\Sky.h">
+      <Filter>Engine\Components</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\Systems\SkySystem.h">
+      <Filter>Engine\Systems</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\Systems\RTSCameraSystem.h">
+      <Filter>Engine\Systems</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\Systems\AnimationSystem.h">
+      <Filter>Engine\Systems</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\Core\SpinLock.h">
+      <Filter>Engine\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\Network\LockStepClient.h">
+      <Filter>Engine\Network</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\Network\Commons.h">
+      <Filter>Engine\Network</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\Network\LockStepServer.h">
+      <Filter>Engine\Network</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\Core\LockingQueue.h">
+      <Filter>Engine\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\GUI\GUI.h">
+      <Filter>Engine\GUI</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\GUI\Label.h">
+      <Filter>Engine\GUI</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\GUI\ProgressBar.h">
+      <Filter>Engine\GUI</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\GUI\InteractiveWidget.h">
+      <Filter>Engine\GUI</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\GUI\Widget.h">
+      <Filter>Engine\GUI</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\GUI\Mouse.h">
+      <Filter>Engine\GUI</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\GUI\TextureWidget.h">
+      <Filter>Engine\GUI</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\Utils\AStar.h">
+      <Filter>Engine\Algorithms</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\GUI\Grid.h">
+      <Filter>Engine\GUI</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\GUI\Button.h">
+      <Filter>Engine\GUI</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\Components\Camera.h">
+      <Filter>Engine\Components</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\Components\Particles.h">
+      <Filter>Engine\Components</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\Core\Particles.h">
+      <Filter>Engine\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\Systems\ParticleSystem.h">
+      <Filter>Engine\Systems</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="packages.config" />
+    <None Include="Engine\Core\Shaders\Common\NoiseSimplex.hlsli">
+      <Filter>Engine\Core\Shaders\Common</Filter>
+    </None>
+    <None Include="Engine\Core\Shaders\Common\ShaderStructs.hlsli">
+      <Filter>Engine\Core\Shaders\Common</Filter>
+    </None>
+    <None Include="Engine\Core\Shaders\Common\FastNoise.hlsli">
+      <Filter>Engine\Core\Shaders\Common</Filter>
+    </None>
+    <None Include="Engine\Core\Shaders\Common\Matrix.hlsli">
+      <Filter>Engine\Core\Shaders\Common</Filter>
+    </None>
+    <None Include="Engine\Core\Shaders\Common\QuickNoise.hlsli">
+      <Filter>Engine\Core\Shaders\Common</Filter>
+    </None>
+    <None Include="Engine\Core\Shaders\Common\PixelCommon.hlsli">
+      <Filter>Engine\Core\Shaders\Common</Filter>
+    </None>
+    <None Include="Engine\Core\Shaders\GUI\GUICommon.hlsli">
+      <Filter>Engine\Core\Shaders\GUI</Filter>
+    </None>
+    <None Include="Engine\Core\Shaders\Common\Utils.hlsli">
+      <Filter>Engine\Core\Shaders\Common</Filter>
+    </None>
+    <None Include="Engine\Core\Shaders\Common\Defines.hlsli">
+      <Filter>Engine\Core\Shaders\Common</Filter>
+    </None>
+    <None Include="Engine\Core\Shaders\Common\Quaternion.hlsli">
+      <Filter>Engine\Core\Shaders\Common</Filter>
+    </None>
+    <None Include="Engine\Core\Shaders\Common\PixelFunctions.hlsli">
+      <Filter>Engine\Core\Shaders\Common</Filter>
+    </None>
+    <None Include="Engine\Core\Shaders\Common\MultiTexture.hlsli">
+      <Filter>Engine\Core\Shaders\Common</Filter>
+    </None>
+    <None Include="Engine\Core\Shaders\Common\RGBANoise.hlsli">
+      <Filter>Engine\Core\Shaders\Common</Filter>
+    </None>
+    <None Include="Engine\Core\Shaders\MainRender\MainRenderPS.hlsli">
+      <Filter>Engine\Core\Shaders\MainRender</Filter>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
+    <FxCompile Include="Engine\Core\Shaders\DepthRender\DepthPS.hlsl">
+      <Filter>Engine\Core\Shaders\DepthRender</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\DepthRender\DepthVS.hlsl">
+      <Filter>Engine\Core\Shaders\DepthRender</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\MainRender\MainRenderDS.hlsl">
+      <Filter>Engine\Core\Shaders\MainRender</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\MainRender\MainRenderHS.hlsl">
+      <Filter>Engine\Core\Shaders\MainRender</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\MainRender\MainRenderGS.hlsl">
+      <Filter>Engine\Core\Shaders\MainRender</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\MainRender\MainRenderPS.hlsl">
+      <Filter>Engine\Core\Shaders\MainRender</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\MainRender\MainRenderVS.hlsl">
+      <Filter>Engine\Core\Shaders\MainRender</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\ShadowRender\ShadowMapCubeGS.hlsl">
+      <Filter>Engine\Core\Shaders\ShadowRender</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\ShadowRender\ShadowVS.hlsl">
+      <Filter>Engine\Core\Shaders\ShadowRender</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\PostProcess\PostMainPS.hlsl">
+      <Filter>Engine\Core\Shaders\PostProcess</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\PostProcess\PostMainVS.hlsl">
+      <Filter>Engine\Core\Shaders\PostProcess</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\PostProcess\PostMotionBlurPS.hlsl">
+      <Filter>Engine\Core\Shaders\PostProcess</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\SkyRender\SkyPS.hlsl">
+      <Filter>Engine\Core\Shaders\SkyRender</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\SkyRender\SkyVS.hlsl">
+      <Filter>Engine\Core\Shaders\SkyRender</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\ShadowRender\ShadowCloudPS.hlsl">
+      <Filter>Engine\Core\Shaders\ShadowRender</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\ShadowRender\ShadowCloudVS.hlsl">
+      <Filter>Engine\Core\Shaders\ShadowRender</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\GUI\GUIPS.hlsl">
+      <Filter>Engine\Core\Shaders\GUI</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\GUI\GUIVS.hlsl">
+      <Filter>Engine\Core\Shaders\GUI</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\PostProcess\PostCopyPS.hlsl">
+      <Filter>Engine\Core\Shaders\PostProcess</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\Effects\Water\WaterGS.hlsl">
+      <Filter>Engine\Core\Shaders\Effects</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\Effects\Water\WaterPS.hlsl">
+      <Filter>Engine\Core\Shaders\Effects</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\Effects\Lava\LavaGS.hlsl">
+      <Filter>Engine\Core\Shaders\Effects</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\Effects\Lava\LavaPS.hlsl">
+      <Filter>Engine\Core\Shaders\Effects</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\PostProcess\PostBlur.hlsl">
+      <Filter>Engine\Core\Shaders\PostProcess</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\Particles\ParticleVS.hlsl">
+      <Filter>Engine\Core\Shaders\Particles</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\Particles\ParticleGS.hlsl">
+      <Filter>Engine\Core\Shaders\Particles</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\Particles\ParticlePS.hlsl">
+      <Filter>Engine\Core\Shaders\Particles</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\Particles\SmokeParticlePS.hlsl">
+      <Filter>Engine\Core\Shaders\Particles</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\Particles\DebugParticlePS.hlsl">
+      <Filter>Engine\Core\Shaders\Particles</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\Particles\FireParticlePS.hlsl">
+      <Filter>Engine\Core\Shaders\Particles</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\Particles\FireBallParticlePS.hlsl">
+      <Filter>Engine\Core\Shaders\Particles</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\Particles\FireBall2ParticlePS.hlsl">
+      <Filter>Engine\Core\Shaders\Particles</Filter>
+    </FxCompile>
+  </ItemGroup>
+</Project>
