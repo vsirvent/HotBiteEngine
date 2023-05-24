@@ -27,7 +27,9 @@ The player does nothing when attacking enemies so it's a good exercise to add th
 ## The game demo
 Here a small video of the game demo showing most of the features used:
 
+[[![IMAGE ALT TEXT HERE](https://img.youtube.com/vi/-moP3M088pw/0.jpg)](https://www.youtube.com/watch?v=-moP3M088pw)](https://www.youtube.com/watch?v=l186BhOkz1A&list=PLqLQI8-PKvbv1rFbgl-D0gZPfVsZkwFXF&index=19)
 
+Check more demo videos of the engine here: https://www.youtube.com/watch?v=GbQFh6jmFHw&list=PLqLQI8-PKvbv1rFbgl-D0gZPfVsZkwFXF
 # License
 HotBite Game Engine is developed under MIT license. 
 
