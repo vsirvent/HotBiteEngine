@@ -16,7 +16,8 @@ The HotBite Game Engine
 - Open project solution located at ./Solution/HotBiteEngine.sln and compile Engine
 
 ### DemoGame
-- Compile DemoGame in the same solution.
+- Compile DemoGame in the same solution. Press play to execute it and enjoy the demo.
+Use U/I and O/P keys to play with the sky component and adjust daytime and cloud density.
 
 # Usage
 There is no documentation at this moment about the engine, it will come. 
