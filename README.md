@@ -38,17 +38,23 @@ This project incorporates code and assets from third parties, which are subject 
 While utmost care has been taken to ensure compliance with licenses and proper attribution, if you believe that any third-party code or assets have been used improperly or without appropriate acknowledgment, please contact us immediately. We are committed to addressing any concerns and resolving any potential issues in a timely manner.
 
 ## License Acknowledgement
-### ReactPhysics3D (License: [MIT License])
+### ReactPhysics3D (License: MIT License)
 
 Description: ReactPhysics3D is a physics engine library for 3D simulations and games.
 Author(s): Daniel Chappuis
 License Details: The MIT License is included in the source code repository.
 
-### ENet (License: [ENet License])
+### ENet (License: ENet License)
 
 Description: ENet is a reliable UDP networking library for multiplayer games.
 Author(s): Lee Salzman and the ENet contributors
 License Details: The ENet License is included in the source code repository.
+
+### FBX SDK 2020 (License: Autodesk FBX SDK License)
+
+Description: FBX SDK is a library for reading, writing, and manipulating FBX files, a 3D file format.
+Author(s): Autodesk, Inc.
+License Details: [The FBX SDK License is included in the source code repository.](https://www.autodesk.com/developer-network/platform-technologies/fbx-sdk-2020-0)
 
 ## Reporting Copyright Infringement
 If you believe that this project infringes upon your copyright or that of a third party, please contact us with the following information:
