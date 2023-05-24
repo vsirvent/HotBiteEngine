@@ -44,7 +44,7 @@ Description: ReactPhysics3D is a physics engine library for 3D simulations and g
 Author(s): Daniel Chappuis
 License Details: The MIT License is included in the source code repository.
 
-###ENet (License: [ENet License])
+### ENet (License: [ENet License])
 
 Description: ENet is a reliable UDP networking library for multiplayer games.
 Author(s): Lee Salzman and the ENet contributors
@@ -58,4 +58,5 @@ If you believe that this project infringes upon your copyright or that of a thir
 - Proof of your ownership or authority to act on behalf of the copyright holder.
 - The specific location(s) within the project where the infringement is alleged to have occurred.
 - Any additional information or documentation that supports your claim.
-- We take copyright infringement seriously and will promptly investigate and address any legitimate concerns.
+
+We take copyright infringement seriously and will promptly investigate and address any legitimate concerns.
