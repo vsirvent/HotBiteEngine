@@ -27,7 +27,7 @@ The player does nothing when attacking enemies so it's a good exercise to add th
 ## The game demo
 Here a small video of the game demo showing most of the features used:
 
-[](https://www.youtube.com/watch?v=l186BhOkz1A&list=PLqLQI8-PKvbv1rFbgl-D0gZPfVsZkwFXF&index=19)
+[![IMAGE ALT TEXT HERE](https://i9.ytimg.com/vi_webp/l186BhOkz1A/mq3.webp?sqp=CMiyuqMG-oaymwEmCMACELQB8quKqQMa8AEB-AH-CYAC0AWKAgwIABABGH8gNSg1MA8=&rs=AOn4CLBy61B4n8bewmEp4_lYLBv4h-AZsg)](https://www.youtube.com/watch?v=l186BhOkz1A&list=PLqLQI8-PKvbv1rFbgl-D0gZPfVsZkwFXF&index=19)
 
 Check more demo videos of the engine here: https://www.youtube.com/watch?v=GbQFh6jmFHw&list=PLqLQI8-PKvbv1rFbgl-D0gZPfVsZkwFXF
 # License
