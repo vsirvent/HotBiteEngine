@@ -1,5 +1,5 @@
 # HotBiteEngine
-The HotBite Game Engine
+The HotBite Game Engine is designed to provide a powerful and flexible framework for game development. With its MIT license, the Game Engine Name is free to use, modify, and distribute, making it accessible to developers of all levels.
 
 # Compilation:
 
