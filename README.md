@@ -1,6 +1,37 @@
 # HotBiteEngine
 The HotBite Game Engine is designed to provide a powerful and flexible framework for game development. With its MIT license, The HotBite Engine is free to use, modify, and distribute, making it accessible to developers of all levels.
 
+Engine features:
+
+- C++/DirectX
+- Based on Entity-Component-System architecture design
+- Network multiplayer lockstep client and server
+- Custom cache friendly data structures
+- PBR texture render and blending
+- Particle System
+- Deferred lighting
+- Multithread real time scheduler tasks
+- Event management
+- Shadow casting
+- 2D GUI
+- Step parallax mapping with binary search and LOD
+- Static and dynamic tesellation, mesh interpolation
+- Alpha blending
+- Mesh displacement mapping
+- Material and Mesh normal mapping
+- Specular mapping
+- Emission textures
+- Multipass rendering
+- Visual effects: like Water and Lava
+- Directional lights and point lights, specular lighting.
+- Volumetric directional and point lights
+- Bones, Skinning and animations, blending of animations
+- Environment: Sky system with real datetime day/night, celestial sky and procedural clouds.
+- Post processing chain, like depth of field, Bloom, motion blur, water effect…
+- Fbx loading
+- Pathfinding: A*
+…
+
 # Compilation:
 
 ## Dependencies:
