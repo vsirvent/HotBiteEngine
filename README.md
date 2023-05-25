@@ -3,7 +3,7 @@ The HotBite Game Engine is designed to provide a powerful and flexible framework
 
 Engine features:
 
-- C++/DirectX
+- C++/DirectX-11
 - Based on Entity-Component-System architecture design
 - Network multiplayer lockstep client and server
 - Custom cache friendly data structures
