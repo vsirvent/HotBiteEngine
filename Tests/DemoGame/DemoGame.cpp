@@ -105,7 +105,6 @@ public:
 		//Event listeners needs to be initialized once a coordinator is available as 
 		//the coordinator manages the events
 		EventListener::Init(c);
-		//Subscribe to mouse events to move camera, this can be done in your own camera system instead the main game module.
 		//Look for "EventId" in the engine to look for all the available events, no documentation available yet.
 		//You can add your own events very easy, just check how it works in the engine.       
 		AddEventListener(World::EVENT_ID_MATERIALS_LOADED, std::bind(&GameDemoApplication::OnMaterialsLoaded, this, std::placeholders::_1));
