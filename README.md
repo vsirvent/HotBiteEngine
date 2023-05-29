@@ -35,22 +35,28 @@ Engine features:
 ## Screenshots examples
 ### Parallax texture with projected shadow
 ![](Tests/Images/parallax_shadow.png)
+Note how the projected shadow follows the parallax texture 3d effect.
 
 ### Parallax texture self-projected shadow (disable vs enabled)
 ![](Tests/Images/parallax_self_shadow_compare.jpg)
+Note how the lights generates self shadow casts in the parallax textures.
 
 ### Volumetric light
 ![](Tests/Images/volumetric_light.jpg)
+Sun is configured with volumetric density based on the camera angle in the demo.
 
 ### Particle system
 ![](Tests/Images/particle_system.jpg)
+Fire, smoke and sparks particles are generated in the example demo.
 
 ### Fog and water multipass render effect
 ![](Tests/Images/fog_and_water.jpg)
+Water effect shows how multipass render is used to generate the water distorion effect.
 
 ### Procedural clouds and night sky
 ![](Tests/Images/procedural_clouds.jpg)
 ![](Tests/Images/night_sky.jpg)
+Clouds are generated procedurally in the sky component and project shadow in the scene. Demo allows change the cloud density and the time of the sky.
 
 # Compilation:
 
