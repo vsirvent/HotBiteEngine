@@ -32,6 +32,10 @@ Engine features:
 - Pathfinding: A*
 …
 
+## Screenshots
+!(/Tests/images/parallax_shadow.png)
+Parallax texture with projected shadow
+
 # Compilation:
 
 ## Dependencies:
@@ -53,7 +57,7 @@ Use U/I and O/P keys to play with the sky component and adjust daytime and cloud
 # Usage
 There is no documentation at this moment about the engine, it will come. 
 The demo game shows how to use the engine and makes use of most of the features of the engine. Check the source code and the comments of the demo and the engine itself.
-
+Note that some modules are implemented directly in the header file (.h) to allow easy reading for educational purposes. 
 The player does nothing when attacking enemies so it's a good exercise to add this behaviour to the player and see how it works.
 
 ## The game demo
