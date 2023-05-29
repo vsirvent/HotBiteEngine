@@ -33,6 +33,8 @@ SOFTWARE.
 namespace HotBite {
 	namespace Engine {
 
+#define HOTBITE_VERSION "1.0.0"
+
 #define MAX_TEXTURE_SIZE 16384
         typedef DirectX::XMFLOAT4X4 float4x4;
         typedef DirectX::XMFLOAT3X3 float3x3;
