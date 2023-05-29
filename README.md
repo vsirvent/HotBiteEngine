@@ -32,9 +32,25 @@ Engine features:
 - Pathfinding: A*
 …
 
-## Screenshots
-!(/Tests/images/parallax_shadow.png)
-Parallax texture with projected shadow
+## Screenshots examples
+### Parallax texture with projected shadow
+![](Tests/Images/parallax_shadow.png)
+
+### Parallax texture self-projected shadow (disable vs enabled)
+![](Tests/Images/parallax_self_shadow_compare.jpg)
+
+### Volumetric light
+![](Tests/Images/volumetric_light.jpg)
+
+### Particle system
+![](Tests/Images/particle_system.jpg)
+
+### Fog and water multipass render effect
+![](Tests/Images/fog_and_water.jpg)
+
+### Procedural clouds and night sky
+![](Tests/Images/procedural_clouds.jpg)
+![](Tests/Images/night_sky.jpg)
 
 # Compilation:
 
