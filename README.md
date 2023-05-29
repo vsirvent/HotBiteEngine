@@ -39,7 +39,7 @@ Note how the projected shadow follows the parallax texture 3d effect.
 
 ### Parallax texture self-projected shadow (disable vs enabled)
 ![](Tests/Images/parallax_self_shadow_compare.jpg)
-Note how the lights generates self shadow casts in the parallax textures.
+Note how every light (point and directional) generates self shadow casts in the parallax textures.
 
 ### Volumetric light
 ![](Tests/Images/volumetric_light.jpg)
