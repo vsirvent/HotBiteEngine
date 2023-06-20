@@ -37,6 +37,8 @@ namespace HotBite {
 	namespace Engine {
 		namespace Core {
 
+            #define RELEASE_PTR(x) { if (x != nullptr) { x->Release(); x = nullptr; }}
+            #define DELETE_PTR(x) { if (x != nullptr) { delete x; x = nullptr; }}
             #define RGA_NOISE_W 256
             #define RGBA_NOISE_H 256
             #define RGBA_NOISE_LEN (RGA_NOISE_W*RGBA_NOISE_H*4)
