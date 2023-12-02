@@ -173,6 +173,9 @@
     <ClCompile Include="Engine\Core\RGBANoise.cpp">
       <Filter>Engine\Core</Filter>
     </ClCompile>
+    <ClCompile Include="Engine\Core\Audio.cpp">
+      <Filter>Engine\Core</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Engine\ECS\ComponentArray.h">
@@ -351,6 +354,9 @@
     </ClInclude>
     <ClInclude Include="Engine\Systems\ParticleSystem.h">
       <Filter>Engine\Systems</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\Core\Audio.h">
+      <Filter>Engine\Core</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
