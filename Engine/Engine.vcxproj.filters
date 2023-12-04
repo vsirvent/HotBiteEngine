@@ -176,6 +176,9 @@
     <ClCompile Include="Engine\Core\Audio.cpp">
       <Filter>Engine\Core</Filter>
     </ClCompile>
+    <ClCompile Include="Engine\Systems\AudioSystem.cpp">
+      <Filter>Engine\Systems</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Engine\ECS\ComponentArray.h">
@@ -357,6 +360,9 @@
     </ClInclude>
     <ClInclude Include="Engine\Core\Audio.h">
       <Filter>Engine\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\Systems\AudioSystem.h">
+      <Filter>Engine\Systems</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

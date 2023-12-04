@@ -74,14 +74,14 @@ namespace HotBite {
 				static inline ECS::ParamId PARAM_RELATIVE_ID_Y = 0x05;
 				static inline ECS::ParamId PARAM_ID_KEY = 0x06;
 
-				static constexpr int NTHREADS = 6;
+				static constexpr int NTHREADS = 7;
 				static constexpr int MAIN_THREAD = 0;
 				static constexpr int BACKGROUND_THREAD = 1;
 				static constexpr int BACKGROUND2_THREAD = 2;
 				static constexpr int BACKGROUND3_THREAD = 3;
 				static constexpr int PHYSICS_THREAD = 4;
 				static constexpr int LOCKSTEP_TICK_THREAD = 5;
-
+				static constexpr int AUDIO_THREAD = 6;
 
 				DXCore(
 					HINSTANCE hInstance,		// The application's handle

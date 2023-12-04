@@ -24,6 +24,7 @@ SOFTWARE.
 
 #pragma once
 
+#pragma comment(lib, "dsound.lib")
 #include <dsound.h>
 
 namespace HotBite {
@@ -50,6 +51,8 @@ namespace HotBite {
 
                 //one per app
                 static constexpr int FREQ = 44100;//Hz
+                static constexpr int CHANNELS = 2; // Audio stereo
+                static constexpr int BPS = 16; // bits per sample
 
                 LPDIRECTSOUND8 GetDevice(void);
                 LPDIRECTSOUNDCAPTUREBUFFER8 GetCaptureDevice(void);
@@ -66,7 +69,6 @@ namespace HotBite {
                 LPDIRECTSOUNDBUFFER8 buffer;
                 DWORD offset;
                 WAVEFORMATEX out_wave_type;
-                timeval last_time;
 
                 HRESULT CreateSecondaryBuffer(WAVEFORMATEX* = NULL);
 

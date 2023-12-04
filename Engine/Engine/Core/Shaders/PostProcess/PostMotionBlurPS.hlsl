@@ -37,8 +37,7 @@ SamplerState basicSampler;
 
 static const uint numSamples = 10;
 float4 main(float4 pos: SV_POSITION) : SV_TARGET
-{
-    
+{    
     float2 tpos = pos.xy;
     tpos.x /= screenW;
     tpos.y /= screenH;

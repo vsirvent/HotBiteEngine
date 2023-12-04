@@ -60,6 +60,19 @@ namespace HotBite {
                 }
             };
 
+            template <typename L>
+            class AutoLock {
+                L& l;
+            public:
+                AutoLock(L& lock) : l(lock) {
+                    l.lock();
+                }
+
+                ~AutoLock() {
+                    l.unlock();
+                }
+            };
+
             /**
              * Read shared/write exclusive spin lock class, it follows naming convention of stl.
              */

@@ -83,6 +83,7 @@ bool World::PreLoad(Core::DXCore* dx) {
 	sky_system = RegisterSystem<Systems::SkySystem>();
 	animation_mesh_system = RegisterSystem<Systems::AnimationMeshSystem>();
 	particle_system = RegisterSystem<Systems::ParticleSystem>();
+	audio_system = RegisterSystem<Systems::AudioSystem>();
 
 	physics_system->Init(phys_world);
 	render_system->Init(dx_core, vertex_buffer);
@@ -703,11 +704,15 @@ bool World::Load(const std::string& scene_file) {
 				}
 			}
 		}
+
+		//Audio config load
+		audio_system->Config(path, jw["audio"]);
 	}
 	catch (std::exception& e) {
 		printf("World::Load: Fail: %s\n", e.what());
 		assert(false && "Bad world.");
 	}
+
 	printf("Worl load DONE: %llu entities loaded\n", coordinator.GetEntites().size());
 	return ret;
 }

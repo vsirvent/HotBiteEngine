@@ -118,7 +118,7 @@ HRESULT SoundDeviceGrabber::CreateSecondaryBuffer(WAVEFORMATEX* waveFormat) {
     // Create buffer. 
     int hr = SoundDevice::Get()->GetDevice()->CreateSoundBuffer(&dsbdesc, &pBuffer, nullptr);
     hr = pBuffer->QueryInterface(IID_IDirectSoundBuffer8, (void**)&buffer);
-    offset = BUFF_PLAY / 2;
+    offset = BUFF_PLAY / 5;
     buffer->Restore();
     pBuffer->Release();
     return hr;
@@ -138,9 +138,11 @@ SoundDeviceGrabber::write(BYTE* pBufferData, long BufferLen)
     DWORD readPos, writePos;
 
     buffer->GetCurrentPosition(&readPos, &writePos);
-    if (offset <= readPos && offset + BufferLen >= readPos) {
+    DWORD endWritePos = (offset + BufferLen) % BUFF_PLAY;
+    if (offset <= readPos && endWritePos >= readPos) {
+        printf("SoundDeviceGrabber::write: Reset audio buffer\n");
         buffer->SetCurrentPosition(0);
-        offset = BUFF_PLAY / 6;
+        offset = BUFF_PLAY / 5;
     }
 
     buffer->GetStatus(&bufferStatus);
@@ -198,7 +200,7 @@ void SoundDeviceGrabber::Stop() {
     buffer->Unlock(lpvPtr1, dwBytes1, lpvPtr2, dwBytes2);
     int hr = buffer->Stop();
     hr = buffer->SetCurrentPosition(0);
-    offset = BUFF_PLAY / 6;
+    offset = BUFF_PLAY / 5;
     return;
 }
 

@@ -181,6 +181,7 @@
     <ClCompile Include="Engine\Network\LockStepClient.cpp" />
     <ClCompile Include="Engine\Network\LockStepServer.cpp" />
     <ClCompile Include="Engine\Systems\AnimationSystem.cpp" />
+    <ClCompile Include="Engine\Systems\AudioSystem.cpp" />
     <ClCompile Include="Engine\Systems\CameraSystem.cpp" />
     <ClCompile Include="Engine\Systems\DirectionalLightSystem.cpp" />
     <ClCompile Include="Engine\Systems\ParticleSystem.cpp" />
@@ -243,6 +244,7 @@
     <ClInclude Include="Engine\Network\LockStepClient.h" />
     <ClInclude Include="Engine\Network\LockStepServer.h" />
     <ClInclude Include="Engine\Systems\AnimationSystem.h" />
+    <ClInclude Include="Engine\Systems\AudioSystem.h" />
     <ClInclude Include="Engine\Systems\CameraSystem.h" />
     <ClInclude Include="Engine\Systems\DirectionalLightSystem.h" />
     <ClInclude Include="Engine\Systems\ParticleSystem.h" />
