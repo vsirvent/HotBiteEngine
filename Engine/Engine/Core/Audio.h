@@ -26,6 +26,7 @@ SOFTWARE.
 
 #pragma comment(lib, "dsound.lib")
 #include <dsound.h>
+#include <inttypes.h>
 
 namespace HotBite {
     namespace Engine {
@@ -50,9 +51,13 @@ namespace HotBite {
             public:
 
                 //one per app
-                static constexpr int FREQ = 44100;//Hz
-                static constexpr int CHANNELS = 2; // Audio stereo
-                static constexpr int BPS = 16; // bits per sample
+                static constexpr int32_t FREQ = 44100;//Hz
+                static constexpr int32_t CHANNELS = 2; // Audio stereo
+                static constexpr int32_t BPS = 16; // bits per sample
+                static constexpr int64_t AUDIO_PERIOD_MS = 30;
+                static constexpr int32_t BUFFER_SAMPLES = (AUDIO_PERIOD_MS * FREQ * CHANNELS) / 1000;
+                static constexpr int32_t BUFFER_BYTES = BUFFER_SAMPLES * 2;
+                static constexpr int32_t BUFFER_OFFSET = BUFFER_BYTES * 2;
 
                 LPDIRECTSOUND8 GetDevice(void);
                 LPDIRECTSOUNDCAPTUREBUFFER8 GetCaptureDevice(void);

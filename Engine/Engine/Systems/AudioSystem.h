@@ -51,10 +51,8 @@ namespace HotBite {
                 using SoundId = int32_t;
                 using PlayId = int32_t;
                 static constexpr SoundId INVALID_SOUND_ID = -1;
-                static constexpr int64_t AUDIO_PERIOD_MS = 100;
-                static constexpr int32_t BUFFER_SAMPLES = (AUDIO_PERIOD_MS * Core::SoundDevice::FREQ * Core::SoundDevice::CHANNELS) / 1000;
-                static constexpr int32_t BUFFER_BYTES = BUFFER_SAMPLES * 2;
-                static constexpr double A = 0.2;
+
+                static constexpr double A = 0.1;
                 static constexpr double B = 1.0 - A;
 
             public:
@@ -123,9 +121,16 @@ namespace HotBite {
                 //use Audacity to create the audio clips
                 struct AudioClip
                 {
-                    std::vector<int16_t> data;
+                    std::vector<int16_t> left_data;
+                    std::vector<int16_t> right_data;
                     SoundId id = INVALID_SOUND_ID;
                     //TODO: Add here any audio option (fx, speed, etc...)
+                };
+
+                enum EOffsetType {
+                    OFFSET_NONE,
+                    OFFSET_INC,
+                    OFFSET_DEC
                 };
 
                 struct AudioPhysics {
@@ -136,25 +141,28 @@ namespace HotBite {
                         angle_attenuation = other.angle_attenuation;
                         distance = other.distance;
                     }
-                    int32_t offset = 0;
-                    int32_t current_offset = 0;
+                    EOffsetType offset_type = OFFSET_NONE;
+                    float offset = 0.0f;
+                    float current_offset = 0.0f;
                     double dist_attenuation = 0.0;
                     double angle_attenuation = 0.0;
                     double distance = 0.0;
+                    double last_sample = 0.0;
+                    bool init = false;
                     mutable Core::spin_lock lock;
                 };
 
                 struct PlayInfo
                 {
-                    PlayInfo(const AudioClip* _clip, int64_t _delay, float _speed, float _volume, bool _loop, ECS::Entity _entity);
+                    PlayInfo(const AudioClip* _clip, int64_t _delay, float _speed, float _volume, bool _loop, bool _offset, ECS::Entity _entity);
                     const AudioClip* clip = nullptr;
-                    AudioPhysics physics[2];
-                    int32_t last_pos = 0;
+                    AudioPhysics physics[EMic::NUM_MICS];
                     int32_t pos = 0;
                     int64_t start = 0;
                     int64_t delay = 0;
                     float speed = 1.0f;
                     float volume = 1.0f;
+                    bool offset = false;
                     bool loop = false;                    
                     ECS::Entity entity = ECS::INVALID_ENTITY_ID;
                     std::atomic<bool> updating = false;
@@ -199,7 +207,7 @@ namespace HotBite {
                 std::optional<SoundId> LoadSound(const std::string& file, SoundId id);
                 std::optional<SoundId> GetSound(const std::string& file);
                 
-                PlayId Play(SoundId id, int32_t delay_ms = 0, bool loop = false, float speed = 1.0f, float volume = 1.0f, ECS::Entity entity = ECS::INVALID_ENTITY_ID);
+                PlayId Play(SoundId id, int32_t delay_ms = 0, bool loop = false, float speed = 1.0f, float volume = 1.0f, bool offset = false, ECS::Entity entity = ECS::INVALID_ENTITY_ID);
                 void Stop(PlayId id);
             };
         }
