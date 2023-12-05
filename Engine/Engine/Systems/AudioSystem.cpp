@@ -41,9 +41,8 @@ using namespace HotBite::Engine::Systems;
 using namespace HotBite::Engine::Components;
 using namespace DirectX;
 
-AudioSystem::PlayInfo::PlayInfo(const AudioClip* _clip, int64_t _delay, float _speed, float _volume, bool _loop, bool _offset, ECS::Entity _entity):
-	clip(_clip), delay(_delay), speed(_speed), volume(_volume), loop(_loop), offset(_offset), entity(_entity) {
-	start = Scheduler::GetNanoSeconds();
+AudioSystem::PlayInfo::PlayInfo(const AudioClip* _clip, float _speed, float _volume, bool _loop, bool _offset, ECS::Entity _entity):
+	clip(_clip), speed(_speed), volume(_volume), loop(_loop), offset(_offset), entity(_entity) {
 }
 
 bool AudioSystem::Config(const std::string& root_folder, const nlohmann::json& config) {
@@ -294,7 +293,7 @@ bool AudioSystem::OnTick(const Scheduler::TimerData& td)
 	int rcount = 0;
 	int64_t sample = 0;
 	
-	int32_t size = 0;
+	float size = 0;
 	static constexpr float OFFSET_DELTA = 0.1f;
 	static constexpr float OFFSET_MAX = 20000.0f;
 	static constexpr float OFFSET_HIST = OFFSET_DELTA * 50.0f;
@@ -325,11 +324,12 @@ bool AudioSystem::OnTick(const Scheduler::TimerData& td)
 		int mic = i % EMic::NUM_MICS;
 		for (auto it = playlist.begin(); it != playlist.end();) {
 			auto& data = mic == EMic::LEFT ? it->second->clip->left_data : it->second->clip->right_data;
-			size = (int32_t)data.size();
+			size = (float)data.size();
 			
+			float pos = it->second->fpos;
+			double att = it->second->volume;
 			if (local_entity.transform != nullptr && it->second->entity != INVALID_ENTITY_ID) {
 				//Calculate audio physics 
-				float pos = (float)it->second->pos;
 				auto& physics = it->second->physics[mic];
 
 				float offset_diff = fabs(physics.offset - physics.current_offset);
@@ -345,7 +345,8 @@ bool AudioSystem::OnTick(const Scheduler::TimerData& td)
 							if ((physics.current_offset - physics.offset) > OFFSET_HIST) {
 								physics.offset_type = OFFSET_DEC;
 							}
-						} else if (physics.offset_type == EOffsetType::OFFSET_DEC) {
+						}
+						else if (physics.offset_type == EOffsetType::OFFSET_DEC) {
 							if ((physics.offset - physics.current_offset) > OFFSET_HIST) {
 								physics.offset_type = OFFSET_INC;
 							}
@@ -364,76 +365,63 @@ bool AudioSystem::OnTick(const Scheduler::TimerData& td)
 						else if (physics.offset_type == EOffsetType::OFFSET_DEC && physics.offset < physics.current_offset) {
 							physics.current_offset -= OFFSET_DELTA;
 						}
-					}				
+					}
 					pos -= physics.current_offset;
 				}
-				double att = physics.dist_attenuation * physics.angle_attenuation * it->second->volume;
+				att *= physics.dist_attenuation * physics.angle_attenuation;
 				physics.lock.unlock();
+			}
+			//save last position before loop
+			if (pos >= size) {
+				if (it->second->loop) {
+					pos = (float)fmod(pos, size);
+				}
+			}
+			else if (pos < 0.0f) {
+				if (it->second->loop) {
+					pos += size;
+				}
+			}
 
-				//save last position before loop
-				if (pos >= size) {
-					if (it->second->loop) {
-						pos = (float)fmod(pos, size);
-					}
-				}
-				else if (pos < 0) {
-					if (it->second->loop) {
-						pos += size;
-					}
-				}
+			if (pos >= 0 && pos < size) {
+				float p0 = std::floor(pos);
+				float p1 = std::ceil(pos);
 
-				if (pos >= 0 && pos < size) {
-					float p0 = std::floor(pos);
-					float p1 = std::ceil(pos);
+				float a = pos - p0;
+				float b = 1.0f - a;
 
-					float a = pos - p0;
-					float b = 1.0f - a;
-
-					int32_t ip0 = (int32_t)p0;
-					int32_t ip1 = (int32_t)p1;
-					if (it->second->loop) {
-						if (ip0 < 0) { ip0 += size; }
-						if (ip1 < 0) { ip1 += size; }
-						if (ip0 >= size) { ip0 = ip0 % size; }
-						if (ip1 >= size) { ip1 = ip1 % size; }
-					}
-					else {
-						if (ip0 < 0) { ip0 = 0; }
-						if (ip1 < 0) { ip1 = 0; }
-						if (ip0 >= size) { ip0 = size - 1; }
-						if (ip1 >= size) { ip1 = size - 1; }
-					}
-					double s0 = (static_cast<double>(data[ip0]));
-					double s1 = (static_cast<double>(data[ip1]));
-					double s = (s0*b + s1*a);
-					s = (s + physics.last_sample) * 0.5;
-					physics.last_sample = s;
-					s *= att;
-					sample += static_cast<int64_t>(s);
+				int32_t ip0 = (int32_t)p0;
+				int32_t ip1 = (int32_t)p1;
+				int32_t isize = (int32_t)size;
+				if (it->second->loop) {					
+					if (ip0 < 0) { ip0 += isize; }
+					if (ip1 < 0) { ip1 += isize; }
+					if (ip0 >= size) { ip0 = ip0 % isize; }
+					if (ip1 >= size) { ip1 = ip1 % isize; }
 				}
-			} else {
-				int32_t pos = it->second->pos;
-				//save last position before loop
-				if (pos >= size && it->second->loop) {
-					pos = pos % size;
+				else {
+					if (ip0 < 0) { ip0 = 0; }
+					if (ip1 < 0) { ip1 = 0; }
+					if (ip0 >= size) { ip0 = isize - 1; }
+					if (ip1 >= size) { ip1 = isize - 1; }
 				}
-				else if (pos < 0) {
-					if (it->second->loop) {
-						pos += size;
-					}
+				double s0 = (static_cast<double>(data[ip0]));
+				double s1 = (static_cast<double>(data[ip1]));
+				double s = (s0*b + s1*a);
+				//If we simulate sound speed or are playing at a different speed, apply low pass filter to avoid armonics due to freq changes
+				if (it->second->offset || it->second->speed != 1.0f) {
+					s = (s + it->second->last_sample[mic]) * 0.5f;
 				}
-				if (pos >= 0 && pos < size) {
-					double s = (static_cast<double>(data[pos])) * it->second->volume;
-					sample += static_cast<int64_t>(s);
-				}
-
+				it->second->last_sample[mic] = s;
+				s *= att;
+				sample += static_cast<int64_t>(s);
 			}
 			if (mic == EMic::RIGHT) {
-				it->second->pos++;
+				it->second->fpos += it->second->speed;
 			}
-			if (it->second->pos >= size) {
+			if (it->second->fpos >= size) {
 				if (it->second->loop) {
-					it->second->pos = 0;
+					it->second->fpos = 0.0f;
 					++it;
 				}
 				else {
@@ -520,14 +508,30 @@ std::optional<AudioSystem::SoundId> AudioSystem::GetSound(const std::string& fil
 	return std::nullopt;
 }
 
-AudioSystem::PlayId AudioSystem::Play(SoundId id, int32_t delay_ms, bool loop, float speed, float volume, bool offset, ECS::Entity entity) {
+AudioSystem::PlayId AudioSystem::Play(SoundId id, int32_t delay_ms, bool loop, float speed, float volume, bool simulate_sound_speed, ECS::Entity entity) {
 	AutoLock l(lock);
 	const auto it = audio_by_id.find(id);
+
+	//Check if audio loaded
 	if (it == audio_by_id.cend()) {
 		return false;
 	}
-	playlist[play_count++] = (std::make_shared<PlayInfo>(&(it->second), MSEC_TO_NSEC(delay_ms), speed, volume, loop, offset, entity));
-	return play_count;
+
+	PlayId pid = play_count++;
+	PlayInfoPtr play_info = std::make_shared<PlayInfo>(&(it->second), speed, volume, loop, simulate_sound_speed, entity);
+	if (delay_ms > 0) {
+		//Add the play sound with delay
+		audio_scheduler->RegisterTimer(MSEC_TO_NSEC(delay_ms), [this, play_info, pid](const Scheduler::TimerData& td) {
+			AutoLock l(lock);
+			this->playlist[pid] = play_info;
+			//No repeat
+			return false;
+		});
+	}
+	else {
+		playlist[pid] = play_info;
+	}
+	return pid;
 }
 
 void AudioSystem::Stop(PlayId id) {
@@ -536,3 +540,80 @@ void AudioSystem::Stop(PlayId id) {
 		playlist.erase(it);
 	}
 }
+
+std::optional<float> AudioSystem::GetSpeed(PlayId id) {
+	AutoLock l(lock);
+	const auto it = playlist.find(id);
+	if (it == playlist.cend()) {
+		return std::nullopt;
+	}
+	return it->second->speed;
+}
+
+bool AudioSystem::SetSpeed(PlayId id, float speed) {
+	AutoLock l(lock);
+	auto it = playlist.find(id);
+	if (it == playlist.cend()) {
+		return false;
+	}
+	it->second->speed = speed;
+	return true;
+}
+
+std::optional<float> AudioSystem::GetVol(PlayId id) {
+	AutoLock l(lock);
+	const auto it = playlist.find(id);
+	if (it == playlist.cend()) {
+		return std::nullopt;
+	}
+	return it->second->volume;
+}
+
+bool AudioSystem::SetVol(PlayId id, float vol) {
+	AutoLock l(lock);
+	auto it = playlist.find(id);
+	if (vol < 0.0f || it == playlist.cend()) {
+		return false;
+	}
+	it->second->volume = vol;
+	return true;
+}
+
+std::optional<bool> AudioSystem::GetLoop(PlayId id) {
+	AutoLock l(lock);
+	auto it = playlist.find(id);
+	if (it == playlist.cend()) {
+		return std::nullopt;
+	}
+	return it->second->loop;
+}
+
+bool AudioSystem::SetLoop(PlayId id, bool loop) {
+	AutoLock l(lock);
+	auto it = playlist.find(id);
+	if (it == playlist.cend()) {
+		return false;
+	}
+	it->second->loop = loop;
+	return true;
+}
+
+std::optional<bool> AudioSystem::GetSimSoundSpeed(PlayId id) {
+	AutoLock l(lock);
+	auto it = playlist.find(id);
+	if (it == playlist.cend()) {
+		return std::nullopt;
+	}
+	return it->second->offset;
+}
+
+bool AudioSystem::SimSoundSpeed(PlayId id, bool simulate_sound_speed) {
+	AutoLock l(lock);
+	auto it = playlist.find(id);
+	if (it == playlist.cend()) {
+		return false;
+	}
+	it->second->offset = simulate_sound_speed;
+	return true;
+}
+

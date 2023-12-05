@@ -51,6 +51,7 @@ namespace HotBite {
                 using SoundId = int32_t;
                 using PlayId = int32_t;
                 static constexpr SoundId INVALID_SOUND_ID = -1;
+                static constexpr PlayId INVALID_PLAY_ID = -1;
 
                 static constexpr double A = 0.1;
                 static constexpr double B = 1.0 - A;
@@ -96,6 +97,7 @@ namespace HotBite {
                     RIGHT,
                     NUM_MICS
                 };
+
                 static constexpr double MIC_DISTANCE = 0.5;
                 static constexpr double HALF_MIC_DISTANCE = MIC_DISTANCE/2.0; //30 cm
                 //relative mic positions
@@ -154,12 +156,11 @@ namespace HotBite {
 
                 struct PlayInfo
                 {
-                    PlayInfo(const AudioClip* _clip, int64_t _delay, float _speed, float _volume, bool _loop, bool _offset, ECS::Entity _entity);
+                    PlayInfo(const AudioClip* _clip, float _speed, float _volume, bool _loop, bool _offset, ECS::Entity _entity);
                     const AudioClip* clip = nullptr;
                     AudioPhysics physics[EMic::NUM_MICS];
-                    int32_t pos = 0;
-                    int64_t start = 0;
-                    int64_t delay = 0;
+                    double last_sample[EMic::NUM_MICS] = {};
+                    float fpos = 0.0f;
                     float speed = 1.0f;
                     float volume = 1.0f;
                     bool offset = false;
@@ -207,8 +208,20 @@ namespace HotBite {
                 std::optional<SoundId> LoadSound(const std::string& file, SoundId id);
                 std::optional<SoundId> GetSound(const std::string& file);
                 
-                PlayId Play(SoundId id, int32_t delay_ms = 0, bool loop = false, float speed = 1.0f, float volume = 1.0f, bool offset = false, ECS::Entity entity = ECS::INVALID_ENTITY_ID);
+                PlayId Play(SoundId id, int32_t delay_ms = 0, bool loop = false, float speed = 1.0f, float volume = 1.0f, bool simulate_sound_speed = false, ECS::Entity entity = ECS::INVALID_ENTITY_ID);
                 void Stop(PlayId id);
+
+                std::optional<float> GetSpeed(PlayId id);
+                bool SetSpeed(PlayId id, float speed);
+
+                std::optional<float> GetVol(PlayId id);
+                bool SetVol(PlayId id, float speed);
+
+                std::optional<bool> GetLoop(PlayId id);
+                bool SetLoop(PlayId id, bool loop);
+
+                std::optional<bool> GetSimSoundSpeed(PlayId id);
+                bool SimSoundSpeed(PlayId id, bool loop);
             };
         }
     }
