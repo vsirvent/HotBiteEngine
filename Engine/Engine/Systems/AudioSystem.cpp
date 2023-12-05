@@ -297,7 +297,7 @@ bool AudioSystem::OnTick(const Scheduler::TimerData& td)
 	static constexpr float OFFSET_DELTA = 0.1f;
 	static constexpr float OFFSET_MAX = 20000.0f;
 	static constexpr float OFFSET_HIST = OFFSET_DELTA * 50.0f;
-
+	bool physic_sound = false;
 	for (int i = 0; i < Core::SoundDevice::BUFFER_SAMPLES; ++i) {
 
 		if (i % 2 == 0) {
@@ -323,12 +323,11 @@ bool AudioSystem::OnTick(const Scheduler::TimerData& td)
 		sample = 0;
 		int mic = i % EMic::NUM_MICS;
 		for (auto it = playlist.begin(); it != playlist.end();) {
-			auto& data = mic == EMic::LEFT ? it->second->clip->left_data : it->second->clip->right_data;
-			size = (float)data.size();
-			
+			size = (float)it->second->clip->mono_data.size();
+			physic_sound = local_entity.transform != nullptr && it->second->entity != INVALID_ENTITY_ID;
 			float pos = it->second->fpos;
 			double att = it->second->volume;
-			if (local_entity.transform != nullptr && it->second->entity != INVALID_ENTITY_ID) {
+			if (physic_sound) {
 				//Calculate audio physics 
 				auto& physics = it->second->physics[mic];
 
@@ -383,36 +382,50 @@ bool AudioSystem::OnTick(const Scheduler::TimerData& td)
 				}
 			}
 
-			if (pos >= 0 && pos < size) {
-				float p0 = std::floor(pos);
-				float p1 = std::ceil(pos);
+			if (pos >= 0 && pos < size) {	
+				double s;
+				if (physic_sound && mic == EMic::RIGHT) {
+					s = it->second->last_sample[EMic::LEFT];
+				} else {
+					float p0 = std::floor(pos);
+					float p1 = std::ceil(pos);
 
-				float a = pos - p0;
-				float b = 1.0f - a;
+					float a = pos - p0;
+					float b = 1.0f - a;
 
-				int32_t ip0 = (int32_t)p0;
-				int32_t ip1 = (int32_t)p1;
-				int32_t isize = (int32_t)size;
-				if (it->second->loop) {					
-					if (ip0 < 0) { ip0 += isize; }
-					if (ip1 < 0) { ip1 += isize; }
-					if (ip0 >= size) { ip0 = ip0 % isize; }
-					if (ip1 >= size) { ip1 = ip1 % isize; }
+					int32_t ip0 = (int32_t)p0;
+					int32_t ip1 = (int32_t)p1;
+					int32_t isize = (int32_t)size;
+					if (it->second->loop) {
+						if (ip0 < 0) { ip0 += isize; }
+						if (ip1 < 0) { ip1 += isize; }
+						if (ip0 >= size) { ip0 = ip0 % isize; }
+						if (ip1 >= size) { ip1 = ip1 % isize; }
+					}
+					else {
+						if (ip0 < 0) { ip0 = 0; }
+						if (ip1 < 0) { ip1 = 0; }
+						if (ip0 >= size) { ip0 = isize - 1; }
+						if (ip1 >= size) { ip1 = isize - 1; }
+					}
+
+					const std::vector<int16_t>* data;
+					if (physic_sound) {
+						data = &it->second->clip->mono_data;
+					}
+					else {
+						data = (mic == EMic::LEFT) ? &it->second->clip->left_data : &it->second->clip->right_data;
+					}
+
+					double s0 = (static_cast<double>((*data)[ip0]));
+					double s1 = (static_cast<double>((*data)[ip1]));
+					s = (s0 * b + s1 * a);
+					//If we simulate sound speed or are playing at a different speed, apply low pass filter to avoid armonics due to freq changes
+					if (it->second->offset || it->second->speed != 1.0f) {
+						s = (s + it->second->last_sample[mic]) * 0.5f;
+					}
+					it->second->last_sample[mic] = s;
 				}
-				else {
-					if (ip0 < 0) { ip0 = 0; }
-					if (ip1 < 0) { ip1 = 0; }
-					if (ip0 >= size) { ip0 = isize - 1; }
-					if (ip1 >= size) { ip1 = isize - 1; }
-				}
-				double s0 = (static_cast<double>(data[ip0]));
-				double s1 = (static_cast<double>(data[ip1]));
-				double s = (s0*b + s1*a);
-				//If we simulate sound speed or are playing at a different speed, apply low pass filter to avoid armonics due to freq changes
-				if (it->second->offset || it->second->speed != 1.0f) {
-					s = (s + it->second->last_sample[mic]) * 0.5f;
-				}
-				it->second->last_sample[mic] = s;
 				s *= att;
 				sample += static_cast<int64_t>(s);
 			}
@@ -489,10 +502,13 @@ std::optional<AudioSystem::SoundId> AudioSystem::LoadSound(const std::string& fi
 	play_info.left_data.resize(data.size() / 2);
 	play_info.right_data.clear();
 	play_info.right_data.resize(data.size() / 2);
+	play_info.mono_data.clear();
+	play_info.mono_data.resize(data.size() / 2);
 
 	for (int i = 0; i < data.size(); i += 2) {
 		play_info.left_data[i / 2] = data[i];
 		play_info.right_data[i / 2] = data[i + 1];
+		play_info.mono_data[i / 2] = (data[i] + data[i + 1]) / 2;
 	}
 	id_by_name[file] = id;
 	return id;

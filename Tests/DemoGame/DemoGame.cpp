@@ -28,6 +28,7 @@ SOFTWARE.
 #include <World.h>
 #include <Windows.h>
 #include <Systems\RTSCameraSystem.h>
+#include <Systems\AudioSystem.h>
 #include <GUI\GUI.h>
 #include <GUI\Label.h>
 #include <GUI\TextureWidget.h>
@@ -59,6 +60,7 @@ private:
 
 	World world;
 	DOPEffect* dop_fx = nullptr;
+	MotionBlurEffect* motion_blur = nullptr;
 	PostGame* post_game = nullptr;
 	UI::GUI* gui = nullptr;
 	
@@ -75,6 +77,9 @@ private:
 	bool retry_enable = false;
 	ID3D11ShaderResourceView* grass[NGRASS] = {};
 	float3 fireball_spawn_position = {};
+
+	AudioSystem::PlayId background_music = AudioSystem::INVALID_PLAY_ID;
+	AudioSystem::PlayId tone = AudioSystem::INVALID_PLAY_ID;
 
 public:
 	GameDemoApplication(HINSTANCE hInstance) :DXCore(hInstance, "HotBiteDemoGame", 1920, 1080, true, true) {
@@ -149,14 +154,17 @@ public:
 		int h = GetHeight();
 		//We have depth of field effect as post process
 		dop_fx = new DOPEffect(context, w, h, 20.0f, 0.0f);
+		motion_blur = new MotionBlurEffect(context, w, h);
 		//we add to the chain a GUI post process stage to render UI
 		gui = new UI::GUI(context, w, h, world.GetCoordinator());
 		//add our own post-chain effect, this one generates the damage player effect and the "you died" effect (see DemoPostEffect.hlsl)
 		post_game = new PostGame(context, w, h, world.GetCoordinator());
+
 		//Connect the post-chain effects
 		dop_fx->SetNext(post_game);
+		//motion_blur->SetNext(post_game);
 		post_game->SetNext(gui);
-
+		
 		//Set the post-chain begin to the renderer
 		world.SetPostProcessPipeline(dop_fx);
 
@@ -240,8 +248,43 @@ public:
 					else if (GetAsyncKeyState('L') & 0x8000) {
 						auto renderer = world.GetCoordinator()->GetSystem<RenderSystem>();
 						renderer->SetParallaxShadow(!renderer->GetParallaxShadow());
-					}					
+					}
+					else if (GetAsyncKeyState('V') & 0x8000) {
+						auto audio = world.GetCoordinator()->GetSystem<AudioSystem>();
+						auto speed = audio->GetSpeed(background_music);
+						if (speed.has_value()) {
+							audio->SetSpeed(background_music, speed.value() + 0.01f);
+						}
+					}
+					else if (GetAsyncKeyState('B') & 0x8000) {
+						auto audio = world.GetCoordinator()->GetSystem<AudioSystem>();
+						auto speed = audio->GetSpeed(background_music);
+						if (speed.has_value()) {
+							audio->SetSpeed(background_music, speed.value() - 0.01f);
+						}
+					}
+					else if (GetAsyncKeyState('X') & 0x8000) {
+						auto audio = world.GetCoordinator()->GetSystem<AudioSystem>();
+						auto vol = audio->GetVol(background_music);
+						if (vol.has_value()) {
+							audio->SetVol(background_music, vol.value() + 0.01f);
+						}
+					}
+					else if (GetAsyncKeyState('C') & 0x8000) {
+						auto audio = world.GetCoordinator()->GetSystem<AudioSystem>();
+						auto vol = audio->GetVol(background_music);
+						if (vol.has_value()) {
+							audio->SetVol(background_music, vol.value() - 0.01f);
+						}
+					}
+					else if (GetAsyncKeyState('Y') & 0x8000) {
+						if (tone == AudioSystem::INVALID_PLAY_ID) {
+							tone = world.GetCoordinator()->GetSystem<AudioSystem>()->Play(4);
+						}
+					}
 					else {
+						world.GetCoordinator()->GetSystem<AudioSystem>()->Stop(tone);
+						tone = AudioSystem::INVALID_PLAY_ID;
 						//Check if player key is down
 						player_system->CheckKeys();
 					}
@@ -273,10 +316,25 @@ public:
 				float a = sin(f) * 0.04f;
 				float b = cos(f) * 0.04f;
 				auto plights = c->GetEntitiesByName("Light*");
+
+				int i = 0;
+				static int count = 0;
 				for (const auto& l : plights) {
 					Transform& t = c->GetComponent<Transform>(l);
-					t.position.x += a;
-					t.position.z += b;
+					static float z0 = t.position.z;
+
+					if (i == 0) {
+						t.position.z -= 0.5f;
+						if (count++ > 500) {
+							t.position.z = z0;
+							count = 0;
+						}
+					}
+					else if (i == 1) {
+						t.position.x += a;
+						t.position.z += b;
+					}
+					i++;
 					t.dirty = true;
 				}
 				if (game_over) {
@@ -299,6 +357,19 @@ public:
 
 		//Run the world at the desired FPS (if CPU/GPU can afford it...)
 		world.Run(target_fps);
+
+		int i = 0;
+		auto plights = c->GetEntitiesByName("Light*");
+		for (const auto& l : plights) {
+			if (i == 0) {
+				c->GetSystem<AudioSystem>()->Play(3, 0, true, 1.0f, 10.0f, true, l);
+			} else if (i == 1) {
+				c->GetSystem<AudioSystem>()->Play(5, 0, true, 0.8f, 4.0f, false, l);
+			}
+			i++;
+		}		
+		background_music = c->GetSystem<AudioSystem>()->Play(1, 0, true, 1.0f, 0.01f);
+		c->GetSystem<AudioSystem>()->Play(6, 0, true);
 	}
 
 	virtual ~GameDemoApplication() {
@@ -308,6 +379,7 @@ public:
 		//Stop the world and delete raw pointers
 		world.Stop();
 		delete post_game;
+		delete motion_blur;
 		delete dop_fx;
 		delete gui;
 	}
@@ -433,7 +505,7 @@ public:
 			p.shape = Physics::SHAPE_SPHERE;
 			p.Init(world.GetPhysicsWorld(), p.type, nullptr, b.bounding_box.Extents, t.position, t.scale, t.rotation, p.shape);
 			SetupFireBall(ball);
-
+			//c->GetSystem<AudioSystem>()->Play(2, 0, true, 1.0f, 10.0f, true, ball);
 			c->NotifySignatureChange(ball);
 		}
 		physics_mutex.unlock();
@@ -589,6 +661,9 @@ public:
 		auto cam = c->GetSystem<CameraSystem>()->GetCameras().GetData()[0];
 		cam.base->parent = player;
 		c->NotifySignatureChange(player);
+
+		c->GetSystem<AudioSystem>()->SetLocalEntity(player, { 0.0, 3.0f, 0.0f });
+		c->GetSystem<AudioSystem>()->SetCameraEntity(cam.base->id);
 	}
 	
 	void SetUpZombies() {

@@ -125,6 +125,7 @@ namespace HotBite {
                 {
                     std::vector<int16_t> left_data;
                     std::vector<int16_t> right_data;
+                    std::vector<int16_t> mono_data;
                     SoundId id = INVALID_SOUND_ID;
                     //TODO: Add here any audio option (fx, speed, etc...)
                 };
