@@ -3,7 +3,7 @@
 
 using namespace HotBite::Engine::Core;
 
-#define BUFF_PLAY out_wave_type.nAvgBytesPerSec
+#define BUFF_PLAY (out_wave_type.nAvgBytesPerSec / 3)
 
 SoundDevice* SoundDevice::sound_device = nullptr;
 
@@ -142,8 +142,7 @@ SoundDeviceGrabber::write(BYTE* pBufferData, long BufferLen)
     DWORD endWritePos = (offset + BufferLen) % BUFF_PLAY;
     if (offset <= readPos && endWritePos >= readPos) {
         printf("SoundDeviceGrabber::write: Reset audio buffer\n");
-        buffer->SetCurrentPosition(0);
-        offset = SoundDevice::BUFFER_OFFSET;
+        offset = (readPos + SoundDevice::BUFFER_OFFSET) % BUFF_PLAY;
     }
 
     buffer->GetStatus(&bufferStatus);

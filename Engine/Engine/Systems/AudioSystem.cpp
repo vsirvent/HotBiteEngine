@@ -77,7 +77,6 @@ void AudioSystem::OnEntitySignatureChanged(ECS::Entity entity, const Signature& 
 	{
 		transform_entities.erase(entity);
 	}
-	/*
 	if ((entity_signature & bound_signature) == bound_signature)
 	{
 		bound_entities[entity] = { coordinator, entity };
@@ -86,7 +85,6 @@ void AudioSystem::OnEntitySignatureChanged(ECS::Entity entity, const Signature& 
 	{
 		bound_entities.erase(entity);
 	}
-	*/
 }
 
 void AudioSystem::OnEntityDestroyed(ECS::Entity entity) {
@@ -252,23 +250,48 @@ void AudioSystem::CalculatePointPhysics(PlayInfoPtr info, const TransformEntity&
 }
 
 void AudioSystem::CalculateCubePhysics(PlayInfoPtr info, const BoundsEntity& e, EMic channel) {
+	//Sanity check of the cube, it can happen to only transform is updated by game
+	if (LENGHT_SQUARE_F3(SUB_F3_F3(e.transform->position, { e.bounds->final_box.Center.x, e.bounds->final_box.Center.y, e.bounds->final_box.Center.z })) > 0.1f) {
+		return CalculatePointPhysics(info, e.transform->position, channel);
+	}
+
+	//Check if the mic is inside the box	
 	mic_lock.lock();
-	// Transform the point into the local space of the box
-	vector3d pos = XMVectorSubtract(vmic_positions[channel], XMLoadFloat3(&e.bounds->final_box.Center));
+	float3 mic_pos = mic_positions[channel];
 	mic_lock.unlock();
-	matrix inverseOrientation = XMMatrixInverse(nullptr, e.transform->world_xmmatrix);
-	vector3d localPoint = XMVector3Transform(pos, inverseOrientation);
 
-	// Clamp the point to the box extents
-	vector3d clampedPoint = XMVectorClamp(localPoint, XMVectorNegate(XMLoadFloat3(&e.bounds->final_box.Extents)), XMLoadFloat3(&e.bounds->final_box.Extents));
-
-	// Transform the clamped point back to the world space
-	vector3d transformedPoint = XMVector3Transform(clampedPoint, e.transform->world_xmmatrix);
+	bool in_box = (mic_pos.x >= (e.bounds->final_box.Center.x - e.bounds->final_box.Extents.x)) && (mic_pos.x <= (e.bounds->final_box.Center.x + e.bounds->final_box.Extents.x)) &&
+		(mic_pos.y >= (e.bounds->final_box.Center.y - e.bounds->final_box.Extents.y)) && (mic_pos.y <= (e.bounds->final_box.Center.y + e.bounds->final_box.Extents.y)) &&
+		(mic_pos.z >= (e.bounds->final_box.Center.z - e.bounds->final_box.Extents.z)) && (mic_pos.z <= (e.bounds->final_box.Center.z + e.bounds->final_box.Extents.z));
 	
-	float3 entity_point;
-	XMStoreFloat3(&entity_point, transformedPoint);
+	if (in_box) {
+		CalculatePointPhysics(info, mic_pos, channel);
+	}
+	else {
+		// Transform the point into the local space of the box
+		// Calculate the distance along each axis
+		float3 v{
+			max(max(e.bounds->final_box.Center.x - e.bounds->final_box.Extents.x - mic_pos.x, 0.0f), mic_pos.x - (e.bounds->final_box.Center.x + e.bounds->final_box.Extents.x)),
+			max(max(e.bounds->final_box.Center.y - e.bounds->final_box.Extents.y - mic_pos.y, 0.0f), mic_pos.y - (e.bounds->final_box.Center.y + e.bounds->final_box.Extents.y)),
+			max(max(e.bounds->final_box.Center.z - e.bounds->final_box.Extents.z - mic_pos.z, 0.0f), mic_pos.z - (e.bounds->final_box.Center.z + e.bounds->final_box.Extents.z)) 
+		};
 
-	CalculatePointPhysics(info, entity_point, channel);
+		//Distance square from local camera to point
+		auto& physics = info->physics[channel];
+		double d2 = (double)LENGHT_SQUARE_F3(v);
+		physics.lock.lock();
+		physics.distance = sqrt(d2);
+		if (d2 < 1.0) {
+			d2 = 1.0;
+		}
+		physics.dist_attenuation = (1.0 / d2) * A + physics.dist_attenuation * B;
+
+		//Calculate delay
+		static const double sound_speed = 343.0;
+		double time_delay = physics.distance / sound_speed;
+		physics.offset = (float)time_delay * (float)Core::SoundDevice::FREQ * (float)Core::SoundDevice::CHANNELS;
+		physics.lock.unlock();
+	}
 }
 
 bool AudioSystem::CalculatePhysics(PlayInfoPtr info) {
@@ -385,7 +408,7 @@ bool AudioSystem::OnTick(const Scheduler::TimerData& td)
 				att *= physics.dist_attenuation * physics.angle_attenuation;
 				physics.lock.unlock();
 			}
-			//save last position before loop
+
 			if (pos >= size) {
 				if (it->second->loop) {
 					pos = (float)fmod(pos, size);
@@ -554,7 +577,7 @@ AudioSystem::PlayId AudioSystem::Play(SoundId id, int32_t delay_ms, bool loop, f
 		//Add the play sound with delay
 		audio_scheduler->RegisterTimer(MSEC_TO_NSEC(delay_ms), [this, play_info, pid](const Scheduler::TimerData& td) {
 			AutoLock l(lock);
-			this->playlist[pid] = play_info;
+			playlist[pid] = play_info;
 			//No repeat
 			return false;
 		});
