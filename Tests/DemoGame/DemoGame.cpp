@@ -374,11 +374,6 @@ public:
 		background_music = c->GetSystem<AudioSystem>()->Play(1, 0, true, 1.0f, 0.01f);
 		c->GetSystem<AudioSystem>()->Play(6, 0, true, 1.0f, 0.2f);
 		c->GetSystem<GamePlayerSystem>()->Init(world);
-
-		auto anims = (*world.GetSkeletons().Get("archer_idle"))->GetAnimations();
-		for (auto& a : anims) {
-			printf("Setup animation events for %s\n", a.second.c_str());
-		}
 	}
 
 	virtual ~GameDemoApplication() {
@@ -478,6 +473,7 @@ public:
 			});
 	}
 
+	std::unordered_map<ECS::Entity, int64_t> last_ball_sound_ts;
 	//This method spawns a new fireball in the scene
 	void SpawnFireBall(int id) {
 		ECS::Coordinator* c = world.GetCoordinator();
@@ -515,6 +511,15 @@ public:
 			p.Init(world.GetPhysicsWorld(), p.type, nullptr, b.bounding_box.Extents, t.position, t.scale, t.rotation, p.shape);
 			SetupFireBall(ball);
 			c->GetSystem<AudioSystem>()->Play(2, 0, true, 1.0f, 10.0f, true, ball);
+			c->AddEventListenerByEntity(PhysicsSystem::EVENT_ID_COLLISION_START, ball, [=] (Event& ev) {
+				if (ev.GetEntity() == ball) {
+					int64_t now = Scheduler::GetNanoSeconds();
+					if (now - last_ball_sound_ts[ball] > MSEC_TO_NSEC(200)) {
+						c->GetSystem<AudioSystem>()->Play(RandType(17, 19).Value(), 0, false, RandType(0.8f, 1.2f).Value(), RandType(10.0f, 15.0f).Value(), true, ball);
+						last_ball_sound_ts[ball] = now;
+					}
+				}
+				});
 			c->NotifySignatureChange(ball);
 		}
 		physics_mutex.unlock();

@@ -85,7 +85,7 @@ namespace HotBite {
                 }
 
                 T Value() const {
-                    return (vmin + (((T)std::rand()) * (vmax - vmin)) / (T)RAND_MAX);
+                    return (T)(vmin + (((T)std::rand()) * (vmax - vmin)) / (T)RAND_MAX);
                 }
             };
 

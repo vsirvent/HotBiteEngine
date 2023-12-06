@@ -37,6 +37,11 @@ namespace HotBite {
 				using CollisionData = std::unordered_map<reactphysics3d::CollisionBody* /*body 1*/,
 					std::unordered_map<reactphysics3d::CollisionBody* /* body 2*/, std::set<reactphysics3d::Vector3> /* collision points */>>;
 				
+				static inline ECS::EventId EVENT_ID_COLLISION_START = ECS::GetEventId<PhysicsSystem>(0x00);
+				static inline ECS::EventId EVENT_ID_COLLISION_END = ECS::GetEventId<PhysicsSystem>(0x01);
+				static inline ECS::ParamId EVENT_PARAM_ENTITY_1 = 0x01;
+				static inline ECS::ParamId EVENT_PARAM_ENTITY_2 = 0x02;
+
 			private:
 				struct PhysicsEntity {
 					Components::Transform* transform;
@@ -55,7 +60,10 @@ namespace HotBite {
 				ECS::Coordinator* coordinator = nullptr;
 				ECS::Signature signature;
 				ECS::EntityVector<PhysicsEntity> physics;
+				Core::spin_lock lock;
 				CollisionData contacts_by_body;
+				std::unordered_map<reactphysics3d::CollisionBody*, PhysicsEntity*> entity_by_body;
+				std::unordered_map<ECS::Entity, std::unordered_map<int32_t, int64_t>> last_event_by_entity;
 
 			public:
 				void OnRegister(ECS::Coordinator* c) override;

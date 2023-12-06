@@ -40,17 +40,31 @@ void PhysicsSystem::OnRegister(ECS::Coordinator* c) {
 }
 
 void PhysicsSystem::OnEntityDestroyed(Entity entity) {
+	AutoLock l(lock);
+	for (auto it = entity_by_body.begin(); it != entity_by_body.end(); ++it) {
+		if (it->second != nullptr && it->second->base->id == entity) {
+			entity_by_body.erase(it);
+			break;
+		}
+	}
 	physics.Remove(entity);
 }
 
 void PhysicsSystem::OnEntitySignatureChanged(Entity entity, const Signature& entity_signature) {
+	AutoLock l(lock);
 	if ((entity_signature & signature) == signature)
-	{
-		physics.Insert(entity, PhysicsEntity{ coordinator, entity });		
+	{		
+		PhysicsEntity pe{ coordinator, entity };
+		physics.Insert(entity, pe);
+		entity_by_body[pe.physics->body] = physics.Get(entity);
 	}
 	else
 	{
-		physics.Remove(entity);
+		PhysicsEntity* pe = physics.Get(entity);
+		if (pe != nullptr) {
+			entity_by_body.erase(pe->physics->body);
+		}
+		physics.Remove(entity);		
 	}
 }
 
@@ -127,6 +141,7 @@ void PhysicsSystem::onTrigger(const reactphysics3d::OverlapCallback::CallbackDat
 
 void PhysicsSystem::onContact(const reactphysics3d::CollisionCallback::CallbackData& callbackData) {
 	// For each contact pair
+	AutoLock l(lock);
 	for (uint32_t p = 0; p < callbackData.getNbContactPairs(); ++p) {
 		const ContactPair& contactPair = callbackData.getContactPair(p);
 		if (contactPair.getEventType() == ContactPair::EventType::ContactExit) {
@@ -150,7 +165,7 @@ void PhysicsSystem::onContact(const reactphysics3d::CollisionCallback::CallbackD
 					}
 				}
 			}
-
+			
 		} else {
 			auto* pair0 = &(contacts_by_body[contactPair.getBody1()][contactPair.getBody2()]);
 			auto* pair1 = &(contacts_by_body[contactPair.getBody2()][contactPair.getBody1()]);
@@ -159,7 +174,36 @@ void PhysicsSystem::onContact(const reactphysics3d::CollisionCallback::CallbackD
 			for (uint32_t c = 0; c < contactPair.getNbContactPoints(); ++c) {
 				pair0->insert(contactPair.getContactPoint(c).getLocalPointOnCollider1());
 				pair1->insert(contactPair.getContactPoint(c).getLocalPointOnCollider1());
-			}
+			}			
+		}
+		if (contactPair.getEventType() == ContactPair::EventType::ContactStart || contactPair.getEventType() == ContactPair::EventType::ContactExit) {
+			const auto b1 = entity_by_body.find(contactPair.getBody1());
+			const auto b2 = entity_by_body.find(contactPair.getBody2());
+			const auto end = entity_by_body.cend();
+			if (b1 != end && b2 != end) {
+				Event ev;
+				switch (contactPair.getEventType()) {
+				case ContactPair::EventType::ContactStart:
+					ev.SetType(EVENT_ID_COLLISION_START);
+					break;
+				case ContactPair::EventType::ContactExit:
+					ev.SetType(EVENT_ID_COLLISION_END);
+					break;
+				}
+				int64_t now = Scheduler::GetNanoSeconds();
+				ev.SetParam(EVENT_PARAM_ENTITY_1, b1->second->base->id);
+				ev.SetParam(EVENT_PARAM_ENTITY_2, b2->second->base->id);
+				if ((now - last_event_by_entity[b1->second->base->id][(int)contactPair.getEventType()]) > MSEC_TO_NSEC(10)) {
+					ev.SetEntity(b1->second->base->id);
+					coordinator->SendEvent(ev);
+					last_event_by_entity[b1->second->base->id][(int)contactPair.getEventType()] = now;
+				}
+				if ((now - last_event_by_entity[b2->second->base->id][(int)contactPair.getEventType()]) > MSEC_TO_NSEC(10)) {
+					ev.SetEntity(b2->second->base->id);
+					coordinator->SendEvent(ev);
+					last_event_by_entity[b2->second->base->id][(int)contactPair.getEventType()] = now;
+				}				
+			}		
 		}
 	}
 }

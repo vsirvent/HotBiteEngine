@@ -70,6 +70,18 @@
         {
           "id": 16,
           "file": ".\\Assets\\audio\\arrow.raw"
+        },
+        {
+          "id": 17,
+          "file": ".\\Assets\\audio\\rock_1.raw"
+        },
+        {
+          "id": 18,
+          "file": ".\\Assets\\audio\\rock_2.raw"
+        },
+        {
+          "id": 19,
+          "file": ".\\Assets\\audio\\rock_3.raw"
         }
       ]
     },

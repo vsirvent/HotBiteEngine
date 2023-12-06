@@ -73,7 +73,7 @@ private:
 		SOUND_STEP_LEFT,
 		SOUND_STEP_RIGHT
 	};
-
+	const std::string ANIM_IDLE = "archer_idle";
 	const std::string ANIM_WALK = "archer_walk";
 	const std::string ANIM_RUN = "archer_run";
 
@@ -86,8 +86,13 @@ public:
 	}
 	
 	void Init(World& world) {
+
 		//Add the animation events we want to receive to play player sounds
-		auto skeleton = world.GetSkeletons().Get(ANIM_WALK);
+		auto skeleton = world.GetSkeletons().Get(ANIM_IDLE);
+		assert(*skeleton != nullptr && "Invalid idle animation");
+		assert((*skeleton)->AddAnimationFrameEvent(1, ESoundId::SOUND_STEP_LEFT) == true);
+		
+		skeleton = world.GetSkeletons().Get(ANIM_WALK);
 		assert(*skeleton != nullptr && "Invalid walk animation");
 		assert((*skeleton)->AddAnimationFrameEvent(2, ESoundId::SOUND_STEP_LEFT) == true);
 		assert((*skeleton)->AddAnimationFrameEvent(4, ESoundId::SOUND_STEP_RIGHT) == true);
@@ -135,13 +140,18 @@ public:
 		}
 	}
 
+	bool play_damage = true;
 	void OnPlayerDamaged(ECS::Event& e) {
 		GamePlayerData* player = players.Get(e.GetEntity());
 		if (player != nullptr) {
 			if (player->creature->current_health <= 0.0f) {
 				coordinator->SendEvent(this, player->base->id, GamePlayerSystem::EVENT_ID_PLAYER_DEAD);
 			}
-			coordinator->GetSystem<AudioSystem>()->Play(7, 0, false, RandType(0.8f, 1.0f).Value(), 1.0f, false, player->base->id);
+			if (play_damage) {
+				coordinator->GetSystem<AudioSystem>()->Play(7, 0, false, RandType(0.8f, 1.0f).Value(), 1.0f, false, player->base->id);
+				play_damage = false;
+				Scheduler::Get()->RegisterTimer(MSEC_TO_NSEC(500), [&p = play_damage](const Scheduler::TimerData&) { p = true; return false; });
+			}
 		}		
 	}
 
