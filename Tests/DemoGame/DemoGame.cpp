@@ -205,6 +205,7 @@ public:
 
 		//Remove physics from water so it doesn't collide with objects
 		auto water = c->GetEntityByName("Water");
+		c->GetSystem<AudioSystem>()->Play(13, 0, true, 1.0f, 3.0f, false, water);
 		c->RemoveComponent<Physics>(water);
 		c->NotifySignatureChange(water);
 
@@ -212,10 +213,11 @@ public:
 		auto lavas = c->GetEntitiesByName("Lava*");
 		for (auto& lava : lavas) {
 			c->GetComponent<Components::Physics>(lava).collider->setIsTrigger(true);
-			c->AddComponent<FireComponent>(lava, { .duration = MSEC_TO_NSEC(2000), .dps = 10.0f });
+			//c->AddComponent<FireComponent>(lava, { .duration = MSEC_TO_NSEC(2000), .dps = 10.0f });
 			std::shared_ptr<SmokeParticles> lava_particle = std::make_shared<SmokeParticles>();
 			lava_particle->Init(c, lava, particle_material, 0.01f, 20, 0.2f, 10000, ParticlesData::PARTICLE_ORIGIN_FIXED_VERTEX, 0.3f, 0.9f, 0.0f, 10.0f);
 			c->AddComponent<Particles>(lava, Particles{ "smoke", std::dynamic_pointer_cast<ParticlesData>(lava_particle) });
+			c->GetSystem<AudioSystem>()->Play(12, 0, true, 1.0f, 2.0f, false, lava);
 			c->NotifySignatureChange(lava);
 		}
 
@@ -370,7 +372,7 @@ public:
 		}		
 
 		background_music = c->GetSystem<AudioSystem>()->Play(1, 0, true, 1.0f, 0.01f);
-		c->GetSystem<AudioSystem>()->Play(6, 0, true);
+		c->GetSystem<AudioSystem>()->Play(6, 0, true, 1.0f, 0.2f);
 		c->GetSystem<GamePlayerSystem>()->Init(world);
 
 		auto anims = (*world.GetSkeletons().Get("archer_idle"))->GetAnimations();
@@ -512,7 +514,7 @@ public:
 			p.shape = Physics::SHAPE_SPHERE;
 			p.Init(world.GetPhysicsWorld(), p.type, nullptr, b.bounding_box.Extents, t.position, t.scale, t.rotation, p.shape);
 			SetupFireBall(ball);
-			//c->GetSystem<AudioSystem>()->Play(2, 0, true, 1.0f, 10.0f, true, ball);
+			c->GetSystem<AudioSystem>()->Play(2, 0, true, 1.0f, 10.0f, true, ball);
 			c->NotifySignatureChange(ball);
 		}
 		physics_mutex.unlock();

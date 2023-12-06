@@ -71,8 +71,7 @@ private:
 
 	enum ESoundId {
 		SOUND_STEP_LEFT,
-		SOUND_STEP_RIGHT,
-		SOUND_JUMP
+		SOUND_STEP_RIGHT
 	};
 
 	const std::string ANIM_WALK = "archer_walk";
@@ -207,10 +206,10 @@ public:
 		reactphysics3d::Vector3 speed = physics->body->getLinearVelocity();
 		bool done = false;
 		if (!done && player->is_attacking) {
-			float3 dir = p.transform->position - camera.camera->world_position;
+			float3 dir = camera.camera->world_position - p.transform->position;
 			dir.y = 0.0f;
 			PlayerSystem::LookAt(&p, dir, 0.1f);
-			p.mesh->SetAnimation(p.creature->animations[CreatureAnimations::ANIM_ATTACK], false, true);
+			p.mesh->SetAnimation(p.creature->animations[CreatureAnimations::ANIM_ATTACK], false, true);			
 			done = true;
 		}
 		if (!done && distance_to_terrain > 0.4f) {
@@ -261,6 +260,7 @@ public:
 			!player_data.player->is_attacking) {
 			PlayerSystem::Move(&player_data, {});
 			player_data.player->is_attacking = true;
+			coordinator->GetSystem<AudioSystem>()->Play(16, 2000, false, RandType(0.8f, 1.0f).Value(), 2.0f, false, player_data.base->id);
 		}
 	}
 
@@ -297,8 +297,9 @@ public:
 				default: break;
 				}
 			}
-		}
+		}		
 	}
+
 	//Check keyboard input to move the player
 	void CheckKeys() {
 		GamePlayerData& player_data = players.GetData().front();
@@ -331,6 +332,7 @@ public:
 			//Jump with space, can_jump is managed by PlayerSystem during update call.
 			if (GetAsyncKeyState(VK_SPACE) & 0x8000 && player_data.player->can_jump == true)
 			{
+				coordinator->GetSystem<AudioSystem>()->Play(14, 0, false, RandType(0.8f, 1.1f).Value(), RandType(1.5f, 1.8f).Value(), false, player_data.base->id);
 				PlayerSystem::Jump(&player_data, { 0.f, 100.f, 0.f });
 			}
 			if (LENGHT_SQUARE_F3(move_dir) > 0.0f) {

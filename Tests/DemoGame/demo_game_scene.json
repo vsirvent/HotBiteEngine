@@ -50,6 +50,26 @@
         {
           "id": 11,
           "file": ".\\Assets\\audio\\step_4.raw"
+        },
+        {
+          "id": 12,
+          "file": ".\\Assets\\audio\\lava.raw"
+        },
+        {
+          "id": 13,
+          "file": ".\\Assets\\audio\\water.raw"
+        },
+        {
+          "id": 14,
+          "file": ".\\Assets\\audio\\jump_1.raw"
+        },
+        {
+          "id": 15,
+          "file": ".\\Assets\\audio\\jump_2.raw"
+        },
+        {
+          "id": 16,
+          "file": ".\\Assets\\audio\\arrow.raw"
         }
       ]
     },
