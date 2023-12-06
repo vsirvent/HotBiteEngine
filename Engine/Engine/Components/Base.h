@@ -160,10 +160,15 @@ namespace HotBite {
 			public:
 				//Event triggered when animation ends
 				static inline ECS::EventId EVENT_ID_ANIMATION_END = ECS::GetEventId<Mesh>(0x01);
+				static inline ECS::EventId EVENT_ID_ANIMATION_FRAME_EVENT = ECS::GetEventId<Mesh>(0x02);
 				//Animation parameter id
 				static inline ECS::ParamId EVENT_PARAM_ANIMATION_ID = 0x00;
 				//Animation name parameter id
 				static inline ECS::ParamId EVENT_PARAM_ANIMATION_NAME = 0x01;
+				//Animation event frame
+				static inline ECS::ParamId EVENT_PARAM_ANIMATION_FRAME = 0x02;
+				//Animation event id
+				static inline ECS::ParamId EVENT_PARAM_ANIMATION_FRAME_ID = 0x04;
 
 				std::vector<matrix> joint_cpu_data;
 				std::vector<Core::JointGpuData> joint_gpu_data;

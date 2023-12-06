@@ -157,7 +157,7 @@ namespace HotBite {
 
                 struct PlayInfo
                 {
-                    PlayInfo(const AudioClip* _clip, float _speed, float _volume, bool _loop, bool _offset, ECS::Entity _entity);
+                    PlayInfo(const AudioClip* _clip, float _speed, float _volume, bool _loop, bool _offset, ECS::Entity _entity, const float3& pos_offset);
                     const AudioClip* clip = nullptr;
                     AudioPhysics physics[EMic::NUM_MICS];
                     double last_sample[EMic::NUM_MICS] = {};
@@ -167,6 +167,7 @@ namespace HotBite {
                     bool offset = false;
                     bool loop = false;                    
                     ECS::Entity entity = ECS::INVALID_ENTITY_ID;
+                    float3 pos_offset = {};
                     std::atomic<bool> updating = false;
                 };
 
@@ -209,7 +210,15 @@ namespace HotBite {
                 std::optional<SoundId> LoadSound(const std::string& file, SoundId id);
                 std::optional<SoundId> GetSound(const std::string& file);
                 
-                PlayId Play(SoundId id, int32_t delay_ms = 0, bool loop = false, float speed = 1.0f, float volume = 1.0f, bool simulate_sound_speed = false, ECS::Entity entity = ECS::INVALID_ENTITY_ID);
+                PlayId Play(SoundId id,
+                            int32_t delay_ms = 0,
+                            bool loop = false,
+                            float speed = 1.0f,
+                            float volume = 1.0f,
+                            bool simulate_sound_speed = false,
+                            ECS::Entity entity = ECS::INVALID_ENTITY_ID,
+                            const float3& pos_offset = {});
+
                 void Stop(PlayId id);
 
                 std::optional<float> GetSpeed(PlayId id);

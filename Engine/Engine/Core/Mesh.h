@@ -44,6 +44,10 @@ namespace HotBite {
 				float4x4 transform = {};				
 			};
 
+			struct FrameEvent {
+				std::unordered_set<int> ids;
+			};
+
 			struct JointAnim {
 				std::string name;
 				float start;
@@ -52,9 +56,11 @@ namespace HotBite {
 				bool loop = true;
 				float fps = 30.0f;
 				std::vector<Keyframe> key_frames;				
+				spin_lock lock;
+				std::map<int, FrameEvent> frame_events;
 			};
 
-			struct JointCpuData {
+			struct JointCpuData {				
 				int joint_id = -1;
 				int id = -1;
 				int parent_id = -1;
@@ -94,6 +100,53 @@ namespace HotBite {
 				void AddJoint(const Joint& joint, int parent) {
 					joints_by_cpu_id[joint.cpu_data.joint_id] = joint;
 					joint_tree[parent].push_back(&joints_by_cpu_id[joint.cpu_data.joint_id]);
+				}
+
+				bool AddAnimationFrameEvent(int frame, int id, const std::string& animation_name = "") {
+					for (auto& data : joint_cpu_data) {
+						for (auto& anim : data.animations) {
+							if (animation_name.empty() || anim.name == animation_name) {
+								AutoLock l(anim.lock);
+								anim.frame_events[frame].ids.insert(id);
+								return true;
+							}
+						}
+					}
+					return false;
+				}
+
+				bool RemoveAnimationFrameEvent(int frame, int id, const std::string& animation_name = "") {
+					for (auto& data : joint_cpu_data) {
+						for (auto& anim : data.animations) {
+							if (animation_name.empty() || anim.name == animation_name) {
+								AutoLock l(anim.lock);
+								for (auto& event : anim.frame_events) {
+									if (event.first == frame) {
+										for (auto it = event.second.ids.begin(); it != event.second.ids.end(); ++it) {
+											if (*it == id) {
+												event.second.ids.erase(it);
+												return true;
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+					return false;
+				}
+
+				bool ClearAnimationFrameEvents(const std::string& animation_name = "") {
+					for (auto& data : joint_cpu_data) {
+						for (auto& anim : data.animations) {
+							if (animation_name.empty() || anim.name == animation_name) {
+								AutoLock l(anim.lock);
+								anim.frame_events.clear();
+								return true;
+							}
+						}
+					}
+					return false;
 				}
 
 				void Flush() {

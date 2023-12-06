@@ -68,6 +68,27 @@ namespace HotBite {
                 return (uint64_t)(typeid(T).hash_code());
             }
 
+            template <typename T>
+            class RandType {
+            private:
+                T vmin{};
+                T vmax{};
+
+            public:
+
+                RandType() {}
+                RandType(const T& min_val, const T& max_val) :vmin(min_val), vmax(max_val) {
+                }
+
+                bool Init() {
+                    return vmin != vmax;
+                }
+
+                T Value() const {
+                    return (vmin + (((T)std::rand()) * (vmax - vmin)) / (T)RAND_MAX);
+                }
+            };
+
             template <class T, int grid_value>
             class SpaceTree {
             public:

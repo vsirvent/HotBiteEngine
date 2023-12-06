@@ -368,8 +368,15 @@ public:
 			}
 			i++;
 		}		
+
 		background_music = c->GetSystem<AudioSystem>()->Play(1, 0, true, 1.0f, 0.01f);
 		c->GetSystem<AudioSystem>()->Play(6, 0, true);
+		c->GetSystem<GamePlayerSystem>()->Init(world);
+
+		auto anims = (*world.GetSkeletons().Get("archer_idle"))->GetAnimations();
+		for (auto& a : anims) {
+			printf("Setup animation events for %s\n", a.second.c_str());
+		}
 	}
 
 	virtual ~GameDemoApplication() {

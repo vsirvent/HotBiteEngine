@@ -41,8 +41,8 @@ using namespace HotBite::Engine::Systems;
 using namespace HotBite::Engine::Components;
 using namespace DirectX;
 
-AudioSystem::PlayInfo::PlayInfo(const AudioClip* _clip, float _speed, float _volume, bool _loop, bool _offset, ECS::Entity _entity):
-	clip(_clip), speed(_speed), volume(_volume), loop(_loop), offset(_offset), entity(_entity) {
+AudioSystem::PlayInfo::PlayInfo(const AudioClip* _clip, float _speed, float _volume, bool _loop, bool _offset, ECS::Entity _entity, const float3& _pos_offset):
+	clip(_clip), speed(_speed), volume(_volume), loop(_loop), offset(_offset), entity(_entity), pos_offset(_pos_offset) {
 }
 
 bool AudioSystem::Config(const std::string& root_folder, const nlohmann::json& config) {
@@ -233,7 +233,22 @@ void AudioSystem::CalculateAngleAttenuation(PlayInfoPtr info) {
 }
 
 void AudioSystem::CalculatePointPhysics(PlayInfoPtr info, const TransformEntity& e, EMic channel) {
-	CalculatePointPhysics(info, e.transform->position, channel);	
+	if (LENGHT_SQUARE_F3(info->pos_offset) < 0.01f) {
+		CalculatePointPhysics(info, e.transform->position, channel);
+	}
+	else {
+		float3 fpos;
+		vector3d pos = XMLoadFloat3(&info->pos_offset);
+
+		vector3d tv, rv, sv;
+		XMMatrixDecompose(&sv, &rv, &tv, e.transform->world_xmmatrix);
+		matrix t = XMMatrixTranslationFromVector(tv);
+		matrix r = XMMatrixRotationQuaternion(rv);
+		matrix local_matrix = r * t;
+		pos = XMVector3Transform(pos, local_matrix);
+		XMStoreFloat3(&fpos, pos);
+		CalculatePointPhysics(info, fpos, channel);
+	}
 }
 
 void AudioSystem::CalculateCubePhysics(PlayInfoPtr info, const BoundsEntity& e, EMic channel) {
@@ -524,7 +539,7 @@ std::optional<AudioSystem::SoundId> AudioSystem::GetSound(const std::string& fil
 	return std::nullopt;
 }
 
-AudioSystem::PlayId AudioSystem::Play(SoundId id, int32_t delay_ms, bool loop, float speed, float volume, bool simulate_sound_speed, ECS::Entity entity) {
+AudioSystem::PlayId AudioSystem::Play(SoundId id, int32_t delay_ms, bool loop, float speed, float volume, bool simulate_sound_speed, ECS::Entity entity, const float3& pos_offset) {
 	AutoLock l(lock);
 	const auto it = audio_by_id.find(id);
 
@@ -534,7 +549,7 @@ AudioSystem::PlayId AudioSystem::Play(SoundId id, int32_t delay_ms, bool loop, f
 	}
 
 	PlayId pid = play_count++;
-	PlayInfoPtr play_info = std::make_shared<PlayInfo>(&(it->second), speed, volume, loop, simulate_sound_speed, entity);
+	PlayInfoPtr play_info = std::make_shared<PlayInfo>(&(it->second), speed, volume, loop, simulate_sound_speed, entity, pos_offset);
 	if (delay_ms > 0) {
 		//Add the play sound with delay
 		audio_scheduler->RegisterTimer(MSEC_TO_NSEC(delay_ms), [this, play_info, pid](const Scheduler::TimerData& td) {

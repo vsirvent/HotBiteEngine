@@ -30,6 +30,26 @@
         {
           "id": 6,
           "file": ".\\Assets\\audio\\forest.raw"
+        },
+        {
+          "id": 7,
+          "file": ".\\Assets\\audio\\man_hurt.raw"
+        },
+        {
+          "id": 8,
+          "file": ".\\Assets\\audio\\step_1.raw"
+        },
+        {
+          "id": 9,
+          "file": ".\\Assets\\audio\\step_2.raw"
+        },
+        {
+          "id": 10,
+          "file": ".\\Assets\\audio\\step_3.raw"
+        },
+        {
+          "id": 11,
+          "file": ".\\Assets\\audio\\step_4.raw"
         }
       ]
     },

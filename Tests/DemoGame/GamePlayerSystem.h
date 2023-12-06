@@ -26,6 +26,7 @@ SOFTWARE.
 
 #include <Core\PhysicsCommon.h>
 #include <Core\DXCore.h>
+#include <Core\Utils.h>
 #include <World.h>
 #include <Windows.h>
 #include <Systems\RTSCameraSystem.h>
@@ -53,7 +54,7 @@ class GamePlayerSystem : public Systems::PlayerSystem, public ECS::EventListener
 public:
 	static inline HotBite::Engine::ECS::EventId EVENT_ID_PLAYER_DAMAGED = HotBite::Engine::ECS::GetEventId<GamePlayerSystem>(0x00);
 	static inline HotBite::Engine::ECS::EventId EVENT_ID_PLAYER_DEAD = HotBite::Engine::ECS::GetEventId<GamePlayerSystem>(0x01);
-
+	
 private:
 	ECS::Coordinator* coordinator = nullptr;
 	std::unique_ptr<GamePlayerData> spawn_data;
@@ -68,6 +69,15 @@ private:
 	std::map<eAnimType, int> animation_count; //Used to avoid spurious animation transitions
 	std::shared_ptr<PhysicsSystem> physics = nullptr;
 
+	enum ESoundId {
+		SOUND_STEP_LEFT,
+		SOUND_STEP_RIGHT,
+		SOUND_JUMP
+	};
+
+	const std::string ANIM_WALK = "archer_walk";
+	const std::string ANIM_RUN = "archer_run";
+
 public:
 
 	//System needs the camera to move the player
@@ -76,6 +86,19 @@ public:
 		camera = c;
 	}
 	
+	void Init(World& world) {
+		//Add the animation events we want to receive to play player sounds
+		auto skeleton = world.GetSkeletons().Get(ANIM_WALK);
+		assert(*skeleton != nullptr && "Invalid walk animation");
+		assert((*skeleton)->AddAnimationFrameEvent(2, ESoundId::SOUND_STEP_LEFT) == true);
+		assert((*skeleton)->AddAnimationFrameEvent(4, ESoundId::SOUND_STEP_RIGHT) == true);
+
+		skeleton = world.GetSkeletons().Get(ANIM_RUN);
+		assert(*skeleton != nullptr && "Invalid run animation");
+		assert((*skeleton)->AddAnimationFrameEvent(1, ESoundId::SOUND_STEP_LEFT) == true);
+		assert((*skeleton)->AddAnimationFrameEvent(3, ESoundId::SOUND_STEP_RIGHT) == true);
+	}
+
 	void OnRegister(ECS::Coordinator* c) override {
 		this->coordinator = c;
 		EventListener::Init(c);
@@ -98,6 +121,7 @@ public:
 			spawn_transform = pd.physics->body->getTransform();
 			players.Insert(entity, GamePlayerData{ coordinator, entity });
 			AddEventListenerByEntity(Mesh::EVENT_ID_ANIMATION_END, entity, std::bind(&GamePlayerSystem::OnAnimationEnd, this, std::placeholders::_1));
+			AddEventListenerByEntity(Mesh::EVENT_ID_ANIMATION_FRAME_EVENT, entity, std::bind(&GamePlayerSystem::OnAnimationFrameEvent, this, std::placeholders::_1));
 		}
 		else {
 			players.Remove(entity);
@@ -118,6 +142,7 @@ public:
 			if (player->creature->current_health <= 0.0f) {
 				coordinator->SendEvent(this, player->base->id, GamePlayerSystem::EVENT_ID_PLAYER_DEAD);
 			}
+			coordinator->GetSystem<AudioSystem>()->Play(7, 0, false, RandType(0.8f, 1.0f).Value(), 1.0f, false, player->base->id);
 		}		
 	}
 
@@ -250,6 +275,30 @@ public:
 		}
 	}
 
+	void OnAnimationFrameEvent(ECS::Event& ev) {
+		const std::string& anim_name = ev.GetParam<std::string>(Mesh::EVENT_PARAM_ANIMATION_NAME);
+		const int& frame = ev.GetParam<int>(Mesh::EVENT_PARAM_ANIMATION_FRAME);
+		const std::unordered_set<int>& ids = ev.GetParam<std::unordered_set<int>>(Mesh::EVENT_PARAM_ANIMATION_FRAME_ID);
+		if (anim_name == ANIM_WALK || anim_name == ANIM_RUN) {
+			for (const int id : ids) {
+				switch (id) {
+				case ESoundId::SOUND_STEP_RIGHT:
+					//Play random step sound
+					coordinator->GetSystem<AudioSystem>()->Play(RandType(8, 11).Value(), 0, false,
+						RandType(0.8f, 1.1f).Value(), RandType(2.0f, 2.4f).Value(),
+						false, ev.GetEntity(), { -0.5f, 0.0f, 0.0f });
+					break;
+				case ESoundId::SOUND_STEP_LEFT:
+					//Play random step sound
+					coordinator->GetSystem<AudioSystem>()->Play(RandType(8, 11).Value(), 0, false,
+						RandType(0.8f, 1.1f).Value(), RandType(2.0f, 2.4f).Value(),
+						false, ev.GetEntity(), { 0.5f, 0.0f, 0.0f });
+					break;
+				default: break;
+				}
+			}
+		}
+	}
 	//Check keyboard input to move the player
 	void CheckKeys() {
 		GamePlayerData& player_data = players.GetData().front();
