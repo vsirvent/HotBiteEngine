@@ -85,22 +85,19 @@ public:
 		camera = c;
 	}
 	
-	void Init(World& world) {
+	void SetupAnimations(World& world) {
 
 		//Add the animation events we want to receive to play player sounds
-		auto skeleton = world.GetSkeletons().Get(ANIM_IDLE);
-		assert(*skeleton != nullptr && "Invalid idle animation");
-		assert((*skeleton)->AddAnimationFrameEvent(1, ESoundId::SOUND_STEP_LEFT) == true);
-		
-		skeleton = world.GetSkeletons().Get(ANIM_WALK);
+		auto skeleton = world.GetSkeletons().Get(ANIM_WALK);
 		assert(*skeleton != nullptr && "Invalid walk animation");
-		assert((*skeleton)->AddAnimationFrameEvent(2, ESoundId::SOUND_STEP_LEFT) == true);
-		assert((*skeleton)->AddAnimationFrameEvent(4, ESoundId::SOUND_STEP_RIGHT) == true);
+		(*skeleton)->AddAnimationFrameEvent(2, ESoundId::SOUND_STEP_LEFT);
+		(*skeleton)->AddAnimationFrameEvent(4, ESoundId::SOUND_STEP_RIGHT);
 
 		skeleton = world.GetSkeletons().Get(ANIM_RUN);
 		assert(*skeleton != nullptr && "Invalid run animation");
-		assert((*skeleton)->AddAnimationFrameEvent(1, ESoundId::SOUND_STEP_LEFT) == true);
-		assert((*skeleton)->AddAnimationFrameEvent(3, ESoundId::SOUND_STEP_RIGHT) == true);
+		(*skeleton)->AddAnimationFrameEvent(1, ESoundId::SOUND_STEP_LEFT);
+		(*skeleton)->AddAnimationFrameEvent(3, ESoundId::SOUND_STEP_RIGHT);
+		printf("Animation events configured\n");
 	}
 
 	void OnRegister(ECS::Coordinator* c) override {

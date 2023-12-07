@@ -373,7 +373,7 @@ public:
 
 		background_music = c->GetSystem<AudioSystem>()->Play(1, 0, true, 1.0f, 0.01f);
 		c->GetSystem<AudioSystem>()->Play(6, 0, true, 1.0f, 0.2f);
-		c->GetSystem<GamePlayerSystem>()->Init(world);
+		c->GetSystem<GamePlayerSystem>()->SetupAnimations(world);
 	}
 
 	virtual ~GameDemoApplication() {
