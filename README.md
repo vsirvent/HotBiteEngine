@@ -29,6 +29,7 @@ Engine features:
 - Environment: Sky system with real datetime day/night, celestial sky and procedural clouds.
 - Post processing chain, like depth of field, Bloom, Motion Blur…
 - Fbx loading
+- 3D Audio
 - Pathfinding: A*
 …
 
