@@ -3,7 +3,7 @@
 
 using namespace HotBite::Engine::Core;
 
-#define BUFF_PLAY (out_wave_type.nAvgBytesPerSec / 3)
+#define BUFF_PLAY (out_wave_type.nAvgBytesPerSec / 10)
 
 SoundDevice* SoundDevice::sound_device = nullptr;
 
@@ -96,7 +96,7 @@ SoundDeviceGrabber::~SoundDeviceGrabber() {
 }
 
 
-HRESULT SoundDeviceGrabber::CreateSecondaryBuffer(WAVEFORMATEX* waveFormat) {
+HRESULT SoundDeviceGrabber::CreateSecondaryBuffer(WAVEFORMATEX* fmt) {
 
     LPDIRECTSOUNDBUFFER  pBuffer;
     DSBUFFERDESC dsbdesc;
@@ -106,7 +106,7 @@ HRESULT SoundDeviceGrabber::CreateSecondaryBuffer(WAVEFORMATEX* waveFormat) {
         buffer->Release();
     }
 
-    out_wave_type = *waveFormat;
+    out_wave_type = *fmt;
 
     // Set up DSBUFFERDESC structure. 
     memset(&dsbdesc, 0, sizeof(DSBUFFERDESC));
@@ -140,7 +140,8 @@ SoundDeviceGrabber::write(BYTE* pBufferData, long BufferLen)
 
     buffer->GetCurrentPosition(&readPos, &writePos);
     DWORD endWritePos = (offset + BufferLen) % BUFF_PLAY;
-    if (offset <= readPos && endWritePos >= readPos) {
+    if ((offset <= readPos && endWritePos >= readPos) ||
+        (offset >= readPos && (offset - readPos) < SoundDevice::BUFFER_OFFSET/4)) {
         printf("SoundDeviceGrabber::write: Reset audio buffer\n");
         offset = (readPos + SoundDevice::BUFFER_OFFSET) % BUFF_PLAY;
     }

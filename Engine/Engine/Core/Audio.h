@@ -57,7 +57,7 @@ namespace HotBite {
                 static constexpr int64_t AUDIO_PERIOD_MS = 10;
                 static constexpr int32_t BUFFER_SAMPLES = (AUDIO_PERIOD_MS * FREQ * CHANNELS) / 1000;
                 static constexpr int32_t BUFFER_BYTES = BUFFER_SAMPLES * 2;
-                static constexpr int32_t BUFFER_OFFSET = BUFFER_BYTES * 2;
+                static constexpr int32_t BUFFER_OFFSET = BUFFER_BYTES;
 
                 LPDIRECTSOUND8 GetDevice(void);
                 LPDIRECTSOUNDCAPTUREBUFFER8 GetCaptureDevice(void);
@@ -75,7 +75,7 @@ namespace HotBite {
                 DWORD offset;
                 WAVEFORMATEX out_wave_type;
 
-                HRESULT CreateSecondaryBuffer(WAVEFORMATEX* = NULL);
+                HRESULT CreateSecondaryBuffer(WAVEFORMATEX* fmt = nullptr);
 
             public:
 

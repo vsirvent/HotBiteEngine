@@ -204,8 +204,7 @@ void AudioSystem::CalculatePointPhysics(PlayInfoPtr info, const float3& point, E
 	}
 	physics.dist_attenuation = (1.0 / d2)*A + physics.dist_attenuation*B;
 	
-	//Calculate delay
-	static const double sound_speed = 343.0;
+	//Calculate delay	
 	double time_delay = physics.distance / sound_speed;
 	physics.offset = (float)time_delay * (float)Core::SoundDevice::FREQ* (float)Core::SoundDevice::CHANNELS;
 	physics.lock.unlock();
@@ -221,8 +220,8 @@ void AudioSystem::CalculateAngleAttenuation(PlayInfoPtr info) {
 	double dleft = info->physics[EMic::LEFT].distance;
 	double dright = info->physics[EMic::RIGHT].distance;
 	double diffLeft = dleft - dright;
-	double attLeft = MIN_ATT + (MAX_ATT - MIN_ATT) * ((diffLeft + MIC_DISTANCE) / (2.0 * MIC_DISTANCE));
-	double attRight = MIN_ATT + (MAX_ATT - MIN_ATT) * ((-diffLeft + MIC_DISTANCE) / (2.0 * MIC_DISTANCE));
+	double attLeft = MIN_ATT + (MAX_ATT - MIN_ATT) * ((diffLeft + mic_distance) / (2.0 * mic_distance));
+	double attRight = MIN_ATT + (MAX_ATT - MIN_ATT) * ((-diffLeft + mic_distance) / (2.0 * mic_distance));
 	info->physics[EMic::LEFT].angle_attenuation = attLeft * A + info->physics[EMic::LEFT].angle_attenuation * B;	
 	info->physics[EMic::RIGHT].angle_attenuation = attRight * A + info->physics[EMic::RIGHT].angle_attenuation * B;
 
@@ -671,3 +670,18 @@ bool AudioSystem::SimSoundSpeed(PlayId id, bool simulate_sound_speed) {
 	return true;
 }
 
+void AudioSystem::SetMicDistance(double dist_meters) {
+	mic_distance = dist_meters;
+}
+
+double AudioSystem::GetMicDistance() {
+	return mic_distance;
+}
+
+void AudioSystem::SetSoundSpeed(double speed_meters_per_sec) {
+	sound_speed = speed_meters_per_sec;
+}
+
+double AudioSystem::GetSoundSpeed() {
+	return sound_speed;
+}

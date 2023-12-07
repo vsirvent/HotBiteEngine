@@ -98,8 +98,9 @@ namespace HotBite {
                     NUM_MICS
                 };
 
-                static constexpr double MIC_DISTANCE = 0.5;
-                static constexpr double HALF_MIC_DISTANCE = MIC_DISTANCE/2.0; //30 cm
+                double mic_distance = 0.5;
+                double sound_speed = 343.0;
+
                 //relative mic positions
                 float3 relative_mic_position[NUM_MICS] = { { HALF_MIC_DISTANCE, 0.0f, 0.0f }, { -HALF_MIC_DISTANCE, 0.0f, 0.0f } };
                 vector3d vrelative_mic_position[NUM_MICS];
@@ -232,6 +233,12 @@ namespace HotBite {
 
                 std::optional<bool> GetSimSoundSpeed(PlayId id);
                 bool SimSoundSpeed(PlayId id, bool loop);
+
+                void SetMicDistance(double dist_meters);
+                double GetMicDistance();
+
+                void SetSoundSpeed(double speed_meters_per_sec);
+                double GetSoundSpeed();
             };
         }
     }
