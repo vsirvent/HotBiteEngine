@@ -442,7 +442,6 @@ HRESULT DXCore::InitDirectX()
 #endif
 	// Return the "everything is ok" HRESULT value
 	Direct2D::Init();
-
 	return S_OK;
 }
 

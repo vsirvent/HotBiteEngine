@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|Win32">
@@ -160,6 +160,7 @@
     <ClCompile Include="Engine\Components\Camera.cpp" />
     <ClCompile Include="Engine\Components\Lights.cpp" />
     <ClCompile Include="Engine\Components\Physics.cpp" />
+    <ClCompile Include="Engine\Core\Audio.cpp" />
     <ClCompile Include="Engine\Core\DXCore.cpp" />
     <ClCompile Include="Engine\Core\Material.cpp" />
     <ClCompile Include="Engine\Core\Mesh.cpp" />
@@ -180,6 +181,7 @@
     <ClCompile Include="Engine\Network\LockStepClient.cpp" />
     <ClCompile Include="Engine\Network\LockStepServer.cpp" />
     <ClCompile Include="Engine\Systems\AnimationSystem.cpp" />
+    <ClCompile Include="Engine\Systems\AudioSystem.cpp" />
     <ClCompile Include="Engine\Systems\CameraSystem.cpp" />
     <ClCompile Include="Engine\Systems\DirectionalLightSystem.cpp" />
     <ClCompile Include="Engine\Systems\ParticleSystem.cpp" />
@@ -200,6 +202,7 @@
     <ClInclude Include="Engine\Components\Particles.h" />
     <ClInclude Include="Engine\Components\Physics.h" />
     <ClInclude Include="Engine\Components\Sky.h" />
+    <ClInclude Include="Engine\Core\Audio.h" />
     <ClInclude Include="Engine\Core\LockingQueue.h" />
     <ClInclude Include="Engine\Core\DXCore.h" />
     <ClInclude Include="Engine\Core\Interfaces.h" />
@@ -241,6 +244,7 @@
     <ClInclude Include="Engine\Network\LockStepClient.h" />
     <ClInclude Include="Engine\Network\LockStepServer.h" />
     <ClInclude Include="Engine\Systems\AnimationSystem.h" />
+    <ClInclude Include="Engine\Systems\AudioSystem.h" />
     <ClInclude Include="Engine\Systems\CameraSystem.h" />
     <ClInclude Include="Engine\Systems\DirectionalLightSystem.h" />
     <ClInclude Include="Engine\Systems\ParticleSystem.h" />

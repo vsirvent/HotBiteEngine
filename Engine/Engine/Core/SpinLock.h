@@ -37,10 +37,13 @@ namespace HotBite {
              */
             class spin_lock {
             private:
-                std::atomic<bool> l = { false };
+                std::atomic<bool> l{ false };
 
             public:
-                void lock() noexcept {
+                spin_lock(){}
+                spin_lock(const spin_lock& other) {}
+                spin_lock& operator=(const spin_lock& other) { return *this; }
+                void lock() {
                     while (true) {
                         if (!l.exchange(true, std::memory_order_acquire)) {
                             return;
@@ -51,12 +54,25 @@ namespace HotBite {
                     }
                 }
 
-                bool try_lock() noexcept {
+                bool try_lock() {
                     return !l.load(std::memory_order_relaxed) && !l.exchange(true, std::memory_order_acquire);
                 }
 
-                void unlock() noexcept {
+                void unlock() {
                     l.store(false, std::memory_order_release);
+                }
+            };
+
+            template <typename L>
+            class AutoLock {
+                L& l;
+            public:
+                AutoLock(L& lock) : l(lock) {
+                    l.lock();
+                }
+
+                ~AutoLock() {
+                    l.unlock();
                 }
             };
 

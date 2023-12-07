@@ -26,6 +26,7 @@ SOFTWARE.
 #include <cmath>
 #include <Core\Mesh.h>
 #include <Core\SimpleShader.h>
+#include <Core\SpinLock.h>
 
 namespace HotBite {
 	namespace Engine {
@@ -163,11 +164,21 @@ namespace HotBite {
 
 					ret = bp * (m0 * w0 + m1 * w1);
 					if (!animation->key_frames.empty() && (k1 + 1) >= animation->key_frames.size() && coordinator != nullptr) {
-						end_animation_event.SetParam<int>(EVENT_PARAM_ANIMATION_ID, anim.id);
-						end_animation_event.SetParam<const std::string&>(EVENT_PARAM_ANIMATION_NAME, anim.name);
+						end_animation_event.SetParam(EVENT_PARAM_ANIMATION_ID, anim.id);
+						end_animation_event.SetParam(EVENT_PARAM_ANIMATION_NAME, anim.name);
 						coordinator->SendEvent(end_animation_event);						
-					}					
-					anim.key_frame = k0;
+					}
+					if (anim.key_frame != k0) {
+						anim.key_frame = k0;
+						Core::AutoLock l(animation->lock);
+						if (const auto it = animation->frame_events.find(k0); it != animation->frame_events.cend()) {
+							ECS::Event frame_event(this, entity, EVENT_ID_ANIMATION_FRAME_EVENT);			
+							frame_event.SetParam(EVENT_PARAM_ANIMATION_NAME, anim.name);
+							frame_event.SetParam(EVENT_PARAM_ANIMATION_FRAME, it->first);
+							frame_event.SetParam(EVENT_PARAM_ANIMATION_FRAME_ID, it->second.ids);
+							coordinator->SendEvent(frame_event);
+						}
+					}
 				}
 				return ret;
 			}

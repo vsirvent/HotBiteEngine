@@ -37,6 +37,8 @@ namespace HotBite {
 	namespace Engine {
 		namespace Core {
 
+            #define RELEASE_PTR(x) { if (x != nullptr) { x->Release(); x = nullptr; }}
+            #define DELETE_PTR(x) { if (x != nullptr) { delete x; x = nullptr; }}
             #define RGA_NOISE_W 256
             #define RGBA_NOISE_H 256
             #define RGBA_NOISE_LEN (RGA_NOISE_W*RGBA_NOISE_H*4)
@@ -65,6 +67,27 @@ namespace HotBite {
             uint64_t GetTypeId() {
                 return (uint64_t)(typeid(T).hash_code());
             }
+
+            template <typename T>
+            class RandType {
+            private:
+                T vmin{};
+                T vmax{};
+
+            public:
+
+                RandType() {}
+                RandType(const T& min_val, const T& max_val) :vmin(min_val), vmax(max_val) {
+                }
+
+                bool Init() {
+                    return vmin != vmax;
+                }
+
+                T Value() const {
+                    return (T)(vmin + (((T)std::rand()) * (vmax - vmin)) / (T)RAND_MAX);
+                }
+            };
 
             template <class T, int grid_value>
             class SpaceTree {

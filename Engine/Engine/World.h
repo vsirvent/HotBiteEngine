@@ -42,6 +42,7 @@ SOFTWARE.
 #include <Systems\SkySystem.h>
 #include <Systems\ParticleSystem.h>
 #include <Systems\AnimationSystem.h>
+#include <Systems\AudioSystem.h>
 #include <Components\Base.h>
 #include <Components\Camera.h>
 #include <Components\Lights.h>
@@ -105,6 +106,7 @@ namespace HotBite {
 			std::shared_ptr<Systems::SkySystem> sky_system;
 			std::shared_ptr<Systems::AnimationMeshSystem> animation_mesh_system;
 			std::shared_ptr<Systems::ParticleSystem> particle_system;
+			std::shared_ptr<Systems::AudioSystem> audio_system;
 
 			bool init = false;
 			std::unordered_map<std::string, std::shared_ptr<ECS::System>> systems_by_name;

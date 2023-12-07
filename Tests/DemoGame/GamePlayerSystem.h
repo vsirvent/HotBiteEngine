@@ -26,6 +26,7 @@ SOFTWARE.
 
 #include <Core\PhysicsCommon.h>
 #include <Core\DXCore.h>
+#include <Core\Utils.h>
 #include <World.h>
 #include <Windows.h>
 #include <Systems\RTSCameraSystem.h>
@@ -53,7 +54,7 @@ class GamePlayerSystem : public Systems::PlayerSystem, public ECS::EventListener
 public:
 	static inline HotBite::Engine::ECS::EventId EVENT_ID_PLAYER_DAMAGED = HotBite::Engine::ECS::GetEventId<GamePlayerSystem>(0x00);
 	static inline HotBite::Engine::ECS::EventId EVENT_ID_PLAYER_DEAD = HotBite::Engine::ECS::GetEventId<GamePlayerSystem>(0x01);
-
+	
 private:
 	ECS::Coordinator* coordinator = nullptr;
 	std::unique_ptr<GamePlayerData> spawn_data;
@@ -68,6 +69,14 @@ private:
 	std::map<eAnimType, int> animation_count; //Used to avoid spurious animation transitions
 	std::shared_ptr<PhysicsSystem> physics = nullptr;
 
+	enum ESoundId {
+		SOUND_STEP_LEFT,
+		SOUND_STEP_RIGHT
+	};
+	const std::string ANIM_IDLE = "archer_idle";
+	const std::string ANIM_WALK = "archer_walk";
+	const std::string ANIM_RUN = "archer_run";
+
 public:
 
 	//System needs the camera to move the player
@@ -76,6 +85,21 @@ public:
 		camera = c;
 	}
 	
+	void SetupAnimations(World& world) {
+
+		//Add the animation events we want to receive to play player sounds
+		auto skeleton = world.GetSkeletons().Get(ANIM_WALK);
+		assert(*skeleton != nullptr && "Invalid walk animation");
+		(*skeleton)->AddAnimationFrameEvent(2, ESoundId::SOUND_STEP_LEFT);
+		(*skeleton)->AddAnimationFrameEvent(4, ESoundId::SOUND_STEP_RIGHT);
+
+		skeleton = world.GetSkeletons().Get(ANIM_RUN);
+		assert(*skeleton != nullptr && "Invalid run animation");
+		(*skeleton)->AddAnimationFrameEvent(1, ESoundId::SOUND_STEP_LEFT);
+		(*skeleton)->AddAnimationFrameEvent(3, ESoundId::SOUND_STEP_RIGHT);
+		printf("Animation events configured\n");
+	}
+
 	void OnRegister(ECS::Coordinator* c) override {
 		this->coordinator = c;
 		EventListener::Init(c);
@@ -98,6 +122,7 @@ public:
 			spawn_transform = pd.physics->body->getTransform();
 			players.Insert(entity, GamePlayerData{ coordinator, entity });
 			AddEventListenerByEntity(Mesh::EVENT_ID_ANIMATION_END, entity, std::bind(&GamePlayerSystem::OnAnimationEnd, this, std::placeholders::_1));
+			AddEventListenerByEntity(Mesh::EVENT_ID_ANIMATION_FRAME_EVENT, entity, std::bind(&GamePlayerSystem::OnAnimationFrameEvent, this, std::placeholders::_1));
 		}
 		else {
 			players.Remove(entity);
@@ -112,11 +137,17 @@ public:
 		}
 	}
 
+	bool play_damage = true;
 	void OnPlayerDamaged(ECS::Event& e) {
 		GamePlayerData* player = players.Get(e.GetEntity());
 		if (player != nullptr) {
 			if (player->creature->current_health <= 0.0f) {
 				coordinator->SendEvent(this, player->base->id, GamePlayerSystem::EVENT_ID_PLAYER_DEAD);
+			}
+			if (play_damage) {
+				coordinator->GetSystem<AudioSystem>()->Play(7, 0, false, RandType(0.8f, 1.0f).Value(), 1.0f, false, player->base->id);
+				play_damage = false;
+				Scheduler::Get()->RegisterTimer(MSEC_TO_NSEC(500), [&p = play_damage](const Scheduler::TimerData&) { p = true; return false; });
 			}
 		}		
 	}
@@ -182,10 +213,10 @@ public:
 		reactphysics3d::Vector3 speed = physics->body->getLinearVelocity();
 		bool done = false;
 		if (!done && player->is_attacking) {
-			float3 dir = p.transform->position - camera.camera->world_position;
+			float3 dir = camera.camera->world_position - p.transform->position;
 			dir.y = 0.0f;
 			PlayerSystem::LookAt(&p, dir, 0.1f);
-			p.mesh->SetAnimation(p.creature->animations[CreatureAnimations::ANIM_ATTACK], false, true);
+			p.mesh->SetAnimation(p.creature->animations[CreatureAnimations::ANIM_ATTACK], false, true);			
 			done = true;
 		}
 		if (!done && distance_to_terrain > 0.4f) {
@@ -236,6 +267,7 @@ public:
 			!player_data.player->is_attacking) {
 			PlayerSystem::Move(&player_data, {});
 			player_data.player->is_attacking = true;
+			coordinator->GetSystem<AudioSystem>()->Play(16, 2000, false, RandType(0.8f, 1.0f).Value(), 2.0f, false, player_data.base->id);
 		}
 	}
 
@@ -248,6 +280,31 @@ public:
 				player_data.player->is_attacking = false;
 			}
 		}
+	}
+
+	void OnAnimationFrameEvent(ECS::Event& ev) {
+		const std::string& anim_name = ev.GetParam<std::string>(Mesh::EVENT_PARAM_ANIMATION_NAME);
+		const int& frame = ev.GetParam<int>(Mesh::EVENT_PARAM_ANIMATION_FRAME);
+		const std::unordered_set<int>& ids = ev.GetParam<std::unordered_set<int>>(Mesh::EVENT_PARAM_ANIMATION_FRAME_ID);
+		if (anim_name == ANIM_WALK || anim_name == ANIM_RUN) {
+			for (const int id : ids) {
+				switch (id) {
+				case ESoundId::SOUND_STEP_RIGHT:
+					//Play random step sound
+					coordinator->GetSystem<AudioSystem>()->Play(RandType(8, 11).Value(), 0, false,
+						RandType(0.8f, 1.1f).Value(), RandType(2.0f, 2.4f).Value(),
+						false, ev.GetEntity(), { -0.5f, 0.0f, 0.0f });
+					break;
+				case ESoundId::SOUND_STEP_LEFT:
+					//Play random step sound
+					coordinator->GetSystem<AudioSystem>()->Play(RandType(8, 11).Value(), 0, false,
+						RandType(0.8f, 1.1f).Value(), RandType(2.0f, 2.4f).Value(),
+						false, ev.GetEntity(), { 0.5f, 0.0f, 0.0f });
+					break;
+				default: break;
+				}
+			}
+		}		
 	}
 
 	//Check keyboard input to move the player
@@ -282,6 +339,7 @@ public:
 			//Jump with space, can_jump is managed by PlayerSystem during update call.
 			if (GetAsyncKeyState(VK_SPACE) & 0x8000 && player_data.player->can_jump == true)
 			{
+				coordinator->GetSystem<AudioSystem>()->Play(14, 0, false, RandType(0.8f, 1.1f).Value(), RandType(1.5f, 1.8f).Value(), false, player_data.base->id);
 				PlayerSystem::Jump(&player_data, { 0.f, 100.f, 0.f });
 			}
 			if (LENGHT_SQUARE_F3(move_dir) > 0.0f) {
