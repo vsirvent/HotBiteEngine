@@ -670,8 +670,10 @@ bool AudioSystem::SimSoundSpeed(PlayId id, bool simulate_sound_speed) {
 	return true;
 }
 
-void AudioSystem::SetMicDistance(double dist_meters) {
+void AudioSystem::SetMicDistance(float dist_meters) {
 	mic_distance = dist_meters;
+	relative_mic_position[0] = { mic_distance / 2.0f, 0.0f, 0.0f };
+	relative_mic_position[1] = { -mic_distance / 2.0f, 0.0f, 0.0f };
 }
 
 double AudioSystem::GetMicDistance() {
