@@ -102,7 +102,7 @@ namespace HotBite {
                 double sound_speed = 343.0;
 
                 //relative mic positions
-                float3 relative_mic_position[NUM_MICS] = { { HALF_MIC_DISTANCE, 0.0f, 0.0f }, { -HALF_MIC_DISTANCE, 0.0f, 0.0f } };
+                float3 relative_mic_position[NUM_MICS] = { { mic_distance / 2.0, 0.0f, 0.0f }, { -mic_distance / 2.0, 0.0f, 0.0f } };
                 vector3d vrelative_mic_position[NUM_MICS];
                 //absolute mic positions
                 Core::spin_lock mic_lock;
