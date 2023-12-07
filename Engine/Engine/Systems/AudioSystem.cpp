@@ -660,7 +660,7 @@ std::optional<bool> AudioSystem::GetSimSoundSpeed(PlayId id) {
 	return it->second->offset;
 }
 
-bool AudioSystem::SimSoundSpeed(PlayId id, bool simulate_sound_speed) {
+bool AudioSystem::SetSimSoundSpeed(PlayId id, bool simulate_sound_speed) {
 	AutoLock l(lock);
 	auto it = playlist.find(id);
 	if (it == playlist.cend()) {
@@ -671,6 +671,7 @@ bool AudioSystem::SimSoundSpeed(PlayId id, bool simulate_sound_speed) {
 }
 
 void AudioSystem::SetMicDistance(float dist_meters) {
+	AutoLock l(lock);
 	mic_distance = dist_meters;
 	relative_mic_position[0] = { mic_distance / 2.0f, 0.0f, 0.0f };
 	relative_mic_position[1] = { -mic_distance / 2.0f, 0.0f, 0.0f };

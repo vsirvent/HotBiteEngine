@@ -233,7 +233,7 @@ namespace HotBite {
                 bool SetLoop(PlayId id, bool loop);
 
                 std::optional<bool> GetSimSoundSpeed(PlayId id);
-                bool SimSoundSpeed(PlayId id, bool loop);
+                bool SetSimSoundSpeed(PlayId id, bool loop);
 
                 void SetMicDistance(float dist_meters);
                 double GetMicDistance();
