@@ -43,6 +43,7 @@ World::World() {
 
 World::~World() {
 	Release();
+	EventListener::Reset();
 }
 
 void World::SetupCoordinator(ECS::Coordinator* c) {
@@ -870,7 +871,7 @@ void World::Stop() {
 	for (int i = 0; i < DXCore::NTHREADS; ++i) {
 		render_system->mutex.lock();
 		physics_mutex.lock();
-		while (run_timer_ids[i].empty()) {
+		while (!run_timer_ids[i].empty()) {
 			Scheduler::Get(i)->RemoveTimer(run_timer_ids[i].front());
 			run_timer_ids[i].pop_front();
 		}

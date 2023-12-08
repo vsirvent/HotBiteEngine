@@ -27,10 +27,41 @@ SOFTWARE.
 #include <WICTextureLoader.h>
 #include <Core/DXCore.h>
 #include <fstream>
+#include <sstream>
+#include <iostream>
+#include <iomanip>
 
 namespace HotBite {
 	namespace Engine {
 		namespace Core {
+
+			float3 parseColorStringF3(const std::string& colorString) {
+				float4 color = parseColorStringF4(colorString);
+				return { color.x, color.y, color.z };
+			}
+
+			float4 parseColorStringF4(const std::string& colorString) {
+				// Check if the string has the correct format
+				if (colorString.size() != 9 || colorString[0] != '#') {
+					printf("Invalid color string format %s\n", colorString.c_str());
+					return {};
+				}
+
+				float r, g, b, a;
+
+				// Extract RR, GG, BB, AA substrings
+				std::string rr = colorString.substr(1, 2);
+				std::string gg = colorString.substr(3, 2);
+				std::string bb = colorString.substr(5, 2);
+				std::string aa = colorString.substr(7, 2);
+
+				// Convert substrings to integers
+				r = (float)std::stoi(rr, nullptr, 16) / 255.0f;
+				g = (float)std::stoi(gg, nullptr, 16) / 255.0f;
+				b = (float)std::stoi(bb, nullptr, 16) / 255.0f;
+				a = (float)std::stoi(aa, nullptr, 16) / 255.0f;
+				return { r, g, b, a };
+			}
 
 			void SetFlag(uint32_t& bitset, uint32_t flag) {
 				UpdateFlag(bitset, flag, true);

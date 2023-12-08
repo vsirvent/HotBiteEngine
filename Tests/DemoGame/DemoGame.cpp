@@ -42,6 +42,8 @@ SOFTWARE.
 #include "EnemySystem.h"
 #include "GameCameraSystem.h"
 
+#pragma comment(lib, "Engine.lib")
+
 using namespace std;
 using namespace HotBite::Engine;
 using namespace HotBite::Engine::Core;

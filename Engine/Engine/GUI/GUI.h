@@ -75,6 +75,10 @@ namespace HotBite {
 					}
 				}
 
+				void Reset() {
+					widgets.clear();
+				}
+
 				std::shared_ptr<Widget> GetWidget(const std::string& name) {
 					std::shared_ptr<Widget> ret;
 					auto w = widgets.find(name);

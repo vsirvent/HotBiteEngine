@@ -46,16 +46,17 @@ AudioSystem::PlayInfo::PlayInfo(const AudioClip* _clip, float _speed, float _vol
 }
 
 bool AudioSystem::Config(const std::string& root_folder, const nlohmann::json& config) {
+	bool ret = true;
 	Reset();
 	auto& clips = config["clips"];
 
 	//Load audio clips
 	for (const auto& c : clips) {
 		if (!LoadSound(root_folder + std::string(c["file"]), c["id"])) {
-			return false;
+			ret = false;
 		}
 	}
-	return true;
+	return ret;
 }
 
 void AudioSystem::OnRegister(ECS::Coordinator* c) {
@@ -594,7 +595,7 @@ void AudioSystem::Stop(PlayId id) {
 	}
 }
 
-std::optional<float> AudioSystem::GetSpeed(PlayId id) {
+std::optional<float> AudioSystem::GetSpeed(PlayId id) const {
 	AutoLock l(lock);
 	const auto it = playlist.find(id);
 	if (it == playlist.cend()) {
@@ -613,7 +614,7 @@ bool AudioSystem::SetSpeed(PlayId id, float speed) {
 	return true;
 }
 
-std::optional<float> AudioSystem::GetVol(PlayId id) {
+std::optional<float> AudioSystem::GetVol(PlayId id) const {
 	AutoLock l(lock);
 	const auto it = playlist.find(id);
 	if (it == playlist.cend()) {
@@ -632,7 +633,7 @@ bool AudioSystem::SetVol(PlayId id, float vol) {
 	return true;
 }
 
-std::optional<bool> AudioSystem::GetLoop(PlayId id) {
+std::optional<bool> AudioSystem::GetLoop(PlayId id) const {
 	AutoLock l(lock);
 	auto it = playlist.find(id);
 	if (it == playlist.cend()) {
@@ -651,7 +652,7 @@ bool AudioSystem::SetLoop(PlayId id, bool loop) {
 	return true;
 }
 
-std::optional<bool> AudioSystem::GetSimSoundSpeed(PlayId id) {
+std::optional<bool> AudioSystem::GetSimSoundSpeed(PlayId id) const {
 	AutoLock l(lock);
 	auto it = playlist.find(id);
 	if (it == playlist.cend()) {
@@ -677,7 +678,7 @@ void AudioSystem::SetMicDistance(float dist_meters) {
 	relative_mic_position[1] = { -mic_distance / 2.0f, 0.0f, 0.0f };
 }
 
-double AudioSystem::GetMicDistance() {
+double AudioSystem::GetMicDistance() const {
 	return mic_distance;
 }
 
@@ -685,6 +686,6 @@ void AudioSystem::SetSoundSpeed(double speed_meters_per_sec) {
 	sound_speed = speed_meters_per_sec;
 }
 
-double AudioSystem::GetSoundSpeed() {
+double AudioSystem::GetSoundSpeed() const {
 	return sound_speed;
 }

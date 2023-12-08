@@ -46,6 +46,9 @@ namespace HotBite {
 #define DISTF2_2(p) (p.x * p.x + p.y * p.y)
 #define DIST2(p) (p.x * p.x + p.y * p.y + p.z * p.z)
 
+            float3 parseColorStringF3(const std::string& colorString);
+            float4 parseColorStringF4(const std::string& colorString);
+
             void SetFlag(uint32_t& bitset, uint32_t flag);
             void ClearFlag(uint32_t& bitset, uint32_t flag);
             void UpdateFlag(uint32_t& bitset, uint32_t flag, bool active);

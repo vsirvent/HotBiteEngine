@@ -54,8 +54,6 @@ SOFTWARE.
 #include <ECS\Types.h>
 #include <Network\Commons.h>
 
-#pragma comment(lib, "Engine.lib")
-
 namespace HotBite {
 	namespace Engine {
 		class World: public ECS::IEventSender, public ECS::EventListener {

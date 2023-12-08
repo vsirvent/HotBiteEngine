@@ -29,6 +29,7 @@ SOFTWARE.
 #include <Core/PostProcess.h>
 #include <Core/Texture.h>
 #include <Core\Utils.h>
+#include <Core\Json.h>
 #include <Components\Base.h>
 #include <SpriteBatch.h>
 #include <SpriteFont.h>
@@ -36,6 +37,7 @@ SOFTWARE.
 #include <Effects.h>
 #include <variant>
 
+using namespace nlohmann;
 using namespace HotBite::Engine;
 using namespace HotBite::Engine::Core;
 using namespace DirectX;
@@ -82,6 +84,19 @@ namespace HotBite {
 				ECS::Coordinator* coordinator;
 
 			public:
+				Widget(ECS::Coordinator* c, const json& config): coordinator(c) {
+					name = config["name"];
+					sprite = std::make_unique<PrimitiveBatch<VertexType>>(DXCore::Get()->context);
+					id = coordinator->CreateEntity(name);
+					SetLayer(config["layer"]);
+					SetVisible(config["visible"]);
+					SetBackGroundImage(config["background_image"]);
+					SetBackgroundColor(parseColorStringF4(config["background_color"]));
+					SetBackgroundAlphaColor(parseColorStringF3(config["background_alpha_color"]));
+					SetPosition({ config["x"], config["y"] });
+					SetHeight(config["height"]);
+					SetWidth(config["width"]);
+				}
 
 				Widget(ECS::Coordinator* c, const std::string& widget_name) : name(widget_name), coordinator(c) {
 					sprite = std::make_unique<PrimitiveBatch<VertexType>>(DXCore::Get()->context);
