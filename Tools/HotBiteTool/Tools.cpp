@@ -31,16 +31,35 @@ namespace HotBiteTool {
 			world.Run(60);
 		}
 
-		void ToolUi::LoadUI(const json& ui) {
+		void ToolUi::LoadUI(json ui) {
 			world.GetCoordinator()->GetSystem<RenderSystem>()->mutex.lock();
 			ECS::Coordinator* c = world.GetCoordinator();
 			gui->Reset();
 			auto& ui_node = ui["ui"];
 			auto& widgets = ui_node["widgets"];
-			for (const auto& widget : widgets) {
+			std::unordered_map<std::string, std::shared_ptr<Widget>> widget_by_name;
+			for (auto& widget : widgets) {
 				if (widget["type"] == "widget") {
 					//Create the UI in the GUI post process stage
-					std::shared_ptr<UI::Widget> w = std::make_shared<UI::Widget>(c, widget);
+					std::string name = (std::string)widget["name"];
+					widget["name"] = name.c_str();
+					std::shared_ptr<UI::Widget> w = std::make_shared<UI::Widget>(c, widget, ui_node["root"]);
+					widget_by_name[w->GetName()] = w;
+				}
+			}
+			for (const auto& widget : widgets) {
+				std::string name = widget["name"];
+				auto w = widget_by_name[name];
+				if (widget.contains("parent")) {
+					std::string parent = widget["parent"];
+					if (auto it = widget_by_name.find(parent); it != widget_by_name.end()) {
+						it->second->AddWidget(w);
+					}
+					else {
+						gui->AddWidget(w);
+					}
+				}
+				else {
 					gui->AddWidget(w);
 				}
 			}

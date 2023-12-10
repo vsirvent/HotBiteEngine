@@ -84,15 +84,19 @@ namespace HotBite {
 				ECS::Coordinator* coordinator;
 
 			public:
-				Widget(ECS::Coordinator* c, const json& config): coordinator(c) {
+				Widget(ECS::Coordinator* c, const json& config, const std::string& root): coordinator(c) {
 					name = config["name"];
 					sprite = std::make_unique<PrimitiveBatch<VertexType>>(DXCore::Get()->context);
 					id = coordinator->CreateEntity(name);
 					SetLayer(config["layer"]);
 					SetVisible(config["visible"]);
-					SetBackGroundImage(config["background_image"]);
+					std::string background_image = config["background_image"];
+					if (!background_image.empty()) {
+						SetBackGroundImage(root + "\\" + background_image);
+					}
 					SetBackgroundColor(parseColorStringF4(config["background_color"]));
 					SetBackgroundAlphaColor(parseColorStringF3(config["background_alpha_color"]));
+					SetBackgroundAlpha(config["background_alpha"]);
 					SetPosition({ config["x"], config["y"] });
 					SetHeight(config["height"]);
 					SetWidth(config["width"]);

@@ -4,7 +4,10 @@
 using namespace System;
 using namespace System::Windows::Forms;
 
-void main() {
+[STAThread]
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
+{
+
 	Application::EnableVisualStyles();
 	Application::SetCompatibleTextRenderingDefault(false);
 
@@ -12,4 +15,5 @@ void main() {
 	form->Show();
 
 	HotBiteTool::ToolUi::Run();
+	return 0;
 }

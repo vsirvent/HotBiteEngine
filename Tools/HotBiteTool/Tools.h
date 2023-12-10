@@ -27,7 +27,7 @@ namespace HotBiteTool {
 			ToolUi(HINSTANCE hInstance, HWND parent);
 			virtual ~ToolUi();
 
-			void LoadUI(const json& ui);
+			void LoadUI(json ui);
 			ECS::Coordinator* GetCoordinator();
 		};
 	}

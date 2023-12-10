@@ -18,6 +18,9 @@ using namespace System::ComponentModel;
 using namespace System::ComponentModel::DataAnnotations;
 using namespace System::ComponentModel;
 using namespace System::Globalization;
+using namespace System::Windows::Forms;
+using namespace System::Drawing::Design;
+using namespace System::IO;
 
 namespace HotBite {
 	namespace Engine {
@@ -62,14 +65,21 @@ const T& AbstractProp::GetValue() {
 	return p->value;
 }
 
+public interface class IWidgetListener {
+public:
+	virtual void OnNameChanged(String^ old_name, String^ new_name) abstract;
+};
+
 class Widget {
 public:
 	std::map<std::string, std::shared_ptr<AbstractProp>> props;
-	Widget()
+	std::list<Widget*> widgets;
+	Widget* parent = nullptr;
+	gcroot<IWidgetListener^> listener = nullptr;
+	Widget(IWidgetListener^ l): listener(l)
 	{ 
 		props["type"] = std::make_shared<Prop<std::string>>("Widget type", "widget");
 		props["name"] = std::make_shared<Prop<std::string>>("Widget name", "name");
-		props["id"] = std::make_shared < Prop<std::string>>("Widget unique id", "id");
 		props["layer"] = std::make_shared < Prop<int32_t>>("Draw layer number", 0);
 		props["visible"] = std::make_shared < Prop<bool>>("Visibility of the widget", true);
 		props["background_image"] = std::make_shared < Prop<std::string>>("Widget background image", "");
@@ -81,6 +91,26 @@ public:
 		props["width"] = std::make_shared < Prop<float>>("Position Width", 0.1f);
 		props["height"] = std::make_shared < Prop<float>>("Position Height", 0.1f);
 	};
+
+	bool FromJson(const json& js) {
+		try {
+			props["name"]->SetValue<std::string>(js["name"]);
+			props["layer"]->SetValue<int32_t>(js["layer"]);
+			props["visible"]->SetValue<bool>(js["visible"]);
+			props["background_image"]->SetValue<std::string>(js["background_image"]);
+			props["background_color"]->SetValue<std::string>(js["background_color"]);
+			props["background_alpha_color"]->SetValue<std::string>(js["background_alpha_color"]);
+			props["background_alpha"]->SetValue<float>(js["background_alpha"]);
+			props["x"]->SetValue<float>(js["x"]);
+			props["y"]->SetValue<float>(js["y"]);
+			props["width"]->SetValue<float>(js["width"]);
+			props["height"]->SetValue<float>(js["height"]);
+		}
+		catch (...) {
+			return false;
+		}
+		return true;
+	}
 
 	json ToJson() {
 		json js;
@@ -97,6 +127,12 @@ public:
 			else if (Prop<bool>* bp = dynamic_cast<Prop<bool>*>(ap.second.get()); bp != nullptr) {
 				js[ap.first] = std::any_cast<decltype(bp->value)>(bp->value);
 			}
+		}
+		if (parent != nullptr) {
+			js["parent"] = parent->props["name"]->GetValue<std::string>();
+		}
+		for (const auto& w : widgets) {
+			js["widgets"].push_back(w->props["name"]->GetValue<std::string>());
 		}
 		return js;
 	}
@@ -118,6 +154,7 @@ public ref class WidgetProp
 {
 public:
 	IntPtr widget;
+	System::String^ root_folder;
 
 	[CategoryAttribute("Widget")]
 	property String^ Name {
@@ -127,18 +164,21 @@ public:
 		}
 		void set(String^ newValue)
 		{
-			return ((Widget*)widget.ToPointer())->props["name"]->SetValue<std::string>(msclr::interop::marshal_as<std::string>(newValue));
+			Widget* w = (Widget*)widget.ToPointer();
+			w->listener->OnNameChanged(Name, newValue);
+			std::string str = msclr::interop::marshal_as<std::string>(newValue);
+			return ((Widget*)widget.ToPointer())->props["name"]->SetValue<std::string>(str);
 		}
 	}
 	[CategoryAttribute("Widget")]
-	property String^ Id {
-		String^ get()
+	property bool Visible {
+		bool get()
 		{
-			return gcnew String(((Widget*)widget.ToPointer())->props["id"]->GetValue<std::string>().c_str());
+			return ((Widget*)widget.ToPointer())->props["visible"]->GetValue<bool>();
 		}
-		void set(String^ newValue)
+		void set(bool newValue)
 		{
-			return ((Widget*)widget.ToPointer())->props["id"]->SetValue<std::string>(msclr::interop::marshal_as<std::string>(newValue));
+			return ((Widget*)widget.ToPointer())->props["visible"]->SetValue<bool>(newValue);
 		}
 	}
 	[CategoryAttribute("Widget")]
@@ -165,6 +205,53 @@ public:
 			char color[64];
 			snprintf(color, 64, "#%02X%02X%02X%02X", newValue.R, newValue.G, newValue.B, newValue.A);
 			return ((Widget*)widget.ToPointer())->props["background_color"]->SetValue<std::string>(color);
+		}
+	}
+	[CategoryAttribute("Widget")]
+	property Drawing::Color BackgroundAlphaColor {
+		Drawing::Color get()
+		{
+			auto color = HotBite::Engine::Core::parseColorStringF4(((Widget*)widget.ToPointer())->props["background_alpha_color"]->GetValue<std::string>());
+			return Drawing::Color::FromArgb((int)(color.w * 255.0f), (int)(color.x * 255.0f), (int)(color.y * 255.0f), (int)(color.z * 255.0f));
+		}
+
+		void set(Drawing::Color newValue)
+		{
+			char color[64];
+			snprintf(color, 64, "#%02X%02X%02X%02X", newValue.R, newValue.G, newValue.B, newValue.A);
+			return ((Widget*)widget.ToPointer())->props["background_alpha_color"]->SetValue<std::string>(color);
+		}
+	}
+	[CategoryAttribute("Widget")]
+	[EditorAttribute(System::Windows::Forms::Design::FileNameEditor::typeid, System::Drawing::Design::UITypeEditor::typeid)]
+	property String^ BackgroundImage {
+		String^ get()
+		{
+			return gcnew String(((Widget*)widget.ToPointer())->props["background_image"]->GetValue<std::string>().c_str());
+		}
+		void set(String^ newValue)
+		{
+			System::String^ file = Path::GetFileName(newValue);
+			if (file->Length > 0) {
+				System::String^ dest_file = root_folder + file;
+				try {
+					File::Delete(dest_file);
+				}
+				catch (...) {}
+				File::Copy(newValue, dest_file);
+			}
+			((Widget*)widget.ToPointer())->props["background_image"]->SetValue<std::string>(msclr::interop::marshal_as<std::string>(file));
+		}
+	}
+	[CategoryAttribute("Widget")]
+	property Double BackgroundAlpha {
+		Double get()
+		{
+			return ((Widget*)widget.ToPointer())->props["background_alpha"]->GetValue<float>();
+		}
+		void set(Double newValue)
+		{
+			return ((Widget*)widget.ToPointer())->props["background_alpha"]->SetValue<float>((float)newValue);
 		}
 	}
 	[CategoryAttribute("Widget")]
@@ -211,8 +298,9 @@ public:
 			return ((Widget*)widget.ToPointer())->props["height"]->SetValue<float>((float)newValue);
 		}
 	}
-	WidgetProp(IntPtr widget) {
+	WidgetProp(IntPtr widget, System::String^ path) {
 		this->widget = widget;
+		this->root_folder = path + "\\";
 		Widget* w = (Widget*)widget.ToPointer();
 	}
 };
