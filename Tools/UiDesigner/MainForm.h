@@ -55,6 +55,7 @@ namespace UiDesigner {
 				delete components;
 			}
 		}
+		bool isLoading = false;
 	private: System::Windows::Forms::MenuStrip^ menuStrip1;
 	protected:
 	private: System::Windows::Forms::ToolStripMenuItem^ fileToolStripMenuItem;
@@ -453,15 +454,15 @@ namespace UiDesigner {
 	private: System::Void MainForm_Load(System::Object^ sender, System::EventArgs^ e) {
 	}
 
-	Widget* GetWidget(System::String^ name) {
-		for each (IntPtr p in widgets) {
-			Widget* w = (Widget*)p.ToPointer();
-			if (String::Compare(gcnew System::String(w->props["name"]->GetValue<std::string>().c_str()), name) == 0) {
-				return w;
-			}
-		}
-		return nullptr;
-	}
+		   Widget* GetWidget(System::String^ name) {
+			   for each (IntPtr p in widgets) {
+				   Widget* w = (Widget*)p.ToPointer();
+				   if (String::Compare(gcnew System::String(w->props["name"]->GetValue<std::string>().c_str()), name) == 0) {
+					   return w;
+				   }
+			   }
+			   return nullptr;
+		   }
 
 	private: System::Void labelToolStripMenuItem_Click(System::Object^ sender, System::EventArgs^ e) {
 		Widget* widget = new Widget(this);
@@ -471,10 +472,11 @@ namespace UiDesigner {
 			if (GetWidget(gcnew System::String(name)) == nullptr) {
 				break;
 			}
- 		}
+		}
 		widget->props["name"]->SetValue<std::string>(name);
 		IntPtr ptr(widget);
 		widgets->Add(ptr);
+		AddTreeNode(treeView->Nodes, widget);
 		UpdateEditor();
 	}
 
@@ -493,24 +495,27 @@ namespace UiDesigner {
 		   }
 
 		   void AddTreeNode(TreeNodeCollection^ nodes, Widget* widget) {
-			   TreeNode^n = nodes->Add(gcnew System::String(widget->props["name"]->GetValue<std::string>().c_str()));
+			   TreeNode^ n = nodes->Add(gcnew System::String(widget->props["name"]->GetValue<std::string>().c_str()));
 			   for (const auto& w2 : widget->widgets) {
-				   AddTreeNode(n->Nodes, w2);
+				   Widget* pw = GetWidget(gcnew System::String(w2.c_str()));
+				   if (pw != nullptr) {
+					   AddTreeNode(n->Nodes, pw);
+				   }
 			   }
 		   }
 
 		   void ClearParents() {
 			   for each (IntPtr p in widgets) {
 				   Widget* w = (Widget*)p.ToPointer();
-				   w->parent = nullptr;
+				   w->props["parent"]->SetValue<std::string>("");
 				   w->widgets.clear();
 			   }
 		   }
 
 		   TreeNode^ GetNode(TreeNodeCollection^ nodes, String^ name) {
-			   for each (TreeNode^ n in nodes) {
+			   for each (TreeNode ^ n in nodes) {
 				   if (String::Compare(n->Text, name) == 0) {
-						return n;
+					   return n;
 				   }
 				   else {
 					   return GetNode(n->Nodes, name);
@@ -519,46 +524,47 @@ namespace UiDesigner {
 			   return nullptr;
 		   }
 
-		   public: virtual void OnNameChanged(String^ old_name, String^ new_name) sealed {
-			   TreeNode^ node = GetNode(treeView->Nodes, old_name);
-			   if (node != nullptr) {
-				   node->Text = new_name;
-			   }
-		   }
-		   
-		   void UpdateEditor() {
-			   this->Text = gcnew System::String("Ui Designer - ");
-			   if (fileName != nullptr) {
-				   this->Text += fileName;
-			   }
-			   else {
-				   this->Text += "New file";
-			   }
-			   ClearParents();
-			   widgets_tree->Clear();
-			   if (treeView->Nodes->Count == 0) {
-				   for each (IntPtr ptr in widgets) {
-						Widget* widget = (Widget*)ptr.ToPointer();
-						if (widget->parent == nullptr) {
-							AddTreeNode(treeView->Nodes, widget);
-						}
-				   }
-			   }
-			   for each (TreeNode ^ n in treeView->Nodes) {
-				   Widget* w = GetWidget(n->Text);
-				   widgets_tree->Add(IntPtr(w));
-				   TraverseTree(n);
-			   }
-			   treeView->Nodes->Clear();
-			   for each (IntPtr ptr in widgets_tree) {
-				   Widget* widget = (Widget*)ptr.ToPointer();
-				   AddTreeNode(treeView->Nodes, widget);
-			   }
-			   json js = GetJson();
-			   auto ui_text = gcnew System::String(js.dump(4).c_str());
-			   textEditor->Text = ui_text->Replace("\n", "\r\n");
-			   HotBiteTool::ToolUi::LoadUI(js);
-		   }
+	public: virtual void OnNameChanged(String^ old_name, String^ new_name) sealed {
+		TreeNode^ node = GetNode(treeView->Nodes, old_name);
+		if (node != nullptr) {
+			node->Text = new_name;
+		}
+	}
+
+		  void UpdateEditor() {
+			  this->Text = gcnew System::String("Ui Designer - ");
+			  if (fileName != nullptr) {
+				  this->Text += fileName;
+			  }
+			  else {
+				  this->Text += "New file";
+			  }
+			  ClearParents();
+			  widgets_tree->Clear();
+			  if (treeView->Nodes->Count == 0) {
+				  for each (IntPtr ptr in widgets) {
+					  Widget* widget = (Widget*)ptr.ToPointer();
+					  auto parent = widget->GetString("parent");
+					  if (parent.has_value()) {
+						  AddTreeNode(treeView->Nodes, widget);
+					  }
+				  }
+			  }
+			  for each (TreeNode ^ n in treeView->Nodes) {
+				  Widget* w = GetWidget(n->Text);
+				  widgets_tree->Add(IntPtr(w));
+				  TraverseTree(n);
+			  }
+			  treeView->Nodes->Clear();
+			  for each (IntPtr ptr in widgets_tree) {
+				  Widget* widget = (Widget*)ptr.ToPointer();
+				  AddTreeNode(treeView->Nodes, widget);
+			  }
+			  json js = GetJson();
+			  auto ui_text = gcnew System::String(js.dump(4).c_str());
+			  textEditor->Text = ui_text->Replace("\n", "\r\n");
+			  HotBiteTool::ToolUi::LoadUI(js);
+		  }
 
 	private: System::Void NodeClick(System::Object^ sender, System::Windows::Forms::TreeNodeMouseClickEventArgs^ e) {
 		Widget* widget = nullptr;
@@ -623,7 +629,7 @@ namespace UiDesigner {
 		openFileDialog->Filter = "UI Files (*.ui)|*.ui";
 		openFileDialog->FilterIndex = 1;
 		openFileDialog->RestoreDirectory = true;
-
+		isLoading = true;
 		if (openFileDialog->ShowDialog() == System::Windows::Forms::DialogResult::OK) {
 			try
 			{
@@ -649,7 +655,14 @@ namespace UiDesigner {
 
 						if (w != nullptr) {
 							IntPtr ptr(w);
-							widgets->Add(ptr);
+							widgets->Add(ptr);							
+						}
+					}
+					for each (IntPtr p in widgets) {
+						Widget* w = (Widget*)p.ToPointer();
+						auto parent = w->GetString("parent");
+						if (!parent.has_value() || parent.value().empty()) {
+							AddTreeNode(treeView->Nodes, w);
 						}
 					}
 					inputFile.close();
@@ -665,6 +678,7 @@ namespace UiDesigner {
 			// Handle error opening the file
 			MessageBox::Show("Error opening file for reading.");
 		}
+		isLoading = false;
 	}
 
 	private: System::Void newToolStripMenuItem_Click(System::Object^ sender, System::EventArgs^ e) {
@@ -748,22 +762,24 @@ namespace UiDesigner {
 	}
 
 
-	void TraverseTree(TreeNode^ node)
-	{
-		Widget* w = GetWidget(node->Text);
-		if (w != nullptr) {
-			w->widgets.clear();
-			for each (TreeNode ^ child in node->Nodes)
-			{
-				Widget* w2 = GetWidget(child->Text);
-				if (w2 != nullptr) {
-					w->widgets.push_back(w2);
-					w2->parent = w;
-					TraverseTree(child);
-				}
-			}
-		}
-	}
+		   void TraverseTree(TreeNode^ node)
+		   {
+			   Widget* w = GetWidget(node->Text);
+			   if (w != nullptr) {
+				   if (!isLoading) {
+					   w->widgets.clear();
+				   }
+				   for each (TreeNode ^ child in node->Nodes)
+				   {
+					   Widget* w2 = GetWidget(child->Text);
+					   if (w2 != nullptr) {
+						   w->widgets.push_back(w2->GetString("name").value());
+						   w2->props["parent"]->SetValue<std::string>(w->GetString("name").value());
+						   TraverseTree(child);
+					   }
+				   }
+			   }
+		   }
 
 	private: System::Void treeView_ItemDrag(System::Object^ sender, System::Windows::Forms::ItemDragEventArgs^ e) {
 		// Move the dragged node when the left mouse button is used.  

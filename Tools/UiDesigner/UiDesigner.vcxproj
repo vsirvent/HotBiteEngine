@@ -110,11 +110,12 @@
       <WarningLevel>Level3</WarningLevel>
       <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <AdditionalIncludeDirectories>$(SolutionDir)\..\Engine\Engine;$(SolutionDir)\..\React3d\include;$(SolutionDir)\..\FbxSdk\include;$(SolutionDir)\..\enet\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)\..\Engine\Engine;$(SolutionDir)\..\React3d\include;$(SolutionDir)\..\FbxSdk\include;$(SolutionDir)\..\enet\include;$(SolutionDir)\..\Tools\HotBiteTool;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
-      <AdditionalDependencies />
+      <AdditionalDependencies>User32.lib</AdditionalDependencies>
       <SubSystem>Windows</SubSystem>
+      <AdditionalLibraryDirectories>$(SolutionDir)..\FbxSdk\lib;$(SolutionDir)..\enet\out\build\x64-Release;$(SolutionDir)..\React3d\out\build\x64-Release;$(SolutionDir)x64\Release;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>

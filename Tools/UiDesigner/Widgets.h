@@ -5,6 +5,7 @@
 #include <string>
 #include <map>
 #include <stdint.h>
+#include <optional>
 
 #include <msclr/marshal_cppstd.h>
 #include <string>
@@ -73,12 +74,12 @@ public:
 class Widget {
 public:
 	std::map<std::string, std::shared_ptr<AbstractProp>> props;
-	std::list<Widget*> widgets;
-	Widget* parent = nullptr;
+	std::list<std::string> widgets;
 	gcroot<IWidgetListener^> listener = nullptr;
 	Widget(IWidgetListener^ l): listener(l)
 	{ 
 		props["type"] = std::make_shared<Prop<std::string>>("Widget type", "widget");
+		props["parent"] = std::make_shared<Prop<std::string>>("Widget parent", "");
 		props["name"] = std::make_shared<Prop<std::string>>("Widget name", "name");
 		props["layer"] = std::make_shared < Prop<int32_t>>("Draw layer number", 0);
 		props["visible"] = std::make_shared < Prop<bool>>("Visibility of the widget", true);
@@ -105,6 +106,12 @@ public:
 			props["y"]->SetValue<float>(js["y"]);
 			props["width"]->SetValue<float>(js["width"]);
 			props["height"]->SetValue<float>(js["height"]);
+			props["parent"]->SetValue<std::string>(js["parent"]);
+			if (js.contains("widgets")) {
+				for (const std::string& w : js["widgets"]) {
+					widgets.push_back(w);
+				}
+			}
 		}
 		catch (...) {
 			return false;
@@ -128,13 +135,29 @@ public:
 				js[ap.first] = std::any_cast<decltype(bp->value)>(bp->value);
 			}
 		}
-		if (parent != nullptr) {
-			js["parent"] = parent->props["name"]->GetValue<std::string>();
-		}
-		for (const auto& w : widgets) {
-			js["widgets"].push_back(w->props["name"]->GetValue<std::string>());
-		}
+		js["widgets"] = widgets;
 		return js;
+	}
+
+	std::optional<std::string> GetString(const std::string& id) const {
+		if (const auto& it = props.find(id); it != props.cend()) {
+			return it->second->GetValue<std::string>();
+		}
+		return std::nullopt;
+	}
+
+	std::optional<int> GetInt(const std::string& id) const {
+		if (const auto& it = props.find(id); it != props.cend()) {
+			return it->second->GetValue<int>();
+		}
+		return std::nullopt;
+	}
+
+	std::optional<float> GetFloat(const std::string& id) const {
+		if (const auto& it = props.find(id); it != props.cend()) {
+			return it->second->GetValue<float>();
+		}
+		return std::nullopt;
 	}
 
 	std::string ToString() {
