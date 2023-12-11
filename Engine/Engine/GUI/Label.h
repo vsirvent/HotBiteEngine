@@ -116,6 +116,19 @@ namespace HotBite {
 					return LABEL_ID;
 				}
 
+				Label(ECS::Coordinator* c, const json& config, const std::string& root) : Widget(c, config, root) {					
+					weight = config["weight"];
+					style = config["style"];
+					align = config["halign"];
+					valign = config["valign"];
+					SetFontSize(config["font_size"]);
+					font_name = config["font_name"];
+					SetTextMargin(config["margin"]);
+					SetText(config["text"]);
+					SetTextColor(parseColorStringF4(config["text_color"]));
+					ShowText(config["show_text"]);
+				}
+
 				Label(ECS::Coordinator* c, const std::string& name, const std::string& txt = "", float size = 0.0f,
 					const std::string& fname = "", DWRITE_FONT_WEIGHT w = DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE s = DWRITE_FONT_STYLE_NORMAL,
 					DWRITE_TEXT_ALIGNMENT ha = DWRITE_TEXT_ALIGNMENT_LEADING,
@@ -185,8 +198,10 @@ namespace HotBite {
 						text_format = d2d->GetFont(font_name, font_size, weight, style, align, valign);
 						d2d_render_target->CreateSolidColorBrush(text_color, &brush);
 						RefreshTextLayout();
-						origin.x = ((1.0f + position.x + margin) * 0.5f) * DXCore::Get()->GetWidth();
-						origin.y = DXCore::Get()->GetHeight() * (1.0f - (1.0f + position.y) * 0.5f) - text_layout->GetMaxHeight();
+						if (text_layout != nullptr) {
+							origin.x = ((1.0f + position.x + margin) * 0.5f) * DXCore::Get()->GetWidth();
+							origin.y = DXCore::Get()->GetHeight() * (1.0f - (1.0f + position.y) * 0.5f) - text_layout->GetMaxHeight();
+						}
 					}
 				}
 

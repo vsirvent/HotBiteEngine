@@ -23,7 +23,6 @@ namespace UiDesigner {
 	using namespace System;
 	using namespace System::ComponentModel;
 	using namespace System::Collections;
-	using namespace System::Windows::Forms;
 	using namespace System::Data;
 	using namespace System::Drawing;
 	using namespace System::Collections::Generic;
@@ -40,6 +39,7 @@ namespace UiDesigner {
 			widgets = gcnew Generic::List<IntPtr>();
 			widgets_tree = gcnew Generic::List<IntPtr>();
 			HotBiteTool::ToolUi::CreateToolUi(GetModuleHandle(NULL), (HWND)preview->Handle.ToPointer());
+			rootFolder->Text = Environment::GetFolderPath(Environment::SpecialFolder::MyDocuments);
 			UpdateEditor();
 		}
 
@@ -224,27 +224,28 @@ namespace UiDesigner {
 			// labelToolStripMenuItem
 			// 
 			this->labelToolStripMenuItem->Name = L"labelToolStripMenuItem";
-			this->labelToolStripMenuItem->Size = System::Drawing::Size(139, 22);
+			this->labelToolStripMenuItem->Size = System::Drawing::Size(180, 22);
 			this->labelToolStripMenuItem->Text = L"Widget";
-			this->labelToolStripMenuItem->Click += gcnew System::EventHandler(this, &MainForm::labelToolStripMenuItem_Click);
+			this->labelToolStripMenuItem->Click += gcnew System::EventHandler(this, &MainForm::widgetToolStripMenuItem_Click);
 			// 
 			// buttonToolStripMenuItem
 			// 
 			this->buttonToolStripMenuItem->Name = L"buttonToolStripMenuItem";
-			this->buttonToolStripMenuItem->Size = System::Drawing::Size(139, 22);
+			this->buttonToolStripMenuItem->Size = System::Drawing::Size(180, 22);
 			this->buttonToolStripMenuItem->Text = L"Button";
 			// 
 			// progressBarToolStripMenuItem
 			// 
 			this->progressBarToolStripMenuItem->Name = L"progressBarToolStripMenuItem";
-			this->progressBarToolStripMenuItem->Size = System::Drawing::Size(139, 22);
+			this->progressBarToolStripMenuItem->Size = System::Drawing::Size(180, 22);
 			this->progressBarToolStripMenuItem->Text = L"Progress Bar";
 			// 
 			// widgetToolStripMenuItem
 			// 
 			this->widgetToolStripMenuItem->Name = L"widgetToolStripMenuItem";
-			this->widgetToolStripMenuItem->Size = System::Drawing::Size(139, 22);
+			this->widgetToolStripMenuItem->Size = System::Drawing::Size(180, 22);
 			this->widgetToolStripMenuItem->Text = L"Label";
+			this->widgetToolStripMenuItem->Click += gcnew System::EventHandler(this, &MainForm::labelToolStripMenuItem_Click);
 			// 
 			// treeView
 			// 
@@ -465,10 +466,10 @@ namespace UiDesigner {
 		   }
 
 	private: System::Void labelToolStripMenuItem_Click(System::Object^ sender, System::EventArgs^ e) {
-		Widget* widget = new Widget(this);
+		Widget* widget = new ::Label(this);
 		char name[32];
 		for (int n = widgets->Count + 1;; ++n) {
-			snprintf(name, 32, "widget %d", n);
+			snprintf(name, 32, "label %d", n);
 			if (GetWidget(gcnew System::String(name)) == nullptr) {
 				break;
 			}
@@ -479,6 +480,22 @@ namespace UiDesigner {
 		AddTreeNode(treeView->Nodes, widget);
 		UpdateEditor();
 	}
+
+			private: System::Void widgetToolStripMenuItem_Click(System::Object^ sender, System::EventArgs^ e) {
+				Widget* widget = new Widget(this);
+				char name[32];
+				for (int n = widgets->Count + 1;; ++n) {
+					snprintf(name, 32, "widget %d", n);
+					if (GetWidget(gcnew System::String(name)) == nullptr) {
+						break;
+					}
+				}
+				widget->props["name"]->SetValue<std::string>(name);
+				IntPtr ptr(widget);
+				widgets->Add(ptr);
+				AddTreeNode(treeView->Nodes, widget);
+				UpdateEditor();
+			}
 
 		   json GetJson() {
 			   json js;
@@ -531,7 +548,7 @@ namespace UiDesigner {
 		}
 	}
 
-		  void UpdateEditor() {
+		  void UpdateEditor() {			  
 			  this->Text = gcnew System::String("Ui Designer - ");
 			  if (fileName != nullptr) {
 				  this->Text += fileName;
@@ -552,8 +569,10 @@ namespace UiDesigner {
 			  }
 			  for each (TreeNode ^ n in treeView->Nodes) {
 				  Widget* w = GetWidget(n->Text);
-				  widgets_tree->Add(IntPtr(w));
-				  TraverseTree(n);
+				  if (w != nullptr) {
+					  widgets_tree->Add(IntPtr(w));
+					  TraverseTree(n);
+				  }
 			  }
 			  treeView->Nodes->Clear();
 			  for each (IntPtr ptr in widgets_tree) {
@@ -571,7 +590,14 @@ namespace UiDesigner {
 		for each (IntPtr ptr in widgets) {
 			Widget* widget = (Widget*)ptr.ToPointer();
 			if (String::Compare(e->Node->Text, gcnew String(widget->props["name"]->GetValue<std::string>().c_str())) == 0) {
-				WidgetProp^ prop = gcnew WidgetProp(ptr, rootFolder->Text);
+				std::string type = widget->props["type"]->GetValue<std::string>();
+				WidgetProp^ prop;
+				if (type == "widget") {
+					prop = gcnew WidgetProp(ptr, rootFolder->Text);
+				}
+				else if (type == "label") {
+					prop = gcnew LabelProp(ptr, rootFolder->Text);
+				}
 				propertyGrid->SelectedObject = prop;
 				break;
 			}
@@ -611,6 +637,7 @@ namespace UiDesigner {
 	}
 
 		   void Reset() {
+			   propertyGrid->SelectedObject = nullptr;
 			   for each (IntPtr ptr in widgets) {
 				   Widget* widget = (Widget*)ptr.ToPointer();
 				   delete widget;
@@ -647,13 +674,15 @@ namespace UiDesigner {
 						Widget* w = nullptr;
 						if (widget["type"] == "widget") {
 							w = new Widget(this);
+						}
+						else if (widget["type"] == "label") {
+							w = new ::Label(this);
+						}
+						if (w != nullptr) {
 							if (!w->FromJson(widget)) {
 								delete w;
 								w = nullptr;
 							}
-						}
-
-						if (w != nullptr) {
 							IntPtr ptr(w);
 							widgets->Add(ptr);							
 						}
@@ -725,6 +754,7 @@ namespace UiDesigner {
 						Widget* widget = (Widget*)ptr.ToPointer();
 						if (String::Compare(selectedNode->Text, gcnew String(widget->props["name"]->GetValue<std::string>().c_str())) == 0) {
 							widgets->Remove(ptr);
+							propertyGrid->SelectedObject = nullptr;
 							UpdateEditor();
 							break;
 						}
@@ -807,5 +837,6 @@ namespace UiDesigner {
 			UpdateEditor();
 		}
 	}
-	};
+
+};
 }

@@ -173,6 +173,114 @@ public:
 	}
 };
 
+enum EFontStyle
+{
+	FONT_STYLE_NORMAL,
+	FONT_STYLE_OBLIQUE,
+	FONT_STYLE_ITALIC
+};
+
+enum ETextAligment
+{
+	TEXT_ALIGNMENT_LEADING,
+	TEXT_ALIGNMENT_TRAILING,
+	TEXT_ALIGNMENT_CENTER,
+	TEXT_ALIGNMENT_JUSTIFIED
+};
+
+enum EVerticalAligment
+{
+	VERTICAL_ALIGNMENT_NEAR,
+	VERTICAL_ALIGNMENT_FAR,
+	VERTICAL_ALIGNMENT_CENTER
+};
+
+enum EFontWeight
+{
+	FONT_WEIGHT_THIN = 100,
+	FONT_WEIGHT_EXTRA_LIGHT = 200,
+	FONT_WEIGHT_ULTRA_LIGHT = 200,
+	FONT_WEIGHT_LIGHT = 300,
+	FONT_WEIGHT_SEMI_LIGHT = 350,
+	FONT_WEIGHT_NORMAL = 400,
+	FONT_WEIGHT_REGULAR = 400,
+	FONT_WEIGHT_MEDIUM = 500,
+	FONT_WEIGHT_DEMI_BOLD = 600,
+	FONT_WEIGHT_SEMI_BOLD = 600,
+	FONT_WEIGHT_BOLD = 700,
+	FONT_WEIGHT_EXTRA_BOLD = 800,
+	FONT_WEIGHT_ULTRA_BOLD = 800,
+	FONT_WEIGHT_BLACK = 900,
+	FONT_WEIGHT_HEAVY = 900,
+	FONT_WEIGHT_EXTRA_BLACK = 950,
+	FONT_WEIGHT_ULTRA_BLACK = 950
+};
+
+
+class Label : public Widget {
+public:
+	Label(IWidgetListener^ l) :Widget(l) {
+		props["type"] = std::make_shared<Prop<std::string>>("Widget type", "label");
+		props["weight"] = std::make_shared<Prop<int32_t>>("Font weight", FONT_WEIGHT_NORMAL);
+		props["font_size"] = std::make_shared<Prop<int32_t>>("Font size", 16);
+		props["font_name"] = std::make_shared<Prop<std::string>>("Font name", "Arial");
+		props["text"] = std::make_shared<Prop<std::string>>("Text", "text");
+		props["style"] = std::make_shared<Prop<int32_t>>("Font style", EFontStyle::FONT_STYLE_NORMAL);
+		props["halign"] = std::make_shared<Prop<int32_t>>("Horizontal alignment", ETextAligment::TEXT_ALIGNMENT_CENTER);
+		props["valign"] = std::make_shared<Prop<int32_t>>("Vertical alignment", EVerticalAligment::VERTICAL_ALIGNMENT_CENTER);
+		props["margin"] = std::make_shared<Prop<int32_t>>("Text margin", 0);
+		props["text_color"] = std::make_shared<Prop<std::string>>("Text color", "#110000FF");
+		props["show_text"] = std::make_shared<Prop<bool>>("Show text", true);
+	}
+
+	bool FromJson(const json& js) {
+		try {
+			Widget::FromJson(js);
+			props["weight"]->SetValue<int32_t>(js["weight"]);
+			props["font_size"]->SetValue<int32_t>(js["font_size"]);
+			props["font_name"]->SetValue<std::string>(js["font_name"]);
+			props["text"]->SetValue<std::string>(js["text"]);
+			props["style"]->SetValue<EFontStyle>(js["style"]);
+			props["halign"]->SetValue<ETextAligment>(js["halign"]);
+			props["valign"]->SetValue<EVerticalAligment>(js["valign"]);
+			props["margin"]->SetValue<int32_t>(js["margin"]);
+			props["text_color"]->SetValue<std::string>(js["text_color"]);
+			props["show_text"]->SetValue<bool>(js["show_text"]);
+		}
+		catch (...) {
+			return false;
+		}
+		return true;
+	}
+
+};
+
+ref class CustomImageEditor : ImageEditor
+{
+public:
+	virtual Object^ EditValue(ITypeDescriptorContext^ context, System::IServiceProvider^ provider, Object^ value) override
+	{
+		OpenFileDialog^ openFileDialog = gcnew OpenFileDialog();
+
+		openFileDialog->Filter = "Image Files|*.bmp;*.jpg;*.jpeg;*.gif;*.png|All Files|*.*";
+		openFileDialog->Title = "Select an Image";
+
+		if (value != nullptr && value->GetType() == String::typeid)
+		{
+			openFileDialog->FileName = dynamic_cast<String^>(value);
+		}
+
+		if (openFileDialog->ShowDialog() == DialogResult::OK)
+		{
+			return openFileDialog->FileName;
+		}
+		else
+		{
+			return value;
+		}
+	}
+};
+
 public ref class WidgetProp
 {
 public:
@@ -246,7 +354,7 @@ public:
 		}
 	}
 	[CategoryAttribute("Widget")]
-	[EditorAttribute(System::Windows::Forms::Design::FileNameEditor::typeid, System::Drawing::Design::UITypeEditor::typeid)]
+	[EditorAttribute(CustomImageEditor::typeid, System::Drawing::Design::UITypeEditor::typeid)]
 	property String^ BackgroundImage {
 		String^ get()
 		{
@@ -325,5 +433,112 @@ public:
 		this->widget = widget;
 		this->root_folder = path + "\\";
 		Widget* w = (Widget*)widget.ToPointer();
+	}
+};
+
+public ref class LabelProp : public WidgetProp
+{
+public:
+	LabelProp(IntPtr widget, System::String^ path) : WidgetProp(widget, path) {}
+
+	[CategoryAttribute("Label")]
+	property System::Drawing::Font^ Font
+	{
+		System::Drawing::Font^ get()
+		{
+			System::Drawing::Font^ font = gcnew System::Drawing::Font(
+				gcnew String(((Widget*)widget.ToPointer())->props["font_name"]->GetValue<std::string>().c_str()),
+				(float)((Widget*)widget.ToPointer())->props["font_size"]->GetValue<int>(),
+				System::Drawing::FontStyle(((Widget*)widget.ToPointer())->props["style"]->GetValue<int>())
+			);
+			return font;
+		}
+		void set(System::Drawing::Font^ newValue)
+		{
+			((Widget*)widget.ToPointer())->props["font_name"]->SetValue<std::string>(msclr::interop::marshal_as<std::string>(newValue->Name));
+			((Widget*)widget.ToPointer())->props["font_size"]->SetValue<int>((int)newValue->Size);
+			((Widget*)widget.ToPointer())->props["style"]->SetValue<int>((int)newValue->Style);
+		}
+	}
+
+	[CategoryAttribute("Label")]
+	property System::String^ Text
+	{
+		System::String^ get()
+		{
+			return gcnew String(((Widget*)widget.ToPointer())->props["text"]->GetValue<std::string>().c_str());
+		}
+		void set(System::String^ newValue)
+		{
+			((Widget*)widget.ToPointer())->props["text"]->SetValue<std::string>(msclr::interop::marshal_as<std::string>(newValue));
+		}
+	}
+
+	[CategoryAttribute("Label")]
+	property int HorizontalAlignment
+	{
+		int get()
+		{
+			return ((Widget*)widget.ToPointer())->props["halign"]->GetValue<int>();
+		}
+		void set(int newValue)
+		{
+			((Widget*)widget.ToPointer())->props["halign"]->SetValue<int>(newValue);
+		}
+	}
+
+	[CategoryAttribute("Label")]
+	property int VerticalAlignment
+	{
+		int get()
+		{
+			return ((Widget*)widget.ToPointer())->props["valign"]->GetValue<int>();
+		}
+		void set(int newValue)
+		{
+			((Widget*)widget.ToPointer())->props["valign"]->SetValue<int>(newValue);
+		}
+	}
+
+	[CategoryAttribute("Label")]
+	property int TextMargin
+	{
+		int get()
+		{
+			return ((Widget*)widget.ToPointer())->props["margin"]->GetValue<int>();
+		}
+		void set(int newValue)
+		{
+			((Widget*)widget.ToPointer())->props["margin"]->SetValue<int>(newValue);
+		}
+	}
+
+	[CategoryAttribute("Label")]
+	property Drawing::Color TextColor
+	{
+		Drawing::Color get()
+		{
+			auto color = HotBite::Engine::Core::parseColorStringF4(((Widget*)widget.ToPointer())->props["text_color"]->GetValue<std::string>());
+			return Drawing::Color::FromArgb((int)(color.w * 255.0f), (int)(color.x * 255.0f), (int)(color.y * 255.0f), (int)(color.z * 255.0f));
+		}
+		void set(Drawing::Color newValue)
+		{
+			char color[64];
+			snprintf(color, 64, "#%02X%02X%02X%02X", newValue.R, newValue.G, newValue.B, newValue.A);
+			return ((Widget*)widget.ToPointer())->props["text_color"]->SetValue<std::string>(color);
+		}
+	}
+
+	[CategoryAttribute("Label")]
+	property bool ShowText
+	{
+		bool get()
+		{
+			return ((Widget*)widget.ToPointer())->props["show_text"]->GetValue<bool>();
+		}
+		void set(bool newValue)
+		{
+			((Widget*)widget.ToPointer())->props["show_text"]->SetValue<bool>(newValue);
+		}
 	}
 };

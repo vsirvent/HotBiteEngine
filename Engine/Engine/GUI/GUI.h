@@ -35,6 +35,7 @@ SOFTWARE.
 #include <Effects.h>
 #include <variant>
 #include "Widget.h"
+#include "Label.h"
 
 using namespace HotBite::Engine;
 using namespace HotBite::Engine::Core;
@@ -73,6 +74,50 @@ namespace HotBite {
 					if (w != widgets.end()) {
 						widgets.erase(w);
 					}
+				}
+
+				bool LoadUI(ECS::Coordinator* c, json ui) {
+					Reset();
+					try {
+						auto& ui_node = ui["ui"];
+						auto& widgets = ui_node["widgets"];
+						std::unordered_map<std::string, std::shared_ptr<Widget>> widget_by_name;
+						for (auto& widget : widgets) {
+							//Create the UI in the GUI post process stage
+							std::string name = (std::string)widget["name"];
+							std::string type = (std::string)widget["type"];
+							widget["name"] = name.c_str();
+							std::shared_ptr<UI::Widget> w;
+							if (type == "widget") {
+								w = std::make_shared<UI::Widget>(c, widget, ui_node["root"]);
+							}
+							else if (type == "label") {
+								w = std::make_shared<UI::Label>(c, widget, ui_node["root"]);
+							}
+							widget_by_name[w->GetName()] = w;
+						}
+						for (const auto& widget : widgets) {
+							std::string name = widget["name"];
+							auto w = widget_by_name[name];
+							if (widget.contains("parent")) {
+								std::string parent = widget["parent"];
+								if (auto it = widget_by_name.find(parent); it != widget_by_name.end()) {
+									it->second->AddWidget(w);
+								}
+								else {
+									AddWidget(w);
+								}
+							}
+							else {
+								AddWidget(w);
+							}
+						}
+					}
+					catch (...) {
+						printf("GUI::LoadUI: Error loading ui\n");
+						return false;
+					}
+					return true;
 				}
 
 				void Reset() {
