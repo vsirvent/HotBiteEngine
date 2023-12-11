@@ -233,6 +233,7 @@ namespace UiDesigner {
 			this->buttonToolStripMenuItem->Name = L"buttonToolStripMenuItem";
 			this->buttonToolStripMenuItem->Size = System::Drawing::Size(180, 22);
 			this->buttonToolStripMenuItem->Text = L"Button";
+			this->buttonToolStripMenuItem->Click += gcnew System::EventHandler(this, &MainForm::buttonToolStripMenuItem_Click);
 			// 
 			// progressBarToolStripMenuItem
 			// 
@@ -481,6 +482,22 @@ namespace UiDesigner {
 		UpdateEditor();
 	}
 
+		   private: System::Void buttonToolStripMenuItem_Click(System::Object^ sender, System::EventArgs^ e) {
+			   Widget* widget = new ::Button(this);
+			   char name[32];
+			   for (int n = widgets->Count + 1;; ++n) {
+				   snprintf(name, 32, "button %d", n);
+				   if (GetWidget(gcnew System::String(name)) == nullptr) {
+					   break;
+				   }
+			   }
+			   widget->props["name"]->SetValue<std::string>(name);
+			   IntPtr ptr(widget);
+			   widgets->Add(ptr);
+			   AddTreeNode(treeView->Nodes, widget);
+			   UpdateEditor();
+		   }
+
 			private: System::Void widgetToolStripMenuItem_Click(System::Object^ sender, System::EventArgs^ e) {
 				Widget* widget = new Widget(this);
 				char name[32];
@@ -598,6 +615,9 @@ namespace UiDesigner {
 				else if (type == "label") {
 					prop = gcnew LabelProp(ptr, rootFolder->Text);
 				}
+				else if (type == "button") {
+					prop = gcnew ButtonProp(ptr, rootFolder->Text);
+				}
 				propertyGrid->SelectedObject = prop;
 				break;
 			}
@@ -677,6 +697,9 @@ namespace UiDesigner {
 						}
 						else if (widget["type"] == "label") {
 							w = new ::Label(this);
+						}
+						else if (widget["type"] == "button") {
+							w = new ::Button(this);
 						}
 						if (w != nullptr) {
 							if (!w->FromJson(widget)) {
@@ -837,6 +860,7 @@ namespace UiDesigner {
 			UpdateEditor();
 		}
 	}
+
 
 };
 }

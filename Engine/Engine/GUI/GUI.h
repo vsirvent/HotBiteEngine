@@ -36,6 +36,7 @@ SOFTWARE.
 #include <variant>
 #include "Widget.h"
 #include "Label.h"
+#include "Button.h"
 
 using namespace HotBite::Engine;
 using namespace HotBite::Engine::Core;
@@ -93,6 +94,9 @@ namespace HotBite {
 							}
 							else if (type == "label") {
 								w = std::make_shared<UI::Label>(c, widget, ui_node["root"]);
+							}
+							else if (type == "button") {
+								w = std::make_shared<UI::Button>(c, widget, ui_node["root"]);
 							}
 							widget_by_name[w->GetName()] = w;
 						}

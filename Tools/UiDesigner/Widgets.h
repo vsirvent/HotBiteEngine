@@ -255,6 +255,27 @@ public:
 
 };
 
+class Button : public ::Label {
+public:
+	Button(IWidgetListener^ l) :Label(l) {
+		props["type"] = std::make_shared<Prop<std::string>>("Widget type", "button");
+		props["click_image"] = std::make_shared<Prop<std::string>>("Button click image", "");
+		props["idle_image"] = std::make_shared<Prop<std::string>>("Button idle image", "");
+	}
+
+	bool FromJson(const json& js) {
+		try {
+			Label::FromJson(js);
+			props["click_image"]->SetValue<std::string>(js["click_image"]);
+			props["idle_image"]->SetValue<std::string>(js["idle_image"]);
+		}
+		catch (...) {
+			return false;
+		}
+		return true;
+	}
+};
+
 ref class CustomImageEditor : ImageEditor
 {
 public:
@@ -539,6 +560,56 @@ public:
 		void set(bool newValue)
 		{
 			((Widget*)widget.ToPointer())->props["show_text"]->SetValue<bool>(newValue);
+		}
+	}
+};
+
+public ref class ButtonProp : public LabelProp
+{
+public:
+	ButtonProp(IntPtr widget, System::String^ path) : LabelProp(widget, path) {}
+
+	[CategoryAttribute("Button")]
+	[EditorAttribute(CustomImageEditor::typeid, System::Drawing::Design::UITypeEditor::typeid)]
+	property String^ ClickImage {
+		String^ get()
+		{
+			return gcnew String(((Widget*)widget.ToPointer())->props["click_image"]->GetValue<std::string>().c_str());
+		}
+		void set(String^ newValue)
+		{
+			System::String^ file = Path::GetFileName(newValue);
+			if (file->Length > 0) {
+				System::String^ dest_file = root_folder + file;
+				try {
+					File::Delete(dest_file);
+				}
+				catch (...) {}
+				File::Copy(newValue, dest_file);
+			}
+			((Widget*)widget.ToPointer())->props["click_image"]->SetValue<std::string>(msclr::interop::marshal_as<std::string>(file));
+		}
+	}
+
+	[CategoryAttribute("Button")]
+	[EditorAttribute(CustomImageEditor::typeid, System::Drawing::Design::UITypeEditor::typeid)]
+	property String^ IdleImage {
+		String^ get()
+		{
+			return gcnew String(((Widget*)widget.ToPointer())->props["idle_image"]->GetValue<std::string>().c_str());
+		}
+		void set(String^ newValue)
+		{
+			System::String^ file = Path::GetFileName(newValue);
+			if (file->Length > 0) {
+				System::String^ dest_file = root_folder + file;
+				try {
+					File::Delete(dest_file);
+				}
+				catch (...) {}
+				File::Copy(newValue, dest_file);
+			}
+			((Widget*)widget.ToPointer())->props["idle_image"]->SetValue<std::string>(msclr::interop::marshal_as<std::string>(file));
 		}
 	}
 };

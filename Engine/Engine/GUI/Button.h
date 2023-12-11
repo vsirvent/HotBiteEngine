@@ -66,6 +66,11 @@ namespace HotBite {
 
 				}
 
+				Button(ECS::Coordinator* c, const json& config, const std::string& root) : Label(c, config, root) {
+					SetPressedImage(config["click_image"]);
+					SetIdleImage(config["idle_image"]);
+				}
+
 				virtual ~Button() {
 				}
 

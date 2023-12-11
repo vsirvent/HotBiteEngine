@@ -770,3 +770,6 @@ Solution/.vs/HotBiteEngine/FileContentIndex/f6d57af1-16a7-4830-be12-3e21b2656ccb
 Solution/.vs/HotBiteEngine/FileContentIndex/c10bd0ae-e795-4a42-8ffe-dc3f277a2032.vsidx
 Solution/.vs/HotBiteEngine/FileContentIndex/5d809970-23a5-4cf9-b8fc-0821c90ef315.vsidx
 Solution/.vs/HotBiteEngine/FileContentIndex/0709f297-6802-4b77-afd2-bb404c4ee3ba.vsidx
+*.ipch
+*.vsidx
+*.CopyComplete
