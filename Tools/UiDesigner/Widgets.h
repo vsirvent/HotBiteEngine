@@ -282,6 +282,34 @@ public:
 	}
 };
 
+class ProgressBar : public ::Label {
+public:
+	ProgressBar(IWidgetListener^ l) :Label(l) {
+		props["type"] = std::make_shared<Prop<std::string>>("Widget type", "progress");
+		props["max_value"] = std::make_shared<Prop<float>>("Max value", 100.0f);
+		props["min_value"] = std::make_shared<Prop<float>>("Min value", 0.0f);
+		props["value"] = std::make_shared<Prop<float>>("Value", 50.0f);
+		props["bar_color"] = std::make_shared<Prop<std::string>>("Bar color", "#005555ff");
+		props["bar_image"] = std::make_shared<Prop<std::string>>("Bar image", "");
+	}
+
+	virtual bool FromJson(const json& js) {
+		try {
+			Label::FromJson(js);
+			props["max_value"]->SetValue<float>(js["max_value"]);
+			props["min_value"]->SetValue<float>(js["min_value"]);
+			props["value"]->SetValue<float>(js["value"]);
+			props["bar_color"]->SetValue<std::string>(js["bar_color"]);
+			props["bar_image"]->SetValue<std::string>(js["bar_image"]);
+		}
+		catch (...) {
+			return false;
+		}
+		return true;
+	}
+
+};
+
 ref class CustomImageEditor : ImageEditor
 {
 public:
@@ -710,6 +738,86 @@ public:
 				File::Copy(newValue, dest_file);
 			}
 			((Widget*)widget.ToPointer())->props["hover_sound"]->SetValue<std::string>(msclr::interop::marshal_as<std::string>(file));
+		}
+	}
+};
+
+
+public ref class ProgressBarProp : public LabelProp
+{
+public:
+	ProgressBarProp(IntPtr widget, System::String^ path) : LabelProp(widget, path) {}
+
+	[CategoryAttribute("ProgressBar")]
+	[EditorAttribute(CustomImageEditor::typeid, System::Drawing::Design::UITypeEditor::typeid)]
+	property String^ BarImage {
+		String^ get()
+		{
+			return gcnew String(((Widget*)widget.ToPointer())->props["bar_image"]->GetValue<std::string>().c_str());
+		}
+		void set(String^ newValue)
+		{
+			System::String^ file = Path::GetFileName(newValue);
+			if (file->Length > 0) {
+				System::String^ dest_file = root_folder + file;
+				try {
+					File::Delete(dest_file);
+				}
+				catch (...) {}
+				File::Copy(newValue, dest_file);
+			}
+			((Widget*)widget.ToPointer())->props["bar_image"]->SetValue<std::string>(msclr::interop::marshal_as<std::string>(file));
+		}
+	}
+	[CategoryAttribute("ProgressBar")]
+	property Drawing::Color BarColor
+	{
+		Drawing::Color get()
+		{
+			auto color = HotBite::Engine::Core::parseColorStringF4(((Widget*)widget.ToPointer())->props["bar_color"]->GetValue<std::string>());
+			return Drawing::Color::FromArgb((int)(color.w * 255.0f), (int)(color.x * 255.0f), (int)(color.y * 255.0f), (int)(color.z * 255.0f));
+		}
+		void set(Drawing::Color newValue)
+		{
+			char color[64];
+			snprintf(color, 64, "#%02X%02X%02X%02X", newValue.R, newValue.G, newValue.B, newValue.A);
+			return ((Widget*)widget.ToPointer())->props["bar_color"]->SetValue<std::string>(color);
+		}
+	}
+	[CategoryAttribute("ProgressBar")]
+	property Double MaxValue
+	{
+		Double get()
+		{
+			return (Double)((Widget*)widget.ToPointer())->props["max_value"]->GetValue<float>();
+		}
+		void set(Double newValue)
+		{
+			((Widget*)widget.ToPointer())->props["max_value"]->SetValue<float>((float)newValue);
+		}
+	}
+	[CategoryAttribute("ProgressBar")]
+	property Double MinValue
+	{
+		Double get()
+		{
+			return (Double)((Widget*)widget.ToPointer())->props["min_value"]->GetValue<float>();
+		}
+		void set(Double newValue)
+		{
+			((Widget*)widget.ToPointer())->props["min_value"]->SetValue<float>((float)newValue);
+		}
+	}
+	[CategoryAttribute("ProgressBar")]
+	property Double Value
+	{
+		Double get()
+		{
+			return (Double)((Widget*)widget.ToPointer())->props["value"]->GetValue<float>();
+		}
+		void set(Double newValue)
+		{
+			((Widget*)widget.ToPointer())->props["value"]->SetValue<float>((float)newValue);
 		}
 	}
 };

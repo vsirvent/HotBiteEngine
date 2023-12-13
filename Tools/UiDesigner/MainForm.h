@@ -240,6 +240,7 @@ namespace UiDesigner {
 			this->progressBarToolStripMenuItem->Name = L"progressBarToolStripMenuItem";
 			this->progressBarToolStripMenuItem->Size = System::Drawing::Size(180, 22);
 			this->progressBarToolStripMenuItem->Text = L"Progress Bar";
+			this->progressBarToolStripMenuItem->Click += gcnew System::EventHandler(this, &MainForm::progressBarToolStripMenuItem_Click);
 			// 
 			// widgetToolStripMenuItem
 			// 
@@ -482,37 +483,53 @@ namespace UiDesigner {
 		UpdateEditor();
 	}
 
-		   private: System::Void buttonToolStripMenuItem_Click(System::Object^ sender, System::EventArgs^ e) {
-			   Widget* widget = new ::Button(this);
-			   char name[32];
-			   for (int n = widgets->Count + 1;; ++n) {
-				   snprintf(name, 32, "button %d", n);
-				   if (GetWidget(gcnew System::String(name)) == nullptr) {
-					   break;
-				   }
-			   }
-			   widget->props["name"]->SetValue<std::string>(name);
-			   IntPtr ptr(widget);
-			   widgets->Add(ptr);
-			   AddTreeNode(treeView->Nodes, widget);
-			   UpdateEditor();
-		   }
-
-			private: System::Void widgetToolStripMenuItem_Click(System::Object^ sender, System::EventArgs^ e) {
-				Widget* widget = new Widget(this);
-				char name[32];
-				for (int n = widgets->Count + 1;; ++n) {
-					snprintf(name, 32, "widget %d", n);
-					if (GetWidget(gcnew System::String(name)) == nullptr) {
-						break;
-					}
-				}
-				widget->props["name"]->SetValue<std::string>(name);
-				IntPtr ptr(widget);
-				widgets->Add(ptr);
-				AddTreeNode(treeView->Nodes, widget);
-				UpdateEditor();
+	private: System::Void progressBarToolStripMenuItem_Click(System::Object^ sender, System::EventArgs^ e) {
+		Widget* widget = new ::ProgressBar(this);
+		char name[32];
+		for (int n = widgets->Count + 1;; ++n) {
+			snprintf(name, 32, "progress_bar %d", n);
+			if (GetWidget(gcnew System::String(name)) == nullptr) {
+				break;
 			}
+		}
+		widget->props["name"]->SetValue<std::string>(name);
+		IntPtr ptr(widget);
+		widgets->Add(ptr);
+		AddTreeNode(treeView->Nodes, widget);
+		UpdateEditor();
+	}
+
+	private: System::Void buttonToolStripMenuItem_Click(System::Object^ sender, System::EventArgs^ e) {
+		Widget* widget = new ::Button(this);
+		char name[32];
+		for (int n = widgets->Count + 1;; ++n) {
+			snprintf(name, 32, "button %d", n);
+			if (GetWidget(gcnew System::String(name)) == nullptr) {
+				break;
+			}
+		}
+		widget->props["name"]->SetValue<std::string>(name);
+		IntPtr ptr(widget);
+		widgets->Add(ptr);
+		AddTreeNode(treeView->Nodes, widget);
+		UpdateEditor();
+	}
+
+	private: System::Void widgetToolStripMenuItem_Click(System::Object^ sender, System::EventArgs^ e) {
+		Widget* widget = new Widget(this);
+		char name[32];
+		for (int n = widgets->Count + 1;; ++n) {
+			snprintf(name, 32, "widget %d", n);
+			if (GetWidget(gcnew System::String(name)) == nullptr) {
+				break;
+			}
+		}
+		widget->props["name"]->SetValue<std::string>(name);
+		IntPtr ptr(widget);
+		widgets->Add(ptr);
+		AddTreeNode(treeView->Nodes, widget);
+		UpdateEditor();
+	}
 
 		   json GetJson() {
 			   json js;
@@ -565,7 +582,7 @@ namespace UiDesigner {
 		}
 	}
 
-		  void UpdateEditor() {			  
+		  void UpdateEditor() {
 			  this->Text = gcnew System::String("Ui Designer - ");
 			  if (fileName != nullptr) {
 				  this->Text += fileName;
@@ -617,6 +634,9 @@ namespace UiDesigner {
 				}
 				else if (type == "button") {
 					prop = gcnew ButtonProp(ptr, rootFolder->Text);
+				}
+				else if (type == "progress") {
+					prop = gcnew ProgressBarProp(ptr, rootFolder->Text);
 				}
 				propertyGrid->SelectedObject = prop;
 				break;
@@ -701,13 +721,16 @@ namespace UiDesigner {
 						else if (widget["type"] == "button") {
 							w = new ::Button(this);
 						}
+						else if (widget["type"] == "progress") {
+							w = new ::ProgressBar(this);
+						}
 						if (w != nullptr) {
 							if (!w->FromJson(widget)) {
 								delete w;
 								w = nullptr;
 							}
 							IntPtr ptr(w);
-							widgets->Add(ptr);							
+							widgets->Add(ptr);
 						}
 					}
 					for each (IntPtr p in widgets) {
@@ -860,7 +883,5 @@ namespace UiDesigner {
 			UpdateEditor();
 		}
 	}
-
-
-};
+	};
 }

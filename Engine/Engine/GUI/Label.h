@@ -206,7 +206,7 @@ namespace HotBite {
 					}
 				}
 
-				std::string GetText() {
+				virtual std::string GetText() {
 					std::string final_text = text;
 					if (!parameters.empty()) {
 						char temp_txt[1024];

@@ -58,11 +58,33 @@ namespace HotBite {
 					bar = std::make_shared<Label>(c, name + "_bar");
 					AddWidget(bar);
 					SetText("");
+					
+				}
+
+				ProgressBar(ECS::Coordinator* c, const json& config, const std::string& root) : Label(c, config, root) {
+					bar = std::make_shared<Label>(c, name + "_bar");
+					AddWidget(bar);				
+					SetMaxValue(config["max_value"]);
+					SetMinValue(config["min_value"]);
+					SetValue(config["value"]);
+					SetBarColor(parseColorStringF4(config["bar_color"]));
+					SetBarImage(config["bar_image"]);
+					SetRect({ config["x"], config["y"] }, config["width"], config["height"]);
+					int layer = config["layer"];
+					if (layer == 0) {
+						layer = 1;
+					}
+					SetLayer(layer);
 				}
 
 				virtual void SetRect(const float2& pos, float w, float h) override {
-					Label::SetRect(pos, w, h);
 					bar->SetRect(pos, w, h);
+					Label::SetRect(pos, w, h);					
+				}
+
+				virtual void SetHeight(float h) override {
+					bar->SetHeight(h);
+					Label::SetHeight(h);					
 				}
 
 				virtual void SetMaxValue(float val) {
@@ -86,7 +108,8 @@ namespace HotBite {
 				}
 
 				virtual void SetBarImage(const std::string& filename) {
-					bar->SetBackGroundImage(filename);
+					std::string file = root + "\\" + filename;
+					bar->SetBackGroundImage(file);
 				}
 								
 				virtual void Refresh() override {

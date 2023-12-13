@@ -149,7 +149,7 @@ namespace HotBite {
 					Refresh();
 				}
 
-				void SetVisible(bool v) {
+				virtual void SetVisible(bool v) {
 					visible = v;
 					for (const auto& w : background_widgets) {
 						w.second->SetVisible(v);
@@ -159,7 +159,7 @@ namespace HotBite {
 					}
 				}
 
-				bool IsVisible() const {
+				virtual bool IsVisible() const {
 					return visible;
 				}
 
@@ -178,9 +178,9 @@ namespace HotBite {
 					return WIDGET_ID;
 				}
 
-				const std::string& GetName() const { return name; }
+				virtual const std::string& GetName() const { return name; }
 
-				void SetBackGroundImage(ID3D11ShaderResourceView* image) {
+				virtual void SetBackGroundImage(ID3D11ShaderResourceView* image) {
 					if (background_image != nullptr) {
 						background_image->Release();
 					}
@@ -190,7 +190,7 @@ namespace HotBite {
 					}
 				}
 
-				void SetBackGroundImage(const std::string& filename) {
+				virtual void SetBackGroundImage(const std::string& filename) {
 					if (background_image != nullptr) {
 						background_image->Release();
 					}
