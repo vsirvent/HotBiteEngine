@@ -506,9 +506,13 @@ void  AudioSystem::Reset() {
 
 std::optional<AudioSystem::SoundId> AudioSystem::LoadSound(const std::string& file, SoundId id) {
 	AutoLock l(lock);
-	if (const auto it = id_by_name.find(file); it != id_by_name.cend()) {
+	if (id == INVALID_SOUND_ID) {
+		return std::nullopt;
+	}
+	if (const auto it = audio_by_id.find(id); it != audio_by_id.cend()) {
 		printf("Audio %s clip already loaded\n", file.c_str());
-		return it->second;
+		it->second.ref_count++;
+		return id;
 	}
 	//Load the sound clip
 	std::ifstream f(file, std::ios::binary);
@@ -536,6 +540,7 @@ std::optional<AudioSystem::SoundId> AudioSystem::LoadSound(const std::string& fi
 	f.close();	
 	auto& play_info = audio_by_id[id];
 	play_info.id = id;
+	play_info.ref_count = 1;
 	play_info.left_data.clear();
 	play_info.left_data.resize(data.size() / 2);
 	play_info.right_data.clear();
@@ -562,8 +567,37 @@ std::optional<AudioSystem::SoundId> AudioSystem::GetSound(const std::string& fil
 	return std::nullopt;
 }
 
+bool AudioSystem::RemoveSound(SoundId id) {
+	AutoLock l(lock);
+	if (id == INVALID_SOUND_ID) {
+		return false;
+	}
+	
+	if (const auto it = audio_by_id.find(id); it != audio_by_id.cend()) {
+		if (it->second.ref_count-- == 0) {
+			for (auto it2 = playlist.begin(); it2 != playlist.end();) {
+				if (it2->second->clip->id == id) {
+					it2 = playlist.erase(it2);
+				}
+				else {
+					++it2;
+				}
+			}
+			audio_by_id.erase(it);
+			return true;
+		}
+	}
+
+	return false;
+}
+
 AudioSystem::PlayId AudioSystem::Play(SoundId id, int32_t delay_ms, bool loop, float speed, float volume, bool simulate_sound_speed, ECS::Entity entity, const float3& pos_offset) {
 	AutoLock l(lock);
+
+	if (id == INVALID_SOUND_ID) {
+		return INVALID_PLAY_ID;
+	}
+	
 	const auto it = audio_by_id.find(id);
 
 	//Check if audio loaded

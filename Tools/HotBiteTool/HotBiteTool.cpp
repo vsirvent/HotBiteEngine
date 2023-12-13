@@ -7,19 +7,28 @@ namespace HotBiteTool {
 		ToolUi* tool_ui = nullptr;
 
 		void CreateToolUi(HINSTANCE instance, HWND parent) {
-			tool_ui = new ToolUi(instance, parent);
+			if (tool_ui == nullptr) {
+				tool_ui = new ToolUi(instance, parent);
+			}
 		}
 
 		void Run() {
-			tool_ui->Run();
+			if (tool_ui != nullptr) {
+				tool_ui->Run();
+			}
 		}
 
 		void LoadUI(const json& ui) {
-			tool_ui->LoadUI(ui);
+			if (tool_ui != nullptr) {
+				tool_ui->LoadUI(ui);
+			}
 		}
 
 		void DeleteToolUi() {
-			delete tool_ui;
+			if (tool_ui == nullptr) {
+				delete tool_ui;
+				tool_ui = nullptr;
+			}
 		}
 	}
 }

@@ -93,7 +93,7 @@ public:
 		props["height"] = std::make_shared < Prop<float>>("Position Height", 0.1f);
 	};
 
-	bool FromJson(const json& js) {
+	virtual bool FromJson(const json& js) {
 		try {
 			props["name"]->SetValue<std::string>(js["name"]);
 			props["layer"]->SetValue<int32_t>(js["layer"]);
@@ -233,16 +233,16 @@ public:
 		props["show_text"] = std::make_shared<Prop<bool>>("Show text", true);
 	}
 
-	bool FromJson(const json& js) {
+	virtual bool FromJson(const json& js) {
 		try {
 			Widget::FromJson(js);
 			props["weight"]->SetValue<int32_t>(js["weight"]);
 			props["font_size"]->SetValue<int32_t>(js["font_size"]);
 			props["font_name"]->SetValue<std::string>(js["font_name"]);
 			props["text"]->SetValue<std::string>(js["text"]);
-			props["style"]->SetValue<EFontStyle>(js["style"]);
-			props["halign"]->SetValue<ETextAligment>(js["halign"]);
-			props["valign"]->SetValue<EVerticalAligment>(js["valign"]);
+			props["style"]->SetValue<int32_t>(js["style"]);
+			props["halign"]->SetValue<int32_t>(js["halign"]);
+			props["valign"]->SetValue<int32_t>(js["valign"]);
 			props["margin"]->SetValue<int32_t>(js["margin"]);
 			props["text_color"]->SetValue<std::string>(js["text_color"]);
 			props["show_text"]->SetValue<bool>(js["show_text"]);
@@ -261,13 +261,19 @@ public:
 		props["type"] = std::make_shared<Prop<std::string>>("Widget type", "button");
 		props["click_image"] = std::make_shared<Prop<std::string>>("Button click image", "");
 		props["idle_image"] = std::make_shared<Prop<std::string>>("Button idle image", "");
+		props["hover_image"] = std::make_shared<Prop<std::string>>("Button hover image", "");
+		props["click_sound"] = std::make_shared<Prop<std::string>>("Button click sound", "");
+		props["hover_sound"] = std::make_shared<Prop<std::string>>("Button hover sound", "");
 	}
 
-	bool FromJson(const json& js) {
+	virtual bool FromJson(const json& js) {
 		try {
 			Label::FromJson(js);
 			props["click_image"]->SetValue<std::string>(js["click_image"]);
 			props["idle_image"]->SetValue<std::string>(js["idle_image"]);
+			props["hover_image"]->SetValue<std::string>(js["hover_image"]);
+			props["click_sound"]->SetValue<std::string>(js["click_sound"]);
+			props["hover_sound"]->SetValue<std::string>(js["hover_sound"]);
 		}
 		catch (...) {
 			return false;
@@ -285,6 +291,37 @@ public:
 
 		openFileDialog->Filter = "Image Files|*.bmp;*.jpg;*.jpeg;*.gif;*.png|All Files|*.*";
 		openFileDialog->Title = "Select an Image";
+
+		if (value != nullptr && value->GetType() == String::typeid)
+		{
+			openFileDialog->FileName = dynamic_cast<String^>(value);
+		}
+
+		if (openFileDialog->ShowDialog() == DialogResult::OK)
+		{
+			return openFileDialog->FileName;
+		}
+		else
+		{
+			return value;
+		}
+	}
+};
+
+ref class CustomAudioEditor : UITypeEditor
+{
+public:
+	UITypeEditorEditStyle GetEditStyle(System::ComponentModel::ITypeDescriptorContext^ context) override
+	{
+		return UITypeEditorEditStyle::Modal;
+	}
+
+	Object^ EditValue(ITypeDescriptorContext^ context, System::IServiceProvider^ provider, Object^ value) override
+	{
+		OpenFileDialog^ openFileDialog = gcnew OpenFileDialog();
+
+		openFileDialog->Filter = "Raw Audio Files|*.raw|All Files|*.*";
+		openFileDialog->Title = "Select an RAW audio file (PCM 16 bits LE 44100 2-Channel)";
 
 		if (value != nullptr && value->GetType() == String::typeid)
 		{
@@ -610,6 +647,69 @@ public:
 				File::Copy(newValue, dest_file);
 			}
 			((Widget*)widget.ToPointer())->props["idle_image"]->SetValue<std::string>(msclr::interop::marshal_as<std::string>(file));
+		}
+	}
+	[CategoryAttribute("Button")]
+	[EditorAttribute(CustomImageEditor::typeid, System::Drawing::Design::UITypeEditor::typeid)]
+	property String^ HoverImage {
+		String^ get()
+		{
+			return gcnew String(((Widget*)widget.ToPointer())->props["hover_image"]->GetValue<std::string>().c_str());
+		}
+		void set(String^ newValue)
+		{
+			System::String^ file = Path::GetFileName(newValue);
+			if (file->Length > 0) {
+				System::String^ dest_file = root_folder + file;
+				try {
+					File::Delete(dest_file);
+				}
+				catch (...) {}
+				File::Copy(newValue, dest_file);
+			}
+			((Widget*)widget.ToPointer())->props["hover_image"]->SetValue<std::string>(msclr::interop::marshal_as<std::string>(file));
+		}
+	}
+	[CategoryAttribute("Button")]
+	[EditorAttribute(CustomAudioEditor::typeid, System::Drawing::Design::UITypeEditor::typeid)]
+	property String^ ClickSound {
+		String^ get()
+		{
+			return gcnew String(((Widget*)widget.ToPointer())->props["click_sound"]->GetValue<std::string>().c_str());
+		}
+		void set(String^ newValue)
+		{
+			System::String^ file = Path::GetFileName(newValue);
+			if (file->Length > 0) {
+				System::String^ dest_file = root_folder + file;
+				try {
+					File::Delete(dest_file);
+				}
+				catch (...) {}
+				File::Copy(newValue, dest_file);
+			}
+			((Widget*)widget.ToPointer())->props["click_sound"]->SetValue<std::string>(msclr::interop::marshal_as<std::string>(file));
+		}
+	}
+	[CategoryAttribute("Button")]
+	[EditorAttribute(CustomAudioEditor::typeid, System::Drawing::Design::UITypeEditor::typeid)]
+	property String^ HoverSound {
+		String^ get()
+		{
+			return gcnew String(((Widget*)widget.ToPointer())->props["hover_sound"]->GetValue<std::string>().c_str());
+		}
+		void set(String^ newValue)
+		{
+			System::String^ file = Path::GetFileName(newValue);
+			if (file->Length > 0) {
+				System::String^ dest_file = root_folder + file;
+				try {
+					File::Delete(dest_file);
+				}
+				catch (...) {}
+				File::Copy(newValue, dest_file);
+			}
+			((Widget*)widget.ToPointer())->props["hover_sound"]->SetValue<std::string>(msclr::interop::marshal_as<std::string>(file));
 		}
 	}
 };

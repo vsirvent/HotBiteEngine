@@ -82,9 +82,11 @@ namespace HotBite {
 				VertexType v[4];
 				ECS::Entity id;
 				ECS::Coordinator* coordinator;
+				std::string root;
 
 			public:
-				Widget(ECS::Coordinator* c, const json& config, const std::string& root): coordinator(c) {
+				Widget(ECS::Coordinator* c, const json& config, const std::string& _root): coordinator(c) {
+					root = _root;
 					name = config["name"];
 					sprite = std::make_unique<PrimitiveBatch<VertexType>>(DXCore::Get()->context);
 					id = coordinator->CreateEntity(name);

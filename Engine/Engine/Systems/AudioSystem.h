@@ -131,7 +131,7 @@ namespace HotBite {
                     std::vector<int16_t> right_data;
                     std::vector<int16_t> mono_data;
                     SoundId id = INVALID_SOUND_ID;
-                    //TODO: Add here any audio option (fx, speed, etc...)
+                    std::atomic<int32_t> ref_count;
                 };
 
                 enum EOffsetType {
@@ -213,6 +213,7 @@ namespace HotBite {
                 void Reset();
                 std::optional<SoundId> LoadSound(const std::string& file, SoundId id);
                 std::optional<SoundId> GetSound(const std::string& file);
+                bool RemoveSound(SoundId id);
                 
                 PlayId Play(SoundId id,
                             int32_t delay_ms = 0,

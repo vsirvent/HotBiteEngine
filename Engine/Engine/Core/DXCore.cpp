@@ -130,6 +130,7 @@ HRESULT DXCore::InitWindow(HWND parent)
 	if (parent != NULL) {
 		wnd = parent;
 		windowed = true;
+		SetWindowLongPtr(wnd, GWLP_WNDPROC, (LONG_PTR)DXCore::WindowProc);
 	}
 	else {
 		WNDCLASS wndClass = {};
@@ -510,6 +511,9 @@ HRESULT DXCore::Run()
 	{
 		while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
 		{
+			if (end) {
+				return (HRESULT)msg.wParam;
+			}
 			TranslateMessage(&msg);
 			DispatchMessage(&msg);
 		}
@@ -604,6 +608,9 @@ void DXCore::OnFrame() {
 
 LRESULT DXCore::ProcessMessage(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
+	if (end) {
+		return DefWindowProc(hWnd, uMsg, wParam, lParam);
+	}
 	Coordinator* c = GetCoordinator();
 	RECT rect;
 	GetClientRect(wnd, &rect);

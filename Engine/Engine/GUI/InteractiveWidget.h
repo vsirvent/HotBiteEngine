@@ -50,10 +50,13 @@ namespace HotBite {
 				static inline ECS::EventId EVENT_ID_MOUSE_RUP = ECS::GetEventId<InteractiveWidget>(0x07);
 				static inline ECS::EventId EVENT_ID_DETROY = ECS::GetEventId<InteractiveWidget>(0x08);
 				static inline ECS::EventId EVENT_ID_FOCUS = ECS::GetEventId<InteractiveWidget>(0x09);
+				static inline ECS::EventId EVENT_ID_HOVER_START = ECS::GetEventId<InteractiveWidget>(0x10);
+				static inline ECS::EventId EVENT_ID_HOVER_END = ECS::GetEventId<InteractiveWidget>(0x11);
 
 			protected:
 
 				Widget* widget = nullptr;
+				bool is_hover = false;
 
 				bool Inside(const float2& coords) {
 					float w = (float)DXCore::Get()->GetWidth();
@@ -78,8 +81,26 @@ namespace HotBite {
 							e.SetEntity(widget->id);
 							e.SetParam<float>(DXCore::PARAM_RELATIVE_ID_X, 1.0f - relative_coords.x);
 							e.SetParam<float>(DXCore::PARAM_RELATIVE_ID_Y, 1.0f - relative_coords.y);
-							e.SetType(ECS::GetEventId<InteractiveWidget>(ev.GetType()));
+							e.SetType(ECS::GetEventId<InteractiveWidget>(ev.GetType()));							
 							widget->coordinator->SendEvent(e);
+							if (!is_hover && ev.GetType() == DXCore::EVENT_ID_MOUSE_MOVE) {
+								is_hover = true;
+								ECS::Event e2 = ev;
+								e2.SetSender(this);
+								e2.SetEntity(widget->id);
+								e2.SetType(EVENT_ID_HOVER_START);
+								widget->coordinator->SendEvent(e2);
+							}
+						}
+						else {
+							if (is_hover && ev.GetType() == DXCore::EVENT_ID_MOUSE_MOVE) {
+								is_hover = false;
+								ECS::Event e = ev;
+								e.SetSender(this);
+								e.SetEntity(widget->id);
+								e.SetType(EVENT_ID_HOVER_END);
+								widget->coordinator->SendEvent(e);
+							}
 						}
 					}
 				}
@@ -97,6 +118,10 @@ namespace HotBite {
 					AddEventListener(DXCore::EVENT_ID_MOUSE_RDOWN, std::bind(&InteractiveWidget::OnMouseEvent, this, std::placeholders::_1));
 					AddEventListener(DXCore::EVENT_ID_MOUSE_RUP, std::bind(&InteractiveWidget::OnMouseEvent, this, std::placeholders::_1));
 					AddEventListener(DXCore::EVENT_ID_MOUSE_MOVE, std::bind(&InteractiveWidget::OnMouseEvent, this, std::placeholders::_1));
+				}
+
+				bool IsHover() const {
+					return is_hover;
 				}
 			};			
 		}

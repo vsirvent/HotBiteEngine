@@ -71,6 +71,11 @@ namespace HotBite {
                 return (uint64_t)(typeid(T).hash_code());
             }
 
+            template <class T, class V>
+            V GetId(T* obj, uint32_t id) {
+                return (V)((uint64_t)obj & 0xffff0000 | id & 0x0000ffff);
+            }
+
             template <typename T>
             class RandType {
             private:

@@ -127,6 +127,7 @@ namespace HotBite {
 					SetText(config["text"]);
 					SetTextColor(parseColorStringF4(config["text_color"]));
 					ShowText(config["show_text"]);
+					Refresh();
 				}
 
 				Label(ECS::Coordinator* c, const std::string& name, const std::string& txt = "", float size = 0.0f,
