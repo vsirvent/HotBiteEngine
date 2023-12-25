@@ -143,8 +143,10 @@ namespace HotBite {
 				
 				//Timers management
 				TimerId RegisterTimer(int64_t period_nsec, std::function<bool(const TimerData&)> cb);
+				TimerId Exec(std::function<bool(const TimerData&)> cb);
 				bool RemoveTimer(TimerId id);
 				void RemoveTimerAsync(TimerId id);
+
 
 				//Counters management
 				void StartCount(CounterId count_id);

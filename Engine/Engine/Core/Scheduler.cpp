@@ -128,6 +128,11 @@ int Scheduler::RegisterTimer(int64_t period_nsec, std::function<bool(const Timer
 	return td.id;
 }
 
+Scheduler::TimerId Scheduler::Exec(std::function<bool(const TimerData&)> cb) {
+	return RegisterTimer(0, cb);
+}
+
+
 void Scheduler::_RegisterTimer(TimerData&& td) {
 	bool done = false;
 	//If we already have a timer with that period

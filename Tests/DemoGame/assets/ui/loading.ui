@@ -1,0 +1,55 @@
+{
+    "ui": {
+        "name": "loading",
+        "root": "..\\..\\..\\Tests\\DemoGame\\assets\\ui",
+        "widgets": [
+            {
+                "background_alpha": 1.0,
+                "background_alpha_color": "#FFFFFFFF",
+                "background_color": "#FFFFFFFF",
+                "background_image": "background.jpg",
+                "height": 1.0,
+                "layer": 2,
+                "name": "background",
+                "parent": "",
+                "type": "widget",
+                "visible": true,
+                "widgets": [],
+                "width": 1.0,
+                "x": 0.0,
+                "y": 0.0
+            },
+            {
+                "background_alpha": 1.0,
+                "background_alpha_color": "#FFFFFFFF",
+                "background_color": "#FFFFFFFF",
+                "background_image": "",
+                "bar_color": "#005555ff",
+                "bar_image": "",
+                "font_name": "Arial",
+                "font_size": 16,
+                "halign": 2,
+                "height": 0.019999999552965164,
+                "layer": 0,
+                "margin": 0,
+                "max_value": 100.0,
+                "min_value": 0.0,
+                "name": "loading_bar",
+                "parent": "",
+                "show_text": true,
+                "style": 0,
+                "text": "",
+                "text_color": "#110000FF",
+                "type": "progress",
+                "valign": 2,
+                "value": 0.0,
+                "visible": true,
+                "weight": 400,
+                "widgets": [],
+                "width": 0.6000000238418579,
+                "x": 0.20000000298023224,
+                "y": 0.6000000238418579
+            }
+        ]
+    }
+}

@@ -89,14 +89,17 @@ namespace HotBite {
 
 				virtual void SetMaxValue(float val) {
 					vmax = val;
+					Refresh();
 				}
 
 				virtual void SetMinValue(float val) {
 					vmin = val;
+					Refresh();
 				}
 
 				virtual void SetValue(float val) {
 					value = val;
+					Refresh();
 				}
 
 				virtual void SetDynamicValue(float* val) {
@@ -108,8 +111,11 @@ namespace HotBite {
 				}
 
 				virtual void SetBarImage(const std::string& filename) {
-					std::string file = root + "\\" + filename;
-					bar->SetBackGroundImage(file);
+					if (!filename.empty())
+					{
+						std::string file = root + "\\" + filename;
+						bar->SetBackGroundImage(file);
+					}
 				}
 								
 				virtual void Refresh() override {

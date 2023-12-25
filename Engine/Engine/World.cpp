@@ -872,7 +872,7 @@ void World::Stop() {
 		render_system->mutex.lock();
 		physics_mutex.lock();
 		while (!run_timer_ids[i].empty()) {
-			Scheduler::Get(i)->RemoveTimer(run_timer_ids[i].front());
+			Scheduler::Get(i)->RemoveTimerAsync(run_timer_ids[i].front());
 			run_timer_ids[i].pop_front();
 		}
 		physics_mutex.unlock();

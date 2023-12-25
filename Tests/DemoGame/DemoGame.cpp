@@ -61,6 +61,7 @@ class GameDemoApplication : public DXCore, public ECS::EventListener
 private:
 
 	World world;
+	World loading;
 	DOPEffect* dop_fx = nullptr;
 	MotionBlurEffect* motion_blur = nullptr;
 	PostGame* post_game = nullptr;
@@ -79,12 +80,13 @@ private:
 	bool retry_enable = false;
 	ID3D11ShaderResourceView* grass[NGRASS] = {};
 	float3 fireball_spawn_position = {};
+	float progress = 0.0f;
 
 	AudioSystem::PlayId background_music = AudioSystem::INVALID_PLAY_ID;
 	AudioSystem::PlayId tone = AudioSystem::INVALID_PLAY_ID;
 
 public:
-	GameDemoApplication(HINSTANCE hInstance) :DXCore(hInstance, "HotBiteDemoGame", 1920, 1080, true, true) {
+	GameDemoApplication(HINSTANCE hInstance) :DXCore(hInstance, "HotBiteDemoGame", 1920, 1080, true, false) {
 		root = "..\\..\\..\\Tests\\DemoGame\\";
 		//Initialize core DirectX
 		InitWindow();
@@ -92,149 +94,232 @@ public:
 
 		InitDirectX();
 
-		//Initialize world
-		world.PreLoad(this);
-		//Register our own systems and components in the engine
-		world.RegisterComponent<GamePlayerComponent>();
-		world.RegisterComponent<CreatureComponent>();
-		world.RegisterComponent<FireComponent>();
-		world.RegisterComponent<EnemyComponent>();
-		world.RegisterComponent<TerrainComponent>();
-
-		world.RegisterSystem<GamePlayerSystem>();
-		world.RegisterSystem<FireSystem>();
-		world.RegisterSystem<EnemySystem>();
-		world.RegisterSystem<GameCameraSystem>();
-
-		//Get pointer to the world coordinator, this coordinator manages the 
-		//world systems, entities, components and events.
-		ECS::Coordinator* c = world.GetCoordinator();
-		//Event listeners needs to be initialized once a coordinator is available as 
-		//the coordinator manages the events
-		EventListener::Init(c);
-		//Look for "EventId" in the engine to look for all the available events, no documentation available yet.
-		//You can add your own events very easy, just check how it works in the engine.       
-		AddEventListener(World::EVENT_ID_MATERIALS_LOADED, std::bind(&GameDemoApplication::OnMaterialsLoaded, this, std::placeholders::_1));
-		AddEventListener(World::EVENT_ID_TEMPLATES_LOADED, std::bind(&GameDemoApplication::OnMaterialsLoaded, this, std::placeholders::_1));
-		AddEventListener(GamePlayerSystem::EVENT_ID_PLAYER_DAMAGED, std::bind(&GameDemoApplication::OnPlayerDamaged, this, std::placeholders::_1));
-		AddEventListener(GamePlayerSystem::EVENT_ID_PLAYER_DEAD, std::bind(&GameDemoApplication::OnPlayerDead, this, std::placeholders::_1));
+		loading.PreLoad(this);
+		loading.Init();
+		ECS::Coordinator* lc = loading.GetCoordinator();
+		EventListener::Init(lc);
+		GUI* loading_gui = new UI::GUI(context, width, height, lc);
+		loading.SetPostProcessPipeline(loading_gui);
+		loading.Run(5);
 		
-		//Load the scene
-		world.Load(root + "demo_game_scene.json");
-		//Load the player animations as templates
-		world.LoadTemplate("Assets\\archer\\archer.fbx", false, true);
-		world.LoadTemplate("Assets\\archer\\archer_idle.fbx", false, true);
-		world.LoadTemplate("Assets\\archer\\archer_jump.fbx", false, true);
-		world.LoadTemplate("Assets\\archer\\archer_walk.fbx", false, true);
-		world.LoadTemplate("Assets\\archer\\archer_run.fbx", false, true);
-		world.LoadTemplate("Assets\\archer\\archer_attack.fbx", false, true);
-		world.LoadTemplate("Assets\\archer\\archer_death.fbx", false, true);
-		//Load zombie assets as templates
-		world.LoadTemplate("Assets\\zombie\\zombie_tpose.fbx", false, true);
-		world.LoadTemplate("Assets\\zombie\\zombie_idle.fbx", false, true);
-		world.LoadTemplate("Assets\\zombie\\zombie_walk.fbx", false, true);
-		world.LoadTemplate("Assets\\zombie\\zombie_death.fbx", false, true);
-		world.LoadTemplate("Assets\\zombie\\zombie_attack.fbx", false, true);
-		//Load troll assets as templates
-		world.LoadTemplate("Assets\\troll\\troll_tpose.fbx", false, true);
-		world.LoadTemplate("Assets\\troll\\troll_idle.fbx", false, true);
-		world.LoadTemplate("Assets\\troll\\troll_walk.fbx", false, true);
-		world.LoadTemplate("Assets\\troll\\troll_death.fbx", false, true);
-		world.LoadTemplate("Assets\\troll\\troll_attack.fbx", false, true);
-		//Init the world
-		world.Init();
+		std::ifstream ifs(root + ".\\assets\\ui\\loading.ui");
+		json jf = json::parse(ifs);
+		loading_gui->LoadUI(lc, jf);
+		auto main = Scheduler::Get(MAIN_THREAD);
+		main->Exec([=](const Scheduler::TimerData&) {
+			auto loading_bar = dynamic_pointer_cast<UI::ProgressBar>(loading_gui->GetWidget("loading_bar"));
+			auto render = lc->GetSystem<Systems::RenderSystem>();
+			loading_bar->SetDynamicValue(&progress);
 
-		grass[0] = HotBite::Engine::Core::LoadTexture(root + "\\Assets\\grass\\grass1.png");
-		grass[1] = HotBite::Engine::Core::LoadTexture(root + "\\Assets\\grass\\grass2.png");
-		grass[2] = HotBite::Engine::Core::LoadTexture(root + "\\Assets\\grass\\grass3.png");
+			//Initialize world
+			world.PreLoad(this);
+			//Register our own systems and components in the engine
+			world.RegisterComponent<GamePlayerComponent>();
+			world.RegisterComponent<CreatureComponent>();
+			world.RegisterComponent<FireComponent>();
+			world.RegisterComponent<EnemyComponent>();
+			world.RegisterComponent<TerrainComponent>();
+			world.RegisterSystem<GamePlayerSystem>();
+			world.RegisterSystem<FireSystem>();
+			world.RegisterSystem<EnemySystem>();
+			world.RegisterSystem<GameCameraSystem>();
+			progress += 5.0f;
+			render->Update();
 
-		AddEventListener(World::EVENT_ID_UPDATE_BACKGROUND, std::bind(&GameDemoApplication::UpdateSystems, this, std::placeholders::_1));
-		AddEventListener(RenderSystem::EVENT_ID_PREPARE_SHADER, std::bind(&GameDemoApplication::OnPrepare, this, std::placeholders::_1));
+			//Get pointer to the world coordinator, this coordinator manages the 
+			//world systems, entities, components and events.
+			ECS::Coordinator* c = world.GetCoordinator();
+			//Event listeners needs to be initialized once a coordinator is available as 
+			//the coordinator manages the events
+			EventListener::Init(c);
+			background_music = c->GetSystem<AudioSystem>()->Play(1, 0, true, 1.0f, 0.01f);
+			c->GetSystem<AudioSystem>()->Play(6, 0, true, 1.0f, 0.2f);
 
-		//Load and set post effect chain to renderer
-		int w = GetWidth();
-		int h = GetHeight();
-		//We have depth of field effect as post process
-		dop_fx = new DOPEffect(context, w, h, 20.0f, 0.0f);
-		motion_blur = new MotionBlurEffect(context, w, h);
-		//we add to the chain a GUI post process stage to render UI
-		gui = new UI::GUI(context, w, h, world.GetCoordinator());
-		//add our own post-chain effect, this one generates the damage player effect and the "you died" effect (see DemoPostEffect.hlsl)
-		post_game = new PostGame(context, w, h, world.GetCoordinator());
+			//Look for "EventId" in the engine to look for all the available events, no documentation available yet.
+			//You can add your own events very easy, just check how it works in the engine.       
+			AddEventListener(World::EVENT_ID_MATERIALS_LOADED, std::bind(&GameDemoApplication::OnMaterialsLoaded, this, std::placeholders::_1));
+			AddEventListener(World::EVENT_ID_TEMPLATES_LOADED, std::bind(&GameDemoApplication::OnMaterialsLoaded, this, std::placeholders::_1));
+			AddEventListener(GamePlayerSystem::EVENT_ID_PLAYER_DAMAGED, std::bind(&GameDemoApplication::OnPlayerDamaged, this, std::placeholders::_1));
+			AddEventListener(GamePlayerSystem::EVENT_ID_PLAYER_DEAD, std::bind(&GameDemoApplication::OnPlayerDead, this, std::placeholders::_1));
+			progress += 5.0f;
+			render->Update();
 
-		//Connect the post-chain effects
-		dop_fx->SetNext(post_game);
-		//motion_blur->SetNext(post_game);
-		post_game->SetNext(gui);
-		
-		//Set the post-chain begin to the renderer
-		world.SetPostProcessPipeline(dop_fx);
+			//Load the scene
+			world.Load(root + "demo_game_scene.json");
+			progress += 10.0f;
+			render->Update();
 
-		//Setup and configure our systems (all registered systems are already instanciated during world init)
-		enemy_system = c->GetSystem<EnemySystem>();
-		camera_system = c->GetSystem<GameCameraSystem>();
-		c->GetSystem<RenderSystem>()->SetParallaxShadow(true);
+			//Load the player animations as templates
+			world.LoadTemplate("Assets\\archer\\archer.fbx", false, true);
+			progress += 3.0f;
+			render->Update();
+			world.LoadTemplate("Assets\\archer\\archer_idle.fbx", false, true);
+			progress += 3.0f;
+			render->Update();
+			world.LoadTemplate("Assets\\archer\\archer_jump.fbx", false, true);
+			progress += 3.0f;
+			render->Update();
+			world.LoadTemplate("Assets\\archer\\archer_walk.fbx", false, true);
+			progress += 3.0f;
+			render->Update();
+			world.LoadTemplate("Assets\\archer\\archer_run.fbx", false, true);
+			progress += 3.0f;
+			render->Update();
+			world.LoadTemplate("Assets\\archer\\archer_attack.fbx", false, true);
+			progress += 3.0f;
+			render->Update();
+			world.LoadTemplate("Assets\\archer\\archer_death.fbx", false, true);
+			progress += 3.0f;
+			render->Update();
+			//Load zombie assets as templates
+			world.LoadTemplate("Assets\\zombie\\zombie_tpose.fbx", false, true);
+			progress += 3.0f;
+			render->Update();
+			world.LoadTemplate("Assets\\zombie\\zombie_idle.fbx", false, true);
+			progress += 3.0f;
+			render->Update();
+			world.LoadTemplate("Assets\\zombie\\zombie_walk.fbx", false, true);
+			progress += 3.0f;
+			render->Update();
+			world.LoadTemplate("Assets\\zombie\\zombie_death.fbx", false, true);
+			progress += 3.0f;
+			render->Update();
+			world.LoadTemplate("Assets\\zombie\\zombie_attack.fbx", false, true);
+			progress += 3.0f;
+			render->Update();
+			//Load troll assets as templates
+			world.LoadTemplate("Assets\\troll\\troll_tpose.fbx", false, true);
+			progress += 3.0f;
+			render->Update();
+			world.LoadTemplate("Assets\\troll\\troll_idle.fbx", false, true);
+			progress += 3.0f;
+			render->Update();
+			world.LoadTemplate("Assets\\troll\\troll_walk.fbx", false, true);
+			progress += 3.0f;
+			render->Update();
+			world.LoadTemplate("Assets\\troll\\troll_death.fbx", false, true);
+			progress += 3.0f;
+			render->Update();
+			world.LoadTemplate("Assets\\troll\\troll_attack.fbx", false, true);
+			progress += 3.0f;
+			render->Update();
+			//Init the world
+			world.Init();
+			progress += 5.0f;
+			render->Update();
 
-		//Init our own game PlayerSystem
-		player_system = c->GetSystem<GamePlayerSystem>();
-		player_system->SetCamera(c->GetSystem<CameraSystem>()->GetCameras().GetData()[0]);
+			grass[0] = HotBite::Engine::Core::LoadTexture(root + "\\Assets\\grass\\grass1.png");
+			grass[1] = HotBite::Engine::Core::LoadTexture(root + "\\Assets\\grass\\grass2.png");
+			grass[2] = HotBite::Engine::Core::LoadTexture(root + "\\Assets\\grass\\grass3.png");
+
+			//Load and set post effect chain to renderer
+			int w = GetWidth();
+			int h = GetHeight();
+			//We have depth of field effect as post process
+			dop_fx = new DOPEffect(context, w, h, 20.0f, 0.0f);
+			motion_blur = new MotionBlurEffect(context, w, h);
+			//we add to the chain a GUI post process stage to render UI
+			gui = new UI::GUI(context, w, h, world.GetCoordinator());
+			//add our own post-chain effect, this one generates the damage player effect and the "you died" effect (see DemoPostEffect.hlsl)
+			post_game = new PostGame(context, w, h, world.GetCoordinator());
+			progress += 5.0f;
+			render->Update();
+
+			//Connect the post-chain effects
+			dop_fx->SetNext(post_game);
+			//motion_blur->SetNext(post_game);
+			post_game->SetNext(gui);
+
+			//Set the post-chain begin to the renderer
+			world.SetPostProcessPipeline(dop_fx);
+			progress += 5.0f;
+			render->Update();
+
+			//Setup and configure our systems (all registered systems are already instanciated during world init)
+			enemy_system = c->GetSystem<EnemySystem>();
+			camera_system = c->GetSystem<GameCameraSystem>();
+			c->GetSystem<RenderSystem>()->SetParallaxShadow(true);
+
+			//Init our own game PlayerSystem
+			player_system = c->GetSystem<GamePlayerSystem>();
+			player_system->SetCamera(c->GetSystem<CameraSystem>()->GetCameras().GetData()[0]);
 
 
-		//Prepare player       
-		SetUpPlayer();
+			//Prepare player       
+			SetUpPlayer();
+			progress += 5.0f;
+			render->Update();
 
-		//Prepare zombies
-		SetUpZombies();
+			//Prepare zombies
+			SetUpZombies();
+			progress += 5.0f;
+			render->Update();
 
-		//Prepare trolls
-		SetUpTrolls();
+			//Prepare trolls
+			SetUpTrolls();
+			progress += 5.0f;
+			render->Update();
 
-		//Prepare de screen GUI
-		SetupGUI(gui);
+			//Prepare de screen GUI
+			SetupGUI(gui);
+			progress += 5.0f;
+			render->Update();
 
-		//Add the terrain component to all instances with name Terrain*
-		//NOTE: "Terrain" is the name we give the terrain in the FBX file set in particle_test_scene.json,
-		//same with any other entity name in the example, names are set in the FBX files 
-		auto terrains = c->GetEntitiesByName("Terrain*");
-		for (auto& terrain : terrains) {
-			c->AddComponent<TerrainComponent>(terrain);
-			c->NotifySignatureChange(terrain);
-		}
-
-		//Prepare fire balls and scene
-		auto balls = c->GetEntitiesByName("Ball*");
-		Core::MaterialData* particle_material = world.GetMaterials().Get("SmokeParticles");
-
-		//Remove physics from water so it doesn't collide with objects
-		auto water = c->GetEntityByName("Water");
-		c->GetSystem<AudioSystem>()->Play(13, 0, true, 1.0f, 3.0f, false, water);
-		c->RemoveComponent<Physics>(water);
-		c->NotifySignatureChange(water);
-
-		//Lava physics is type "trigger" so it doesn't collide physically but gives contact information, so creatures can burn when touching the lava
-		auto lavas = c->GetEntitiesByName("Lava*");
-		for (auto& lava : lavas) {
-			c->GetComponent<Components::Physics>(lava).collider->setIsTrigger(true);
-			//c->AddComponent<FireComponent>(lava, { .duration = MSEC_TO_NSEC(2000), .dps = 10.0f });
-			std::shared_ptr<SmokeParticles> lava_particle = std::make_shared<SmokeParticles>();
-			lava_particle->Init(c, lava, particle_material, 0.01f, 20, 0.2f, 10000, ParticlesData::PARTICLE_ORIGIN_FIXED_VERTEX, 0.3f, 0.9f, 0.0f, 10.0f);
-			c->AddComponent<Particles>(lava, Particles{ "smoke", std::dynamic_pointer_cast<ParticlesData>(lava_particle) });
-			c->GetSystem<AudioSystem>()->Play(12, 0, true, 1.0f, 2.0f, false, lava);
-			c->NotifySignatureChange(lava);
-		}
-
-		//Setup fireballs
-		for (auto& ball : balls) {
-			if (ball != ECS::INVALID_ENTITY_ID) {
-				fireball_spawn_position = c->GetComponent<Components::Transform>(ball).position;
-				SetupFireBall(ball);
-				c->NotifySignatureChange(ball);
+			//Add the terrain component to all instances with name Terrain*
+			//NOTE: "Terrain" is the name we give the terrain in the FBX file set in particle_test_scene.json,
+			//same with any other entity name in the example, names are set in the FBX files 
+			auto terrains = c->GetEntitiesByName("Terrain*");
+			for (auto& terrain : terrains) {
+				c->AddComponent<TerrainComponent>(terrain);
+				c->NotifySignatureChange(terrain);
 			}
-		}
-		
-		Components::Sky* sky = c->GetComponentPtr<Components::Sky>(c->GetEntityByName("Sky"));
-		//We create a periodic timer to check keyboard input keys
-		Scheduler::Get(DXCore::BACKGROUND_THREAD)->RegisterTimer(1000000000 / 60, [this, sky](const Scheduler::TimerData& t) {
+			progress += 5.0f;
+			render->Update();
+
+			//Prepare fire balls and scene
+			auto balls = c->GetEntitiesByName("Ball*");
+			Core::MaterialData* particle_material = world.GetMaterials().Get("SmokeParticles");
+			progress += 5.0f;
+			render->Update();
+
+			//Remove physics from water so it doesn't collide with objects
+			auto water = c->GetEntityByName("Water");
+			c->GetSystem<AudioSystem>()->Play(13, 0, true, 1.0f, 3.0f, false, water);
+			c->RemoveComponent<Physics>(water);
+			c->NotifySignatureChange(water);
+			progress += 5.0f;
+			render->Update();
+
+			//Lava physics is type "trigger" so it doesn't collide physically but gives contact information, so creatures can burn when touching the lava
+			auto lavas = c->GetEntitiesByName("Lava*");
+			for (auto& lava : lavas) {
+				c->GetComponent<Components::Physics>(lava).collider->setIsTrigger(true);
+				//c->AddComponent<FireComponent>(lava, { .duration = MSEC_TO_NSEC(2000), .dps = 10.0f });
+				std::shared_ptr<SmokeParticles> lava_particle = std::make_shared<SmokeParticles>();
+				lava_particle->Init(c, lava, particle_material, 0.01f, 20, 0.2f, 10000, ParticlesData::PARTICLE_ORIGIN_FIXED_VERTEX, 0.3f, 0.9f, 0.0f, 10.0f);
+				c->AddComponent<Particles>(lava, Particles{ "smoke", std::dynamic_pointer_cast<ParticlesData>(lava_particle) });
+				c->GetSystem<AudioSystem>()->Play(12, 0, true, 1.0f, 2.0f, false, lava);
+				c->NotifySignatureChange(lava);
+			}
+			progress += 5.0f;
+			render->Update();
+
+			//Setup fireballs
+			for (auto& ball : balls) {
+				if (ball != ECS::INVALID_ENTITY_ID) {
+					fireball_spawn_position = c->GetComponent<Components::Transform>(ball).position;
+					SetupFireBall(ball);
+					c->NotifySignatureChange(ball);
+				}
+			}
+			progress += 5.0f;
+			render->Update();
+			loading.Stop();
+			delete loading_gui;
+
+			Components::Sky* sky = c->GetComponentPtr<Components::Sky>(c->GetEntityByName("Sky"));
+			//We create a periodic timer to check keyboard input keys
+			Scheduler::Get(DXCore::BACKGROUND_THREAD)->RegisterTimer(1000000000 / 60, [this, sky](const Scheduler::TimerData& t) {
 				if (!game_over) {
 					//Add some keys to change component parameters and see how the scene changes
 					if (GetAsyncKeyState('O') & 0x8000) {
@@ -298,84 +383,90 @@ public:
 						RestartGame();
 					}
 				}
-				return true;
-			});
+			return true;
+				});
 
 
 
-		//We create a periodic timer to spawn a new fireballs in the scene evey 10 seconds.
-		//It's important to create the fireballs in the rendering thread, as DirectX 11 requires only one thread
-		Scheduler::Get(DXCore::MAIN_THREAD)->RegisterTimer(SEC_TO_NSEC(10), [this](const Scheduler::TimerData& td) {
+			//We create a periodic timer to spawn a new fireballs in the scene evey 10 seconds.
+			//It's important to create the fireballs in the rendering thread, as DirectX 11 requires only one thread
+			Scheduler::Get(DXCore::MAIN_THREAD)->RegisterTimer(SEC_TO_NSEC(10), [this](const Scheduler::TimerData& td) {
 				static int i = 0;
-				SpawnFireBall(i++);
-				return true;
-			});
+			SpawnFireBall(i++);
+			return true;
+				});
 
-		//We create a periodic timer to manage the movement of the red and blue point lights, this is an example for 
-		//moving entities periodically in the world.
-		//The YOU DEAD text is smooth shown when game is over, this is done by changing the alpha value of the text
-		Scheduler::Get(DXCore::BACKGROUND_THREAD)->RegisterTimer(1000000000 / 60, [this](const Scheduler::TimerData& t) {
-			ECS::Coordinator* c = world.GetCoordinator();
-				float f = (float)t.total / 1000000000.0f;
-				float a = sin(f) * 0.04f;
-				float b = cos(f) * 0.04f;
-				auto plights = c->GetEntitiesByName("Light*");
+			//We create a periodic timer to manage the movement of the red and blue point lights, this is an example for 
+			//moving entities periodically in the world.
+			//The YOU DEAD text is smooth shown when game is over, this is done by changing the alpha value of the text
+			Scheduler::Get(DXCore::BACKGROUND_THREAD)->RegisterTimer(1000000000 / 60, [this](const Scheduler::TimerData& t) {
+				ECS::Coordinator* c = world.GetCoordinator();
+			float f = (float)t.total / 1000000000.0f;
+			float a = sin(f) * 0.04f;
+			float b = cos(f) * 0.04f;
+			auto plights = c->GetEntitiesByName("Light*");
 
-				int i = 0;
-				static int count = 0;
-				for (const auto& l : plights) {
-					Transform& t = c->GetComponent<Transform>(l);
-					static float z0 = t.position.z;
+			int i = 0;
+			static int count = 0;
+			for (const auto& l : plights) {
+				Transform& t = c->GetComponent<Transform>(l);
+				static float z0 = t.position.z;
 
-					if (i == 0) {
-						t.position.z -= 0.5f;
-						if (count++ > 500) {
-							t.position.z = z0;
-							count = 0;
-						}
-					}
-					else if (i == 1) {
-						t.position.x += a;
-						t.position.z += b;
-					}
-					i++;
-					t.dirty = true;
-				}
-				if (game_over) {
-					auto label = std::dynamic_pointer_cast<Label>(gui->GetWidget("dead"));
-					float4 color = label->GetTextColor();
-					if (color.w < 1.0f) {
-						color.w += 0.005f;
-						c->GetSystem<RenderSystem>()->mutex.lock();
-						label->SetTextColor(color);
-						label->SetFontSize(label->GetFontSize() + 0.1f);
-						c->GetSystem<RenderSystem>()->mutex.unlock();
-						if (color.w >= 1.0f) {
-							retry_enable = true;
-							std::dynamic_pointer_cast<Label>(gui->GetWidget("retry"))->SetVisible(true);
-						}
+				if (i == 0) {
+					t.position.z -= 0.5f;
+					if (count++ > 500) {
+						t.position.z = z0;
+						count = 0;
 					}
 				}
-				return true;
-			});
-
-		//Run the world at the desired FPS (if CPU/GPU can afford it...)
-		world.Run(target_fps);
-
-		int i = 0;
-		auto plights = c->GetEntitiesByName("Light*");
-		for (const auto& l : plights) {
-			if (i == 0) {
-				c->GetSystem<AudioSystem>()->Play(3, 0, true, 1.0f, 10.0f, true, l);
-			} else if (i == 1) {
-				c->GetSystem<AudioSystem>()->Play(5, 0, true, 0.8f, 4.0f, false, l);
+				else if (i == 1) {
+					t.position.x += a;
+					t.position.z += b;
+				}
+				i++;
+				t.dirty = true;
 			}
-			i++;
-		}		
+			if (game_over) {
+				auto label = std::dynamic_pointer_cast<Label>(gui->GetWidget("dead"));
+				float4 color = label->GetTextColor();
+				if (color.w < 1.0f) {
+					color.w += 0.005f;
+					c->GetSystem<RenderSystem>()->mutex.lock();
+					label->SetTextColor(color);
+					label->SetFontSize(label->GetFontSize() + 0.1f);
+					c->GetSystem<RenderSystem>()->mutex.unlock();
+					if (color.w >= 1.0f) {
+						retry_enable = true;
+						std::dynamic_pointer_cast<Label>(gui->GetWidget("retry"))->SetVisible(true);
+					}
+				}
+			}
+			return true;
+				});
 
-		background_music = c->GetSystem<AudioSystem>()->Play(1, 0, true, 1.0f, 0.01f);
-		c->GetSystem<AudioSystem>()->Play(6, 0, true, 1.0f, 0.2f);
-		c->GetSystem<GamePlayerSystem>()->SetupAnimations(world);
+
+			//Run the world at the desired FPS (if CPU/GPU can afford it...)
+			world.Run(target_fps);
+
+			int i = 0;
+			auto plights = c->GetEntitiesByName("Light*");
+			for (const auto& l : plights) {
+				if (i == 0) {
+					c->GetSystem<AudioSystem>()->Play(3, 0, true, 1.0f, 10.0f, true, l);
+				}
+				else if (i == 1) {
+					c->GetSystem<AudioSystem>()->Play(5, 0, true, 0.8f, 4.0f, false, l);
+				}
+				i++;
+			}
+
+			c->GetSystem<GamePlayerSystem>()->SetupAnimations(world);
+			
+			AddEventListener(World::EVENT_ID_UPDATE_BACKGROUND, std::bind(&GameDemoApplication::UpdateSystems, this, std::placeholders::_1));
+			AddEventListener(RenderSystem::EVENT_ID_PREPARE_SHADER, std::bind(&GameDemoApplication::OnPrepare, this, std::placeholders::_1));
+			
+			return false;
+		});
 	}
 
 	virtual ~GameDemoApplication() {

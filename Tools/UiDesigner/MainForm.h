@@ -749,10 +749,6 @@ namespace UiDesigner {
 				MessageBox::Show("Error loading file");
 			}
 		}
-		else {
-			// Handle error opening the file
-			MessageBox::Show("Error opening file for reading.");
-		}
 		isLoading = false;
 	}
 
