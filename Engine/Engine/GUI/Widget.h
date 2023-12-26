@@ -99,6 +99,7 @@ namespace HotBite {
 					SetBackgroundColor(parseColorStringF4(config["background_color"]));
 					SetBackgroundAlphaColor(parseColorStringF3(config["background_alpha_color"]));
 					SetBackgroundAlpha(config["background_alpha"]);
+					SetEnabledBackgroundAlphaColor(config["alpha_enabled"]);
 					SetPosition({ config["x"], config["y"] });
 					SetHeight(config["height"]);
 					SetWidth(config["width"]);

@@ -4,6 +4,7 @@
         "root": "..\\..\\..\\Tests\\DemoGame\\assets\\ui",
         "widgets": [
             {
+                "alpha_enabled": false,
                 "background_alpha": 1.0,
                 "background_alpha_color": "#FFFFFFFF",
                 "background_color": "#FFFFFFFF",
@@ -20,6 +21,7 @@
                 "y": 0.0
             },
             {
+                "alpha_enabled": false,
                 "background_alpha": 1.0,
                 "background_alpha_color": "#FFFFFFFF",
                 "background_color": "#FFFFFFFF",
@@ -49,6 +51,33 @@
                 "width": 0.6000000238418579,
                 "x": 0.20000000298023224,
                 "y": 0.6000000238418579
+            },
+            {
+                "alpha_enabled": true,
+                "background_alpha": 1.0,
+                "background_alpha_color": "#000000FF",
+                "background_color": "#FFFFFF00",
+                "background_image": "",
+                "font_name": "Arial",
+                "font_size": 48,
+                "halign": 2,
+                "height": 0.10000000149011612,
+                "layer": 0,
+                "margin": 0,
+                "name": "loading",
+                "parent": "",
+                "show_text": true,
+                "style": 2,
+                "text": "Loading...",
+                "text_color": "#FFFFFFFF",
+                "type": "label",
+                "valign": 2,
+                "visible": true,
+                "weight": 400,
+                "widgets": [],
+                "width": 0.6000000238418579,
+                "x": 0.20000000298023224,
+                "y": 0.699999988079071
             }
         ]
     }

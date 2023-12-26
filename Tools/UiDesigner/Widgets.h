@@ -87,6 +87,7 @@ public:
 		props["background_color"] = std::make_shared < Prop<std::string>>("Widget background color", "#FFFFFFFF");
 		props["background_alpha_color"] = std::make_shared < Prop<std::string>>("Alpha color of the background image", "#FFFFFFFF");
 		props["background_alpha"] = std::make_shared < Prop<float>>("Alpha value of the background color", 1.0f);
+		props["alpha_enabled"] = std::make_shared < Prop<bool>>("Alpha color enabled", false);
 		props["x"] = std::make_shared < Prop<float>>("Position X", 0.45f);
 		props["y"] = std::make_shared < Prop<float>>("Position Y", 0.45f);
 		props["width"] = std::make_shared < Prop<float>>("Position Width", 0.1f);
@@ -102,6 +103,7 @@ public:
 			props["background_color"]->SetValue<std::string>(js["background_color"]);
 			props["background_alpha_color"]->SetValue<std::string>(js["background_alpha_color"]);
 			props["background_alpha"]->SetValue<float>(js["background_alpha"]);
+			props["alpha_enabled"]->SetValue<bool>(js["alpha_enabled"]);
 			props["x"]->SetValue<float>(js["x"]);
 			props["y"]->SetValue<float>(js["y"]);
 			props["width"]->SetValue<float>(js["width"]);
@@ -469,6 +471,17 @@ public:
 		void set(Double newValue)
 		{
 			return ((Widget*)widget.ToPointer())->props["background_alpha"]->SetValue<float>((float)newValue);
+		}
+	}
+	[CategoryAttribute("Widget")]
+	property Boolean AlphaEnabled {
+		Boolean get()
+		{
+			return ((Widget*)widget.ToPointer())->props["alpha_enabled"]->GetValue<bool>();
+		}
+		void set(Boolean newValue)
+		{
+			return ((Widget*)widget.ToPointer())->props["alpha_enabled"]->SetValue<bool>((bool)newValue);
 		}
 	}
 	[CategoryAttribute("Widget")]
