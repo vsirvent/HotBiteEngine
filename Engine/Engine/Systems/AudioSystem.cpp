@@ -119,9 +119,9 @@ AudioSystem::AudioSystem() {
 }
 
 AudioSystem::~AudioSystem() {
+	audio_scheduler->RemoveTimer(audio_timer);
 	physics_worker_end = true;
 	physics_worker.join();
-	audio_scheduler->RemoveTimer(audio_timer);
 	sound->Stop();
 	delete sound;
 	delete[] buffer;

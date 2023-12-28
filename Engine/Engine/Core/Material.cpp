@@ -22,6 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+#include <Core/Json.h>
 #include "Material.h"
 #include "Utils.h"
 
@@ -59,6 +60,37 @@ MaterialData::MaterialData(const MaterialData& other) {
 MaterialData::~MaterialData() {
 	Release();
 }
+
+void MaterialData::Load(const std::string& mat) {
+	nlohmann::json j = nlohmann::json::parse(mat);
+	props.diffuseColor = parseColorStringF4(j["diffuse_color"]);
+#if 0
+	props["name"]->SetValue<std::string>(js["name"]);
+	props["diffuse_color"]->SetValue<std::string>(js["diffuse_color"]);
+	props["ambient_color"]->SetValue<std::string>(js["ambient_color"]);
+	props["parallax_scale"]->SetValue<float>(js["parallax_scale"]);
+	props["tess_type"]->SetValue<int>(js["tess_type"]);
+	props["tess_factor"]->SetValue<float>(js["tess_factor"]);
+	props["displacement_scale"]->SetValue<float>(js["displacement_scale"]);
+	props["bloom_scale"]->SetValue<float>(js["bloom_scale"]);
+	props["normal_map_enabled"]->SetValue<bool>(js["normal_map_enabled"]);
+	props["alpha_enabled"]->SetValue<bool>(js["alpha_enabled"]);
+	props["blend_enabled"]->SetValue<bool>(js["blend_enabled"]);
+	props["diffuse_textname"]->SetValue<std::string>(js["diffuse_textname"]);
+	props["normal_textname"]->SetValue<std::string>(js["normal_textname"]);
+	props["high_textname"]->SetValue<std::string>(js["high_textname"]);
+	props["spec_textname"]->SetValue<std::string>(js["spec_textname"]);
+	props["ao_textname"]->SetValue<std::string>(js["ao_textname"]);
+	props["arm_textname"]->SetValue<std::string>(js["arm_textname"]);
+	props["emission_textname"]->SetValue<std::string>(js["emission_textname"]);
+	props["vs"]->SetValue<std::string>(js["vs"]);
+	props["hs"]->SetValue<std::string>(js["hs"]);
+	props["ds"]->SetValue<std::string>(js["ds"]);
+	props["gs"]->SetValue<std::string>(js["gs"]);
+	props["ps"]->SetValue<std::string>(js["ps"]);
+#endif
+}
+
 
 bool MaterialData::Init() {
 	bool ret = false;

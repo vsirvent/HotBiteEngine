@@ -43,6 +43,7 @@ World::World() {
 
 World::~World() {
 	Release();
+	delete vertex_buffer;
 	EventListener::Reset();
 }
 
@@ -664,6 +665,14 @@ bool World::Load(const std::string& scene_file) {
 						}
 					}
 				}
+				if (entity.contains("material")) {
+					auto& material = entity["material"];
+					Components::Material& m = coordinator.GetComponent<Components::Material>(e);
+					auto mat = GetMaterials().Get(material);
+					if (mat != nullptr) {
+						m.data = mat;
+					}
+				}
 				if (entity.contains("multi_texture")) {
 					auto& multi_textures_json = entity["multi_texture"];
 					Components::Material &m = coordinator.GetComponent<Components::Material>(e);
@@ -706,8 +715,10 @@ bool World::Load(const std::string& scene_file) {
 			}
 		}
 
-		//Audio config load
-		audio_system->Config(path, jw["audio"]);
+		if (jw.contains("audio")) {
+			//Audio config load
+			audio_system->Config(path, jw["audio"]);
+		}
 	}
 	catch (std::exception& e) {
 		printf("World::Load: Fail: %s\n", e.what());

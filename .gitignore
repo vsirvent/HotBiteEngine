@@ -833,3 +833,15 @@ Solution/.vs/HotBiteEngine/DesignTimeBuild/.dtbcache.v2
 Solution/x64/Debug/Ijwhost.dll
 Solution/x64/Debug/UiDesigner.deps.json
 Solution/x64/Debug/UiDesigner.runtimeconfig.json
+*.metagen
+Tools/MaterialDesigner/x64/Debug/.NETFramework,Version=v4.7.2.AssemblyAttributes.cpp
+Tools/MaterialDesigner/x64/Debug/MaterialDesigner.exe.recipe
+Tools/MaterialDesigner/x64/Debug/MaterialDesigner.MaterialDesignerForm.resources
+Tools/MaterialDesigner/x64/Debug/MaterialDesigner.vcxproj.FileListAbsolute.txt
+Tools/MaterialDesigner/x64/Debug/MaterialDesigner1.res
+Tools/MaterialDesigner/x64/Release/.NETFramework,Version=v4.7.2.AssemblyAttributes.cpp
+Tools/MaterialDesigner/x64/Release/MaterialDesigner.exe.recipe
+Tools/MaterialDesigner/x64/Release/MaterialDesigner.MaterialDesignerForm.resources
+Tools/MaterialDesigner/x64/Release/MaterialDesigner.vcxproj.FileListAbsolute.txt
+Tools/MaterialDesigner/x64/Release/MaterialDesigner1.res
+Tools/UiDesigner/x64/Debug/Resource.res

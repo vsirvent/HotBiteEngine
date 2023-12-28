@@ -92,7 +92,7 @@ void Scheduler::NanoSleep(int64_t nsec) {
 		printf("InitTimer: SetWaitableTimer failed.\n");
 		return;
 	}
-	WaitForSingleObject(htimer, INFINITE);
+	WaitForSingleObject(htimer, 100);
 }
 
 void Scheduler::Idle() {
@@ -153,43 +153,55 @@ void Scheduler::_RegisterTimer(TimerData&& td) {
 
 void Scheduler::RemoveTimerAsync(Scheduler::TimerId id) {
 	if (id != INVALID_TIMER_ID) {
-		new_timer_mutex.lock();
+		remove_timer_mutex.lock();
 		removed_timers.push_back(id);
-		new_timer_mutex.unlock();
+		remove_timer_mutex.unlock();
 	}
 }
  
 bool Scheduler::RemoveTimer(Scheduler::TimerId id) {
 	bool done = false;
 	if (id != INVALID_TIMER_ID) {
-		timer_mutex.lock();
-		for (auto timer = timers.begin(); timer != timers.end(); ++timer) {
-			for (auto timer_data = timer->second.begin(); timer_data != timer->second.end(); ++timer_data) {
-				if (timer_data->id == id) {
-					timer->second.erase(timer_data);
-					timer_id_counters.push(id);
-					done = true;
-					break;
-				}
-			}
-			if (done) {
-				if (timer->second.empty()) {
-					timers.erase(timer);					
-				}
+		new_timer_mutex.lock();
+		for (auto t = new_timers.begin(); t != new_timers.end(); ++t) {
+			if (t->id == id) {
+				new_timers.erase(t);
+				done = true;
 				break;
 			}
 		}
-		timer_mutex.unlock();
+		new_timer_mutex.unlock();
+		if (!done)
+		{
+			timer_mutex.lock();
+			for (auto timer = timers.begin(); timer != timers.end(); ++timer) {
+				for (auto timer_data = timer->second.begin(); timer_data != timer->second.end(); ++timer_data) {
+					if (timer_data->id == id) {
+						timer->second.erase(timer_data);
+						done = true;
+						break;
+					}
+				}
+			}
+			timer_mutex.unlock();
+		}
+		if (done) {
+			new_timer_mutex.lock();
+			timer_id_counters.push(id);
+			new_timer_mutex.unlock();
+		}
 	}
 	return done;
 }
 
 void Scheduler::Update() {
-	new_timer_mutex.lock();
+	remove_timer_mutex.lock();
 	while (!removed_timers.empty()) {
 		RemoveTimer(removed_timers.front());
 		removed_timers.pop_front();
 	}
+	remove_timer_mutex.unlock();
+	new_timer_mutex.lock();
 	while (!new_timers.empty()) {
 		_RegisterTimer(std::move(new_timers.front()));
 		new_timers.pop_front();

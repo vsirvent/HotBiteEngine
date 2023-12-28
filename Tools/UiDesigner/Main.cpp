@@ -7,10 +7,6 @@ using namespace System::Windows::Forms;
 [STAThread]
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
 {
-
-	Application::EnableVisualStyles();
-	Application::SetCompatibleTextRenderingDefault(false);
-
 	auto form = gcnew UiDesigner::MainForm();	
 	form->Show();
 

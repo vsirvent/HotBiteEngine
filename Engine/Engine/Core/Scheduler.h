@@ -116,7 +116,8 @@ namespace HotBite {
 				std::recursive_mutex counters_mutex;
 				spin_lock timer_mutex;
 				spin_lock new_timer_mutex;
-				
+				spin_lock remove_timer_mutex;
+
 				HANDLE htimer;
 				
 				void InitTimer();

@@ -966,9 +966,11 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 		context->RSSetState(dxcore->drawing_rasterizer);
 	}
 
+	float speed = 1.0f;
 	SkyEntity* sky = nullptr;
 	if (!skies.GetData().empty()) {
 		sky = &(skies.GetData()[0]);
+		speed = sky->sky->second_speed;
 	}
 
 	SimpleVertexShader* vs = nullptr; 
@@ -979,7 +981,7 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 
 	assert(!cameras.GetData().empty() && "No cameras found");
 	CameraEntity& cam_entity = cameras.GetData()[0];
-	float time = ((float)Scheduler::Get()->GetElapsedNanoSeconds() * sky->sky->second_speed) / 1000000000.0f;
+	float time = ((float)Scheduler::Get()->GetElapsedNanoSeconds() * speed) / 1000000000.0f;
 
 	context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST);
 	for (auto &shaders : tree) {

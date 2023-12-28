@@ -89,11 +89,11 @@ float DirShadowPCF(float4 position, DirLight light, int index)
 	//float4 sp = mul(float4(position, 1.0f), DirStaticPerspectiveMatrix[index]);
 	//sp.x = (sp.x + 1.0f) / 2.0f;
 	//sp.y = 1.0f - ((sp.y + 1.0f) / 2.0f);
-	float step = 0.0002f;
+	float step = 0.0001f;
 	float att1 = 0.0f;
 	float count = 0.00001f;
-	for (float x = -0.0004f; x < 0.0004f; x += step) {
-		for (float y = -0.0004f; y < 0.0004f; y += step) {
+	for (float x = -0.0003f; x < 0.0003f; x += step) {
+		for (float y = -0.0003f; y < 0.0003f; y += step) {
 			att1 += DirShadowMapTexture[index].SampleCmpLevelZero(PCFSampler, float2(p.x + x, p.y + y), p.z).r;
 			count += 0.8f;
 		}

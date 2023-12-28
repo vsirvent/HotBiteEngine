@@ -138,7 +138,7 @@ namespace UiDesigner {
 			});
 			this->menuStrip1->Location = System::Drawing::Point(0, 0);
 			this->menuStrip1->Name = L"menuStrip1";
-			this->menuStrip1->Size = System::Drawing::Size(1159, 24);
+			this->menuStrip1->Size = System::Drawing::Size(1179, 24);
 			this->menuStrip1->TabIndex = 1;
 			this->menuStrip1->Text = L"menuStrip1";
 			// 
@@ -237,7 +237,7 @@ namespace UiDesigner {
 				| System::Windows::Forms::AnchorStyles::Right));
 			this->treeView->Location = System::Drawing::Point(3, 61);
 			this->treeView->Name = L"treeView";
-			this->treeView->Size = System::Drawing::Size(269, 237);
+			this->treeView->Size = System::Drawing::Size(274, 237);
 			this->treeView->TabIndex = 3;
 			this->treeView->ItemDrag += gcnew System::Windows::Forms::ItemDragEventHandler(this, &MainForm::treeView_ItemDrag);
 			this->treeView->NodeMouseClick += gcnew System::Windows::Forms::TreeNodeMouseClickEventHandler(this, &MainForm::NodeClick);
@@ -262,7 +262,7 @@ namespace UiDesigner {
 				| System::Windows::Forms::AnchorStyles::Right));
 			this->propertyGrid->Location = System::Drawing::Point(3, 320);
 			this->propertyGrid->Name = L"propertyGrid";
-			this->propertyGrid->Size = System::Drawing::Size(269, 277);
+			this->propertyGrid->Size = System::Drawing::Size(274, 321);
 			this->propertyGrid->TabIndex = 6;
 			this->propertyGrid->PropertyValueChanged += gcnew System::Windows::Forms::PropertyValueChangedEventHandler(this, &MainForm::propertyGrid_PropertyValueChanged);
 			this->propertyGrid->Click += gcnew System::EventHandler(this, &MainForm::propertyGrid_Click);
@@ -280,7 +280,7 @@ namespace UiDesigner {
 			this->MainTab->Location = System::Drawing::Point(3, 3);
 			this->MainTab->Name = L"MainTab";
 			this->MainTab->SelectedIndex = 0;
-			this->MainTab->Size = System::Drawing::Size(871, 597);
+			this->MainTab->Size = System::Drawing::Size(886, 641);
 			this->MainTab->TabIndex = 7;
 			// 
 			// Design
@@ -289,7 +289,7 @@ namespace UiDesigner {
 			this->Design->Location = System::Drawing::Point(4, 22);
 			this->Design->Name = L"Design";
 			this->Design->Padding = System::Windows::Forms::Padding(3);
-			this->Design->Size = System::Drawing::Size(863, 571);
+			this->Design->Size = System::Drawing::Size(878, 615);
 			this->Design->TabIndex = 0;
 			this->Design->Text = L"Design";
 			this->Design->UseVisualStyleBackColor = true;
@@ -302,7 +302,7 @@ namespace UiDesigner {
 			this->preview->BackColor = System::Drawing::Color::Black;
 			this->preview->Location = System::Drawing::Point(0, 0);
 			this->preview->Name = L"preview";
-			this->preview->Size = System::Drawing::Size(863, 575);
+			this->preview->Size = System::Drawing::Size(878, 619);
 			this->preview->TabIndex = 0;
 			// 
 			// Code
@@ -354,14 +354,14 @@ namespace UiDesigner {
 			this->splitContainer1->Panel2->Controls->Add(this->treeView);
 			this->splitContainer1->Panel2->Controls->Add(this->propertyGrid);
 			this->splitContainer1->Panel2->Controls->Add(this->label2);
-			this->splitContainer1->Size = System::Drawing::Size(1156, 600);
-			this->splitContainer1->SplitterDistance = 877;
+			this->splitContainer1->Size = System::Drawing::Size(1176, 644);
+			this->splitContainer1->SplitterDistance = 892;
 			this->splitContainer1->TabIndex = 8;
 			// 
 			// button1
 			// 
 			this->button1->Anchor = static_cast<System::Windows::Forms::AnchorStyles>((System::Windows::Forms::AnchorStyles::Top | System::Windows::Forms::AnchorStyles::Right));
-			this->button1->Location = System::Drawing::Point(240, 9);
+			this->button1->Location = System::Drawing::Point(245, 9);
 			this->button1->Name = L"button1";
 			this->button1->Size = System::Drawing::Size(26, 20);
 			this->button1->TabIndex = 11;
@@ -385,7 +385,7 @@ namespace UiDesigner {
 			this->rootFolder->Location = System::Drawing::Point(75, 9);
 			this->rootFolder->Name = L"rootFolder";
 			this->rootFolder->ReadOnly = true;
-			this->rootFolder->Size = System::Drawing::Size(159, 20);
+			this->rootFolder->Size = System::Drawing::Size(164, 20);
 			this->rootFolder->TabIndex = 9;
 			this->rootFolder->TextChanged += gcnew System::EventHandler(this, &MainForm::rootFolder_TextChanged);
 			// 
@@ -404,7 +404,7 @@ namespace UiDesigner {
 				| System::Windows::Forms::AnchorStyles::Right));
 			this->uiName->Location = System::Drawing::Point(75, 35);
 			this->uiName->Name = L"uiName";
-			this->uiName->Size = System::Drawing::Size(197, 20);
+			this->uiName->Size = System::Drawing::Size(202, 20);
 			this->uiName->TabIndex = 7;
 			this->uiName->Text = L"ui_1";
 			// 
@@ -412,7 +412,7 @@ namespace UiDesigner {
 			// 
 			this->AutoScaleDimensions = System::Drawing::SizeF(6, 13);
 			this->AutoScaleMode = System::Windows::Forms::AutoScaleMode::Font;
-			this->ClientSize = System::Drawing::Size(1159, 631);
+			this->ClientSize = System::Drawing::Size(1179, 675);
 			this->Controls->Add(this->splitContainer1);
 			this->Controls->Add(this->menuStrip1);
 			this->Icon = (cli::safe_cast<System::Drawing::Icon^>(resources->GetObject(L"$this.Icon")));
