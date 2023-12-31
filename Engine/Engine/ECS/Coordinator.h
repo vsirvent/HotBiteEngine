@@ -236,9 +236,16 @@ namespace HotBite {
 				void Init(Coordinator* c) {
 					event_coordinator = c;
 				}
+
+				void Reset() {
+					event_coordinator = nullptr;
+				}
+
 				virtual ~EventListener() {
-					for (auto& id : ev_list_ids) {
-						event_coordinator->RemoveEventListener(id);
+					if (event_coordinator != nullptr) {
+						for (auto& id : ev_list_ids) {
+							event_coordinator->RemoveEventListener(id);
+						}
 					}
 				}
 

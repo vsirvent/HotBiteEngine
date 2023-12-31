@@ -124,82 +124,91 @@ DXCore::~DXCore()
 	if (device) { device->Release(); }
 }
 
-HRESULT DXCore::InitWindow()
+HRESULT DXCore::InitWindow(HWND parent)
 {
-	WNDCLASS wndClass = {};
-	wndClass.style = CS_HREDRAW | CS_VREDRAW;
-	wndClass.lpfnWndProc = DXCore::WindowProc;
-	wndClass.cbClsExtra = 0;
-	wndClass.cbWndExtra = 0;
-	wndClass.hInstance = hInstance;
-	wndClass.hIcon = LoadIcon(NULL, IDI_APPLICATION);
-	wndClass.hCursor = LoadCursor(NULL, IDC_ARROW);
-	wndClass.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
-	wndClass.lpszMenuName = NULL;
-	wndClass.lpszClassName = "Direct3DWindowClass";
-
-	if (!RegisterClass(&wndClass))
-	{
-		DWORD error = GetLastError();
-		if (error != ERROR_CLASS_ALREADY_EXISTS)
-			return HRESULT_FROM_WIN32(error);
-	}
-
-	RECT clientRect;
-	SetRect(&clientRect, 0, 0, width, height);
-	AdjustWindowRect(&clientRect, WS_OVERLAPPEDWINDOW, false);
-
-	// Center the window to the screen
-	RECT desktopRect;
-	GetClientRect(GetDesktopWindow(), &desktopRect);
-	int centeredX = (desktopRect.right / 2) - (clientRect.right / 2);
-	int centeredY = (desktopRect.bottom / 2) - (clientRect.bottom / 2);
-
-	wnd = CreateWindow(wndClass.lpszClassName, titleBarText.c_str(), WS_OVERLAPPEDWINDOW,
-		centeredX, centeredY, clientRect.right - clientRect.left,
-		clientRect.bottom - clientRect.top,
-		0,			// No parent window
-		0,			// No menu
-		hInstance,	// The app's handle
-		0);			// No other windows in our application
-
-	if (wnd == NULL)
-	{
-		DWORD error = GetLastError();
-		return HRESULT_FROM_WIN32(error);
-	}
-	LONG style = GetWindowLong(wnd, GWL_STYLE);
-	style &= ~(WS_CAPTION | WS_THICKFRAME | WS_MINIMIZE | WS_MAXIMIZE | WS_SYSMENU);
-	if (windowed) {
-		style |= WS_CAPTION | WS_THICKFRAME | CS_DBLCLKS;
-	}
-	SetWindowLong(wnd, GWL_STYLE, style);
-
-	LONG_PTR class_style = GetClassLongPtr(wnd, GCL_STYLE) | CS_DBLCLKS;
-	SetClassLongPtr(wnd, GCL_STYLE, class_style);
-
-	if (windowed) {
-		ShowWindow(wnd, SW_SHOW);
-		// Get the width and height of the screen
-		int screenWidth = GetSystemMetrics(SM_CXSCREEN);
-		int screenHeight = GetSystemMetrics(SM_CYSCREEN);
-
-		// Get the width and height of the window
-		RECT rect;
-		GetWindowRect(wnd, &rect);
-		int windowWidth = rect.right - rect.left;
-		int windowHeight = rect.bottom - rect.top;
-
-		// Calculate the left and top positions for the window
-		int left = (screenWidth - windowWidth) / 2;
-		int top = (screenHeight - windowHeight) / 2;
-
-		// Set the position of the window
-		SetWindowPos(wnd, HWND_TOP, left, top, windowWidth, windowHeight, SWP_SHOWWINDOW);
+	wnd_update = (parent == NULL);
+	if (parent != NULL) {
+		wnd = parent;
+		windowed = true;
+		SetWindowLongPtr(wnd, GWLP_WNDPROC, (LONG_PTR)DXCore::WindowProc);
 	}
 	else {
-		ShowWindow(wnd, SW_MAXIMIZE);
+		WNDCLASS wndClass = {};
+		wndClass.style = CS_HREDRAW | CS_VREDRAW;
+		wndClass.lpfnWndProc = DXCore::WindowProc;
+		wndClass.cbClsExtra = 0;
+		wndClass.cbWndExtra = 0;
+		wndClass.hInstance = hInstance;
+		wndClass.hIcon = LoadIcon(NULL, IDI_APPLICATION);
+		wndClass.hCursor = LoadCursor(NULL, IDC_ARROW);
+		wndClass.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
+		wndClass.lpszMenuName = NULL;
+		wndClass.lpszClassName = "Direct3DWindowClass";
+
+		if (!RegisterClass(&wndClass))
+		{
+			DWORD error = GetLastError();
+			if (error != ERROR_CLASS_ALREADY_EXISTS)
+				return HRESULT_FROM_WIN32(error);
+		}
+
+		RECT clientRect;
+		SetRect(&clientRect, 0, 0, width, height);
+		AdjustWindowRect(&clientRect, WS_OVERLAPPEDWINDOW, false);
+
+		// Center the window to the screen
+		RECT desktopRect;
+		GetClientRect(GetDesktopWindow(), &desktopRect);
+		int centeredX = (desktopRect.right / 2) - (clientRect.right / 2);
+		int centeredY = (desktopRect.bottom / 2) - (clientRect.bottom / 2);
+
+		wnd = CreateWindow(wndClass.lpszClassName, titleBarText.c_str(), WS_OVERLAPPEDWINDOW,
+			centeredX, centeredY, clientRect.right - clientRect.left,
+			clientRect.bottom - clientRect.top,
+			0,			// No parent window
+			0,			// No menu
+			hInstance,	// The app's handle
+			0);			// No other windows in our application
+
+		if (wnd == NULL)
+		{
+			DWORD error = GetLastError();
+			return HRESULT_FROM_WIN32(error);
+		}
+		LONG style = GetWindowLong(wnd, GWL_STYLE);
+		style &= ~(WS_CAPTION | WS_THICKFRAME | WS_MINIMIZE | WS_MAXIMIZE | WS_SYSMENU);
+		if (windowed) {
+			style |= WS_CAPTION | WS_THICKFRAME | CS_DBLCLKS;
+		}
+		SetWindowLong(wnd, GWL_STYLE, style);
+
+		LONG_PTR class_style = GetClassLongPtr(wnd, GCL_STYLE) | CS_DBLCLKS;
+		SetClassLongPtr(wnd, GCL_STYLE, class_style);
+
+		if (windowed) {
+			ShowWindow(wnd, SW_SHOW);
+			// Get the width and height of the screen
+			int screenWidth = GetSystemMetrics(SM_CXSCREEN);
+			int screenHeight = GetSystemMetrics(SM_CYSCREEN);
+
+			// Get the width and height of the window
+			RECT rect;
+			GetWindowRect(wnd, &rect);
+			int windowWidth = rect.right - rect.left;
+			int windowHeight = rect.bottom - rect.top;
+
+			// Calculate the left and top positions for the window
+			int left = (screenWidth - windowWidth) / 2;
+			int top = (screenHeight - windowHeight) / 2;
+
+			// Set the position of the window
+			SetWindowPos(wnd, HWND_TOP, left, top, windowWidth, windowHeight, SWP_SHOWWINDOW);
+		}
+		else {
+			ShowWindow(wnd, SW_MAXIMIZE);
+		}
 	}
+	
 	return S_OK;
 }
 
@@ -498,17 +507,19 @@ HRESULT DXCore::Run()
 			printf("SetThreadAffinityMask failed: %d\n", dwErr);
 		}
 	}
-
-	while (msg.message != WM_QUIT && msg.message != WM_DESTROY)
+	while (!end && msg.message != WM_QUIT && msg.message != WM_DESTROY)
 	{
 		while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
 		{
+			if (end) {
+				return (HRESULT)msg.wParam;
+			}
 			TranslateMessage(&msg);
 			DispatchMessage(&msg);
 		}
 		Scheduler::Get(0)->Update();
 		Scheduler::Get(0)->Idle();
-	}
+	}	
 	return (HRESULT)msg.wParam;
 }
 
@@ -597,6 +608,9 @@ void DXCore::OnFrame() {
 
 LRESULT DXCore::ProcessMessage(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
+	if (end) {
+		return DefWindowProc(hWnd, uMsg, wParam, lParam);
+	}
 	Coordinator* c = GetCoordinator();
 	RECT rect;
 	GetClientRect(wnd, &rect);

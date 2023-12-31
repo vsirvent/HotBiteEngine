@@ -43,6 +43,8 @@ World::World() {
 
 World::~World() {
 	Release();
+	delete vertex_buffer;
+	EventListener::Reset();
 }
 
 void World::SetupCoordinator(ECS::Coordinator* c) {
@@ -663,6 +665,14 @@ bool World::Load(const std::string& scene_file) {
 						}
 					}
 				}
+				if (entity.contains("material")) {
+					auto& material = entity["material"];
+					Components::Material& m = coordinator.GetComponent<Components::Material>(e);
+					auto mat = GetMaterials().Get(material);
+					if (mat != nullptr) {
+						m.data = mat;
+					}
+				}
 				if (entity.contains("multi_texture")) {
 					auto& multi_textures_json = entity["multi_texture"];
 					Components::Material &m = coordinator.GetComponent<Components::Material>(e);
@@ -705,8 +715,10 @@ bool World::Load(const std::string& scene_file) {
 			}
 		}
 
-		//Audio config load
-		audio_system->Config(path, jw["audio"]);
+		if (jw.contains("audio")) {
+			//Audio config load
+			audio_system->Config(path, jw["audio"]);
+		}
 	}
 	catch (std::exception& e) {
 		printf("World::Load: Fail: %s\n", e.what());
@@ -870,8 +882,8 @@ void World::Stop() {
 	for (int i = 0; i < DXCore::NTHREADS; ++i) {
 		render_system->mutex.lock();
 		physics_mutex.lock();
-		while (run_timer_ids[i].empty()) {
-			Scheduler::Get(i)->RemoveTimer(run_timer_ids[i].front());
+		while (!run_timer_ids[i].empty()) {
+			Scheduler::Get(i)->RemoveTimerAsync(run_timer_ids[i].front());
 			run_timer_ids[i].pop_front();
 		}
 		physics_mutex.unlock();

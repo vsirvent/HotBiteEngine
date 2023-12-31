@@ -966,9 +966,11 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 		context->RSSetState(dxcore->drawing_rasterizer);
 	}
 
+	float speed = 1.0f;
 	SkyEntity* sky = nullptr;
 	if (!skies.GetData().empty()) {
 		sky = &(skies.GetData()[0]);
+		speed = sky->sky->second_speed;
 	}
 
 	SimpleVertexShader* vs = nullptr; 
@@ -979,7 +981,7 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 
 	assert(!cameras.GetData().empty() && "No cameras found");
 	CameraEntity& cam_entity = cameras.GetData()[0];
-	float time = ((float)Scheduler::Get()->GetElapsedNanoSeconds() * sky->sky->second_speed) / 1000000000.0f;
+	float time = ((float)Scheduler::Get()->GetElapsedNanoSeconds() * speed) / 1000000000.0f;
 
 	context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST);
 	for (auto &shaders : tree) {
@@ -1517,33 +1519,36 @@ void RenderSystem::Draw() {
 	int w = dxcore->GetWidth();
 	int h = dxcore->GetHeight();
 
-	assert(!cameras.GetData().empty() && "No cameras found");
-	CameraEntity& cam_entity = cameras.GetData()[0];
+	if (!cameras.GetData().empty()) {
+		CameraEntity& cam_entity = cameras.GetData()[0];
 
-	matrix view = XMMatrixTranspose(XMLoadFloat4x4(&cam_entity.camera->view));
-	matrix projection = XMMatrixTranspose(XMLoadFloat4x4(&cam_entity.camera->projection));
-	float3 camera_position = cam_entity.camera->world_position;
+		matrix view = XMMatrixTranspose(XMLoadFloat4x4(&cam_entity.camera->view));
+		matrix projection = XMMatrixTranspose(XMLoadFloat4x4(&cam_entity.camera->projection));
+		float3 camera_position = cam_entity.camera->world_position;
 
-	CheckSceneVisibility(render_tree);
-	static int count = 0;
-	//Only one every 100 frames we refresh static shadows (directional light can change location due to sky component)
-	//but this is fine to just make the overhead of casting shadow of static objects almost zero (cost reduced by /STATIC_SHADOW_REFRESH_PERIOD)
-	//if ((count++ % STATIC_SHADOW_REFRESH_PERIOD) == 0) {
-	//	CastShadows(w, h, camera_position, view, projection, true);
-	//}
-	CastShadows(w, h, camera_position, view, projection, false);
-	DrawDepth(w, h, camera_position, view, projection);
-	DrawSky(w, h, camera_position, view, projection);
-	DrawScene(w, h, camera_position, view, projection, nullptr, first_pass_target, render_tree);
-	if (second_pass_target != nullptr) {
-		CheckSceneVisibility(render_pass2_tree);
-		DrawScene(w, h, camera_position, view, projection, first_pass_texture.SRV(), second_pass_target, render_pass2_tree);
+		CheckSceneVisibility(render_tree);
+		static int count = 0;
+		//Only one every 100 frames we refresh static shadows (directional light can change location due to sky component)
+		//but this is fine to just make the overhead of casting shadow of static objects almost zero (cost reduced by /STATIC_SHADOW_REFRESH_PERIOD)
+		//if ((count++ % STATIC_SHADOW_REFRESH_PERIOD) == 0) {
+		//	CastShadows(w, h, camera_position, view, projection, true);
+		//}
+		CastShadows(w, h, camera_position, view, projection, false);
+		DrawDepth(w, h, camera_position, view, projection);
+		DrawSky(w, h, camera_position, view, projection);
+		DrawScene(w, h, camera_position, view, projection, nullptr, first_pass_target, render_tree);
+		if (second_pass_target != nullptr) {
+			CheckSceneVisibility(render_pass2_tree);
+			DrawScene(w, h, camera_position, view, projection, first_pass_texture.SRV(), second_pass_target, render_pass2_tree);
+		}
+		PostProcessLight();
+		if (post_process_pipeline != nullptr) {
+			post_process_pipeline->SetShaderResourceView(DEPTH_TEXTURE, depth_map.SRV());
+			post_process_pipeline->SetView(cam_entity.camera->view, cam_entity.camera->inverse_view, cam_entity.camera->inverse_projection);
+		}
 	}
-	PostProcessLight();
 	if (post_process_pipeline != nullptr) {
 		DXCore::Get()->context->RSSetViewports(1, &dxcore->viewport);
-		post_process_pipeline->SetShaderResourceView(DEPTH_TEXTURE, depth_map.SRV());
-		post_process_pipeline->SetView(cam_entity.camera->view, cam_entity.camera->inverse_view, cam_entity.camera->inverse_projection);
 		post_process_pipeline->Process();
 	}
 }

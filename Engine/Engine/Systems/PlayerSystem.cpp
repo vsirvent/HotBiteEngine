@@ -24,9 +24,9 @@ SOFTWARE.
 
 #pragma once
 #include <reactphysics3d\reactphysics3d.h>
+#include <Components/Base.h>
 #include <Defines.h>
 #include <Core/PhysicsCommon.h>
-#include <Components/Base.h>
 #include <Components/Physics.h>
 #include <ECS/Coordinator.h>
 #include "PlayerSystem.h"

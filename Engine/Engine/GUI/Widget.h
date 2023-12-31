@@ -29,6 +29,7 @@ SOFTWARE.
 #include <Core/PostProcess.h>
 #include <Core/Texture.h>
 #include <Core\Utils.h>
+#include <Core\Json.h>
 #include <Components\Base.h>
 #include <SpriteBatch.h>
 #include <SpriteFont.h>
@@ -36,6 +37,7 @@ SOFTWARE.
 #include <Effects.h>
 #include <variant>
 
+using namespace nlohmann;
 using namespace HotBite::Engine;
 using namespace HotBite::Engine::Core;
 using namespace DirectX;
@@ -80,8 +82,28 @@ namespace HotBite {
 				VertexType v[4];
 				ECS::Entity id;
 				ECS::Coordinator* coordinator;
+				std::string root;
 
 			public:
+				Widget(ECS::Coordinator* c, const json& config, const std::string& _root): coordinator(c) {
+					root = _root;
+					name = config["name"];
+					sprite = std::make_unique<PrimitiveBatch<VertexType>>(DXCore::Get()->context);
+					id = coordinator->CreateEntity(name);
+					SetLayer(config["layer"]);
+					SetVisible(config["visible"]);
+					std::string background_image = config["background_image"];
+					if (!background_image.empty()) {
+						SetBackGroundImage(root + "\\" + background_image);
+					}
+					SetBackgroundColor(parseColorStringF4(config["background_color"]));
+					SetBackgroundAlphaColor(parseColorStringF3(config["background_alpha_color"]));
+					SetBackgroundAlpha(config["background_alpha"]);
+					SetEnabledBackgroundAlphaColor(config["alpha_enabled"]);
+					SetPosition({ config["x"], config["y"] });
+					SetHeight(config["height"]);
+					SetWidth(config["width"]);
+				}
 
 				Widget(ECS::Coordinator* c, const std::string& widget_name) : name(widget_name), coordinator(c) {
 					sprite = std::make_unique<PrimitiveBatch<VertexType>>(DXCore::Get()->context);
@@ -128,7 +150,7 @@ namespace HotBite {
 					Refresh();
 				}
 
-				void SetVisible(bool v) {
+				virtual void SetVisible(bool v) {
 					visible = v;
 					for (const auto& w : background_widgets) {
 						w.second->SetVisible(v);
@@ -138,7 +160,7 @@ namespace HotBite {
 					}
 				}
 
-				bool IsVisible() const {
+				virtual bool IsVisible() const {
 					return visible;
 				}
 
@@ -157,9 +179,9 @@ namespace HotBite {
 					return WIDGET_ID;
 				}
 
-				const std::string& GetName() const { return name; }
+				virtual const std::string& GetName() const { return name; }
 
-				void SetBackGroundImage(ID3D11ShaderResourceView* image) {
+				virtual void SetBackGroundImage(ID3D11ShaderResourceView* image) {
 					if (background_image != nullptr) {
 						background_image->Release();
 					}
@@ -169,7 +191,7 @@ namespace HotBite {
 					}
 				}
 
-				void SetBackGroundImage(const std::string& filename) {
+				virtual void SetBackGroundImage(const std::string& filename) {
 					if (background_image != nullptr) {
 						background_image->Release();
 					}

@@ -105,7 +105,7 @@ namespace HotBite {
 
 				std::vector<IDXGIAdapter*> EnumerateAdapters();
 				// Initialization and game-loop related methods
-				HRESULT InitWindow();
+				HRESULT InitWindow(HWND parent = NULL);
 				HRESULT InitDirectX();
 				HRESULT Run();
 				void Stop();
@@ -188,6 +188,7 @@ namespace HotBite {
 				//mouse cache
 				Int2 last_mouse_position{ -1, -1 };
 				void UpdateTitleBarStats();	// Puts debug info in the title bar
+				bool wnd_update = true;
 			};
 
 			class Direct2D {

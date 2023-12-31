@@ -26,6 +26,8 @@ SOFTWARE.
 
 #include "Label.h"
 #include "InteractiveWidget.h"
+#include <Systems/AudioSystem.h>
+#include <Core/Utils.h>
 
 using namespace HotBite::Engine;
 using namespace HotBite::Engine::Core;
@@ -44,6 +46,30 @@ namespace HotBite {
 				static inline uint64_t BUTTON_WIDGET_ID = GetTypeId<Button>();
 				ID3D11ShaderResourceView* click_image = nullptr;
 				ID3D11ShaderResourceView* idle_image = nullptr;
+				ID3D11ShaderResourceView* hover_image = nullptr;
+				
+				Systems::AudioSystem::SoundId click_sound_id = Systems::AudioSystem::INVALID_SOUND_ID;
+				Systems::AudioSystem::SoundId hover_sound_id = Systems::AudioSystem::INVALID_SOUND_ID;;
+
+				std::string click_sound;
+				std::string hover_sound;
+
+				void SetupListeners(ECS::Coordinator* c) {
+					Init(c);
+					interactive = std::make_shared<UI::InteractiveWidget>(this);
+					AddEventListenerByEntity(UI::InteractiveWidget::EVENT_ID_MOUSE_LDOWN,
+						GetId(),
+						std::bind(&Button::OnLDown, this, std::placeholders::_1));
+					AddEventListenerByEntity(UI::InteractiveWidget::EVENT_ID_MOUSE_LUP,
+						GetId(),
+						std::bind(&Button::OnLUp, this, std::placeholders::_1));
+					AddEventListenerByEntity(UI::InteractiveWidget::EVENT_ID_HOVER_START,
+						GetId(),
+						std::bind(&Button::OnHoverStart, this, std::placeholders::_1));
+					AddEventListenerByEntity(UI::InteractiveWidget::EVENT_ID_HOVER_END,
+						GetId(),
+						std::bind(&Button::OnLUp, this, std::placeholders::_1));
+				}
 
 			public:
 
@@ -55,40 +81,87 @@ namespace HotBite {
 					const std::string& fname = "", DWRITE_FONT_WEIGHT w = DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE s = DWRITE_FONT_STYLE_NORMAL,
 					DWRITE_TEXT_ALIGNMENT ha = DWRITE_TEXT_ALIGNMENT_LEADING,
 					DWRITE_PARAGRAPH_ALIGNMENT va = DWRITE_PARAGRAPH_ALIGNMENT_CENTER) : Label(c, name, txt, size, fname, w, s, ha, va) {
-					Init(c);
-					interactive = std::make_shared<UI::InteractiveWidget>(this);
-					AddEventListenerByEntity(UI::InteractiveWidget::EVENT_ID_MOUSE_LDOWN,
-						GetId(),
-						std::bind(&Button::OnLDown, this, std::placeholders::_1));
-					AddEventListenerByEntity(UI::InteractiveWidget::EVENT_ID_MOUSE_LUP,
-						GetId(),
-						std::bind(&Button::OnLUp, this, std::placeholders::_1));
+					SetupListeners(c);
+				}
 
+				Button(ECS::Coordinator* c, const json& config, const std::string& root) : Label(c, config, root) {
+					SetupListeners(c);
+					SetPressedImage(config["click_image"]);
+					SetIdleImage(config["idle_image"]);
+					SetHoverImage(config["hover_image"]);
+					SetClickSound(config["click_sound"]);
+					SetHoverSound(config["hover_sound"]);
 				}
 
 				virtual ~Button() {
+					coordinator->GetSystem<Systems::AudioSystem>()->RemoveSound(click_sound_id);
 				}
 
 				virtual void OnLDown(ECS::Event& ev) {
 					if (click_image != nullptr) {
 						background_image = click_image;
 					}
+					coordinator->GetSystem<Systems::AudioSystem>()->Play(click_sound_id);
 				}
 
 				virtual void OnLUp(ECS::Event& ev) {
-					background_image = idle_image;
+					if (interactive->IsHover() && hover_image != nullptr) {
+						background_image = hover_image;
+					}
+					else {
+						background_image = idle_image;
+					}
 				}
 
-				virtual void SetIdleImage(const std::string& idle) {
-					Widget::SetBackGroundImage(idle);
+				virtual void OnHoverStart(ECS::Event& ev) {
+					background_image = hover_image;
+					coordinator->GetSystem<Systems::AudioSystem>()->Play(hover_sound_id);
+				}
+
+				virtual void SetClickSound(const std::string& sound) {
+					auto audio_system = coordinator->GetSystem<Systems::AudioSystem>();					
+					audio_system->RemoveSound(click_sound_id);
+					click_sound = root + "\\" + sound;
+					if (!click_sound.empty()) {
+						click_sound_id = audio_system->LoadSound(click_sound, Core::GetId<Button, Systems::AudioSystem::SoundId>(this, 0x01)).value_or(Systems::AudioSystem::INVALID_SOUND_ID);
+					}
+					else {
+						click_sound_id = Systems::AudioSystem::INVALID_SOUND_ID;
+					}					
+				}
+
+				virtual void SetHoverSound(const std::string& sound) {
+					auto audio_system = coordinator->GetSystem<Systems::AudioSystem>();
+					audio_system->RemoveSound(hover_sound_id);
+					hover_sound = root + "\\" + sound;
+					if (!hover_sound.empty()) {
+						hover_sound_id = audio_system->LoadSound(hover_sound, Core::GetId<Button, Systems::AudioSystem::SoundId>(this, 0x02)).value_or(Systems::AudioSystem::INVALID_SOUND_ID);
+					}
+					else {
+						hover_sound_id = Systems::AudioSystem::INVALID_SOUND_ID;
+					}
+				}
+
+				virtual void SetIdleImage(const std::string& filename) {
+					std::string file = root + "\\" + filename;
+					Widget::SetBackGroundImage(file);
 					idle_image = background_image;
+				}
+
+				virtual void SetHoverImage(const std::string& filename) {
+					if (hover_image != nullptr) {
+						hover_image->Release();
+					}
+					std::string file = root + "\\" + filename;
+					hover_image = LoadTexture(file);
 				}
 
 				virtual void SetPressedImage(const std::string& filename) {
 					if (click_image != nullptr) {
 						click_image->Release();
 					}
-					click_image = LoadTexture(filename);
+					std::string file = root + "\\" + filename;
+					click_image = LoadTexture(file);
 				}
 			};
 		}

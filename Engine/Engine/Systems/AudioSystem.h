@@ -101,7 +101,9 @@ namespace HotBite {
                 static constexpr float DEFAULT_MIC_DISTANCE = 0.5;                
                 float mic_distance = DEFAULT_MIC_DISTANCE;
                 double sound_speed = 343.0;
-                
+                double main_volume = 1.0f;
+                double main_speed = 1.0f;
+
                 //relative mic positions
                 float3 relative_mic_position[NUM_MICS] = { { DEFAULT_MIC_DISTANCE / 2.0f, 0.0f, 0.0f }, { -DEFAULT_MIC_DISTANCE / 2.0f, 0.0f, 0.0f } };
                 vector3d vrelative_mic_position[NUM_MICS];
@@ -129,7 +131,7 @@ namespace HotBite {
                     std::vector<int16_t> right_data;
                     std::vector<int16_t> mono_data;
                     SoundId id = INVALID_SOUND_ID;
-                    //TODO: Add here any audio option (fx, speed, etc...)
+                    std::atomic<int32_t> ref_count;
                 };
 
                 enum EOffsetType {
@@ -184,7 +186,7 @@ namespace HotBite {
                 int16_t* buffer = nullptr;
 
                 Core::SoundDeviceGrabber* sound = nullptr;
-                Core::spin_lock lock;
+                mutable Core::spin_lock lock;
                 Core::Scheduler* audio_scheduler;
                 int audio_timer;
 
@@ -211,6 +213,7 @@ namespace HotBite {
                 void Reset();
                 std::optional<SoundId> LoadSound(const std::string& file, SoundId id);
                 std::optional<SoundId> GetSound(const std::string& file);
+                bool RemoveSound(SoundId id);
                 
                 PlayId Play(SoundId id,
                             int32_t delay_ms = 0,
@@ -223,23 +226,29 @@ namespace HotBite {
 
                 void Stop(PlayId id);
 
-                std::optional<float> GetSpeed(PlayId id);
                 bool SetSpeed(PlayId id, float speed);
+                std::optional<float> GetSpeed(PlayId id) const;
 
-                std::optional<float> GetVol(PlayId id);
                 bool SetVol(PlayId id, float speed);
+                std::optional<float> GetVol(PlayId id) const;
 
-                std::optional<bool> GetLoop(PlayId id);
                 bool SetLoop(PlayId id, bool loop);
+                std::optional<bool> GetLoop(PlayId id) const;
 
-                std::optional<bool> GetSimSoundSpeed(PlayId id);
                 bool SetSimSoundSpeed(PlayId id, bool loop);
+                std::optional<bool> GetSimSoundSpeed(PlayId id) const;
 
                 void SetMicDistance(float dist_meters);
-                double GetMicDistance();
+                double GetMicDistance() const;
 
                 void SetSoundSpeed(double speed_meters_per_sec);
-                double GetSoundSpeed();
+                double GetSoundSpeed() const;
+
+                void SetMainVolume(double vol);
+                double GetMainVolume() const;
+
+                void SetMainSpeed(double speed);
+                double GetMainSpeed() const;
             };
         }
     }

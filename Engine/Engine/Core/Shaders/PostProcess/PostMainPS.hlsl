@@ -129,6 +129,6 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
         color.rgb = pow(abs(color.rgb), 1.0 / gamma);
     }
     */
-    color = (color* (1.0f - a) + l);
+    color += l;// (color* (1.0f - a) + l);
     return color;
 }

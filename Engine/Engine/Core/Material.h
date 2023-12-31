@@ -72,6 +72,8 @@ namespace HotBite {
 			class MaterialData {
 			private:
 				void _MaterialData();
+				void SetTexture(ID3D11ShaderResourceView*& texture, std::string& current_texture, const std::string& root, const std::string& file);
+				void UpdateFlags();
 			public:
 				std::string name;
 				ID3D11ShaderResourceView* diffuse = nullptr;
@@ -98,6 +100,7 @@ namespace HotBite {
 				MaterialData(const std::string& name);
 				MaterialData(const MaterialData& other);
 				~MaterialData();
+				void Load(const std::string& root, const std::string& mat);
 				bool Init();
 				void Release();
 			};

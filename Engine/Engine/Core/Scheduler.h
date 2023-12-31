@@ -116,7 +116,8 @@ namespace HotBite {
 				std::recursive_mutex counters_mutex;
 				spin_lock timer_mutex;
 				spin_lock new_timer_mutex;
-				
+				spin_lock remove_timer_mutex;
+
 				HANDLE htimer;
 				
 				void InitTimer();
@@ -143,8 +144,10 @@ namespace HotBite {
 				
 				//Timers management
 				TimerId RegisterTimer(int64_t period_nsec, std::function<bool(const TimerData&)> cb);
+				TimerId Exec(std::function<bool(const TimerData&)> cb);
 				bool RemoveTimer(TimerId id);
 				void RemoveTimerAsync(TimerId id);
+
 
 				//Counters management
 				void StartCount(CounterId count_id);

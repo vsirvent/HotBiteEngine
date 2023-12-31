@@ -1,0 +1,51 @@
+{
+  "world": {
+    "path": "..\\..\\..\\Tools\\MaterialDesigner\\",
+    "level": {
+      "file": ".\\assets\\model.fbx",
+      "triangulate": false
+    },
+    "lights": [
+      {
+        "type": "directional",
+        "name": "Sun",
+        "color": "100100100",
+        "direction": {
+          "x": 3.0,
+          "y": 3.0,
+          "z": -3.0
+        },
+        "density": 0.0,
+        "fog": false,
+        "cast_shadow": true,
+        "resolution": 1
+      },
+      {
+        "type": "ambient",
+        "name": "ambient",
+        "color_down": "050050050",
+        "color_up": "010010010"
+      }
+    ],
+    "materials": [
+      {
+        "name": "Floor",
+        "spec_intensity": 1.0,
+        "parallax_scale": 0.1,
+        "textures": {
+          "diffuse_textname": ".\\assets\\textures\\Bricks076C_1K\\Bricks076C_1K_Color.jpg",
+          "normal_textname": ".\\assets\\textures\\Bricks076C_1K\\Bricks076C_1K_NormalDX.jpg",
+          "high_textname": ".\\assets\\textures\\Bricks076C_1K\\Bricks076C_1K_Displacement.jpg",
+          "spec_textname": ".\\assets\\textures\\Bricks076C_1K\\Bricks076C_1K_Roughness.jpg",
+          "ao_textname": ".\\assets\\textures\\Bricks076C_1K\\Bricks076C_1K_AmbientOcclusion.jpg"
+        }
+      }
+    ],
+    "entities": [
+      {
+        "name": "Floor",
+        "material": "Floor"
+      }
+    ]
+  }
+}

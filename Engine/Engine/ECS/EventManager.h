@@ -81,7 +81,7 @@ namespace HotBite {
 				void RemoveListener(const EventListenerId& id)
 				{
 					auto it = listener_by_id.find(id.listener_id);
-					if (it != listener_by_id.end()) {
+					if (it != listener_by_id.end() && it->first != 0 && it->second != nullptr) {
 						for (auto it2 = listeners[id.ev_id].begin(); it2 != listeners[id.ev_id].end(); ++it2) {
 							if (&(*it2) == it->second) {
 								if (id.e != INVALID_ENTITY_ID) {
@@ -90,6 +90,7 @@ namespace HotBite {
 								else {
 									listeners[id.ev_id].erase(it2);
 								}
+								break;
 							}
 						}
 						listener_by_id.erase(it);
