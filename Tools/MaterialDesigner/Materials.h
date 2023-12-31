@@ -80,9 +80,10 @@ public:
 		props["name"] = std::make_shared<Prop<std::string>>("material");
 		props["diffuse_color"] = std::make_shared<Prop<std::string>>("#FFFFFFFF");
 		props["ambient_color"] = std::make_shared<Prop<std::string>>("#FFFFFFFF");
+		props["specular"] = std::make_shared<Prop<float>>(0.5f);
 		props["parallax_scale"] = std::make_shared<Prop<float>>(0.0f);
 		props["tess_type"] = std::make_shared<Prop<int>>(0);
-		props["tess_factor"] = std::make_shared<Prop<float>>(0.0f);
+		props["tess_factor"] = std::make_shared<Prop<float>>(32.0f);
 		props["displacement_scale"] = std::make_shared<Prop<float>>(0.0f);
 		props["bloom_scale"] = std::make_shared<Prop<float>>(0.0f);
 		props["normal_map_enabled"] = std::make_shared<Prop<bool>>(false);
@@ -108,6 +109,7 @@ public:
 			props["diffuse_color"]->SetValue<std::string>(js["diffuse_color"]);
 			props["ambient_color"]->SetValue<std::string>(js["ambient_color"]);
 			props["parallax_scale"]->SetValue<float>(js["parallax_scale"]);
+			props["specular"]->SetValue<float>(js["specular"]);
 			props["tess_type"]->SetValue<int>(js["tess_type"]);
 			props["tess_factor"]->SetValue<float>(js["tess_factor"]);
 			props["displacement_scale"]->SetValue<float>(js["displacement_scale"]);
@@ -187,6 +189,76 @@ public:
 	}
 };
 
+public ref class TessellationTypeConverter : public TypeConverter
+{
+public:
+	static String^ TESS_NONE = gcnew String("NONE");
+	static String^ TESS_BORDER = gcnew String("BORDER");
+	static String^ TESS_FULL = gcnew String("FULL");
+	
+	static String^ GetTessTypeName(int32_t type) {
+		switch (type) {
+		case 0: return TESS_NONE;
+		case 1: return TESS_BORDER;
+		case 2: return TESS_FULL;
+		default: return TESS_NONE;
+		}
+	}
+
+	static int GetTessTypeByName(String^ name) {
+		if (String::Compare(name, TESS_NONE) == 0) {
+			return 0;
+		}
+		if (String::Compare(name, TESS_BORDER) == 0) {
+			return 1;
+		}
+		if (String::Compare(name, TESS_FULL) == 0) {
+			return 2;
+		}
+		return 0;
+	}
+
+	virtual StandardValuesCollection^ GetStandardValues(ITypeDescriptorContext^ context) override
+	{
+		array<System::String^>^ values = { TESS_NONE, TESS_BORDER, TESS_FULL };
+		return gcnew StandardValuesCollection(values);
+	}
+	virtual bool GetStandardValuesExclusive(ITypeDescriptorContext^ context) override
+	{
+		return true;
+	}
+	virtual bool GetStandardValuesSupported(ITypeDescriptorContext^ context) override
+	{
+		return true;
+	}
+};
+
+ref class CustomImageEditor : ImageEditor
+{
+public:
+	virtual Object^ EditValue(ITypeDescriptorContext^ context, System::IServiceProvider^ provider, Object^ value) override
+	{
+		OpenFileDialog^ openFileDialog = gcnew OpenFileDialog();
+
+		openFileDialog->Filter = "Image Files|*.bmp;*.jpg;*.jpeg;*.gif;*.png;*.dds|All Files|*.*";
+		openFileDialog->Title = "Select an Image";
+
+		if (value != nullptr && value->GetType() == String::typeid)
+		{
+			openFileDialog->FileName = dynamic_cast<String^>(value);
+		}
+
+		if (openFileDialog->ShowDialog() == DialogResult::OK)
+		{
+			return openFileDialog->FileName;
+		}
+		else
+		{
+			return value;
+		}
+	}
+};
+
 public ref class MaterialProp
 {
 public:
@@ -201,11 +273,13 @@ public:
 		}
 		void set(String^ newValue)
 		{
-			material->listener->OnNameChanged(Name, newValue);
+			String^ oldName = Name;
 			std::string str = msclr::interop::marshal_as<std::string>(newValue);
-			return material->props["name"]->SetValue<std::string>(str);
+			material->props["name"]->SetValue<std::string>(str);
+			material->listener->OnNameChanged(oldName, newValue);
 		}
 	}
+
 	[CategoryAttribute("Material")]
 	property Drawing::Color DiffuseColor {
 		Drawing::Color get()
@@ -221,7 +295,266 @@ public:
 			return material->props["diffuse_color"]->SetValue<std::string>(color);
 		}
 	}
+
+	[CategoryAttribute("Material")]
+	property float SpecularIntensity {
+		float get()
+		{
+			return material->props["specular"]->GetValue<float>();
+		}
+
+		void set(float newValue)
+		{
+			return material->props["specular"]->SetValue<float>((float)newValue);
+		}
+	}
+
+	[CategoryAttribute("Material")]
+	property float ParallaxScale {
+		float get()
+		{
+			return material->props["parallax_scale"]->GetValue<float>();
+		}
+
+		void set(float newValue)
+		{
+			return material->props["parallax_scale"]->SetValue<float>((float)newValue);
+		}
+	}
+
+	[CategoryAttribute("Material")]
+	[TypeConverterAttribute(TessellationTypeConverter::typeid)]
+	property System::String^ TessellationType {
+		System::String^ get()
+		{
+			return TessellationTypeConverter::GetTessTypeName(material->props["tess_type"]->GetValue<int32_t>());
+		}
+
+		void set(System::String^ newValue)
+		{
+			return material->props["tess_type"]->SetValue<int32_t>(TessellationTypeConverter::GetTessTypeByName(newValue));
+		}
+	}
+
+	[CategoryAttribute("Material")]
+	property float TessFactor {
+		float get()
+		{
+			return material->props["tess_factor"]->GetValue<float>();
+		}
+
+		void set(float newValue)
+		{
+			return material->props["tess_factor"]->SetValue<float>((float)newValue);
+		}
+	}
 	
+	[CategoryAttribute("Material")]
+	property float Displacement {
+		float get()
+		{
+			return material->props["displacement_scale"]->GetValue<float>();
+		}
+
+		void set(float newValue)
+		{
+			return material->props["displacement_scale"]->SetValue<float>((float)newValue);
+		}
+	}
+
+	[CategoryAttribute("Material")]
+	property float Bloom {
+		float get()
+		{
+			return material->props["bloom_scale"]->GetValue<float>();
+		}
+
+		void set(float newValue)
+		{
+			return material->props["bloom_scale"]->SetValue<float>((float)newValue);
+		}
+	}
+
+	[CategoryAttribute("Material")]
+	property bool Alpha {
+		bool get()
+		{
+			return material->props["alpha_enabled"]->GetValue<bool>();
+		}
+
+		void set(bool newValue)
+		{
+			return material->props["alpha_enabled"]->SetValue<bool>(newValue);
+		}
+	}
+
+	[CategoryAttribute("Material")]
+	property bool Blend {
+		bool get()
+		{
+			return material->props["blend_enabled"]->GetValue<bool>();
+		}
+
+		void set(bool newValue)
+		{
+			return material->props["blend_enabled"]->SetValue<bool>(newValue);
+		}
+	}
+
+	[CategoryAttribute("Textures")]
+	[EditorAttribute(CustomImageEditor::typeid, System::Drawing::Design::UITypeEditor::typeid)]
+	property String^ Diffuse {
+		String^ get()
+		{
+			return gcnew String(material->props["diffuse_textname"]->GetValue<std::string>().c_str());
+		}
+		void set(String^ newValue)
+		{
+			System::String^ file = Path::GetFileName(newValue);
+			if (file->Length > 0) {
+				System::String^ dest_file = root_folder + file;
+				try {
+					File::Delete(dest_file);
+				}
+				catch (...) {}
+				File::Copy(newValue, dest_file);
+			}
+			material->props["diffuse_textname"]->SetValue<std::string>(msclr::interop::marshal_as<std::string>(file));
+		}
+	}
+
+	[CategoryAttribute("Textures")]
+	[EditorAttribute(CustomImageEditor::typeid, System::Drawing::Design::UITypeEditor::typeid)]
+	property String^ Normal {
+		String^ get()
+		{
+			return gcnew String(material->props["normal_textname"]->GetValue<std::string>().c_str());
+		}
+		void set(String^ newValue)
+		{
+			System::String^ file = Path::GetFileName(newValue);
+			if (file->Length > 0) {
+				System::String^ dest_file = root_folder + file;
+				try {
+					File::Delete(dest_file);
+				}
+				catch (...) {}
+				File::Copy(newValue, dest_file);
+			}
+			material->props["normal_textname"]->SetValue<std::string>(msclr::interop::marshal_as<std::string>(file));
+		}
+	}
+
+	[CategoryAttribute("Textures")]
+	[EditorAttribute(CustomImageEditor::typeid, System::Drawing::Design::UITypeEditor::typeid)]
+	property String^ High {
+		String^ get()
+		{
+			return gcnew String(material->props["high_textname"]->GetValue<std::string>().c_str());
+		}
+		void set(String^ newValue)
+		{
+			System::String^ file = Path::GetFileName(newValue);
+			if (file->Length > 0) {
+				System::String^ dest_file = root_folder + file;
+				try {
+					File::Delete(dest_file);
+				}
+				catch (...) {}
+				File::Copy(newValue, dest_file);
+			}
+			material->props["high_textname"]->SetValue<std::string>(msclr::interop::marshal_as<std::string>(file));
+		}
+	}
+
+	[CategoryAttribute("Textures")]
+	[EditorAttribute(CustomImageEditor::typeid, System::Drawing::Design::UITypeEditor::typeid)]
+	property String^ Specular {
+		String^ get()
+		{
+			return gcnew String(material->props["spec_textname"]->GetValue<std::string>().c_str());
+		}
+		void set(String^ newValue)
+		{
+			System::String^ file = Path::GetFileName(newValue);
+			if (file->Length > 0) {
+				System::String^ dest_file = root_folder + file;
+				try {
+					File::Delete(dest_file);
+				}
+				catch (...) {}
+				File::Copy(newValue, dest_file);
+			}
+			material->props["spec_textname"]->SetValue<std::string>(msclr::interop::marshal_as<std::string>(file));
+		}
+	}
+
+	[CategoryAttribute("Textures")]
+	[EditorAttribute(CustomImageEditor::typeid, System::Drawing::Design::UITypeEditor::typeid)]
+	property String^ AO {
+		String^ get()
+		{
+			return gcnew String(material->props["ao_textname"]->GetValue<std::string>().c_str());
+		}
+		void set(String^ newValue)
+		{
+			System::String^ file = Path::GetFileName(newValue);
+			if (file->Length > 0) {
+				System::String^ dest_file = root_folder + file;
+				try {
+					File::Delete(dest_file);
+				}
+				catch (...) {}
+				File::Copy(newValue, dest_file);
+			}
+			material->props["ao_textname"]->SetValue<std::string>(msclr::interop::marshal_as<std::string>(file));
+		}
+	}
+
+	[CategoryAttribute("Textures")]
+	[EditorAttribute(CustomImageEditor::typeid, System::Drawing::Design::UITypeEditor::typeid)]
+	property String^ ARM {
+		String^ get()
+		{
+			return gcnew String(material->props["arm_textname"]->GetValue<std::string>().c_str());
+		}
+		void set(String^ newValue)
+		{
+			System::String^ file = Path::GetFileName(newValue);
+			if (file->Length > 0) {
+				System::String^ dest_file = root_folder + file;
+				try {
+					File::Delete(dest_file);
+				}
+				catch (...) {}
+				File::Copy(newValue, dest_file);
+			}
+			material->props["arm_textname"]->SetValue<std::string>(msclr::interop::marshal_as<std::string>(file));
+		}
+	}
+
+	[CategoryAttribute("Textures")]
+	[EditorAttribute(CustomImageEditor::typeid, System::Drawing::Design::UITypeEditor::typeid)]
+	property String^ Emission {
+		String^ get()
+		{
+			return gcnew String(material->props["emission_textname"]->GetValue<std::string>().c_str());
+		}
+		void set(String^ newValue)
+		{
+			System::String^ file = Path::GetFileName(newValue);
+			if (file->Length > 0) {
+				System::String^ dest_file = root_folder + file;
+				try {
+					File::Delete(dest_file);
+				}
+				catch (...) {}
+				File::Copy(newValue, dest_file);
+			}
+			material->props["emission_textname"]->SetValue<std::string>(msclr::interop::marshal_as<std::string>(file));
+		}
+	}
+
 	MaterialProp(Material* material, System::String^ path) {
 		this->material = material;
 		this->root_folder = path + "\\";

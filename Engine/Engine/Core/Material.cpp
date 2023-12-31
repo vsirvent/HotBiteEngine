@@ -61,47 +61,52 @@ MaterialData::~MaterialData() {
 	Release();
 }
 
-void MaterialData::Load(const std::string& mat) {
-	nlohmann::json j = nlohmann::json::parse(mat);
-	props.diffuseColor = parseColorStringF4(j["diffuse_color"]);
-#if 0
-	props["name"]->SetValue<std::string>(js["name"]);
-	props["diffuse_color"]->SetValue<std::string>(js["diffuse_color"]);
-	props["ambient_color"]->SetValue<std::string>(js["ambient_color"]);
-	props["parallax_scale"]->SetValue<float>(js["parallax_scale"]);
-	props["tess_type"]->SetValue<int>(js["tess_type"]);
-	props["tess_factor"]->SetValue<float>(js["tess_factor"]);
-	props["displacement_scale"]->SetValue<float>(js["displacement_scale"]);
-	props["bloom_scale"]->SetValue<float>(js["bloom_scale"]);
-	props["normal_map_enabled"]->SetValue<bool>(js["normal_map_enabled"]);
-	props["alpha_enabled"]->SetValue<bool>(js["alpha_enabled"]);
-	props["blend_enabled"]->SetValue<bool>(js["blend_enabled"]);
-	props["diffuse_textname"]->SetValue<std::string>(js["diffuse_textname"]);
-	props["normal_textname"]->SetValue<std::string>(js["normal_textname"]);
-	props["high_textname"]->SetValue<std::string>(js["high_textname"]);
-	props["spec_textname"]->SetValue<std::string>(js["spec_textname"]);
-	props["ao_textname"]->SetValue<std::string>(js["ao_textname"]);
-	props["arm_textname"]->SetValue<std::string>(js["arm_textname"]);
-	props["emission_textname"]->SetValue<std::string>(js["emission_textname"]);
-	props["vs"]->SetValue<std::string>(js["vs"]);
-	props["hs"]->SetValue<std::string>(js["hs"]);
-	props["ds"]->SetValue<std::string>(js["ds"]);
-	props["gs"]->SetValue<std::string>(js["gs"]);
-	props["ps"]->SetValue<std::string>(js["ps"]);
-#endif
+void MaterialData::SetTexture(ID3D11ShaderResourceView*& texture, std::string& current_texture, const std::string& root, const std::string& file) {
+	std::string new_texure = root + std::string("\\") + file;
+	if (current_texture != new_texure) {
+		current_texture = new_texure;
+		if (texture) {
+			texture->Release();
+		}
+		if (!file.empty()) {
+			texture = LoadTexture(current_texture);
+		}
+		else {
+			texture = nullptr;
+		}
+	}
 }
 
+void MaterialData::Load(const std::string& root, const std::string& mat) {
+	nlohmann::json j = nlohmann::json::parse(mat);
+	name = j["name"];
 
-bool MaterialData::Init() {
-	bool ret = false;
-	init = true;
-	diffuse = LoadTexture(texture_names.diffuse_texname);
-	high = LoadTexture(texture_names.high_textname);
-	normal = LoadTexture(texture_names.normal_textname);
-	spec = LoadTexture(texture_names.spec_textname);
-	ao = LoadTexture(texture_names.ao_textname);
-	arm = LoadTexture(texture_names.arm_textname);
-	emission = LoadTexture(texture_names.emission_textname);
+	props.diffuseColor = parseColorStringF4(j["diffuse_color"]);
+	props.bloom_scale = j["bloom_scale"];
+	props.parallax_scale = j["parallax_scale"];
+	props.specIntensity = j["specular"];
+	props.flags = 0;
+
+	tessellation_type = j["tess_type"];
+	tessellation_factor = j["tess_factor"];
+	displacement_scale = j["displacement_scale"];
+	if (j["alpha_enabled"]) {
+		props.flags |= ALPHA_ENABLED_FLAG;
+	}
+	if (j["blend_enabled"]) {
+		props.flags |= BLEND_ENABLED_FLAG;
+	}
+	SetTexture(diffuse, texture_names.diffuse_texname, root, j["diffuse_textname"]);
+	SetTexture(high, texture_names.high_textname, root, j["high_textname"]);
+	SetTexture(normal, texture_names.normal_textname, root, j["normal_textname"]);
+	SetTexture(spec, texture_names.spec_textname, root, j["spec_textname"]);
+	SetTexture(ao, texture_names.ao_textname, root, j["ao_textname"]);
+	SetTexture(arm, texture_names.arm_textname, root, j["arm_textname"]);
+	SetTexture(emission, texture_names.emission_textname, root, j["emission_textname"]);
+	UpdateFlags();
+}
+
+void MaterialData::UpdateFlags() {
 	if (diffuse != nullptr) {
 		props.flags |= DIFFUSSE_MAP_ENABLED_FLAG;
 	}
@@ -123,6 +128,19 @@ bool MaterialData::Init() {
 	if (emission != nullptr) {
 		props.flags |= EMISSION_MAP_ENABLED_FLAG;
 	}
+}
+
+bool MaterialData::Init() {
+	bool ret = false;
+	init = true;
+	diffuse = LoadTexture(texture_names.diffuse_texname);
+	high = LoadTexture(texture_names.high_textname);
+	normal = LoadTexture(texture_names.normal_textname);
+	spec = LoadTexture(texture_names.spec_textname);
+	ao = LoadTexture(texture_names.ao_textname);
+	arm = LoadTexture(texture_names.arm_textname);
+	emission = LoadTexture(texture_names.emission_textname);
+	UpdateFlags();
 	return ret;
 }
 

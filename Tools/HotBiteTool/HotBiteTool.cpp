@@ -24,9 +24,9 @@ namespace HotBiteTool {
 			}
 		}
 
-		void SetMaterial(const std::string& entity, const std::string& mat) {
+		void SetMaterial(const std::string& entity, const std::string& root, const std::string& mat) {
 			if (tool_ui != nullptr) {
-				tool_ui->SetMaterial(entity, mat);
+				tool_ui->SetMaterial(entity, root, mat);
 			}
 		}
 
@@ -41,6 +41,13 @@ namespace HotBiteTool {
 				tool_ui->RotateEntity(name);
 			}
 		}
+
+		void SetVisible(const std::string& name, bool visible) {
+			if (tool_ui != nullptr) {
+				tool_ui->SetVisible(name, visible);
+			}
+		}
+
 		void DeleteToolUi() {
 			if (tool_ui == nullptr) {
 				delete tool_ui;

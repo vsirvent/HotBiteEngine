@@ -3,6 +3,17 @@
 #include <HotBiteTool.h>
 #include "Materials.h"
 
+#include <map>
+#include <msclr/marshal_cppstd.h>
+#include <vcclr.h>
+#include <string>
+#include <memory>
+#include <iostream>
+#include <fstream>
+#include <map>
+
+using namespace msclr::interop;
+
 namespace MaterialDesigner {
 
 	using namespace System;
@@ -12,9 +23,6 @@ namespace MaterialDesigner {
 	using namespace System::Data;
 	using namespace System::Drawing;
 
-	/// <summary>
-	/// Resumen de MaterialDesignerForm
-	/// </summary>
 	public ref class MaterialDesignerForm : public System::Windows::Forms::Form, public IMaterialListener
 	{
 		
@@ -29,13 +37,21 @@ namespace MaterialDesigner {
 
 			HotBiteTool::ToolUi::LoadWorld(root + "material_scene.json");
 			HotBiteTool::ToolUi::RotateEntity("Cube");
+			HotBiteTool::ToolUi::RotateEntity("Plane");
+			HotBiteTool::ToolUi::RotateEntity("Sphere");
+			HotBiteTool::ToolUi::RotateEntity("Monkey");
 			rootFolder->Text = Environment::GetFolderPath(Environment::SpecialFolder::MyDocuments);
-
+			UpdateEditor();
 		}
 
 		virtual void OnNameChanged(String^ old_name, String^ new_name)
 		{
-
+			for (int i = 0; i < materialList->Items->Count; ++i) {
+				String^ item = (String ^)materialList->Items[i];
+				if (String::Compare(item, old_name) == 0) {
+					materialList->Items[i] = new_name;
+				}
+			}
 		}
 	protected: System::Windows::Forms::Label^ label1;
 	protected: System::Windows::Forms::PropertyGrid^ propertyGrid;
@@ -43,8 +59,22 @@ namespace MaterialDesigner {
 	public:
 
 	protected:
+		enum class Model {
+			CUBE,
+			SPHERE,
+			PLANE,
+			CUSTOM
+		};
+		Model currentModel = Model::CUBE;
+	private: System::Windows::Forms::ToolStripMenuItem^ sphereToolStripMenuItem;
+	protected:
+	private: System::Windows::Forms::ToolStripMenuItem^ panelToolStripMenuItem;
+	private: System::Windows::Forms::ToolStripMenuItem^ monkeyToolStripMenuItem;
 
-		Generic::List<IntPtr>^ materials;
+	protected:
+
+
+		   Generic::List<IntPtr>^ materials;
 		/// <summary>
 		/// Limpiar los recursos que se estén usando.
 		/// </summary>
@@ -78,7 +108,7 @@ namespace MaterialDesigner {
 	protected: System::Windows::Forms::Button^ button1;
 	protected: System::Windows::Forms::TextBox^ rootFolder;
 	protected: System::Windows::Forms::Label^ label3;
-
+			 System::String^ fileName;
 	private:
 		/// <summary>
 		/// Variable del diseñador necesaria.
@@ -110,6 +140,9 @@ namespace MaterialDesigner {
 			this->resetToolStripMenuItem = (gcnew System::Windows::Forms::ToolStripMenuItem());
 			this->editorToolStripMenuItem = (gcnew System::Windows::Forms::ToolStripMenuItem());
 			this->cubeToolStripMenuItem = (gcnew System::Windows::Forms::ToolStripMenuItem());
+			this->sphereToolStripMenuItem = (gcnew System::Windows::Forms::ToolStripMenuItem());
+			this->panelToolStripMenuItem = (gcnew System::Windows::Forms::ToolStripMenuItem());
+			this->monkeyToolStripMenuItem = (gcnew System::Windows::Forms::ToolStripMenuItem());
 			this->splitContainer1 = (gcnew System::Windows::Forms::SplitContainer());
 			this->propertyGrid = (gcnew System::Windows::Forms::PropertyGrid());
 			this->label2 = (gcnew System::Windows::Forms::Label());
@@ -214,27 +247,30 @@ namespace MaterialDesigner {
 			// newToolStripMenuItem
 			// 
 			this->newToolStripMenuItem->Name = L"newToolStripMenuItem";
-			this->newToolStripMenuItem->Size = System::Drawing::Size(123, 22);
+			this->newToolStripMenuItem->Size = System::Drawing::Size(180, 22);
 			this->newToolStripMenuItem->Text = L"New";
 			this->newToolStripMenuItem->Click += gcnew System::EventHandler(this, &MaterialDesignerForm::newToolStripMenuItem_Click_1);
 			// 
 			// openToolStripMenuItem
 			// 
 			this->openToolStripMenuItem->Name = L"openToolStripMenuItem";
-			this->openToolStripMenuItem->Size = System::Drawing::Size(123, 22);
+			this->openToolStripMenuItem->Size = System::Drawing::Size(180, 22);
 			this->openToolStripMenuItem->Text = L"Open...";
+			this->openToolStripMenuItem->Click += gcnew System::EventHandler(this, &MaterialDesignerForm::openToolStripMenuItem_Click);
 			// 
 			// saveToolStripMenuItem
 			// 
 			this->saveToolStripMenuItem->Name = L"saveToolStripMenuItem";
-			this->saveToolStripMenuItem->Size = System::Drawing::Size(123, 22);
+			this->saveToolStripMenuItem->Size = System::Drawing::Size(180, 22);
 			this->saveToolStripMenuItem->Text = L"Save";
+			this->saveToolStripMenuItem->Click += gcnew System::EventHandler(this, &MaterialDesignerForm::saveToolStripMenuItem_Click);
 			// 
 			// saveAsToolStripMenuItem
 			// 
 			this->saveAsToolStripMenuItem->Name = L"saveAsToolStripMenuItem";
-			this->saveAsToolStripMenuItem->Size = System::Drawing::Size(123, 22);
+			this->saveAsToolStripMenuItem->Size = System::Drawing::Size(180, 22);
 			this->saveAsToolStripMenuItem->Text = L"Save As...";
+			this->saveAsToolStripMenuItem->Click += gcnew System::EventHandler(this, &MaterialDesignerForm::saveAsToolStripMenuItem_Click);
 			// 
 			// materialToolStripMenuItem
 			// 
@@ -267,7 +303,10 @@ namespace MaterialDesigner {
 			// 
 			// editorToolStripMenuItem
 			// 
-			this->editorToolStripMenuItem->DropDownItems->AddRange(gcnew cli::array< System::Windows::Forms::ToolStripItem^  >(1) { this->cubeToolStripMenuItem });
+			this->editorToolStripMenuItem->DropDownItems->AddRange(gcnew cli::array< System::Windows::Forms::ToolStripItem^  >(4) {
+				this->cubeToolStripMenuItem,
+					this->sphereToolStripMenuItem, this->panelToolStripMenuItem, this->monkeyToolStripMenuItem
+			});
 			this->editorToolStripMenuItem->Name = L"editorToolStripMenuItem";
 			this->editorToolStripMenuItem->Size = System::Drawing::Size(50, 20);
 			this->editorToolStripMenuItem->Text = L"Editor";
@@ -275,8 +314,30 @@ namespace MaterialDesigner {
 			// cubeToolStripMenuItem
 			// 
 			this->cubeToolStripMenuItem->Name = L"cubeToolStripMenuItem";
-			this->cubeToolStripMenuItem->Size = System::Drawing::Size(102, 22);
+			this->cubeToolStripMenuItem->Size = System::Drawing::Size(180, 22);
 			this->cubeToolStripMenuItem->Text = L"Cube";
+			this->cubeToolStripMenuItem->Click += gcnew System::EventHandler(this, &MaterialDesignerForm::button2_Click);
+			// 
+			// sphereToolStripMenuItem
+			// 
+			this->sphereToolStripMenuItem->Name = L"sphereToolStripMenuItem";
+			this->sphereToolStripMenuItem->Size = System::Drawing::Size(180, 22);
+			this->sphereToolStripMenuItem->Text = L"Sphere";
+			this->sphereToolStripMenuItem->Click += gcnew System::EventHandler(this, &MaterialDesignerForm::button3_Click);
+			// 
+			// panelToolStripMenuItem
+			// 
+			this->panelToolStripMenuItem->Name = L"panelToolStripMenuItem";
+			this->panelToolStripMenuItem->Size = System::Drawing::Size(180, 22);
+			this->panelToolStripMenuItem->Text = L"Panel";
+			this->panelToolStripMenuItem->Click += gcnew System::EventHandler(this, &MaterialDesignerForm::button4_Click);
+			// 
+			// monkeyToolStripMenuItem
+			// 
+			this->monkeyToolStripMenuItem->Name = L"monkeyToolStripMenuItem";
+			this->monkeyToolStripMenuItem->Size = System::Drawing::Size(180, 22);
+			this->monkeyToolStripMenuItem->Text = L"Monkey";
+			this->monkeyToolStripMenuItem->Click += gcnew System::EventHandler(this, &MaterialDesignerForm::monkeyToolStripMenuItem_Click);
 			// 
 			// splitContainer1
 			// 
@@ -354,6 +415,7 @@ namespace MaterialDesigner {
 			this->button1->TabIndex = 16;
 			this->button1->Text = L"...";
 			this->button1->UseVisualStyleBackColor = true;
+			this->button1->Click += gcnew System::EventHandler(this, &MaterialDesignerForm::button1_Click);
 			// 
 			// rootFolder
 			// 
@@ -403,11 +465,56 @@ namespace MaterialDesigner {
 #pragma endregion
 	private: System::Void newToolStripMenuItem_Click(System::Object^ sender, System::EventArgs^ e) {
 	}
+
+		   bool isLoading = false;
 private: System::Void openToolStripMenuItem_Click(System::Object^ sender, System::EventArgs^ e) {
+	OpenFileDialog^ openFileDialog = gcnew OpenFileDialog();
+
+	openFileDialog->Filter = "Material Files (*.mat)|*.mat";
+	openFileDialog->FilterIndex = 1;
+	openFileDialog->RestoreDirectory = true;
+	isLoading = true;
+	if (openFileDialog->ShowDialog() == System::Windows::Forms::DialogResult::OK) {
+		try
+		{
+			std::string strFileName = msclr::interop::marshal_as<std::string>(openFileDialog->FileName);
+			std::ifstream inputFile(strFileName);
+			if (inputFile.is_open()) {
+				std::string content((std::istreambuf_iterator<char>(inputFile)),
+					std::istreambuf_iterator<char>());
+				json js = json::parse(content);
+				materialList->Items->Clear();
+				for each (IntPtr p in materials) {
+					Material* m = (Material*)p.ToPointer();
+					delete m;
+				}
+				materials->Clear();
+				rootFolder->Text = gcnew System::String(((std::string)js["root"]).c_str());
+				for (const auto& mjs : js["materials"]) {
+					Material* m = new Material(this);
+					if (m != nullptr) {
+						if (!m->FromJson(mjs)) {
+							delete m;
+							m = nullptr;
+						}
+						IntPtr ptr(m);
+						materials->Add(ptr);
+						materialList->Items->Add(gcnew String(m->props["name"]->GetValue<std::string>().c_str()));
+					}
+				}
+				inputFile.close();
+				fileName = openFileDialog->FileName;
+				UpdateEditor();
+				if (materialList->Items->Count > 0) {
+					materialList->SelectedIndex = 0;
+				}
+			}
+		}
+		catch (...) {
+			MessageBox::Show("Error loading file");
+		}
 	}
-private: System::Void saveToolStripMenuItem_Click(System::Object^ sender, System::EventArgs^ e) {
-	}
-private: System::Void saveAsToolStripMenuItem_Click(System::Object^ sender, System::EventArgs^ e) {
+	isLoading = false;
 	}
 private: System::Void exitToolStripMenuItem_Click(System::Object^ sender, System::EventArgs^ e) {
 	}
@@ -450,11 +557,40 @@ private: System::Void label1_Click(System::Object^ sender, System::EventArgs^ e)
 	   void UpdateMaterial() {
 		   if (materialList->SelectedIndex >= 0) {
 			   Material* m = GetMaterial(materialList->SelectedItem->ToString());
-			   HotBiteTool::ToolUi::SetMaterial("Cube", m->ToJson().dump());
+			   std::string mat_json = m->ToJson().dump();
+			   HotBiteTool::ToolUi::SetMaterial("Cube", msclr::interop::marshal_as<std::string>(rootFolder->Text), mat_json);
+			   HotBiteTool::ToolUi::SetMaterial("Sphere", msclr::interop::marshal_as<std::string>(rootFolder->Text), mat_json);
+			   HotBiteTool::ToolUi::SetMaterial("Plane", msclr::interop::marshal_as<std::string>(rootFolder->Text), mat_json);
+			   HotBiteTool::ToolUi::SetMaterial("Monkey", msclr::interop::marshal_as<std::string>(rootFolder->Text), mat_json);
+		   }
+	   }
+
+	   System::Void button1_Click(System::Object^ sender, System::EventArgs^ e) {
+		   FolderBrowserDialog^ openFileDialog = gcnew FolderBrowserDialog();
+
+		   if (openFileDialog->ShowDialog() == System::Windows::Forms::DialogResult::OK) {
+			   try
+			   {
+				   rootFolder->Text = openFileDialog->SelectedPath;
+			   }
+			   catch (...) {
+				   MessageBox::Show("Error loading file");
+			   }
 		   }
 	   }
 
 	   void UpdateEditor() {
+		   HotBiteTool::ToolUi::SetVisible("Cube", false);
+		   HotBiteTool::ToolUi::SetVisible("Sphere", false);
+		   HotBiteTool::ToolUi::SetVisible("Plane", false);
+		   HotBiteTool::ToolUi::SetVisible("Monkey", false);
+		   switch (currentModel) {
+		   case Model::CUBE: HotBiteTool::ToolUi::SetVisible("Cube", true); break;
+		   case Model::SPHERE: HotBiteTool::ToolUi::SetVisible("Sphere", true); break;
+		   case Model::PLANE: HotBiteTool::ToolUi::SetVisible("Plane", true); break;
+		   case Model::CUSTOM: HotBiteTool::ToolUi::SetVisible("Monkey", true); break;
+		   default: break;
+		   }
 		   materialList->Items->Clear();
 		   for each (IntPtr p in materials) {
 			   Material* m = (Material*)p.ToPointer();
@@ -481,17 +617,82 @@ private: System::Void newToolStripMenuItem1_Click(System::Object^ sender, System
 	materials->Add(ptr);
 	UpdateEditor();
 }
+
+	   System::Void saveAsToolStripMenuItem_Click(System::Object^ sender, System::EventArgs^ e) {
+		   SaveFileDialog^ saveFileDialog = gcnew SaveFileDialog();
+
+		   saveFileDialog->Filter = "Material Files (*.mat)|*.mat";
+		   saveFileDialog->FilterIndex = 1;
+		   saveFileDialog->RestoreDirectory = true;
+
+		   if (saveFileDialog->ShowDialog() == System::Windows::Forms::DialogResult::OK) {
+			   auto content = GetJson().dump(4);
+			   std::string strFileName = msclr::interop::marshal_as<std::string>(saveFileDialog->FileName);
+
+			   std::ofstream outputFile(strFileName);
+			   if (outputFile.is_open()) {
+				   outputFile << content;
+				   outputFile.close();
+				   fileName = saveFileDialog->FileName;
+			   }
+			   else {
+				   // Handle error opening the file
+				   MessageBox::Show("Error opening file for writing.");
+			   }
+		   }
+	   }
+
 private: System::Void materialList_SelectedIndexChanged(System::Object^ sender, System::EventArgs^ e) {
 		Material* m = GetMaterial(materialList->Text);
 		if (m != nullptr) {
 			MaterialProp^ prop = gcnew MaterialProp(m, rootFolder->Text);
 			propertyGrid->SelectedObject = prop;
 		}
+		UpdateMaterial();
 	}
+
+	   System::Void saveToolStripMenuItem_Click(System::Object^ sender, System::EventArgs^ e) {
+		   if (fileName == nullptr) {
+			   return saveAsToolStripMenuItem_Click(sender, e);
+		   }
+
+		   auto content = GetJson().dump(4);
+		   marshal_context context;
+		   std::string strFileName = context.marshal_as<std::string>(fileName);
+
+		   std::ofstream outputFile(strFileName);
+		   if (outputFile.is_open()) {
+			   outputFile << content;
+			   outputFile.close();
+		   }
+		   else {
+			   // Handle error opening the file
+			   MessageBox::Show("Error opening file for writing.");
+		   }
+	   }
+
+
 private: System::Void propertyGrid_Click(System::Object^ sender, System::EventArgs^ e) {
 }
 private: System::Void propertyGrid_PropertyValueChanged(System::Object^ s, System::Windows::Forms::PropertyValueChangedEventArgs^ e) {
 	UpdateMaterial();
+}
+private: System::Void button2_Click(System::Object^ sender, System::EventArgs^ e) {
+	currentModel = Model::CUBE;
+	UpdateEditor();
+}
+private: System::Void button3_Click(System::Object^ sender, System::EventArgs^ e) {
+	currentModel = Model::SPHERE;
+	UpdateEditor();
+}
+private: System::Void button4_Click(System::Object^ sender, System::EventArgs^ e) {
+	currentModel = Model::PLANE;
+	UpdateEditor();
+}
+
+private: System::Void monkeyToolStripMenuItem_Click(System::Object^ sender, System::EventArgs^ e) {
+	currentModel = Model::CUSTOM;
+	UpdateEditor();
 }
 };
 }

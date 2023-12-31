@@ -6,6 +6,7 @@
 #include <Windows.h>
 #include <Systems\RTSCameraSystem.h>
 #include <Systems\AudioSystem.h>
+#include <Core\PostProcess.h>
 #include <GUI\GUI.h>
 #include <GUI\Label.h>
 #include <GUI\TextureWidget.h>
@@ -19,6 +20,7 @@ namespace HotBiteTool {
 
 		class ToolUi : public DXCore, public ECS::EventListener {
 		private:
+			Core::PostProcess* post = nullptr;
 			UI::GUI* gui = nullptr;
 			Scheduler::TimerId timer0;
 			std::vector<ECS::Entity> rotation_entities;
@@ -30,9 +32,10 @@ namespace HotBiteTool {
 			virtual ~ToolUi();
 
 			void LoadUI(json ui);
-			void SetMaterial(const std::string& entity, const std::string& mat);
+			void SetMaterial(const std::string& entity, const std::string& root, const std::string& mat);
 			void LoadWorld(const std::string& world);
 			void RotateEntity(const std::string& name);
+			void SetVisible(const std::string& name, bool visible);
 			ECS::Coordinator* GetCoordinator();
 		};
 	}

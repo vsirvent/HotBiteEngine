@@ -22,7 +22,9 @@ namespace HotBiteTool {
 
 			//we add to the chain a GUI post process stage to render UI
 			gui = new UI::GUI(context, width, height, world.GetCoordinator());
-			world.SetPostProcessPipeline(gui);
+			post = new DOPEffect(context, width, height, 0, 100);
+			post->SetNext(gui);
+			world.SetPostProcessPipeline(post);
 			this->fps = fps;
 			//Event listeners needs to be initialized once a coordinator is available as 
 			//the coordinator manages the events
@@ -30,7 +32,7 @@ namespace HotBiteTool {
 			world.Init();
 			world.Run(fps);
 			
-			timer0 = Scheduler::Get(MAIN_THREAD)->RegisterTimer(1000000000 / 60, [this, rot = XMMatrixRotationAxis({0.0f, 1.0f, 0.0f}, 0.01f)](const Scheduler::TimerData&) {
+			timer0 = Scheduler::Get(MAIN_THREAD)->RegisterTimer(1000000000 / 60, [this, rot = XMMatrixRotationAxis({0.0f, 1.0f, 0.0f}, 0.002f)](const Scheduler::TimerData&) {
 				std::scoped_lock l(world.GetCoordinator()->GetSystem<RenderSystem>()->mutex);
 				for (const auto& e : rotation_entities) {
 					auto& t = world.GetCoordinator()->GetComponent<Components::Transform>(e);
@@ -47,21 +49,28 @@ namespace HotBiteTool {
 			gui->LoadUI(c, ui);	
 		}
 
-		void ToolUi::SetMaterial(const std::string& entity, const std::string& mat) {
+		void ToolUi::SetMaterial(const std::string& entity, const std::string& root, const std::string& mat) {
 			auto c = world.GetCoordinator();
 			std::scoped_lock l(c->GetSystem<RenderSystem>()->mutex);
 			ECS::Entity e = c->GetEntityByName(entity);
 			if (e != ECS::INVALID_ENTITY_ID) {
 				Components::Material& m = c->GetComponent<Components::Material>(e);
-				m.data->Load(mat);
+				m.data->Load(root, mat);
 			}
 		}
 
 		void ToolUi::LoadWorld(const std::string& world_file)
 		{
 			std::scoped_lock l(world.GetCoordinator()->GetSystem<RenderSystem>()->mutex);
+			world.Stop();
 			world.Release();
 			world.PreLoad(this);
+			delete gui;
+			delete post;
+			gui = new UI::GUI(context, width, height, world.GetCoordinator());
+			post = new DOPEffect(context, width, height, 0, 100);
+			post->SetNext(gui);
+			world.SetPostProcessPipeline(post);
 			world.Load(world_file);
 			world.Init();
 			world.Run(fps);
@@ -76,8 +85,19 @@ namespace HotBiteTool {
 			}
 		}
 
+		void ToolUi::SetVisible(const std::string& name, bool visible) {
+			std::scoped_lock l(world.GetCoordinator()->GetSystem<RenderSystem>()->mutex);
+			auto entities = world.GetCoordinator()->GetEntitiesByName(name);
+			for (const auto& e : entities) {
+				auto& b = world.GetCoordinator()->GetComponent<Components::Base>(e);
+				b.visible = visible;
+			}
+		}
+
+
 		ToolUi::~ToolUi() {
 			world.Stop();
+			delete post;
 			delete gui;
 		}
 

@@ -89,7 +89,7 @@ DomainOutput main(
 		else if (highTextureEnable) {
 			h = highTexture.SampleLevel(basicSampler, output.uv, 1).r;
 		}
-		h = 2.0f * h - 1.0f;		
+		//h = 2.0f * h - 1.0f;		
 		output.worldPos += float4((displacementScale * h * output.normal), 0.0f);
 	}
 	return output;

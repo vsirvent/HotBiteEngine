@@ -383,10 +383,11 @@ public:
 		}
 		void set(String^ newValue)
 		{
+			String^ oldName = Name,
 			Widget* w = (Widget*)widget.ToPointer();
-			w->listener->OnNameChanged(Name, newValue);
 			std::string str = msclr::interop::marshal_as<std::string>(newValue);
-			return ((Widget*)widget.ToPointer())->props["name"]->SetValue<std::string>(str);
+			((Widget*)widget.ToPointer())->props["name"]->SetValue<std::string>(str);
+			w->listener->OnNameChanged(oldName, newValue);
 		}
 	}
 	[CategoryAttribute("Widget")]
@@ -463,12 +464,12 @@ public:
 		}
 	}
 	[CategoryAttribute("Widget")]
-	property Double BackgroundAlpha {
-		Double get()
+	property float BackgroundAlpha {
+		float get()
 		{
 			return ((Widget*)widget.ToPointer())->props["background_alpha"]->GetValue<float>();
 		}
-		void set(Double newValue)
+		void set(float newValue)
 		{
 			return ((Widget*)widget.ToPointer())->props["background_alpha"]->SetValue<float>((float)newValue);
 		}
@@ -485,45 +486,45 @@ public:
 		}
 	}
 	[CategoryAttribute("Widget")]
-	property Double X {
-		Double get()
+	property float X {
+		float get()
 		{
 			return ((Widget*)widget.ToPointer())->props["x"]->GetValue<float>();
 		}
-		void set(Double newValue)
+		void set(float newValue)
 		{
 			return ((Widget*)widget.ToPointer())->props["x"]->SetValue<float>((float)newValue);
 		}
 	}
 	[CategoryAttribute("Widget")]
-	property Double Y {
-		Double get()
+	property float Y {
+		float get()
 		{
 			return ((Widget*)widget.ToPointer())->props["y"]->GetValue<float>();
 		}
-		void set(Double newValue)
+		void set(float newValue)
 		{
 			return ((Widget*)widget.ToPointer())->props["y"]->SetValue<float>((float)newValue);
 		}
 	}
 	[CategoryAttribute("Widget")]
-	property Double Width {
-		Double get()
+	property float Width {
+		float get()
 		{
 			return ((Widget*)widget.ToPointer())->props["width"]->GetValue<float>();
 		}
-		void set(Double newValue)
+		void set(float newValue)
 		{
 			return ((Widget*)widget.ToPointer())->props["width"]->SetValue<float>((float)newValue);
 		}
 	}
 	[CategoryAttribute("Widget")]
-	property Double Height {
-		Double get()
+	property float Height {
+		float get()
 		{
 			return ((Widget*)widget.ToPointer())->props["height"]->GetValue<float>();
 		}
-		void set(Double newValue)
+		void set(float newValue)
 		{
 			return ((Widget*)widget.ToPointer())->props["height"]->SetValue<float>((float)newValue);
 		}

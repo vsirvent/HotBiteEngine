@@ -138,7 +138,7 @@ void Scheduler::_RegisterTimer(TimerData&& td) {
 	//If we already have a timer with that period
 	//add the callback to the timer
 	for (auto timer = timers.begin(); timer != timers.end(); ++timer) {
-		if (timer->second.front().period == td.period) {
+		if (!timer->second.empty() && timer->second.front().period == td.period) {
 			timer->second.push_back(td);
 			td.total = timer->first;
 			done = true;

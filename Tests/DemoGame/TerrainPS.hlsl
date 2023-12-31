@@ -106,7 +106,7 @@ RenderTarget main(GSOutput input)
 				lightColor.rgb += DirVolumetricLight(wpos, dirLights[i], i, time, cloud_density);
 			}
 		}
-
+		
 		// Calculate the point lights
 		for (i = 0; i < pointLightsCount; ++i) {
 			if (length(wpos - pointLights[i].Position) < pointLights[i].Range) {
