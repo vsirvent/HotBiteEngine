@@ -640,30 +640,6 @@ namespace UiDesigner {
 		System::Void propertyGrid_Paint(System::Object^ sender, System::Windows::Forms::PaintEventArgs^ e) {
 		}
 
-		System::Void saveAsToolStripMenuItem_Click(System::Object^ sender, System::EventArgs^ e) {
-			SaveFileDialog^ saveFileDialog = gcnew SaveFileDialog();
-
-			saveFileDialog->Filter = "Material Files (*.mat)|*.mat";
-			saveFileDialog->FilterIndex = 1;
-			saveFileDialog->RestoreDirectory = true;
-
-			if (saveFileDialog->ShowDialog() == System::Windows::Forms::DialogResult::OK) {
-				auto content = GetJson().dump(4);
-				std::string strFileName = msclr::interop::marshal_as<std::string>(saveFileDialog->FileName);
-
-				std::ofstream outputFile(strFileName);
-				if (outputFile.is_open()) {
-					outputFile << content;
-					outputFile.close();
-					fileName = saveFileDialog->FileName;
-				}
-				else {
-					// Handle error opening the file
-					MessageBox::Show("Error opening file for writing.");
-				}
-			}
-		}
-
 		System::Void saveToolStripMenuItem_Click(System::Object^ sender, System::EventArgs^ e) {
 			if (fileName == nullptr) {
 				return saveAsToolStripMenuItem_Click(sender, e);

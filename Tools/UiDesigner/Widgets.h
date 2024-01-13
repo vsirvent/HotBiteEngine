@@ -383,7 +383,7 @@ public:
 		}
 		void set(String^ newValue)
 		{
-			String^ oldName = Name,
+			String^ oldName = Name;
 			Widget* w = (Widget*)widget.ToPointer();
 			std::string str = msclr::interop::marshal_as<std::string>(newValue);
 			((Widget*)widget.ToPointer())->props["name"]->SetValue<std::string>(str);
