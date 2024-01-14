@@ -68,12 +68,19 @@ struct MaterialColor
 {
 	float4 ambientColor;
 	float4 diffuseColor;
+
 	float specIntensity;
 	float parallax_scale;
+	float parallax_steps;
+	float parallax_angle_steps;
+
+	float parallax_shadow_scale;
 	float bloom_scale;
 	float padding;
-	float3 alphaColor;
 	float padding1;
+
+	float3 alphaColor;
+	float padding3;
 #define NORMAL_MAP_ENABLED_FLAG 1 << 0
 #define PARALLAX_MAP_ENABLED_FLAG 1 << 1
 #define DIFFUSSE_MAP_ENABLED_FLAG 1	<< 2
@@ -82,6 +89,8 @@ struct MaterialColor
 #define ALPHA_ENABLED_FLAG 1 << 5
 #define ARM_MAP_ENABLED_FLAG 1 << 6
 #define EMISSION_MAP_ENABLED_FLAG 1 << 7
+#define BLEND_ENABLED_FLAG 1 << 10
+#define PARALLAX_SHADOW_ENABLED_FLAG 1 << 11
 	uint flags;
 };
 

@@ -9,7 +9,7 @@ using namespace nlohmann;
 
 namespace HotBiteTool {
 	namespace ToolUi {
-		void CreateToolUi(HINSTANCE instance, HWND parent = NULL, int32_t w = 1920, int32_t h = 1080, int32_t fps = 30);
+		void CreateToolUi(HINSTANCE instance, HWND parent = NULL, int32_t w = 0, int32_t h = 0, int32_t fps = 30);
 		void Run();
 		void LoadUI(const json& ui);
 		void SetMaterial(const std::string& entity, const std::string& root, const std::string& mat);

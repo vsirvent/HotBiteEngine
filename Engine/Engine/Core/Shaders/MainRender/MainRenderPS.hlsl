@@ -40,7 +40,6 @@ cbuffer externalData : register(b0)
 	int pointLightsCount;
 	float parallaxScale;
 	int meshNormalTextureEnable;
-	int parallaxShadowEnable;
 	int highTextureEnable;
 	float3 cameraPosition;
 	float3 cameraDirection;

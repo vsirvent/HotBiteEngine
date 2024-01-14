@@ -84,7 +84,7 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
     float2 tpos = pos.xy;
     tpos.x /= screenW;
     tpos.y /= screenH;
-    float4 color = renderTexture.Sample(basicSampler, tpos);// getSmoothPixel(basicSampler, renderTexture, tpos, screenW, screenH);
+    float4 color = getSmoothPixel(basicSampler, renderTexture, tpos, screenW, screenH);
     //float4 color = renderTexture.Sample(basicSampler, tpos);
     if (dopActive) {
         float z0 = depthTexture.Sample(basicSampler, tpos).r;

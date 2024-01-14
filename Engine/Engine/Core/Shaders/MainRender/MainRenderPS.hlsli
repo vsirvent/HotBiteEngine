@@ -64,13 +64,18 @@ RenderTarget MainRenderPS(GSOutput input)
 		tbn._m01 = T.y;  tbn._m11 = B.y; tbn._m21 = N.y;
 		tbn._m02 = T.z;  tbn._m12 = B.z; tbn._m22 = N.z;
 
-		float scale;
+		float scale, steps, angle_steps;
 		if (multi_texture_count > 0) {
 			scale = multi_parallax_scale;
+			steps = 4.0f;
+			angle_steps = 5.0f;
 		}
 		else {
 			scale = material.parallax_scale;
+			steps = material.parallax_steps;
+			angle_steps = material.parallax_angle_steps;
 		}
+		
 		scale = abs(scale);
 		if ((material.flags & PARALLAX_MAP_ENABLED_FLAG || multi_texture_count > 0 ) && scale != 0.0f) {
 			float h = 0;
@@ -79,9 +84,10 @@ RenderTarget MainRenderPS(GSOutput input)
 			float3 tbn_fragment_pos = mul(input.worldPos, global_to_tbn).xyz;
 			float3 tbn_fragment_displacement;
 
-			input.uv = CalculateDepthUVBinary(scale, input.uv, tbn_cam_pos, tbn_fragment_pos, calculated_values, h, tbn_fragment_displacement);
+			input.uv = CalculateDepthUVBinary(scale, steps, angle_steps, input.uv, tbn_cam_pos, tbn_fragment_pos, calculated_values, h, tbn_fragment_displacement);
 			wpos.xyz -= (mul(tbn_fragment_displacement, (float3x3)tbn) - normal);
-			if (parallaxShadowEnable > 0) {
+
+			if (material.flags & PARALLAX_SHADOW_ENABLED_FLAG) {
 				float lh = 0.0f;
 				float3 tbn_light_pos;
 				float3 tbn_dummy_displacement;
@@ -90,15 +96,15 @@ RenderTarget MainRenderPS(GSOutput input)
 					float3 tolight = normalize(dirLights[i].DirToLight);
 					float3 sky_pos = input.worldPos.xyz + tolight * (1000.0f / tolight.y);
 					tbn_light_pos = mul(float4(sky_pos, 0.0f), global_to_tbn).xyz;
-					CalculateDepthUVBinary(scale, input.uv, tbn_light_pos, tbn_fragment_pos, calculated_values, lh, tbn_dummy_displacement);
-					DirLightParallaxAtt[i] = saturate(1.0f - pow(2.0f * (lh - h), 3.0f));
+					CalculateDepthUVBinary(scale, steps, angle_steps, input.uv, tbn_light_pos, tbn_fragment_pos, calculated_values, lh, tbn_dummy_displacement);
+					DirLightParallaxAtt[i] = saturate(1.0f - pow(material.parallax_shadow_scale * (lh - h), 1.0f));
 				}
 				// Calculate the point lights
 				for (i = 0; i < pointLightsCount; ++i) {
 					if (length(input.worldPos.xyz - pointLights[i].Position) < pointLights[i].Range) {
 						tbn_light_pos = mul(float4(pointLights[i].Position, 0.0f), global_to_tbn).xyz;
-						CalculateDepthUVBinary(scale, input.uv, tbn_light_pos, tbn_fragment_pos, calculated_values, lh, tbn_dummy_displacement);
-						PointLightParallaxAtt[i] = saturate(1.0f - pow(2.0f * (lh - h), 3.0f));
+						CalculateDepthUVBinary(scale, steps, angle_steps, input.uv, tbn_light_pos, tbn_fragment_pos, calculated_values, lh, tbn_dummy_displacement);
+						PointLightParallaxAtt[i] = saturate(1.0f - pow(material.parallax_shadow_scale * (lh - h), 1.0f));
 					}
 				}
 			}

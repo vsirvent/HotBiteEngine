@@ -67,7 +67,6 @@ namespace HotBite {
 				static const std::string WORLD;
 				static const std::string MESH_NORMAL_MAP;
 				static const std::string MESH_NORMAL_MAP_ENABLE;
-				static const std::string PARALLAX_SHADOW_ENABLE;
 				static const std::string AMBIENT_LIGHT;
 				static const std::string DIRLIGHT_COUNT;
 				static const std::string DIR_LIGHTS;
@@ -243,8 +242,7 @@ namespace HotBite {
 				bool wireframe_enabled = false;
 			
 				bool cloud_test = false;
-				bool parallax_shadow_test = false;
-
+				
 				void DrawSky(int w, int h, const float3& camera_position, const matrix& view, const matrix& projection);
 				void CastShadows(int w, int h, const float3& camera_position, const matrix& view, const matrix& projection, bool static_shadows);
 				void DrawDepth(int w, int h, const float3& camera_position, const matrix& view, const matrix& projection);
@@ -297,8 +295,6 @@ namespace HotBite {
 				bool GetWireframe() const;
 				void SetCloudTest(bool enabled);
 				bool GetCloudTest() const;
-				void SetParallaxShadow(bool enabled);
-				bool GetParallaxShadow() const;
 
 				ID3D11ShaderResourceView* GetDepthMapSRV() { return depth_map.SRV(); }
 			};

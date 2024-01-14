@@ -33,12 +33,19 @@ namespace HotBite {
 			struct MaterialProps {
 				float4 ambientColor = {};
 				float4 diffuseColor = {};
+				
 				float specIntensity = {};
 				float parallax_scale = 0.0f;
+				float parallax_steps = 4.0f;
+				float parallax_angle_steps = 5.0f;
+
+				float parallax_shadow_scale = 2.0f;
 				float bloom_scale = 0.0f;
 				float padding = 0.0f;
-				float3 alphaColor = {};
 				float padding1 = 0.0f;
+
+				float3 alphaColor = {};				
+				float padding3 = 0.0f;
 #define NORMAL_MAP_ENABLED_FLAG 1
 #define PARALLAX_MAP_ENABLED_FLAG (1 << 1)
 #define DIFFUSSE_MAP_ENABLED_FLAG (1 << 2)
@@ -48,6 +55,7 @@ namespace HotBite {
 #define ARM_MAP_ENABLED_FLAG (1 << 6)
 #define EMISSION_MAP_ENABLED_FLAG (1 << 7)
 #define BLEND_ENABLED_FLAG (1 << 10)
+#define PARALLAX_SHADOW_ENABLED_FLAG (1 << 11)
 				unsigned int flags = 0;
 			};
 

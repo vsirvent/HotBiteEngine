@@ -378,8 +378,8 @@ HRESULT DXCore::InitDirectX()
 		return hr;
 	}
 	shadowRenderStateDesc.CullMode = D3D11_CULL_BACK;
-	shadowRenderStateDesc.SlopeScaledDepthBias = 1.0f;
-	//shadowRenderStateDesc.DepthBias = 1000;
+	shadowRenderStateDesc.SlopeScaledDepthBias = 2.0f;
+	shadowRenderStateDesc.DepthBias = 1000;
 	if (FAILED(hr = device->CreateRasterizerState(&shadowRenderStateDesc, &dir_shadow_rasterizer))) {
 		return hr;
 	}

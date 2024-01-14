@@ -71,72 +71,13 @@ public:
 	virtual void OnNameChanged(String^ old_name, String^ new_name) abstract;
 };
 
-class Material {
+class Element {
 public:
 	std::map<std::string, std::shared_ptr<AbstractProp>> props;
-	gcroot<IMaterialListener^> listener = nullptr;
-	Material(IMaterialListener^ l) : listener(l)
-	{
-		props["name"] = std::make_shared<Prop<std::string>>("material");
-		props["diffuse_color"] = std::make_shared<Prop<std::string>>("#FFFFFFFF");
-		props["ambient_color"] = std::make_shared<Prop<std::string>>("#FFFFFFFF");
-		props["specular"] = std::make_shared<Prop<float>>(0.5f);
-		props["parallax_scale"] = std::make_shared<Prop<float>>(0.0f);
-		props["tess_type"] = std::make_shared<Prop<int>>(0);
-		props["tess_factor"] = std::make_shared<Prop<float>>(32.0f);
-		props["displacement_scale"] = std::make_shared<Prop<float>>(0.0f);
-		props["bloom_scale"] = std::make_shared<Prop<float>>(0.0f);
-		props["normal_map_enabled"] = std::make_shared<Prop<bool>>(false);
-		props["alpha_enabled"] = std::make_shared<Prop<bool>>(false);
-		props["blend_enabled"] = std::make_shared<Prop<bool>>(false);
-		props["diffuse_textname"] = std::make_shared<Prop<std::string>>("");
-		props["normal_textname"] = std::make_shared<Prop<std::string>>("");
-		props["high_textname"] = std::make_shared<Prop<std::string>>("");
-		props["spec_textname"] = std::make_shared<Prop<std::string>>("");
-		props["ao_textname"] = std::make_shared<Prop<std::string>>("");
-		props["arm_textname"] = std::make_shared<Prop<std::string>>("");
-		props["emission_textname"] = std::make_shared<Prop<std::string>>("");
-		props["vs"] = std::make_shared<Prop<std::string>>("");
-		props["hs"] = std::make_shared<Prop<std::string>>("");
-		props["ds"] = std::make_shared<Prop<std::string>>("");
-		props["gs"] = std::make_shared<Prop<std::string>>("");
-		props["ps"] = std::make_shared<Prop<std::string>>("");
-	};
 
-	virtual bool FromJson(const json& js) {
-		try {
-			props["name"]->SetValue<std::string>(js["name"]);
-			props["diffuse_color"]->SetValue<std::string>(js["diffuse_color"]);
-			props["ambient_color"]->SetValue<std::string>(js["ambient_color"]);
-			props["parallax_scale"]->SetValue<float>(js["parallax_scale"]);
-			props["specular"]->SetValue<float>(js["specular"]);
-			props["tess_type"]->SetValue<int>(js["tess_type"]);
-			props["tess_factor"]->SetValue<float>(js["tess_factor"]);
-			props["displacement_scale"]->SetValue<float>(js["displacement_scale"]);
-			props["bloom_scale"]->SetValue<float>(js["bloom_scale"]);
-			props["normal_map_enabled"]->SetValue<bool>(js["normal_map_enabled"]);
-			props["alpha_enabled"]->SetValue<bool>(js["alpha_enabled"]);
-			props["blend_enabled"]->SetValue<bool>(js["blend_enabled"]);
-			props["diffuse_textname"]->SetValue<std::string>(js["diffuse_textname"]);
-			props["normal_textname"]->SetValue<std::string>(js["normal_textname"]);
-			props["high_textname"]->SetValue<std::string>(js["high_textname"]);
-			props["spec_textname"]->SetValue<std::string>(js["spec_textname"]);
-			props["ao_textname"]->SetValue<std::string>(js["ao_textname"]);
-			props["arm_textname"]->SetValue<std::string>(js["arm_textname"]);
-			props["emission_textname"]->SetValue<std::string>(js["emission_textname"]);
-			props["vs"]->SetValue<std::string>(js["vs"]);
-			props["hs"]->SetValue<std::string>(js["hs"]);
-			props["ds"]->SetValue<std::string>(js["ds"]);
-			props["gs"]->SetValue<std::string>(js["gs"]);
-			props["ps"]->SetValue<std::string>(js["ps"]);
-		}
-		catch (...) {
-			return false;
-		}
-		return true;
-	}
+	virtual ~Element() {}
 
-	json ToJson() {
+	virtual json ToJson() const {
 		json js;
 		for (const auto& ap : props) {
 			if (Prop<int32_t>* ip = dynamic_cast<Prop<int32_t>*>(ap.second.get()); ip != nullptr) {
@@ -176,7 +117,7 @@ public:
 		return std::nullopt;
 	}
 
-	std::string ToString() {
+	std::string ToString() const {
 		json js = ToJson();
 		std::string str = js.dump(4);
 		size_t pos = str.find("\n");
@@ -186,6 +127,161 @@ public:
 		}
 		str += ",\r\n";
 		return str;
+	}
+};
+
+class Material: public Element {
+public:
+	gcroot<IMaterialListener^> listener = nullptr;
+	Material(IMaterialListener^ l) : listener(l)
+	{
+		props["name"] = std::make_shared<Prop<std::string>>("material");
+		props["diffuse_color"] = std::make_shared<Prop<std::string>>("#FFFFFFFF");
+		props["ambient_color"] = std::make_shared<Prop<std::string>>("#FFFFFFFF");
+		props["specular"] = std::make_shared<Prop<float>>(0.5f);
+		props["parallax_scale"] = std::make_shared<Prop<float>>(0.0f);
+		props["parallax_steps"] = std::make_shared<Prop<float>>(4.0f);
+		props["parallax_angle_steps"] = std::make_shared<Prop<float>>(5.0f);
+		props["parallax_shadows"] = std::make_shared<Prop<bool>>(false);
+		props["parallax_shadow_scale"] = std::make_shared<Prop<int>>(false);
+		props["tess_type"] = std::make_shared<Prop<int>>(0);
+		props["tess_factor"] = std::make_shared<Prop<float>>(32.0f);
+		props["displacement_scale"] = std::make_shared<Prop<float>>(0.0f);
+		props["bloom_scale"] = std::make_shared<Prop<float>>(0.0f);
+		props["normal_map_enabled"] = std::make_shared<Prop<bool>>(false);
+		props["alpha_enabled"] = std::make_shared<Prop<bool>>(false);
+		props["blend_enabled"] = std::make_shared<Prop<bool>>(false);
+		props["diffuse_textname"] = std::make_shared<Prop<std::string>>("");
+		props["normal_textname"] = std::make_shared<Prop<std::string>>("");
+		props["high_textname"] = std::make_shared<Prop<std::string>>("");
+		props["spec_textname"] = std::make_shared<Prop<std::string>>("");
+		props["ao_textname"] = std::make_shared<Prop<std::string>>("");
+		props["arm_textname"] = std::make_shared<Prop<std::string>>("");
+		props["emission_textname"] = std::make_shared<Prop<std::string>>("");
+		props["vs"] = std::make_shared<Prop<std::string>>("");
+		props["hs"] = std::make_shared<Prop<std::string>>("");
+		props["ds"] = std::make_shared<Prop<std::string>>("");
+		props["gs"] = std::make_shared<Prop<std::string>>("");
+		props["ps"] = std::make_shared<Prop<std::string>>("");
+	};
+
+	virtual bool FromJson(const json& js) {
+		try {
+			props["name"]->SetValue<std::string>(js["name"]);
+			props["diffuse_color"]->SetValue<std::string>(js["diffuse_color"]);
+			props["ambient_color"]->SetValue<std::string>(js["ambient_color"]);
+			props["parallax_scale"]->SetValue<float>(js["parallax_scale"]);
+			props["parallax_steps"]->SetValue<float>(js["parallax_steps"]);
+			props["parallax_angle_steps"]->SetValue<float>(js["parallax_angle_steps"]);
+			props["parallax_shadows"]->SetValue<bool>(js["parallax_shadows"]);
+			props["parallax_shadow_scale"]->SetValue<int>(js["parallax_shadow_scale"]);
+			props["specular"]->SetValue<float>(js["specular"]);
+			props["tess_type"]->SetValue<int>(js["tess_type"]);
+			props["tess_factor"]->SetValue<float>(js["tess_factor"]);
+			props["displacement_scale"]->SetValue<float>(js["displacement_scale"]);
+			props["bloom_scale"]->SetValue<float>(js["bloom_scale"]);
+			props["normal_map_enabled"]->SetValue<bool>(js["normal_map_enabled"]);
+			props["alpha_enabled"]->SetValue<bool>(js["alpha_enabled"]);
+			props["blend_enabled"]->SetValue<bool>(js["blend_enabled"]);
+			props["diffuse_textname"]->SetValue<std::string>(js["diffuse_textname"]);
+			props["normal_textname"]->SetValue<std::string>(js["normal_textname"]);
+			props["high_textname"]->SetValue<std::string>(js["high_textname"]);
+			props["spec_textname"]->SetValue<std::string>(js["spec_textname"]);
+			props["ao_textname"]->SetValue<std::string>(js["ao_textname"]);
+			props["arm_textname"]->SetValue<std::string>(js["arm_textname"]);
+			props["emission_textname"]->SetValue<std::string>(js["emission_textname"]);
+			props["vs"]->SetValue<std::string>(js["vs"]);
+			props["hs"]->SetValue<std::string>(js["hs"]);
+			props["ds"]->SetValue<std::string>(js["ds"]);
+			props["gs"]->SetValue<std::string>(js["gs"]);
+			props["ps"]->SetValue<std::string>(js["ps"]);
+		}
+		catch (...) {
+			return false;
+		}
+		return true;
+	}
+};
+
+#if 0
+
+"multi_texture": {
+	"count": 2,
+		"parallax_scale" : 0.02,
+		"tess_type" : 3,
+		"tess_factor" : 3,
+		"textures" : [
+	{
+		"layer": 1,
+			"mask" : "",
+			"mask_noise" : 1,
+			"texture" : "Grass2",
+			"op" : 1,
+			"value" : 0.8,
+			"uv_scale" : 3.0
+	},
+			  {
+				"layer": 0,
+				"mask" : "",
+				"texture" : "Rocks",
+				"op" : 1,
+				"value" : 1.0,
+				"uv_scale" : 2.0
+			  }
+		]
+}
+
+#endif
+
+class MultiMaterialLayer : public Element {
+	MultiMaterialLayer()
+	{
+		props["name"] = std::make_shared<Prop<std::string>>("material");
+
+	};
+};
+
+class MultiMaterial : public Element {
+public:
+	std::list<MultiMaterialLayer> layers;
+	gcroot<IMaterialListener^> listener = nullptr;
+	MultiMaterial(IMaterialListener^ l) : listener(l)
+	{
+		props["name"] = std::make_shared<Prop<std::string>>("material");
+		props["parallax_scale"] = std::make_shared<Prop<float>>(0.0f);
+		props["parallax_steps"] = std::make_shared<Prop<float>>(4.0f);
+		props["parallax_angle_steps"] = std::make_shared<Prop<float>>(5.0f);
+		props["tess_type"] = std::make_shared<Prop<int>>(0);
+		props["tess_factor"] = std::make_shared<Prop<float>>(32.0f);
+		props["displacement_scale"] = std::make_shared<Prop<float>>(0.0f);
+		
+	};
+
+	virtual bool FromJson(const json& js) {
+		try {
+			props["name"]->SetValue<std::string>(js["name"]);
+			props["parallax_scale"]->SetValue<float>(js["parallax_scale"]);
+			props["parallax_steps"]->SetValue<float>(js["parallax_steps"]);
+			props["parallax_angle_steps"]->SetValue<float>(js["parallax_angle_steps"]);
+			props["tess_type"]->SetValue<int>(js["tess_type"]);
+			props["tess_factor"]->SetValue<float>(js["tess_factor"]);
+			props["displacement_scale"]->SetValue<float>(js["displacement_scale"]);
+		}
+		catch (...) {
+			return false;
+		}
+		return true;
+	}
+
+	virtual json ToJson() const override {
+		json js = Element::ToJson();
+		js["count"] = layers.size();
+		json layers_js;
+		for (const auto& layer : layers) {
+			layers_js.push_back(layer.ToJson());
+		}
+		js["textures"] = layers_js;
+		return js;
 	}
 };
 
@@ -319,6 +415,58 @@ public:
 		void set(float newValue)
 		{
 			return material->props["parallax_scale"]->SetValue<float>((float)newValue);
+		}
+	}
+
+	[CategoryAttribute("Material")]
+	property float ParallaxSteps {
+		float get()
+		{
+			return material->props["parallax_steps"]->GetValue<float>();
+		}
+
+		void set(float newValue)
+		{
+			return material->props["parallax_steps"]->SetValue<float>((float)newValue);
+		}
+	}
+
+	[CategoryAttribute("Material")]
+	property float ParallaxAngleSteps {
+		float get()
+		{
+			return material->props["parallax_angle_steps"]->GetValue<float>();
+		}
+
+		void set(float newValue)
+		{
+			return material->props["parallax_angle_steps"]->SetValue<float>((float)newValue);
+		}
+	}
+
+	[CategoryAttribute("Material")]
+	property bool ParallaxShadows {
+		bool get()
+		{
+			return material->props["parallax_shadows"]->GetValue<bool>();
+		}
+
+		void set(bool newValue)
+		{
+			return material->props["parallax_shadows"]->SetValue<bool>(newValue);
+		}
+	}
+
+	[CategoryAttribute("Material")]
+	property int ParallaxShadowScale {
+		int get()
+		{
+			return material->props["parallax_shadow_scale"]->GetValue<int>();
+		}
+
+		void set(int newValue)
+		{
+			return material->props["parallax_shadow_scale"]->SetValue<int>(newValue);
 		}
 	}
 
@@ -556,6 +704,113 @@ public:
 	}
 
 	MaterialProp(Material* material, System::String^ path) {
+		this->material = material;
+		this->root_folder = path + "\\";
+	}
+};
+
+
+public ref class MultiMaterialProp
+{
+public:
+	MultiMaterial* material;
+	System::String^ root_folder;
+
+	[CategoryAttribute("MultiMaterial")]
+	property String^ Name {
+		String^ get()
+		{
+			return gcnew String(material->props["name"]->GetValue<std::string>().c_str());
+		}
+		void set(String^ newValue)
+		{
+			String^ oldName = Name;
+			std::string str = msclr::interop::marshal_as<std::string>(newValue);
+			material->props["name"]->SetValue<std::string>(str);
+			material->listener->OnNameChanged(oldName, newValue);
+		}
+	}
+
+	[CategoryAttribute("MultiMaterial")]
+	property float ParallaxScale {
+		float get()
+		{
+			return material->props["parallax_scale"]->GetValue<float>();
+		}
+
+		void set(float newValue)
+		{
+			return material->props["parallax_scale"]->SetValue<float>((float)newValue);
+		}
+	}
+
+	[CategoryAttribute("MultiMaterial")]
+	property float ParallaxSteps {
+		float get()
+		{
+			return material->props["parallax_steps"]->GetValue<float>();
+		}
+
+		void set(float newValue)
+		{
+			return material->props["parallax_steps"]->SetValue<float>((float)newValue);
+		}
+	}
+
+	[CategoryAttribute("MultiMaterial")]
+	property float ParallaxAngleSteps {
+		float get()
+		{
+			return material->props["parallax_angle_steps"]->GetValue<float>();
+		}
+
+		void set(float newValue)
+		{
+			return material->props["parallax_angle_steps"]->SetValue<float>((float)newValue);
+		}
+	}
+
+	[CategoryAttribute("MultiMaterial")]
+	[TypeConverterAttribute(TessellationTypeConverter::typeid)]
+	property System::String^ TessellationType {
+		System::String^ get()
+		{
+			return TessellationTypeConverter::GetTessTypeName(material->props["tess_type"]->GetValue<int32_t>());
+		}
+
+		void set(System::String^ newValue)
+		{
+			return material->props["tess_type"]->SetValue<int32_t>(TessellationTypeConverter::GetTessTypeByName(newValue));
+		}
+	}
+
+	[CategoryAttribute("MultiMaterial")]
+	property float TessFactor {
+		float get()
+		{
+			return material->props["tess_factor"]->GetValue<float>();
+		}
+
+		void set(float newValue)
+		{
+			return material->props["tess_factor"]->SetValue<float>((float)newValue);
+		}
+	}
+
+	[CategoryAttribute("MultiMaterial")]
+	property float Displacement {
+		float get()
+		{
+			return material->props["displacement_scale"]->GetValue<float>();
+		}
+
+		void set(float newValue)
+		{
+			return material->props["displacement_scale"]->SetValue<float>((float)newValue);
+		}
+	}
+	
+	MultiMaterialProp(MultiMaterial* material, System::String^ path) {
 		this->material = material;
 		this->root_folder = path + "\\";
 	}

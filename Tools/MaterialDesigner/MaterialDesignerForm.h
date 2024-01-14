@@ -32,7 +32,8 @@ namespace MaterialDesigner {
 		{
 			InitializeComponent();
 			materials = gcnew Generic::List<IntPtr>();
-			HotBiteTool::ToolUi::CreateToolUi(GetModuleHandle(NULL), (HWND)preview->Handle.ToPointer(), 1280, 800, 60);
+			multiMaterials = gcnew Generic::List<IntPtr>();
+			HotBiteTool::ToolUi::CreateToolUi(GetModuleHandle(NULL), (HWND)preview->Handle.ToPointer(), 0, 0, 60);
 			std::string root = "..\\..\\..\\Tools\\MaterialDesigner\\";
 
 			HotBiteTool::ToolUi::LoadWorld(root + "material_scene.json");
@@ -41,6 +42,14 @@ namespace MaterialDesigner {
 			HotBiteTool::ToolUi::RotateEntity("Sphere");
 			HotBiteTool::ToolUi::RotateEntity("Monkey");
 			rootFolder->Text = Environment::GetFolderPath(Environment::SpecialFolder::MyDocuments);
+			Material* m = new ::Material(this);
+			char name[32];
+			snprintf(name, 32, "defaultMaterial");
+			m->props["name"]->SetValue<std::string>(name);
+			m->props["diffuse_color"]->SetValue<std::string>("#7f7f7fff");
+			defaultMaterial = gcnew IntPtr(m);
+			buttonAddLayer->Enabled = false;
+			layerList->Enabled = false;
 			UpdateEditor();
 		}
 
@@ -70,11 +79,30 @@ namespace MaterialDesigner {
 	protected:
 	private: System::Windows::Forms::ToolStripMenuItem^ panelToolStripMenuItem;
 	private: System::Windows::Forms::ToolStripMenuItem^ monkeyToolStripMenuItem;
+	private: System::Windows::Forms::ToolStripMenuItem^ multiMaterialToolStripMenuItem;
+	private: System::Windows::Forms::ToolStripMenuItem^ newToolStripMenuItem2;
+	private: System::Windows::Forms::ToolStripMenuItem^ removeToolStripMenuItem1;
+	private: System::Windows::Forms::ToolStripMenuItem^ resetToolStripMenuItem1;
+	protected: System::Windows::Forms::Label^ label4;
+	private:
+	private: System::Windows::Forms::ListBox^ multiMaterialList;
+	protected:
 
 	protected:
 
 
 		   Generic::List<IntPtr>^ materials;
+		   Generic::List<IntPtr>^ multiMaterials;
+	protected: System::Windows::Forms::Button^ buttonAddLayer;
+
+	protected: System::Windows::Forms::Button^ button3;
+	protected: System::Windows::Forms::Button^ button2;
+	protected: System::Windows::Forms::Label^ label5;
+	private: System::Windows::Forms::ListBox^ layerList;
+	protected:
+
+	protected:
+		IntPtr^ defaultMaterial = nullptr;
 		/// <summary>
 		/// Limpiar los recursos que se estén usando.
 		/// </summary>
@@ -138,12 +166,23 @@ namespace MaterialDesigner {
 			this->newToolStripMenuItem1 = (gcnew System::Windows::Forms::ToolStripMenuItem());
 			this->removeToolStripMenuItem = (gcnew System::Windows::Forms::ToolStripMenuItem());
 			this->resetToolStripMenuItem = (gcnew System::Windows::Forms::ToolStripMenuItem());
+			this->multiMaterialToolStripMenuItem = (gcnew System::Windows::Forms::ToolStripMenuItem());
+			this->newToolStripMenuItem2 = (gcnew System::Windows::Forms::ToolStripMenuItem());
+			this->removeToolStripMenuItem1 = (gcnew System::Windows::Forms::ToolStripMenuItem());
+			this->resetToolStripMenuItem1 = (gcnew System::Windows::Forms::ToolStripMenuItem());
 			this->editorToolStripMenuItem = (gcnew System::Windows::Forms::ToolStripMenuItem());
 			this->cubeToolStripMenuItem = (gcnew System::Windows::Forms::ToolStripMenuItem());
 			this->sphereToolStripMenuItem = (gcnew System::Windows::Forms::ToolStripMenuItem());
 			this->panelToolStripMenuItem = (gcnew System::Windows::Forms::ToolStripMenuItem());
 			this->monkeyToolStripMenuItem = (gcnew System::Windows::Forms::ToolStripMenuItem());
 			this->splitContainer1 = (gcnew System::Windows::Forms::SplitContainer());
+			this->layerList = (gcnew System::Windows::Forms::ListBox());
+			this->buttonAddLayer = (gcnew System::Windows::Forms::Button());
+			this->button3 = (gcnew System::Windows::Forms::Button());
+			this->button2 = (gcnew System::Windows::Forms::Button());
+			this->label5 = (gcnew System::Windows::Forms::Label());
+			this->label4 = (gcnew System::Windows::Forms::Label());
+			this->multiMaterialList = (gcnew System::Windows::Forms::ListBox());
 			this->propertyGrid = (gcnew System::Windows::Forms::PropertyGrid());
 			this->label2 = (gcnew System::Windows::Forms::Label());
 			this->label1 = (gcnew System::Windows::Forms::Label());
@@ -224,9 +263,9 @@ namespace MaterialDesigner {
 			// 
 			// menuStrip1
 			// 
-			this->menuStrip1->Items->AddRange(gcnew cli::array< System::Windows::Forms::ToolStripItem^  >(3) {
+			this->menuStrip1->Items->AddRange(gcnew cli::array< System::Windows::Forms::ToolStripItem^  >(4) {
 				this->fileToolStripMenuItem,
-					this->materialToolStripMenuItem, this->editorToolStripMenuItem
+					this->materialToolStripMenuItem, this->multiMaterialToolStripMenuItem, this->editorToolStripMenuItem
 			});
 			this->menuStrip1->Location = System::Drawing::Point(0, 0);
 			this->menuStrip1->Name = L"menuStrip1";
@@ -247,28 +286,28 @@ namespace MaterialDesigner {
 			// newToolStripMenuItem
 			// 
 			this->newToolStripMenuItem->Name = L"newToolStripMenuItem";
-			this->newToolStripMenuItem->Size = System::Drawing::Size(180, 22);
+			this->newToolStripMenuItem->Size = System::Drawing::Size(123, 22);
 			this->newToolStripMenuItem->Text = L"New";
 			this->newToolStripMenuItem->Click += gcnew System::EventHandler(this, &MaterialDesignerForm::newToolStripMenuItem_Click_1);
 			// 
 			// openToolStripMenuItem
 			// 
 			this->openToolStripMenuItem->Name = L"openToolStripMenuItem";
-			this->openToolStripMenuItem->Size = System::Drawing::Size(180, 22);
+			this->openToolStripMenuItem->Size = System::Drawing::Size(123, 22);
 			this->openToolStripMenuItem->Text = L"Open...";
 			this->openToolStripMenuItem->Click += gcnew System::EventHandler(this, &MaterialDesignerForm::openToolStripMenuItem_Click);
 			// 
 			// saveToolStripMenuItem
 			// 
 			this->saveToolStripMenuItem->Name = L"saveToolStripMenuItem";
-			this->saveToolStripMenuItem->Size = System::Drawing::Size(180, 22);
+			this->saveToolStripMenuItem->Size = System::Drawing::Size(123, 22);
 			this->saveToolStripMenuItem->Text = L"Save";
 			this->saveToolStripMenuItem->Click += gcnew System::EventHandler(this, &MaterialDesignerForm::saveToolStripMenuItem_Click);
 			// 
 			// saveAsToolStripMenuItem
 			// 
 			this->saveAsToolStripMenuItem->Name = L"saveAsToolStripMenuItem";
-			this->saveAsToolStripMenuItem->Size = System::Drawing::Size(180, 22);
+			this->saveAsToolStripMenuItem->Size = System::Drawing::Size(123, 22);
 			this->saveAsToolStripMenuItem->Text = L"Save As...";
 			this->saveAsToolStripMenuItem->Click += gcnew System::EventHandler(this, &MaterialDesignerForm::saveAsToolStripMenuItem_Click);
 			// 
@@ -294,12 +333,43 @@ namespace MaterialDesigner {
 			this->removeToolStripMenuItem->Name = L"removeToolStripMenuItem";
 			this->removeToolStripMenuItem->Size = System::Drawing::Size(117, 22);
 			this->removeToolStripMenuItem->Text = L"Remove";
+			this->removeToolStripMenuItem->Click += gcnew System::EventHandler(this, &MaterialDesignerForm::removeToolStripMenuItem_Click);
 			// 
 			// resetToolStripMenuItem
 			// 
 			this->resetToolStripMenuItem->Name = L"resetToolStripMenuItem";
 			this->resetToolStripMenuItem->Size = System::Drawing::Size(117, 22);
 			this->resetToolStripMenuItem->Text = L"Reset";
+			// 
+			// multiMaterialToolStripMenuItem
+			// 
+			this->multiMaterialToolStripMenuItem->DropDownItems->AddRange(gcnew cli::array< System::Windows::Forms::ToolStripItem^  >(3) {
+				this->newToolStripMenuItem2,
+					this->removeToolStripMenuItem1, this->resetToolStripMenuItem1
+			});
+			this->multiMaterialToolStripMenuItem->Name = L"multiMaterialToolStripMenuItem";
+			this->multiMaterialToolStripMenuItem->Size = System::Drawing::Size(90, 20);
+			this->multiMaterialToolStripMenuItem->Text = L"MultiMaterial";
+			// 
+			// newToolStripMenuItem2
+			// 
+			this->newToolStripMenuItem2->Name = L"newToolStripMenuItem2";
+			this->newToolStripMenuItem2->Size = System::Drawing::Size(117, 22);
+			this->newToolStripMenuItem2->Text = L"New";
+			this->newToolStripMenuItem2->Click += gcnew System::EventHandler(this, &MaterialDesignerForm::newToolStripMenuItem2_Click);
+			// 
+			// removeToolStripMenuItem1
+			// 
+			this->removeToolStripMenuItem1->Name = L"removeToolStripMenuItem1";
+			this->removeToolStripMenuItem1->Size = System::Drawing::Size(117, 22);
+			this->removeToolStripMenuItem1->Text = L"Remove";
+			this->removeToolStripMenuItem1->Click += gcnew System::EventHandler(this, &MaterialDesignerForm::removeToolStripMenuItem1_Click);
+			// 
+			// resetToolStripMenuItem1
+			// 
+			this->resetToolStripMenuItem1->Name = L"resetToolStripMenuItem1";
+			this->resetToolStripMenuItem1->Size = System::Drawing::Size(117, 22);
+			this->resetToolStripMenuItem1->Text = L"Reset";
 			// 
 			// editorToolStripMenuItem
 			// 
@@ -314,28 +384,28 @@ namespace MaterialDesigner {
 			// cubeToolStripMenuItem
 			// 
 			this->cubeToolStripMenuItem->Name = L"cubeToolStripMenuItem";
-			this->cubeToolStripMenuItem->Size = System::Drawing::Size(180, 22);
+			this->cubeToolStripMenuItem->Size = System::Drawing::Size(117, 22);
 			this->cubeToolStripMenuItem->Text = L"Cube";
 			this->cubeToolStripMenuItem->Click += gcnew System::EventHandler(this, &MaterialDesignerForm::button2_Click);
 			// 
 			// sphereToolStripMenuItem
 			// 
 			this->sphereToolStripMenuItem->Name = L"sphereToolStripMenuItem";
-			this->sphereToolStripMenuItem->Size = System::Drawing::Size(180, 22);
+			this->sphereToolStripMenuItem->Size = System::Drawing::Size(117, 22);
 			this->sphereToolStripMenuItem->Text = L"Sphere";
 			this->sphereToolStripMenuItem->Click += gcnew System::EventHandler(this, &MaterialDesignerForm::button3_Click);
 			// 
 			// panelToolStripMenuItem
 			// 
 			this->panelToolStripMenuItem->Name = L"panelToolStripMenuItem";
-			this->panelToolStripMenuItem->Size = System::Drawing::Size(180, 22);
+			this->panelToolStripMenuItem->Size = System::Drawing::Size(117, 22);
 			this->panelToolStripMenuItem->Text = L"Panel";
 			this->panelToolStripMenuItem->Click += gcnew System::EventHandler(this, &MaterialDesignerForm::button4_Click);
 			// 
 			// monkeyToolStripMenuItem
 			// 
 			this->monkeyToolStripMenuItem->Name = L"monkeyToolStripMenuItem";
-			this->monkeyToolStripMenuItem->Size = System::Drawing::Size(180, 22);
+			this->monkeyToolStripMenuItem->Size = System::Drawing::Size(117, 22);
 			this->monkeyToolStripMenuItem->Text = L"Monkey";
 			this->monkeyToolStripMenuItem->Click += gcnew System::EventHandler(this, &MaterialDesignerForm::monkeyToolStripMenuItem_Click);
 			// 
@@ -353,6 +423,13 @@ namespace MaterialDesigner {
 			// 
 			// splitContainer1.Panel2
 			// 
+			this->splitContainer1->Panel2->Controls->Add(this->layerList);
+			this->splitContainer1->Panel2->Controls->Add(this->buttonAddLayer);
+			this->splitContainer1->Panel2->Controls->Add(this->button3);
+			this->splitContainer1->Panel2->Controls->Add(this->button2);
+			this->splitContainer1->Panel2->Controls->Add(this->label5);
+			this->splitContainer1->Panel2->Controls->Add(this->label4);
+			this->splitContainer1->Panel2->Controls->Add(this->multiMaterialList);
 			this->splitContainer1->Panel2->Controls->Add(this->propertyGrid);
 			this->splitContainer1->Panel2->Controls->Add(this->label2);
 			this->splitContainer1->Panel2->Controls->Add(this->label1);
@@ -364,14 +441,86 @@ namespace MaterialDesigner {
 			this->splitContainer1->SplitterDistance = 923;
 			this->splitContainer1->TabIndex = 10;
 			// 
+			// layerList
+			// 
+			this->layerList->Anchor = static_cast<System::Windows::Forms::AnchorStyles>(((System::Windows::Forms::AnchorStyles::Top | System::Windows::Forms::AnchorStyles::Left)
+				| System::Windows::Forms::AnchorStyles::Right));
+			this->layerList->FormattingEnabled = true;
+			this->layerList->Location = System::Drawing::Point(10, 361);
+			this->layerList->Name = L"layerList";
+			this->layerList->Size = System::Drawing::Size(257, 82);
+			this->layerList->TabIndex = 27;
+			// 
+			// buttonAddLayer
+			// 
+			this->buttonAddLayer->Anchor = static_cast<System::Windows::Forms::AnchorStyles>((System::Windows::Forms::AnchorStyles::Top | System::Windows::Forms::AnchorStyles::Right));
+			this->buttonAddLayer->Location = System::Drawing::Point(241, 337);
+			this->buttonAddLayer->Name = L"buttonAddLayer";
+			this->buttonAddLayer->Size = System::Drawing::Size(26, 20);
+			this->buttonAddLayer->TabIndex = 26;
+			this->buttonAddLayer->Text = L"+";
+			this->buttonAddLayer->UseVisualStyleBackColor = true;
+			this->buttonAddLayer->Click += gcnew System::EventHandler(this, &MaterialDesignerForm::button4_Click_1);
+			// 
+			// button3
+			// 
+			this->button3->Anchor = static_cast<System::Windows::Forms::AnchorStyles>((System::Windows::Forms::AnchorStyles::Top | System::Windows::Forms::AnchorStyles::Right));
+			this->button3->Location = System::Drawing::Point(241, 191);
+			this->button3->Name = L"button3";
+			this->button3->Size = System::Drawing::Size(26, 20);
+			this->button3->TabIndex = 25;
+			this->button3->Text = L"+";
+			this->button3->UseVisualStyleBackColor = true;
+			this->button3->Click += gcnew System::EventHandler(this, &MaterialDesignerForm::newToolStripMenuItem2_Click);
+			// 
+			// button2
+			// 
+			this->button2->Anchor = static_cast<System::Windows::Forms::AnchorStyles>((System::Windows::Forms::AnchorStyles::Top | System::Windows::Forms::AnchorStyles::Right));
+			this->button2->Location = System::Drawing::Point(241, 44);
+			this->button2->Name = L"button2";
+			this->button2->Size = System::Drawing::Size(26, 20);
+			this->button2->TabIndex = 24;
+			this->button2->Text = L"+";
+			this->button2->UseVisualStyleBackColor = true;
+			this->button2->Click += gcnew System::EventHandler(this, &MaterialDesignerForm::newToolStripMenuItem1_Click);
+			// 
+			// label5
+			// 
+			this->label5->Location = System::Drawing::Point(10, 337);
+			this->label5->Name = L"label5";
+			this->label5->Size = System::Drawing::Size(102, 18);
+			this->label5->TabIndex = 23;
+			this->label5->Text = L"Layers";
+			this->label5->TextAlign = System::Drawing::ContentAlignment::MiddleLeft;
+			// 
+			// label4
+			// 
+			this->label4->Location = System::Drawing::Point(10, 192);
+			this->label4->Name = L"label4";
+			this->label4->Size = System::Drawing::Size(102, 18);
+			this->label4->TabIndex = 22;
+			this->label4->Text = L"MultiMaterials";
+			this->label4->TextAlign = System::Drawing::ContentAlignment::MiddleLeft;
+			// 
+			// multiMaterialList
+			// 
+			this->multiMaterialList->Anchor = static_cast<System::Windows::Forms::AnchorStyles>(((System::Windows::Forms::AnchorStyles::Top | System::Windows::Forms::AnchorStyles::Left)
+				| System::Windows::Forms::AnchorStyles::Right));
+			this->multiMaterialList->FormattingEnabled = true;
+			this->multiMaterialList->Location = System::Drawing::Point(10, 213);
+			this->multiMaterialList->Name = L"multiMaterialList";
+			this->multiMaterialList->Size = System::Drawing::Size(257, 121);
+			this->multiMaterialList->TabIndex = 21;
+			this->multiMaterialList->SelectedIndexChanged += gcnew System::EventHandler(this, &MaterialDesignerForm::OnMultiMaterialSelectedItemChanged);
+			// 
 			// propertyGrid
 			// 
 			this->propertyGrid->Anchor = static_cast<System::Windows::Forms::AnchorStyles>((((System::Windows::Forms::AnchorStyles::Top | System::Windows::Forms::AnchorStyles::Bottom)
 				| System::Windows::Forms::AnchorStyles::Left)
 				| System::Windows::Forms::AnchorStyles::Right));
-			this->propertyGrid->Location = System::Drawing::Point(10, 356);
+			this->propertyGrid->Location = System::Drawing::Point(10, 462);
 			this->propertyGrid->Name = L"propertyGrid";
-			this->propertyGrid->Size = System::Drawing::Size(257, 296);
+			this->propertyGrid->Size = System::Drawing::Size(257, 190);
 			this->propertyGrid->TabIndex = 20;
 			this->propertyGrid->PropertyValueChanged += gcnew System::Windows::Forms::PropertyValueChangedEventHandler(this, &MaterialDesignerForm::propertyGrid_PropertyValueChanged);
 			this->propertyGrid->Click += gcnew System::EventHandler(this, &MaterialDesignerForm::propertyGrid_Click);
@@ -379,7 +528,7 @@ namespace MaterialDesigner {
 			// label2
 			// 
 			this->label2->AutoSize = true;
-			this->label2->Location = System::Drawing::Point(10, 337);
+			this->label2->Location = System::Drawing::Point(10, 446);
 			this->label2->Name = L"label2";
 			this->label2->Size = System::Drawing::Size(54, 13);
 			this->label2->TabIndex = 19;
@@ -402,7 +551,7 @@ namespace MaterialDesigner {
 			this->materialList->FormattingEnabled = true;
 			this->materialList->Location = System::Drawing::Point(10, 66);
 			this->materialList->Name = L"materialList";
-			this->materialList->Size = System::Drawing::Size(257, 264);
+			this->materialList->Size = System::Drawing::Size(257, 121);
 			this->materialList->TabIndex = 17;
 			this->materialList->SelectedIndexChanged += gcnew System::EventHandler(this, &MaterialDesignerForm::materialList_SelectedIndexChanged);
 			// 
@@ -447,6 +596,7 @@ namespace MaterialDesigner {
 			this->MainMenuStrip = this->menuStrip1;
 			this->Name = L"MaterialDesignerForm";
 			this->Text = L"Material Designer";
+			this->WindowState = System::Windows::Forms::FormWindowState::Maximized;
 			this->MainTab->ResumeLayout(false);
 			this->Design->ResumeLayout(false);
 			this->Code->ResumeLayout(false);
@@ -463,9 +613,21 @@ namespace MaterialDesigner {
 
 		}
 #pragma endregion
-	private: System::Void newToolStripMenuItem_Click(System::Object^ sender, System::EventArgs^ e) {
+	private: System::Void newToolStripMenuItem2_Click(System::Object^ sender, System::EventArgs^ e) {
+		MultiMaterial* m = new ::MultiMaterial(this);
+		char name[32];
+		for (int n = multiMaterials->Count + 1;; ++n) {
+			snprintf(name, 32, "multiMaterial %d", n);
+			if (GetMaterial<MultiMaterial>(gcnew System::String(name), multiMaterials) == nullptr) {
+				break;
+			}
+		}
+		m->props["name"]->SetValue<std::string>(name);
+		IntPtr ptr(m);
+		multiMaterials->Add(ptr);
+		UpdateEditor();
 	}
-
+		  
 		   bool isLoading = false;
 private: System::Void openToolStripMenuItem_Click(System::Object^ sender, System::EventArgs^ e) {
 	OpenFileDialog^ openFileDialog = gcnew OpenFileDialog();
@@ -540,13 +702,21 @@ private: System::Void label1_Click(System::Object^ sender, System::EventArgs^ e)
 			   materials_list.push_back(m->ToJson());
 		   }
 		   js["materials"] = materials_list;
+
+		   std::vector<json> multi_materials_list;
+		   for each (IntPtr ptr in multiMaterials) {
+			   MultiMaterial* m = (MultiMaterial*)ptr.ToPointer();
+			   multi_materials_list.push_back(m->ToJson());
+		   }
+		   js["multi_materials"] = multi_materials_list;
 		   auto ui_text = gcnew System::String(js.dump(4).c_str());
 		   return js;
 	   }
 
-	   Material* GetMaterial(System::String^ name) {
-		   for each (IntPtr p in materials) {
-			   Material* m = (Material*)p.ToPointer();
+	   template<typename T>
+	   T* GetMaterial(System::String^ name, Generic::List<IntPtr>^ list){
+		   for each (IntPtr p in list) {
+			   T* m = (T*)p.ToPointer();
 			   if (String::Compare(gcnew System::String(m->props["name"]->GetValue<std::string>().c_str()), name) == 0) {
 				   return m;
 			   }
@@ -554,10 +724,31 @@ private: System::Void label1_Click(System::Object^ sender, System::EventArgs^ e)
 		   return nullptr;
 	   }
 
+	   template<typename T>
+	   bool DeleteMaterial(System::String^ name, Generic::List<IntPtr>^ list) {
+		   for each (IntPtr p in list) {
+			   T* m = (T*)p.ToPointer();
+			   if (String::Compare(gcnew System::String(m->props["name"]->GetValue<std::string>().c_str()), name) == 0) {
+				   delete m;
+				   list->Remove(p);
+				   return true;
+			   }
+		   }
+		   return false;
+	   }
+
 	   void UpdateMaterial() {
 		   if (materialList->SelectedIndex >= 0) {
-			   Material* m = GetMaterial(materialList->SelectedItem->ToString());
+			   Material* m = GetMaterial<Material>(materialList->SelectedItem->ToString(), materials);
 			   std::string mat_json = m->ToJson().dump();
+			   HotBiteTool::ToolUi::SetMaterial("Cube", msclr::interop::marshal_as<std::string>(rootFolder->Text), mat_json);
+			   HotBiteTool::ToolUi::SetMaterial("Sphere", msclr::interop::marshal_as<std::string>(rootFolder->Text), mat_json);
+			   HotBiteTool::ToolUi::SetMaterial("Plane", msclr::interop::marshal_as<std::string>(rootFolder->Text), mat_json);
+			   HotBiteTool::ToolUi::SetMaterial("Monkey", msclr::interop::marshal_as<std::string>(rootFolder->Text), mat_json);
+		   }
+		   else {
+			   auto dm = (Material*)defaultMaterial->ToPointer();
+			   std::string mat_json = dm->ToJson().dump();
 			   HotBiteTool::ToolUi::SetMaterial("Cube", msclr::interop::marshal_as<std::string>(rootFolder->Text), mat_json);
 			   HotBiteTool::ToolUi::SetMaterial("Sphere", msclr::interop::marshal_as<std::string>(rootFolder->Text), mat_json);
 			   HotBiteTool::ToolUi::SetMaterial("Plane", msclr::interop::marshal_as<std::string>(rootFolder->Text), mat_json);
@@ -596,7 +787,11 @@ private: System::Void label1_Click(System::Object^ sender, System::EventArgs^ e)
 			   Material* m = (Material*)p.ToPointer();
 			   materialList->Items->Add(gcnew System::String(m->props["name"]->GetValue<std::string>().c_str()));
 		   }
-
+		   multiMaterialList->Items->Clear();
+		   for each (IntPtr p in multiMaterials) {
+			   MultiMaterial* m = (MultiMaterial*)p.ToPointer();
+			   multiMaterialList->Items->Add(gcnew System::String(m->props["name"]->GetValue<std::string>().c_str()));
+		   }
 		   json js = GetJson();
 		   auto ui_text = gcnew System::String(js.dump(4).c_str());
 		   textEditor->Text = ui_text->Replace("\n", "\r\n");
@@ -608,7 +803,7 @@ private: System::Void newToolStripMenuItem1_Click(System::Object^ sender, System
 	char name[32];
 	for (int n = materials->Count + 1;; ++n) {
 		snprintf(name, 32, "material %d", n);
-		if (GetMaterial(gcnew System::String(name)) == nullptr) {
+		if (GetMaterial<Material>(gcnew System::String(name), materials) == nullptr) {
 			break;
 		}
 	}
@@ -643,10 +838,17 @@ private: System::Void newToolStripMenuItem1_Click(System::Object^ sender, System
 	   }
 
 private: System::Void materialList_SelectedIndexChanged(System::Object^ sender, System::EventArgs^ e) {
-		Material* m = GetMaterial(materialList->Text);
-		if (m != nullptr) {
-			MaterialProp^ prop = gcnew MaterialProp(m, rootFolder->Text);
-			propertyGrid->SelectedObject = prop;
+		if (materialList->SelectedIndex >= 0)
+		{
+			Material* m = GetMaterial<Material>(materialList->Text, materials);
+			if (m != nullptr) {
+				MaterialProp^ prop = gcnew MaterialProp(m, rootFolder->Text);
+				propertyGrid->SelectedObject = prop;
+			}
+			multiMaterialList->SelectedIndex = -1;
+		}
+		else {
+			propertyGrid->SelectedObject = nullptr;
 		}
 		UpdateMaterial();
 	}
@@ -693,6 +895,31 @@ private: System::Void button4_Click(System::Object^ sender, System::EventArgs^ e
 private: System::Void monkeyToolStripMenuItem_Click(System::Object^ sender, System::EventArgs^ e) {
 	currentModel = Model::CUSTOM;
 	UpdateEditor();
+}
+
+private: System::Void removeToolStripMenuItem_Click(System::Object^ sender, System::EventArgs^ e) {
+	if (materialList->SelectedItem != nullptr) {
+		DeleteMaterial<Material>(materialList->SelectedItem->ToString(), materials);	
+		UpdateEditor();
+	}
+}
+
+
+private: System::Void removeToolStripMenuItem1_Click(System::Object^ sender, System::EventArgs^ e) {
+	if (multiMaterialList->SelectedItem != nullptr) {
+		DeleteMaterial<MultiMaterial>(multiMaterialList->SelectedItem->ToString(), multiMaterials);
+		UpdateEditor();
+	}
+}
+private: System::Void button4_Click_1(System::Object^ sender, System::EventArgs^ e) {
+}
+private: System::Void OnMultiMaterialSelectedItemChanged(System::Object^ sender, System::EventArgs^ e) {
+	bool layer_enabled = multiMaterialList->SelectedIndex >= 0;
+	if (layer_enabled) {
+		materialList->SelectedIndex = -1;
+	}
+	buttonAddLayer->Enabled = layer_enabled;
+	layerList->Enabled = layer_enabled;	
 }
 };
 }

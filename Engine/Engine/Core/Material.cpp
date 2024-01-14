@@ -84,6 +84,9 @@ void MaterialData::Load(const std::string& root, const std::string& mat) {
 	props.diffuseColor = parseColorStringF4(j["diffuse_color"]);
 	props.bloom_scale = j["bloom_scale"];
 	props.parallax_scale = j["parallax_scale"];
+	props.parallax_steps = j["parallax_steps"];
+	props.parallax_angle_steps = j["parallax_angle_steps"];
+	props.parallax_shadow_scale = j["parallax_shadow_scale"];
 	props.specIntensity = j["specular"];
 	props.flags = 0;
 
@@ -95,6 +98,9 @@ void MaterialData::Load(const std::string& root, const std::string& mat) {
 	}
 	if (j["blend_enabled"]) {
 		props.flags |= BLEND_ENABLED_FLAG;
+	}
+	if (j["parallax_shadows"]) {
+		props.flags |= PARALLAX_SHADOW_ENABLED_FLAG;
 	}
 	SetTexture(diffuse, texture_names.diffuse_texname, root, j["diffuse_textname"]);
 	SetTexture(high, texture_names.high_textname, root, j["high_textname"]);

@@ -238,12 +238,10 @@ public:
 			//Setup and configure our systems (all registered systems are already instanciated during world init)
 			enemy_system = c->GetSystem<EnemySystem>();
 			camera_system = c->GetSystem<GameCameraSystem>();
-			c->GetSystem<RenderSystem>()->SetParallaxShadow(true);
 
 			//Init our own game PlayerSystem
 			player_system = c->GetSystem<GamePlayerSystem>();
 			player_system->SetCamera(c->GetSystem<CameraSystem>()->GetCameras().GetData()[0]);
-
 
 			//Prepare player       
 			SetUpPlayer();
@@ -333,10 +331,6 @@ public:
 					}
 					else if (GetAsyncKeyState('I') & 0x8000) {
 						sky->second_speed /= 2.0f;
-					}
-					else if (GetAsyncKeyState('L') & 0x8000) {
-						auto renderer = world.GetCoordinator()->GetSystem<RenderSystem>();
-						renderer->SetParallaxShadow(!renderer->GetParallaxShadow());
 					}
 					else if (GetAsyncKeyState('V') & 0x8000) {
 						auto audio = world.GetCoordinator()->GetSystem<AudioSystem>();

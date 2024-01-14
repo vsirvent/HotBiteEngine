@@ -846,3 +846,10 @@ Tools/MaterialDesigner/x64/Release/MaterialDesigner.vcxproj.FileListAbsolute.txt
 Tools/MaterialDesigner/x64/Release/MaterialDesigner1.res
 Tools/UiDesigner/x64/Debug/Resource.res
 Solution/x64/Debug/MaterialDesigner.exe
+Solution/.vs/HotBiteEngine/v16/.suo
+Solution/.vs/HotBiteEngine/v16/Browse.VC.db
+Solution/.vs/HotBiteEngine/v16/Solution.VC.db
+Tests/DemoGame/x64/Debug/vc142.idb
+Tools/MaterialDesigner/.vs/MaterialDesigner/FileContentIndex/read.lock
+Tools/MaterialDesigner/.vs/MaterialDesigner/v17/.suo
+Tools/MaterialDesigner/.vs/MaterialDesigner/v17/Browse.VC.db

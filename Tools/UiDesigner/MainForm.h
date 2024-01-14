@@ -205,28 +205,28 @@ namespace UiDesigner {
 			// labelToolStripMenuItem
 			// 
 			this->labelToolStripMenuItem->Name = L"labelToolStripMenuItem";
-			this->labelToolStripMenuItem->Size = System::Drawing::Size(139, 22);
+			this->labelToolStripMenuItem->Size = System::Drawing::Size(180, 22);
 			this->labelToolStripMenuItem->Text = L"Widget";
 			this->labelToolStripMenuItem->Click += gcnew System::EventHandler(this, &MainForm::widgetToolStripMenuItem_Click);
 			// 
 			// buttonToolStripMenuItem
 			// 
 			this->buttonToolStripMenuItem->Name = L"buttonToolStripMenuItem";
-			this->buttonToolStripMenuItem->Size = System::Drawing::Size(139, 22);
+			this->buttonToolStripMenuItem->Size = System::Drawing::Size(180, 22);
 			this->buttonToolStripMenuItem->Text = L"Button";
 			this->buttonToolStripMenuItem->Click += gcnew System::EventHandler(this, &MainForm::buttonToolStripMenuItem_Click);
 			// 
 			// progressBarToolStripMenuItem
 			// 
 			this->progressBarToolStripMenuItem->Name = L"progressBarToolStripMenuItem";
-			this->progressBarToolStripMenuItem->Size = System::Drawing::Size(139, 22);
+			this->progressBarToolStripMenuItem->Size = System::Drawing::Size(180, 22);
 			this->progressBarToolStripMenuItem->Text = L"Progress Bar";
 			this->progressBarToolStripMenuItem->Click += gcnew System::EventHandler(this, &MainForm::progressBarToolStripMenuItem_Click);
 			// 
 			// widgetToolStripMenuItem
 			// 
 			this->widgetToolStripMenuItem->Name = L"widgetToolStripMenuItem";
-			this->widgetToolStripMenuItem->Size = System::Drawing::Size(139, 22);
+			this->widgetToolStripMenuItem->Size = System::Drawing::Size(180, 22);
 			this->widgetToolStripMenuItem->Text = L"Label";
 			this->widgetToolStripMenuItem->Click += gcnew System::EventHandler(this, &MainForm::labelToolStripMenuItem_Click);
 			// 
@@ -311,7 +311,7 @@ namespace UiDesigner {
 			this->Code->Location = System::Drawing::Point(4, 22);
 			this->Code->Name = L"Code";
 			this->Code->Padding = System::Windows::Forms::Padding(3);
-			this->Code->Size = System::Drawing::Size(863, 571);
+			this->Code->Size = System::Drawing::Size(878, 615);
 			this->Code->TabIndex = 1;
 			this->Code->Text = L"Code";
 			this->Code->UseVisualStyleBackColor = true;
@@ -328,7 +328,7 @@ namespace UiDesigner {
 			this->textEditor->Name = L"textEditor";
 			this->textEditor->ReadOnly = true;
 			this->textEditor->ScrollBars = System::Windows::Forms::ScrollBars::Both;
-			this->textEditor->Size = System::Drawing::Size(863, 573);
+			this->textEditor->Size = System::Drawing::Size(878, 617);
 			this->textEditor->TabIndex = 0;
 			this->textEditor->TextChanged += gcnew System::EventHandler(this, &MainForm::textEditor_TextChanged);
 			// 

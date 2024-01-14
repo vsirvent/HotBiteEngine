@@ -322,6 +322,15 @@ void  World::LoadMaterialsNode(const nlohmann::json& materials_info,
 			if (mat_json.contains("parallax_scale")) {
 				m->props.parallax_scale = mat_json["parallax_scale"];
 			}
+			if (mat_json.contains("parallax_steps")) {
+				m->props.parallax_steps = mat_json["parallax_steps"];
+			}
+			if (mat_json.contains("parallax_angle_steps")) {
+				m->props.parallax_angle_steps = mat_json["parallax_angle_steps"];
+			}
+			if (mat_json.contains("parallax_shadow_scale")) {
+				m->props.parallax_shadow_scale = mat_json["parallax_shadow_scale"];
+			}
 			if (mat_json.contains("tess_type")) {
 				m->tessellation_type = mat_json["tess_type"];
 			}
@@ -359,6 +368,14 @@ void  World::LoadMaterialsNode(const nlohmann::json& materials_info,
 				}
 				else {
 					m->props.flags &= ~BLEND_ENABLED_FLAG;
+				}
+			}
+			if (mat_json.contains("parallax_shadows")) {
+				if (mat_json["parallax_shadows"]) {
+					m->props.flags |= PARALLAX_SHADOW_ENABLED_FLAG;
+				}
+				else {
+					m->props.flags &= ~PARALLAX_SHADOW_ENABLED_FLAG;
 				}
 			}
 			if (mat_json.contains("textures")) {

@@ -39,7 +39,6 @@ using namespace DirectX;
 const std::string RenderSystem::WORLD = "world";
 const std::string RenderSystem::MESH_NORMAL_MAP = "meshNormalTexture";
 const std::string RenderSystem::MESH_NORMAL_MAP_ENABLE = "meshNormalTextureEnable";
-const std::string RenderSystem::PARALLAX_SHADOW_ENABLE = "parallaxShadowEnable";
 const std::string RenderSystem::AMBIENT_LIGHT = "ambientLight";
 const std::string RenderSystem::DIRLIGHT_COUNT = "dirLightsCount";
 const std::string RenderSystem::DIR_LIGHTS = "dirLights";
@@ -881,7 +880,6 @@ void RenderSystem::DrawParticles(int w, int h, const float3& camera_position, co
 		for (auto& mat : shaders.second) {
 			if (!mat.second.second.GetData().empty()) {
 				PrepareMaterial(mat.first, vs, hs, ds, gs, ps);
-				ps->SetInt(PARALLAX_SHADOW_ENABLE, parallax_shadow_test);
 				ps->CopyAllBufferData();
 				for (auto& de : mat.second.second.GetData()) {
 					if (de.base->scene_visible ||de.base->draw_method == DRAW_ALWAYS) {
@@ -1099,7 +1097,6 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 					PrepareMultiMaterial(mat.second.first, vs, hs, ds, gs, ps);
 					ds->CopyAllBufferData();
 				}
-				ps->SetInt(PARALLAX_SHADOW_ENABLE, parallax_shadow_test);
 				for (auto& de : mat.second.second.GetData()) {
 					PrepareEntity(de, vs, hs, ds, gs, ps);
 					if (de.base->visible && de.base->scene_visible) {						
@@ -1593,10 +1590,3 @@ bool RenderSystem::GetCloudTest() const {
 	return cloud_test;
 }
 
-void RenderSystem::SetParallaxShadow(bool enabled) {
-	parallax_shadow_test = enabled;
-}
-
-bool RenderSystem::GetParallaxShadow() const {
-	return parallax_shadow_test;
-}

@@ -499,72 +499,55 @@ float GetHeight(float2 pos, const float calculated_values[MAX_MULTI_TEXTURE]) {
 			calculated_values, multi_texture_uv_scales, pos, multi_highTexture).r;
 	}
 	else {
-		h = highTexture.SampleLevel(basicSampler, pos, 2).r;
+		h = highTexture.SampleLevel(basicSampler, pos, 0).r;
 	}
 	return h;
 }
 
-float2 CalculateDepthUVBinary(float scale, float2 uv, float3 camera_pos,
+float2 CalculateDepthUVBinary(float scale, float base_steps, float angle_steps, float2 uv, float3 camera_pos,
 	float3 fragment_pos, const float calculated_values[MAX_MULTI_TEXTURE], out float h, out float3 displacement) {
 
 	float3 ToCam = camera_pos - fragment_pos;
 	float dist = length(ToCam);
 	float angle = dot(normalize(ToCam), float3(0.0f, 0.0f, 1.0f));
-	float nsteps = 4.0f + 5.0f * saturate(1.0f - angle) + clamp(lerp(4.0f, 0.0f, dist / 50.0f), 0.0, 4.0);
+	float nsteps = base_steps + angle_steps * saturate(1.0f - angle) + clamp(lerp(base_steps, 0.0f, dist / 50.0f), 0.0, base_steps);
 	int insteps = (int)nsteps;
-	float step_delta = 0.5f;
-
+	
 	displacement = float3(0.0f, 0.0f, 0.0f);
 	ToCam.xy *= scale * angle;
 	ToCam = normalize(ToCam);
-	float3 curr_uvw = float3(uv, 0.0f) + ToCam * step_delta;
+	ToCam.z = abs(ToCam.z);
+	float3 ToCam2 = ToCam / ToCam.z;
+	float3 curr_uvw = float3(uv, 0.0f) + ToCam2;
 	int steps = 0;
-	while (steps <= insteps) {
-		steps++;
+	bool binary_enabled = false;
+	float step_delta = 0.1f;
+	int max_linear_steps = 10;
+	int linear_steps = 0;
+	while (steps <= insteps) {		
 		h = GetHeight(curr_uvw.xy, calculated_values).r;
-		if (h > curr_uvw.z) {
-			curr_uvw += ToCam * step_delta;;
-			displacement += ToCam * step_delta;;
+		if (h < (curr_uvw.z + 0.01f) && h >(curr_uvw.z - 0.01f))
+		{
+			break;
 		}
-		else {
-			curr_uvw -= ToCam * step_delta;
-			displacement -= ToCam * step_delta;
+		if (linear_steps++ > max_linear_steps) {
+			binary_enabled = true;
 		}
-		step_delta *= 0.5f;
-	}
-	displacement.xy /= scale;
-	return curr_uvw.xy;
-}
-#if 0
-float2 CalculateDepthUVBinary(float scale, float2 uv, float3 camera_pos,
-	float3 fragment_pos, float3 world_position, const float calculated_values[MAX_MULTI_TEXTURE], out float h, out float3 displacement) {
-
-	float3 ToCam = camera_pos - fragment_pos;
-	float dist = length(ToCam);
-	float angle = dot(normalize(ToCam), float3(0.0f, 0.0f, 1.0f));
-	ToCam.xy *= scale * angle;
-	float nsteps = 4.0f + 5.0f * saturate(1.0f - angle) + lerp(4.0f, 0.0f, dist / 50.0f);
-	displacement = float3(0.0f, 0.0f, 0.0f);
-	int insteps = (int)nsteps;
-
-	float step_delta = 0.5f;
-	ToCam = normalize(ToCam);
-	float3 curr_uvw = float3(uv, 0.0f) + ToCam * step_delta;
-	int steps = 0;
-	while (steps <= insteps) {
-		steps++;
-		h = GetHeight(curr_uvw.xy, world_position, calculated_values).r;
-		if (h > curr_uvw.z) {
+		if (h >= curr_uvw.z) {
 			curr_uvw += ToCam * step_delta;
 			displacement += ToCam * step_delta;
+			binary_enabled = true;
 		}
 		else {
 			curr_uvw -= ToCam * step_delta;
 			displacement -= ToCam * step_delta;
 		}
-		step_delta *= 0.5f;
+		if (binary_enabled) {
+			steps++;
+			step_delta *= 0.5f;
+		}
 	}
 	displacement.xy /= scale;
 	return curr_uvw.xy;
 }
-#endif
+

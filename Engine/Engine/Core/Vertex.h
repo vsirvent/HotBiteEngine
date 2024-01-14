@@ -126,33 +126,36 @@ namespace HotBite {
 
 				HRESULT Prepare(bool read_only = true) {
 					HRESULT hr = S_OK;
-					ID3D11Device* device = Core::DXCore::Get()->device;
-					D3D11_BUFFER_DESC vbd;
+					if (vvertex_pos > 0)
+					{
+						ID3D11Device* device = Core::DXCore::Get()->device;
+						D3D11_BUFFER_DESC vbd;
 
-					vbd.Usage = read_only ? D3D11_USAGE_IMMUTABLE:D3D11_USAGE_DYNAMIC;
-					vbd.ByteWidth = (UINT)(sizeof(T) * vvertex_pos);
-					vbd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
-					vbd.CPUAccessFlags = read_only ? 0:D3D11_CPU_ACCESS_WRITE;
-					vbd.MiscFlags = 0;
-					vbd.StructureByteStride = 0;
-					D3D11_SUBRESOURCE_DATA initialVertexData;
-					initialVertexData.pSysMem = vvertex.data();
+						vbd.Usage = read_only ? D3D11_USAGE_IMMUTABLE : D3D11_USAGE_DYNAMIC;
+						vbd.ByteWidth = (UINT)(sizeof(T) * vvertex_pos);
+						vbd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+						vbd.CPUAccessFlags = read_only ? 0 : D3D11_CPU_ACCESS_WRITE;
+						vbd.MiscFlags = 0;
+						vbd.StructureByteStride = 0;
+						D3D11_SUBRESOURCE_DATA initialVertexData;
+						initialVertexData.pSysMem = vvertex.data();
 
-					hr = device->CreateBuffer(&vbd, &initialVertexData, &vertex_buffer);
-					if (FAILED(hr)) { goto end; }
+						hr = device->CreateBuffer(&vbd, &initialVertexData, &vertex_buffer);
+						if (FAILED(hr)) { goto end; }
 
-					D3D11_BUFFER_DESC ibd;
-					ibd.Usage = read_only ? D3D11_USAGE_IMMUTABLE : D3D11_USAGE_DYNAMIC;
-					ibd.ByteWidth = (UINT)(sizeof(uint32_t) * vindex_pos);
-					ibd.BindFlags = D3D11_BIND_INDEX_BUFFER;
-					ibd.CPUAccessFlags = read_only ? 0:D3D11_CPU_ACCESS_WRITE;
-					ibd.MiscFlags = 0;
-					ibd.StructureByteStride = 0;
-					D3D11_SUBRESOURCE_DATA initialIndexData;
-					initialIndexData.pSysMem = vindex.data();
+						D3D11_BUFFER_DESC ibd;
+						ibd.Usage = read_only ? D3D11_USAGE_IMMUTABLE : D3D11_USAGE_DYNAMIC;
+						ibd.ByteWidth = (UINT)(sizeof(uint32_t) * vindex_pos);
+						ibd.BindFlags = D3D11_BIND_INDEX_BUFFER;
+						ibd.CPUAccessFlags = read_only ? 0 : D3D11_CPU_ACCESS_WRITE;
+						ibd.MiscFlags = 0;
+						ibd.StructureByteStride = 0;
+						D3D11_SUBRESOURCE_DATA initialIndexData;
+						initialIndexData.pSysMem = vindex.data();
 
-					hr = device->CreateBuffer(&ibd, &initialIndexData, &index_buffer);
-					if (FAILED(hr)) { goto end; }
+						hr = device->CreateBuffer(&ibd, &initialIndexData, &index_buffer);
+						if (FAILED(hr)) { goto end; }
+					}
 				end:
 					return hr;
 				}
