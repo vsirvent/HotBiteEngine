@@ -53,9 +53,31 @@ namespace HotBiteTool {
 			auto c = world.GetCoordinator();
 			std::scoped_lock l(c->GetSystem<RenderSystem>()->mutex);
 			ECS::Entity e = c->GetEntityByName(entity);
+			auto& materials = world.GetMaterials();
+			nlohmann::json j = nlohmann::json::parse(mat);
+			std::string name = j["name"];
+			MaterialData* mdata = materials.Get(name);
+			if (mdata == nullptr) {
+				materials.Insert(name, MaterialData{name});
+				mdata = materials.Get(name);
+			}
+			mdata->Load(root, mat);
 			if (e != ECS::INVALID_ENTITY_ID) {
 				Components::Material& m = c->GetComponent<Components::Material>(e);
-				m.data->Load(root, mat);
+				m.multi_texture_count = 0;
+				m.data = mdata;
+				c->NotifySignatureChange(e);
+			}
+		}
+
+		void ToolUi::SetMultiMaterial(const std::string& entity, const std::string& root, const std::string& mat) {
+			auto c = world.GetCoordinator();
+			std::scoped_lock l(c->GetSystem<RenderSystem>()->mutex);
+			ECS::Entity e = c->GetEntityByName(entity);
+			if (e != ECS::INVALID_ENTITY_ID) {
+				Components::Material& m = c->GetComponent<Components::Material>(e);
+				m.LoadMultitexture(mat, root, world.GetMaterials());
+				c->NotifySignatureChange(e);
 			}
 		}
 

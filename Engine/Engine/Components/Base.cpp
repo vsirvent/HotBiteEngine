@@ -27,11 +27,84 @@ SOFTWARE.
 #include <Core\Mesh.h>
 #include <Core\SimpleShader.h>
 #include <Core\SpinLock.h>
+#include <Core\Utils.h>
+#include <Core\Json.h>
 
 namespace HotBite {
 	namespace Engine {
 		namespace Components {
 						
+
+			bool Material::LoadMultitexture(const std::string& json_str, const std::string& root_path, const Core::FlatMap<std::string, Core::MaterialData>& materials) {
+				try
+				{
+					const nlohmann::json multi_textures_json = nlohmann::json::parse(json_str);
+					multi_texture_count = multi_textures_json["count"];
+					multi_texture_data.resize(multi_texture_count);
+					multi_texture_mask.resize(multi_texture_count);
+					multi_texture_operation.resize(multi_texture_count);
+					multi_texture_uv_scales.resize(multi_texture_count);
+					multi_texture_value.resize(multi_texture_count);
+
+					if (multi_textures_json.contains("parallax_scale")) {
+						multi_parallax_scale = multi_textures_json["parallax_scale"];
+					}
+					if (multi_textures_json.contains("tess_type")) {
+						tessellation_type = multi_textures_json["tess_type"];
+					}
+					if (multi_textures_json.contains("tess_factor")) {
+						tessellation_factor = multi_textures_json["tess_factor"];
+					}
+					if (multi_textures_json.contains("displacement_scale")) {
+						displacement_scale = multi_textures_json["displacement_scale"];
+					}
+					for (auto& multi_texture : multi_textures_json["textures"]) {
+						int layer = multi_texture["layer"];
+						multi_texture_mask[layer] = Core::LoadTexture(root_path + "\\" + (std::string)multi_texture["mask"]);
+						multi_texture_operation[layer] = multi_texture["op"];
+						multi_texture_uv_scales[layer] = multi_texture["uv_scale"];
+						multi_texture_value[layer] = multi_texture["value"];
+						multi_texture_data[layer] = materials.Get(multi_texture["texture"]);
+						if (multi_texture.contains("mask_noise") && multi_texture["mask_noise"] == 1) {
+							multi_texture_operation[layer] |= TEXT_MASK_NOISE;
+						}
+						if (multi_texture.contains("uv_noise") && multi_texture["uv_noise"] == 1) {
+							multi_texture_operation[layer] |= TEXT_UV_NOISE;
+						}
+					}
+					for (uint32_t i = 0; i < multi_texture_count; ++i) {
+						if (multi_texture_data[i] != nullptr) {
+							if (multi_texture_data[i]->diffuse != nullptr) {
+								multi_texture_operation[i] |= TEXT_DIFF;
+							}
+							if (multi_texture_data[i]->normal != nullptr) {
+								multi_texture_operation[i] |= TEXT_NORM;
+							}
+							if (multi_texture_data[i]->spec != nullptr) {
+								multi_texture_operation[i] |= TEXT_SPEC;
+							}
+							if (multi_texture_data[i]->ao != nullptr) {
+								multi_texture_operation[i] |= TEXT_AO;
+							}
+							if (multi_texture_data[i]->arm != nullptr) {
+								multi_texture_operation[i] |= TEXT_ARM;
+							}
+							if (multi_texture_data[i]->high != nullptr) {
+								multi_texture_operation[i] |= TEXT_DISP;
+							}
+							if (multi_texture_mask[i] != nullptr) {
+								multi_texture_operation[i] |= TEXT_MASK;
+							}
+						}
+					}
+				}
+				catch (...) {
+					printf("Material::LoadMultitexture: error loading multitexture");
+					return false;
+				}
+				return true;
+			}
+
 			Mesh::Mesh() {
 				end_animation_event.SetSender(this);
 				end_animation_event.SetType(EVENT_ID_ANIMATION_END);

@@ -187,11 +187,11 @@ namespace HotBite {
                 }
 
                 //Get value by key
-                T* Get(const K& k) {
+                T* Get(const K& k) const {
                     T* ret = nullptr;
                     auto it = indexes.find(k);
                     if (it != indexes.end()) {
-                        ret = &data[it->second];
+                        ret = (T*)&data.at(it->second);
                     }
                     return ret;
                 }

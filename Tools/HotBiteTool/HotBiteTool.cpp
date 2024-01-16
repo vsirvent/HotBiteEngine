@@ -30,6 +30,12 @@ namespace HotBiteTool {
 			}
 		}
 
+		void SetMultiMaterial(const std::string& entity, const std::string& root, const std::string& mat) {
+			if (tool_ui != nullptr) {
+				tool_ui->SetMultiMaterial(entity, root, mat);
+			}
+		}
+
 		void LoadWorld(const std::string& world_level) {
 			if (tool_ui != nullptr) {
 				tool_ui->LoadWorld(world_level);

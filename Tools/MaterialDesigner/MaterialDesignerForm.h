@@ -25,9 +25,9 @@ namespace MaterialDesigner {
 
 	public ref class MaterialDesignerForm : public System::Windows::Forms::Form, public IMaterialListener
 	{
-		
+
 	public:
-		
+
 		MaterialDesignerForm(void)
 		{
 			InitializeComponent();
@@ -56,7 +56,7 @@ namespace MaterialDesigner {
 		virtual void OnNameChanged(String^ old_name, String^ new_name)
 		{
 			for (int i = 0; i < materialList->Items->Count; ++i) {
-				String^ item = (String ^)materialList->Items[i];
+				String^ item = (String^)materialList->Items[i];
 				if (String::Compare(item, old_name) == 0) {
 					materialList->Items[i] = new_name;
 				}
@@ -91,8 +91,8 @@ namespace MaterialDesigner {
 	protected:
 
 
-		   Generic::List<IntPtr>^ materials;
-		   Generic::List<IntPtr>^ multiMaterials;
+		Generic::List<IntPtr>^ materials;
+		Generic::List<IntPtr>^ multiMaterials;
 	protected: System::Windows::Forms::Button^ buttonAddLayer;
 
 	protected: System::Windows::Forms::Button^ button3;
@@ -141,7 +141,7 @@ namespace MaterialDesigner {
 		/// <summary>
 		/// Variable del diseñador necesaria.
 		/// </summary>
-		System::ComponentModel::Container ^components;
+		System::ComponentModel::Container^ components;
 
 #pragma region Windows Form Designer generated code
 		/// <summary>
@@ -450,6 +450,7 @@ namespace MaterialDesigner {
 			this->layerList->Name = L"layerList";
 			this->layerList->Size = System::Drawing::Size(257, 82);
 			this->layerList->TabIndex = 27;
+			this->layerList->SelectedIndexChanged += gcnew System::EventHandler(this, &MaterialDesignerForm::OnLayerSelected);
 			// 
 			// buttonAddLayer
 			// 
@@ -627,217 +628,219 @@ namespace MaterialDesigner {
 		multiMaterials->Add(ptr);
 		UpdateEditor();
 	}
-		  
-		   bool isLoading = false;
-private: System::Void openToolStripMenuItem_Click(System::Object^ sender, System::EventArgs^ e) {
-	OpenFileDialog^ openFileDialog = gcnew OpenFileDialog();
 
-	openFileDialog->Filter = "Material Files (*.mat)|*.mat";
-	openFileDialog->FilterIndex = 1;
-	openFileDialog->RestoreDirectory = true;
-	isLoading = true;
-	if (openFileDialog->ShowDialog() == System::Windows::Forms::DialogResult::OK) {
-		try
-		{
-			std::string strFileName = msclr::interop::marshal_as<std::string>(openFileDialog->FileName);
-			std::ifstream inputFile(strFileName);
-			if (inputFile.is_open()) {
-				std::string content((std::istreambuf_iterator<char>(inputFile)),
-					std::istreambuf_iterator<char>());
-				json js = json::parse(content);
-				materialList->Items->Clear();
-				for each (IntPtr p in materials) {
-					Material* m = (Material*)p.ToPointer();
-					delete m;
-				}
-				materials->Clear();
-				rootFolder->Text = gcnew System::String(((std::string)js["root"]).c_str());
-				for (const auto& mjs : js["materials"]) {
-					Material* m = new Material(this);
-					if (m != nullptr) {
-						if (!m->FromJson(mjs)) {
-							delete m;
-							m = nullptr;
+		   bool isLoading = false;
+	private: System::Void openToolStripMenuItem_Click(System::Object^ sender, System::EventArgs^ e) {
+		OpenFileDialog^ openFileDialog = gcnew OpenFileDialog();
+
+		openFileDialog->Filter = "Material Files (*.mat)|*.mat";
+		openFileDialog->FilterIndex = 1;
+		openFileDialog->RestoreDirectory = true;
+		isLoading = true;
+		if (openFileDialog->ShowDialog() == System::Windows::Forms::DialogResult::OK) {
+			try
+			{
+				std::string strFileName = msclr::interop::marshal_as<std::string>(openFileDialog->FileName);
+				std::ifstream inputFile(strFileName);
+				if (inputFile.is_open()) {
+					std::string content((std::istreambuf_iterator<char>(inputFile)),
+						std::istreambuf_iterator<char>());
+					json js = json::parse(content);
+					materialList->Items->Clear();
+					for each (IntPtr p in materials) {
+						Material* m = (Material*)p.ToPointer();
+						delete m;
+					}
+					materials->Clear();
+					rootFolder->Text = gcnew System::String(((std::string)js["root"]).c_str());
+					for (const auto& mjs : js["materials"]) {
+						Material* m = new Material(this);
+						if (m != nullptr) {
+							if (!m->FromJson(mjs)) {
+								delete m;
+								m = nullptr;
+							}
+							IntPtr ptr(m);
+							materials->Add(ptr);
+							materialList->Items->Add(gcnew String(m->props["name"]->GetValue<std::string>().c_str()));
 						}
-						IntPtr ptr(m);
-						materials->Add(ptr);
-						materialList->Items->Add(gcnew String(m->props["name"]->GetValue<std::string>().c_str()));
+					}
+					inputFile.close();
+					fileName = openFileDialog->FileName;
+					UpdateEditor();
+					if (materialList->Items->Count > 0) {
+						materialList->SelectedIndex = 0;
 					}
 				}
-				inputFile.close();
-				fileName = openFileDialog->FileName;
-				UpdateEditor();
-				if (materialList->Items->Count > 0) {
-					materialList->SelectedIndex = 0;
-				}
+			}
+			catch (...) {
+				MessageBox::Show("Error loading file");
 			}
 		}
-		catch (...) {
-			MessageBox::Show("Error loading file");
-		}
+		isLoading = false;
 	}
-	isLoading = false;
+	private: System::Void exitToolStripMenuItem_Click(System::Object^ sender, System::EventArgs^ e) {
 	}
-private: System::Void exitToolStripMenuItem_Click(System::Object^ sender, System::EventArgs^ e) {
+	private: System::Void widgetToolStripMenuItem_Click(System::Object^ sender, System::EventArgs^ e) {
 	}
-private: System::Void widgetToolStripMenuItem_Click(System::Object^ sender, System::EventArgs^ e) {
+	private: System::Void buttonToolStripMenuItem_Click(System::Object^ sender, System::EventArgs^ e) {
 	}
-private: System::Void buttonToolStripMenuItem_Click(System::Object^ sender, System::EventArgs^ e) {
+	private: System::Void progressBarToolStripMenuItem_Click(System::Object^ sender, System::EventArgs^ e) {
 	}
-private: System::Void progressBarToolStripMenuItem_Click(System::Object^ sender, System::EventArgs^ e) {
+	private: System::Void labelToolStripMenuItem_Click(System::Object^ sender, System::EventArgs^ e) {
 	}
-private: System::Void labelToolStripMenuItem_Click(System::Object^ sender, System::EventArgs^ e) {
+	private: System::Void newToolStripMenuItem_Click_1(System::Object^ sender, System::EventArgs^ e) {
 	}
-private: System::Void newToolStripMenuItem_Click_1(System::Object^ sender, System::EventArgs^ e) {
+	private: System::Void label1_Click(System::Object^ sender, System::EventArgs^ e) {
 	}
-private: System::Void label1_Click(System::Object^ sender, System::EventArgs^ e) {
-}
 
-	   json GetJson() {
-		   json js;
-		   js["root"] = msclr::interop::marshal_as<std::string>(rootFolder->Text);
-		   std::vector<json> materials_list;
-		   for each (IntPtr ptr in materials) {
-			   Material* m = (Material*)ptr.ToPointer();
-			   materials_list.push_back(m->ToJson());
-		   }
-		   js["materials"] = materials_list;
-
-		   std::vector<json> multi_materials_list;
-		   for each (IntPtr ptr in multiMaterials) {
-			   MultiMaterial* m = (MultiMaterial*)ptr.ToPointer();
-			   multi_materials_list.push_back(m->ToJson());
-		   }
-		   js["multi_materials"] = multi_materials_list;
-		   auto ui_text = gcnew System::String(js.dump(4).c_str());
-		   return js;
-	   }
-
-	   template<typename T>
-	   T* GetMaterial(System::String^ name, Generic::List<IntPtr>^ list){
-		   for each (IntPtr p in list) {
-			   T* m = (T*)p.ToPointer();
-			   if (String::Compare(gcnew System::String(m->props["name"]->GetValue<std::string>().c_str()), name) == 0) {
-				   return m;
+		   json GetJson() {
+			   json js;
+			   js["root"] = msclr::interop::marshal_as<std::string>(rootFolder->Text);
+			   std::vector<json> materials_list;
+			   for each (IntPtr ptr in materials) {
+				   Material* m = (Material*)ptr.ToPointer();
+				   materials_list.push_back(m->ToJson());
 			   }
-		   }
-		   return nullptr;
-	   }
+			   js["materials"] = materials_list;
 
-	   template<typename T>
-	   bool DeleteMaterial(System::String^ name, Generic::List<IntPtr>^ list) {
-		   for each (IntPtr p in list) {
-			   T* m = (T*)p.ToPointer();
-			   if (String::Compare(gcnew System::String(m->props["name"]->GetValue<std::string>().c_str()), name) == 0) {
-				   delete m;
-				   list->Remove(p);
-				   return true;
+			   std::vector<json> multi_materials_list;
+			   for each (IntPtr ptr in multiMaterials) {
+				   MultiMaterial* m = (MultiMaterial*)ptr.ToPointer();
+				   multi_materials_list.push_back(m->ToJson());
 			   }
+			   js["multi_materials"] = multi_materials_list;
+			   auto ui_text = gcnew System::String(js.dump(4).c_str());
+			   return js;
 		   }
-		   return false;
-	   }
 
-	   void UpdateMaterial() {
-		   if (materialList->SelectedIndex >= 0) {
-			   Material* m = GetMaterial<Material>(materialList->SelectedItem->ToString(), materials);
-			   std::string mat_json = m->ToJson().dump();
-			   HotBiteTool::ToolUi::SetMaterial("Cube", msclr::interop::marshal_as<std::string>(rootFolder->Text), mat_json);
-			   HotBiteTool::ToolUi::SetMaterial("Sphere", msclr::interop::marshal_as<std::string>(rootFolder->Text), mat_json);
-			   HotBiteTool::ToolUi::SetMaterial("Plane", msclr::interop::marshal_as<std::string>(rootFolder->Text), mat_json);
-			   HotBiteTool::ToolUi::SetMaterial("Monkey", msclr::interop::marshal_as<std::string>(rootFolder->Text), mat_json);
-		   }
-		   else {
-			   auto dm = (Material*)defaultMaterial->ToPointer();
-			   std::string mat_json = dm->ToJson().dump();
-			   HotBiteTool::ToolUi::SetMaterial("Cube", msclr::interop::marshal_as<std::string>(rootFolder->Text), mat_json);
-			   HotBiteTool::ToolUi::SetMaterial("Sphere", msclr::interop::marshal_as<std::string>(rootFolder->Text), mat_json);
-			   HotBiteTool::ToolUi::SetMaterial("Plane", msclr::interop::marshal_as<std::string>(rootFolder->Text), mat_json);
-			   HotBiteTool::ToolUi::SetMaterial("Monkey", msclr::interop::marshal_as<std::string>(rootFolder->Text), mat_json);
-		   }
-	   }
-
-	   System::Void button1_Click(System::Object^ sender, System::EventArgs^ e) {
-		   FolderBrowserDialog^ openFileDialog = gcnew FolderBrowserDialog();
-
-		   if (openFileDialog->ShowDialog() == System::Windows::Forms::DialogResult::OK) {
-			   try
-			   {
-				   rootFolder->Text = openFileDialog->SelectedPath;
-			   }
-			   catch (...) {
-				   MessageBox::Show("Error loading file");
-			   }
-		   }
-	   }
-
-	   void UpdateEditor() {
-		   HotBiteTool::ToolUi::SetVisible("Cube", false);
-		   HotBiteTool::ToolUi::SetVisible("Sphere", false);
-		   HotBiteTool::ToolUi::SetVisible("Plane", false);
-		   HotBiteTool::ToolUi::SetVisible("Monkey", false);
-		   switch (currentModel) {
-		   case Model::CUBE: HotBiteTool::ToolUi::SetVisible("Cube", true); break;
-		   case Model::SPHERE: HotBiteTool::ToolUi::SetVisible("Sphere", true); break;
-		   case Model::PLANE: HotBiteTool::ToolUi::SetVisible("Plane", true); break;
-		   case Model::CUSTOM: HotBiteTool::ToolUi::SetVisible("Monkey", true); break;
-		   default: break;
-		   }
-		   materialList->Items->Clear();
-		   for each (IntPtr p in materials) {
-			   Material* m = (Material*)p.ToPointer();
-			   materialList->Items->Add(gcnew System::String(m->props["name"]->GetValue<std::string>().c_str()));
-		   }
-		   multiMaterialList->Items->Clear();
-		   for each (IntPtr p in multiMaterials) {
-			   MultiMaterial* m = (MultiMaterial*)p.ToPointer();
-			   multiMaterialList->Items->Add(gcnew System::String(m->props["name"]->GetValue<std::string>().c_str()));
-		   }
-		   json js = GetJson();
-		   auto ui_text = gcnew System::String(js.dump(4).c_str());
-		   textEditor->Text = ui_text->Replace("\n", "\r\n");
-		   UpdateMaterial();
-	   }
-
-private: System::Void newToolStripMenuItem1_Click(System::Object^ sender, System::EventArgs^ e) {
-	Material* m = new ::Material(this);
-	char name[32];
-	for (int n = materials->Count + 1;; ++n) {
-		snprintf(name, 32, "material %d", n);
-		if (GetMaterial<Material>(gcnew System::String(name), materials) == nullptr) {
-			break;
-		}
-	}
-	m->props["name"]->SetValue<std::string>(name);
-	IntPtr ptr(m);
-	materials->Add(ptr);
-	UpdateEditor();
-}
-
-	   System::Void saveAsToolStripMenuItem_Click(System::Object^ sender, System::EventArgs^ e) {
-		   SaveFileDialog^ saveFileDialog = gcnew SaveFileDialog();
-
-		   saveFileDialog->Filter = "Material Files (*.mat)|*.mat";
-		   saveFileDialog->FilterIndex = 1;
-		   saveFileDialog->RestoreDirectory = true;
-
-		   if (saveFileDialog->ShowDialog() == System::Windows::Forms::DialogResult::OK) {
-			   auto content = GetJson().dump(4);
-			   std::string strFileName = msclr::interop::marshal_as<std::string>(saveFileDialog->FileName);
-
-			   std::ofstream outputFile(strFileName);
-			   if (outputFile.is_open()) {
-				   outputFile << content;
-				   outputFile.close();
-				   fileName = saveFileDialog->FileName;
+		   void UpdateMaterial() {
+			   if (materialList->SelectedIndex >= 0) {
+				   Material* m = GetMaterial<Material>(materialList->SelectedItem->ToString(), materials);
+				   std::string mat_json = m->ToJson().dump();
+				   HotBiteTool::ToolUi::SetMaterial("Cube", msclr::interop::marshal_as<std::string>(rootFolder->Text), mat_json);
+				   HotBiteTool::ToolUi::SetMaterial("Sphere", msclr::interop::marshal_as<std::string>(rootFolder->Text), mat_json);
+				   HotBiteTool::ToolUi::SetMaterial("Plane", msclr::interop::marshal_as<std::string>(rootFolder->Text), mat_json);
+				   HotBiteTool::ToolUi::SetMaterial("Monkey", msclr::interop::marshal_as<std::string>(rootFolder->Text), mat_json);
+			   }else if (multiMaterialList->SelectedIndex >= 0) {
+				   MultiMaterial* m = GetMaterial<MultiMaterial>(multiMaterialList->SelectedItem->ToString(), multiMaterials);
+				   std::string mat_json = m->ToJson().dump();
+				   HotBiteTool::ToolUi::SetMultiMaterial("Cube", msclr::interop::marshal_as<std::string>(rootFolder->Text), mat_json);
+				   HotBiteTool::ToolUi::SetMultiMaterial("Sphere", msclr::interop::marshal_as<std::string>(rootFolder->Text), mat_json);
+				   HotBiteTool::ToolUi::SetMultiMaterial("Plane", msclr::interop::marshal_as<std::string>(rootFolder->Text), mat_json);
+				   HotBiteTool::ToolUi::SetMultiMaterial("Monkey", msclr::interop::marshal_as<std::string>(rootFolder->Text), mat_json);
 			   }
 			   else {
-				   // Handle error opening the file
-				   MessageBox::Show("Error opening file for writing.");
+				   auto dm = (Material*)defaultMaterial->ToPointer();
+				   std::string mat_json = dm->ToJson().dump();
+				   HotBiteTool::ToolUi::SetMaterial("Cube", msclr::interop::marshal_as<std::string>(rootFolder->Text), mat_json);
+				   HotBiteTool::ToolUi::SetMaterial("Sphere", msclr::interop::marshal_as<std::string>(rootFolder->Text), mat_json);
+				   HotBiteTool::ToolUi::SetMaterial("Plane", msclr::interop::marshal_as<std::string>(rootFolder->Text), mat_json);
+				   HotBiteTool::ToolUi::SetMaterial("Monkey", msclr::interop::marshal_as<std::string>(rootFolder->Text), mat_json);
 			   }
 		   }
-	   }
 
-private: System::Void materialList_SelectedIndexChanged(System::Object^ sender, System::EventArgs^ e) {
+		   System::Void button1_Click(System::Object^ sender, System::EventArgs^ e) {
+			   FolderBrowserDialog^ openFileDialog = gcnew FolderBrowserDialog();
+
+			   if (openFileDialog->ShowDialog() == System::Windows::Forms::DialogResult::OK) {
+				   try
+				   {
+					   rootFolder->Text = openFileDialog->SelectedPath;
+				   }
+				   catch (...) {
+					   MessageBox::Show("Error loading file");
+				   }
+			   }
+		   }
+
+		   void UpdateEditor() {
+			   HotBiteTool::ToolUi::SetVisible("Cube", false);
+			   HotBiteTool::ToolUi::SetVisible("Sphere", false);
+			   HotBiteTool::ToolUi::SetVisible("Plane", false);
+			   HotBiteTool::ToolUi::SetVisible("Monkey", false);
+			   switch (currentModel) {
+			   case Model::CUBE: HotBiteTool::ToolUi::SetVisible("Cube", true); break;
+			   case Model::SPHERE: HotBiteTool::ToolUi::SetVisible("Sphere", true); break;
+			   case Model::PLANE: HotBiteTool::ToolUi::SetVisible("Plane", true); break;
+			   case Model::CUSTOM: HotBiteTool::ToolUi::SetVisible("Monkey", true); break;
+			   default: break;
+			   }
+			   materialList->Items->Clear();
+			   for each (IntPtr p in materials) {
+				   Material* m = (Material*)p.ToPointer();
+				   materialList->Items->Add(gcnew System::String(m->props["name"]->GetValue<std::string>().c_str()));
+			   }
+			   multiMaterialList->Items->Clear();
+			   for each (IntPtr p in multiMaterials) {
+				   MultiMaterial* m = (MultiMaterial*)p.ToPointer();
+				   multiMaterialList->Items->Add(gcnew System::String(m->props["name"]->GetValue<std::string>().c_str()));
+			   }
+
+			   UpdateCode();
+			   UpdateMaterial();
+		   }
+
+		   void UpdateCode() {
+			   json js = GetJson();
+			   auto ui_text = gcnew System::String(js.dump(4).c_str());
+			   textEditor->Text = ui_text->Replace("\n", "\r\n");
+		   }
+
+		   void UpdateLayers() {
+			   layerList->Items->Clear();
+			   if (multiMaterialList->SelectedItem != nullptr) {
+				   char layerName[32];
+				   int i = 0;
+				   auto mm = GetMaterial<MultiMaterial>(multiMaterialList->SelectedItem->ToString(), multiMaterials);
+				   for (const auto& layer : mm->layers) {
+					   snprintf(layerName, 32, "layer %d", i++);
+					   layerList->Items->Add(gcnew String(layerName));
+				   }
+			   }
+			   UpdateCode();
+		   }
+
+	private: System::Void newToolStripMenuItem1_Click(System::Object^ sender, System::EventArgs^ e) {
+		Material* m = new ::Material(this);
+		char name[32];
+		for (int n = materials->Count + 1;; ++n) {
+			snprintf(name, 32, "material %d", n);
+			if (GetMaterial<Material>(gcnew System::String(name), materials) == nullptr) {
+				break;
+			}
+		}
+		m->props["name"]->SetValue<std::string>(name);
+		IntPtr ptr(m);
+		materials->Add(ptr);
+		UpdateEditor();
+	}
+
+		   System::Void saveAsToolStripMenuItem_Click(System::Object^ sender, System::EventArgs^ e) {
+			   SaveFileDialog^ saveFileDialog = gcnew SaveFileDialog();
+
+			   saveFileDialog->Filter = "Material Files (*.mat)|*.mat";
+			   saveFileDialog->FilterIndex = 1;
+			   saveFileDialog->RestoreDirectory = true;
+
+			   if (saveFileDialog->ShowDialog() == System::Windows::Forms::DialogResult::OK) {
+				   auto content = GetJson().dump(4);
+				   std::string strFileName = msclr::interop::marshal_as<std::string>(saveFileDialog->FileName);
+
+				   std::ofstream outputFile(strFileName);
+				   if (outputFile.is_open()) {
+					   outputFile << content;
+					   outputFile.close();
+					   fileName = saveFileDialog->FileName;
+				   }
+				   else {
+					   // Handle error opening the file
+					   MessageBox::Show("Error opening file for writing.");
+				   }
+			   }
+		   }
+
+	private: System::Void materialList_SelectedIndexChanged(System::Object^ sender, System::EventArgs^ e) {
 		if (materialList->SelectedIndex >= 0)
 		{
 			Material* m = GetMaterial<Material>(materialList->Text, materials);
@@ -853,73 +856,97 @@ private: System::Void materialList_SelectedIndexChanged(System::Object^ sender, 
 		UpdateMaterial();
 	}
 
-	   System::Void saveToolStripMenuItem_Click(System::Object^ sender, System::EventArgs^ e) {
-		   if (fileName == nullptr) {
-			   return saveAsToolStripMenuItem_Click(sender, e);
+		   System::Void saveToolStripMenuItem_Click(System::Object^ sender, System::EventArgs^ e) {
+			   if (fileName == nullptr) {
+				   return saveAsToolStripMenuItem_Click(sender, e);
+			   }
+
+			   auto content = GetJson().dump(4);
+			   marshal_context context;
+			   std::string strFileName = context.marshal_as<std::string>(fileName);
+
+			   std::ofstream outputFile(strFileName);
+			   if (outputFile.is_open()) {
+				   outputFile << content;
+				   outputFile.close();
+			   }
+			   else {
+				   // Handle error opening the file
+				   MessageBox::Show("Error opening file for writing.");
+			   }
 		   }
 
-		   auto content = GetJson().dump(4);
-		   marshal_context context;
-		   std::string strFileName = context.marshal_as<std::string>(fileName);
 
-		   std::ofstream outputFile(strFileName);
-		   if (outputFile.is_open()) {
-			   outputFile << content;
-			   outputFile.close();
-		   }
-		   else {
-			   // Handle error opening the file
-			   MessageBox::Show("Error opening file for writing.");
-		   }
-	   }
-
-
-private: System::Void propertyGrid_Click(System::Object^ sender, System::EventArgs^ e) {
-}
-private: System::Void propertyGrid_PropertyValueChanged(System::Object^ s, System::Windows::Forms::PropertyValueChangedEventArgs^ e) {
-	UpdateMaterial();
-}
-private: System::Void button2_Click(System::Object^ sender, System::EventArgs^ e) {
-	currentModel = Model::CUBE;
-	UpdateEditor();
-}
-private: System::Void button3_Click(System::Object^ sender, System::EventArgs^ e) {
-	currentModel = Model::SPHERE;
-	UpdateEditor();
-}
-private: System::Void button4_Click(System::Object^ sender, System::EventArgs^ e) {
-	currentModel = Model::PLANE;
-	UpdateEditor();
-}
-
-private: System::Void monkeyToolStripMenuItem_Click(System::Object^ sender, System::EventArgs^ e) {
-	currentModel = Model::CUSTOM;
-	UpdateEditor();
-}
-
-private: System::Void removeToolStripMenuItem_Click(System::Object^ sender, System::EventArgs^ e) {
-	if (materialList->SelectedItem != nullptr) {
-		DeleteMaterial<Material>(materialList->SelectedItem->ToString(), materials);	
+	private: System::Void propertyGrid_Click(System::Object^ sender, System::EventArgs^ e) {
+	}
+	private: System::Void propertyGrid_PropertyValueChanged(System::Object^ s, System::Windows::Forms::PropertyValueChangedEventArgs^ e) {
+		UpdateMaterial();
+	}
+	private: System::Void button2_Click(System::Object^ sender, System::EventArgs^ e) {
+		currentModel = Model::CUBE;
 		UpdateEditor();
 	}
-}
-
-
-private: System::Void removeToolStripMenuItem1_Click(System::Object^ sender, System::EventArgs^ e) {
-	if (multiMaterialList->SelectedItem != nullptr) {
-		DeleteMaterial<MultiMaterial>(multiMaterialList->SelectedItem->ToString(), multiMaterials);
+	private: System::Void button3_Click(System::Object^ sender, System::EventArgs^ e) {
+		currentModel = Model::SPHERE;
 		UpdateEditor();
 	}
-}
-private: System::Void button4_Click_1(System::Object^ sender, System::EventArgs^ e) {
-}
-private: System::Void OnMultiMaterialSelectedItemChanged(System::Object^ sender, System::EventArgs^ e) {
-	bool layer_enabled = multiMaterialList->SelectedIndex >= 0;
-	if (layer_enabled) {
-		materialList->SelectedIndex = -1;
+	private: System::Void button4_Click(System::Object^ sender, System::EventArgs^ e) {
+		currentModel = Model::PLANE;
+		UpdateEditor();
 	}
-	buttonAddLayer->Enabled = layer_enabled;
-	layerList->Enabled = layer_enabled;	
-}
-};
+
+	private: System::Void monkeyToolStripMenuItem_Click(System::Object^ sender, System::EventArgs^ e) {
+		currentModel = Model::CUSTOM;
+		UpdateEditor();
+	}
+
+	private: System::Void removeToolStripMenuItem_Click(System::Object^ sender, System::EventArgs^ e) {
+		if (materialList->SelectedItem != nullptr) {
+			DeleteMaterial<Material>(materialList->SelectedItem->ToString(), materials);
+			UpdateEditor();
+		}
+	}
+
+
+	private: System::Void removeToolStripMenuItem1_Click(System::Object^ sender, System::EventArgs^ e) {
+		if (multiMaterialList->SelectedItem != nullptr) {
+			DeleteMaterial<MultiMaterial>(multiMaterialList->SelectedItem->ToString(), multiMaterials);
+			UpdateEditor();
+		}
+	}
+
+	private: System::Void button4_Click_1(System::Object^ sender, System::EventArgs^ e) {
+		if (multiMaterialList->SelectedItem != nullptr) {
+			auto mm = GetMaterial<MultiMaterial>(multiMaterialList->SelectedItem->ToString(), multiMaterials);
+			mm->layers.push_back(MultiMaterialLayer());
+			UpdateLayers();
+		}
+	}
+	private: System::Void OnMultiMaterialSelectedItemChanged(System::Object^ sender, System::EventArgs^ e) {
+		bool layer_enabled = multiMaterialList->SelectedIndex >= 0;
+		if (layer_enabled) {
+			materialList->SelectedIndex = -1;
+			auto mm = GetMaterial<MultiMaterial>(multiMaterialList->SelectedItem->ToString(), multiMaterials);
+			MultiMaterialProp^ prop = gcnew MultiMaterialProp(mm, rootFolder->Text);
+			propertyGrid->SelectedObject = prop;
+		}
+		buttonAddLayer->Enabled = layer_enabled;
+		layerList->Enabled = layer_enabled;
+		UpdateLayers();
+	}
+	private: System::Void OnLayerSelected(System::Object^ sender, System::EventArgs^ e) {
+		bool layer_selected = (layerList->SelectedIndex >= 0 && multiMaterialList->SelectedIndex >= 0);
+		propertyGrid->SelectedObject = nullptr;
+		if (layer_selected) {
+			materialList->SelectedIndex = -1;
+			auto mm = GetMaterial<MultiMaterial>(multiMaterialList->SelectedItem->ToString(), multiMaterials);
+			if (mm != nullptr) {
+				if (mm->layers.size() >= layerList->SelectedIndex) {
+					MultiMaterialLayerProp^ prop = gcnew MultiMaterialLayerProp(&mm->layers[layerList->SelectedIndex], rootFolder->Text, materials);
+					propertyGrid->SelectedObject = prop;
+				}
+			}
+		}
+	}
+	};
 }

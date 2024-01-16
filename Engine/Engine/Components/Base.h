@@ -148,6 +148,8 @@ namespace HotBite {
 				std::vector<uint32_t> multi_texture_operation;
 				std::vector<float> multi_texture_value;
 				std::vector<float> multi_texture_uv_scales;
+
+				bool LoadMultitexture(const std::string& json_str, const std::string& root_path, const Core::FlatMap<std::string, Core::MaterialData>& materials);
 			};
 
 			/**

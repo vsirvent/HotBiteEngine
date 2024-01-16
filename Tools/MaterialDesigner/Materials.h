@@ -23,6 +23,7 @@ using namespace System::Globalization;
 using namespace System::Windows::Forms;
 using namespace System::Drawing::Design;
 using namespace System::IO;
+using namespace System::Collections;
 
 namespace HotBite {
 	namespace Engine {
@@ -34,6 +35,30 @@ namespace HotBite {
 			float4 parseColorStringF4(const std::string& colorString);
 		}
 	}
+}
+
+template<typename T>
+T* GetMaterial(System::String^ name, Generic::List<IntPtr>^ list) {
+	for each (IntPtr p in list) {
+		T* m = (T*)p.ToPointer();
+		if (String::Compare(gcnew System::String(m->props["name"]->GetValue<std::string>().c_str()), name) == 0) {
+			return m;
+		}
+	}
+	return nullptr;
+}
+
+template<typename T>
+bool DeleteMaterial(System::String^ name, Generic::List<IntPtr>^ list) {
+	for each (IntPtr p in list) {
+		T* m = (T*)p.ToPointer();
+		if (String::Compare(gcnew System::String(m->props["name"]->GetValue<std::string>().c_str()), name) == 0) {
+			delete m;
+			list->Remove(p);
+			return true;
+		}
+	}
+	return false;
 }
 
 class AbstractProp {
@@ -203,47 +228,39 @@ public:
 	}
 };
 
-#if 0
-
-"multi_texture": {
-	"count": 2,
-		"parallax_scale" : 0.02,
-		"tess_type" : 3,
-		"tess_factor" : 3,
-		"textures" : [
-	{
-		"layer": 1,
-			"mask" : "",
-			"mask_noise" : 1,
-			"texture" : "Grass2",
-			"op" : 1,
-			"value" : 0.8,
-			"uv_scale" : 3.0
-	},
-			  {
-				"layer": 0,
-				"mask" : "",
-				"texture" : "Rocks",
-				"op" : 1,
-				"value" : 1.0,
-				"uv_scale" : 2.0
-			  }
-		]
-}
-
-#endif
-
 class MultiMaterialLayer : public Element {
+public:
 	MultiMaterialLayer()
 	{
-		props["name"] = std::make_shared<Prop<std::string>>("material");
-
+		props["mask"] = std::make_shared<Prop<std::string>>("");
+		props["mask_noise"] = std::make_shared<Prop<int>>(0);
+		props["uv_noise"] = std::make_shared<Prop<int>>(0);
+		props["texture"] = std::make_shared<Prop<std::string>>("");
+		props["op"] = std::make_shared<Prop<int>>(1);
+		props["value"] = std::make_shared<Prop<float>>(1.0f);
+		props["uv_scale"] = std::make_shared<Prop<float>>(1.0f);
 	};
+
+	virtual bool FromJson(const json& js) {
+		try {
+			props["mask"]->SetValue<std::string>(js["mask"]);
+			props["mask_noise"]->SetValue<int>(js["mask_noise"]);
+			props["uv_noise"]->SetValue<int>(js["uv_noise"]);
+			props["texture"]->SetValue<std::string>(js["texture"]);
+			props["op"]->SetValue<int>(js["op"]);
+			props["value"]->SetValue<float>(js["value"]);
+			props["uv_scale"]->SetValue<float>(js["uv_scale"]);
+		}
+		catch (...) {
+			return false;
+		}
+		return true;
+	}
 };
 
 class MultiMaterial : public Element {
 public:
-	std::list<MultiMaterialLayer> layers;
+	std::vector<MultiMaterialLayer> layers;
 	gcroot<IMaterialListener^> listener = nullptr;
 	MultiMaterial(IMaterialListener^ l) : listener(l)
 	{
@@ -277,8 +294,11 @@ public:
 		json js = Element::ToJson();
 		js["count"] = layers.size();
 		json layers_js;
+		int i = 0;
 		for (const auto& layer : layers) {
-			layers_js.push_back(layer.ToJson());
+			auto layer_js = layer.ToJson();
+			layer_js["layer"] = i++;
+			layers_js.push_back(layer_js);
 		}
 		js["textures"] = layers_js;
 		return js;
@@ -317,6 +337,78 @@ public:
 	virtual StandardValuesCollection^ GetStandardValues(ITypeDescriptorContext^ context) override
 	{
 		array<System::String^>^ values = { TESS_NONE, TESS_BORDER, TESS_FULL };
+		return gcnew StandardValuesCollection(values);
+	}
+	virtual bool GetStandardValuesExclusive(ITypeDescriptorContext^ context) override
+	{
+		return true;
+	}
+	virtual bool GetStandardValuesSupported(ITypeDescriptorContext^ context) override
+	{
+		return true;
+	}
+};
+
+public ref class MultiLayerOpTypeConverter : public TypeConverter
+{
+public:
+	static String^ TEXT_OP_MIX = gcnew String("MIX");
+	static String^ TEXT_OP_ADD = gcnew String("ADD");
+	static String^ TEXT_OP_MULT = gcnew String("MULT");
+
+	static String^ GetLayerOpName(int32_t type) {
+		switch (type) {
+		case 0: return TEXT_OP_MIX;
+		case 1: return TEXT_OP_ADD;
+		case 2: return TEXT_OP_MULT;
+		default: return TEXT_OP_ADD;
+		}
+	}
+
+	static int GetLayerOpByName(String^ name) {
+		if (String::Compare(name, TEXT_OP_MIX) == 0) {
+			return 0;
+		}
+		if (String::Compare(name, TEXT_OP_ADD) == 0) {
+			return 1;
+		}
+		if (String::Compare(name, TEXT_OP_MULT) == 0) {
+			return 2;
+		}
+		return 0;
+	}
+
+	virtual StandardValuesCollection^ GetStandardValues(ITypeDescriptorContext^ context) override
+	{
+		array<System::String^>^ values = { TEXT_OP_MIX, TEXT_OP_ADD, TEXT_OP_MULT };
+		return gcnew StandardValuesCollection(values);
+	}
+	virtual bool GetStandardValuesExclusive(ITypeDescriptorContext^ context) override
+	{
+		return true;
+	}
+	virtual bool GetStandardValuesSupported(ITypeDescriptorContext^ context) override
+	{
+		return true;
+	}
+};
+
+public ref class TextureTypeConverter : public TypeConverter
+{
+public:
+	Generic::List<IntPtr>^ materials;
+
+	void Setup(Generic::List<IntPtr>^ materials) {
+		this->materials = materials;
+	}
+
+	virtual StandardValuesCollection^ GetStandardValues(ITypeDescriptorContext^ context) override
+	{
+		System::Collections::ArrayList^ values = gcnew System::Collections::ArrayList();
+		for each (IntPtr p in materials) {
+			Material* m = (Material*)p.ToPointer();
+			values->Add(gcnew String(m->GetString("name").value().c_str()));
+		}
 		return gcnew StandardValuesCollection(values);
 	}
 	virtual bool GetStandardValuesExclusive(ITypeDescriptorContext^ context) override
@@ -709,6 +801,115 @@ public:
 	}
 };
 
+public ref class MultiMaterialLayerProp
+{
+public:
+	MultiMaterialLayer* layer;
+	Generic::List<IntPtr>^ materials;
+	System::String^ root_folder;
+
+	[CategoryAttribute("MultiMaterialLayer")]
+	[TypeConverterAttribute(MultiLayerOpTypeConverter::typeid)]
+	property System::String^ Operation {
+		System::String^ get()
+		{
+			return MultiLayerOpTypeConverter::GetLayerOpName((layer->props["op"]->GetValue<int32_t>()) & 0x03);
+		}
+
+		void set(System::String^ newValue)
+		{
+			int32_t val = layer->props["op"]->GetValue<int32_t>() & ~0x03 | MultiLayerOpTypeConverter::GetLayerOpByName(newValue);
+			return layer->props["op"]->SetValue<int32_t>(val);
+		}
+	}
+
+	[CategoryAttribute("MultiMaterialLayer")]
+	[EditorAttribute(CustomImageEditor::typeid, System::Drawing::Design::UITypeEditor::typeid)]
+	property String^ Mask {
+		String^ get()
+		{
+			return gcnew String(layer->props["mask"]->GetValue<std::string>().c_str());
+		}
+		void set(String^ newValue)
+		{
+			System::String^ file = Path::GetFileName(newValue);
+			if (file->Length > 0) {
+				System::String^ dest_file = root_folder + file;
+				try {
+					File::Delete(dest_file);
+				}
+				catch (...) {}
+				File::Copy(newValue, dest_file);
+			}
+			layer->props["mask"]->SetValue<std::string>(msclr::interop::marshal_as<std::string>(file));
+		}
+	}
+	
+	[CategoryAttribute("MultiMaterialLayer")]
+	[TypeConverterAttribute(TextureTypeConverter::typeid)]
+	property String^ Texture {
+		String^ get()
+		{
+			return gcnew String(layer->props["texture"]->GetValue<std::string>().c_str());
+		}
+		void set(String^ newValue)
+		{
+			layer->props["texture"]->SetValue<std::string>(msclr::interop::marshal_as<std::string>(newValue));
+		}
+	}
+
+	[CategoryAttribute("MultiMaterialLayer")]
+	property bool MaskNoise {
+		bool get()
+		{
+			return (bool)layer->props["mask_noise"]->GetValue<int>();
+		}
+
+		void set(bool newValue)
+		{
+			return layer->props["mask_noise"]->SetValue<int>((int)newValue);
+		}
+	}
+
+	[CategoryAttribute("MultiMaterialLayer")]
+	property bool UVNoise {
+		bool get()
+		{
+			return (bool)layer->props["uv_noise"]->GetValue<int>();
+		}
+
+		void set(bool newValue)
+		{
+			return layer->props["uv_noise"]->SetValue<int>((int)newValue);
+		}
+	}
+
+	[CategoryAttribute("MultiMaterialLayer")]
+	property float Value {
+		float get()
+		{
+			return layer->props["value"]->GetValue<float>();
+		}
+
+		void set(float newValue)
+		{
+			return layer->props["value"]->SetValue<float>(newValue);
+		}
+	}
+
+	MultiMaterialLayerProp(MultiMaterialLayer* layer, System::String^ path, Generic::List<IntPtr>^ materials) {
+		this->layer = layer;
+		this->materials = materials;
+		this->root_folder = path + "\\";
+
+		PropertyDescriptor^ propertyDescriptor = TypeDescriptor::GetProperties(this)["Texture"];
+		if (propertyDescriptor != nullptr)
+		{
+			TextureTypeConverter^ textureTypeConverter = dynamic_cast<TextureTypeConverter^>(propertyDescriptor->Converter);
+			textureTypeConverter->Setup(materials);
+		}
+	}
+};
 
 public ref class MultiMaterialProp
 {

@@ -9,7 +9,7 @@
       {
         "type": "directional",
         "name": "Sun",
-        "color": "100100100",
+        "color": "010010010",
         "direction": {
           "x": 3.0,
           "y": 3.0,
@@ -23,13 +23,13 @@
       {
         "type": "ambient",
         "name": "ambient",
-        "color_down": "050050050",
+        "color_down": "010010010",
         "color_up": "010010010"
       }
     ],
     "materials": [
       {
-        "name": "Floor",
+        "name": "MaterialDesignerFloor",
         "spec_intensity": 1.0,
         "parallax_scale": 0.1,
         "textures": {
@@ -44,7 +44,7 @@
     "entities": [
       {
         "name": "Floor",
-        "material": "Floor"
+        "material": "MaterialDesignerFloor"
       }
     ]
   }

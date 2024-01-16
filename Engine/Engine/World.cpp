@@ -693,38 +693,7 @@ bool World::Load(const std::string& scene_file) {
 				if (entity.contains("multi_texture")) {
 					auto& multi_textures_json = entity["multi_texture"];
 					Components::Material &m = coordinator.GetComponent<Components::Material>(e);
-					m.multi_texture_count = multi_textures_json["count"];
-					m.multi_texture_data.resize(m.multi_texture_count);
-					m.multi_texture_mask.resize(m.multi_texture_count);
-					m.multi_texture_operation.resize(m.multi_texture_count);
-					m.multi_texture_uv_scales.resize(m.multi_texture_count);
-					m.multi_texture_value.resize(m.multi_texture_count);
-					if (multi_textures_json.contains("parallax_scale")) {
-						m.multi_parallax_scale = multi_textures_json["parallax_scale"];
-					}
-					if (multi_textures_json.contains("tess_type")) {
-						m.tessellation_type = multi_textures_json["tess_type"];
-					}
-					if (multi_textures_json.contains("tess_factor")) {
-						m.tessellation_factor = multi_textures_json["tess_factor"];
-					}
-					if (multi_textures_json.contains("displacement_scale")) {
-						m.displacement_scale = multi_textures_json["displacement_scale"];
-					}
-					for (auto& multi_texture : multi_textures_json["textures"]) {
-						int layer = multi_texture["layer"];
-						m.multi_texture_mask[layer] = LoadTexture(path + (std::string)multi_texture["mask"]);
-						m.multi_texture_operation[layer] = multi_texture["op"];
-						m.multi_texture_uv_scales[layer] = multi_texture["uv_scale"];
-						m.multi_texture_value[layer] = multi_texture["value"];
-						m.multi_texture_data[layer] = materials.Get(multi_texture["texture"]);
-						if (multi_texture.contains("mask_noise") && multi_texture["mask_noise"] == 1) {
-							m.multi_texture_operation[layer] |= TEXT_MASK_NOISE;
-						}
-						if (multi_texture.contains("uv_noise") && multi_texture["uv_noise"] == 1) {
-							m.multi_texture_operation[layer] |= TEXT_UV_NOISE;
-						}
-					}
+					m.LoadMultitexture(multi_textures_json.dump(), path, materials);
 				}
 				if (changed) {
 					coordinator.NotifySignatureChange(e);

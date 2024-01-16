@@ -33,6 +33,7 @@ namespace HotBiteTool {
 
 			void LoadUI(json ui);
 			void SetMaterial(const std::string& entity, const std::string& root, const std::string& mat);
+			void SetMultiMaterial(const std::string& entity, const std::string& root, const std::string& mat);
 			void LoadWorld(const std::string& world);
 			void RotateEntity(const std::string& name);
 			void SetVisible(const std::string& name, bool visible);
