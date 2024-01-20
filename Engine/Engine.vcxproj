@@ -203,6 +203,7 @@
     <ClInclude Include="Engine\Components\Physics.h" />
     <ClInclude Include="Engine\Components\Sky.h" />
     <ClInclude Include="Engine\Core\Audio.h" />
+    <ClInclude Include="Engine\Core\BVH.h" />
     <ClInclude Include="Engine\Core\LockingQueue.h" />
     <ClInclude Include="Engine\Core\DXCore.h" />
     <ClInclude Include="Engine\Core\Interfaces.h" />

@@ -364,6 +364,9 @@
     <ClInclude Include="Engine\Systems\AudioSystem.h">
       <Filter>Engine\Systems</Filter>
     </ClInclude>
+    <ClInclude Include="Engine\Core\BVH.h">
+      <Filter>Engine\Core</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />

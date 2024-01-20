@@ -241,6 +241,10 @@ public:
 		props["uv_scale"] = std::make_shared<Prop<float>>(1.0f);
 	};
 
+	MultiMaterialLayer(const json& js):MultiMaterialLayer() {
+		FromJson(js);
+	}
+
 	virtual bool FromJson(const json& js) {
 		try {
 			props["mask"]->SetValue<std::string>(js["mask"]);
@@ -283,6 +287,10 @@ public:
 			props["tess_type"]->SetValue<int>(js["tess_type"]);
 			props["tess_factor"]->SetValue<float>(js["tess_factor"]);
 			props["displacement_scale"]->SetValue<float>(js["displacement_scale"]);
+
+			for (const auto& t : js["textures"]) {
+				layers.push_back(MultiMaterialLayer(t));
+			}
 		}
 		catch (...) {
 			return false;

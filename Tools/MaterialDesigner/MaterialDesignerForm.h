@@ -665,6 +665,19 @@ namespace MaterialDesigner {
 							materialList->Items->Add(gcnew String(m->props["name"]->GetValue<std::string>().c_str()));
 						}
 					}
+
+					for (const auto& mjs : js["multi_materials"]) {
+						MultiMaterial* m = new MultiMaterial(this);
+						if (m != nullptr) {
+							if (!m->FromJson(mjs)) {
+								delete m;
+								m = nullptr;
+							}
+							IntPtr ptr(m);
+							multiMaterials->Add(ptr);
+							multiMaterialList->Items->Add(gcnew String(m->props["name"]->GetValue<std::string>().c_str()));
+						}
+					}
 					inputFile.close();
 					fileName = openFileDialog->FileName;
 					UpdateEditor();

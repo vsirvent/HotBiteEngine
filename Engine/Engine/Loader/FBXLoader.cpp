@@ -27,6 +27,7 @@ SOFTWARE.
 #include "FBXLoader.h"
 #include <stdio.h>
 #include <Core/Mesh.h>
+#include <Core/BVH.h>
 
 using namespace std;
 using namespace HotBite::Engine;
