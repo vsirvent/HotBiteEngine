@@ -853,3 +853,6 @@ Tests/DemoGame/x64/Debug/vc142.idb
 Tools/MaterialDesigner/.vs/MaterialDesigner/FileContentIndex/read.lock
 Tools/MaterialDesigner/.vs/MaterialDesigner/v17/.suo
 Tools/MaterialDesigner/.vs/MaterialDesigner/v17/Browse.VC.db
+enet/out/build/x64-Release/.cmake/api/v1/reply/index-2024-01-20T17-30-19-0951.json
+enet/out/build/x64-Release/.cmake/api/v1/reply/cmakeFiles-v1-64ae7f0d477318d785c1.json
+enet/out/build/x64-Release/.cmake/api/v1/reply/cache-v2-09367f611881075c3ac4.json

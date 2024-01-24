@@ -63,6 +63,9 @@
     <Filter Include="Engine\Core\Shaders\Particles">
       <UniqueIdentifier>{ca08d637-0c00-46fa-9dbe-a0f17c587074}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Engine\Core\Shaders\RayTrace">
+      <UniqueIdentifier>{89c97f9e-9b53-4bf1-b9a9-bbc71fab498a}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Engine\Core\DXCore.cpp">
@@ -178,6 +181,9 @@
     </ClCompile>
     <ClCompile Include="Engine\Systems\AudioSystem.cpp">
       <Filter>Engine\Systems</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\Core\BVH.cpp">
+      <Filter>Engine\Core</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -509,6 +515,9 @@
     </FxCompile>
     <FxCompile Include="Engine\Core\Shaders\Particles\FireBall2ParticlePS.hlsl">
       <Filter>Engine\Core\Shaders\Particles</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\RayTrace\RayTraceCS.hlsl">
+      <Filter>Engine\Core\Shaders\RayTrace</Filter>
     </FxCompile>
   </ItemGroup>
 </Project>

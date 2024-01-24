@@ -231,12 +231,13 @@ void RenderSystem::OnEntitySignatureChanged(ECS::Entity entity, const Signature&
 	}
 }
 
-bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb)
+bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::BVHBuffer* bvh)
 {
 	bool ret = true;
 	try {
 		dxcore = dx_core;
 		vertex_buffer = vb;
+		bvh_buffer = bvh;
 		first_pass_target = dxcore;		
 		depth_target = dxcore;
 		int w = dxcore->GetWidth();
@@ -259,6 +260,14 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb)
 		}
 		if (FAILED(rgba_noise_texture.Init(RGA_NOISE_W, RGBA_NOISE_H, DXGI_FORMAT::DXGI_FORMAT_R8G8B8A8_UNORM, (const uint8_t*)rgba_noise_map, RGBA_NOISE_LEN))) {
 			throw std::exception("rgba_noise_texture.Init failed");
+		}
+		if (FAILED(rt_texture.Init(w, h, DXGI_FORMAT_R8G8B8A8_UNORM, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+			throw std::exception("rt_texture.Init failed");
+		}
+
+		rt_shader = ShaderFactory::Get()->GetShader<SimpleComputeShader>("RayTraceCS.cso");
+		if (rt_shader == nullptr) {
+			throw std::exception("raytrace shader.Init failed");
 		}
 	}
 	catch (std::exception& e) {
@@ -1151,12 +1160,22 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 	}
 }
 
-float3 points[8];
+void RenderSystem::ProcessRT() {
+	auto& device = dxcore->device;
+	rt_shader->SetUnorderedAccessView("output", rt_texture.UAV());
+	rt_shader->SetShaderResourceView("vertexBuffer", vertex_buffer->VertexSRV());
+	rt_shader->SetShaderResourceView("indexBuffer", vertex_buffer->IndexSRV());
+	rt_shader->SetShaderResourceView("objects", bvh_buffer->SRV());
+	rt_shader->SetShader();
+	dxcore->context->Dispatch(32, 32, 1);
+}
+
 bool RenderSystem::IsVisible(const float3& camera_pos, const DrawableEntity& drawable, const matrix& view_projection, int w, int h) const {
 	bool ret = false;
 	if (drawable.base->draw_method == DRAW_ALWAYS) {
 		return true;
 	}
+	float3 points[8];
 	float3& worldpos = drawable.bounds->final_box.Center;
 	//float3 dir = { worldpos.x - camera_pos.x, worldpos.y - camera_pos.y, worldpos.z - camera_pos.z };
 	//float dist2 = abs(DIST2(dir));
@@ -1530,6 +1549,7 @@ void RenderSystem::Draw() {
 		//if ((count++ % STATIC_SHADOW_REFRESH_PERIOD) == 0) {
 		//	CastShadows(w, h, camera_position, view, projection, true);
 		//}
+		ProcessRT();
 		CastShadows(w, h, camera_position, view, projection, false);
 		DrawDepth(w, h, camera_position, view, projection);
 		DrawSky(w, h, camera_position, view, projection);

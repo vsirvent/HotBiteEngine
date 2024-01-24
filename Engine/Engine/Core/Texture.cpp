@@ -328,6 +328,7 @@ namespace HotBite {
 					depth_stencil_view->Release();
 					shader_resource_view->Release();
 					texture->Release();
+					
 					depth_stencil_view = nullptr;
 					shader_resource_view = nullptr;
 					texture = nullptr;
@@ -371,7 +372,7 @@ namespace HotBite {
 				return height;
 			}
 
-			HRESULT RenderTexture2D::Init(int w, int h, DXGI_FORMAT format, const uint8_t* data, uint32_t len) {
+			HRESULT RenderTexture2D::Init(int w, int h, DXGI_FORMAT format, const uint8_t* data, uint32_t len, uint32_t bind_flags) {
 				ID3D11Device* device = DXCore::Get()->device;
 				HRESULT hr = S_OK;
 				init = true;
@@ -390,7 +391,7 @@ namespace HotBite {
 				texDesc.Format = format;
 				texDesc.SampleDesc.Count = 1;
 				texDesc.Usage = D3D11_USAGE_DEFAULT;
-				texDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
+				texDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET | bind_flags;
 				if (mip_levels > 1) {
 					texDesc.MiscFlags = D3D11_RESOURCE_MISC_GENERATE_MIPS;
 				}
@@ -410,6 +411,8 @@ namespace HotBite {
 				{
 					return hr;
 				}
+
+				texture->GetDesc(&tex_desc);
 				//The Shader Resource view description
 				D3D11_SHADER_RESOURCE_VIEW_DESC SMViewDesc;
 				SMViewDesc.Format = texDesc.Format;
@@ -424,6 +427,10 @@ namespace HotBite {
 				{
 					return hr;
 				}
+				shader_resource_view->GetResource(&resource);
+				if (texDesc.BindFlags & D3D11_BIND_UNORDERED_ACCESS) {
+					device->CreateUnorderedAccessView(resource, nullptr, &uav);
+				}
 				D3D11_RENDER_TARGET_VIEW_DESC renderTargetViewDesc;
 				// Setup the description of the render target view.
 				renderTargetViewDesc.Format = texDesc.Format;
@@ -431,6 +438,7 @@ namespace HotBite {
 				renderTargetViewDesc.Texture2D.MipSlice = 0;
 				// Create the render target view.
 				hr = device->CreateRenderTargetView(texture, &renderTargetViewDesc, &render_view);
+				
 				return hr;
 			}
 
@@ -439,6 +447,12 @@ namespace HotBite {
 					texture->Release();
 					shader_resource_view->Release();
 					render_view->Release();
+					resource->Release();
+					if (uav != nullptr) {
+						uav->Release();
+						uav = nullptr;
+					}
+					resource = nullptr;
 					texture = nullptr;
 					shader_resource_view = nullptr;
 					render_view = nullptr;
@@ -453,8 +467,24 @@ namespace HotBite {
 				}
 			}
 
+			const D3D11_TEXTURE2D_DESC& RenderTexture2D::Descriptor() const {
+				return tex_desc;
+			}
+
+			ID3D11Texture2D* RenderTexture2D::Texture() const {
+				return texture;
+			}
+
+			ID3D11Resource* RenderTexture2D::Resource() const {
+				return resource;
+			}
+
 			ID3D11ShaderResourceView* RenderTexture2D::SRV() const {
 				return shader_resource_view;
+			}
+
+			ID3D11UnorderedAccessView* RenderTexture2D::UAV() const {
+				return uav;
 			}
 
 			ID3D11RenderTargetView* RenderTexture2D::RenderTarget() const {

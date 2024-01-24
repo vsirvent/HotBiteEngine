@@ -1618,7 +1618,7 @@ bool SimpleComputeShader::CreateShader(ID3DBlob* shaderBlob)
 
 	// Get the description of the shader
 	D3D11_SHADER_DESC shaderDesc;
-	refl->GetDesc(&shaderDesc);
+	result = refl->GetDesc(&shaderDesc);
 	
 	// Grab the thread info
 	threadsTotal = refl->GetThreadGroupSize(

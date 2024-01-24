@@ -34,6 +34,7 @@ SOFTWARE.
 #include <Core/Update.h>
 #include <Core/Vertex.h>
 #include <Core/SimpleShader.h>
+#include <Core/BVH.h>
 
 namespace HotBite {
 	namespace Engine {
@@ -277,6 +278,7 @@ namespace HotBite {
 				void AddSkeleton(std::shared_ptr<Skeleton> skl);
 				std::unordered_map<int, std::string> GetAnimations();
 
+				HotBite::Engine::Core::BVH bvh;
 				float3 minDimensions = {};
 				float3 maxDimensions = {};
 				size_t indexOffset = 0;

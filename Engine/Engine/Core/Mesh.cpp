@@ -61,6 +61,9 @@ void MeshData::Init(VertexBuffer<Core::Vertex>* vb, const std::string& mesh_name
 	this->init = true;
 	this->vertices = vertices;
 	this->indices = indices;
+
+	bvh.Init(vertices, indices);
+
 	//Calculate max and min dimensions
 	indexCount = (uint32_t)indices.size();
 	vertexCount = (uint32_t)vertices.size();

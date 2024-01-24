@@ -229,6 +229,7 @@ namespace HotBite {
 				Core::RenderTexture2D temp_map;
 				Core::RenderTexture2D rgba_noise_texture;
 				Core::RenderTexture2D first_pass_texture{ 1 };
+				Core::RenderTexture2D rt_texture;
 				Core::DepthTexture2D depth_view;
 				
 				Core::PostProcess* post_process_pipeline = nullptr;				
@@ -236,19 +237,24 @@ namespace HotBite {
 				Core::IRenderTarget* second_pass_target = nullptr;
 				Core::IDepthResource* depth_target = nullptr;
 				
+				//Ray tracing
+				Core::SimpleComputeShader* rt_shader = nullptr;
+				BVHBuffer* bvh_buffer = nullptr;
+
 				bool tess_enabled = true;
 				bool normal_material_map = true;
 				bool normal_mesh_map = true;
 				bool wireframe_enabled = false;
 			
 				bool cloud_test = false;
-				
+
 				void DrawSky(int w, int h, const float3& camera_position, const matrix& view, const matrix& projection);
 				void CastShadows(int w, int h, const float3& camera_position, const matrix& view, const matrix& projection, bool static_shadows);
 				void DrawDepth(int w, int h, const float3& camera_position, const matrix& view, const matrix& projection);
 				void DrawScene(int w, int h, const float3& camera_position, const matrix& view, const matrix& projection,
 					ID3D11ShaderResourceView* prev_pass_texture,
 					Core::IRenderTarget* target, RenderTree& tree);
+				void ProcessRT();
 				void DrawParticles(int w, int h, const float3& camera_position, const matrix& view, const matrix& projection, RenderParticleTree& tree);
 				bool IsVisible(const float3& camera_pos, const DrawableEntity& drawable, const matrix& view_projection, int w, int h) const;
 				void CheckSceneVisibility(RenderTree& tree);
@@ -271,14 +277,14 @@ namespace HotBite {
 				void AddParticle(ECS::Entity entity, const Core::ShaderKey& key, Core::MaterialData* mat, RenderParticleTree& tree, const RenderSystem::ParticleEntity& particle);
 				void RemoveParticle(ECS::Entity entity, RenderParticleTree& tree);
 				void RemoveDrawable(ECS::Entity entity, RenderTree& tree);
-								
+				
 			public:
 				
 				RenderSystem() = default;
 				~RenderSystem();
 
 				//System methods
-				bool Init(Core::DXCore* dx_core, Core::VertexBuffer<Vertex>* vb);
+				bool Init(Core::DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::BVHBuffer* bvh = nullptr);
 				void Clear(const float color[4]);
 				void SetPostProcessPipeline(Core::PostProcess* pipeline);
 				void Draw();

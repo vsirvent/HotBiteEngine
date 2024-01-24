@@ -273,6 +273,7 @@ namespace HotBite {
 				void DispatchByGroups(unsigned int groupsX, unsigned int groupsY, unsigned int groupsZ);
 				void DispatchByThreads(unsigned int threadsX, unsigned int threadsY, unsigned int threadsZ);
 
+				bool SetShaderResourceBuffer(const std::string& name, ID3D11Buffer* buffer);
 				bool SetShaderResourceView(const std::string& name, ID3D11ShaderResourceView* srv);
 				bool SetShaderResourceViewArray(const std::string& name, ID3D11ShaderResourceView** srv, int nviews);
 				bool SetSamplerState(const std::string& name, ID3D11SamplerState* samplerState);

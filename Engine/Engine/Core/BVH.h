@@ -29,176 +29,133 @@ SOFTWARE.
 
 namespace HotBite {
     namespace Engine {
-
-        int compare_float3(const float3& v1, const float3& v2)
-        {
-            if (v1.x < v2.x)
-                return -1;
-            else if (v1.x > v2.x)
-                return 1;
-
-            if (v1.y < v2.y)
-                return -1;
-            else if (v1.y > v2.y)
-                return 1;
-
-            if (v1.z < v2.z)
-                return -1;
-            else if (v1.z > v2.z)
-                return 1;
-
-            return 0;
-        }
-
-        bool operator>(const float3& v1, const float3& v2)
-        {
-            return compare_float3(v1, v2) > 0;
-        }
-
-        bool operator<(const float3& v1, const float3& v2)
-        {
-            return compare_float3(v1, v2) < 0;
-        }
-
-        const float& component(const float3& v, int index)
-        {
-            if (index == 0)
-                return v.x;
-            else if (index == 1)
-                return v.y;
-            else if (index == 2)
-                return v.z;
-            else
-            {
-                throw std::exception("out of index");
-            }
-        }
-
-        float3 operator+(const float3& v1, const float3& v2)
-        {
-            return float3{ v1.x + v2.x, v1.y + v2.y, v1.z + v2.z };
-        }
-
-        float3 operator/(const float3& v1, const float& v2)
-        {
-            return float3{ v1.x / v2, v1.y / v2, v1.z / v2 };
-        }
-
         namespace Core {
             class BVH {
             public:
                 struct Node
                 {
                     //--
-                    float3 aabb_min{ FLT_MIN, FLT_MIN, FLT_MIN };
-                    uint8_t left_child = 0;
+                    float3 aabb_min{ FLT_MAX, FLT_MAX, FLT_MAX };
+                    uint16_t left_child = 0;
+                    uint16_t right_child = 0;
                     //--
-                    float3 aabb_max{ FLT_MAX, FLT_MAX, FLT_MAX };
-                    uint8_t right_child = 0;
-                    //--
+                    float3 aabb_max{ -FLT_MAX, -FLT_MAX, -FLT_MAX };
+                    uint32_t index = 0;
+                };
+
+                struct NodeIdx
+                {
                     uint32_t index_offset = 0;
                     uint32_t index_count = 0;
                 };
 
-                ~BVH() {
-                    if (nodes != nullptr) {
-                        delete[] nodes;
-                    }
-                }
+                BVH();
+                ~BVH();
+				       
+                void Init(const std::vector<HotBite::Engine::Core::Vertex>& vertices, const std::vector<uint32_t>& vertex_idxs);
 
-                void UpdateNodeBounds(uint32_t node_idx, const std::vector<Core::Vertex>& vertices, const std::vector<uint32_t>& indices)
-                {
-                    Node& node = nodes[node_idx];
-                    for (uint32_t i = node.index_offset; i < node.index_count; i += 3)
-                    {
-                        node.aabb_min = node.aabb_min < vertices[indices[i]].Position? node.aabb_min : vertices[indices[i]].Position;
-                        node.aabb_min = node.aabb_min < vertices[indices[i + 1]].Position ? node.aabb_min : vertices[indices[i + 1]].Position;
-                        node.aabb_min = node.aabb_min < vertices[indices[i + 2]].Position ? node.aabb_min : vertices[indices[i + 2]].Position;
-
-                        node.aabb_max = node.aabb_max > vertices[indices[i]].Position ? node.aabb_max : vertices[indices[i]].Position;
-                        node.aabb_max = node.aabb_max > vertices[indices[i + 1]].Position ? node.aabb_max : vertices[indices[i + 1]].Position;
-                        node.aabb_max = node.aabb_max > vertices[indices[i + 2]].Position ? node.aabb_max : vertices[indices[i + 2]].Position;
-                    }
-                }
-
-                void Subdivide(uint32_t node_idx, const std::vector<Core::Vertex>& vertices, const std::vector<uint32_t>& indices, const std::vector<float3>& centroids)
-                {
-                    Node& node = nodes[node_idx];
-
-                    // terminate recursion
-                    if (node.index_count <= 2) return;
-
-                    // determine split axis and position
-                    float3 extent = node.aabb_max - node.aabb_min;
-                    int axis = 0;
-                    if (extent.y > extent.x) axis = 1;
-                    if (extent.z > component(extent,axis)) axis = 2;
-
-                    float split_pos = component(node.aabb_min, axis) + component(extent, axis) * 0.5f;
-
-                    // in-place partition
-                    int i = node.index_offset;
-                    int j = i + node.index_count - 1;
-                    while (i <= j)
-                    {
-                        const auto& centroid = centroids[i];
-                        if (component(centroid, axis) < split_pos) {
-                            i++;
-                        }
-                        else {
-                            //swap(triIdx[i], triIdx[j--]);
-                        }
-                    }
-
-                    // abort split if one of the sides is empty
-                    int left_count = i - node.index_offset;
-                    if (left_count == 0 || left_count == node.index_count) { return; }
-
-                    // create child nodes
-                    int left_child_idx = nodes_used++;
-                    int right_child_idx = nodes_used++;
-    
-                    nodes[left_child_idx].index_offset = node.index_offset;
-                    nodes[left_child_idx].index_count = left_count;
-                    nodes[right_child_idx].index_offset = i;
-                    nodes[right_child_idx].index_count = node.index_count - left_count;
-
-                    node.left_child = left_child_idx;
-                    node.index_count = 0;
-
-                    UpdateNodeBounds(left_child_idx, vertices, indices);
-                    UpdateNodeBounds(right_child_idx, vertices, indices);
-                    // recurse
-                    Subdivide(left_child_idx, vertices, indices, centroids);
-                    Subdivide(right_child_idx, vertices, indices, centroids);
-                }
+				const Node* Root() const { return nodes; }
+				uint32_t Size() const { return nodes_used; }
 
             private:
                 Node* nodes = nullptr;
+                NodeIdx* nodes_idxs = nullptr;
                 uint32_t root_idx = 0;
-                uint32_t nodes_used = 1;
+                uint32_t nodes_used = 0;
 
-                void Init(const std::vector<Core::Vertex>& vertices, const std::vector<uint32_t>& indices) {
-                    if (nodes != nullptr) {
-                        delete[] nodes;
-                    }
-                    nodes = new Node[indices.size() * 2 - 1];
-                    root_idx = 0;
-                    nodes_used = 1;
-                    std::vector<float3> centroids(indices.size() / 3);
-                    for (int i = 0; i < indices.size(); i += 3) {
-                        centroids[i / 3] = (vertices[indices[i]].Position + vertices[indices[i + 1]].Position + vertices[indices[i + 2]].Position) / 3.0f;
-                    }
-                    // assign all triangles to root node
-                    Node& root = nodes[root_idx];
-                    root.index_count = (int32_t)indices.size();
-                    UpdateNodeBounds(root_idx, vertices, indices);
-                    Subdivide(root_idx, vertices, indices, centroids);
-                }
-
-                
+                void UpdateNodeBounds(uint32_t node_idx, const std::vector<HotBite::Engine::Core::Vertex>& vertices, const std::vector<uint32_t>& triangle_indices, const std::vector<uint32_t>& vertex_idxs);
+                void Subdivide(uint32_t node_idx, const std::vector<HotBite::Engine::Core::Vertex>& vertices, std::vector<uint32_t>& triangle_indices, std::vector<float3>& centroids, const std::vector<uint32_t>& vertex_idxs);
             };
 
+			class BVHBuffer {
+			private:
+				std::vector<BVH::Node> nodes;
+				ID3D11Buffer* buffer = nullptr;
+				ID3D11ShaderResourceView* srv = nullptr;
+
+			public:
+				BVHBuffer() {
+				}
+
+				~BVHBuffer() {
+					Unprepare();
+				}
+
+				size_t GetBVHCount() {
+					return nodes.size();
+				}
+
+				void AddBVH(const BVH& bvh, size_t* offset) {
+					*offset = nodes.size();
+					nodes.reserve(nodes.size() + bvh.Size());
+					for (size_t i = 0; i < bvh.Size(); ++i) {
+						nodes.push_back(*bvh.Root());
+					}					
+				}
+				
+				HRESULT Prepare(bool read_only = true) {
+					HRESULT hr = S_OK;
+					if (!nodes.empty())
+					{
+						ID3D11Device* device = Core::DXCore::Get()->device;
+						D3D11_BUFFER_DESC vbd;
+
+						vbd.Usage = read_only ? D3D11_USAGE_IMMUTABLE : D3D11_USAGE_DYNAMIC;
+						vbd.ByteWidth = (UINT)(sizeof(BVH::Node) * nodes.size());
+						vbd.BindFlags = D3D11_BIND_CONSTANT_BUFFER | D3D11_BIND_SHADER_RESOURCE;
+						vbd.CPUAccessFlags = read_only ? 0 : D3D11_CPU_ACCESS_WRITE;
+						vbd.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS;
+						vbd.StructureByteStride = 0;
+						D3D11_SUBRESOURCE_DATA initialVertexData;
+						initialVertexData.pSysMem = nodes.data();
+
+						hr = device->CreateBuffer(&vbd, &initialVertexData, &buffer);
+						if (FAILED(hr)) { goto end; }
+
+						D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+						srvDesc.Format = DXGI_FORMAT_R32_TYPELESS;
+						srvDesc.ViewDimension = D3D11_SRV_DIMENSION_BUFFEREX;
+						srvDesc.BufferEx.Flags = D3D11_BUFFEREX_SRV_FLAG_RAW;
+						srvDesc.BufferEx.NumElements = (uint32_t)nodes.size() * sizeof(BVH::Node) / 4;
+						hr = device->CreateShaderResourceView(buffer, &srvDesc, &srv);
+						if (FAILED(hr)) { goto end; }
+					}
+				end:
+					return hr;
+				}
+
+				void Clean() {
+					nodes.clear();
+				}
+
+				void Refresh(uint32_t start = 0, uint32_t len = 0) {
+					if (len == 0) {
+						len = (uint32_t)nodes.size() - start;
+					}
+					ID3D11DeviceContext* context = Core::DXCore::Get()->context;
+					D3D11_MAPPED_SUBRESOURCE resource;
+					//Update vertex buffer
+					context->Map(buffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &resource);
+					memcpy(resource.pData, nodes.data(), (UINT)(sizeof(BVH::Node) * len));
+					context->Unmap(buffer, 0);
+				}
+				
+				HRESULT Unprepare() {
+					ID3D11DeviceContext* context = Core::DXCore::Get()->context;
+					HRESULT hr = S_OK;
+					if (buffer != nullptr) {
+						int count = buffer->Release();
+						hr |= (count == 0) ? S_OK : E_FAIL;
+						srv->Release();
+						srv = nullptr;
+					}
+					return hr;
+				}
+
+				ID3D11ShaderResourceView* SRV() const {
+					return srv;
+				}
+			};
         }
     }
 }

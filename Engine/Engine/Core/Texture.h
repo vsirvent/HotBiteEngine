@@ -69,9 +69,13 @@ namespace HotBite {
 
 			class RenderTexture2D: public IRenderTarget {
 			private:
+				D3D11_TEXTURE2D_DESC tex_desc;
+				ID3D11Resource* resource = nullptr;
 				ID3D11Texture2D* texture = nullptr;
 				ID3D11ShaderResourceView* shader_resource_view = nullptr;
 				ID3D11RenderTargetView* render_view = nullptr;
+				ID3D11UnorderedAccessView* uav = nullptr;
+
 				int width = 0;
 				int height = 0;
 				int mip_levels = 0;
@@ -82,10 +86,14 @@ namespace HotBite {
 				virtual ~RenderTexture2D();
 				int Width() const;
 				int Height() const;
-				HRESULT Init(int w, int h, DXGI_FORMAT format = DXGI_FORMAT_R8G8B8A8_UNORM, const uint8_t* data = nullptr, uint32_t len = 0);
+				HRESULT Init(int w, int h, DXGI_FORMAT format = DXGI_FORMAT_R8G8B8A8_UNORM, const uint8_t* data = nullptr, uint32_t len = 0, uint32_t bind_flags = 0);
 				void Release();
 				void Clear(const float color[4]);
+				ID3D11Resource* Resource() const;
+				const D3D11_TEXTURE2D_DESC& Descriptor() const;
+				ID3D11Texture2D* Texture() const;
 				ID3D11ShaderResourceView* SRV() const;
+				ID3D11UnorderedAccessView* UAV() const;
 				ID3D11RenderTargetView* RenderTarget() const override;
 			};
 		}
