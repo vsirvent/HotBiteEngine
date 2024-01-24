@@ -70,6 +70,7 @@ bool World::PreLoad(Core::DXCore* dx) {
 	dx_core = dx;
 	phys_world = physics_common.createPhysicsWorld();
 	vertex_buffer = new VertexBuffer<Core::Vertex>();
+	bvh_buffer = new BVHBuffer();
 
 	SetupCoordinator(&coordinator);
 	SetupCoordinator(&templates_coordinator);
@@ -88,7 +89,7 @@ bool World::PreLoad(Core::DXCore* dx) {
 	audio_system = RegisterSystem<Systems::AudioSystem>();
 
 	physics_system->Init(phys_world);
-	render_system->Init(dx_core, vertex_buffer);
+	render_system->Init(dx_core, vertex_buffer, bvh_buffer);
 
 	init = true;
 
@@ -173,6 +174,8 @@ bool World::Release() {
 	}
 	delete vertex_buffer;
 	vertex_buffer = nullptr;
+	delete bvh_buffer;
+	bvh_buffer = nullptr;
 	return true;
 }
 
@@ -235,6 +238,8 @@ void World::LoadSky(const json& sky_info) {
 	bool triangulate = sky_info["triangulate"];
 
 	LoadFBX(file, triangulate, true, materials, meshes, shapes, &coordinator, vertex_buffer);
+
+
 	ECS::Entity e = coordinator.GetEntityByName(sky_info["name"]);
 	assert(e != ECS::INVALID_ENTITY_ID && "Invalid sky name.");
 
@@ -783,6 +788,11 @@ void World::Init() {
 		}
 	}	
 	vertex_buffer->Prepare();
+	for (auto& m : meshes.GetData()) {
+		size_t offset = 0;
+		bvh_buffer->Add(m.bvh.Root(), m.bvh.Size(), &m.bvhOffset);
+	}
+	bvh_buffer->Prepare();
 }
 
 void World::Run(int render_fps, int background_fps, int physics_fps) {

@@ -241,11 +241,12 @@ namespace HotBite {
 				Core::SimpleComputeShader* rt_shader = nullptr;
 				BVHBuffer* bvh_buffer = nullptr;
 
+				float time = 0.0f;
 				bool tess_enabled = true;
 				bool normal_material_map = true;
 				bool normal_mesh_map = true;
 				bool wireframe_enabled = false;
-			
+				
 				bool cloud_test = false;
 
 				void DrawSky(int w, int h, const float3& camera_position, const matrix& view, const matrix& projection);

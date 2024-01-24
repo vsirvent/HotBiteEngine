@@ -80,7 +80,7 @@ namespace HotBite {
 			ECS::Event lockstep_tick_ev{ this, Network::LockStep::Command::EVENT_ID_NEW_SERVER_COMMAND };
 			
 			Core::VertexBuffer<Core::Vertex>* vertex_buffer = nullptr;
-
+			BVHBuffer* bvh_buffer = nullptr;
 			reactphysics3d::PhysicsWorld* phys_world = nullptr;
 			Core::DXCore* dx_core;
 

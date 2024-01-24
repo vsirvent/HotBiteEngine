@@ -1,9 +1,9 @@
-#include "PixelCommon.hlsli"
-#include "FastNoise.hlsli"
-#include "QuickNoise.hlsli"
-#include "NoiseSimplex.hlsli"
-#include "RGBANoise.hlsli"
-#include "ShaderStructs.hlsli"
+#include "../Common/PixelCommon.hlsli"
+#include "../Common/FastNoise.hlsli"
+#include "../Common/QuickNoise.hlsli"
+#include "../Common/NoiseSimplex.hlsli"
+#include "../Common/RGBANoise.hlsli"
+#include "../Common/ShaderStructs.hlsli"
 
 #define MAX_OBJECTS 64
 #define SAMPLES_PER_PIXEL 4
@@ -27,11 +27,11 @@ struct Ray {
 
 struct ObjectInfo
 {
-	uint objectOffset;
-	uint vertexOffset;
-	matrix world;
+    matrix world;
 	float3 aabb_min;
+    uint objectOffset;
 	float3 aabb_max;
+    uint indexOffset;
 };
 
 cbuffer externalData : register(b0)
@@ -77,7 +77,7 @@ StructuredBuffer<VertexShaderInput> vertexBuffer: register(t1);
 StructuredBuffer<uint> indicesBuffer: register(t2);
 RWTexture2D<float4> output : register(u0);
 
-#include "PixelFunctions.hlsli"
+#include "../Common/PixelFunctions.hlsli"
 
 bool is_leaf(BVHNode node)
 {

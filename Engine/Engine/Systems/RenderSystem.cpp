@@ -988,7 +988,7 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 
 	assert(!cameras.GetData().empty() && "No cameras found");
 	CameraEntity& cam_entity = cameras.GetData()[0];
-	float time = ((float)Scheduler::Get()->GetElapsedNanoSeconds() * speed) / 1000000000.0f;
+	time = ((float)Scheduler::Get()->GetElapsedNanoSeconds() * speed) / 1000000000.0f;
 
 	context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST);
 	for (auto &shaders : tree) {
@@ -1161,13 +1161,47 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 }
 
 void RenderSystem::ProcessRT() {
-	auto& device = dxcore->device;
-	rt_shader->SetUnorderedAccessView("output", rt_texture.UAV());
-	rt_shader->SetShaderResourceView("vertexBuffer", vertex_buffer->VertexSRV());
-	rt_shader->SetShaderResourceView("indexBuffer", vertex_buffer->IndexSRV());
-	rt_shader->SetShaderResourceView("objects", bvh_buffer->SRV());
-	rt_shader->SetShader();
-	dxcore->context->Dispatch(32, 32, 1);
+	if (bvh_buffer != nullptr) {
+		auto& device = dxcore->device;
+		ObjectInfo objects[MAX_OBJECTS];
+
+		auto fill = [](RenderTree& tree, ObjectInfo objects[MAX_OBJECTS], int size) {
+			int count = 0;
+			for (auto& shaders : tree) {
+				for (auto& mat : shaders.second) {
+					for (auto& de : mat.second.second.GetData()) {
+						if (++count >= size) {
+							return count;
+						}
+					}
+				}
+			}
+			return count;
+			};
+		int len = fill(render_tree, objects, MAX_OBJECTS);
+		len += fill(render_pass2_tree, objects + len, MAX_OBJECTS - len);
+
+		rt_shader->SetData("objectInfos", objects, len);
+		rt_shader->SetUnorderedAccessView("output", rt_texture.UAV());
+		rt_shader->SetShaderResourceView("vertexBuffer", vertex_buffer->VertexSRV());
+		rt_shader->SetShaderResourceView("indexBuffer", vertex_buffer->IndexSRV());
+		rt_shader->SetShaderResourceView("objects", bvh_buffer->SRV());
+
+		CameraEntity& cam_entity = cameras.GetData()[0];
+		float3 dir;
+		XMStoreFloat3(&dir, cam_entity.camera->xm_direction);
+		rt_shader->SetFloat(TIME, time);
+		rt_shader->SetMatrix4x4(VIEW, cam_entity.camera->view);
+		rt_shader->SetMatrix4x4(PROJECTION, cam_entity.camera->projection);
+		rt_shader->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
+		rt_shader->SetFloat3("cameraDirection", dir);
+		rt_shader->SetSamplerState(PCF_SAMPLER, dxcore->shadow_sampler);
+		rt_shader->SetSamplerState(BASIC_SAMPLER, dxcore->basic_sampler);
+		rt_shader->SetShaderResourceView(DEPTH_TEXTURE, depth_map.SRV());
+
+		rt_shader->SetShader();
+		dxcore->context->Dispatch(32, 32, 1);
+	}
 }
 
 bool RenderSystem::IsVisible(const float3& camera_pos, const DrawableEntity& drawable, const matrix& view_projection, int w, int h) const {

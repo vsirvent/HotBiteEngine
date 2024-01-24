@@ -283,6 +283,7 @@ namespace HotBite {
 				float3 maxDimensions = {};
 				size_t indexOffset = 0;
 				size_t vertexOffset = 0;
+				size_t bvhOffset = 0;
 				uint32_t indexCount = 0;
 				uint32_t vertexCount = 0;
 				std::string name;
