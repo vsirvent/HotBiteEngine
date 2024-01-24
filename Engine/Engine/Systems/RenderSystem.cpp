@@ -1170,8 +1170,27 @@ void RenderSystem::ProcessRT() {
 			for (auto& shaders : tree) {
 				for (auto& mat : shaders.second) {
 					for (auto& de : mat.second.second.GetData()) {
-						if (++count >= size) {
-							return count;
+						if (de.base->visible) {
+							ObjectInfo* o = &objects[count++];
+							// Get the center and extents of the oriented box
+							float3 orientedBoxCenter = de.bounds->final_box.Center;
+							float3 orientedBoxExtents = de.bounds->final_box.Extents;
+
+							// Calculate the minimum and maximum points of the AABB
+							o->aabb_min = { orientedBoxCenter.x - orientedBoxExtents.x,
+											orientedBoxCenter.y - orientedBoxExtents.y,
+											orientedBoxCenter.z - orientedBoxExtents.z };
+
+							o->aabb_max = { orientedBoxCenter.x + orientedBoxExtents.x,
+											orientedBoxCenter.y + orientedBoxExtents.y,
+											orientedBoxCenter.z + orientedBoxExtents.z };
+
+							o->index_offset = (uint32_t)de.mesh->GetData()->indexOffset;
+							o->object_offset = (uint32_t)de.mesh->GetData()->bvhOffset;
+							o->world = de.transform->world_matrix;
+							if (count >= size) {
+								return count;
+							}
 						}
 					}
 				}

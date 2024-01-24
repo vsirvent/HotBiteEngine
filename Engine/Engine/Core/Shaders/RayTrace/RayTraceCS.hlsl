@@ -220,7 +220,7 @@ float4 GetColor(Ray ray)
 {
 	int rayBounces = RAY_BOUNCES;
 
-	float4 color = float4(0.0f, 0.0f, 0.0f, 0.0f);
+	float4 color = float4(0.5f, 0.5f, 0.5f, 1.0f);
 
 	float tMin = T_MIN;
 	float tMax = T_MAX;
