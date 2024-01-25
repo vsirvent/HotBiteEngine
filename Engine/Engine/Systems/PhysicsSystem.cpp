@@ -234,6 +234,7 @@ void PhysicsSystem::Update(PhysicsEntity& pe, int64_t elapsed_nsec, int64_t tota
 
 		transform->world_xmmatrix = s * r * t;
 		XMStoreFloat4x4(&transform->world_matrix, XMMatrixTranspose(transform->world_xmmatrix));
+		XMStoreFloat4x4(&transform->world_inv_matrix, XMMatrixTranspose(XMMatrixInverse(nullptr, transform->world_xmmatrix)));
 
 		vector3d pos = XMVectorAdd(XMVector4Transform(XMLoadFloat3(&bounds->bounding_box.Center), transform->world_xmmatrix), XMLoadFloat3(&transform->position));
 

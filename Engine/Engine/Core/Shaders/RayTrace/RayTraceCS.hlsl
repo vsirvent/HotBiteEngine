@@ -39,6 +39,7 @@ cbuffer externalData : register(b0)
 	matrix world;
 	matrix view;
 	matrix projection;
+    matrix invView;
 	AmbientLight ambientLight;
 	DirLight dirLights[MAX_LIGHTS];
 	PointLight pointLights[MAX_LIGHTS];
@@ -178,7 +179,7 @@ void IntersectBVH(out Ray ray, StructuredBuffer<BVHNode> object, uint nodeIdx)
 {
 	BVHNode node = object[nodeIdx];
 	if (!IntersectAABB(ray, node)) {
-		return;
+		return ;
 	}
 
 	if (is_leaf(node))
@@ -197,22 +198,20 @@ float Random(float2 uv)
 	return frac(sin(dot(uv + time, float2(12.9898, 78.233))) * 43758.5453);
 }
 
-Ray GetRay(float2 uv)
+Ray GetRay(float2 pixel)
 {
 	Ray ray;
 	ray.orig = float3(cameraPosition);
-	//ray.direction = float3(camera.upperLeftCorner - uv.x * camera.horizontalExtents - uv.y * camera.verticalExtents - camera.origin);
+	
+    float3 pos = ViewToWorld(float3(pixel, 1.0f), invView);
+    ray.dir = normalize(pos - ray.orig);
 
 	return ray;
 }
 
-Ray GenerateRay(uint3 dispatchThreadID, float2 xy, uint2 dimensions)
+Ray GenerateRay(uint2 pixel)
 {
-	// PixelCoords are in the range of 0..1 with (0, 0) being the top left corner.
-	float2 pixelCoords = (dispatchThreadID.xy) / dimensions.x;
-	float2 randomVec = xy / dimensions.y;
-
-	Ray ray = GetRay(pixelCoords + randomVec);
+	Ray ray = GetRay(pixel);
 	return ray;
 }
 
@@ -220,33 +219,33 @@ float4 GetColor(Ray ray)
 {
 	int rayBounces = RAY_BOUNCES;
 
-	float4 color = float4(0.5f, 0.5f, 0.5f, 1.0f);
+	float4 color = float4(0.0f, 0.0f, 0.0f, 0.0f);
 
 	float tMin = T_MIN;
 	float tMax = T_MAX;
-#if 0
-	HitRecord hr;
 
-	while (rayBounces >= 0)
-	{
-		int materialIndex = HitSceneObjects(ray, tMin, tMax, hr);
-		if (materialIndex != -1)
-		{
-			Scatter(ray, hr, color, materialIndex);
-
-			rayBounces--;
-		}
-		else
-		{
-			color *= BackgroundColor(ray.direction);
-			return color;
-		}
-	}
-#endif
-	return color;
+    for (int i = 0; i < nobjects; ++i)
+    {
+        ObjectInfo o = objectInfos[i];
+		if (IntersectAABB(ray, o.aabb_min, o.aabb_max))
+        {
+            Ray oray;
+            oray.orig = mul(float4(ray.orig, 1.0f), o.world);
+            oray.dir = mul(float4(ray.dir, 1.0f), o.world);
+            oray.t = FLT_MAX;
+            IntersectBVH(oray, objects, o.objectOffset);
+			if (oray.t < T_MAX)
+			{
+                return float4(0.5f, 0.5f, 0.5f, 1.0f);
+            }
+        }
+    }
+    return color;
 }
 
 #define NTHREADS 32
+#define DENSITY 0.2f
+
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main( uint3 DTid : SV_DispatchThreadID )
 {
@@ -259,30 +258,25 @@ void main( uint3 DTid : SV_DispatchThreadID )
 
 	uint blockSizeX = w / NTHREADS;
 	uint blockSizeY = h / NTHREADS;
-
+	 
 	// Calculate the starting pixel coordinates of the block
 	uint blockStartX = DTid.x * blockSizeX;
 	uint blockStartY = DTid.y * blockSizeY;
 
-	// Process pixels within the block
-	for (uint localY = 0; localY < blockSizeY; ++localY)
-	{
-		for (uint localX = 0; localX < blockSizeX; ++localX)
-		{
+    uint2 npixels = { DENSITY * w / blockSizeX, DENSITY * h / blockSizeY };
+	
+    for (int x = 0; x <= npixels.x; ++x)
+    {
+        for (int y = 0; y <= npixels.y; ++y)
+        {
 			// Calculate the global pixel coordinates within the texture
-			uint2 pixel = { blockStartX + localX, blockStartY + localY };
-			// Make sure the pixel is within the bounds of the texture
-			if (pixel.x < w && pixel.y < h)
-			{
-				for (int i = 0; i < SAMPLES_PER_PIXEL; ++i)
-				{
-					//float2 randomSeed = float2(Random(DTid.xx), Random(DTid.yy));
-					//Ray ray = GenerateRay(DTid, randomSeed);
-					//result += GetColor(ray);
-				}
-				result /= SAMPLES_PER_PIXEL;
-				output[pixel] = result;
-			}
-		}
-	}
+            uint2 pixel = { blockStartX + Random(x), blockStartY + Random(y) };
+            if (pixel.x >= 0 && pixel.y > 0 && pixel.x < w && pixel.y < h)
+            {
+				Ray ray = GenerateRay(pixel);
+				result = GetColor(ray);
+                output[pixel] = result;
+            }
+        }
+    }
 }

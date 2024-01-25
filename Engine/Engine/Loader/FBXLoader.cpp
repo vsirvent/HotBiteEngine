@@ -640,7 +640,7 @@ FBXLoader::ProcessEntity(Core::FlatMap<std::string, Core::MeshData>& meshes,
 		matrix scle = XMMatrixScaling(transform.scale.x, transform.scale.y, transform.scale.z);
 		transform.world_xmmatrix = scle * rot * trans;
 		XMStoreFloat4x4(&transform.world_matrix, XMMatrixTranspose(transform.world_xmmatrix));
-		
+		XMStoreFloat4x4(&transform.world_inv_matrix, XMMatrixTranspose(XMMatrixInverse(nullptr, transform.world_xmmatrix)));
 
 		if (node->GetNodeAttribute())
 		{

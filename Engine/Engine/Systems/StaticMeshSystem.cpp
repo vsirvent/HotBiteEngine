@@ -120,6 +120,7 @@ void StaticMeshSystem::Update(StaticMeshEntity& entity, int64_t elapsed_nsec, in
 			}
 		}
 		XMStoreFloat4x4(&transform->world_matrix, XMMatrixTranspose(transform->world_xmmatrix));
+		XMStoreFloat4x4(&transform->world_inv_matrix, XMMatrixTranspose(XMMatrixInverse(nullptr, transform->world_xmmatrix)));
 
 		vector3d pos = XMVector3TransformCoord(XMLoadFloat3(&bounds->bounding_box.Center), transform->world_xmmatrix);
 		XMStoreFloat3(&bounds->final_box.Center, pos);		

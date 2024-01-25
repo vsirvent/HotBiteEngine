@@ -1187,7 +1187,7 @@ void RenderSystem::ProcessRT() {
 
 							o->index_offset = (uint32_t)de.mesh->GetData()->indexOffset;
 							o->object_offset = (uint32_t)de.mesh->GetData()->bvhOffset;
-							o->world = de.transform->world_matrix;
+							o->world = de.transform->world_inv_matrix;
 							if (count >= size) {
 								return count;
 							}
@@ -1211,6 +1211,7 @@ void RenderSystem::ProcessRT() {
 		XMStoreFloat3(&dir, cam_entity.camera->xm_direction);
 		rt_shader->SetFloat(TIME, time);
 		rt_shader->SetMatrix4x4(VIEW, cam_entity.camera->view);
+		rt_shader->SetMatrix4x4("invView", cam_entity.camera->inverse_view);
 		rt_shader->SetMatrix4x4(PROJECTION, cam_entity.camera->projection);
 		rt_shader->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
 		rt_shader->SetFloat3("cameraDirection", dir);
