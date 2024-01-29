@@ -106,11 +106,11 @@ namespace HotBite {
 						D3D11_BUFFER_DESC vbd;
 
 						vbd.Usage = read_only ? D3D11_USAGE_IMMUTABLE : D3D11_USAGE_DYNAMIC;
-						vbd.ByteWidth = (UINT)(sizeof(BVH::Node) * nodes.size());
+						vbd.ByteWidth = (UINT)(sizeof(T) * nodes.size());
 						vbd.BindFlags = D3D11_BIND_SHADER_RESOURCE;
 						vbd.CPUAccessFlags = read_only ? 0 : D3D11_CPU_ACCESS_WRITE;
 						vbd.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS;
-						vbd.StructureByteStride = 0;
+						vbd.StructureByteStride = sizeof(T);
 						D3D11_SUBRESOURCE_DATA initialVertexData;
 						initialVertexData.pSysMem = nodes.data();
 
@@ -121,7 +121,7 @@ namespace HotBite {
 						srvDesc.Format = DXGI_FORMAT_R32_TYPELESS;
 						srvDesc.ViewDimension = D3D11_SRV_DIMENSION_BUFFEREX;
 						srvDesc.BufferEx.Flags = D3D11_BUFFEREX_SRV_FLAG_RAW;
-						srvDesc.BufferEx.NumElements = (uint32_t)nodes.size() * sizeof(BVH::Node) / 4;
+						srvDesc.BufferEx.NumElements = (uint32_t)nodes.size();
 						hr = device->CreateShaderResourceView(buffer, &srvDesc, &srv);
 						if (FAILED(hr)) { goto end; }
 					}
@@ -157,8 +157,8 @@ namespace HotBite {
 					return hr;
 				}
 
-				ID3D11ShaderResourceView* SRV() const {
-					return srv;
+				ID3D11ShaderResourceView* const * SRV() const {
+					return &srv;
 				}
 			};
 

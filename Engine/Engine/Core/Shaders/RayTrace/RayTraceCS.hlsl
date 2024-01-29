@@ -6,6 +6,8 @@
 #include "../Common/ShaderStructs.hlsli"
 
 #define MAX_OBJECTS 64
+#define MAX_STACK_SIZE 64
+
 #define SAMPLES_PER_PIXEL 4
 #define RAY_BOUNCES 3
 static const float T_MIN = 0.0001f;
@@ -22,7 +24,8 @@ struct BVHNode
 struct Ray {
 	float3 orig;
 	float3 dir;
-	float t; //intersection
+	float t; //intersection distance
+    uint index; //first vertex index of triange
 };
 
 struct ObjectInfo
@@ -40,6 +43,14 @@ cbuffer externalData : register(b0)
 	matrix view;
 	matrix projection;
     matrix invView;
+
+    float time;
+    float3 cameraPosition;
+    float3 cameraDirection;
+
+    uint nobjects;
+    ObjectInfo objectInfos[MAX_OBJECTS];
+
 	AmbientLight ambientLight;
 	DirLight dirLights[MAX_LIGHTS];
 	PointLight pointLights[MAX_LIGHTS];
@@ -54,11 +65,6 @@ cbuffer externalData : register(b0)
 	int meshNormalTextureEnable;
 	int highTextureEnable;
 
-	float3 cameraPosition;
-	float3 cameraDirection;
-	
-	float time;
-
 	float4 LightPerspectiveValues[MAX_LIGHTS / 2];
 	matrix DirPerspectiveMatrix[MAX_LIGHTS];
 	matrix DirStaticPerspectiveMatrix[MAX_LIGHTS];
@@ -69,20 +75,19 @@ cbuffer externalData : register(b0)
 	float4 packed_multi_texture_values[MAX_MULTI_TEXTURE / 4];
 	float4 packed_multi_texture_uv_scales[MAX_MULTI_TEXTURE / 4];
 
-	uint nobjects;
-	ObjectInfo objectInfos[MAX_OBJECTS];
 }
 
-StructuredBuffer<BVHNode> objects: register(t0);
-StructuredBuffer<VertexShaderInput> vertexBuffer: register(t1);
-StructuredBuffer<uint> indicesBuffer: register(t2);
+StructuredBuffer<BVHNode> objects: register(t2);
+StructuredBuffer<VertexShaderInput> vertexBuffer: register(t3);
+Buffer<uint> indicesBuffer : register(t4);
+
 RWTexture2D<float4> output : register(u0);
 
 #include "../Common/PixelFunctions.hlsli"
 
 bool is_leaf(BVHNode node)
 {
-	return (asuint(node.reg0) == 0);
+	return (asuint(node.reg0.w) == 0);
 }
 
 float3 aabb_min(BVHNode node)
@@ -107,45 +112,62 @@ uint right_child(BVHNode node)
 
 uint index(BVHNode node)
 {
-	return asuint(node.reg1);
+	return asuint(node.reg1.w);
 }
 
-bool IntersectTri(Ray ray, uint vindex)
+bool IntersectTri(Ray ray, out float distance, out uint index, uint vindex)
 {
-	VertexShaderInput v0 = vertexBuffer[indicesBuffer[vindex]];
-	VertexShaderInput v1 = vertexBuffer[indicesBuffer[vindex + 1]];
-	VertexShaderInput v2 = vertexBuffer[indicesBuffer[vindex + 2]];
+    uint i0 = indicesBuffer[vindex];
+    uint i1 = indicesBuffer[vindex + 1];
+    uint i2 = indicesBuffer[vindex + 2];
+    
+    VertexShaderInput v0 = vertexBuffer[i0];
+    VertexShaderInput v1 = vertexBuffer[i1];
+    VertexShaderInput v2 = vertexBuffer[i2];
 
-	const float3 edge1 = v1.position - v0.position;
-	const float3 edge2 = v2.position - v0.position;
-	const float3 h = cross(ray.dir, edge2);
-	const float a = dot(edge1, h);
-	
-	if (a > -0.0001f && a < 0.0001f) {
-		return false; // ray parallel to triangle
-	}
-	
-	const float f = 1 / a;
-	const float3 s = ray.orig - v0.position;
-	const float u = f * dot(s, h);
-	
-	if (u < 0 || u > 1) {
-		return false;
-	}
-	
-	const float3 q = cross(s, edge1);
-	const float v = f * dot(ray.dir, q);
-	
-	if (v < 0 || u + v > 1) {
-		return false;
-	}
+    const float3 edge1 = v1.position - v0.position;
+    const float3 edge2 = v2.position - v0.position;
+    const float3 h = cross(ray.dir, edge2);
+    const float a = dot(edge1, h);
 
-	const float t = f * dot(edge2, q);
-	if (t > 0.0001f && t < ray.t) {
-		ray.t = t;
-		return true;
-	}
-	return false;
+    const float epsilon = 1e-6; // Use a small epsilon for comparisons
+
+    // Check if the ray is parallel to the triangle
+    if (abs(a) < epsilon)
+    {
+        return false;
+    }
+
+    const float f = 1.0f / a;
+    const float3 s = ray.orig - v0.position;
+    const float u = f * dot(s, h);
+
+    // Check if the intersection point is inside the triangle
+    if (u < 0 || u > 1)
+    {
+        return false;
+    }
+
+    const float3 q = cross(s, edge1);
+    const float v = f * dot(ray.dir, q);
+
+    // Check if the intersection point is inside the triangle
+    if (v < 0 || u + v > 1)
+    {
+        return false;
+    }
+
+    const float t = f * dot(edge2, q);
+
+    // Check if the intersection is within the valid range along the ray
+    if (t > 1e-6 && t < ray.t)
+    {
+        distance = t;
+        index = vindex;
+        return true;
+    }
+
+    return false;
 }
 
 bool IntersectAABB(Ray ray, float3 bmin, float3 bmax)
@@ -175,43 +197,24 @@ bool IntersectAABB(Ray ray, BVHNode node)
 	return IntersectAABB(ray, bmin, bmax);
 }
 
-void IntersectBVH(out Ray ray, StructuredBuffer<BVHNode> object, uint nodeIdx)
-{
-	BVHNode node = object[nodeIdx];
-	if (!IntersectAABB(ray, node)) {
-		return ;
-	}
-
-	if (is_leaf(node))
-	{
-		IntersectTri(ray, index(node));
-	}
-	else
-	{
-		IntersectBVH(ray, object, left_child(node));
-		IntersectBVH(ray, object, right_child(node));
-	}
-}
-
 float Random(float2 uv)
 {
 	return frac(sin(dot(uv + time, float2(12.9898, 78.233))) * 43758.5453);
 }
 
-Ray GetRay(float2 pixel)
+Ray GetRay(float2 pixel, int w, int h)
 {
 	Ray ray;
+
+    float normalizedX = (2.0f * pixel.x) / w - 1.0f;
+    float normalizedY = 1.0f - (2.0f * pixel.y) / h;
+
 	ray.orig = float3(cameraPosition);
-	
-    float3 pos = ViewToWorld(float3(pixel, 1.0f), invView);
-    ray.dir = normalize(pos - ray.orig);
-
-	return ray;
-}
-
-Ray GenerateRay(uint2 pixel)
-{
-	Ray ray = GetRay(pixel);
+    float3 pos0 = mul(float4(normalizedX, normalizedY, 0.0f, 1.0f), invView).xyz;
+    float3 pos1 = mul(float4(normalizedX, normalizedY, 1.0f, 1.0f), invView).xyz;
+    ray.dir = normalize(pos1 - pos0);
+    ray.t = FLT_MAX;
+    ray.index = 0;
 	return ray;
 }
 
@@ -227,24 +230,57 @@ float4 GetColor(Ray ray)
     for (int i = 0; i < nobjects; ++i)
     {
         ObjectInfo o = objectInfos[i];
-		if (IntersectAABB(ray, o.aabb_min, o.aabb_max))
+        if (IntersectAABB(ray, o.aabb_min, o.aabb_max))
         {
             Ray oray;
             oray.orig = mul(float4(ray.orig, 1.0f), o.world);
             oray.dir = mul(float4(ray.dir, 1.0f), o.world);
             oray.t = FLT_MAX;
-            IntersectBVH(oray, objects, o.objectOffset);
+			
+            // Stack for BVH traversal
+            uint stack[MAX_STACK_SIZE];
+            int stackSize = 0;
+            stack[stackSize++] = 0;
+
+            while (stackSize > 0 && stackSize < MAX_STACK_SIZE)
+            {
+                uint current = stack[--stackSize];
+
+                BVHNode node = objects[current + o.objectOffset];
+
+                
+                if (is_leaf(node))
+                {
+					float t;
+                    uint d;
+                    if (IntersectTri(oray, t, d, o.indexOffset + index(node)))
+                    {
+                        oray.t = t;
+                        oray.index = d;
+                        break;
+                    }
+                }
+                else
+                {
+                    if (IntersectAABB(oray, node))
+                    {
+                        stack[stackSize++] = left_child(node);
+                        stack[stackSize++] = right_child(node);
+                    }
+                }
+            }
+
 			if (oray.t < T_MAX)
-			{
-                return float4(0.5f, 0.5f, 0.5f, 1.0f);
+            {
+                return float4(1.0f, 1.0f, 1.0f, 1.0f);
             }
         }
     }
-    return color;
+    return float4(0.5f, 0.5f, 0.5f, 1.0f);
 }
 
 #define NTHREADS 32
-#define DENSITY 0.2f
+#define DENSITY 0.8f
 
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main( uint3 DTid : SV_DispatchThreadID )
@@ -263,20 +299,17 @@ void main( uint3 DTid : SV_DispatchThreadID )
 	uint blockStartX = DTid.x * blockSizeX;
 	uint blockStartY = DTid.y * blockSizeY;
 
-    uint2 npixels = { DENSITY * w / blockSizeX, DENSITY * h / blockSizeY };
+    uint2 npixels = { DENSITY * blockSizeX, DENSITY * blockSizeY };
 	
     for (int x = 0; x <= npixels.x; ++x)
     {
         for (int y = 0; y <= npixels.y; ++y)
         {
-			// Calculate the global pixel coordinates within the texture
-            uint2 pixel = { blockStartX + Random(x), blockStartY + Random(y) };
-            if (pixel.x >= 0 && pixel.y > 0 && pixel.x < w && pixel.y < h)
-            {
-				Ray ray = GenerateRay(pixel);
-				result = GetColor(ray);
-                output[pixel] = result;
-            }
+            uint2 pixel = { blockStartX + (float) blockSizeX * random((blockStartX + 1) * x * 10 + y), blockStartY + (float) blockSizeY * random((blockStartY + 1) * y * 10 + x) };
+            // Calculate the global pixel coordinates within the texture
+			Ray ray = GetRay(pixel, w, h);
+			result = GetColor(ray);
+            output[pixel] = result;
         }
     }
 }

@@ -136,7 +136,7 @@ namespace HotBite {
 						vbd.BindFlags = D3D11_BIND_VERTEX_BUFFER | D3D11_BIND_SHADER_RESOURCE;
 						vbd.CPUAccessFlags = read_only ? 0 : D3D11_CPU_ACCESS_WRITE;
 						vbd.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS;
-						vbd.StructureByteStride = 0;
+						vbd.StructureByteStride = sizeof(T);
 						D3D11_SUBRESOURCE_DATA initialVertexData;
 						initialVertexData.pSysMem = vvertex.data();
 
@@ -149,7 +149,7 @@ namespace HotBite {
 						ibd.BindFlags = D3D11_BIND_INDEX_BUFFER | D3D11_BIND_SHADER_RESOURCE;
 						ibd.CPUAccessFlags = read_only ? 0 : D3D11_CPU_ACCESS_WRITE;
 						ibd.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS;
-						ibd.StructureByteStride = 0;
+						ibd.StructureByteStride = sizeof(uint32_t);
 						D3D11_SUBRESOURCE_DATA initialIndexData;
 						initialIndexData.pSysMem = vindex.data();
 
@@ -159,11 +159,12 @@ namespace HotBite {
 						D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
 						srvDesc.Format = DXGI_FORMAT_R32_TYPELESS;
 						srvDesc.ViewDimension = D3D11_SRV_DIMENSION_BUFFEREX;
+						srvDesc.BufferEx.FirstElement = 0;
 						srvDesc.BufferEx.Flags = D3D11_BUFFEREX_SRV_FLAG_RAW;
-						srvDesc.BufferEx.NumElements = (uint32_t)vvertex_pos * sizeof(Vertex) / 4;
+						srvDesc.BufferEx.NumElements = (uint32_t)vvertex_pos;
 						hr = device->CreateShaderResourceView(vertex_buffer, &srvDesc, &vertex_srv);
 						if (FAILED(hr)) { goto end; }
-						srvDesc.BufferEx.NumElements = (uint32_t)vindex_pos * sizeof(uint32_t) / 4;
+						srvDesc.BufferEx.NumElements = (uint32_t)vindex_pos;
 						hr = device->CreateShaderResourceView(index_buffer, &srvDesc, &index_srv);
 						if (FAILED(hr)) { goto end; }
 					}
@@ -225,12 +226,12 @@ namespace HotBite {
 					return hr;
 				}
 
-				ID3D11ShaderResourceView* VertexSRV() const {
-					return vertex_srv;
+				ID3D11ShaderResourceView* const* VertexSRV() const {
+					return &vertex_srv;
 				}
 
-				ID3D11ShaderResourceView* IndexSRV() const {
-					return index_srv;
+				ID3D11ShaderResourceView* const* IndexSRV() const {
+					return &index_srv;
 				}
 			};
 		}

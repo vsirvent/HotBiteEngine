@@ -1199,28 +1199,30 @@ void RenderSystem::ProcessRT() {
 			};
 		int len = fill(render_tree, objects, MAX_OBJECTS);
 		len += fill(render_pass2_tree, objects + len, MAX_OBJECTS - len);
-
-		rt_shader->SetData("objectInfos", objects, len);
+		rt_shader->SetInt("nobjects", len);
+		rt_shader->SetData("objectInfos", objects, len * sizeof(ObjectInfo));
 		rt_shader->SetUnorderedAccessView("output", rt_texture.UAV());
-		rt_shader->SetShaderResourceView("vertexBuffer", vertex_buffer->VertexSRV());
-		rt_shader->SetShaderResourceView("indexBuffer", vertex_buffer->IndexSRV());
-		rt_shader->SetShaderResourceView("objects", bvh_buffer->SRV());
-
+		
 		CameraEntity& cam_entity = cameras.GetData()[0];
 		float3 dir;
 		XMStoreFloat3(&dir, cam_entity.camera->xm_direction);
 		rt_shader->SetFloat(TIME, time);
 		rt_shader->SetMatrix4x4(VIEW, cam_entity.camera->view);
-		rt_shader->SetMatrix4x4("invView", cam_entity.camera->inverse_view);
+		rt_shader->SetMatrix4x4("invView", cam_entity.camera->inverse_view_projection);
 		rt_shader->SetMatrix4x4(PROJECTION, cam_entity.camera->projection);
 		rt_shader->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
 		rt_shader->SetFloat3("cameraDirection", dir);
 		rt_shader->SetSamplerState(PCF_SAMPLER, dxcore->shadow_sampler);
 		rt_shader->SetSamplerState(BASIC_SAMPLER, dxcore->basic_sampler);
 		rt_shader->SetShaderResourceView(DEPTH_TEXTURE, depth_map.SRV());
-
+		rt_shader->CopyAllBufferData();
 		rt_shader->SetShader();
-		dxcore->context->Dispatch(32, 32, 1);
+
+		dxcore->context->CSSetShaderResources(2, 1, bvh_buffer->SRV());
+		dxcore->context->CSSetShaderResources(3, 1, vertex_buffer->VertexSRV());
+		dxcore->context->CSSetShaderResources(4, 1, vertex_buffer->IndexSRV());
+		
+		dxcore->context->Dispatch(1, 1, 1);
 	}
 }
 
