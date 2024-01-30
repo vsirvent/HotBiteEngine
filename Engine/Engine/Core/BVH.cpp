@@ -159,6 +159,7 @@ namespace HotBite {
 				Node& node = nodes[node_idx];
 				NodeIdx& nidx = nodes_idxs[node_idx];
 
+				assert(nidx.index_count > 0);
 				// terminate recursion
 				if (nidx.index_count == 1) {
 					node.left_child = 0;
@@ -168,12 +169,26 @@ namespace HotBite {
 				}
 
 				// determine split axis and position
-				float3 extent = node.aabb_max - node.aabb_min;
+				auto checkMin = [](const float3& p0, const float3& p1) {
+					return float3{ fminf(p0.x, p1.x), fminf(p0.y, p1.y), fminf(p0.z, p1.z) };
+				};
+
+				auto checkMax = [](const float3& p0, const float3& p1) {
+					return float3{ fmaxf(p0.x, p1.x), fmaxf(p0.y, p1.y), fmaxf(p0.z, p1.z) };
+				};
+				float3 split{};
+				float3 min{ FLT_MAX, FLT_MAX, FLT_MAX }, max{ -FLT_MAX, -FLT_MAX, -FLT_MAX };
+				for (uint32_t p = nidx.index_offset; p < nidx.index_offset + nidx.index_count; ++p) {
+					split = ADD_F3_F3(split, centroids[p]);
+					min = checkMin(min, centroids[p]);
+					max = checkMax(max, centroids[p]);
+				}
+				float3 extent = { abs(max.x - min.x), abs(max.y - min.y), abs(max.z - min.z) };
 				int axis = 0;
 				if (extent.y > extent.x) axis = 1;
 				if (extent.z > component(extent, axis)) axis = 2;
-
-				float split_pos = component(node.aabb_min, axis) + component(extent, axis) * 0.5f;
+				float split_pos = component(split, axis);
+				split_pos /= nidx.index_count;
 #if 1
 				// in-place partition
 				int i = nidx.index_offset;
@@ -201,7 +216,7 @@ namespace HotBite {
 				int left_offset = nidx.index_offset;
 
 				int right_count = nidx.index_count - left_count;
-				int right_offset = left_count;
+				int right_offset = left_offset + left_count;
 #else
 				int left_count = 0;
 				int right_count = 0;
@@ -233,19 +248,9 @@ namespace HotBite {
 				int right_offset = left_count;
 				int left_offset = nidx.index_offset;
 #endif				
-				assert(left_count != 0 || right_count != 0);
-				if (left_count + right_count < 2) {
-					abort();
-				}
-				if (left_count == 0) {
-					left_count++;
-					right_offset++;
-					right_count--;
-				}else if (right_count == 0) {
-					right_count++;
-					right_offset--;
-					left_count--;
-				}
+				assert(left_count != 0 && right_count != 0);
+				assert(left_count + right_count >= 2);
+
 				// create child nodes
 				int left_child_idx = nodes_used++;
 				int right_child_idx = nodes_used++;

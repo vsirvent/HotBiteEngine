@@ -123,9 +123,7 @@ bool IntersectTri(Ray ray, out float distance, out uint index, uint indexOffset,
     const uint indexByteOffset = indexOffset * 4;
     const uint vertexSize = 96;
 
-    uint3 i = indicesBuffer.Load3(indexByteOffset);
-    i += vertexOffset;
-    i *= vertexSize;
+    uint3 i = (vertexOffset + indicesBuffer.Load3(indexByteOffset)) * vertexSize;
     float3 v0 = asfloat(vertexBuffer.Load3(i.x));
     float3 v1 = asfloat(vertexBuffer.Load3(i.y));
     float3 v2 = asfloat(vertexBuffer.Load3(i.z));
@@ -308,11 +306,16 @@ void main( uint3 DTid : SV_DispatchThreadID )
 	
     for (int x = 0; x <= npixels.x; ++x)
     {
-        float r = Random(sin(time));
+        float r = Random(float2(time + x, time * 2.0f - x));
         for (int y = 0; y <= npixels.y; ++y)
         {
-            //uint2 pixel = { blockStartX + (float) blockSizeX * Random(r + x + (blockStartX + 1) * y), blockStartY + (float) blockSizeY * Random(r + (blockStartY + 1) * y + x) };
+#if 0
+            float r2 = Random(float2(blockStartY + x + r, blockStartX + y * r)/w);
+            float r3 = Random(float2(blockStartX + x * r, blockStartX + y - r)/h);
+            uint2 pixel = { blockStartX + blockSizeX * r2, blockStartY + blockSizeY * r3 };
+#else
             int2 pixel = { blockStartX + x, blockStartY + y };
+#endif
             // Calculate the global pixel coordinates within the texture
 			Ray ray = GetRay(pixel, w, h);
 			result = GetColor(ray);

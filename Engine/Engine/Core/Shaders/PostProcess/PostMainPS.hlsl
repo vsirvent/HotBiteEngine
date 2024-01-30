@@ -131,7 +131,7 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
     }
     */
     float4 rt = rtTexture.Sample(basicSampler, tpos);
-    color = color*0.5f + 0.5*rt;
+    color = color*0.0f + 1.0*rt;
     //color += l;// (color* (1.0f - a) + l);
     return color;
 }
