@@ -25,8 +25,13 @@ struct BVHNode
 struct Ray {
 	float4 orig;
 	float3 dir;
-	float t; //intersection distance
-    uint index; //first vertex index of triange
+	float t; //intersection distance    
+    uint bounce;
+    float4 color;
+    float3 v0;
+    float3 v1;
+    float3 v2;
+    uint object;
 };
 
 struct ObjectInfo
@@ -118,15 +123,15 @@ uint index(BVHNode node)
 	return asuint(node.reg1.w);
 }
 
-bool IntersectTri(Ray ray, out float distance, out uint index, uint indexOffset, uint vertexOffset)
+bool IntersectTri(Ray ray, out float distance, uint indexOffset, uint vertexOffset, out float3 v0, out float3 v1, out float3 v2)
 {
     const uint indexByteOffset = indexOffset * 4;
     const uint vertexSize = 96;
 
     uint3 i = (vertexOffset + indicesBuffer.Load3(indexByteOffset)) * vertexSize;
-    float3 v0 = asfloat(vertexBuffer.Load3(i.x));
-    float3 v1 = asfloat(vertexBuffer.Load3(i.y));
-    float3 v2 = asfloat(vertexBuffer.Load3(i.z));
+    v0 = asfloat(vertexBuffer.Load3(i.x));
+    v1 = asfloat(vertexBuffer.Load3(i.y));
+    v2 = asfloat(vertexBuffer.Load3(i.z));
 
     const float3 edge1 = v1 - v0;
     const float3 edge2 = v2 - v0;
@@ -157,7 +162,6 @@ bool IntersectTri(Ray ray, out float distance, out uint index, uint indexOffset,
     if (t > 0.0 && t < ray.t)
     {
         distance = t;
-        index = indexOffset;
         return true;
     }
     return false;
@@ -208,78 +212,98 @@ Ray GetRay(float2 pixel, int w, int h)
     ray.orig = pos;
     ray.dir = normalize(pos.xyz - cameraPosition);
     ray.t = FLT_MAX;
-    ray.index = 0;
+    ray.bounce = 0;
+    ray.color = float4(0.0f, 0.0f, 0.0f, 1.0f);
 	return ray;
+}
+
+Ray Scatter(Ray ray)
+{
+    ObjectInfo o = objectInfos[ray.object];
+    //Transform triangle to world
+    //Add world to object matrix
+    float3 v0 = mul(ray.v0, o.)
+    ray.bounce++;
+    return ray;
 }
 
 float4 GetColor(Ray ray)
 {
 	int rayBounces = RAY_BOUNCES;
 
-	float4 color = float4(0.0f, 0.0f, 0.0f, 0.0f);
-
-    for (int i = 0; i < nobjects; ++i)
-    {
-        ObjectInfo o = objectInfos[i];
-        if (IntersectAABB(ray, o.aabb_min, o.aabb_max))
+	float4 color = float4(0.0f, 0.0f, 0.0f, 0.0f);    
+    while (ray.bounce < 2) {
+        bool collide = false;
+        for (int i = 0; i < nobjects; ++i)
         {
-            Ray oray;
-            // Transform the ray direction from world space to object space (no translation)
-            oray.orig = mul(ray.orig, o.world);
-            oray.orig /= oray.orig.w;
-            oray.dir = normalize(mul(ray.dir, (float3x3) o.world));
-            oray.t = FLT_MAX;
-            
-			
-            // Stack for BVH traversal
-            uint stack[MAX_STACK_SIZE];
-            int stackSize = 0;
-            stack[stackSize++] = 0;
-
-            while (stackSize > 0 && stackSize < MAX_STACK_SIZE)
+            ObjectInfo o = objectInfos[i];
+            if (IntersectAABB(ray, o.aabb_min, o.aabb_max))
             {
-                uint current = stack[--stackSize];
+                Ray oray;
+                // Transform the ray direction from world space to object space (no translation)
+                oray.orig = mul(ray.orig, o.world);
+                oray.orig /= oray.orig.w;
+                oray.dir = normalize(mul(ray.dir, (float3x3) o.world));
+                oray.t = FLT_MAX;
 
-                BVHNode node = objects[o.objectOffset + current];
-                if (is_leaf(node))
+                // Stack for BVH traversal
+                uint stack[MAX_STACK_SIZE];
+                int stackSize = 0;
+                stack[stackSize++] = 0;
+
+                while (stackSize > 0 && stackSize < MAX_STACK_SIZE)
                 {
-					float t;
-                    uint d;
-                    uint idx = index(node);
-                    idx += o.indexOffset;
-                    if (IntersectTri(oray, t, d, idx , o.vertexOffset))
+                    uint current = stack[--stackSize];
+
+                    BVHNode node = objects[o.objectOffset + current];
+                    if (is_leaf(node))
                     {
-                        if (t < oray.t)
+                        float t;
+                        uint idx = index(node);
+                        idx += o.indexOffset;
+                        if (IntersectTri(oray, t, idx, o.vertexOffset, oray.v0, oray.v1, oray.v2))
                         {
-                            oray.t = t;
-                            oray.index = d;
+                            if (t < oray.t)
+                            {
+                                oray.t = t;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        if (IntersectAABB(oray, node))
+                        {
+                            stack[stackSize++] = left_child(node);
+                            stack[stackSize++] = right_child(node);
                         }
                     }
                 }
-                else
+
+                if (oray.t < ray.t)
                 {
-                    if (IntersectAABB(oray, node))
-                    {
-                        stack[stackSize++] = left_child(node);
-                        stack[stackSize++] = right_child(node);
-                    }
+                    collide = true;
+                    ray.t = oray.t;
+                    ray.v0 = oray.v0;
+                    ray.v1 = oray.v1;
+                    ray.v2 = oray.v2;
+                    ray.object = i;
                 }
             }
-
-			if (oray.t < ray.t)
-            {
-                ray.t = oray.t;
-                ray.index = oray.index;
-            }
+        }
+        //At this point we have the ray collision distance and index vertex
+        if (collide) {
+            //Calculate color and bounce
+            float v = ray.t * ray.t * ray.t;
+            ray.color += float4(10.0f / v, 10.0f / v, 10.0f / v, 1.0f);
+            ray = Scatter(ray);
+        }
+        else {
+            //Add background color and exit
+            break;
         }
     }
 
-    if (ray.t < FLT_MAX)
-    {
-        float v = ray.t * ray.t * ray.t;
-        return float4(10.0f / v, 10.0f / v, 10.0f / v, 1.0f);
-    }
-    return float4(0.5f, 0.0f, 0.0f, 1.0f);
+    return ray.color;
 }
 
 #define NTHREADS 32
@@ -319,11 +343,6 @@ void main( uint3 DTid : SV_DispatchThreadID )
             // Calculate the global pixel coordinates within the texture
 			Ray ray = GetRay(pixel, w, h);
 			result = GetColor(ray);
-            //if (DTid.x == 15 && DTid.y == 15)
-            //{
-            //    result = float4(1.0f, 0.0f, 0.0f, 1.0f);
-            //}
-            //result = float4(pixel.x/1000.0f, pixel.y/1000.0f, 0.9f, 1.0f);
             output[pixel] = result;
         }
     }
