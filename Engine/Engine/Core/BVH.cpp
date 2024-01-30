@@ -160,7 +160,9 @@ namespace HotBite {
 				NodeIdx& nidx = nodes_idxs[node_idx];
 
 				// terminate recursion
-				if (nidx.index_count < 2) {
+				if (nidx.index_count == 1) {
+					node.left_child = 0;
+					node.right_child = 0;
 					node.index = triangle_indices[nidx.index_offset];
 					return;
 				}
@@ -220,11 +222,11 @@ namespace HotBite {
 						right_count++;
 					}
 				}
-				int n = 0;
+				int n = nidx.index_offset;
 				for (const auto& idx : split_triangle_indices) {
 					triangle_indices[n++] = idx;
 				}
-				n = 0;
+				n = nidx.index_offset;
 				for (const auto& idx : split_centroids) {
 					centroids[n++] = idx;
 				}
@@ -232,7 +234,9 @@ namespace HotBite {
 				int left_offset = nidx.index_offset;
 #endif				
 				assert(left_count != 0 || right_count != 0);
-				
+				if (left_count + right_count < 2) {
+					abort();
+				}
 				if (left_count == 0) {
 					left_count++;
 					right_offset++;
