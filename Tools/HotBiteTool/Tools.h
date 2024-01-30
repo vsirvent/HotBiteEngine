@@ -22,6 +22,7 @@ namespace HotBiteTool {
 		private:
 			Core::PostProcess* post = nullptr;
 			UI::GUI* gui = nullptr;
+			std::shared_ptr<HotBite::Engine::UI::TextureWidget> debug;
 			Scheduler::TimerId timer0;
 			std::vector<ECS::Entity> rotation_entities;
 			World world;

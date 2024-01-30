@@ -102,12 +102,8 @@ void StaticMeshSystem::Update(StaticMeshEntity& entity, int64_t elapsed_nsec, in
 		matrix scle = XMMatrixScaling(transform->scale.x, transform->scale.y, transform->scale.z);
 		transform->world_xmmatrix = scle * rot * trans;
 
-		vector3d extents = XMLoadFloat3(&bounds->final_box.Extents);
+		vector4d extents = XMLoadFloat3(&bounds->final_box.Extents);
 		extents = XMVector4Transform(extents, transform->world_xmmatrix);
-		XMStoreFloat3(&bounds->final_box.Extents, extents);
-		bounds->final_box.Extents.x = abs(bounds->final_box.Extents.x);
-		bounds->final_box.Extents.y = abs(bounds->final_box.Extents.y);
-		bounds->final_box.Extents.z = abs(bounds->final_box.Extents.z);
 		if (entity.base->parent >= 0) {
 			Components::Transform& pt = coordinator->GetComponent<Transform>(entity.base->parent);
 			if (base->parent_rotation) {
@@ -122,6 +118,11 @@ void StaticMeshSystem::Update(StaticMeshEntity& entity, int64_t elapsed_nsec, in
 		XMStoreFloat4x4(&transform->world_matrix, XMMatrixTranspose(transform->world_xmmatrix));
 		XMStoreFloat4x4(&transform->world_inv_matrix, XMMatrixTranspose(XMMatrixInverse(nullptr, transform->world_xmmatrix)));
 
+		float4 e4;
+		XMStoreFloat4(&e4, extents);
+		bounds->final_box.Extents.x = abs(e4.x / e4.w);
+		bounds->final_box.Extents.y = abs(e4.y / e4.w);
+		bounds->final_box.Extents.z = abs(e4.z / e4.w);
 		vector3d pos = XMVector3TransformCoord(XMLoadFloat3(&bounds->bounding_box.Center), transform->world_xmmatrix);
 		XMStoreFloat3(&bounds->final_box.Center, pos);		
 		coordinator->SendEvent(this, base->id, Transform::EVENT_ID_TRANSFORM_CHANGED);

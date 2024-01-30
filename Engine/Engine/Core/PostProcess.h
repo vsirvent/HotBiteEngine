@@ -195,7 +195,7 @@ namespace HotBite {
 				float4x4 prev_view{};
 
 				virtual void ClearData(const float color[4]);
-			
+
 			public:
 
 				MotionBlurEffect(ID3D11DeviceContext* dxcontext,

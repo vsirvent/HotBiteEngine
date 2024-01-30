@@ -478,7 +478,7 @@ ID3D11DepthStencilView* DXCore::DepthView() {
 
 void DXCore::Present()
 {
-	swapChain->Present(0, 0);
+	swapChain->Present(1, 0);
 	OnFrame();
 }
 

@@ -1185,6 +1185,7 @@ void RenderSystem::ProcessRT() {
 											orientedBoxCenter.y + orientedBoxExtents.y,
 											orientedBoxCenter.z + orientedBoxExtents.z };
 
+							o->vertex_offset = (uint32_t)de.mesh->GetData()->vertexOffset;
 							o->index_offset = (uint32_t)de.mesh->GetData()->indexOffset;
 							o->object_offset = (uint32_t)de.mesh->GetData()->bvhOffset;
 							o->world = de.transform->world_inv_matrix;
@@ -1216,13 +1217,16 @@ void RenderSystem::ProcessRT() {
 		rt_shader->SetSamplerState(BASIC_SAMPLER, dxcore->basic_sampler);
 		rt_shader->SetShaderResourceView(DEPTH_TEXTURE, depth_map.SRV());
 		rt_shader->CopyAllBufferData();
-		rt_shader->SetShader();
 
 		dxcore->context->CSSetShaderResources(2, 1, bvh_buffer->SRV());
 		dxcore->context->CSSetShaderResources(3, 1, vertex_buffer->VertexSRV());
 		dxcore->context->CSSetShaderResources(4, 1, vertex_buffer->IndexSRV());
+
+		rt_shader->SetShader();
 		
 		dxcore->context->Dispatch(1, 1, 1);
+		rt_shader->SetUnorderedAccessView("output", nullptr);
+
 	}
 }
 
@@ -1517,6 +1521,7 @@ void RenderSystem::Clear(const float color[4]) {
 	light_map.Clear(color);
 	temp_map.Clear(color);
 	first_pass_texture.Clear(color);
+	rt_texture.Clear(zero);
 	if (post_process_pipeline != nullptr) {
 		post_process_pipeline->Clear(color);
 	}
@@ -1536,6 +1541,7 @@ void RenderSystem::SetPostProcessPipeline(Core::PostProcess* pipeline) {
 		post_process_pipeline = pipeline;
 		PostProcess* last = pipeline;
 		pipeline->SetShaderResourceView(LIGHT_TEXTURE, light_map.SRV());
+		pipeline->SetShaderResourceView("rtTexture", rt_texture.SRV());
 		while (last->GetNext() != nullptr) {
 			last = last->GetNext();
 		}

@@ -161,7 +161,7 @@ namespace HotBite {
 
 				// terminate recursion
 				if (nidx.index_count < 2) {
-					node.index = nidx.index_offset;
+					node.index = triangle_indices[nidx.index_offset];
 					return;
 				}
 

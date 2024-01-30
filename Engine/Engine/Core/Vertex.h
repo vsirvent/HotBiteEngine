@@ -66,9 +66,7 @@ namespace HotBite {
 			private:
 				std::vector<uint32_t> vindex;
 				std::vector<T> vvertex;
-				size_t vvertex_pos = 0;
-				size_t vindex_pos = 0;
-
+				
 				ID3D11Buffer* vertex_buffer = nullptr;
 				ID3D11Buffer* index_buffer = nullptr;
 				ID3D11ShaderResourceView* vertex_srv = nullptr;
@@ -83,27 +81,23 @@ namespace HotBite {
 				}
 
 				size_t GetVertexCount() {
-					return vvertex_pos;
+					return vvertex.size();
 				}
 
 				size_t GetIndicesCount() {
-					return vindex_pos;
+					return vindex.size();
 				}
 
 				void AddMesh(const std::vector<Vertex>& vertices,
 					const std::vector<uint32_t>& indices,
 					size_t* vertex_offset, size_t* index_offset) {
-					*vertex_offset = vvertex_pos;
-					*index_offset = vindex_pos;
+					*vertex_offset = GetVertexCount();
+					*index_offset = GetIndicesCount();
 					vvertex.insert(vvertex.end(), vertices.begin(), vertices.end());
 					vindex.insert(vindex.end(), indices.begin(), indices.end());
-					vvertex_pos += vertices.size();
-					vindex_pos += indices.size();
 				}
 
 				void FlushMesh(const std::vector<T>& vertices, const std::vector<uint32_t>& indices) {
-					vvertex_pos = vertices.size();
-					vindex_pos = indices.size();
 					ID3D11DeviceContext* context = Core::DXCore::Get()->context;
 					D3D11_MAPPED_SUBRESOURCE resource;
 					//Update vertex buffer
@@ -117,8 +111,6 @@ namespace HotBite {
 				}
 
 				HRESULT Reserve(int size) {
-					vvertex_pos = size;
-					vindex_pos = size;
 					vvertex.resize(size);
 					vindex.resize(size);
 					return Prepare(false);
@@ -126,13 +118,13 @@ namespace HotBite {
 
 				HRESULT Prepare(bool read_only = true) {
 					HRESULT hr = S_OK;
-					if (vvertex_pos > 0)
+					if (!vvertex.empty())
 					{
 						ID3D11Device* device = Core::DXCore::Get()->device;
 						D3D11_BUFFER_DESC vbd;
 
 						vbd.Usage = read_only ? D3D11_USAGE_IMMUTABLE : D3D11_USAGE_DYNAMIC;
-						vbd.ByteWidth = (UINT)(sizeof(T) * vvertex_pos);
+						vbd.ByteWidth = (UINT)(sizeof(T) * GetVertexCount());
 						vbd.BindFlags = D3D11_BIND_VERTEX_BUFFER | D3D11_BIND_SHADER_RESOURCE;
 						vbd.CPUAccessFlags = read_only ? 0 : D3D11_CPU_ACCESS_WRITE;
 						vbd.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS;
@@ -145,7 +137,7 @@ namespace HotBite {
 
 						D3D11_BUFFER_DESC ibd;
 						ibd.Usage = read_only ? D3D11_USAGE_IMMUTABLE : D3D11_USAGE_DYNAMIC;
-						ibd.ByteWidth = (UINT)(sizeof(uint32_t) * vindex_pos);
+						ibd.ByteWidth = (UINT)(sizeof(uint32_t) * GetIndicesCount());
 						ibd.BindFlags = D3D11_BIND_INDEX_BUFFER | D3D11_BIND_SHADER_RESOURCE;
 						ibd.CPUAccessFlags = read_only ? 0 : D3D11_CPU_ACCESS_WRITE;
 						ibd.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS;
@@ -161,10 +153,10 @@ namespace HotBite {
 						srvDesc.ViewDimension = D3D11_SRV_DIMENSION_BUFFEREX;
 						srvDesc.BufferEx.FirstElement = 0;
 						srvDesc.BufferEx.Flags = D3D11_BUFFEREX_SRV_FLAG_RAW;
-						srvDesc.BufferEx.NumElements = (uint32_t)vvertex_pos;
+						srvDesc.BufferEx.NumElements = (uint32_t)GetVertexCount() * sizeof(T) / 4; //sizeof(DXGI_FORMAT_R32_TYPELESS)
 						hr = device->CreateShaderResourceView(vertex_buffer, &srvDesc, &vertex_srv);
 						if (FAILED(hr)) { goto end; }
-						srvDesc.BufferEx.NumElements = (uint32_t)vindex_pos;
+						srvDesc.BufferEx.NumElements = (uint32_t)GetIndicesCount();
 						hr = device->CreateShaderResourceView(index_buffer, &srvDesc, &index_srv);
 						if (FAILED(hr)) { goto end; }
 					}
@@ -175,8 +167,6 @@ namespace HotBite {
 				void Clean() {
 					vindex.clear();
 					vvertex.clear();
-					vvertex_pos = 0;
-					vindex_pos = 0;
 				}
 
 				void Refresh() {
@@ -184,11 +174,11 @@ namespace HotBite {
 					D3D11_MAPPED_SUBRESOURCE resource;
 					//Update vertex buffer
 					context->Map(vertex_buffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &resource);
-					memcpy(resource.pData, vvertex.data(), (UINT)(sizeof(T) * vvertex_pos));
+					memcpy(resource.pData, vvertex.data(), (UINT)(sizeof(T) * GetVertexCount()));
 					context->Unmap(vertex_buffer, 0);
 					//Update index buffer
 					context->Map(index_buffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &resource);
-					memcpy(resource.pData, vindex.data(), (UINT)(sizeof(T) * vindex_pos));
+					memcpy(resource.pData, vindex.data(), (UINT)(sizeof(uint32_t) * GetIndicesCount()));
 					context->Unmap(index_buffer, 0);
 				}
 

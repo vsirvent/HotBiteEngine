@@ -31,13 +31,20 @@ namespace HotBiteTool {
 			EventListener::Init(c);
 			world.Init();
 			world.Run(fps);
-			
-			timer0 = Scheduler::Get(MAIN_THREAD)->RegisterTimer(1000000000 / 60, [this, rot = XMMatrixRotationAxis({0.0f, 1.0f, 0.0f}, 0.002f)](const Scheduler::TimerData&) {
+			timer0 = Scheduler::Get(MAIN_THREAD)->RegisterTimer(1000000000 / 60, [this](const Scheduler::TimerData&) {
 				std::scoped_lock l(world.GetCoordinator()->GetSystem<RenderSystem>()->mutex);
+				static float rot_val = 0.0f;
+				auto rot = XMMatrixRotationAxis({ 0.0f, 1.0f, 0.0f }, rot_val);
+				vector3d move_q = XMQuaternionRotationMatrix(rot);
+				rot_val += 0.02f;
+
 				for (const auto& e : rotation_entities) {
 					auto& t = world.GetCoordinator()->GetComponent<Components::Transform>(e);
-					t.world_xmmatrix = XMMatrixMultiply(t.world_xmmatrix, rot);
-					XMStoreFloat4x4(&t.world_matrix, XMMatrixTranspose(t.world_xmmatrix));
+					vector3d rot_q = XMVectorSet(t.initial_rotation.x, t.initial_rotation.y,
+					t.initial_rotation.z, t.initial_rotation.w);
+					auto r = XMQuaternionMultiply(rot_q, move_q);
+					XMStoreFloat4(&t.rotation, r);
+					t.dirty = true;
 				}
 				return true;
 			});
@@ -85,17 +92,30 @@ namespace HotBiteTool {
 		{
 			std::scoped_lock l(world.GetCoordinator()->GetSystem<RenderSystem>()->mutex);
 			world.Stop();
-			world.Release();
-			world.PreLoad(this);
+			debug = nullptr;
 			delete gui;
 			delete post;
+
+			world.Release();
+			world.PreLoad(this);
+			
+			auto c = world.GetCoordinator();
 			gui = new UI::GUI(context, width, height, world.GetCoordinator());
 			post = new DOPEffect(context, width, height, 0, 100);
-			post->SetNext(gui);
-			world.SetPostProcessPipeline(post);
+
 			world.Load(world_file);
 			world.Init();
 			world.Run(fps);
+
+			post->SetNext(gui);
+			world.SetPostProcessPipeline(post);
+		
+			debug = make_shared<UI::TextureWidget>(c, "debug");
+			debug->SetRect({ 0.0f, 0.0f }, 0.3f, 0.3f);
+			debug->SetVisible(true);
+			debug->SetLayer(0);
+			debug->SetTexture(c->GetSystem<RenderSystem>()->GetDepthMapSRV());
+			gui->AddWidget(debug);
 		}
 
 		void ToolUi::RotateEntity(const std::string& name)

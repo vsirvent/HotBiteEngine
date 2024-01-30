@@ -68,49 +68,50 @@ void DirectionalLightSystem::OnEntitySignatureChanged(Entity entity, const Signa
 }
 
 void DirectionalLightSystem::Update(DirectionalLightEntity& entity, int64_t elapsed_nsec, int64_t total_nsec) {
-	
-	CameraSystem::CameraData& camera = cameras.GetData()[0];
-	assert(!cameras.GetData().empty() && "No cameras detected");
-	if ((entity.light->dirty || entity.light->last_cam_pos != camera.camera->world_position) && entity.light->CastShadow()) {
-		
-		matrix lightProjection, spotView, toShadow;
-		float3 cam_pos = { camera.camera->world_position.x, 0.0f, camera.camera->world_position.z };
-		
-		entity.light->last_cam_pos = camera.camera->world_position;
-		float w = (float)entity.light->texture.Width();
-		float perspective_w = w/50.0f;
-		
-		vector3d XMLightPos = XMLoadFloat3(&entity.light->data.direction)*500.0f;
-		vector3d XMCamPosition = XMLoadFloat3(&cam_pos);
-		vector3d XMDir = (camera.camera->xm_direction) * perspective_w * 0.2f;
-		
-		XMDir = XMVectorSetY(XMDir, 0.0f);
-		XMLightPos = XMCamPosition + XMLightPos + XMDir;
-		
-		
-		lightProjection = XMMatrixOrthographicLH(perspective_w, perspective_w, 1.0f, 1000.0f);
-		XMStoreFloat4x4(&entity.light->lightPerspectiveValues, lightProjection);
-		if (LENGHT_SQUARE_F3(entity.light->data.direction) != 0.0f) {
-			vector4d dir = XMVectorSet(-entity.light->data.direction.x, -entity.light->data.direction.y, -entity.light->data.direction.z, 0.0f);
-			vector4d up = XMVectorSet(0.f, 1.f, 0.f, 0.f);
-			XMVECTOR right = XMVector3Cross(up, dir);
-			if (XMVector3Length(right).m128_f32[0] < 0.0001f) {
-				right = XMVectorSet(1.f, 0.f, 0.f, 0.f);
-			}
-			else {
-				right = XMVector3Normalize(right);
-			}
-			up = XMVector3Cross(dir, right);
-			spotView = XMMatrixLookToLH(
-				XMLightPos,     // The position of the "camera"
-				dir,     // Direction the camera is looking
-				up);     // "Up" direction in 3D space (prevents roll)
+	if (!cameras.GetData().empty()) {
+		CameraSystem::CameraData& camera = cameras.GetData()[0];
+		assert(!cameras.GetData().empty() && "No cameras detected");
+		if ((entity.light->dirty || entity.light->last_cam_pos != camera.camera->world_position) && entity.light->CastShadow()) {
 
-			toShadow = spotView * lightProjection;
-			XMStoreFloat4x4(&entity.light->viewMatrix, XMMatrixTranspose(toShadow));
-			XMStoreFloat4x4(&entity.light->projectionMatrix, lightProjection);			
+			matrix lightProjection, spotView, toShadow;
+			float3 cam_pos = { camera.camera->world_position.x, 0.0f, camera.camera->world_position.z };
+
+			entity.light->last_cam_pos = camera.camera->world_position;
+			float w = (float)entity.light->texture.Width();
+			float perspective_w = w / 50.0f;
+
+			vector3d XMLightPos = XMLoadFloat3(&entity.light->data.direction) * 500.0f;
+			vector3d XMCamPosition = XMLoadFloat3(&cam_pos);
+			vector3d XMDir = (camera.camera->xm_direction) * perspective_w * 0.2f;
+
+			XMDir = XMVectorSetY(XMDir, 0.0f);
+			XMLightPos = XMCamPosition + XMLightPos + XMDir;
+
+
+			lightProjection = XMMatrixOrthographicLH(perspective_w, perspective_w, 1.0f, 1000.0f);
+			XMStoreFloat4x4(&entity.light->lightPerspectiveValues, lightProjection);
+			if (LENGHT_SQUARE_F3(entity.light->data.direction) != 0.0f) {
+				vector4d dir = XMVectorSet(-entity.light->data.direction.x, -entity.light->data.direction.y, -entity.light->data.direction.z, 0.0f);
+				vector4d up = XMVectorSet(0.f, 1.f, 0.f, 0.f);
+				XMVECTOR right = XMVector3Cross(up, dir);
+				if (XMVector3Length(right).m128_f32[0] < 0.0001f) {
+					right = XMVectorSet(1.f, 0.f, 0.f, 0.f);
+				}
+				else {
+					right = XMVector3Normalize(right);
+				}
+				up = XMVector3Cross(dir, right);
+				spotView = XMMatrixLookToLH(
+					XMLightPos,     // The position of the "camera"
+					dir,     // Direction the camera is looking
+					up);     // "Up" direction in 3D space (prevents roll)
+
+				toShadow = spotView * lightProjection;
+				XMStoreFloat4x4(&entity.light->viewMatrix, XMMatrixTranspose(toShadow));
+				XMStoreFloat4x4(&entity.light->projectionMatrix, lightProjection);
+			}
+			entity.light->dirty = false;
 		}
-		entity.light->dirty = false;
 	}
 }
 

@@ -72,7 +72,8 @@ namespace MaterialDesigner {
 			CUBE,
 			SPHERE,
 			PLANE,
-			CUSTOM
+			CUSTOM,
+			NONE
 		};
 		Model currentModel = Model::CUBE;
 	private: System::Windows::Forms::ToolStripMenuItem^ sphereToolStripMenuItem;
@@ -99,6 +100,7 @@ namespace MaterialDesigner {
 	protected: System::Windows::Forms::Button^ button2;
 	protected: System::Windows::Forms::Label^ label5;
 	private: System::Windows::Forms::ListBox^ layerList;
+	private: System::Windows::Forms::ToolStripMenuItem^ emptyToolStripMenuItem;
 	protected:
 
 	protected:
@@ -190,6 +192,7 @@ namespace MaterialDesigner {
 			this->button1 = (gcnew System::Windows::Forms::Button());
 			this->rootFolder = (gcnew System::Windows::Forms::TextBox());
 			this->label3 = (gcnew System::Windows::Forms::Label());
+			this->emptyToolStripMenuItem = (gcnew System::Windows::Forms::ToolStripMenuItem());
 			this->MainTab->SuspendLayout();
 			this->Design->SuspendLayout();
 			this->Code->SuspendLayout();
@@ -373,9 +376,9 @@ namespace MaterialDesigner {
 			// 
 			// editorToolStripMenuItem
 			// 
-			this->editorToolStripMenuItem->DropDownItems->AddRange(gcnew cli::array< System::Windows::Forms::ToolStripItem^  >(4) {
+			this->editorToolStripMenuItem->DropDownItems->AddRange(gcnew cli::array< System::Windows::Forms::ToolStripItem^  >(5) {
 				this->cubeToolStripMenuItem,
-					this->sphereToolStripMenuItem, this->panelToolStripMenuItem, this->monkeyToolStripMenuItem
+					this->sphereToolStripMenuItem, this->panelToolStripMenuItem, this->monkeyToolStripMenuItem, this->emptyToolStripMenuItem
 			});
 			this->editorToolStripMenuItem->Name = L"editorToolStripMenuItem";
 			this->editorToolStripMenuItem->Size = System::Drawing::Size(50, 20);
@@ -384,28 +387,28 @@ namespace MaterialDesigner {
 			// cubeToolStripMenuItem
 			// 
 			this->cubeToolStripMenuItem->Name = L"cubeToolStripMenuItem";
-			this->cubeToolStripMenuItem->Size = System::Drawing::Size(117, 22);
+			this->cubeToolStripMenuItem->Size = System::Drawing::Size(180, 22);
 			this->cubeToolStripMenuItem->Text = L"Cube";
 			this->cubeToolStripMenuItem->Click += gcnew System::EventHandler(this, &MaterialDesignerForm::button2_Click);
 			// 
 			// sphereToolStripMenuItem
 			// 
 			this->sphereToolStripMenuItem->Name = L"sphereToolStripMenuItem";
-			this->sphereToolStripMenuItem->Size = System::Drawing::Size(117, 22);
+			this->sphereToolStripMenuItem->Size = System::Drawing::Size(180, 22);
 			this->sphereToolStripMenuItem->Text = L"Sphere";
 			this->sphereToolStripMenuItem->Click += gcnew System::EventHandler(this, &MaterialDesignerForm::button3_Click);
 			// 
 			// panelToolStripMenuItem
 			// 
 			this->panelToolStripMenuItem->Name = L"panelToolStripMenuItem";
-			this->panelToolStripMenuItem->Size = System::Drawing::Size(117, 22);
+			this->panelToolStripMenuItem->Size = System::Drawing::Size(180, 22);
 			this->panelToolStripMenuItem->Text = L"Panel";
 			this->panelToolStripMenuItem->Click += gcnew System::EventHandler(this, &MaterialDesignerForm::button4_Click);
 			// 
 			// monkeyToolStripMenuItem
 			// 
 			this->monkeyToolStripMenuItem->Name = L"monkeyToolStripMenuItem";
-			this->monkeyToolStripMenuItem->Size = System::Drawing::Size(117, 22);
+			this->monkeyToolStripMenuItem->Size = System::Drawing::Size(180, 22);
 			this->monkeyToolStripMenuItem->Text = L"Monkey";
 			this->monkeyToolStripMenuItem->Click += gcnew System::EventHandler(this, &MaterialDesignerForm::monkeyToolStripMenuItem_Click);
 			// 
@@ -585,6 +588,13 @@ namespace MaterialDesigner {
 			this->label3->TabIndex = 15;
 			this->label3->Text = L"Root:";
 			this->label3->TextAlign = System::Drawing::ContentAlignment::MiddleLeft;
+			// 
+			// emptyToolStripMenuItem
+			// 
+			this->emptyToolStripMenuItem->Name = L"emptyToolStripMenuItem";
+			this->emptyToolStripMenuItem->Size = System::Drawing::Size(180, 22);
+			this->emptyToolStripMenuItem->Text = L"Empty";
+			this->emptyToolStripMenuItem->Click += gcnew System::EventHandler(this, &MaterialDesignerForm::emptyToolStripMenuItem_Click);
 			// 
 			// MaterialDesignerForm
 			// 
@@ -908,6 +918,11 @@ namespace MaterialDesigner {
 		UpdateEditor();
 	}
 
+	private: System::Void emptyToolStripMenuItem_Click(System::Object^ sender, System::EventArgs^ e) {
+		currentModel = Model::NONE;
+		UpdateEditor();
+	}
+
 	private: System::Void monkeyToolStripMenuItem_Click(System::Object^ sender, System::EventArgs^ e) {
 		currentModel = Model::CUSTOM;
 		UpdateEditor();
@@ -961,5 +976,5 @@ namespace MaterialDesigner {
 			}
 		}
 	}
-	};
+};
 }

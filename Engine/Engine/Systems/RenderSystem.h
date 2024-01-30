@@ -304,6 +304,7 @@ namespace HotBite {
 				bool GetCloudTest() const;
 
 				ID3D11ShaderResourceView* GetDepthMapSRV() { return depth_map.SRV(); }
+				ID3D11ShaderResourceView* GetRTMapSRV() { return rt_texture.SRV(); }
 			};
 		}
 	}
