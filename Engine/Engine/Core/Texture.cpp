@@ -389,6 +389,7 @@ namespace HotBite {
 				texDesc.MipLevels = mip_levels;
 				texDesc.ArraySize = 1;
 				texDesc.Format = format;
+				texDesc.MipLevels = 1;
 				texDesc.SampleDesc.Count = 1;
 				texDesc.Usage = D3D11_USAGE_DEFAULT;
 				texDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET | bind_flags;

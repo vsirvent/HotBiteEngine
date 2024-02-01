@@ -228,8 +228,7 @@ namespace HotBite {
 				Core::RenderTexture2D light_map;
 				Core::RenderTexture2D temp_map;
 				Core::RenderTexture2D rgba_noise_texture;
-				Core::RenderTexture2D first_pass_texture{ 1 };
-				Core::RenderTexture2D rt_texture;
+				Core::RenderTexture2D first_pass_texture{ 1 };				
 				Core::DepthTexture2D depth_view;
 				
 				Core::PostProcess* post_process_pipeline = nullptr;				
@@ -238,7 +237,13 @@ namespace HotBite {
 				Core::IDepthResource* depth_target = nullptr;
 				
 				//Ray tracing
+				static constexpr int RT_RESOLUTION_DIVIVER = 4;
+				static constexpr int RT_NTEXTURES = 1;
+				uint32_t rt_texture_idx = 0;
 				Core::SimpleComputeShader* rt_shader = nullptr;
+				Core::RenderTexture2D rt_texture[RT_NTEXTURES];
+				Core::RenderTexture2D rt_ray_sources0;
+				Core::RenderTexture2D rt_ray_sources1;
 				BVHBuffer* bvh_buffer = nullptr;
 
 				float time = 0.0f;
@@ -304,7 +309,6 @@ namespace HotBite {
 				bool GetCloudTest() const;
 
 				ID3D11ShaderResourceView* GetDepthMapSRV() { return depth_map.SRV(); }
-				ID3D11ShaderResourceView* GetRTMapSRV() { return rt_texture.SRV(); }
 			};
 		}
 	}

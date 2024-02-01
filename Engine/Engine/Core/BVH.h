@@ -165,6 +165,7 @@ namespace HotBite {
 			struct ObjectInfo
 			{
 				float4x4 world;
+				float4x4 inv_world;
 				float3 aabb_min;
 				uint32_t object_offset;
 				float3 aabb_max;

@@ -1,16 +1,11 @@
-#include "../Common/PixelCommon.hlsli"
-#include "../Common/FastNoise.hlsli"
-#include "../Common/QuickNoise.hlsli"
-#include "../Common/NoiseSimplex.hlsli"
-#include "../Common/RGBANoise.hlsli"
 #include "../Common/ShaderStructs.hlsli"
-#include "../Common/Matrix.hlsli"
+#include "../Common/PixelCommon.hlsli"
+
 
 #define MAX_OBJECTS 64
 #define MAX_STACK_SIZE 64
 
 #define SAMPLES_PER_PIXEL 4
-#define RAY_BOUNCES 3
 static const float T_MIN = 0.0001f;
 static const float T_MAX = 1000.0f;
 
@@ -26,17 +21,23 @@ struct Ray {
 	float4 orig;
 	float3 dir;
 	float t; //intersection distance    
-    uint bounce;
-    float4 color;
+};
+
+struct IntersectionResult
+{
+    float distance;
+    float2 uv;
     float3 v0;
     float3 v1;
     float3 v2;
+    uint3 vindex;
     uint object;
 };
 
 struct ObjectInfo
 {
     matrix world;
+    matrix inv_world;
 	float3 aabb_min;
     uint objectOffset;
 	float3 aabb_max;
@@ -47,42 +48,27 @@ struct ObjectInfo
 
 cbuffer externalData : register(b0)
 {
-	matrix world;
-	matrix view;
-	matrix projection;
     matrix invView;
 
     float time;
     float3 cameraPosition;
     float3 cameraDirection;
 
+    //Scene objects
     uint nobjects;
     ObjectInfo objectInfos[MAX_OBJECTS];
+    MaterialColor objectMaterials[MAX_OBJECTS];
 
-	AmbientLight ambientLight;
+    //Lights
+    AmbientLight ambientLight;
 	DirLight dirLights[MAX_LIGHTS];
 	PointLight pointLights[MAX_LIGHTS];
 	int dirLightsCount;
 	int pointLightsCount;
-	MaterialColor material;
-
-	int screenW;
-	int screenH;
-
-	float parallaxScale;
-	int meshNormalTextureEnable;
-	int highTextureEnable;
 
 	float4 LightPerspectiveValues[MAX_LIGHTS / 2];
 	matrix DirPerspectiveMatrix[MAX_LIGHTS];
 	matrix DirStaticPerspectiveMatrix[MAX_LIGHTS];
-
-	uint multi_texture_count;
-	float multi_parallax_scale;
-	uint4 packed_multi_texture_operations[MAX_MULTI_TEXTURE / 4];
-	float4 packed_multi_texture_values[MAX_MULTI_TEXTURE / 4];
-	float4 packed_multi_texture_uv_scales[MAX_MULTI_TEXTURE / 4];
-
 }
 
 StructuredBuffer<BVHNode> objects: register(t2);
@@ -90,8 +76,10 @@ ByteAddressBuffer vertexBuffer : register(t3);
 ByteAddressBuffer indicesBuffer : register(t4);
 
 RWTexture2D<float4> output : register(u0);
+RWTexture2D<float4> ray0 : register(u1);
+RWTexture2D<float4> ray1 : register(u2);
 
-#include "../Common/PixelFunctions.hlsli"
+Texture2D<float4> DiffuseTextures[MAX_OBJECTS];
 
 bool is_leaf(BVHNode node)
 {
@@ -123,20 +111,58 @@ uint index(BVHNode node)
 	return asuint(node.reg1.w);
 }
 
-bool IntersectTri(Ray ray, out float distance, uint indexOffset, uint vertexOffset, out float3 v0, out float3 v1, out float3 v2)
+float3 CalcDirectional(float3 normal, float4 position, MaterialColor material, DirLight light, int index)
+{
+    float3 color = light.Color.rgb * light.intensity;
+    // Phong diffuse
+    float NDotL = dot(light.DirToLight, normal);
+    float3 finalColor = color * saturate(NDotL);
+    //Back reflex
+    float NDotL2 = dot(-light.DirToLight, normal);
+    finalColor += color * saturate(NDotL2) * 0.2f;
+    return climit3(finalColor);
+}
+
+float3 CalcPoint(float3 normal, float3 position, MaterialColor material, PointLight light, int index)
+{
+    float3 finalColor = { 0.f, 0.f, 0.f };
+    float3 lposition = light.Position;
+    float lum = (light.Color.r + light.Color.g + light.Color.b) / 3.0f;
+    float3 ToLight = lposition - position;
+    float3 ToEye = cameraPosition.xyz - position;
+    float DistToLight = length(ToLight);
+    // Phong diffuse
+    ToLight /= DistToLight; // Normalize
+    float NDotL = saturate(dot(ToLight, normal));
+    float NDotL2 = saturate(dot(-ToLight, normal));
+    finalColor = light.Color * NDotL;
+    //Back reflex
+    finalColor += light.Color.rgb * saturate(NDotL2) * 0.2f;
+
+    // Attenuation
+    float LightRange = (light.Range - DistToLight) / light.Range;
+    float DistToLightNorm = saturate(LightRange);
+    float Attn = saturate(DistToLightNorm * DistToLightNorm);
+    finalColor *= Attn;
+    return finalColor;
+}
+
+bool IntersectTri(Ray ray, uint indexOffset, uint vertexOffset, out IntersectionResult result)
 {
     const uint indexByteOffset = indexOffset * 4;
     const uint vertexSize = 96;
 
-    uint3 i = (vertexOffset + indicesBuffer.Load3(indexByteOffset)) * vertexSize;
-    v0 = asfloat(vertexBuffer.Load3(i.x));
-    v1 = asfloat(vertexBuffer.Load3(i.y));
-    v2 = asfloat(vertexBuffer.Load3(i.z));
+    uint3 vindex = (vertexOffset + indicesBuffer.Load3(indexByteOffset)) * vertexSize;
+    float3 v0 = asfloat(vertexBuffer.Load3(vindex.x));
+    float3 v1 = asfloat(vertexBuffer.Load3(vindex.y));
+    float3 v2 = asfloat(vertexBuffer.Load3(vindex.z));
 
     const float3 edge1 = v1 - v0;
     const float3 edge2 = v2 - v0;
     const float3 h = cross(ray.dir, edge2);
     const float a = dot(edge1, h);
+
+    result.distance = FLT_MAX;
 
     // Check if the ray is parallel to the triangle
     if (abs(a) < Epsilon)
@@ -153,20 +179,27 @@ bool IntersectTri(Ray ray, out float distance, uint indexOffset, uint vertexOffs
 
     const float3 q = cross(s, edge1);
     const float v = f * dot(ray.dir, q);
-    
+
     if (v < 0 || u + v > 1)
         return false;
-   
+
     const float t = f * dot(edge2, q);
+
     // Check if the intersection is within the valid range along the ray
-    if (t > 0.0 && t < ray.t)
+    if (t > 0 && t < ray.t)
     {
-        distance = t;
+        result.v0 = v0;
+        result.v1 = v1;
+        result.v2 = v2;
+        result.vindex = vindex;
+        result.object = 0;
+        result.distance = t;
+        result.uv = float2(u, v);
         return true;
     }
+
     return false;
 }
-
 
 bool IntersectAABB(Ray ray, float3 bmin, float3 bmax)
 {
@@ -212,138 +245,227 @@ Ray GetRay(float2 pixel, int w, int h)
     ray.orig = pos;
     ray.dir = normalize(pos.xyz - cameraPosition);
     ray.t = FLT_MAX;
-    ray.bounce = 0;
-    ray.color = float4(0.0f, 0.0f, 0.0f, 1.0f);
+    
 	return ray;
 }
 
-Ray Scatter(Ray ray)
+float3 GetDiffuseColor(uint object, float2 uv)
 {
-    ObjectInfo o = objectInfos[ray.object];
-    //Transform triangle to world
-    //Add world to object matrix
-    float3 v0 = mul(ray.v0, o.)
-    ray.bounce++;
-    return ray;
+    switch (object)
+    { 
+    case 0: return DiffuseTextures[0].SampleLevel(basicSampler, uv, 0).xyz;
+    case 1: return DiffuseTextures[1].SampleLevel(basicSampler, uv, 0).xyz;
+    case 2: return DiffuseTextures[2].SampleLevel(basicSampler, uv, 0).xyz;
+    case 3: return DiffuseTextures[3].SampleLevel(basicSampler, uv, 0).xyz;
+    case 4: return DiffuseTextures[4].SampleLevel(basicSampler, uv, 0).xyz;
+    case 5: return DiffuseTextures[5].SampleLevel(basicSampler, uv, 0).xyz;
+    case 6: return DiffuseTextures[6].SampleLevel(basicSampler, uv, 0).xyz;
+    case 7: return DiffuseTextures[7].SampleLevel(basicSampler, uv, 0).xyz;
+    case 8: return DiffuseTextures[8].SampleLevel(basicSampler, uv, 0).xyz;
+    case 9: return DiffuseTextures[9].SampleLevel(basicSampler, uv, 0).xyz;
+    default:
+        return float3(0.0f, 0.0f, 0.0f);
+    }
 }
 
-float4 GetColor(Ray ray)
+float3 GetColor(Ray ray)
 {
-	int rayBounces = RAY_BOUNCES;
+	bool collide = false;
 
-	float4 color = float4(0.0f, 0.0f, 0.0f, 0.0f);    
-    while (ray.bounce < 2) {
-        bool collide = false;
-        for (int i = 0; i < nobjects; ++i)
+    IntersectionResult result;
+    result.distance = FLT_MAX;
+    
+    for (int i = 0; i < nobjects; ++i)
+    {
+        ObjectInfo o = objectInfos[i];
+        if (IntersectAABB(ray, o.aabb_min, o.aabb_max))
         {
-            ObjectInfo o = objectInfos[i];
-            if (IntersectAABB(ray, o.aabb_min, o.aabb_max))
+            Ray oray;
+            IntersectionResult object_result;
+            object_result.distance = FLT_MAX;
+
+            // Transform the ray direction from world space to object space (no translation)
+            oray.orig = mul(ray.orig, o.inv_world);
+            oray.orig /= oray.orig.w;
+            oray.dir = normalize(mul(ray.dir, (float3x3) o.inv_world));
+            oray.t = FLT_MAX;
+
+            // Stack for BVH traversal
+            uint stack[MAX_STACK_SIZE];
+            int stackSize = 0;
+            stack[stackSize++] = 0;
+
+            while (stackSize > 0 && stackSize < MAX_STACK_SIZE)
             {
-                Ray oray;
-                // Transform the ray direction from world space to object space (no translation)
-                oray.orig = mul(ray.orig, o.world);
-                oray.orig /= oray.orig.w;
-                oray.dir = normalize(mul(ray.dir, (float3x3) o.world));
-                oray.t = FLT_MAX;
+                uint current = stack[--stackSize];
 
-                // Stack for BVH traversal
-                uint stack[MAX_STACK_SIZE];
-                int stackSize = 0;
-                stack[stackSize++] = 0;
-
-                while (stackSize > 0 && stackSize < MAX_STACK_SIZE)
+                BVHNode node = objects[o.objectOffset + current];
+                if (is_leaf(node))
                 {
-                    uint current = stack[--stackSize];
+                    float t;
+                    uint idx = index(node);
+                    idx += o.indexOffset;
 
-                    BVHNode node = objects[o.objectOffset + current];
-                    if (is_leaf(node))
+                    IntersectionResult tmp_result;
+                    tmp_result.distance = FLT_MAX;
+                    if (IntersectTri(oray, idx, o.vertexOffset, tmp_result))
                     {
-                        float t;
-                        uint idx = index(node);
-                        idx += o.indexOffset;
-                        if (IntersectTri(oray, t, idx, o.vertexOffset, oray.v0, oray.v1, oray.v2))
+                        if (tmp_result.distance < object_result.distance)
                         {
-                            if (t < oray.t)
-                            {
-                                oray.t = t;
-                            }
-                        }
-                    }
-                    else
-                    {
-                        if (IntersectAABB(oray, node))
-                        {
-                            stack[stackSize++] = left_child(node);
-                            stack[stackSize++] = right_child(node);
+                            object_result.v0 = tmp_result.v0;
+                            object_result.v1 = tmp_result.v1;
+                            object_result.v2 = tmp_result.v2;
+                            object_result.vindex = tmp_result.vindex;
+                            object_result.distance = tmp_result.vindex;
+                            object_result.uv = tmp_result.uv;
+                            object_result.object = i;
+                            oray.t = tmp_result.distance;
                         }
                     }
                 }
-
-                if (oray.t < ray.t)
+                else
                 {
-                    collide = true;
-                    ray.t = oray.t;
-                    ray.v0 = oray.v0;
-                    ray.v1 = oray.v1;
-                    ray.v2 = oray.v2;
-                    ray.object = i;
-                }
+                    if (IntersectAABB(oray, node))
+                    {
+                        stack[stackSize++] = left_child(node);
+                        stack[stackSize++] = right_child(node);
+                    }                }
             }
-        }
-        //At this point we have the ray collision distance and index vertex
-        if (collide) {
-            //Calculate color and bounce
-            float v = ray.t * ray.t * ray.t;
-            ray.color += float4(10.0f / v, 10.0f / v, 10.0f / v, 1.0f);
-            ray = Scatter(ray);
-        }
-        else {
-            //Add background color and exit
-            break;
+            if (oray.t < ray.t)
+            {
+                collide = true;
+                ray.t = oray.t;
+                result.v0 = object_result.v0;
+                result.v1 = object_result.v1;
+                result.v2 = object_result.v2;
+                result.vindex = object_result.vindex;
+                result.distance = object_result.vindex;
+                result.uv = object_result.uv;
+                result.object = i;
+            }
         }
     }
 
-    return ray.color;
+    float3 color = float3(0.0f, 0.0f, 0.0f);
+
+    //At this point we have the ray collision distance and a collision result
+    if (collide) {
+        // Calculate space position
+        ObjectInfo o = objectInfos[result.object];
+        float3 pos = result.v0 * (1.0f - result.uv.x - result.uv.y) + result.v1 * result.uv.x + result.v2 * result.uv.y;
+        float3 normal0 = asfloat(vertexBuffer.Load3(result.vindex.x + 12));
+        float3 normal1 = asfloat(vertexBuffer.Load3(result.vindex.y + 12));
+        float3 normal2 = asfloat(vertexBuffer.Load3(result.vindex.z + 12));
+        float3 normal = result.uv.x * normal0 + result.uv.y * normal1 + (1.0f - result.uv.x - result.uv.y) * normal2;
+        normal = normalize(mul(normal, o.world));
+
+        MaterialColor material = objectMaterials[result.object];
+        
+        // Calculate the point lights
+        for (i = 0; i < pointLightsCount; ++i) {
+            if (length(pos - pointLights[i].Position) < pointLights[i].Range) {
+                color += CalcPoint(normal, pos, material, pointLights[i], i);
+            }
+        }      
+
+        //Calculate material color
+        if (material.flags & DIFFUSSE_MAP_ENABLED_FLAG) {
+            float2 uv0 = asfloat(vertexBuffer.Load2(result.vindex.x + 24));
+            float2 uv1 = asfloat(vertexBuffer.Load2(result.vindex.y + 24));
+            float2 uv2 = asfloat(vertexBuffer.Load2(result.vindex.z + 24));
+            float2 uv = uv0 * (1.0f - result.uv.x - result.uv.y) + uv1 * result.uv.x + uv2 * result.uv.y;
+            color *= GetDiffuseColor(result.object, uv);
+        }
+        else {
+            color *= material.diffuseColor;
+        }
+    }
+    else {
+        //Color background
+    }
+
+    return color;
 }
+
+Ray GetRayFromSource(RaySource source, float randSeed)
+{
+    Ray ray;
+    ray.orig = float4(source.orig, 1.0f);
+    float3 in_dir = normalize(source.orig - cameraPosition.xyz);
+    float3 out_dir = reflect(in_dir, source.normal);
+    //Diffuse ray based on roughness
+
+    ray.dir = normalize(out_dir);
+    ray.orig.xyz += ray.dir*0.01f;
+    ray.t = FLT_MAX;
+    
+    return ray;
+}
+
 
 #define NTHREADS 32
 #define DENSITY 1.0f
 
 [numthreads(NTHREADS, NTHREADS, 1)]
-void main( uint3 DTid : SV_DispatchThreadID )
+void main(uint3 DTid : SV_DispatchThreadID)
 {
-	float4 result = float4(0.0f, 0.0f, 0.0f, 0.0f);
-	uint w, h;
-	uint2 dimensions;
-	output.GetDimensions(w, h);
-	dimensions.x = w;
-	dimensions.y = h;
+    uint2 dimensions;
+    uint2 ray_map_dimensions;
+    {
+        uint w, h;
+        output.GetDimensions(w, h);
+        dimensions.x = w;
+        dimensions.y = h;
+        ray0.GetDimensions(w, h);
+        ray_map_dimensions.x = w;
+        ray_map_dimensions.y = h;
+    }
 
-	uint blockSizeX = w / NTHREADS;
-	uint blockSizeY = h / NTHREADS;
-	 
-	// Calculate the starting pixel coordinates of the block
-	uint blockStartX = DTid.x * blockSizeX;
-	uint blockStartY = DTid.y * blockSizeY;
+    float blockSizeX = (float)dimensions.x / (float)NTHREADS;
+    float blockSizeY = (float)dimensions.y / (float)NTHREADS;
+    float blockStartX = (float)DTid.x * blockSizeX;
+    float blockStartY = (float)DTid.y * blockSizeY;
+
+    float rayMapBlockSizeX = (float)ray_map_dimensions.x / (float)NTHREADS;
+    float rayMapblockSizeY = (float)ray_map_dimensions.y / (float)NTHREADS;
+    float rayMapBlockStartX = (float)DTid.x * rayMapBlockSizeX;
+    float rayMapblockStartY = (float)DTid.y * rayMapblockSizeY;
 
     uint2 npixels = { DENSITY * blockSizeX, DENSITY * blockSizeY };
-	
+    uint2 rayMapRatio = ray_map_dimensions / dimensions;
     for (int x = 0; x <= npixels.x; ++x)
     {
         float r = Random(float2(time + x, time * 2.0f - x));
         for (int y = 0; y <= npixels.y; ++y)
         {
-#if 0
-            float r2 = Random(float2(blockStartY + x + r, blockStartX + y * r)/w);
-            float r3 = Random(float2(blockStartX + x * r, blockStartX + y - r)/h);
-            uint2 pixel = { blockStartX + blockSizeX * r2, blockStartY + blockSizeY * r3 };
-#else
-            int2 pixel = { blockStartX + x, blockStartY + y };
-#endif
-            // Calculate the global pixel coordinates within the texture
-			Ray ray = GetRay(pixel, w, h);
-			result = GetColor(ray);
-            output[pixel] = result;
+            float r2 = Random(float2(blockStartY + x + r, blockStartX + y * r) / dimensions.x);
+            uint2 pixel;
+            uint2 ray_pixel;
+            if (DENSITY == 1.0f) {
+                pixel = float2(blockStartX + x, blockStartY + y);
+                ray_pixel = float2(rayMapBlockStartX + x * rayMapRatio.x, rayMapblockStartY + y * rayMapRatio.y);
+            }
+            else {
+                float r3 = Random(float2(blockStartX + x * r, blockStartX + y - r) / dimensions.y);
+                pixel = float2(blockStartX + blockSizeX * r2, blockStartY + blockSizeY * r3);
+                ray_pixel = float2(rayMapBlockStartX + r2 * blockSizeX * rayMapRatio.x, rayMapblockStartY + r3 * blockSizeY * rayMapRatio.y);
+            }
+
+            RaySource ray_source = fromColor(ray0[ray_pixel], ray1[ray_pixel]);
+            if (length(ray_source.normal) > Epsilon)
+            {
+                Ray ray = GetRayFromSource(ray_source, r2);
+                if (length(ray.dir) > Epsilon)
+                {
+                    output[pixel] = float4(GetColor(ray), 1.0f);
+                }
+                else {
+                    output[pixel] = float4(0.0f, 0.0f, 0.0f, 0.0f);
+                }
+            }
+            else {
+                output[pixel] = float4(0.0f, 0.0f, 0.0f, 0.0f);
+            }
         }
     }
 }

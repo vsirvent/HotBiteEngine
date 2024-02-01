@@ -204,7 +204,16 @@ RenderTarget MainRenderPS(GSOutput input)
 		}
 	};
 #endif
-	output.light_map = saturate(lightColor);
 	output.scene = saturate(finalColor);
+	output.light_map = saturate(lightColor);
+
+	RaySource ray;
+	ray.orig = wpos.xyz;
+	ray.dispersion = 0.0f;
+	ray.normal = normal;
+	ray.density = 1.0f;
+
+	output.rt_ray0_map = getColor0(ray);
+	output.rt_ray1_map = getColor1(ray);
 	return output;
 }

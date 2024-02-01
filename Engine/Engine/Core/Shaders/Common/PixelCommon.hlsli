@@ -37,6 +37,8 @@ struct RenderTarget
 {
 	float4 scene : SV_TARGET0;
 	float4 light_map : SV_TARGET1;
+	float4 rt_ray0_map : SV_TARGET2;
+	float4 rt_ray1_map : SV_TARGET3;
 };
 
 struct DirLight
@@ -79,8 +81,7 @@ struct MaterialColor
 	float padding;
 	float padding1;
 
-	float3 alphaColor;
-	float padding3;
+	float3 alphaColor;	
 #define NORMAL_MAP_ENABLED_FLAG 1 << 0
 #define PARALLAX_MAP_ENABLED_FLAG 1 << 1
 #define DIFFUSSE_MAP_ENABLED_FLAG 1	<< 2
@@ -101,5 +102,7 @@ struct AmbientLight
 	float3 AmbientUp;
 	float  padding1;
 };
+
+
 
 #endif

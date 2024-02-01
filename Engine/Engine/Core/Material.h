@@ -45,7 +45,6 @@ namespace HotBite {
 				float padding1 = 0.0f;
 
 				float3 alphaColor = {};				
-				float padding3 = 0.0f;
 #define NORMAL_MAP_ENABLED_FLAG 1
 #define PARALLAX_MAP_ENABLED_FLAG (1 << 1)
 #define DIFFUSSE_MAP_ENABLED_FLAG (1 << 2)

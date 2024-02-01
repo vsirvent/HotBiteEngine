@@ -27,6 +27,34 @@ SOFTWARE.
 
 #include "Defines.hlsli"
 
+struct RaySource
+{
+	float3 orig;
+	float dispersion;
+	float3 normal;
+	float density;
+};
+
+RaySource fromColor(float4 color0, float4 color1)
+{
+	RaySource ray;
+	ray.orig = color0.xyz;
+	ray.dispersion = color0.w;
+	ray.normal = color1.xyz;
+	ray.density = color1.w;
+	return ray;
+}
+
+float4 getColor0(RaySource ray)
+{
+	return float4(ray.orig, ray.dispersion);
+}
+
+float4 getColor1(RaySource ray)
+{
+	return float4(ray.normal, ray.density);
+}
+
 struct DepthVertexToPixel
 {
 	float4 position		: SV_POSITION;	// XYZW position (System Value Position)

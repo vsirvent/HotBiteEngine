@@ -27,7 +27,8 @@ SOFTWARE.
 Texture2D renderTexture : register(t0);
 Texture2D depthTexture: register(t3);
 Texture2D lightTexture: register(t4);
-Texture2D rtTexture : register(t5);
+Texture2D rtTexture0 : register(t5);
+
 SamplerState basicSampler : register(s0);
 
 cbuffer externalData : register(b0)
@@ -130,8 +131,8 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
         color.rgb = pow(abs(color.rgb), 1.0 / gamma);
     }
     */
-    float4 rt = rtTexture.Sample(basicSampler, tpos);
-    color = color*0.0f + 1.0*rt;
+    float4 rt0 = rtTexture0.Sample(basicSampler, tpos);
+    color += color * rt0 * 0.5f + rt0 * 0.5f;
     //color += l;// (color* (1.0f - a) + l);
     return color;
 }
