@@ -438,6 +438,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
         float r = Random(float2(time + x, time * 2.0f - x));
         for (int y = 0; y <= npixels.y; ++y)
         {
+            float4 color;
             float r2 = Random(float2(blockStartY + x + r, blockStartX + y * r) / dimensions.x);
             uint2 pixel;
             uint2 ray_pixel;
@@ -457,15 +458,17 @@ void main(uint3 DTid : SV_DispatchThreadID)
                 Ray ray = GetRayFromSource(ray_source, r2);
                 if (length(ray.dir) > Epsilon)
                 {
-                    output[pixel] = float4(GetColor(ray), 1.0f);
+                    color = float4(GetColor(ray), 1.0f);
                 }
                 else {
-                    output[pixel] = float4(0.0f, 0.0f, 0.0f, 0.0f);
+                    color = float4(0.0f, 0.0f, 0.0f, 0.0f);
                 }
             }
             else {
-                output[pixel] = float4(0.0f, 0.0f, 0.0f, 0.0f);
+                color = float4(0.0f, 0.0f, 0.0f, 0.0f);
             }
+
+            output[pixel] = 0.5 * color + 0.5 * output[pixel];
         }
     }
 }

@@ -1182,7 +1182,7 @@ void RenderSystem::ProcessRT() {
 		ID3D11ShaderResourceView* diffuseTextures[MAX_OBJECTS]{};
 		static const float zero[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 		rt_texture_idx = (rt_texture_idx + 1) % RT_NTEXTURES;
-		rt_texture[rt_texture_idx].Clear(zero);
+		//rt_texture[rt_texture_idx].Clear(zero);
 		auto fill = [](RenderTree& tree, ObjectInfo objects[MAX_OBJECTS],
 			MaterialProps objectMaterials[MAX_OBJECTS],
 			ID3D11ShaderResourceView* diffuseTextures[MAX_OBJECTS],
