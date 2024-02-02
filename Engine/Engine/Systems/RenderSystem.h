@@ -241,7 +241,12 @@ namespace HotBite {
 				static constexpr int RT_NTEXTURES = 1;
 				uint32_t rt_texture_idx = 0;
 				Core::SimpleComputeShader* rt_shader = nullptr;
+				Core::SimpleComputeShader* rt_acc = nullptr;
+				Core::SimpleComputeShader* rt_denoise = nullptr;
+				Core::SimpleComputeShader* rt_smooth = nullptr;
 				Core::RenderTexture2D rt_texture[RT_NTEXTURES];
+				Core::RenderTexture2D rt_texture_acc;
+				Core::RenderTexture2D rt_texture_tmp[2];
 				Core::RenderTexture2D rt_ray_sources0;
 				Core::RenderTexture2D rt_ray_sources1;
 				BVHBuffer* bvh_buffer = nullptr;

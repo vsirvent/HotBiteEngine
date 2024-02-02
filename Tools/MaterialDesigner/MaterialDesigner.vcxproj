@@ -81,6 +81,7 @@
       <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <AdditionalIncludeDirectories>$(SolutionDir)\..\Engine\Engine;$(SolutionDir)\..\React3d\include;$(SolutionDir)\..\FbxSdk\include;$(SolutionDir)\..\enet\include;$(SolutionDir)\..\Tools\HotBiteTool;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
     </ClCompile>
     <Link>
       <AdditionalDependencies>user32.lib</AdditionalDependencies>

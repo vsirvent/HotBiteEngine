@@ -170,7 +170,7 @@ namespace HotBite {
 				uint32_t object_offset;
 				float3 aabb_max;
 				uint32_t vertex_offset;
-				float3 padding;
+				float3 position;
 				uint32_t index_offset;
 			};
 			

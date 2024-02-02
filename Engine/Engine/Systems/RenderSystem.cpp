@@ -262,11 +262,18 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 			throw std::exception("rgba_noise_texture.Init failed");
 		}
 		for (int i = 0; i < RT_NTEXTURES; ++i) {
-			if (FAILED(rt_texture[i].Init(w / RT_RESOLUTION_DIVIVER, h / RT_RESOLUTION_DIVIVER, DXGI_FORMAT::DXGI_FORMAT_R8G8B8A8_UNORM, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+			if (FAILED(rt_texture[i].Init(w / RT_RESOLUTION_DIVIVER, h / RT_RESOLUTION_DIVIVER, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 				throw std::exception("rt_texture.Init failed");
 			}
 		}
-
+		if (FAILED(rt_texture_acc.Init(w / RT_RESOLUTION_DIVIVER, h / RT_RESOLUTION_DIVIVER, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+			throw std::exception("rt_texture_acc.Init failed");
+		}
+		for (int i = 0; i < 2; ++i) {
+			if (FAILED(rt_texture_tmp[i].Init(w / RT_RESOLUTION_DIVIVER, h / RT_RESOLUTION_DIVIVER, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+				throw std::exception("rt_texture_tmp.Init failed");
+			}
+		}
 		if (FAILED(rt_ray_sources0.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("rt_ray_sources0.Init failed");
 		}
@@ -276,6 +283,18 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 
 		rt_shader = ShaderFactory::Get()->GetShader<SimpleComputeShader>("RayTraceCS.cso");
 		if (rt_shader == nullptr) {
+			throw std::exception("raytrace shader.Init failed");
+		}
+		rt_acc = ShaderFactory::Get()->GetShader<SimpleComputeShader>("AccumulatorCS.cso");
+		if (rt_acc == nullptr) {
+			throw std::exception("raytrace shader.Init failed");
+		}
+		rt_denoise = ShaderFactory::Get()->GetShader<SimpleComputeShader>("DenoiseCS.cso");
+		if (rt_denoise == nullptr) {
+			throw std::exception("raytrace shader.Init failed");
+		}
+		rt_smooth = ShaderFactory::Get()->GetShader<SimpleComputeShader>("SmoothCS.cso");
+		if (rt_smooth == nullptr) {
 			throw std::exception("raytrace shader.Init failed");
 		}
 	}
@@ -295,6 +314,10 @@ RenderSystem::~RenderSystem() {
 	rgba_noise_texture.Release();
 	for (int i = 0; i < RT_NTEXTURES; ++i) {
 		rt_texture[i].Release();
+	}
+	rt_texture_acc.Release();
+	for (int i = 0; i < 2; ++i) {
+		rt_texture_tmp[i].Release();
 	}
 	rt_ray_sources0.Release();
 	rt_ray_sources1.Release();
@@ -1181,8 +1204,11 @@ void RenderSystem::ProcessRT() {
 		MaterialProps objectMaterials[MAX_OBJECTS]{};
 		ID3D11ShaderResourceView* diffuseTextures[MAX_OBJECTS]{};
 		static const float zero[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+		rt_texture->Clear(zero);
 		rt_texture_idx = (rt_texture_idx + 1) % RT_NTEXTURES;
-		//rt_texture[rt_texture_idx].Clear(zero);
+
+		CameraEntity& cam_entity = cameras.GetData()[0];
+
 		auto fill = [](RenderTree& tree, ObjectInfo objects[MAX_OBJECTS],
 			MaterialProps objectMaterials[MAX_OBJECTS],
 			ID3D11ShaderResourceView* diffuseTextures[MAX_OBJECTS],
@@ -1214,6 +1240,7 @@ void RenderSystem::ProcessRT() {
 							o->vertex_offset = (uint32_t)de.mesh->GetData()->vertexOffset;
 							o->index_offset = (uint32_t)de.mesh->GetData()->indexOffset;
 							o->object_offset = (uint32_t)de.mesh->GetData()->bvhOffset;
+							o->position = de.transform->position;
 							o->world = de.transform->world_matrix;
 							o->inv_world = de.transform->world_inv_matrix;
 							if (count >= size) {
@@ -1225,8 +1252,34 @@ void RenderSystem::ProcessRT() {
 			}
 			return count;
 			};
+
+		auto sort = [=](ObjectInfo objects[MAX_OBJECTS],
+			MaterialProps objectMaterials[MAX_OBJECTS],
+			ID3D11ShaderResourceView* diffuseTextures[MAX_OBJECTS],
+			int size) {
+				struct Node {
+					ObjectInfo obj;
+					MaterialProps mat;
+					ID3D11ShaderResourceView* diff;
+				};
+
+				std::map<float, Node> distance_map;
+				for (int i = 0; i < size; ++i) {
+					float distance = LENGHT_F3(objects[i].position - cam_entity.camera->world_position);
+					distance_map[distance] = { objects[i], objectMaterials[i], diffuseTextures[i] };
+				}
+				int i = 0;
+				for (auto& o : distance_map) {
+					objects[i] = o.second.obj;
+					objectMaterials[i] = o.second.mat;
+					diffuseTextures[i] = o.second.diff;
+				}
+		};
+
 		int len = fill(render_tree, objects, objectMaterials, diffuseTextures, MAX_OBJECTS);
 		len += fill(render_pass2_tree, objects + len, objectMaterials, diffuseTextures, MAX_OBJECTS - len);
+		
+		sort(objects, objectMaterials, diffuseTextures, len);
 
 		rt_shader->SetInt("nobjects", len);
 		rt_shader->SetData("objectMaterials", objectMaterials, len * sizeof(MaterialProps));
@@ -1235,7 +1288,6 @@ void RenderSystem::ProcessRT() {
 		rt_shader->SetUnorderedAccessView("ray0", rt_ray_sources0.UAV());
 		rt_shader->SetUnorderedAccessView("ray1", rt_ray_sources1.UAV());
 		
-		CameraEntity& cam_entity = cameras.GetData()[0];
 		float3 dir;
 		XMStoreFloat3(&dir, cam_entity.camera->xm_direction);
 		rt_shader->SetFloat(TIME, time);
@@ -1272,8 +1324,7 @@ void RenderSystem::ProcessRT() {
 		dxcore->context->CSSetShaderResources(3, 1, vertex_buffer->VertexSRV());
 		dxcore->context->CSSetShaderResources(4, 1, vertex_buffer->IndexSRV());
 
-		rt_shader->SetShader();
-		
+		rt_shader->SetShader();		
 		dxcore->context->Dispatch(1, 1, 1);
 		rt_shader->SetUnorderedAccessView("output", nullptr);
 		rt_shader->SetUnorderedAccessView("ray0", nullptr);
@@ -1286,6 +1337,51 @@ void RenderSystem::ProcessRT() {
 		if (!scene_lighting.dir_shadows.empty()) {
 			rt_shader->SetShaderResourceViewArray(DIR_SHADOW_MAP_TEXTURE, no_data, MAX_LIGHTS);
 		}
+
+		//Accumulate frame
+		rt_acc->SetUnorderedAccessView("ray_new", rt_texture[rt_texture_idx].UAV());
+		rt_acc->SetUnorderedAccessView("ray_acc", rt_texture_tmp[1].UAV());
+		rt_acc->CopyAllBufferData();
+		rt_acc->SetShader();
+		dxcore->context->Dispatch(1, 1, 1);
+		rt_acc->SetUnorderedAccessView("ray_new", nullptr);
+		rt_acc->SetUnorderedAccessView("ray_acc", nullptr);
+#if 0
+		//Denoise frame
+		rt_denoise->SetUnorderedAccessView("input", rt_texture_acc.UAV());
+		rt_denoise->SetUnorderedAccessView("output", rt_texture_tmp[0].UAV());
+		rt_denoise->SetInt("type", 1);
+		rt_denoise->CopyAllBufferData();
+		rt_denoise->SetShader();
+		dxcore->context->Dispatch(1, 1, 1);
+		rt_denoise->SetInt("type", 2);
+		rt_denoise->SetUnorderedAccessView("input", nullptr);
+		rt_denoise->SetUnorderedAccessView("output", nullptr);
+		rt_denoise->SetUnorderedAccessView("input", rt_texture_tmp[0].UAV());
+		rt_denoise->SetUnorderedAccessView("output", rt_texture_tmp[1].UAV());
+		rt_denoise->CopyAllBufferData();
+		dxcore->context->Dispatch(1, 1, 1);
+		rt_denoise->SetUnorderedAccessView("input", nullptr);
+		rt_denoise->SetUnorderedAccessView("output", nullptr);
+
+		//Smooth frame
+		rt_smooth->SetUnorderedAccessView("input", rt_texture_tmp[1].UAV());
+		rt_smooth->SetUnorderedAccessView("output", rt_texture_tmp[0].UAV());
+		rt_smooth->SetInt("type", 1);
+		rt_smooth->CopyAllBufferData();
+		rt_smooth->SetShader();
+		dxcore->context->Dispatch(1, 1, 1);
+		rt_smooth->SetInt("type", 2);
+		rt_denoise->SetUnorderedAccessView("input", nullptr);
+		rt_denoise->SetUnorderedAccessView("output", nullptr);
+		rt_smooth->SetUnorderedAccessView("input", rt_texture_tmp[0].UAV());
+		rt_smooth->SetUnorderedAccessView("output", rt_texture_tmp[1].UAV());
+		rt_smooth->CopyAllBufferData();
+		dxcore->context->Dispatch(1, 1, 1);
+		rt_smooth->SetUnorderedAccessView("input", nullptr);
+		rt_smooth->SetUnorderedAccessView("output", nullptr);
+#endif
+
 	}
 }
 
@@ -1600,11 +1696,8 @@ void RenderSystem::SetPostProcessPipeline(Core::PostProcess* pipeline) {
 		post_process_pipeline = pipeline;
 		PostProcess* last = pipeline;
 		pipeline->SetShaderResourceView(LIGHT_TEXTURE, light_map.SRV());
-		pipeline->SetShaderResourceView("rtTexture0", rt_texture[rt_texture_idx].SRV());
-		pipeline->SetShaderResourceView("rtTexture1", rt_texture[(rt_texture_idx + 1) % RT_NTEXTURES].SRV());
-		pipeline->SetShaderResourceView("rtTexture2", rt_texture[(rt_texture_idx + 2) % RT_NTEXTURES].SRV());
-		pipeline->SetShaderResourceView("rtTexture3", rt_texture[(rt_texture_idx + 3) % RT_NTEXTURES].SRV());
-
+		pipeline->SetShaderResourceView("rtTexture0", rt_texture_tmp[1].SRV());
+		//pipeline->SetShaderResourceView("rtTexture0", rt_texture[rt_texture_idx].SRV());
 		while (last->GetNext() != nullptr) {
 			last = last->GetNext();
 		}

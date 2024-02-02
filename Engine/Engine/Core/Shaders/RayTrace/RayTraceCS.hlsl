@@ -1,6 +1,6 @@
 #include "../Common/ShaderStructs.hlsli"
 #include "../Common/PixelCommon.hlsli"
-
+#include "../Common/FastNoise.hlsli"
 
 #define MAX_OBJECTS 64
 #define MAX_STACK_SIZE 64
@@ -42,7 +42,7 @@ struct ObjectInfo
     uint objectOffset;
 	float3 aabb_max;
     uint vertexOffset;
-    float3 padding;
+    float3 position;
     uint indexOffset;
 };
 
@@ -129,7 +129,7 @@ float3 CalcPoint(float3 normal, float3 position, MaterialColor material, PointLi
     float3 lposition = light.Position;
     float lum = (light.Color.r + light.Color.g + light.Color.b) / 3.0f;
     float3 ToLight = lposition - position;
-    float3 ToEye = cameraPosition.xyz - position;
+    float3 ToEye = cameraPosition - position;
     float DistToLight = length(ToLight);
     // Phong diffuse
     ToLight /= DistToLight; // Normalize
@@ -174,14 +174,16 @@ bool IntersectTri(Ray ray, uint indexOffset, uint vertexOffset, out Intersection
     const float3 s = ray.orig.xyz - v0;
     const float u = f * dot(s, h);
 
-    if (u < 0 || u > 1)
+    if (u < 0 || u > 1) {
         return false;
+    }
 
     const float3 q = cross(s, edge1);
     const float v = f * dot(ray.dir, q);
 
-    if (v < 0 || u + v > 1)
+    if (v < 0 || u + v > 1) {
         return false;
+    }
 
     const float t = f * dot(edge2, q);
 
@@ -263,6 +265,27 @@ float3 GetDiffuseColor(uint object, float2 uv)
     case 7: return DiffuseTextures[7].SampleLevel(basicSampler, uv, 0).xyz;
     case 8: return DiffuseTextures[8].SampleLevel(basicSampler, uv, 0).xyz;
     case 9: return DiffuseTextures[9].SampleLevel(basicSampler, uv, 0).xyz;
+    case 10: return DiffuseTextures[10].SampleLevel(basicSampler, uv, 0).xyz;
+    case 11: return DiffuseTextures[11].SampleLevel(basicSampler, uv, 0).xyz;
+    case 12: return DiffuseTextures[12].SampleLevel(basicSampler, uv, 0).xyz;
+    case 13: return DiffuseTextures[13].SampleLevel(basicSampler, uv, 0).xyz;
+    case 14: return DiffuseTextures[14].SampleLevel(basicSampler, uv, 0).xyz;
+    case 15: return DiffuseTextures[15].SampleLevel(basicSampler, uv, 0).xyz;
+    case 16: return DiffuseTextures[16].SampleLevel(basicSampler, uv, 0).xyz;
+    case 17: return DiffuseTextures[17].SampleLevel(basicSampler, uv, 0).xyz;
+    case 18: return DiffuseTextures[18].SampleLevel(basicSampler, uv, 0).xyz;
+    case 19: return DiffuseTextures[19].SampleLevel(basicSampler, uv, 0).xyz;
+    case 20: return DiffuseTextures[20].SampleLevel(basicSampler, uv, 0).xyz;
+    case 21: return DiffuseTextures[21].SampleLevel(basicSampler, uv, 0).xyz;
+    case 22: return DiffuseTextures[22].SampleLevel(basicSampler, uv, 0).xyz;
+    case 23: return DiffuseTextures[23].SampleLevel(basicSampler, uv, 0).xyz;
+    case 24: return DiffuseTextures[24].SampleLevel(basicSampler, uv, 0).xyz;
+    case 25: return DiffuseTextures[25].SampleLevel(basicSampler, uv, 0).xyz;
+    case 26: return DiffuseTextures[26].SampleLevel(basicSampler, uv, 0).xyz;
+    case 27: return DiffuseTextures[27].SampleLevel(basicSampler, uv, 0).xyz;
+    case 28: return DiffuseTextures[28].SampleLevel(basicSampler, uv, 0).xyz;
+    case 29: return DiffuseTextures[29].SampleLevel(basicSampler, uv, 0).xyz;
+    case 30: return DiffuseTextures[30].SampleLevel(basicSampler, uv, 0).xyz;
     default:
         return float3(0.0f, 0.0f, 0.0f);
     }
@@ -271,14 +294,19 @@ float3 GetDiffuseColor(uint object, float2 uv)
 float3 GetColor(Ray ray)
 {
 	bool collide = false;
-
+    float max_distance = 50.0f;
     IntersectionResult result;
     result.distance = FLT_MAX;
     
+    // Stack for BVH traversal
+    uint stack[MAX_STACK_SIZE];
     for (int i = 0; i < nobjects; ++i)
     {
         ObjectInfo o = objectInfos[i];
-        if (IntersectAABB(ray, o.aabb_min, o.aabb_max))
+        float objectExtent = length(o.aabb_max - o.aabb_min);
+        float distanceToObject = length(o.position - cameraPosition) - objectExtent;
+        
+        if (distanceToObject < max_distance && distanceToObject < ray.t && IntersectAABB(ray, o.aabb_min, o.aabb_max))
         {
             Ray oray;
             IntersectionResult object_result;
@@ -290,8 +318,7 @@ float3 GetColor(Ray ray)
             oray.dir = normalize(mul(ray.dir, (float3x3) o.inv_world));
             oray.t = FLT_MAX;
 
-            // Stack for BVH traversal
-            uint stack[MAX_STACK_SIZE];
+
             int stackSize = 0;
             stack[stackSize++] = 0;
 
@@ -387,11 +414,12 @@ float3 GetColor(Ray ray)
     return color;
 }
 
+
 Ray GetRayFromSource(RaySource source, float randSeed)
 {
     Ray ray;
     ray.orig = float4(source.orig, 1.0f);
-    float3 in_dir = normalize(source.orig - cameraPosition.xyz);
+    float3 in_dir = normalize(source.orig - cameraPosition);
     float3 out_dir = reflect(in_dir, source.normal);
     //Diffuse ray based on roughness
 
@@ -401,7 +429,6 @@ Ray GetRayFromSource(RaySource source, float randSeed)
     
     return ray;
 }
-
 
 #define NTHREADS 32
 #define DENSITY 1.0f
@@ -433,12 +460,19 @@ void main(uint3 DTid : SV_DispatchThreadID)
 
     uint2 npixels = { DENSITY * blockSizeX, DENSITY * blockSizeY };
     uint2 rayMapRatio = ray_map_dimensions / dimensions;
-    for (int x = 0; x <= npixels.x; ++x)
+
+    fnl_state state = fnlCreateState();
+    state.noise_type = FNL_NOISE_OPENSIMPLEX2;
+    state.octaves = 1;
+    state.seed = time*1000.0f;
+    state.frequency = 100.0f;
+
+    for (int x = 0; x < npixels.x; ++x)
     {
         float r = Random(float2(time + x, time * 2.0f - x));
         for (int y = 0; y <= npixels.y; ++y)
         {
-            float4 color;
+            float4 color = float4(0.0f, 0.0f, 0.0f, 0.0f);
             float r2 = Random(float2(blockStartY + x + r, blockStartX + y * r) / dimensions.x);
             uint2 pixel;
             uint2 ray_pixel;
@@ -455,20 +489,14 @@ void main(uint3 DTid : SV_DispatchThreadID)
             RaySource ray_source = fromColor(ray0[ray_pixel], ray1[ray_pixel]);
             if (length(ray_source.normal) > Epsilon)
             {
-                Ray ray = GetRayFromSource(ray_source, r2);
+                Ray ray = GetRayFromSource(ray_source, x*y);
                 if (length(ray.dir) > Epsilon)
                 {
                     color = float4(GetColor(ray), 1.0f);
                 }
-                else {
-                    color = float4(0.0f, 0.0f, 0.0f, 0.0f);
-                }
             }
-            else {
-                color = float4(0.0f, 0.0f, 0.0f, 0.0f);
-            }
-
-            output[pixel] = 0.5 * color + 0.5 * output[pixel];
+           
+            output[pixel] = color;
         }
     }
 }

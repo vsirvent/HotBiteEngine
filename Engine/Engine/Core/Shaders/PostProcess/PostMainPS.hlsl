@@ -132,7 +132,7 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
     }
     */
     float4 rt0 = rtTexture0.Sample(basicSampler, tpos);
-    color += color * rt0 * 0.5f + rt0 * 0.5f;
+    color += color * rt0;
     //color += l;// (color* (1.0f - a) + l);
     return color;
 }
