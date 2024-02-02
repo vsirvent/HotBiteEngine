@@ -74,9 +74,12 @@ StructuredBuffer<BVHNode> objects: register(t2);
 ByteAddressBuffer vertexBuffer : register(t3);
 ByteAddressBuffer indicesBuffer : register(t4);
 
-RWTexture2D<float4> output : register(u0);
-RWTexture2D<float4> ray0 : register(u1);
-RWTexture2D<float4> ray1 : register(u2);
+RWTexture2D<float4> output0 : register(u0);
+RWTexture2D<float4> output1 : register(u1);
+RWTexture2D<float4> output2 : register(u2);
+RWTexture2D<float> props : register(u3);
+RWTexture2D<float4> ray0 : register(u4);
+RWTexture2D<float4> ray1 : register(u5);
 
 Texture2D<float4> DiffuseTextures[MAX_OBJECTS];
 
@@ -126,9 +129,6 @@ float3 CalcDirectional(float3 normal, float3 position, MaterialColor material, D
     // Phong diffuse
     float NDotL = dot(light.DirToLight, normal);
     float3 finalColor = color * saturate(NDotL);
-    //Back reflex
-    float NDotL2 = dot(-light.DirToLight, normal);
-    finalColor += color * saturate(NDotL2) * 0.2f;
     return climit3(finalColor);
 }
 
@@ -143,10 +143,7 @@ float3 CalcPoint(float3 normal, float3 position, MaterialColor material, PointLi
     // Phong diffuse
     ToLight /= DistToLight; // Normalize
     float NDotL = saturate(dot(ToLight, normal));
-    float NDotL2 = saturate(dot(-ToLight, normal));
     finalColor = light.Color * NDotL;
-    //Back reflex
-    finalColor += light.Color.rgb * saturate(NDotL2) * 0.2f;
 
     // Attenuation
     float LightRange = (light.Range - DistToLight) / light.Range;
@@ -174,7 +171,7 @@ bool IntersectTri(Ray ray, uint indexOffset, uint vertexOffset, out Intersection
     result.distance = FLT_MAX;
 
     // Check if the ray is parallel to the triangle
-    if (abs(a) < Epsilon)
+    if (abs(a) < 0.01f)
     {
         return false;
     }
@@ -488,9 +485,10 @@ void main(uint3 DTid : SV_DispatchThreadID)
     uint2 ray_map_dimensions;
     {
         uint w, h;
-        output.GetDimensions(w, h);
+        output0.GetDimensions(w, h);
         dimensions.x = w;
         dimensions.y = h;
+
         ray0.GetDimensions(w, h);
         ray_map_dimensions.x = w;
         ray_map_dimensions.y = h;
@@ -529,6 +527,21 @@ void main(uint3 DTid : SV_DispatchThreadID)
             }
 
             RaySource ray_source = fromColor(ray0[ray_pixel], ray1[ray_pixel]);
+            props[pixel] = ray_source.dispersion;
+
+            uint divider = 1;
+            if (ray_source.dispersion > 0.8f) {
+                if ((x % 4) != 0 || (y % 4) != 0) {
+                    continue;
+                }
+                divider = 4;
+            }
+            else if (ray_source.dispersion > 0.5f) {
+                if ((x % 2) != 0 || (y % 2) != 0) {
+                    continue;
+                }
+                divider = 2;
+            }
             if (length(ray_source.normal) > 0.0f)
             {
                 Ray ray = GetRayFromSource(ray_source, x*y);
@@ -537,8 +550,12 @@ void main(uint3 DTid : SV_DispatchThreadID)
                     color = float4(GetColor(ray), 1.0f);
                 }
             }
-           
-            output[pixel] = color;
+            switch (divider) {
+            case 1: output0[pixel] = color; break;
+            case 2: output1[pixel/2] = color; break;
+            case 4: output2[pixel/4] = color; break;
+            }
+            
         }
     }
 }

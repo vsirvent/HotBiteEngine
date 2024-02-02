@@ -24,13 +24,13 @@ RenderTargetRT MainRenderPS(GSOutput input)
 			multi_texture_operations, multi_maskTexture, multi_texture_values, input.worldPos.xyz);
 	}
 
+	spec_intensity = material.specIntensity;
 	if (multi_texture_count > 0) {
-		spec_intensity = getMutliTextureValueLevel(basicSampler, 2, MULTITEXT_SPEC, multi_texture_count, multi_texture_operations,
+		spec_intensity *= getMutliTextureValueLevel(basicSampler, 2, MULTITEXT_SPEC, multi_texture_count, multi_texture_operations,
 			calculated_values, multi_texture_uv_scales, input.uv, multi_specularTexture).r;
 
 	}
 	else {
-		spec_intensity = material.specIntensity;
 		if (material.flags & SPECULAR_MAP_ENABLED_FLAG) {
 			spec_intensity *= specularTexture.Sample(basicSampler, input.uv).r;
 		}
@@ -209,7 +209,7 @@ RenderTargetRT MainRenderPS(GSOutput input)
 
 	RaySource ray;
 	ray.orig = wpos.xyz;
-	ray.dispersion = 0.0f;
+	ray.dispersion = saturate(1.0f - spec_intensity);
 	ray.normal = normal;
 	ray.density = 1.0f;
 

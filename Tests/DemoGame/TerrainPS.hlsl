@@ -69,7 +69,7 @@ cbuffer externalData : register(b0)
 
 Texture2D grassTexture[NGRASS];
 
-RenderTarget main(GSOutput input)
+RenderTargetRT main(GSOutput input)
 {
 	if (!any(input.tangent)) {
 		//Depth-z check with depth texture
@@ -131,9 +131,19 @@ RenderTarget main(GSOutput input)
 		};
 
 		finalColor.rgb *= color;
-		RenderTarget output;
+		RenderTargetRT output;
 		output.light_map = lightColor;
 		output.scene = finalColor;
+
+		RaySource ray;
+		ray.orig = wpos.xyz;
+		ray.dispersion = 0.0f;
+		ray.normal = normal;
+		ray.density = 1.0f;
+
+		output.rt_ray0_map = getColor0(ray);
+		output.rt_ray1_map = getColor1(ray);
+
 		return output;
 	}
 	else {

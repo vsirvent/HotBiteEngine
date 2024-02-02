@@ -1,5 +1,8 @@
+#include "../Common/ShaderStructs.hlsli"
+
 RWTexture2D<float4> input : register(u0);
 RWTexture2D<float4> output : register(u1);
+RWTexture2D<float> props : register(u2);
 
 #define EPSILON 1e-6
 #define VERTICAL 1
@@ -11,24 +14,56 @@ cbuffer externalData : register(b0)
     uint type;
 }
 
-static const float BlurWeights[5] =
+#define KERNEL_SIZE 11
+void FillGaussianArray(out float array[KERNEL_SIZE], float dispersion)
 {
-    0.0625,  // 1/16
-    0.25,    // 1/4
-    0.375,   // 3/8
-    0.25,    // 1/4
-    0.0625   // 1/16
-};
-
-float4 getColor(float2 pixel, float2 dir)
-{
-    float4 color = float4(0.f, 0.f, 0.f, 1.f);
-    float2 tpos;
-    for (int i = -2; i <= 2; ++i) {
-        tpos = pixel + dir * i;
-        color += input[tpos] * BlurWeights[i + 2];
+    float sum = 0.0;
+    int halfSize = KERNEL_SIZE / 2;
+    float variance = 0.1 + dispersion * 4.0f;
+    int i;
+    for (i = -halfSize; i <= halfSize; ++i)
+    {
+        int x = i;
+        array[i + halfSize] = exp(-(x * x) / (2.0 * variance * variance)) / sqrt(2.0 * 3.14159265358979323846 * variance * variance);
+        sum += array[i + halfSize];
     }
-    return saturate(color);
+
+    // Normalize the array
+    for (i = 0; i < KERNEL_SIZE; ++i)
+    {
+        array[i] /= sum;
+    }
+}
+
+float4 getColor(float2 pixel, float2 dir, float dispersion)
+{
+    if (dispersion < 0.01f) {
+        return input[pixel];
+    }
+    else {
+        float BlurWeights[KERNEL_SIZE];
+#if 0
+        BlurWeights[0] = 0.00881223;
+        BlurWeights[1] = 0.0271436;
+        BlurWeights[2] = 0.0651141;
+        BlurWeights[3] = 0.121649;
+        BlurWeights[4] = 0.176998;
+        BlurWeights[5] = 0.200565;
+        BlurWeights[6] = 0.176998;
+        BlurWeights[7] = 0.121649;
+        BlurWeights[8] = 0.0651141;
+        BlurWeights[9] = 0.0271436;
+        BlurWeights[10] = 0.00881223;
+#endif
+        FillGaussianArray(BlurWeights, dispersion);
+        float4 color = float4(0.f, 0.f, 0.f, 1.f);
+        float2 tpos;
+        for (int i = -5; i <= 5; ++i) {
+            tpos = pixel + dir * i;
+            color += input[tpos] * BlurWeights[i + 5];
+        }
+        return saturate(color);
+    }
 }
 
 #define NTHREADS 32
@@ -64,7 +99,13 @@ void main(uint3 DTid : SV_DispatchThreadID)
         for (uint y = 0; y <= npixels.y; ++y)
         {
             float2 pixel = float2(blockStartX + x, blockStartY + y);
-            output[pixel] = getColor(pixel, dir);
+            float dispersion = props[pixel];
+            if (dispersion >= 0.0f) {
+                output[pixel] = getColor(pixel, dir, dispersion);
+            }
+            else {
+                output[pixel] = float4(0.0f, 0.0f, 0.0f, 0.0f);
+            }
         }
     }
 }

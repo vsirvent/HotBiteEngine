@@ -1,5 +1,6 @@
 RWTexture2D<float4> input : register(u0);
 RWTexture2D<float4> output : register(u1);
+RWTexture2D<float4> props : register(u2);
 
 #define EPSILON 1e-6
 #define VERTICAL 1
@@ -11,22 +12,27 @@ cbuffer externalData : register(b0)
     uint type;
 }
 
-float4 getColor(float2 pixel, float2 dir)
+float4 getColor(float2 pixel, float2 dir, uint divider)
 {
-    float4 color = float4(0.f, 0.f, 0.f, 1.f);
-    float2 tpos;
-    for (int i = -5; i <= 5; ++i) {
-        tpos = pixel + dir * i;
-        color += input[tpos];
-    }
-    color /= (10.0f * DENSITY);
-    float4 color_orig = input[pixel];
-    float diff = (length(color.xyz) - length(color_orig.xyz));
-    if (diff > 0) {
-        return color_orig * (1.0 - diff) + color * diff;
+    if (divider == 1) {
+        return input[pixel];
     }
     else {
-        return color_orig;
+        float4 color = float4(0.f, 0.f, 0.f, 1.f);
+        float2 tpos;
+        for (int i = -5; i <= 5; ++i) {
+            tpos = pixel + dir * i;
+            color += input[tpos];
+        }
+        color /= (10.0f * DENSITY);
+        float4 color_orig = input[pixel];
+        float diff = (length(color.xyz) - length(color_orig.xyz));
+        if (diff > 0) {
+            return color_orig * (1.0 - diff) + color * diff;
+        }
+        else {
+            return color_orig;
+        }
     }
 }
 
@@ -63,7 +69,8 @@ void main(uint3 DTid : SV_DispatchThreadID)
         for (uint y = 0; y <= npixels.y; ++y)
         {
             float2 pixel = float2(blockStartX + x, blockStartY + y);
-            output[pixel] = getColor(pixel, dir);
+            uint divider = props[pixel];
+            output[pixel] = getColor(pixel, dir, divider);
         }
     }
 }
