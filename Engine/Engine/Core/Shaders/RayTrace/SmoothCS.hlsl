@@ -19,7 +19,7 @@ void FillGaussianArray(out float array[KERNEL_SIZE], float dispersion)
 {
     float sum = 0.0;
     int halfSize = KERNEL_SIZE / 2;
-    float variance = 0.1 + dispersion * 4.0f;
+    float variance = 0.6f + dispersion * 4.0f;
     int i;
     for (i = -halfSize; i <= halfSize; ++i)
     {
@@ -37,10 +37,7 @@ void FillGaussianArray(out float array[KERNEL_SIZE], float dispersion)
 
 float4 getColor(float2 pixel, float2 dir, float dispersion)
 {
-    if (dispersion < 0.01f) {
-        return input[pixel];
-    }
-    else {
+
         float BlurWeights[KERNEL_SIZE];
 #if 0
         BlurWeights[0] = 0.00881223;
@@ -63,7 +60,6 @@ float4 getColor(float2 pixel, float2 dir, float dispersion)
             color += input[tpos] * BlurWeights[i + 5];
         }
         return saturate(color);
-    }
 }
 
 #define NTHREADS 32
