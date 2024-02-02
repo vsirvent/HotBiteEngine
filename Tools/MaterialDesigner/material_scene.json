@@ -9,7 +9,7 @@
       {
         "type": "directional",
         "name": "Sun",
-        "color": "010010010",
+        "color": "060060060",
         "direction": {
           "x": 3.0,
           "y": 3.0,

@@ -237,7 +237,7 @@ namespace HotBite {
 				Core::IDepthResource* depth_target = nullptr;
 				
 				//Ray tracing
-				static constexpr int RT_RESOLUTION_DIVIVER = 4;
+				static constexpr int RT_RESOLUTION_DIVIVER = 2;
 				static constexpr int RT_NTEXTURES = 1;
 				uint32_t rt_texture_idx = 0;
 				Core::SimpleComputeShader* rt_shader = nullptr;

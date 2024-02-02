@@ -1,5 +1,5 @@
 
-RenderTarget MainRenderPS(GSOutput input)
+RenderTargetRT MainRenderPS(GSOutput input)
 {
 	int i = 0;
 	float2 pos = input.position.xy;
@@ -11,7 +11,7 @@ RenderTarget MainRenderPS(GSOutput input)
 	float dz = depthTexture.SampleCmpLevelZero(PCFSampler, pos, depth);
 	if (dz == 0.0f) discard;
 
-	RenderTarget output;
+	RenderTargetRT output;
 	// Calculate the ambient color
 	float4 finalColor = { 0.0f, 0.0f, 0.0f, 0.0f };
 	float4 lightColor = { 0.0f, 0.0f, 0.0f, 1.0f };

@@ -52,6 +52,7 @@ cbuffer externalData : register(b0)
 
 Texture2D renderTexture : register(t0);
 SamplerState basicSampler : register(s0);
+Texture2D rtTexture0 : register(t5);
 
 static const float BlurWeights[13] =
 {
@@ -117,5 +118,7 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
 		deadColor.rgb = lerp(deadColor.rgb, center_degraded * float3(l, l, l), deadFactor);
 		color = lerp(color, deadColor, deadFactor);
 	}
+    float4 rt0 = rtTexture0.Sample(basicSampler, tpos);
+    color += color * rt0;
 	return color;
 }

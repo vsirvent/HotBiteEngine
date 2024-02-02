@@ -1340,13 +1340,13 @@ void RenderSystem::ProcessRT() {
 
 		//Accumulate frame
 		rt_acc->SetUnorderedAccessView("ray_new", rt_texture[rt_texture_idx].UAV());
-		rt_acc->SetUnorderedAccessView("ray_acc", rt_texture_tmp[1].UAV());
+		rt_acc->SetUnorderedAccessView("ray_acc", rt_texture_acc.UAV());
 		rt_acc->CopyAllBufferData();
 		rt_acc->SetShader();
 		dxcore->context->Dispatch(1, 1, 1);
 		rt_acc->SetUnorderedAccessView("ray_new", nullptr);
 		rt_acc->SetUnorderedAccessView("ray_acc", nullptr);
-#if 0
+
 		//Denoise frame
 		rt_denoise->SetUnorderedAccessView("input", rt_texture_acc.UAV());
 		rt_denoise->SetUnorderedAccessView("output", rt_texture_tmp[0].UAV());
@@ -1363,7 +1363,7 @@ void RenderSystem::ProcessRT() {
 		dxcore->context->Dispatch(1, 1, 1);
 		rt_denoise->SetUnorderedAccessView("input", nullptr);
 		rt_denoise->SetUnorderedAccessView("output", nullptr);
-
+#if 1
 		//Smooth frame
 		rt_smooth->SetUnorderedAccessView("input", rt_texture_tmp[1].UAV());
 		rt_smooth->SetUnorderedAccessView("output", rt_texture_tmp[0].UAV());
@@ -1381,7 +1381,6 @@ void RenderSystem::ProcessRT() {
 		rt_smooth->SetUnorderedAccessView("input", nullptr);
 		rt_smooth->SetUnorderedAccessView("output", nullptr);
 #endif
-
 	}
 }
 

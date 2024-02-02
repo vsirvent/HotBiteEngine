@@ -37,6 +37,12 @@ struct RenderTarget
 {
 	float4 scene : SV_TARGET0;
 	float4 light_map : SV_TARGET1;
+};
+
+struct RenderTargetRT
+{
+	float4 scene : SV_TARGET0;
+	float4 light_map : SV_TARGET1;
 	float4 rt_ray0_map : SV_TARGET2;
 	float4 rt_ray1_map : SV_TARGET3;
 };

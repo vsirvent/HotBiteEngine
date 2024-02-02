@@ -66,7 +66,7 @@ cbuffer externalData : register(b0)
 #include "../Common/PixelFunctions.hlsli"
 #include "MainRenderPS.hlsli"
 
-RenderTarget main(GSOutput input)
+RenderTargetRT main(GSOutput input)
 {
 	return MainRenderPS(input);
 }

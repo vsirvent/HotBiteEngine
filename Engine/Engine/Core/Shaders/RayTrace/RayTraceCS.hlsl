@@ -1,6 +1,5 @@
 #include "../Common/ShaderStructs.hlsli"
 #include "../Common/PixelCommon.hlsli"
-#include "../Common/FastNoise.hlsli"
 
 #define MAX_OBJECTS 64
 #define MAX_STACK_SIZE 64
@@ -111,7 +110,17 @@ uint index(BVHNode node)
 	return asuint(node.reg1.w);
 }
 
-float3 CalcDirectional(float3 normal, float4 position, MaterialColor material, DirLight light, int index)
+float3 CalcAmbient(float3 normal)
+{
+    // Convert from [-1, 1] to [0, 1]
+    float up = normal.y * 0.5 + 0.5;
+    // Calculate the ambient value
+    float3 Ambient = ambientLight.AmbientDown + up * ambientLight.AmbientUp;
+    // Apply the ambient value to the color
+    return Ambient;
+}
+
+float3 CalcDirectional(float3 normal, float3 position, MaterialColor material, DirLight light, int index)
 {
     float3 color = light.Color.rgb * light.intensity;
     // Phong diffuse
@@ -286,6 +295,39 @@ float3 GetDiffuseColor(uint object, float2 uv)
     case 28: return DiffuseTextures[28].SampleLevel(basicSampler, uv, 0).xyz;
     case 29: return DiffuseTextures[29].SampleLevel(basicSampler, uv, 0).xyz;
     case 30: return DiffuseTextures[30].SampleLevel(basicSampler, uv, 0).xyz;
+    case 31: return DiffuseTextures[31].SampleLevel(basicSampler, uv, 0).xyz;
+    case 32: return DiffuseTextures[32].SampleLevel(basicSampler, uv, 0).xyz;
+    case 33: return DiffuseTextures[33].SampleLevel(basicSampler, uv, 0).xyz;
+    case 34: return DiffuseTextures[34].SampleLevel(basicSampler, uv, 0).xyz;
+    case 35: return DiffuseTextures[35].SampleLevel(basicSampler, uv, 0).xyz;
+    case 36: return DiffuseTextures[36].SampleLevel(basicSampler, uv, 0).xyz;
+    case 37: return DiffuseTextures[37].SampleLevel(basicSampler, uv, 0).xyz;
+    case 38: return DiffuseTextures[38].SampleLevel(basicSampler, uv, 0).xyz;
+    case 39: return DiffuseTextures[39].SampleLevel(basicSampler, uv, 0).xyz;
+    case 40: return DiffuseTextures[40].SampleLevel(basicSampler, uv, 0).xyz;
+    case 41: return DiffuseTextures[41].SampleLevel(basicSampler, uv, 0).xyz;
+    case 42: return DiffuseTextures[42].SampleLevel(basicSampler, uv, 0).xyz;
+    case 43: return DiffuseTextures[43].SampleLevel(basicSampler, uv, 0).xyz;
+    case 44: return DiffuseTextures[44].SampleLevel(basicSampler, uv, 0).xyz;
+    case 45: return DiffuseTextures[45].SampleLevel(basicSampler, uv, 0).xyz;
+    case 46: return DiffuseTextures[46].SampleLevel(basicSampler, uv, 0).xyz;
+    case 47: return DiffuseTextures[47].SampleLevel(basicSampler, uv, 0).xyz;
+    case 48: return DiffuseTextures[48].SampleLevel(basicSampler, uv, 0).xyz;
+    case 49: return DiffuseTextures[49].SampleLevel(basicSampler, uv, 0).xyz;
+    case 50: return DiffuseTextures[50].SampleLevel(basicSampler, uv, 0).xyz;
+    case 51: return DiffuseTextures[51].SampleLevel(basicSampler, uv, 0).xyz;
+    case 52: return DiffuseTextures[52].SampleLevel(basicSampler, uv, 0).xyz;
+    case 53: return DiffuseTextures[53].SampleLevel(basicSampler, uv, 0).xyz;
+    case 54: return DiffuseTextures[54].SampleLevel(basicSampler, uv, 0).xyz;
+    case 55: return DiffuseTextures[55].SampleLevel(basicSampler, uv, 0).xyz;
+    case 56: return DiffuseTextures[56].SampleLevel(basicSampler, uv, 0).xyz;
+    case 57: return DiffuseTextures[57].SampleLevel(basicSampler, uv, 0).xyz;
+    case 58: return DiffuseTextures[58].SampleLevel(basicSampler, uv, 0).xyz;
+    case 59: return DiffuseTextures[59].SampleLevel(basicSampler, uv, 0).xyz;
+    case 60: return DiffuseTextures[60].SampleLevel(basicSampler, uv, 0).xyz;
+    case 61: return DiffuseTextures[61].SampleLevel(basicSampler, uv, 0).xyz;
+    case 62: return DiffuseTextures[62].SampleLevel(basicSampler, uv, 0).xyz;
+    case 63: return DiffuseTextures[63].SampleLevel(basicSampler, uv, 0).xyz;
     default:
         return float3(0.0f, 0.0f, 0.0f);
     }
@@ -294,7 +336,7 @@ float3 GetDiffuseColor(uint object, float2 uv)
 float3 GetColor(Ray ray)
 {
 	bool collide = false;
-    float max_distance = 50.0f;
+    float max_distance = 1000.0f;
     IntersectionResult result;
     result.distance = FLT_MAX;
     
@@ -387,7 +429,13 @@ float3 GetColor(Ray ray)
         normal = normalize(mul(normal, o.world));
 
         MaterialColor material = objectMaterials[result.object];
+
+        color += CalcAmbient(normal);
         
+        for (i = 0; i < dirLightsCount; ++i) {
+            color += CalcDirectional(normal, pos, material, dirLights[i], i);
+        }
+
         // Calculate the point lights
         for (i = 0; i < pointLightsCount; ++i) {
             if (length(pos - pointLights[i].Position) < pointLights[i].Range) {
@@ -461,12 +509,6 @@ void main(uint3 DTid : SV_DispatchThreadID)
     uint2 npixels = { DENSITY * blockSizeX, DENSITY * blockSizeY };
     uint2 rayMapRatio = ray_map_dimensions / dimensions;
 
-    fnl_state state = fnlCreateState();
-    state.noise_type = FNL_NOISE_OPENSIMPLEX2;
-    state.octaves = 1;
-    state.seed = time*1000.0f;
-    state.frequency = 100.0f;
-
     for (int x = 0; x < npixels.x; ++x)
     {
         float r = Random(float2(time + x, time * 2.0f - x));
@@ -487,10 +529,10 @@ void main(uint3 DTid : SV_DispatchThreadID)
             }
 
             RaySource ray_source = fromColor(ray0[ray_pixel], ray1[ray_pixel]);
-            if (length(ray_source.normal) > Epsilon)
+            if (length(ray_source.normal) > 0.0f)
             {
                 Ray ray = GetRayFromSource(ray_source, x*y);
-                if (length(ray.dir) > Epsilon)
+                if (length(ray.dir) > 0.0f)
                 {
                     color = float4(GetColor(ray), 1.0f);
                 }
