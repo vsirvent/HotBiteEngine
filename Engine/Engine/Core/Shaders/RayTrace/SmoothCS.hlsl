@@ -8,20 +8,19 @@ RWTexture2D<float> props : register(u2);
 #define VERTICAL 1
 #define HORIZONTAL 2
 #define KERNEL_SIZE 9
-
+#define HALF_KERNEL 4
 cbuffer externalData : register(b0)
 {
     uint type;
 }
 
-#define KERNEL_SIZE 11
 void FillGaussianArray(out float array[KERNEL_SIZE], float dispersion)
 {
     float sum = 0.0;
     int halfSize = KERNEL_SIZE / 2;
     float variance = 0.6f + dispersion * 4.0f;
     int i;
-    for (i = -halfSize; i <= halfSize; ++i)
+    for (i = -HALF_KERNEL; i <= HALF_KERNEL; ++i)
     {
         int x = i;
         array[i + halfSize] = exp(-(x * x) / (2.0 * variance * variance)) / sqrt(2.0 * 3.14159265358979323846 * variance * variance);
@@ -39,25 +38,12 @@ float4 getColor(float2 pixel, float2 dir, float dispersion)
 {
 
         float BlurWeights[KERNEL_SIZE];
-#if 0
-        BlurWeights[0] = 0.00881223;
-        BlurWeights[1] = 0.0271436;
-        BlurWeights[2] = 0.0651141;
-        BlurWeights[3] = 0.121649;
-        BlurWeights[4] = 0.176998;
-        BlurWeights[5] = 0.200565;
-        BlurWeights[6] = 0.176998;
-        BlurWeights[7] = 0.121649;
-        BlurWeights[8] = 0.0651141;
-        BlurWeights[9] = 0.0271436;
-        BlurWeights[10] = 0.00881223;
-#endif
         FillGaussianArray(BlurWeights, dispersion);
         float4 color = float4(0.f, 0.f, 0.f, 1.f);
         float2 tpos;
-        for (int i = -5; i <= 5; ++i) {
+        for (int i = -HALF_KERNEL; i <= HALF_KERNEL; ++i) {
             tpos = pixel + dir * i;
-            color += input[tpos] * BlurWeights[i + 5];
+            color += input[tpos] * BlurWeights[i + HALF_KERNEL];
         }
         return saturate(color);
 }

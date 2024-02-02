@@ -86,9 +86,9 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
     float2 tpos = pos.xy;
     tpos.x /= screenW;
     tpos.y /= screenH;
-    float4 color = getSmoothPixel(basicSampler, renderTexture, tpos, screenW, screenH);
-    //float4 color = renderTexture.Sample(basicSampler, tpos);
-    if (dopActive) {
+    //float4 color = getSmoothPixel(basicSampler, renderTexture, tpos, screenW, screenH);
+    float4 color = renderTexture.Sample(basicSampler, tpos);
+    if (false) { //dopActive) {
         float z0 = depthTexture.Sample(basicSampler, tpos).r;
         // H is the viewport position at this pixel in the range -1 to 1.
         float4 H = float4(tpos.x * 2.0f - 1.0f, (1.0f - tpos.y) * 2.0f - 1.0f, z0, 1.0f);

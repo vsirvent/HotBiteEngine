@@ -54,6 +54,7 @@ RenderTargetRT MainRenderPS(GSOutput input)
 	for (i = 0; i < pointLightsCount; ++i) {
 		PointLightParallaxAtt[i] = 1.0f;
 	}
+#if 1
 	if (material.flags & NORMAL_MAP_ENABLED_FLAG || multi_texture_count > 0) {
 		// Build orthonormal basis.
 		float3 N = normal;
@@ -120,6 +121,7 @@ RenderTargetRT MainRenderPS(GSOutput input)
 		texture_normal = texture_normal * 2.0f - 1.0f;
 		normal = normalize(mul(float4(texture_normal, 0.0f), tbn).xyz + normal);
 	}
+#endif
 #if 1
 	// Calculate the ambient light
 	finalColor.rgb += CalcAmbient(normal);

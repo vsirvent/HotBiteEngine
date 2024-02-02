@@ -137,7 +137,7 @@ RenderTargetRT main(GSOutput input)
 
 		RaySource ray;
 		ray.orig = wpos.xyz;
-		ray.dispersion = 0.0f;
+		ray.dispersion = -1.0f;
 		ray.normal = normal;
 		ray.density = 1.0f;
 

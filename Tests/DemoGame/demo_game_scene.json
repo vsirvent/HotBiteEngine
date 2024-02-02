@@ -91,49 +91,61 @@
           "triangulate": false
         }
       ],
-      "materials": [
-        {
-          "name": "Ball",
-          "spec_intensity": 1.0,
-          "parallax_scale": 0.0,
-          "normal_map_enabled": true,
-          "tess_type": 0,
-          "tess_factor": 0,
-          "displacement_scale": 0.0,
-          "ambient_color": "090030000",
-          "diffuse_color": "030030030",
-          "textures": {
-            "diffuse_textname": ".\\Assets\\textures\\lava\\ground_0027_color_1k.jpg",
-            "normal_textname": ".\\Assets\\textures\\lava\\ground_0027_normal_1k.png",
-            "high_textname": ".\\Assets\\textures\\lava\\ground_0027_disp_1k.png",
-            "emission_textname": ".\\Assets\\textures\\lava\\ground_0027_emissive_1k.jpg",
-            "ao_textname": ".\\Assets\\textures\\lava\\ground_0027_ao_1k.jpg"
-          }
-        },
-        {
-          "name": "Wall",
-          "spec_intensity": 1.0,
-          "parallax_scale": 0.1,
-          "textures": {
-            "diffuse_textname": ".\\Assets\\textures\\Rock10_MR_2K\\Rock10_2K_BaseColor.png",
-            "normal_textname": ".\\Assets\\textures\\Rock10_MR_2K\\Rock10_2K_Normal.png",
-            "high_textname": ".\\Assets\\textures\\Rock10_MR_2K\\Rock10_2K_Height.png",
-            "spec_textname": ".\\Assets\\textures\\Rock10_MR_2K\\Rock10_2K_Roughness.png",
-            "ao_textname": ".\\Assets\\textures\\Rock10_MR_2K\\Rock10_2K_AO.png"
-          }
-        },
-        {
-          "name": "Wall.001",
-          "spec_intensity": 1.0,
-          "parallax_scale": 0.1,
-          "textures": {
-            "diffuse_textname": ".\\Assets\\textures\\Rock10_MR_2K\\Rock10_2K_BaseColor.png",
-            "normal_textname": ".\\Assets\\textures\\Rock10_MR_2K\\Rock10_2K_Normal.png",
-            "high_textname": ".\\Assets\\textures\\Rock10_MR_2K\\Rock10_2K_Height.png",
-            "spec_textname": ".\\Assets\\textures\\Rock10_MR_2K\\Rock10_2K_Roughness.png",
-            "ao_textname": ".\\Assets\\textures\\Rock10_MR_2K\\Rock10_2K_AO.png"
-          }
-        },
+    "materials": [
+      {
+        "name": "Ball",
+        "spec_intensity": 1.0,
+        "parallax_scale": 0.0,
+        "normal_map_enabled": true,
+        "tess_type": 0,
+        "tess_factor": 0,
+        "displacement_scale": 0.0,
+        "ambient_color": "090030000",
+        "diffuse_color": "030030030",
+        "textures": {
+          "diffuse_textname": ".\\Assets\\textures\\lava\\ground_0027_color_1k.jpg",
+          "normal_textname": ".\\Assets\\textures\\lava\\ground_0027_normal_1k.png",
+          "high_textname": ".\\Assets\\textures\\lava\\ground_0027_disp_1k.png",
+          "emission_textname": ".\\Assets\\textures\\lava\\ground_0027_emissive_1k.jpg",
+          "ao_textname": ".\\Assets\\textures\\lava\\ground_0027_ao_1k.jpg"
+        }
+      },
+      {
+        "name": "Wall",
+        "spec_intensity": 1.0,
+        "parallax_scale": 0.1,
+        "textures": {
+          "diffuse_textname": ".\\Assets\\textures\\Rock10_MR_2K\\Rock10_2K_BaseColor.png",
+          "normal_textname": ".\\Assets\\textures\\Rock10_MR_2K\\Rock10_2K_Normal.png",
+          "high_textname": ".\\Assets\\textures\\Rock10_MR_2K\\Rock10_2K_Height.png",
+          "spec_textname": ".\\Assets\\textures\\Rock10_MR_2K\\Rock10_2K_Roughness.png",
+          "ao_textname": ".\\Assets\\textures\\Rock10_MR_2K\\Rock10_2K_AO.png"
+        }
+      },
+      {
+        "name": "Wall.001",
+        "spec_intensity": 1.0,
+        "parallax_scale": 0.1,
+        "textures": {
+          "diffuse_textname": ".\\Assets\\textures\\Rock10_MR_2K\\Rock10_2K_BaseColor.png",
+          "normal_textname": ".\\Assets\\textures\\Rock10_MR_2K\\Rock10_2K_Normal.png",
+          "high_textname": ".\\Assets\\textures\\Rock10_MR_2K\\Rock10_2K_Height.png",
+          "spec_textname": ".\\Assets\\textures\\Rock10_MR_2K\\Rock10_2K_Roughness.png",
+          "ao_textname": ".\\Assets\\textures\\Rock10_MR_2K\\Rock10_2K_AO.png"
+        }
+      },
+      {
+        "name": "Test",
+        "blend_enabled": false,
+        "spec_intensity": 0.1,
+        "parallax_scale": 0.0,
+        "normal_map_enabled": true,
+        "tess_type": 0,
+        "tess_factor": 0,
+        "displacement_scale": 0.0,
+        "ambient_color": "090030000",
+        "diffuse_color": "030030030"
+      },
         {
           "name": "Water",
           "blend_enabled": false,
@@ -397,31 +409,7 @@
         {
           "name": "Terrain",
           "pass": 1,
-          "multi_texture": {
-            "count": 2,
-            "parallax_scale": 0.02,
-            "tess_type": 3,
-            "tess_factor": 3,
-            "textures": [
-              {
-                "layer": 1,
-                "mask": "",
-                "mask_noise": 1,
-                "texture": "Grass2",
-                "op": 1,
-                "value": 0.8,
-                "uv_scale": 3.0
-              },
-              {
-                "layer": 0,
-                "mask": "",
-                "texture": "Rocks",
-                "op": 1,
-                "value": 1.0,
-                "uv_scale": 2.0
-              }
-            ]
-          }
+          "material": "Test"
         }
       ]
     }

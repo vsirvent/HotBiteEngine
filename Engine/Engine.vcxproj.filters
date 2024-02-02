@@ -528,5 +528,8 @@
     <FxCompile Include="Engine\Core\Shaders\RayTrace\DenoiseCS.hlsl">
       <Filter>Engine\Core\Shaders\RayTrace</Filter>
     </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\RayTrace\UpscaleCS.hlsl">
+      <Filter>Engine\Core\Shaders\RayTrace</Filter>
+    </FxCompile>
   </ItemGroup>
 </Project>

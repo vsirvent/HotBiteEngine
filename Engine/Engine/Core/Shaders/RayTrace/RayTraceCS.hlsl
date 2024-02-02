@@ -528,7 +528,9 @@ void main(uint3 DTid : SV_DispatchThreadID)
 
             RaySource ray_source = fromColor(ray0[ray_pixel], ray1[ray_pixel]);
             props[pixel] = ray_source.dispersion;
-
+            if (ray_source.dispersion < 0.0f) {
+                continue;
+            }
             uint divider = 1;
             if (ray_source.dispersion > 0.8f) {
                 if ((x % 4) != 0 || (y % 4) != 0) {
@@ -542,14 +544,16 @@ void main(uint3 DTid : SV_DispatchThreadID)
                 }
                 divider = 2;
             }
-            if (length(ray_source.normal) > 0.0f)
+            if (length(ray_source.normal) < Epsilon)
             {
-                Ray ray = GetRayFromSource(ray_source, x*y);
-                if (length(ray.dir) > 0.0f)
-                {
-                    color = float4(GetColor(ray), 1.0f);
-                }
+                continue;
             }
+            Ray ray = GetRayFromSource(ray_source, x*y);
+            if (length(ray.dir) > 0.0f)
+            {
+                color = float4(GetColor(ray), 1.0f);
+            }
+            
             switch (divider) {
             case 1: output0[pixel] = color; break;
             case 2: output1[pixel/2] = color; break;

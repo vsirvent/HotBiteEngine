@@ -110,12 +110,6 @@ namespace HotBiteTool {
 			post->SetNext(gui);
 			world.SetPostProcessPipeline(post);
 		
-			debug = make_shared<UI::TextureWidget>(c, "debug");
-			debug->SetRect({ 0.0f, 0.0f }, 0.3f, 0.3f);
-			debug->SetVisible(true);
-			debug->SetLayer(0);
-			debug->SetTexture(c->GetSystem<RenderSystem>()->GetDepthMapSRV());
-			gui->AddWidget(debug);
 		}
 
 		void ToolUi::RotateEntity(const std::string& name)

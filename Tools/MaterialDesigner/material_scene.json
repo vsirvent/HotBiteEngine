@@ -30,7 +30,7 @@
     "materials": [
       {
         "name": "MaterialDesignerFloor",
-        "spec_intensity": 0.1,
+        "spec_intensity": 0.5,
         "parallax_scale": 0.1,
         "textures": {
           "diffuse_textname": ".\\assets\\textures\\Bricks076C_1K\\Bricks076C_1K_Color.jpg",
