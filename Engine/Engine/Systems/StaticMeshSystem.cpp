@@ -120,9 +120,9 @@ void StaticMeshSystem::Update(StaticMeshEntity& entity, int64_t elapsed_nsec, in
 
 		float4 e4;
 		XMStoreFloat4(&e4, extents);
-		bounds->final_box.Extents.x = abs(e4.x / e4.w);
-		bounds->final_box.Extents.y = abs(e4.y / e4.w);
-		bounds->final_box.Extents.z = abs(e4.z / e4.w);
+		bounds->final_box.Extents.x = abs(e4.x);
+		bounds->final_box.Extents.y = abs(e4.y);
+		bounds->final_box.Extents.z = abs(e4.z);
 		vector3d pos = XMVector3TransformCoord(XMLoadFloat3(&bounds->bounding_box.Center), transform->world_xmmatrix);
 		XMStoreFloat3(&bounds->final_box.Center, pos);		
 		coordinator->SendEvent(this, base->id, Transform::EVENT_ID_TRANSFORM_CHANGED);

@@ -168,8 +168,6 @@ bool IntersectTri(Ray ray, uint indexOffset, uint vertexOffset, out Intersection
     const float3 h = cross(ray.dir, edge2);
     const float a = dot(edge1, h);
 
-    result.distance = FLT_MAX;
-
     // Check if the ray is parallel to the triangle
     if (abs(a) < 0.01f)
     {
@@ -357,7 +355,6 @@ float3 GetColor(Ray ray)
             oray.dir = normalize(mul(ray.dir, (float3x3) o.inv_world));
             oray.t = FLT_MAX;
 
-
             int stackSize = 0;
             stack[stackSize++] = 0;
 
@@ -376,13 +373,14 @@ float3 GetColor(Ray ray)
                     tmp_result.distance = FLT_MAX;
                     if (IntersectTri(oray, idx, o.vertexOffset, tmp_result))
                     {
-                        if (tmp_result.distance < object_result.distance)
+                        tmp_result.distance *= length(float3(o.world[0].x, o.world[1].y, o.world[2].z));
+                        if (tmp_result.distance > Epsilon && tmp_result.distance < result.distance && tmp_result.distance < object_result.distance)
                         {
                             object_result.v0 = tmp_result.v0;
                             object_result.v1 = tmp_result.v1;
                             object_result.v2 = tmp_result.v2;
                             object_result.vindex = tmp_result.vindex;
-                            object_result.distance = tmp_result.vindex;
+                            object_result.distance = tmp_result.distance;
                             object_result.uv = tmp_result.uv;
                             object_result.object = i;
                             oray.t = tmp_result.distance;
@@ -395,9 +393,10 @@ float3 GetColor(Ray ray)
                     {
                         stack[stackSize++] = left_child(node);
                         stack[stackSize++] = right_child(node);
-                    }                }
+                    }
+                }
             }
-            if (oray.t < ray.t)
+            if (oray.t > Epsilon && oray.t < ray.t)
             {
                 collide = true;
                 ray.t = oray.t;
@@ -405,7 +404,7 @@ float3 GetColor(Ray ray)
                 result.v1 = object_result.v1;
                 result.v2 = object_result.v2;
                 result.vindex = object_result.vindex;
-                result.distance = object_result.vindex;
+                result.distance = object_result.distance;
                 result.uv = object_result.uv;
                 result.object = i;
             }

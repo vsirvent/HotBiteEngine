@@ -7,12 +7,27 @@ RWTexture2D<float> props : register(u2);
 #define EPSILON 1e-6
 #define VERTICAL 1
 #define HORIZONTAL 2
+#define KERNEL 5
 
 cbuffer externalData : register(b0)
 {
     uint type;
 }
 
+float4 Upscale(float2 ipixel, float2 dir, float2 isize, float2 osize)
+{
+    int2 p1 = floor(ipixel);
+    int2 p0 = p1 - dir;
+    int2 p2 = p1 + dir;
+    int2 p3 = p2 + dir;
+    
+    // Calculate the weights for each neighbor
+    float2 weights = ipixel - floor(ipixel);
+    float w0 = (1.0 - weights.x * dir.x) * (1.0 - weights.y*dir.y);
+    float w1 = 1.0f - w0;
+
+    return (input[p0] * 0.25 + input[p1] * 0.75) * w0 + (input[p1] * 0.75 + input[p2] * 0.25) * w1;
+}
 
 #define NTHREADS 32
 [numthreads(NTHREADS, NTHREADS, 1)]
@@ -24,6 +39,9 @@ void main(uint3 DTid : SV_DispatchThreadID)
         uint w, h;
         input.GetDimensions(w, h);
         isize.x = w;
+        isize.y = h;
+        output.GetDimensions(w, h);
+        osize.x = w;
         osize.y = h;
     }
 
@@ -56,7 +74,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
         {
             float2 ipixel = float2(inBlockStartX + (float)x * ratio.x, inBlockStartY + (float)y * ratio.y);
             float2 opixel = float2(outBlockStartX + x, outBlockStartY + y);
-            //output[opixel] = getColor(ipixel);
+            output[opixel] = Upscale(ipixel, dir, isize, osize);
         }
     }
 }

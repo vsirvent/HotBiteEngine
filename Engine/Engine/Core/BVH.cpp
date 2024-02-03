@@ -255,7 +255,7 @@ namespace HotBite {
 #endif				
 				}
 				else {
-					left_offset = 0;
+					left_offset = nidx.index_offset;
 					left_count = nidx.index_count/2;
 					right_offset = left_offset + left_count;
 					right_count = nidx.index_count / 2;

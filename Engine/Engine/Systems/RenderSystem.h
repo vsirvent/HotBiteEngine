@@ -240,8 +240,8 @@ namespace HotBite {
 				static constexpr int RT_RESOLUTION_DIVIVER = 4;
 				Core::SimpleComputeShader* rt_shader = nullptr;
 				Core::SimpleComputeShader* rt_acc = nullptr;
-				Core::SimpleComputeShader* rt_denoise = nullptr;
 				Core::SimpleComputeShader* rt_smooth = nullptr;
+				Core::SimpleComputeShader* rt_upscale = nullptr;
 				static constexpr int RT_NTEXTURES = 3;
 				Core::RenderTexture2D rt_texture[RT_NTEXTURES];
 				Core::RenderTexture2D rt_texture_acc;

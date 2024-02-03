@@ -269,6 +269,7 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		if (FAILED(rt_texture_acc.Init(w / RT_RESOLUTION_DIVIVER, h / RT_RESOLUTION_DIVIVER, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("rt_texture_acc.Init failed");
 		}
+		
 		if (FAILED(rt_texture_props.Init(w / RT_RESOLUTION_DIVIVER, h / RT_RESOLUTION_DIVIVER, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("rt_texture_props.Init failed");
 		}
@@ -292,12 +293,12 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		if (rt_acc == nullptr) {
 			throw std::exception("raytrace shader.Init failed");
 		}
-		rt_denoise = ShaderFactory::Get()->GetShader<SimpleComputeShader>("DenoiseCS.cso");
-		if (rt_denoise == nullptr) {
-			throw std::exception("raytrace shader.Init failed");
-		}
 		rt_smooth = ShaderFactory::Get()->GetShader<SimpleComputeShader>("SmoothCS.cso");
 		if (rt_smooth == nullptr) {
+			throw std::exception("raytrace shader.Init failed");
+		}
+		rt_upscale = ShaderFactory::Get()->GetShader<SimpleComputeShader>("UpscaleCS.cso");
+		if (rt_upscale == nullptr) {
 			throw std::exception("raytrace shader.Init failed");
 		}
 	}
@@ -1215,43 +1216,47 @@ void RenderSystem::ProcessRT() {
 		rt_texture_props.Clear(neg);
 		CameraEntity& cam_entity = cameras.GetData()[0];
 
-		auto fill = [](RenderTree& tree, ObjectInfo objects[MAX_OBJECTS],
-			MaterialProps objectMaterials[MAX_OBJECTS],
-			ID3D11ShaderResourceView* diffuseTextures[MAX_OBJECTS],
-			int size) {
+		struct Node {
+			ObjectInfo obj;
+			MaterialProps mat;
+			ID3D11ShaderResourceView* diff;
+		};
+
+		auto fill = [=](RenderTree& tree, std::map<float, Node>& distance_map) {
 			int count = 0;
 			for (auto& shaders : tree) {
 				for (auto& mat : shaders.second) {
 					for (auto& de : mat.second.second.GetData()) {
 						if (de.base->visible) {
-							MaterialProps* mo = &objectMaterials[count];
-							*mo = de.mat->data->props;
-							diffuseTextures[count] = de.mat->data->diffuse;
+							float distance = LENGHT_F3(de.transform->position - cam_entity.camera->world_position);
+							
+							
+							MaterialProps mo = de.mat->data->props;
+							ID3D11ShaderResourceView* diffuse_text = de.mat->data->diffuse;
 
-							ObjectInfo* o = &objects[count++];
+							ObjectInfo o;
 
 							// Get the center and extents of the oriented box
-							float3 orientedBoxCenter = de.bounds->final_box.Center;
-							float3 orientedBoxExtents = de.bounds->final_box.Extents;
+							const float3& orientedBoxCenter = de.bounds->final_box.Center;
+							const float3& orientedBoxExtents = de.bounds->final_box.Extents;
 
 							// Calculate the minimum and maximum points of the AABB
-							o->aabb_min = { orientedBoxCenter.x - orientedBoxExtents.x,
+							o.aabb_min = { orientedBoxCenter.x - orientedBoxExtents.x,
 											orientedBoxCenter.y - orientedBoxExtents.y,
 											orientedBoxCenter.z - orientedBoxExtents.z };
 
-							o->aabb_max = { orientedBoxCenter.x + orientedBoxExtents.x,
+							o.aabb_max = { orientedBoxCenter.x + orientedBoxExtents.x,
 											orientedBoxCenter.y + orientedBoxExtents.y,
 											orientedBoxCenter.z + orientedBoxExtents.z };
 
-							o->vertex_offset = (uint32_t)de.mesh->GetData()->vertexOffset;
-							o->index_offset = (uint32_t)de.mesh->GetData()->indexOffset;
-							o->object_offset = (uint32_t)de.mesh->GetData()->bvhOffset;
-							o->position = de.transform->position;
-							o->world = de.transform->world_matrix;
-							o->inv_world = de.transform->world_inv_matrix;
-							if (count >= size) {
-								return count;
-							}
+							o.vertex_offset = (uint32_t)de.mesh->GetData()->vertexOffset;
+							o.index_offset = (uint32_t)de.mesh->GetData()->indexOffset;
+							o.object_offset = (uint32_t)de.mesh->GetData()->bvhOffset;
+							o.position = de.transform->position;
+							o.world = de.transform->world_matrix;
+							o.inv_world = de.transform->world_inv_matrix;
+							
+							distance_map[distance] = { o, mo, diffuse_text };
 						}
 					}
 				}
@@ -1259,33 +1264,27 @@ void RenderSystem::ProcessRT() {
 			return count;
 			};
 
-		auto sort = [=](ObjectInfo objects[MAX_OBJECTS],
+		auto sort = [=](const std::map<float, Node>& distance_map, ObjectInfo objects[MAX_OBJECTS],
 			MaterialProps objectMaterials[MAX_OBJECTS],
 			ID3D11ShaderResourceView* diffuseTextures[MAX_OBJECTS],
-			int size) {
-				struct Node {
-					ObjectInfo obj;
-					MaterialProps mat;
-					ID3D11ShaderResourceView* diff;
-				};
-
-				std::map<float, Node> distance_map;
-				for (int i = 0; i < size; ++i) {
-					float distance = LENGHT_F3(objects[i].position - cam_entity.camera->world_position);
-					distance_map[distance] = { objects[i], objectMaterials[i], diffuseTextures[i] };
-				}
-				int i = 0;
+			int& len) {
+				len = 0;
 				for (auto& o : distance_map) {
-					objects[i] = o.second.obj;
-					objectMaterials[i] = o.second.mat;
-					diffuseTextures[i] = o.second.diff;
-				}
+					objects[len] = o.second.obj;
+					objectMaterials[len] = o.second.mat;
+					diffuseTextures[len++] = o.second.diff;
+					if (len >= MAX_OBJECTS) {
+						break;
+					}
+				}			
 		};
 
-		int len = fill(render_tree, objects, objectMaterials, diffuseTextures, MAX_OBJECTS);
-		len += fill(render_pass2_tree, objects + len, objectMaterials, diffuseTextures, MAX_OBJECTS - len);
-		
-		sort(objects, objectMaterials, diffuseTextures, len);
+		std::map<float, Node> distance_map;
+
+		fill(render_tree, distance_map);
+		fill(render_pass2_tree, distance_map);
+		int len = 0;
+		sort(distance_map, objects, objectMaterials, diffuseTextures, len);
 
 		rt_shader->SetInt("nobjects", len);
 		rt_shader->SetData("objectMaterials", objectMaterials, len * sizeof(MaterialProps));
@@ -1362,26 +1361,8 @@ void RenderSystem::ProcessRT() {
 		rt_acc->SetUnorderedAccessView("ray_new1", nullptr);
 		rt_acc->SetUnorderedAccessView("ray_new2", nullptr);
 		rt_acc->SetUnorderedAccessView("ray_acc", nullptr);
-#if 0
-		//Denoise frame
-		rt_denoise->SetUnorderedAccessView("input", rt_texture_acc.UAV());
-		rt_denoise->SetUnorderedAccessView("output", rt_texture_tmp[0].UAV());
-		rt_denoise->SetUnorderedAccessView("props", rt_texture_props.UAV());
-		rt_denoise->SetInt("type", 1);
-		rt_denoise->CopyAllBufferData();
-		rt_denoise->SetShader();
-		dxcore->context->Dispatch(1, 1, 1);
-		rt_denoise->SetInt("type", 2);
-		rt_denoise->SetUnorderedAccessView("input", nullptr);
-		rt_denoise->SetUnorderedAccessView("output", nullptr);
-		rt_denoise->SetUnorderedAccessView("input", rt_texture_tmp[0].UAV());
-		rt_denoise->SetUnorderedAccessView("output", rt_texture_tmp[1].UAV());
-		rt_denoise->CopyAllBufferData();
-		dxcore->context->Dispatch(1, 1, 1);
-		rt_denoise->SetUnorderedAccessView("input", nullptr);
-		rt_denoise->SetUnorderedAccessView("output", nullptr);
-		rt_denoise->SetUnorderedAccessView("props", nullptr);
-#endif
+		rt_acc->CopyAllBufferData();
+
 		//Smooth frame
 		rt_smooth->SetUnorderedAccessView("input", rt_texture_acc.UAV());
 		rt_smooth->SetUnorderedAccessView("output", rt_texture_tmp[0].UAV());
@@ -1391,8 +1372,9 @@ void RenderSystem::ProcessRT() {
 		rt_smooth->SetShader();
 		dxcore->context->Dispatch(1, 1, 1);
 		rt_smooth->SetInt("type", 2);
-		rt_denoise->SetUnorderedAccessView("input", nullptr);
-		rt_denoise->SetUnorderedAccessView("output", nullptr);
+		rt_smooth->SetUnorderedAccessView("input", nullptr);
+		rt_smooth->SetUnorderedAccessView("output", nullptr);
+		rt_smooth->CopyAllBufferData();
 		rt_smooth->SetUnorderedAccessView("input", rt_texture_tmp[0].UAV());
 		rt_smooth->SetUnorderedAccessView("output", rt_texture_tmp[1].UAV());
 		rt_smooth->CopyAllBufferData();
@@ -1400,7 +1382,7 @@ void RenderSystem::ProcessRT() {
 		rt_smooth->SetUnorderedAccessView("input", nullptr);
 		rt_smooth->SetUnorderedAccessView("output", nullptr);
 		rt_smooth->SetUnorderedAccessView("props", nullptr);
-
+		rt_smooth->CopyAllBufferData();
 	}
 }
 
@@ -1789,6 +1771,7 @@ void RenderSystem::Draw() {
 		static const float zero[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 		rt_ray_sources0.Clear(zero);
 		rt_ray_sources1.Clear(zero);
+
 		CastShadows(w, h, camera_position, view, projection, false);
 		DrawDepth(w, h, camera_position, view, projection);
 		DrawSky(w, h, camera_position, view, projection);
