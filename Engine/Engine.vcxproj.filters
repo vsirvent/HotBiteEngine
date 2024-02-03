@@ -66,6 +66,9 @@
     <Filter Include="Engine\Core\Shaders\RayTrace">
       <UniqueIdentifier>{89c97f9e-9b53-4bf1-b9a9-bbc71fab498a}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Engine\Core\Shaders\ComputeShaders">
+      <UniqueIdentifier>{9900460c-047f-4701-aad9-b7d902997de0}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Engine\Core\DXCore.cpp">
@@ -527,6 +530,9 @@
     </FxCompile>
     <FxCompile Include="Engine\Core\Shaders\RayTrace\UpscaleCS.hlsl">
       <Filter>Engine\Core\Shaders\RayTrace</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\ComputeShaders\BlurCS.hlsl">
+      <Filter>Engine\Core\Shaders\ComputeShaders</Filter>
     </FxCompile>
   </ItemGroup>
 </Project>

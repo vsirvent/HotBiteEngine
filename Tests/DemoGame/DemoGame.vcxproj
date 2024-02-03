@@ -235,6 +235,9 @@
       <AdditionalIncludeDirectories>$(SolutionDir)\..\Engine\Engine;$(SolutionDir)\..\React3d\include;$(SolutionDir)\..\FbxSdk\include;$(SolutionDir)\..\enet\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <SupportJustMyCode>false</SupportJustMyCode>
+      <Optimization>MaxSpeed</Optimization>
+      <DebugInformationFormat>None</DebugInformationFormat>
+      <BasicRuntimeChecks>Default</BasicRuntimeChecks>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>

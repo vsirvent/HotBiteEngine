@@ -116,7 +116,7 @@ float3 CalcWaterPoint(float3 normal, float3 position, float2 uv, PointLight ligh
 	return finalColor;
 }
 
-RenderTarget main(GSOutput input)
+RenderTargetRT main(GSOutput input)
 {
 	int i = 0;
 	matrix worldViewProj = mul(view, projection);
@@ -132,7 +132,7 @@ RenderTarget main(GSOutput input)
 	float dz_pcf = depthTexture.SampleCmpLevelZero(PCFSampler, pos, depth_test);
 	if (dz_pcf == 0.0f) { discard; }
 
-	RenderTarget output;
+	RenderTargetRT output;
 
 	float depth = length(input.worldPos.xyz - cameraPosition);
 	
@@ -190,7 +190,7 @@ RenderTarget main(GSOutput input)
 		dist_to_terrain = saturate(1.0f - (dz - depth) / 15.0f);
 		dist_to_terrain2 = saturate( 1.0f - (dz - depth) / 30.0f);
 	}
-	float3 terrain_color = (renderTexture.Sample(basicSampler, pos).rgb * dist_to_terrain + float3(0.0f, 0.0f, 0.1f) * (1.0f - dist_to_terrain))* dist_to_terrain2;	
+	float3 terrain_color = 0.5f*(renderTexture.Sample(basicSampler, pos).rgb * dist_to_terrain + float3(0.0f, 0.0f, 0.1f) * (1.0f - dist_to_terrain))* dist_to_terrain2;	
 	finalColor.rgb += terrain_color;
 	
 	//Emission of point lights	
@@ -205,8 +205,17 @@ RenderTarget main(GSOutput input)
 			}
 		}
 	};
+
 	output.light_map = saturate(lightColor);
 	output.scene = saturate(finalColor);
+	RaySource ray;
+	ray.orig = input.worldPos.xyz;
+	ray.dispersion = 0.0f;
+	ray.normal = normal;
+	ray.density = 1.0f;
+	output.rt_ray0_map = getColor0(ray);
+	output.rt_ray1_map = getColor1(ray);
+
 	return output;
 }
 

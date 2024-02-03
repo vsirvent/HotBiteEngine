@@ -137,19 +137,24 @@
       {
         "name": "Test",
         "blend_enabled": false,
-        "spec_intensity": 0.1,
-        "parallax_scale": 0.0,
+        "spec_intensity": 1.0,
+        "parallax_scale": 0.05,
         "normal_map_enabled": false,
         "tess_type": 0,
         "tess_factor": 0,
         "displacement_scale": 0.0,
         "ambient_color": "090030000",
-        "diffuse_color": "030030030"
+        "diffuse_color": "030030030",
+        "textures": {
+          "diffuse_textname": ".\\Assets\\textures\\Marble\\Marble_Color.jpg",
+          "normal_textname": ".\\Assets\\textures\\Marble\\Marble_Normal.jpg",
+          "high_textname": ".\\Assets\\textures\\Marble\\Marble_Displacement.jpg"
+        }
       },
         {
           "name": "Water",
           "blend_enabled": false,
-          "spec_intensity": 0.4,
+          "spec_intensity": 1.0,
           "shaders": {
             "gs": "WaterGS.cso",
             "ps": "WaterPS.cso"
@@ -158,7 +163,7 @@
         {
           "name": "Lava",
           "blend_enabled": false,
-          "spec_intensity": 0.4,
+          "spec_intensity": 0.0,
           "shaders": {
             "gs": "LavaGS.cso",
             "ps": "LavaPS.cso"
@@ -166,7 +171,7 @@
         },
         {
           "name": "Rocks",
-          "spec_intensity": 0.7,
+          "spec_intensity": 0.5,
           "textures": {
             "diffuse_textname": ".\\Assets\\textures\\Rock10_MR_2K\\Rock10_2K_BaseColor.png",
             "normal_textname": ".\\Assets\\textures\\Rock10_MR_2K\\Rock10_2K_Normal.png",

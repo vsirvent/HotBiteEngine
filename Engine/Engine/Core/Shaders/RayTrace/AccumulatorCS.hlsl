@@ -11,5 +11,5 @@ void main(uint3 DTid : SV_DispatchThreadID)
 {
     float2 pixel = float2(DTid.x, DTid.y);
     float4 color = ray_acc[pixel];
-    ray_acc[pixel] = 0.5f * ray_acc[pixel] + 0.5f * ray_new0[pixel] + 0.5f * ray_new1[pixel/2] + 0.5f * ray_new2[pixel/4];
+    ray_acc[pixel] = ray_new0[pixel] + ray_new1[pixel/2] + ray_new2[pixel/4];
 }

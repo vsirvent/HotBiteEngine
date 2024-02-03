@@ -55,13 +55,18 @@ cbuffer externalData : register(b0)
 	uint multi_texture_count;
 	float multi_parallax_scale;
 
-	int disable_vol; 
+	
+	int disable_rt;
 
 	uint4 packed_multi_texture_operations[MAX_MULTI_TEXTURE / 4];
 	float4 packed_multi_texture_values[MAX_MULTI_TEXTURE / 4];
 	float4 packed_multi_texture_uv_scales[MAX_MULTI_TEXTURE / 4];
 }
 
+cbuffer objectData : register(b1)
+{
+	int disable_vol;
+}
 #include <Common/MultiTexture.hlsli>
 #include <Common/PixelFunctions.hlsli>
 #include <MainRender/MainRenderPS.hlsli>

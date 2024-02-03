@@ -1150,11 +1150,7 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 				}
 				for (auto& de : mat.second.second.GetData()) {
 					PrepareEntity(de, vs, hs, ds, gs, ps);
-					if (de.base->visible && de.base->scene_visible) {						
-						if (!normal_mesh_map) {
-							ps->SetInt(MESH_NORMAL_MAP_ENABLE, false);
-							ps->CopyAllBufferData();
-						}
+					if (de.base->visible && de.base->scene_visible) {	
  						Mesh* mesh = de.mesh;
 						DXCore::Get()->context->DrawIndexed((UINT)mesh->index_count, (UINT)mesh->index_offset, (INT)mesh->vertex_offset);
 						draw_count++;
@@ -1184,7 +1180,7 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 	}
 	
 	if (prev_pass_texture != nullptr) {
-		DrawParticles(w, h, camera_position, view, projection, particle_tree);
+		//DrawParticles(w, h, camera_position, view, projection, particle_tree);
 	}
 
 	context->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -1227,7 +1223,7 @@ void RenderSystem::ProcessRT() {
 			for (auto& shaders : tree) {
 				for (auto& mat : shaders.second) {
 					for (auto& de : mat.second.second.GetData()) {
-						if (de.base->visible) {
+						if (de.base->visible && de.mesh->GetData()->skeletons.empty()) {
 							float distance = LENGHT_F3(de.transform->position - cam_entity.camera->world_position);
 							
 							
@@ -1333,7 +1329,7 @@ void RenderSystem::ProcessRT() {
 		dxcore->context->CSSetShaderResources(4, 1, vertex_buffer->IndexSRV());
 
 		rt_shader->SetShader();		
-		dxcore->context->Dispatch(rt_texture[0].Width()/32, rt_texture[0].Height()/32, 1);
+		dxcore->context->Dispatch(rt_texture[0].Width()/32, rt_texture[0].Height()/32 + 1, 1);
 		//dxcore->context->Dispatch(1, 1, 1);
 		rt_shader->SetUnorderedAccessView("output0", nullptr);
 		rt_shader->SetUnorderedAccessView("output1", nullptr);
@@ -1357,7 +1353,7 @@ void RenderSystem::ProcessRT() {
 		rt_acc->SetUnorderedAccessView("ray_acc", rt_texture_acc.UAV());
 		rt_acc->CopyAllBufferData();
 		rt_acc->SetShader();
-		dxcore->context->Dispatch(rt_texture_acc.Width() / 32, rt_texture_acc.Height() / 32, 1);
+		dxcore->context->Dispatch(rt_texture_acc.Width() / 32, rt_texture_acc.Height() / 32 + 1, 1);
 		rt_acc->SetUnorderedAccessView("ray_new0", nullptr);
 		rt_acc->SetUnorderedAccessView("ray_new1", nullptr);
 		rt_acc->SetUnorderedAccessView("ray_new2", nullptr);
@@ -1371,7 +1367,7 @@ void RenderSystem::ProcessRT() {
 		rt_smooth->SetInt("type", 1);
 		rt_smooth->CopyAllBufferData();
 		rt_smooth->SetShader();
-		dxcore->context->Dispatch(rt_texture_acc.Width()/32, rt_texture_acc.Height()/32, 1);
+		dxcore->context->Dispatch(rt_texture_acc.Width()/32, rt_texture_acc.Height()/32 + 1, 1);
 		rt_smooth->SetInt("type", 2);
 		rt_smooth->SetUnorderedAccessView("input", nullptr);
 		rt_smooth->SetUnorderedAccessView("output", nullptr);
@@ -1379,7 +1375,7 @@ void RenderSystem::ProcessRT() {
 		rt_smooth->SetUnorderedAccessView("input", rt_texture_tmp[0].UAV());
 		rt_smooth->SetUnorderedAccessView("output", rt_texture_tmp[1].UAV());
 		rt_smooth->CopyAllBufferData();
-		dxcore->context->Dispatch(rt_texture_acc.Width() / 32, rt_texture_acc.Height() / 32, 1);
+		dxcore->context->Dispatch(rt_texture_acc.Width() / 32, rt_texture_acc.Height() / 32 + 1, 1);
 		rt_smooth->SetUnorderedAccessView("input", nullptr);
 		rt_smooth->SetUnorderedAccessView("output", nullptr);
 		rt_smooth->SetUnorderedAccessView("props", nullptr);

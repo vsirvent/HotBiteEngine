@@ -292,7 +292,7 @@ public:
 			auto lavas = c->GetEntitiesByName("Lava*");
 			for (auto& lava : lavas) {
 				c->GetComponent<Components::Physics>(lava).collider->setIsTrigger(true);
-				//c->AddComponent<FireComponent>(lava, { .duration = MSEC_TO_NSEC(2000), .dps = 10.0f });
+				c->AddComponent<FireComponent>(lava, { .duration = MSEC_TO_NSEC(2000), .dps = 10.0f });
 				std::shared_ptr<SmokeParticles> lava_particle = std::make_shared<SmokeParticles>();
 				lava_particle->Init(c, lava, particle_material, 0.01f, 20, 0.2f, 10000, ParticlesData::PARTICLE_ORIGIN_FIXED_VERTEX, 0.3f, 0.9f, 0.0f, 10.0f);
 				c->AddComponent<Particles>(lava, Particles{ "smoke", std::dynamic_pointer_cast<ParticlesData>(lava_particle) });

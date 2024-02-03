@@ -211,7 +211,12 @@ RenderTargetRT MainRenderPS(GSOutput input)
 
 	RaySource ray;
 	ray.orig = wpos.xyz;
-	ray.dispersion = saturate(1.0f - spec_intensity);
+	if (disable_rt == 0) {
+		ray.dispersion = saturate(1.0f - spec_intensity);
+	}
+	else {
+		ray.dispersion = -1.0f;
+	}
 	ray.normal = normal;
 	ray.density = 1.0f;
 

@@ -169,7 +169,7 @@ bool IntersectTri(Ray ray, uint indexOffset, uint vertexOffset, out Intersection
     const float a = dot(edge1, h);
 
     // Check if the ray is parallel to the triangle
-    if (abs(a) < 0.01f)
+    if (abs(a) < Epsilon)
     {
         return false;
     }
@@ -343,7 +343,7 @@ float3 GetColor(Ray ray)
         float objectExtent = length(o.aabb_max - o.aabb_min);
         float distanceToObject = length(o.position - cameraPosition) - objectExtent;
         
-        if (distanceToObject < max_distance && distanceToObject < ray.t && IntersectAABB(ray, o.aabb_min, o.aabb_max))
+        if (distanceToObject < max_distance && distanceToObject < ray.t)
         {
             Ray oray;
             IntersectionResult object_result;
@@ -373,7 +373,8 @@ float3 GetColor(Ray ray)
                     tmp_result.distance = FLT_MAX;
                     if (IntersectTri(oray, idx, o.vertexOffset, tmp_result))
                     {
-                        tmp_result.distance *= length(float3(o.world[0].x, o.world[1].y, o.world[2].z));
+                        float scale = o.world[3].w;
+                        tmp_result.distance *= length(float3(o.world[0].x/ scale, o.world[1].y/ scale, o.world[2].z/ scale));
                         if (tmp_result.distance < result.distance && tmp_result.distance < ray.t)
                         {
                             object_result.v0 = tmp_result.v0;
@@ -506,22 +507,22 @@ void main(uint3 DTid : SV_DispatchThreadID)
     
     RaySource ray_source = fromColor(ray0[ray_pixel], ray1[ray_pixel]);
     props[pixel] = ray_source.dispersion;
-    if (ray_source.dispersion < 0.0f) {
+    if (ray_source.dispersion < 0.0f || ray_source.dispersion == 1.0f) {
         return;
     }
     uint divider = 1;
-    if (ray_source.dispersion > 0.8f) {
+    /*if (ray_source.dispersion >= 0.8f) {
         if ((x % 4) != 0 || (y % 4) != 0) {
             return;
         }
         divider = 4;
     }
-    else if (ray_source.dispersion > 0.5f) {
+    else  if (ray_source.dispersion >= 0.5f) {
         if ((x % 2) != 0 || (y % 2) != 0) {
             return;
         }
         divider = 2;
-    }
+    }*/
     if (length(ray_source.normal) < Epsilon)
     {
         return;

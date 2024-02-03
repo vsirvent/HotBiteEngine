@@ -62,6 +62,11 @@ cbuffer externalData : register(b0)
 	int disable_vol;
 }
 
+cbuffer objectData : register(b1)
+{
+	int disable_rt;
+}
+
 #include "../Common/MultiTexture.hlsli"
 #include "../Common/PixelFunctions.hlsli"
 #include "MainRenderPS.hlsli"
