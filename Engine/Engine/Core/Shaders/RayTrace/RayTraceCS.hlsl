@@ -374,7 +374,7 @@ float3 GetColor(Ray ray)
                     if (IntersectTri(oray, idx, o.vertexOffset, tmp_result))
                     {
                         tmp_result.distance *= length(float3(o.world[0].x, o.world[1].y, o.world[2].z));
-                        if (tmp_result.distance > Epsilon && tmp_result.distance < result.distance && tmp_result.distance < object_result.distance)
+                        if (tmp_result.distance < result.distance && tmp_result.distance < ray.t)
                         {
                             object_result.v0 = tmp_result.v0;
                             object_result.v1 = tmp_result.v1;
@@ -493,72 +493,48 @@ void main(uint3 DTid : SV_DispatchThreadID)
         ray_map_dimensions.y = h;
     }
 
-    float blockSizeX = (float)dimensions.x / (float)NTHREADS;
-    float blockSizeY = (float)dimensions.y / (float)NTHREADS;
-    float blockStartX = (float)DTid.x * blockSizeX;
-    float blockStartY = (float)DTid.y * blockSizeY;
+    float x = (float)DTid.x;
+    float y = (float)DTid.y;
 
-    float rayMapBlockSizeX = (float)ray_map_dimensions.x / (float)NTHREADS;
-    float rayMapblockSizeY = (float)ray_map_dimensions.y / (float)NTHREADS;
-    float rayMapBlockStartX = (float)DTid.x * rayMapBlockSizeX;
-    float rayMapblockStartY = (float)DTid.y * rayMapblockSizeY;
-
-    uint2 npixels = { DENSITY * blockSizeX, DENSITY * blockSizeY };
     uint2 rayMapRatio = ray_map_dimensions / dimensions;
 
-    for (int x = 0; x < npixels.x; ++x)
-    {
-        float r = Random(float2(time + x, time * 2.0f - x));
-        for (int y = 0; y <= npixels.y; ++y)
-        {
-            float4 color = float4(0.0f, 0.0f, 0.0f, 0.0f);
-            float r2 = Random(float2(blockStartY + x + r, blockStartX + y * r) / dimensions.x);
-            uint2 pixel;
-            uint2 ray_pixel;
-            if (DENSITY == 1.0f) {
-                pixel = float2(blockStartX + x, blockStartY + y);
-                ray_pixel = float2(rayMapBlockStartX + x * rayMapRatio.x, rayMapblockStartY + y * rayMapRatio.y);
-            }
-            else {
-                float r3 = Random(float2(blockStartX + x * r, blockStartX + y - r) / dimensions.y);
-                pixel = float2(blockStartX + blockSizeX * r2, blockStartY + blockSizeY * r3);
-                ray_pixel = float2(rayMapBlockStartX + r2 * blockSizeX * rayMapRatio.x, rayMapblockStartY + r3 * blockSizeY * rayMapRatio.y);
-            }
-
-            RaySource ray_source = fromColor(ray0[ray_pixel], ray1[ray_pixel]);
-            props[pixel] = ray_source.dispersion;
-            if (ray_source.dispersion < 0.0f) {
-                continue;
-            }
-            uint divider = 1;
-            if (ray_source.dispersion > 0.8f) {
-                if ((x % 4) != 0 || (y % 4) != 0) {
-                    continue;
-                }
-                divider = 4;
-            }
-            else if (ray_source.dispersion > 0.5f) {
-                if ((x % 2) != 0 || (y % 2) != 0) {
-                    continue;
-                }
-                divider = 2;
-            }
-            if (length(ray_source.normal) < Epsilon)
-            {
-                continue;
-            }
-            Ray ray = GetRayFromSource(ray_source, x*y);
-            if (length(ray.dir) > 0.0f)
-            {
-                color = float4(GetColor(ray), 1.0f);
-            }
-            
-            switch (divider) {
-            case 1: output0[pixel] = color; break;
-            case 2: output1[pixel/2] = color; break;
-            case 4: output2[pixel/4] = color; break;
-            }
-            
+    float4 color = float4(0.0f, 0.0f, 0.0f, 0.0f);
+    uint2 pixel;
+    uint2 ray_pixel;
+    pixel = float2(x, y);
+    ray_pixel = float2(x * rayMapRatio.x, y * rayMapRatio.y);
+    
+    RaySource ray_source = fromColor(ray0[ray_pixel], ray1[ray_pixel]);
+    props[pixel] = ray_source.dispersion;
+    if (ray_source.dispersion < 0.0f) {
+        return;
+    }
+    uint divider = 1;
+    if (ray_source.dispersion > 0.8f) {
+        if ((x % 4) != 0 || (y % 4) != 0) {
+            return;
         }
+        divider = 4;
+    }
+    else if (ray_source.dispersion > 0.5f) {
+        if ((x % 2) != 0 || (y % 2) != 0) {
+            return;
+        }
+        divider = 2;
+    }
+    if (length(ray_source.normal) < Epsilon)
+    {
+        return;
+    }
+    Ray ray = GetRayFromSource(ray_source, x*y);
+    if (length(ray.dir) > 0.0f)
+    {
+        color = float4(GetColor(ray), 1.0f);
+    }
+            
+    switch (divider) {
+    case 1: output0[pixel] = color; break;
+    case 2: output1[pixel/2] = color; break;
+    case 4: output2[pixel/4] = color; break;
     }
 }

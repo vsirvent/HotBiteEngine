@@ -7,8 +7,8 @@ RWTexture2D<float> props : register(u2);
 #define EPSILON 1e-6
 #define VERTICAL 1
 #define HORIZONTAL 2
-#define KERNEL_SIZE 9
-#define HALF_KERNEL 4
+#define KERNEL_SIZE 19
+#define HALF_KERNEL KERNEL_SIZE/2
 cbuffer externalData : register(b0)
 {
     uint type;
@@ -18,7 +18,7 @@ void FillGaussianArray(out float array[KERNEL_SIZE], float dispersion)
 {
     float sum = 0.0;
     int halfSize = KERNEL_SIZE / 2;
-    float variance = 0.6f + dispersion * 4.0f;
+    float variance = 0.6f + dispersion * (float)HALF_KERNEL;
     int i;
     for (i = -HALF_KERNEL; i <= HALF_KERNEL; ++i)
     {
@@ -52,23 +52,7 @@ float4 getColor(float2 pixel, float2 dir, float dispersion)
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main(uint3 DTid : SV_DispatchThreadID)
 {
-    uint2 dimensions;
-    {
-        uint w, h;
-        input.GetDimensions(w, h);
-        dimensions.x = w;
-        dimensions.y = h;
-    }
-
-    float blockSizeX = (float)dimensions.x / (float)NTHREADS;
-    float blockSizeY = (float)dimensions.y / (float)NTHREADS;
-    float blockStartX = (float)DTid.x * blockSizeX;
-    float blockStartY = (float)DTid.y * blockSizeY;
-
-    uint2 npixels = { 0, 0 };
     uint2 dir = { 0, 0 };
-
-    npixels = uint2(blockSizeX, blockSizeY);
     if (type == VERTICAL) {        
         dir = uint2(0, 1);
     }
@@ -76,18 +60,12 @@ void main(uint3 DTid : SV_DispatchThreadID)
         dir = uint2(1, 0);
     }
     
-    for (uint x = 0; x <= npixels.x; ++x)
-    {
-        for (uint y = 0; y <= npixels.y; ++y)
-        {
-            float2 pixel = float2(blockStartX + x, blockStartY + y);
-            float dispersion = props[pixel];
-            if (dispersion >= 0.0f) {
-                output[pixel] = getColor(pixel, dir, dispersion);
-            }
-            else {
-                output[pixel] = float4(0.0f, 0.0f, 0.0f, 0.0f);
-            }
-        }
+    float2 pixel = float2(DTid.x, DTid.y);
+    float dispersion = props[pixel];
+    if (dispersion >= 0.0f) {
+        output[pixel] = getColor(pixel, dir, dispersion);
+    }
+    else {
+        output[pixel] = float4(0.0f, 0.0f, 0.0f, 0.0f);
     }
 }

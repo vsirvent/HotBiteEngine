@@ -139,7 +139,7 @@
         "blend_enabled": false,
         "spec_intensity": 0.1,
         "parallax_scale": 0.0,
-        "normal_map_enabled": true,
+        "normal_map_enabled": false,
         "tess_type": 0,
         "tess_factor": 0,
         "displacement_scale": 0.0,

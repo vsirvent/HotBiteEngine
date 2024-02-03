@@ -442,7 +442,7 @@ int FBXLoader::LoadMaterials(Core::FlatMap<std::string, Core::MaterialData>& mat
 			m->name = name;
 			m->props.ambientColor = GetMaterialProperty(sm, FbxSurfaceMaterial::sAmbient, FbxSurfaceMaterial::sAmbientFactor, nullptr);
 			m->props.diffuseColor = GetMaterialProperty(sm, FbxSurfaceMaterial::sDiffuse, FbxSurfaceMaterial::sDiffuseFactor, &(m->texture_names.diffuse_texname));
-			m->props.specIntensity = 0.0f;
+			m->props.specIntensity = 1.0f;
 			printf("FBXLoader::Added material %s\n", name.c_str());
 			++ret;
 		}

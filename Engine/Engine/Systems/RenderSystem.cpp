@@ -1333,7 +1333,8 @@ void RenderSystem::ProcessRT() {
 		dxcore->context->CSSetShaderResources(4, 1, vertex_buffer->IndexSRV());
 
 		rt_shader->SetShader();		
-		dxcore->context->Dispatch(1, 1, 1);
+		dxcore->context->Dispatch(rt_texture[0].Width()/32, rt_texture[0].Height()/32, 1);
+		//dxcore->context->Dispatch(1, 1, 1);
 		rt_shader->SetUnorderedAccessView("output0", nullptr);
 		rt_shader->SetUnorderedAccessView("output1", nullptr);
 		rt_shader->SetUnorderedAccessView("output2", nullptr);
@@ -1356,7 +1357,7 @@ void RenderSystem::ProcessRT() {
 		rt_acc->SetUnorderedAccessView("ray_acc", rt_texture_acc.UAV());
 		rt_acc->CopyAllBufferData();
 		rt_acc->SetShader();
-		dxcore->context->Dispatch(1, 1, 1);
+		dxcore->context->Dispatch(rt_texture_acc.Width() / 32, rt_texture_acc.Height() / 32, 1);
 		rt_acc->SetUnorderedAccessView("ray_new0", nullptr);
 		rt_acc->SetUnorderedAccessView("ray_new1", nullptr);
 		rt_acc->SetUnorderedAccessView("ray_new2", nullptr);
@@ -1370,7 +1371,7 @@ void RenderSystem::ProcessRT() {
 		rt_smooth->SetInt("type", 1);
 		rt_smooth->CopyAllBufferData();
 		rt_smooth->SetShader();
-		dxcore->context->Dispatch(1, 1, 1);
+		dxcore->context->Dispatch(rt_texture_acc.Width()/32, rt_texture_acc.Height()/32, 1);
 		rt_smooth->SetInt("type", 2);
 		rt_smooth->SetUnorderedAccessView("input", nullptr);
 		rt_smooth->SetUnorderedAccessView("output", nullptr);
@@ -1378,7 +1379,7 @@ void RenderSystem::ProcessRT() {
 		rt_smooth->SetUnorderedAccessView("input", rt_texture_tmp[0].UAV());
 		rt_smooth->SetUnorderedAccessView("output", rt_texture_tmp[1].UAV());
 		rt_smooth->CopyAllBufferData();
-		dxcore->context->Dispatch(1, 1, 1);
+		dxcore->context->Dispatch(rt_texture_acc.Width() / 32, rt_texture_acc.Height() / 32, 1);
 		rt_smooth->SetUnorderedAccessView("input", nullptr);
 		rt_smooth->SetUnorderedAccessView("output", nullptr);
 		rt_smooth->SetUnorderedAccessView("props", nullptr);

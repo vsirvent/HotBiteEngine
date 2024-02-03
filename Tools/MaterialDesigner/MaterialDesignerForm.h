@@ -33,7 +33,7 @@ namespace MaterialDesigner {
 			InitializeComponent();
 			materials = gcnew Generic::List<IntPtr>();
 			multiMaterials = gcnew Generic::List<IntPtr>();
-			HotBiteTool::ToolUi::CreateToolUi(GetModuleHandle(NULL), (HWND)preview->Handle.ToPointer(), 0, 0, 60);
+			HotBiteTool::ToolUi::CreateToolUi(GetModuleHandle(NULL), (HWND)preview->Handle.ToPointer(), 1920, 1080, 60);
 			std::string root = "..\\..\\..\\Tools\\MaterialDesigner\\";
 
 			HotBiteTool::ToolUi::LoadWorld(root + "material_scene.json");
