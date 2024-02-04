@@ -166,12 +166,20 @@ namespace HotBite {
 			{
 				float4x4 world;
 				float4x4 inv_world;
+				
 				float3 aabb_min;
 				uint32_t object_offset;
+				
 				float3 aabb_max;
 				uint32_t vertex_offset;
+				
 				float3 position;
 				uint32_t index_offset;
+
+				float density;
+				float opacity;
+				float padding0;
+				float padding1;
 			};
 			
 			using BVHBuffer = Buffer<BVH::Node>;

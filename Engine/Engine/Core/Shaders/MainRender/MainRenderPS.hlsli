@@ -123,13 +123,14 @@ RenderTargetRT MainRenderPS(GSOutput input)
 	}
 #endif
 #if 1
+	float4 lumColor = float4(0.0f, 0.0f, 0.0f, 0.0f);
 	// Calculate the ambient light
-	finalColor.rgb += CalcAmbient(normal);
+	lumColor.rgb += CalcAmbient(normal);
 #endif
 #if 1
 	// Calculate the directional light
 	for (i = 0; i < dirLightsCount; ++i) {
-		finalColor.rgb += CalcDirectional(normal, wpos, input.uv, material, dirLights[i], cloud_density, i, lightColor) * DirLightParallaxAtt[i];
+		lumColor.rgb += CalcDirectional(normal, wpos, input.uv, material, dirLights[i], cloud_density, i, lightColor) * DirLightParallaxAtt[i];
 		if (dirLights[i].density > 0.0f && disable_vol == 0) {
 			lightColor.rgb += DirVolumetricLight(wpos, dirLights[i], i, time, cloud_density);
 		}
@@ -139,13 +140,14 @@ RenderTargetRT MainRenderPS(GSOutput input)
 	// Calculate the point lights
 	for (i = 0; i < pointLightsCount; ++i) {
 		if (length(wpos - pointLights[i].Position) < pointLights[i].Range) {
-			finalColor.rgb += CalcPoint(normal, wpos, input.uv, material, pointLights[i], i, lightColor) * PointLightParallaxAtt[i];
+			lumColor.rgb += CalcPoint(normal, wpos, input.uv, material, pointLights[i], i, lightColor) * PointLightParallaxAtt[i];
 			if (pointLights[i].density > 0.0f && disable_vol == 0) {
 				lightColor.rgb += VolumetricLight(wpos, pointLights[i], i);
 			}
 		}
 	}
 #endif
+	finalColor += lumColor;
 	// Apply textures
 	if (material.flags & DIFFUSSE_MAP_ENABLED_FLAG || multi_texture_count > 0) {
 		float3 text_color;
@@ -206,8 +208,11 @@ RenderTargetRT MainRenderPS(GSOutput input)
 		}
 	};
 #endif
+	finalColor *= material.opacity;
+
 	output.scene = saturate(finalColor);
-	output.light_map = saturate(lightColor);
+	output.light_map = saturate(lumColor);
+	output.bloom_map = saturate(lightColor);
 
 	RaySource ray;
 	ray.orig = wpos.xyz;
@@ -218,7 +223,8 @@ RenderTargetRT MainRenderPS(GSOutput input)
 		ray.dispersion = -1.0f;
 	}
 	ray.normal = normal;
-	ray.density = 1.0f;
+	ray.density = material.density;
+	ray.opacity = material.opacity;
 
 	output.rt_ray0_map = getColor0(ray);
 	output.rt_ray1_map = getColor1(ray);

@@ -226,6 +226,7 @@ namespace HotBite {
 				Core::DXCore* dxcore = nullptr;				
 				Core::RenderTexture2D depth_map{ 3 };
 				Core::RenderTexture2D light_map;
+				Core::RenderTexture2D bloom_map;
 				Core::RenderTexture2D temp_map;
 				Core::RenderTexture2D rgba_noise_texture;
 				Core::RenderTexture2D first_pass_texture{ 1 };				
@@ -244,9 +245,8 @@ namespace HotBite {
 				Core::SimpleComputeShader* rt_upscale = nullptr;
 				static constexpr int RT_NTEXTURES = 3;
 				Core::RenderTexture2D rt_texture[RT_NTEXTURES];
-				Core::RenderTexture2D rt_texture_acc;
 				Core::RenderTexture2D rt_texture_props;
-				Core::RenderTexture2D rt_texture_tmp[2];
+				Core::RenderTexture2D rt_texture_tmp;
 				Core::RenderTexture2D rt_ray_sources0;
 				Core::RenderTexture2D rt_ray_sources1;
 				BVHBuffer* bvh_buffer = nullptr;

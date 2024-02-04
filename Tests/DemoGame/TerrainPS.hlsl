@@ -138,6 +138,7 @@ RenderTargetRT main(GSOutput input)
 		finalColor.rgb *= color;
 		RenderTargetRT output;
 		output.light_map = lightColor;
+		output.bloom_map = lightColor;
 		output.scene = finalColor;
 
 		RaySource ray;
@@ -145,7 +146,8 @@ RenderTargetRT main(GSOutput input)
 		ray.dispersion = -1.0f;
 		ray.normal = normal;
 		ray.density = 1.0f;
-
+		ray.opacity = 1.0f;
+	
 		output.rt_ray0_map = getColor0(ray);
 		output.rt_ray1_map = getColor1(ray);
 

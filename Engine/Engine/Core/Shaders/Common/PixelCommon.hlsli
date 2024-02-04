@@ -43,8 +43,9 @@ struct RenderTargetRT
 {
 	float4 scene : SV_TARGET0;
 	float4 light_map : SV_TARGET1;
-	float4 rt_ray0_map : SV_TARGET2;
-	float4 rt_ray1_map : SV_TARGET3;
+	float4 bloom_map : SV_TARGET2;
+	float4 rt_ray0_map : SV_TARGET3;
+	float4 rt_ray1_map : SV_TARGET4;
 };
 
 struct DirLight
@@ -84,8 +85,8 @@ struct MaterialColor
 
 	float parallax_shadow_scale;
 	float bloom_scale;
-	float padding;
-	float padding1;
+	float opacity;
+	float density;
 
 	float3 alphaColor;	
 #define NORMAL_MAP_ENABLED_FLAG 1 << 0

@@ -88,6 +88,8 @@ void MaterialData::Load(const std::string& root, const std::string& mat) {
 	props.parallax_angle_steps = j["parallax_angle_steps"];
 	props.parallax_shadow_scale = j["parallax_shadow_scale"];
 	props.specIntensity = j["specular"];
+	props.opacity = j["opacity"];
+	props.density = j["density"];
 	props.flags = 0;
 
 	tessellation_type = j["tess_type"];

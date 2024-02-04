@@ -19,7 +19,16 @@ struct BVHNode
 struct Ray {
 	float4 orig;
 	float3 dir;
+    float density;
+    uint bounces;
+    float ratio;
 	float t; //intersection distance    
+};
+
+struct RayObject {
+    float4 orig;
+    float3 dir;
+    float t;
 };
 
 struct IntersectionResult
@@ -37,12 +46,20 @@ struct ObjectInfo
 {
     matrix world;
     matrix inv_world;
+
 	float3 aabb_min;
     uint objectOffset;
+
 	float3 aabb_max;
     uint vertexOffset;
+
     float3 position;
     uint indexOffset;
+
+    float density;
+    float opacity;
+    float padding0;
+    float padding1;
 };
 
 cbuffer externalData : register(b0)
@@ -62,8 +79,8 @@ cbuffer externalData : register(b0)
     AmbientLight ambientLight;
 	DirLight dirLights[MAX_LIGHTS];
 	PointLight pointLights[MAX_LIGHTS];
-	int dirLightsCount;
-	int pointLightsCount;
+	uint dirLightsCount;
+	uint pointLightsCount;
 
 	float4 LightPerspectiveValues[MAX_LIGHTS / 2];
 	matrix DirPerspectiveMatrix[MAX_LIGHTS];
@@ -153,7 +170,7 @@ float3 CalcPoint(float3 normal, float3 position, MaterialColor material, PointLi
     return finalColor;
 }
 
-bool IntersectTri(Ray ray, uint indexOffset, uint vertexOffset, out IntersectionResult result)
+bool IntersectTri(RayObject ray, uint indexOffset, uint vertexOffset, out IntersectionResult result)
 {
     const uint indexByteOffset = indexOffset * 4;
     const uint vertexSize = 96;
@@ -207,7 +224,7 @@ bool IntersectTri(Ray ray, uint indexOffset, uint vertexOffset, out Intersection
     return false;
 }
 
-bool IntersectAABB(Ray ray, float3 bmin, float3 bmax)
+bool IntersectAABB(RayObject ray, float3 bmin, float3 bmax)
 {
 	float tx1 = (bmin.x - ray.orig.x) / ray.dir.x;
 	float tx2 = (bmax.x - ray.orig.x) / ray.dir.x;
@@ -227,32 +244,11 @@ bool IntersectAABB(Ray ray, float3 bmin, float3 bmax)
 	return tmax >= tmin && tmin < ray.t && tmax > 0;
 }
 
-bool IntersectAABB(Ray ray, BVHNode node)
+bool IntersectAABB(RayObject ray, BVHNode node)
 {
 	float3 bmin = aabb_min(node);
 	float3 bmax = aabb_max(node);
 	return IntersectAABB(ray, bmin, bmax);
-}
-
-float Random(float2 uv)
-{
-	return frac(sin(dot(uv + time, float2(12.9898, 78.233))) * 43758.5453);
-}
-
-Ray GetRay(float2 pixel, int w, int h)
-{
-	Ray ray;
-
-    float normalizedX = (2.0f * pixel.x) / w - 1.0f;
-    float normalizedY = 1.0f - (2.0f * pixel.y) / h;
-
-    float4 pos = mul(float4(normalizedX, normalizedY, 0.0, 1.0f), invView);
-    pos /= pos.w;
-    ray.orig = pos;
-    ray.dir = normalize(pos.xyz - cameraPosition);
-    ray.t = FLT_MAX;
-    
-	return ray;
 }
 
 float3 GetDiffuseColor(uint object, float2 uv)
@@ -328,151 +324,254 @@ float3 GetDiffuseColor(uint object, float2 uv)
     }
 }
 
-float3 GetColor(Ray ray)
+float3 CalculateRefractedVector(float3 incidentVector, float3 normalVector, float refractiveIndexRatio)
 {
-	bool collide = false;
-    float max_distance = 1000.0f;
-    IntersectionResult result;
-    result.distance = FLT_MAX;
-    
-    // Stack for BVH traversal
-    uint stack[MAX_STACK_SIZE];
-    for (int i = 0; i < nobjects; ++i)
-    {
-        ObjectInfo o = objectInfos[i];
-        float objectExtent = length(o.aabb_max - o.aabb_min);
-        float distanceToObject = length(o.position - cameraPosition) - objectExtent;
-        
-        if (distanceToObject < max_distance && distanceToObject < ray.t)
-        {
-            Ray oray;
-            IntersectionResult object_result;
-            object_result.distance = FLT_MAX;
+    // Ensure normalized input vectors
+    incidentVector = normalize(incidentVector);
+    normalVector = normalize(normalVector);
 
-            // Transform the ray direction from world space to object space (no translation)
-            oray.orig = mul(ray.orig, o.inv_world);
-            oray.orig /= oray.orig.w;
-            oray.dir = normalize(mul(ray.dir, (float3x3) o.inv_world));
-            oray.t = FLT_MAX;
+    float cosThetaI = dot(incidentVector, normalVector);
+    float sinThetaI = sqrt(1.0 - cosThetaI * cosThetaI);
 
-            int stackSize = 0;
-            stack[stackSize++] = 0;
+    float sinThetaT = refractiveIndexRatio * sinThetaI;
+    float cosThetaT = sqrt(1.0 - sinThetaT * sinThetaT);
 
-            while (stackSize > 0 && stackSize < MAX_STACK_SIZE)
-            {
-                uint current = stack[--stackSize];
+    // Calculate the refracted vector
+    float3 refractedVector = refractiveIndexRatio * incidentVector + (refractiveIndexRatio * cosThetaI - cosThetaT) * normalVector;
 
-                BVHNode node = objects[o.objectOffset + current];
-                if (is_leaf(node))
-                {
-                    float t;
-                    uint idx = index(node);
-                    idx += o.indexOffset;
+    return refractedVector;
+}
 
-                    IntersectionResult tmp_result;
-                    tmp_result.distance = FLT_MAX;
-                    if (IntersectTri(oray, idx, o.vertexOffset, tmp_result))
-                    {
-                        float scale = o.world[3].w;
-                        tmp_result.distance *= length(float3(o.world[0].x/ scale, o.world[1].y/ scale, o.world[2].z/ scale));
-                        if (tmp_result.distance < result.distance && tmp_result.distance < ray.t)
-                        {
-                            object_result.v0 = tmp_result.v0;
-                            object_result.v1 = tmp_result.v1;
-                            object_result.v2 = tmp_result.v2;
-                            object_result.vindex = tmp_result.vindex;
-                            object_result.distance = tmp_result.distance;
-                            object_result.uv = tmp_result.uv;
-                            object_result.object = i;
-                            oray.t = tmp_result.distance;
-                        }
-                    }
-                }
-                else
-                {
-                    if (IntersectAABB(oray, node))
-                    {
-                        stack[stackSize++] = left_child(node);
-                        stack[stackSize++] = right_child(node);
-                    }
-                }
-            }
-            if (oray.t > Epsilon && oray.t < ray.t)
-            {
-                collide = true;
-                ray.t = oray.t;
-                result.v0 = object_result.v0;
-                result.v1 = object_result.v1;
-                result.v2 = object_result.v2;
-                result.vindex = object_result.vindex;
-                result.distance = object_result.distance;
-                result.uv = object_result.uv;
-                result.object = i;
-            }
-        }
-    }
-
-    float3 color = float3(0.0f, 0.0f, 0.0f);
-
-    //At this point we have the ray collision distance and a collision result
-    if (collide) {
-        // Calculate space position
-        ObjectInfo o = objectInfos[result.object];
-        float3 pos = result.v0 * (1.0f - result.uv.x - result.uv.y) + result.v1 * result.uv.x + result.v2 * result.uv.y;
-        float3 normal0 = asfloat(vertexBuffer.Load3(result.vindex.x + 12));
-        float3 normal1 = asfloat(vertexBuffer.Load3(result.vindex.y + 12));
-        float3 normal2 = asfloat(vertexBuffer.Load3(result.vindex.z + 12));
-        float3 normal = result.uv.x * normal0 + result.uv.y * normal1 + (1.0f - result.uv.x - result.uv.y) * normal2;
-        normal = normalize(mul(normal, o.world));
-
-        MaterialColor material = objectMaterials[result.object];
-
-        color += CalcAmbient(normal);
-        
-        for (i = 0; i < dirLightsCount; ++i) {
-            color += CalcDirectional(normal, pos, material, dirLights[i], i);
-        }
-
-        // Calculate the point lights
-        for (i = 0; i < pointLightsCount; ++i) {
-            if (length(pos - pointLights[i].Position) < pointLights[i].Range) {
-                color += CalcPoint(normal, pos, material, pointLights[i], i);
-            }
-        }      
-
-        //Calculate material color
-        if (material.flags & DIFFUSSE_MAP_ENABLED_FLAG) {
-            float2 uv0 = asfloat(vertexBuffer.Load2(result.vindex.x + 24));
-            float2 uv1 = asfloat(vertexBuffer.Load2(result.vindex.y + 24));
-            float2 uv2 = asfloat(vertexBuffer.Load2(result.vindex.z + 24));
-            float2 uv = uv0 * (1.0f - result.uv.x - result.uv.y) + uv1 * result.uv.x + uv2 * result.uv.y;
-            color *= GetDiffuseColor(result.object, uv);
-        }
-        else {
-            color *= material.diffuseColor;
-        }
-    }
-    else {
-        //Color background
-    }
-
-    return color;
+float3 Refract(float3 incidentVec, float3 normal, float eta)
+{
+    float N_dot_I = dot(normal, incidentVec);
+    float k = 1.f - eta * eta * (1.f - N_dot_I * N_dot_I);
+    if (k < 0.f)
+        return reflect(incidentVec, normal);
+    else
+        return eta* incidentVec - (eta * N_dot_I + sqrt(k)) * normal;
 }
 
 
-Ray GetRayFromSource(RaySource source, float randSeed)
+Ray GetReflectedRayFromSource(RaySource source)
 {
     Ray ray;
     ray.orig = float4(source.orig, 1.0f);
     float3 in_dir = normalize(source.orig - cameraPosition);
     float3 out_dir = reflect(in_dir, source.normal);
-    //Diffuse ray based on roughness
-
     ray.dir = normalize(out_dir);
-    ray.orig.xyz += ray.dir*0.01f;
+    ray.orig.xyz += ray.dir * 0.01f;
+    ray.density = source.density;
+    ray.bounces = 0;
+    ray.ratio = 1.0f;
     ray.t = FLT_MAX;
-    
+
     return ray;
+}
+
+Ray GetRefractedRayFromSource(RaySource source)
+{
+    Ray ray;
+    ray.orig = float4(source.orig, 1.0f);
+    float3 in_dir = normalize(source.orig - cameraPosition);
+    float3 out_dir = refract(in_dir, source.normal, 1.0 / source.density);
+    ray.dir = normalize(out_dir);
+    ray.orig.xyz += ray.dir * 0.01f;
+    ray.density = source.density;
+    ray.ratio = 1.0f - source.opacity;
+    ray.bounces = 0;
+    ray.t = FLT_MAX;
+
+    return ray;
+}
+
+Ray GetReflectedRayFromRay(Ray source, float3 normal, float ratio)
+{
+    Ray ray;
+    ray.orig = source.orig;
+    float3 out_dir = reflect(source.dir, normal);
+    ray.dir = normalize(out_dir);
+    ray.orig.xyz += ray.dir * 0.01f;
+    ray.density = source.density;
+    ray.bounces = source.bounces + 1;
+    ray.ratio = ratio;
+    ray.t = FLT_MAX;
+
+    return ray;
+}
+
+Ray GetRefractedRayFromRay(Ray source, float in_density, float out_density, float3 normal, float ratio)
+{
+    Ray ray;
+    ray.orig = source.orig;
+    float3 out_dir = refract(source.dir, normal, in_density / out_density);
+    ray.dir = normalize(out_dir);
+    ray.orig.xyz += ray.dir * 0.01f;
+    ray.density = out_density;
+    ray.bounces = source.bounces + 1;
+    ray.ratio = ratio;
+    ray.t = FLT_MAX;
+
+    return ray;
+}
+
+#define MAX_BOUNCES 3
+
+float3 GetColor(Ray origRay)
+{
+	
+    float max_distance = 1000.0f;
+    
+    uint stack[MAX_STACK_SIZE];
+    bool collide = false;
+    IntersectionResult result;
+
+    Ray currentRay = origRay;
+    float colorCount = 0.0f;
+    float3 finalColor = float3(0.0f, 0.0f, 0.0f);
+    bool end = false;
+    while (!end)
+    {
+        result.distance = FLT_MAX;
+
+        Ray ray = currentRay;
+        collide = false;
+        for (uint i = 0; i < nobjects; ++i)
+        {
+            ObjectInfo o = objectInfos[i];
+            float objectExtent = length(o.aabb_max - o.aabb_min);
+            float distanceToObject = length(o.position - cameraPosition) - objectExtent;
+
+            //if (/*distanceToObject < max_distance && distanceToObject < ray.t  && IntersectAABB(ray, o.aabb_min, o.aabb_max) */)
+            {
+                RayObject oray;
+                IntersectionResult object_result;
+                object_result.distance = FLT_MAX;
+
+                // Transform the ray direction from world space to object space (no translation)
+                oray.orig = mul(ray.orig, o.inv_world);
+                oray.orig /= oray.orig.w;
+                oray.dir = normalize(mul(ray.dir, (float3x3) o.inv_world));
+                oray.t = FLT_MAX;
+
+                int stackSize = 0;
+                stack[stackSize++] = 0;
+
+                while (stackSize > 0 && stackSize < MAX_STACK_SIZE)
+                {
+                    uint current = stack[--stackSize];
+
+                    BVHNode node = objects[o.objectOffset + current];
+                    if (is_leaf(node))
+                    {
+                        float t;
+                        uint idx = index(node);
+                        idx += o.indexOffset;
+
+                        IntersectionResult tmp_result;
+                        tmp_result.distance = FLT_MAX;
+                        if (IntersectTri(oray, idx, o.vertexOffset, tmp_result))
+                        {
+                            float scale = o.world[3].w;
+                            tmp_result.distance *= length(float3(o.world[0].x / scale, o.world[1].y / scale, o.world[2].z / scale));
+                            if (tmp_result.distance < result.distance && tmp_result.distance < ray.t)
+                            {
+                                object_result.v0 = tmp_result.v0;
+                                object_result.v1 = tmp_result.v1;
+                                object_result.v2 = tmp_result.v2;
+                                object_result.vindex = tmp_result.vindex;
+                                object_result.distance = tmp_result.distance;
+                                object_result.uv = tmp_result.uv;
+                                object_result.object = i;
+                                oray.t = tmp_result.distance;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        if (IntersectAABB(oray, node))
+                        {
+                            stack[stackSize++] = left_child(node);
+                            stack[stackSize++] = right_child(node);
+                        }
+                    }
+                }
+                if (oray.t > Epsilon && oray.t < ray.t)
+                {
+                    collide = true;
+                    ray.t = oray.t;
+                    result.v0 = object_result.v0;
+                    result.v1 = object_result.v1;
+                    result.v2 = object_result.v2;
+                    result.vindex = object_result.vindex;
+                    result.distance = object_result.distance;
+                    result.uv = object_result.uv;
+                    result.object = i;
+                }
+            }
+        }
+
+        float3 color = float3(0.0f, 0.0f, 0.0f);
+
+        //At this point we have the ray collision distance and a collision result
+        if (collide) {
+            // Calculate space position
+            ObjectInfo o = objectInfos[result.object];
+            float3 normal0 = asfloat(vertexBuffer.Load3(result.vindex.x + 12));
+            float3 normal1 = asfloat(vertexBuffer.Load3(result.vindex.y + 12));
+            float3 normal2 = asfloat(vertexBuffer.Load3(result.vindex.z + 12));
+            float3 opos = (1.0f - result.uv.x - result.uv.y) * result.v0 + result.uv.x * result.v1 + result.uv.y * result.v2;
+            float3 normal = (1.0f - result.uv.x - result.uv.y) * normal0 + result.uv.x * normal1 + result.uv.y * normal2;
+            
+            normal = normalize(mul(normal, (float3x3)o.world));
+            float4 pos = mul(float4(opos, 1.0f), o.world);
+            pos /= pos.w;
+            MaterialColor material = objectMaterials[result.object];
+
+            color += CalcAmbient(normal);
+
+            for (i = 0; i < dirLightsCount; ++i) {
+                color += CalcDirectional(normal, pos.xyz, material, dirLights[i], i);
+            }
+
+            // Calculate the point lights
+            for (i = 0; i < pointLightsCount; ++i) {
+                if (length(pos.xyz - pointLights[i].Position) < pointLights[i].Range) {
+                    color += CalcPoint(normal, pos.xyz, material, pointLights[i], i);
+                }
+            }
+
+            //Calculate material color
+            if (material.flags & DIFFUSSE_MAP_ENABLED_FLAG) {
+                float2 uv0 = asfloat(vertexBuffer.Load2(result.vindex.x + 24));
+                float2 uv1 = asfloat(vertexBuffer.Load2(result.vindex.y + 24));
+                float2 uv2 = asfloat(vertexBuffer.Load2(result.vindex.z + 24));
+                float2 uv = uv0 * (1.0f - result.uv.x - result.uv.y) + uv1 * result.uv.x + uv2 * result.uv.y;
+                color *= GetDiffuseColor(result.object, uv);
+            }
+            else {
+                color *= material.diffuseColor.rgb;
+            }
+
+            finalColor += color * ray.ratio;
+            ray.orig = pos;
+            if (ray.bounces < MAX_BOUNCES && o.opacity < 1.0f) {
+                currentRay = GetRefractedRayFromRay(ray, ray.density,
+                                                    ray.density != 1.0? 1.0f:o.density,
+                                                    -normal, ray.ratio * (1.0f - o.opacity));
+            }
+            else {
+                end = true;
+            }
+            
+        }
+        else {
+            //Color background
+
+            end = true;
+        }
+    }
+    return finalColor;
 }
 
 #define NTHREADS 32
@@ -499,43 +598,38 @@ void main(uint3 DTid : SV_DispatchThreadID)
 
     uint2 rayMapRatio = ray_map_dimensions / dimensions;
 
-    float4 color = float4(0.0f, 0.0f, 0.0f, 0.0f);
+    float4 color0 = float4(0.0f, 0.0f, 0.0f, 0.0f);
+    float4 color1 = float4(0.0f, 0.0f, 0.0f, 0.0f);
+
     uint2 pixel;
     uint2 ray_pixel;
     pixel = float2(x, y);
     ray_pixel = float2(x * rayMapRatio.x, y * rayMapRatio.y);
-    
+
     RaySource ray_source = fromColor(ray0[ray_pixel], ray1[ray_pixel]);
     props[pixel] = ray_source.dispersion;
     if (ray_source.dispersion < 0.0f || ray_source.dispersion == 1.0f) {
         return;
     }
-    uint divider = 1;
-    /*if (ray_source.dispersion >= 0.8f) {
-        if ((x % 4) != 0 || (y % 4) != 0) {
-            return;
-        }
-        divider = 4;
-    }
-    else  if (ray_source.dispersion >= 0.5f) {
-        if ((x % 2) != 0 || (y % 2) != 0) {
-            return;
-        }
-        divider = 2;
-    }*/
+    
     if (length(ray_source.normal) < Epsilon)
     {
         return;
     }
-    Ray ray = GetRayFromSource(ray_source, x*y);
+    //Normal ray
+    Ray ray = GetReflectedRayFromSource(ray_source);
     if (length(ray.dir) > 0.0f)
     {
-        color = float4(GetColor(ray), 1.0f);
+        color0 = float4(GetColor(ray), 1.0f);
     }
-            
-    switch (divider) {
-    case 1: output0[pixel] = color; break;
-    case 2: output1[pixel/2] = color; break;
-    case 4: output2[pixel/4] = color; break;
+    if (ray_source.opacity < 1.0f) {
+        //Refracted ray
+        ray = GetRefractedRayFromSource(ray_source);
+        if (length(ray.dir) > 0.0f)
+        {
+            color1 = float4(GetColor(ray), 1.0f) * (1.0f - ray_source.opacity);
+        }
     }
+    output0[pixel] = color0;
+    output1[pixel] = color1;
 }

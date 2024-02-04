@@ -164,6 +164,8 @@ public:
 		props["diffuse_color"] = std::make_shared<Prop<std::string>>("#FFFFFFFF");
 		props["ambient_color"] = std::make_shared<Prop<std::string>>("#FFFFFFFF");
 		props["specular"] = std::make_shared<Prop<float>>(0.5f);
+		props["opacity"] = std::make_shared<Prop<float>>(1.0f);
+		props["density"] = std::make_shared<Prop<float>>(1.0f);
 		props["parallax_scale"] = std::make_shared<Prop<float>>(0.0f);
 		props["parallax_steps"] = std::make_shared<Prop<float>>(4.0f);
 		props["parallax_angle_steps"] = std::make_shared<Prop<float>>(5.0f);
@@ -200,7 +202,10 @@ public:
 			props["parallax_angle_steps"]->SetValue<float>(js["parallax_angle_steps"]);
 			props["parallax_shadows"]->SetValue<bool>(js["parallax_shadows"]);
 			props["parallax_shadow_scale"]->SetValue<int>(js["parallax_shadow_scale"]);
+			
 			props["specular"]->SetValue<float>(js["specular"]);
+			props["opacity"]->SetValue<float>(js["opacity"]); 
+			props["density"]->SetValue<float>(js["density"]);
 			props["tess_type"]->SetValue<int>(js["tess_type"]);
 			props["tess_factor"]->SetValue<float>(js["tess_factor"]);
 			props["displacement_scale"]->SetValue<float>(js["displacement_scale"]);
@@ -502,6 +507,32 @@ public:
 		void set(float newValue)
 		{
 			return material->props["specular"]->SetValue<float>((float)newValue);
+		}
+	}
+
+	[CategoryAttribute("Material")]
+	property float Opacity {
+		float get()
+		{
+			return material->props["opacity"]->GetValue<float>();
+		}
+
+		void set(float newValue)
+		{
+			return material->props["opacity"]->SetValue<float>((float)newValue);
+		}
+	}
+
+	[CategoryAttribute("Material")]
+	property float Density {
+		float get()
+		{
+			return material->props["density"]->GetValue<float>();
+		}
+
+		void set(float newValue)
+		{
+			return material->props["density"]->SetValue<float>((float)newValue);
 		}
 	}
 

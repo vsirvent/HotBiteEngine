@@ -41,8 +41,8 @@ namespace HotBite {
 
 				float parallax_shadow_scale = 2.0f;
 				float bloom_scale = 0.0f;
-				float padding = 0.0f;
-				float padding1 = 0.0f;
+				float opacity = 1.0f;
+				float density = 1.0f;
 
 				float3 alphaColor = {};				
 #define NORMAL_MAP_ENABLED_FLAG 1

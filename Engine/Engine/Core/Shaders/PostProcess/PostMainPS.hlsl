@@ -27,7 +27,9 @@ SOFTWARE.
 Texture2D renderTexture : register(t0);
 Texture2D depthTexture: register(t3);
 Texture2D lightTexture: register(t4);
-Texture2D rtTexture0 : register(t5);
+Texture2D bloomTexture: register(t5);
+Texture2D rtTexture0 : register(t6);
+Texture2D rtTexture1 : register(t7);
 
 SamplerState basicSampler : register(s0);
 
@@ -116,6 +118,7 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
     }
     //Blur volumetric light 
     float4 l = lightTexture.Sample(basicSampler, tpos);
+    float4 b = bloomTexture.Sample(basicSampler, tpos);
     float a = length(l.rgb);
     /*
     if (length(color) < 1.0f) {
@@ -132,7 +135,9 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
     }
     */
     float4 rt0 = rtTexture0.Sample(basicSampler, tpos);
-    color += color * rt0 + l;
+    float4 rt1 = rtTexture1.Sample(basicSampler, tpos);
+    
+    color += (color + l * 0.5f) * rt0 + rt1 + b;
     //color += l;// (color* (1.0f - a) + l);
     return color;
 }
