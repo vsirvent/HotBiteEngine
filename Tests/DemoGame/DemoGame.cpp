@@ -360,6 +360,12 @@ public:
 							audio->SetVol(background_music, vol.value() - 0.01f);
 						}
 					}
+					else if (GetAsyncKeyState('R') & 0x8000) {
+						world.GetCoordinator()->GetSystem<RenderSystem>()->SetRayTracing(true);
+					}
+					else if (GetAsyncKeyState('T') & 0x8000) {
+						world.GetCoordinator()->GetSystem<RenderSystem>()->SetRayTracing(false);
+					}
 					else if (GetAsyncKeyState('Y') & 0x8000) {
 						if (tone == AudioSystem::INVALID_PLAY_ID) {
 							tone = world.GetCoordinator()->GetSystem<AudioSystem>()->Play(4);

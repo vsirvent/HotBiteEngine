@@ -98,7 +98,7 @@ void Scheduler::NanoSleep(int64_t nsec) {
 void Scheduler::Idle() {
 	if (!timers.empty()) {
 		int64_t sleep_time = min(timers.begin()->first - GetElapsedNanoSeconds() - MSEC_TO_NSEC(min_sleep_msec), MAX_SLEEP_NSEC_TIME);
-		if (sleep_time > MSEC_TO_NSEC(min_sleep_msec + 1)) {
+		if (sleep_time > MSEC_TO_NSEC(min_sleep_msec + 2)) {
 			NanoSleep(sleep_time);
 		}
 	}

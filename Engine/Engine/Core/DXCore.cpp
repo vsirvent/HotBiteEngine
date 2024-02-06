@@ -478,7 +478,7 @@ ID3D11DepthStencilView* DXCore::DepthView() {
 
 void DXCore::Present()
 {
-	swapChain->Present(1, 0);
+	swapChain->Present(0, 0);
 	OnFrame();
 }
 
@@ -518,7 +518,7 @@ HRESULT DXCore::Run()
 			DispatchMessage(&msg);
 		}
 		Scheduler::Get(0)->Update();
-		Scheduler::Get(0)->Idle();
+		//Scheduler::Get(0)->Idle();
 	}	
 	return (HRESULT)msg.wParam;
 }

@@ -1191,17 +1191,18 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 }
 
 void RenderSystem::ProcessRT() {
-	if (bvh_buffer != nullptr) {
+	static const float zero[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+	static const float neg[4] = { -1.0f, -1.0f, -1.0f, -1.0f };
+	rt_texture_props.Clear(neg);
+	for (int i = 0; i < RT_NTEXTURES; ++i) {
+		rt_texture[i].Clear(zero);
+	}
+	if (rt_enabled && bvh_buffer != nullptr) {
 		auto& device = dxcore->device;
 		ObjectInfo objects[MAX_OBJECTS]{};
 		MaterialProps objectMaterials[MAX_OBJECTS]{};
 		ID3D11ShaderResourceView* diffuseTextures[MAX_OBJECTS]{};
-		static const float zero[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-		for (int i = 0; i < RT_NTEXTURES; ++i) {
-			rt_texture[i].Clear(zero);
-		}
-		static const float neg[4] = { -1.0f, -1.0f, -1.0f, -1.0f };
-		rt_texture_props.Clear(neg);
+		
 		CameraEntity& cam_entity = cameras.GetData()[0];
 
 		struct Node {
@@ -1814,4 +1815,13 @@ void RenderSystem::SetCloudTest(bool enabled) {
 bool RenderSystem::GetCloudTest() const {
 	return cloud_test;
 }
+
+void RenderSystem::SetRayTracing(bool enabled) {
+	rt_enabled = enabled;
+}
+
+bool RenderSystem::GetRayTracing() const {
+	return rt_enabled;
+}
+
 

@@ -238,6 +238,7 @@ namespace HotBite {
 				Core::IDepthResource* depth_target = nullptr;
 				
 				//Ray tracing
+				bool rt_enabled = true;
 				static constexpr int RT_RESOLUTION_DIVIVER = 1;
 				Core::SimpleComputeShader* rt_shader = nullptr;
 				Core::SimpleComputeShader* rt_acc = nullptr;
@@ -314,7 +315,8 @@ namespace HotBite {
 				bool GetWireframe() const;
 				void SetCloudTest(bool enabled);
 				bool GetCloudTest() const;
-
+				void SetRayTracing(bool enabled);
+				bool GetRayTracing() const;
 				ID3D11ShaderResourceView* GetDepthMapSRV() { return depth_map.SRV(); }
 			};
 		}

@@ -530,7 +530,7 @@ float3 GetColor(Ray origRay)
     while (!end)
     {
         result.distance = FLT_MAX;
-
+        end = true;
         collide = false;
         for (uint i = 0; i < nobjects; ++i)
         {
@@ -570,7 +570,7 @@ float3 GetColor(Ray origRay)
                         {
                             float scale = o.world[3].w;
                             tmp_result.distance *= determinant(o.world);
-                            if (tmp_result.distance < result.distance && tmp_result.distance < ray.t)
+                            if (tmp_result.distance < result.distance && tmp_result.distance < oray.t)
                             {
                                 object_result.v0 = tmp_result.v0;
                                 object_result.v1 = tmp_result.v1;
@@ -608,7 +608,7 @@ float3 GetColor(Ray origRay)
             }
         }
 
-        float3 color = float3(0.0f, 0.0f, 0.0f);
+        
 
         //At this point we have the ray collision distance and a collision result
         if (collide) {
@@ -625,6 +625,7 @@ float3 GetColor(Ray origRay)
             pos /= pos.w;
             MaterialColor material = objectMaterials[result.object];
 
+            float3 color = float3(0.0f, 0.0f, 0.0f);
 
             color += CalcAmbient(normal);
 
@@ -653,23 +654,19 @@ float3 GetColor(Ray origRay)
 
             finalColor += color * ray.ratio * o.opacity;
             ray.orig = pos;
-            if (ray.bounces < 10 && o.opacity < 1.0f) {
+            if (ray.bounces < 5 && o.opacity < 1.0f) {
                 if (ray.bounces % 2 == 0) {
                     normal = -normal;
                 }
                 ray = GetRefractedRayFromRay(ray, ray.density,
                                                     ray.density != 1.0? 1.0f:o.density,
                                                     normal, ray.ratio * (1.0f - o.opacity));
-            }
-            else {
-                end = true;
-            }
-            
+                end = false;
+            }             
         }
         else {
             //Color background
 
-            end = true;
         }
     }
     return finalColor;
@@ -717,6 +714,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     {
         return;
     }
+
     //Normal ray
     Ray ray = GetReflectedRayFromSource(ray_source);
     if (length(ray.dir) > 0.0f)
@@ -731,6 +729,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
             color1 = float4(GetColor(ray), 1.0f) * (1.0f - ray_source.opacity);
         }
     }
+
     output0[pixel] = color0;
     output1[pixel] = color1;
 }
