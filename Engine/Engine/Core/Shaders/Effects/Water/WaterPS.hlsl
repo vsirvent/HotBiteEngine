@@ -212,9 +212,9 @@ RenderTargetRT main(GSOutput input)
 	RaySource ray;
 	ray.orig = input.worldPos.xyz;
 	ray.dispersion = 0.0f;
-	ray.normal = normalize(float3(0.0f, 1.0f, 0.0f) + 0.1f * normal);
-	ray.density = 1.0f;
-	ray.opacity = 1.0f;
+	ray.normal = normalize(float3(0.0f, 1.0f, 0.0f) + 0.2f * normal);
+	ray.density = material.density;
+	ray.opacity = material.opacity;
 	output.rt_ray0_map = getColor0(ray);
 	output.rt_ray1_map = getColor1(ray);
 

@@ -163,7 +163,7 @@ float PointShadowPCF(float3 ToPixel, PointLight light, int index)
     }
     att1 /= count;
     return saturate(att1);
-}
+}   
 
 float DirShadowPCF(float4 position, DirLight light, int index)
 {
