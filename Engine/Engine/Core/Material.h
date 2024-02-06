@@ -56,7 +56,7 @@ namespace HotBite {
 #define BLEND_ENABLED_FLAG (1 << 10)
 #define PARALLAX_SHADOW_ENABLED_FLAG (1 << 11)
 #define RAY_TRACING_ENABLED_FLAG (1 << 12)
-				unsigned int flags = 0;
+				unsigned int flags = RAY_TRACING_ENABLED_FLAG;
 			};
 
 			struct MaterialShaders {
