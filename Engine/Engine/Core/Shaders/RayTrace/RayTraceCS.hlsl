@@ -84,7 +84,6 @@ cbuffer externalData : register(b0)
 
 	float4 LightPerspectiveValues[MAX_LIGHTS / 2];
 	matrix DirPerspectiveMatrix[MAX_LIGHTS];
-	matrix DirStaticPerspectiveMatrix[MAX_LIGHTS];
 }
 
 StructuredBuffer<BVHNode> objects: register(t2);
@@ -93,12 +92,17 @@ ByteAddressBuffer indicesBuffer : register(t4);
 
 RWTexture2D<float4> output0 : register(u0);
 RWTexture2D<float4> output1 : register(u1);
-RWTexture2D<float4> output2 : register(u2);
+
 RWTexture2D<float> props : register(u3);
 RWTexture2D<float4> ray0 : register(u4);
 RWTexture2D<float4> ray1 : register(u5);
 
 Texture2D<float4> DiffuseTextures[MAX_OBJECTS];
+Texture2D<float> DirShadowMapTexture[MAX_LIGHTS];
+TextureCube<float> PointShadowMapTexture[MAX_LIGHTS];
+
+//Packed array
+static float2 lps[MAX_LIGHTS] = (float2[MAX_LIGHTS])LightPerspectiveValues;
 
 bool is_leaf(BVHNode node)
 {
@@ -130,6 +134,73 @@ uint index(BVHNode node)
 	return asuint(node.reg1.w);
 }
 
+float PointShadowPCFFast(float3 ToPixel, PointLight light, int index)
+{
+    float3 ToPixelAbs = abs(ToPixel);
+    float Z = max(ToPixelAbs.x, max(ToPixelAbs.y, ToPixelAbs.z));
+    float d = (lps[index].x * Z + lps[index].y) / Z;
+    //This offset allows to avoid self shadow
+    d -= 0.01f;
+    float att1 = PointShadowMapTexture[index].SampleCmpLevelZero(PCFSampler, float3(ToPixel.x, ToPixel.y, ToPixel.z), d).r;
+    return saturate(att1);
+}
+
+float PointShadowPCF(float3 ToPixel, PointLight light, int index)
+{
+    float3 ToPixelAbs = abs(ToPixel);
+    float Z = max(ToPixelAbs.x, max(ToPixelAbs.y, ToPixelAbs.z));
+    float d = ((lps[index].x * Z + lps[index].y) / Z);
+    //This offset allows to avoid self shadow
+    d -= 0.01f;
+    float step = 0.02f;
+    float att1 = 0.0f;
+    float count = 0.00001f;
+    for (float x = -0.06f; x < 0.06f; x += step) {
+        for (float y = -0.06f; y < 0.06f; y += step) {
+            att1 += PointShadowMapTexture[index].SampleCmpLevelZero(PCFSampler, float3(ToPixel.x + x, ToPixel.y + y, ToPixel.z), d).r;
+            count += 1.0f;
+        }
+    }
+    att1 /= count;
+    return saturate(att1);
+}
+
+float DirShadowPCF(float4 position, DirLight light, int index)
+{
+    float4 p = mul(position, DirPerspectiveMatrix[index]);
+    p /= p.w;
+    p.x = (p.x + 1.0f) / 2.0f;
+    p.y = 1.0f - ((p.y + 1.0f) / 2.0f);
+    if (p.x < 0.0f || p.x > 1.0f || p.y < 0.0f || p.y > 1.0f) {
+        return 0.5f;
+    }
+    float step = 0.0001f;
+    float att1 = 0.0f;
+    float count = 0.00001f;
+    for (float x = -0.0003f; x < 0.0003f; x += step) {
+        for (float y = -0.0003f; y < 0.0003f; y += step) {
+            att1 += DirShadowMapTexture[index].SampleCmpLevelZero(PCFSampler, float2(p.x + x, p.y + y), p.z).r;
+            count += 0.8f;
+        }
+    }
+    att1 /= count;
+    return saturate(att1);
+}
+
+
+float DirShadowPCFFAST(float4 position, DirLight light, int index)
+{
+    float4 p = mul(position, DirPerspectiveMatrix[index]);
+    p /= p.w;
+    p.x = (p.x + 1.0f) / 2.0f;
+    p.y = 1.0f - ((p.y + 1.0f) / 2.0f);
+    if (p.x < 0.0f || p.x > 1.0f || p.y < 0.0f || p.y > 1.0f) {
+        return 0.5f;
+    }
+    float att1 = DirShadowMapTexture[index].SampleCmpLevelZero(PCFSampler, float2(p.x, p.y), p.z).r;
+    return saturate(att1);
+}
+
 float3 CalcAmbient(float3 normal)
 {
     // Convert from [-1, 1] to [0, 1]
@@ -146,7 +217,11 @@ float3 CalcDirectional(float3 normal, float3 position, MaterialColor material, D
     // Phong diffuse
     float NDotL = dot(light.DirToLight, normal);
     float3 finalColor = color * saturate(NDotL);
-    return climit3(finalColor);
+    if (light.cast_shadow) {
+        float shadow = DirShadowPCF(float4(position, 1.0f), light, index);
+        finalColor *= shadow;
+    }
+    return finalColor;
 }
 
 float3 CalcPoint(float3 normal, float3 position, MaterialColor material, PointLight light, int index)
@@ -166,6 +241,10 @@ float3 CalcPoint(float3 normal, float3 position, MaterialColor material, PointLi
     float LightRange = (light.Range - DistToLight) / light.Range;
     float DistToLightNorm = saturate(LightRange);
     float Attn = saturate(DistToLightNorm * DistToLightNorm);
+    if (light.cast_shadow) {
+        float shadow = PointShadowPCF(position - light.Position, light, index);
+        finalColor *= shadow;
+    }
     finalColor *= Attn;
     return finalColor;
 }
@@ -222,6 +301,26 @@ bool IntersectTri(RayObject ray, uint indexOffset, uint vertexOffset, out Inters
     }
 
     return false;
+}
+
+bool IntersectAABB(Ray ray, float3 bmin, float3 bmax)
+{
+    float tx1 = (bmin.x - ray.orig.x) / ray.dir.x;
+    float tx2 = (bmax.x - ray.orig.x) / ray.dir.x;
+    float tmin = min(tx1, tx2);
+    float tmax = max(tx1, tx2);
+
+    float ty1 = (bmin.y - ray.orig.y) / ray.dir.y;
+    float ty2 = (bmax.y - ray.orig.y) / ray.dir.y;
+    tmin = max(tmin, min(ty1, ty2));
+    tmax = min(tmax, max(ty1, ty2));
+
+    float tz1 = (bmin.z - ray.orig.z) / ray.dir.z;
+    float tz2 = (bmax.z - ray.orig.z) / ray.dir.z;
+    tmin = max(tmin, min(tz1, tz2));
+    tmax = min(tmax, max(tz1, tz2));
+
+    return tmax >= tmin && tmin < ray.t&& tmax > 0;
 }
 
 bool IntersectAABB(RayObject ray, float3 bmin, float3 bmax)
@@ -362,7 +461,7 @@ Ray GetReflectedRayFromSource(RaySource source)
     ray.dir = normalize(out_dir);
     ray.orig.xyz += ray.dir * 0.01f;
     ray.density = source.density;
-    ray.bounces = 0;
+    ray.bounces = 1;
     ray.ratio = 1.0f;
     ray.t = FLT_MAX;
 
@@ -415,8 +514,6 @@ Ray GetRefractedRayFromRay(Ray source, float in_density, float out_density, floa
     return ray;
 }
 
-#define MAX_BOUNCES 3
-
 float3 GetColor(Ray origRay)
 {
 	
@@ -426,7 +523,7 @@ float3 GetColor(Ray origRay)
     bool collide = false;
     IntersectionResult result;
 
-    Ray currentRay = origRay;
+    Ray ray = origRay;
     float colorCount = 0.0f;
     float3 finalColor = float3(0.0f, 0.0f, 0.0f);
     bool end = false;
@@ -434,7 +531,6 @@ float3 GetColor(Ray origRay)
     {
         result.distance = FLT_MAX;
 
-        Ray ray = currentRay;
         collide = false;
         for (uint i = 0; i < nobjects; ++i)
         {
@@ -442,13 +538,13 @@ float3 GetColor(Ray origRay)
             float objectExtent = length(o.aabb_max - o.aabb_min);
             float distanceToObject = length(o.position - cameraPosition) - objectExtent;
 
-            //if (/*distanceToObject < max_distance && distanceToObject < ray.t  && IntersectAABB(ray, o.aabb_min, o.aabb_max) */)
+            if (distanceToObject < max_distance && distanceToObject < ray.t  && IntersectAABB(ray, o.aabb_min, o.aabb_max))
             {
                 RayObject oray;
                 IntersectionResult object_result;
                 object_result.distance = FLT_MAX;
 
-                // Transform the ray direction from world space to object space (no translation)
+                // Transform the ray direction from world space to object space
                 oray.orig = mul(ray.orig, o.inv_world);
                 oray.orig /= oray.orig.w;
                 oray.dir = normalize(mul(ray.dir, (float3x3) o.inv_world));
@@ -473,7 +569,7 @@ float3 GetColor(Ray origRay)
                         if (IntersectTri(oray, idx, o.vertexOffset, tmp_result))
                         {
                             float scale = o.world[3].w;
-                            tmp_result.distance *= length(float3(o.world[0].x / scale, o.world[1].y / scale, o.world[2].z / scale));
+                            tmp_result.distance *= determinant(o.world);
                             if (tmp_result.distance < result.distance && tmp_result.distance < ray.t)
                             {
                                 object_result.v0 = tmp_result.v0;
@@ -496,6 +592,7 @@ float3 GetColor(Ray origRay)
                         }
                     }
                 }
+
                 if (oray.t > Epsilon && oray.t < ray.t)
                 {
                     collide = true;
@@ -528,6 +625,7 @@ float3 GetColor(Ray origRay)
             pos /= pos.w;
             MaterialColor material = objectMaterials[result.object];
 
+
             color += CalcAmbient(normal);
 
             for (i = 0; i < dirLightsCount; ++i) {
@@ -553,12 +651,15 @@ float3 GetColor(Ray origRay)
                 color *= material.diffuseColor.rgb;
             }
 
-            finalColor += color * ray.ratio;
+            finalColor += color * ray.ratio * o.opacity;
             ray.orig = pos;
-            if (ray.bounces < MAX_BOUNCES && o.opacity < 1.0f) {
-                currentRay = GetRefractedRayFromRay(ray, ray.density,
+            if (ray.bounces < 10 && o.opacity < 1.0f) {
+                if (ray.bounces % 2 == 0) {
+                    normal = -normal;
+                }
+                ray = GetRefractedRayFromRay(ray, ray.density,
                                                     ray.density != 1.0? 1.0f:o.density,
-                                                    -normal, ray.ratio * (1.0f - o.opacity));
+                                                    normal, ray.ratio * (1.0f - o.opacity));
             }
             else {
                 end = true;

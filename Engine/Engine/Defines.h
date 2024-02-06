@@ -45,7 +45,8 @@ namespace HotBite {
         typedef DirectX::XMVECTOR   vector4d;
         typedef DirectX::XMVECTOR   vector3d;
         typedef DirectX::XMMATRIX   matrix;
-        typedef DirectX::BoundingOrientedBox box;
+        typedef DirectX::BoundingBox box;
+        typedef DirectX::BoundingOrientedBox orientedBox;
 
 
         struct Int2 {

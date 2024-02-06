@@ -107,9 +107,10 @@ namespace HotBite {
 			struct Bounds {
 				//The entity bounding box in local space
 				box local_box = {};
-				box bounding_box = {};
-				//The entity bounding box in world space and after transformations
+				//The entity x,y,z aligned bounding box in world space and after transformations
 				box final_box = {};
+				//The entity oriented bounding box in world space and after transformations
+				orientedBox bounding_box = {};
 			};
 
 			/**

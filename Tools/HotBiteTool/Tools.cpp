@@ -37,7 +37,7 @@ namespace HotBiteTool {
 				auto rot = XMMatrixRotationAxis({ 0.0f, 1.0f, 0.0f }, rot_val);
 				vector3d move_q = XMQuaternionRotationMatrix(rot);
 				rot_val += 0.005f;
-
+				if (rot_val > XM_PI) rot_val = -XM_PI;
 				for (const auto& e : rotation_entities) {
 					auto& t = world.GetCoordinator()->GetComponent<Components::Transform>(e);
 					vector3d rot_q = XMVectorSet(t.initial_rotation.x, t.initial_rotation.y,

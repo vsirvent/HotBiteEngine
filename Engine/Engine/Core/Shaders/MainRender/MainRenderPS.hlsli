@@ -7,7 +7,8 @@ RenderTargetRT MainRenderPS(GSOutput input)
 	pos.y /= screenH;
 	float spec_intensity = 0.5f;
 	float4 wpos = input.worldPos;
-	float depth = length(input.worldPos.xyz - cameraPosition) - 5.0f;
+	wpos /= wpos.w;
+	float depth = length(input.worldPos.xyz - cameraPosition) - 1.0f;
 	float dz = depthTexture.SampleCmpLevelZero(PCFSampler, pos, depth);
 	if (dz == 0.0f) discard;
 
@@ -54,7 +55,7 @@ RenderTargetRT MainRenderPS(GSOutput input)
 	for (i = 0; i < pointLightsCount; ++i) {
 		PointLightParallaxAtt[i] = 1.0f;
 	}
-#if 1
+
 	if (material.flags & NORMAL_MAP_ENABLED_FLAG || multi_texture_count > 0) {
 		// Build orthonormal basis.
 		float3 N = normal;
@@ -119,9 +120,9 @@ RenderTargetRT MainRenderPS(GSOutput input)
 			texture_normal = normalTexture.Sample(basicSampler, input.uv);
 		}
 		texture_normal = texture_normal * 2.0f - 1.0f;
-		normal = normalize(mul(float4(texture_normal, 0.0f), tbn).xyz + normal);
+		normal = normalize(mul(texture_normal, (float3x3)tbn) + normal);
 	}
-#endif
+
 #if 1
 	float4 lumColor = float4(0.0f, 0.0f, 0.0f, 0.0f);
 	// Calculate the ambient light

@@ -112,6 +112,7 @@ float DirShadowPCFFAST(float4 position, DirLight light, int index)
 	if (p.x < 0.0f || p.x > 1.0f || p.y < 0.0f || p.y > 1.0f) {
 		return 0.5f;
 	}
+	p.z -= 0.1f;
 	float att1 = DirShadowMapTexture[index].SampleCmpLevelZero(PCFSampler, float2(p.x, p.y), p.z).r;
 	return saturate(att1);
 }
@@ -120,13 +121,15 @@ float PointShadowPCF(float3 ToPixel, PointLight light, int index)
 {
 	float3 ToPixelAbs = abs(ToPixel);
 	float Z = max(ToPixelAbs.x, max(ToPixelAbs.y, ToPixelAbs.z));
-	float d = (lps[index].x * Z + lps[index].y) / Z;
+	float d = ((lps[index].x * Z + lps[index].y) / Z);
+	//This offset allows to avoid self shadow
+	d -= 0.01f;
 	float step = 0.02f;
 	float att1 = 0.0f;
 	float count = 0.00001f;
 	for (float x = -0.06f; x < 0.06f; x += step) {
 		for (float y = -0.06f; y < 0.06f; y += step) {
-			att1 += PointShadowMapTexture[index].SampleCmpLevelZero(PCFSampler, float3(ToPixel.x + x, ToPixel.y + y, ToPixel.z), d);
+			att1 += PointShadowMapTexture[index].SampleCmpLevelZero(PCFSampler, float3(ToPixel.x + x, ToPixel.y + y, ToPixel.z), d).r;
 			count += 1.0f;
 		}
 	}
@@ -139,7 +142,9 @@ float PointShadowPCFFast(float3 ToPixel, PointLight light, int index)
 	float3 ToPixelAbs = abs(ToPixel);
 	float Z = max(ToPixelAbs.x, max(ToPixelAbs.y, ToPixelAbs.z));
 	float d = (lps[index].x * Z + lps[index].y) / Z;
-	float att1 = PointShadowMapTexture[index].SampleCmpLevelZero(PCFSampler, float3(ToPixel.x, ToPixel.y, ToPixel.z), d);
+	//This offset allows to avoid self shadow
+	d -= 0.01f;
+	float att1 = PointShadowMapTexture[index].SampleCmpLevelZero(PCFSampler, float3(ToPixel.x, ToPixel.y, ToPixel.z), d).r;
 	return saturate(att1);
 }
 

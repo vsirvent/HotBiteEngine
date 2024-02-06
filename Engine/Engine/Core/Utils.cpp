@@ -31,6 +31,8 @@ SOFTWARE.
 #include <iostream>
 #include <iomanip>
 
+using namespace DirectX;
+
 namespace HotBite {
 	namespace Engine {
 		namespace Core {
@@ -230,6 +232,45 @@ namespace HotBite {
 
 				f.close();
 				return img;
+			}
+
+			DirectX::BoundingOrientedBox TransformBoundingBox(const DirectX::BoundingOrientedBox& originalBox, const DirectX::XMMATRIX& worldMatrix)
+			{
+
+				BoundingOrientedBox transformedBox;
+
+				// Transform the center of the original bounding box by the world matrix
+				XMVECTOR center = XMVector3TransformCoord(XMLoadFloat3(&originalBox.Center), worldMatrix);
+
+				// Define the eight vertices of the original bounding box
+				XMVECTOR corners[8];
+				corners[0] = XMLoadFloat3(&originalBox.Center) + XMLoadFloat3(&originalBox.Extents) * XMVectorSet(-1.0f, -1.0f, -1.0f, 0.0f);
+				corners[1] = XMLoadFloat3(&originalBox.Center) + XMLoadFloat3(&originalBox.Extents) * XMVectorSet(-1.0f, -1.0f, 1.0f, 0.0f);
+				corners[2] = XMLoadFloat3(&originalBox.Center) + XMLoadFloat3(&originalBox.Extents) * XMVectorSet(-1.0f, 1.0f, -1.0f, 0.0f);
+				corners[3] = XMLoadFloat3(&originalBox.Center) + XMLoadFloat3(&originalBox.Extents) * XMVectorSet(-1.0f, 1.0f, 1.0f, 0.0f);
+				corners[4] = XMLoadFloat3(&originalBox.Center) + XMLoadFloat3(&originalBox.Extents) * XMVectorSet(1.0f, -1.0f, -1.0f, 0.0f);
+				corners[5] = XMLoadFloat3(&originalBox.Center) + XMLoadFloat3(&originalBox.Extents) * XMVectorSet(1.0f, -1.0f, 1.0f, 0.0f);
+				corners[6] = XMLoadFloat3(&originalBox.Center) + XMLoadFloat3(&originalBox.Extents) * XMVectorSet(1.0f, 1.0f, -1.0f, 0.0f);
+				corners[7] = XMLoadFloat3(&originalBox.Center) + XMLoadFloat3(&originalBox.Extents) * XMVectorSet(1.0f, 1.0f, 1.0f, 0.0f);
+
+				// Transform all eight vertices of the original bounding box by the world matrix
+				for (int i = 0; i < 8; ++i) {
+					corners[i] = XMVector3TransformCoord(corners[i], worldMatrix);
+				}
+
+				// Calculate the minimum and maximum coordinates among the transformed vertices to determine the new extent
+				XMVECTOR minVec = corners[0];
+				XMVECTOR maxVec = corners[0];
+				for (int i = 1; i < 8; ++i) {
+					minVec = XMVectorMin(minVec, corners[i]);
+					maxVec = XMVectorMax(maxVec, corners[i]);
+				}
+
+				// Calculate the new center and extent of the transformed bounding box
+				XMStoreFloat3(&transformedBox.Center, center);
+				XMStoreFloat3(&transformedBox.Extents, XMVectorSubtract(maxVec, minVec) * 0.5f);
+
+				return transformedBox;
 			}
 		}
 	}

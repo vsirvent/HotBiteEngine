@@ -58,7 +58,7 @@ DomainOutput main(
 	output.worldPos = vertexWPosition;
 	output.mesh_uv = vertexMeshUV;
 	output.uv = vertexUV;
-	output.normal = vertexNormal;
+	output.normal = normalize(vertexNormal);
 
 	if (!(domain.x == 0.0f || domain.y == 0.0f || domain.z == 0.0f)) {
 #if 0

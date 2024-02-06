@@ -236,13 +236,14 @@ void PhysicsSystem::Update(PhysicsEntity& pe, int64_t elapsed_nsec, int64_t tota
 		XMStoreFloat4x4(&transform->world_matrix, XMMatrixTranspose(transform->world_xmmatrix));
 		XMStoreFloat4x4(&transform->world_inv_matrix, XMMatrixTranspose(XMMatrixInverse(nullptr, transform->world_xmmatrix)));
 
-		vector3d pos = XMVectorAdd(XMVector4Transform(XMLoadFloat3(&bounds->bounding_box.Center), transform->world_xmmatrix), XMLoadFloat3(&transform->position));
+		bounds->local_box.Transform(bounds->final_box, transform->world_xmmatrix);
 
+		BoundingOrientedBox local_oriented;
+		local_oriented.Center = bounds->local_box.Center;
+		local_oriented.Extents = bounds->local_box.Extents;
 
-		bounds->final_box = bounds->bounding_box;
-		XMStoreFloat3(&bounds->final_box.Center, pos);
-		bounds->final_box.Extents = MULT_F3_F3(bounds->final_box.Extents, transform->scale);
-		bounds->final_box.Orientation = transform->rotation;
+		local_oriented.Transform(bounds->bounding_box, transform->world_xmmatrix);
+
 		physics->last_body_transform = bt;
 		coordinator->SendEvent(this, pe.base->id, Transform::EVENT_ID_TRANSFORM_CHANGED);
 	}	

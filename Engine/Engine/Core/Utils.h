@@ -32,6 +32,7 @@ SOFTWARE.
 #include <d3d11.h>
 #include <atomic>
 #include <string>
+#include <DirectXMath.h>
 
 namespace HotBite {
 	namespace Engine {
@@ -333,6 +334,10 @@ namespace HotBite {
                     return ret;
                 }
             };
+
+            // Function to transform a bounding box by a world matrix
+            DirectX::BoundingOrientedBox TransformBoundingBox(const DirectX::BoundingOrientedBox& originalBox, const DirectX::XMMATRIX& worldMatrix);
+
 		}
 	}
 }

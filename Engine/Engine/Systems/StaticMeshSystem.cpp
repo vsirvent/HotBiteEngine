@@ -92,10 +92,9 @@ void StaticMeshSystem::Update(StaticMeshEntity& entity, int64_t elapsed_nsec, in
 		
 		float3 center = float3((maxV.x + minV.x) / 2.0f, (maxV.y + minV.y) / 2.0f, (maxV.z + minV.z) / 2.0f);
 		float3 extends = float3(abs(maxV.x - minV.x) / 2.0f, abs(maxV.y - minV.y) / 2.0f, abs(maxV.z - minV.z) / 2.0f);
-		bounds->bounding_box.Extents = extends;
-		bounds->bounding_box.Center = center;
-		bounds->local_box = bounds->bounding_box;
-		bounds->final_box = bounds->bounding_box;
+		bounds->local_box.Extents = extends;
+		bounds->local_box.Center = center;
+		bounds->final_box = bounds->local_box;
 
 		matrix trans = XMMatrixTranslation(transform->position.x, transform->position.y, transform->position.z);
 		matrix rot = XMMatrixRotationQuaternion(XMLoadFloat4(&transform->rotation));
@@ -118,13 +117,13 @@ void StaticMeshSystem::Update(StaticMeshEntity& entity, int64_t elapsed_nsec, in
 		XMStoreFloat4x4(&transform->world_matrix, XMMatrixTranspose(transform->world_xmmatrix));
 		XMStoreFloat4x4(&transform->world_inv_matrix, XMMatrixTranspose(XMMatrixInverse(nullptr, transform->world_xmmatrix)));
 
-		float4 e4;
-		XMStoreFloat4(&e4, extents);
-		bounds->final_box.Extents.x = abs(e4.x);
-		bounds->final_box.Extents.y = abs(e4.y);
-		bounds->final_box.Extents.z = abs(e4.z);
-		vector3d pos = XMVector3TransformCoord(XMLoadFloat3(&bounds->bounding_box.Center), transform->world_xmmatrix);
-		XMStoreFloat3(&bounds->final_box.Center, pos);		
+		bounds->local_box.Transform(bounds->final_box, transform->world_xmmatrix);
+
+		BoundingOrientedBox local_oriented;
+		local_oriented.Center = bounds->local_box.Center;
+		local_oriented.Extents = bounds->local_box.Extents;
+		local_oriented.Transform(bounds->bounding_box, transform->world_xmmatrix);
+
 		coordinator->SendEvent(this, base->id, Transform::EVENT_ID_TRANSFORM_CHANGED);
 		entity.transform->last_parent_position = parent_position;
 		transform->dirty = false;

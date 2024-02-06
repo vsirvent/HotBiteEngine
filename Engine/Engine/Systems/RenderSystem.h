@@ -242,8 +242,10 @@ namespace HotBite {
 				Core::SimpleComputeShader* rt_shader = nullptr;
 				Core::SimpleComputeShader* rt_acc = nullptr;
 				Core::SimpleComputeShader* rt_smooth = nullptr;
-				Core::SimpleComputeShader* rt_upscale = nullptr;
-				static constexpr int RT_NTEXTURES = 3;
+
+				//RT texture 1: Reflexed rays
+				//RT texture 2: Refracted rays
+				static constexpr int RT_NTEXTURES = 2;
 				Core::RenderTexture2D rt_texture[RT_NTEXTURES];
 				Core::RenderTexture2D rt_texture_props;
 				Core::RenderTexture2D rt_texture_tmp;

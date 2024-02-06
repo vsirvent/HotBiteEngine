@@ -294,10 +294,6 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		if (rt_smooth == nullptr) {
 			throw std::exception("raytrace shader.Init failed");
 		}
-		rt_upscale = ShaderFactory::Get()->GetShader<SimpleComputeShader>("UpscaleCS.cso");
-		if (rt_upscale == nullptr) {
-			throw std::exception("raytrace shader.Init failed");
-		}
 	}
 	catch (std::exception& e) {
 		printf("RenderSystem::Init: ERROR: %s\n", e.what());
@@ -1215,7 +1211,6 @@ void RenderSystem::ProcessRT() {
 		};
 
 		auto fill = [=](RenderTree& tree, std::map<float, Node>& distance_map) {
-			size_t count = 0;
 			for (auto& shaders : tree) {
 				for (auto& mat : shaders.second) {
 					for (auto& de : mat.second.second.GetData()) {
@@ -1243,12 +1238,12 @@ void RenderSystem::ProcessRT() {
 
 							o.vertex_offset = (uint32_t)de.mesh->GetData()->vertexOffset;
 							o.index_offset = (uint32_t)de.mesh->GetData()->indexOffset;
-							
+							o.object_offset = (uint32_t)de.mesh->GetData()->bvhOffset;
+
 							o.position = de.transform->position;
 							o.world = de.transform->world_matrix;
 							o.inv_world = de.transform->world_inv_matrix;
 							
-							o.object_offset = de.mesh->GetData()->bvhOffset;
 							o.density = de.mat->data->props.density;
 							o.opacity = de.mat->data->props.opacity;
 
@@ -1257,7 +1252,6 @@ void RenderSystem::ProcessRT() {
 					}
 				}
 			}
-			return count;
 			};
 
 		auto sort = [=](const std::map<float, Node>& distance_map, ObjectInfo objects[MAX_OBJECTS],
@@ -1287,11 +1281,10 @@ void RenderSystem::ProcessRT() {
 		rt_shader->SetData("objectInfos", objects, len * sizeof(ObjectInfo));
 		rt_shader->SetUnorderedAccessView("output0", rt_texture[0].UAV());
 		rt_shader->SetUnorderedAccessView("output1", rt_texture[1].UAV());
-		rt_shader->SetUnorderedAccessView("output2", rt_texture[2].UAV());
 		rt_shader->SetUnorderedAccessView("props", rt_texture_props.UAV());
 		rt_shader->SetUnorderedAccessView("ray0", rt_ray_sources0.UAV());
 		rt_shader->SetUnorderedAccessView("ray1", rt_ray_sources1.UAV());
-		
+
 		float3 dir;
 		XMStoreFloat3(&dir, cam_entity.camera->xm_direction);
 		rt_shader->SetFloat(TIME, time);
@@ -1330,7 +1323,6 @@ void RenderSystem::ProcessRT() {
 
 		rt_shader->SetShader();		
 		dxcore->context->Dispatch(rt_texture[0].Width()/32, rt_texture[0].Height()/32 + 1, 1);
-		//dxcore->context->Dispatch(1, 1, 1);
 		rt_shader->SetUnorderedAccessView("output0", nullptr);
 		rt_shader->SetUnorderedAccessView("output1", nullptr);
 		rt_shader->SetUnorderedAccessView("output2", nullptr);
@@ -1348,13 +1340,15 @@ void RenderSystem::ProcessRT() {
 
 		//Smooth frame
 		for (int i = 0; i < 2; ++i) {
+			int32_t  groupsX = (int32_t)(ceil((float)rt_texture[i].Width() / 32.0f));
+			int32_t  groupsY = (int32_t)(ceil((float)rt_texture[i].Height() / 32.0f));
 			rt_smooth->SetUnorderedAccessView("input", rt_texture[i].UAV());
 			rt_smooth->SetUnorderedAccessView("output", rt_texture_tmp.UAV());
 			rt_smooth->SetUnorderedAccessView("props", rt_texture_props.UAV());
 			rt_smooth->SetInt("type", 1);
 			rt_smooth->CopyAllBufferData();
 			rt_smooth->SetShader();
-			dxcore->context->Dispatch(rt_texture[i].Width() / 32, rt_texture[i].Height() / 32 + 1, 1);
+			dxcore->context->Dispatch(groupsX, groupsY, 1);
 			rt_smooth->SetInt("type", 2);
 			rt_smooth->SetUnorderedAccessView("input", nullptr);
 			rt_smooth->SetUnorderedAccessView("output", nullptr);
@@ -1362,7 +1356,7 @@ void RenderSystem::ProcessRT() {
 			rt_smooth->SetUnorderedAccessView("input", rt_texture_tmp.UAV());
 			rt_smooth->SetUnorderedAccessView("output", rt_texture[i].UAV());
 			rt_smooth->CopyAllBufferData();
-			dxcore->context->Dispatch(rt_texture[i].Width() / 32, rt_texture[i].Height() / 32 + 1, 1);
+			dxcore->context->Dispatch(groupsX, groupsY, 1);
 			rt_smooth->SetUnorderedAccessView("input", nullptr);
 			rt_smooth->SetUnorderedAccessView("output", nullptr);
 			rt_smooth->SetUnorderedAccessView("props", nullptr);
@@ -1774,7 +1768,6 @@ void RenderSystem::Draw() {
 			post_process_pipeline->SetView(cam_entity.camera->view, cam_entity.camera->inverse_view, cam_entity.camera->inverse_projection);
 		}
 		ProcessRT();
-
 	}
 	if (post_process_pipeline != nullptr) {
 		DXCore::Get()->context->RSSetViewports(1, &dxcore->viewport);
