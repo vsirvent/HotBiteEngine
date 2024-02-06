@@ -5,6 +5,8 @@ Engine features:
 
 - C++/DirectX-11
 - RAY TRACING!
+- Material Editor
+- UI Editor
 - Based on Entity-Component-System architecture design
 - Network multiplayer lockstep client and server
 - Custom cache friendly data structures
@@ -37,6 +39,9 @@ Engine features:
 ## Screenshots examples
 ### Ray tracing
 [![RAY TRACING](https://img.youtube.com/vi/cnNIR1Cesr0/0.jpg)](https://www.youtube.com/watch?v=cnNIR1Cesr0)
+
+### Material Editor
+![](Tests/Images/MaterialEditor.png)
 
 ### Parallax texture with projected shadow
 ![](Tests/Images/parallax_shadow.png)
