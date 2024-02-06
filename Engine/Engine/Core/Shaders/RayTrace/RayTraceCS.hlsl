@@ -517,7 +517,7 @@ Ray GetRefractedRayFromRay(Ray source, float in_density, float out_density, floa
 float3 GetColor(Ray origRay)
 {
 	
-    float max_distance = 1000.0f;
+    static const float max_distance = 500.0f;
     
     uint stack[MAX_STACK_SIZE];
     bool collide = false;
@@ -526,6 +526,7 @@ float3 GetColor(Ray origRay)
     Ray ray = origRay;
     float colorCount = 0.0f;
     float3 finalColor = float3(0.0f, 0.0f, 0.0f);
+
     bool end = false;
     while (!end)
     {
@@ -568,7 +569,6 @@ float3 GetColor(Ray origRay)
                         tmp_result.distance = FLT_MAX;
                         if (IntersectTri(oray, idx, o.vertexOffset, tmp_result))
                         {
-                            float scale = o.world[3].w;
                             tmp_result.distance *= determinant(o.world);
                             if (tmp_result.distance < result.distance && tmp_result.distance < oray.t)
                             {
@@ -583,13 +583,10 @@ float3 GetColor(Ray origRay)
                             }
                         }
                     }
-                    else
+                    else if (IntersectAABB(oray, node))
                     {
-                        if (IntersectAABB(oray, node))
-                        {
-                            stack[stackSize++] = left_child(node);
-                            stack[stackSize++] = right_child(node);
-                        }
+                        stack[stackSize++] = left_child(node);
+                        stack[stackSize++] = right_child(node);
                     }
                 }
 
@@ -607,8 +604,6 @@ float3 GetColor(Ray origRay)
                 }
             }
         }
-
-        
 
         //At this point we have the ray collision distance and a collision result
         if (collide) {

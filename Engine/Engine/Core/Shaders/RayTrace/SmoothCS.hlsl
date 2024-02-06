@@ -1,4 +1,5 @@
 #include "../Common/ShaderStructs.hlsli"
+#include "../Common/Utils.hlsli"
 
 RWTexture2D<float4> input : register(u0);
 RWTexture2D<float4> output : register(u1);
@@ -36,7 +37,10 @@ void FillGaussianArray(out float array[KERNEL_SIZE], float dispersion)
 
 float4 getColor(float2 pixel, float2 dir, float dispersion)
 {
-
+    if (dispersion < Epsilon) {
+        return input[pixel];
+    }
+    else {
         float BlurWeights[KERNEL_SIZE];
         FillGaussianArray(BlurWeights, dispersion);
         float4 color = float4(0.f, 0.f, 0.f, 1.f);
@@ -45,7 +49,8 @@ float4 getColor(float2 pixel, float2 dir, float dispersion)
             tpos = pixel + dir * i;
             color += input[tpos] * BlurWeights[i + HALF_KERNEL];
         }
-        return saturate(color);
+        return color;
+    }
 }
 
 #define NTHREADS 32
