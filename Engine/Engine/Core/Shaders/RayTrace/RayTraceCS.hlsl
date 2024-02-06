@@ -134,7 +134,7 @@ uint index(BVHNode node)
 	return asuint(node.reg1.w);
 }
 
-float PointShadowPCFFast(float3 ToPixel, PointLight light, int index)
+float PointShadowPCFFAST(float3 ToPixel, PointLight light, int index)
 {
     float3 ToPixelAbs = abs(ToPixel);
     float Z = max(ToPixelAbs.x, max(ToPixelAbs.y, ToPixelAbs.z));
@@ -218,7 +218,7 @@ float3 CalcDirectional(float3 normal, float3 position, MaterialColor material, D
     float NDotL = dot(light.DirToLight, normal);
     float3 finalColor = color * saturate(NDotL);
     if (light.cast_shadow) {
-        float shadow = DirShadowPCF(float4(position, 1.0f), light, index);
+        float shadow = DirShadowPCFFAST(float4(position, 1.0f), light, index);
         finalColor *= shadow;
     }
     return finalColor;
@@ -242,7 +242,7 @@ float3 CalcPoint(float3 normal, float3 position, MaterialColor material, PointLi
     float DistToLightNorm = saturate(LightRange);
     float Attn = saturate(DistToLightNorm * DistToLightNorm);
     if (light.cast_shadow) {
-        float shadow = PointShadowPCF(position - light.Position, light, index);
+        float shadow = PointShadowPCFFAST(position - light.Position, light, index);
         finalColor *= shadow;
     }
     finalColor *= Attn;

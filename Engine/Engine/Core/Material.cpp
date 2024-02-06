@@ -95,6 +95,9 @@ void MaterialData::Load(const std::string& root, const std::string& mat) {
 	tessellation_type = j["tess_type"];
 	tessellation_factor = j["tess_factor"];
 	displacement_scale = j["displacement_scale"];
+	if (j["raytrace"]) {
+		props.flags |= RAY_TRACING_ENABLED_FLAG;
+	}
 	if (j["alpha_enabled"]) {
 		props.flags |= ALPHA_ENABLED_FLAG;
 	}

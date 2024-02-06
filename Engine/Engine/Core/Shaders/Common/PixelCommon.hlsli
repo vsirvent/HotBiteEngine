@@ -99,6 +99,7 @@ struct MaterialColor
 #define EMISSION_MAP_ENABLED_FLAG 1 << 7
 #define BLEND_ENABLED_FLAG 1 << 10
 #define PARALLAX_SHADOW_ENABLED_FLAG 1 << 11
+#define RAYTRACING_ENABLED 1 << 12
 	uint flags;
 };
 

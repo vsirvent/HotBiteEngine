@@ -138,7 +138,7 @@
         "name": "Test",
         "blend_enabled": false,
         "spec_intensity": 1.0,
-        "parallax_scale": 0.05,
+        "parallax_scale": 0.0,
         "normal_map_enabled": false,
         "tess_type": 0,
         "tess_factor": 0,
@@ -154,6 +154,8 @@
         {
           "name": "Water",
           "blend_enabled": false,
+          "opacity": 1,
+          "density": 1,
           "spec_intensity": 1.0,
           "shaders": {
             "gs": "WaterGS.cso",

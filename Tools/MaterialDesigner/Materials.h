@@ -164,6 +164,7 @@ public:
 		props["diffuse_color"] = std::make_shared<Prop<std::string>>("#FFFFFFFF");
 		props["ambient_color"] = std::make_shared<Prop<std::string>>("#FFFFFFFF");
 		props["specular"] = std::make_shared<Prop<float>>(0.5f);
+		props["raytrace"] = std::make_shared<Prop<bool>>(true);
 		props["opacity"] = std::make_shared<Prop<float>>(1.0f);
 		props["density"] = std::make_shared<Prop<float>>(1.0f);
 		props["parallax_scale"] = std::make_shared<Prop<float>>(0.0f);
@@ -204,6 +205,7 @@ public:
 			props["parallax_shadow_scale"]->SetValue<int>(js["parallax_shadow_scale"]);
 			
 			props["specular"]->SetValue<float>(js["specular"]);
+			props["raytrace"]->SetValue<bool>(js["raytrace"]);
 			props["opacity"]->SetValue<float>(js["opacity"]); 
 			props["density"]->SetValue<float>(js["density"]);
 			props["tess_type"]->SetValue<int>(js["tess_type"]);
@@ -507,6 +509,19 @@ public:
 		void set(float newValue)
 		{
 			return material->props["specular"]->SetValue<float>((float)newValue);
+		}
+	}
+
+	[CategoryAttribute("Material")]
+	property bool RayTracing {
+		bool get()
+		{
+			return material->props["raytrace"]->GetValue<bool>();
+		}
+
+		void set(bool newValue)
+		{
+			return material->props["raytrace"]->SetValue<bool>(newValue);
 		}
 	}
 

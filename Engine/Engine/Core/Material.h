@@ -55,6 +55,7 @@ namespace HotBite {
 #define EMISSION_MAP_ENABLED_FLAG (1 << 7)
 #define BLEND_ENABLED_FLAG (1 << 10)
 #define PARALLAX_SHADOW_ENABLED_FLAG (1 << 11)
+#define RAY_TRACING_ENABLED_FLAG (1 << 12)
 				unsigned int flags = 0;
 			};
 

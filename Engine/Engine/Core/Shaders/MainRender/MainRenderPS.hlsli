@@ -217,7 +217,7 @@ RenderTargetRT MainRenderPS(GSOutput input)
 
 	RaySource ray;
 	ray.orig = wpos.xyz;
-	if (disable_rt == 0) {
+	if (disable_rt == 0 && (material.flags & RAYTRACING_ENABLED)) {
 		ray.dispersion = saturate(1.0f - spec_intensity);
 	}
 	else {

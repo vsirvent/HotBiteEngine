@@ -193,7 +193,7 @@ namespace HotBite {
 				int right_count = 0;
 				int left_offset = 0;
 				int right_offset = 0;
-				if (LENGHT_F3(extent) > 0.0f)
+				if (LENGHT_F3(extent) > FLT_EPSILON)
 				{
 #if 1
 					// in-place partition
