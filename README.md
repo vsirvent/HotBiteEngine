@@ -4,6 +4,7 @@ The HotBite Game Engine is designed to provide a powerful and flexible framework
 Engine features:
 
 - C++/DirectX-11
+- RAY TRACING!
 - Based on Entity-Component-System architecture design
 - Network multiplayer lockstep client and server
 - Custom cache friendly data structures
@@ -34,6 +35,9 @@ Engine features:
 …
 
 ## Screenshots examples
+### Ray tracing
+[![RAY TRACING](https://img.youtube.com/vi/cnNIR1Cesr0/0.jpg)](https://www.youtube.com/watch?v=cnNIR1Cesr0)
+
 ### Parallax texture with projected shadow
 ![](Tests/Images/parallax_shadow.png)
 Note how the projected shadow follows the parallax texture 3d effect.
