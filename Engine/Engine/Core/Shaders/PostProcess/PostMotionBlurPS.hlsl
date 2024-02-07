@@ -35,7 +35,7 @@ Texture2D<float> depthTexture;
 
 SamplerState basicSampler;
 
-static const uint numSamples = 10;
+static const uint numSamples = 15;
 float4 main(float4 pos: SV_POSITION) : SV_TARGET
 {    
     float2 tpos = pos.xy;
@@ -60,7 +60,7 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
         // Convert to nonhomogeneous points [-1,1] by dividing by w. 
         previousPos /= previousPos.w;
         // Use this frame's position and last frame's to compute the pixel velocity.
-        float2 velocity = (currentPos - previousPos).xy;
+        float2 velocity = currentPos.xy - previousPos.xy;
 
         velocity.x /= screenW;
         velocity.y /= screenH;

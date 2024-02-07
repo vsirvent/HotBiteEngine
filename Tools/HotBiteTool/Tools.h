@@ -21,6 +21,7 @@ namespace HotBiteTool {
 		class ToolUi : public DXCore, public ECS::EventListener {
 		private:
 			Core::PostProcess* post = nullptr;
+			Core::DOFProcess* dof = nullptr;
 			UI::GUI* gui = nullptr;
 			std::shared_ptr<HotBite::Engine::UI::TextureWidget> debug;
 			Scheduler::TimerId timer0;

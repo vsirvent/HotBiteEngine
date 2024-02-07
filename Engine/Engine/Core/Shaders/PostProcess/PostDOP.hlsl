@@ -22,20 +22,20 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+#include "../Common/Defines.hlsli"
 #include "../Common/Utils.hlsli"
 
-Texture2D image : register(t0);
-Texture2D depth: register(t1);
+Texture2D renderTexture : register(t0);
+Texture2D depthTexture: register(t1);
 
 SamplerState basicSampler : register(s0);
 
 cbuffer externalData : register(b0)
 {
-    matrix projection_inverse;
     int dopActive;    
     float focusZ;
     float amplitude;
-    int horizontal;
+    int type;
 }
 
 #define EPSILON 1e-6
@@ -44,16 +44,11 @@ cbuffer externalData : register(b0)
 #define KERNEL_SIZE 19
 #define HALF_KERNEL KERNEL_SIZE/2
 
-cbuffer externalData : register(b0)
-{
-    uint type;
-}
-
 void FillGaussianArray(out float array[KERNEL_SIZE], float dispersion)
 {
     float sum = 0.0;
     int halfSize = KERNEL_SIZE / 2;
-    float variance = 0.6f + dispersion * (float)HALF_KERNEL;
+    float variance = clamp(dispersion, 0.6f, HALF_KERNEL/2);
     int i;
     for (i = -HALF_KERNEL; i <= HALF_KERNEL; ++i)
     {
@@ -72,16 +67,16 @@ void FillGaussianArray(out float array[KERNEL_SIZE], float dispersion)
 float4 getColor(float2 pixel, float2 dir, float dispersion)
 {
     if (dispersion < Epsilon) {
-        return image.Sample(basicSampler, pixel);
+        return renderTexture.Sample(basicSampler, pixel);
     }
     else {
         float BlurWeights[KERNEL_SIZE];
         FillGaussianArray(BlurWeights, dispersion);
         float4 color = float4(0.f, 0.f, 0.f, 1.f);
-        float2 tpos;
+        float2 pos;
         for (int i = -HALF_KERNEL; i <= HALF_KERNEL; ++i) {
-            tpos = pixel + dir * i;
-            color += image.SampleLevel(basicSampler, pixel, 0) * BlurWeights[i + HALF_KERNEL];
+            pos = pixel + dir * i;
+            color += renderTexture.Load(float3(pos, 0)) * BlurWeights[i + HALF_KERNEL];
         }
         return color;
     }
@@ -92,7 +87,7 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
 {
     uint2 dimensions;
     uint w, h;
-    image.GetDimensions(w, h);
+    renderTexture.GetDimensions(w, h);
     dimensions.x = w;
     dimensions.y = h;
 
@@ -108,15 +103,10 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
     }
 
     if (dopActive) {
-        float z0 = depth.Sample(basicSampler, tpos).r;
-        // H is the viewport position at this pixel in the range -1 to 1.
-        float4 H = float4(tpos.x * 2.0f - 1.0f, (1.0f - tpos.y) * 2.0f - 1.0f, z0, 1.0f);
-        // Transform by the projection inverse.
-        float4 D = mul(H, projection_inverse);
-        // Divide by w to get the world position.
-        float4 worldPos = D / D.w;
-        float z = worldPos.z;
-        dispersion = pow((focusZ - z), 2.0f) * amplitude / 10.0f;
+        float z0 = depthTexture.Sample(basicSampler, tpos).r;
+        if (z0 != FLT_MAX) {
+            dispersion = pow((focusZ - z0), 2.0f) * amplitude / 100.0f;
+        }
     }
-    return getColor(tpos, dir, dispersion);
+    return getColor(pos.xy, dir, dispersion);
 }

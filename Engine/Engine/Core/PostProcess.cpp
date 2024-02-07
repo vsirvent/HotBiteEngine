@@ -187,9 +187,9 @@ void PostProcess::SetNext(PostProcess* next) {
 	SetTarget(next, next);
 }
 
-void PostProcess::SetView(const float4x4& view, const float4x4& view_inverse, const float4x4& projection_inverse) {
+void PostProcess::SetView(const Components::Camera& camera) {
 	if (next != nullptr) {
-		next->SetView(view, view_inverse, projection_inverse);
+		next->SetView(camera);
 	}
 }
 
@@ -227,6 +227,11 @@ ID3D11RenderTargetView* GenericPostProcess::RenderTarget() const {
 
 void MainEffect::ClearData(const float color[4]) {
 	context->ClearRenderTargetView(text.RenderTarget(), color);
+	context->ClearDepthStencilView(
+		depth.Depth(),
+		D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL,
+		1.0f,
+		0);
 }
 
 MainEffect::MainEffect(ID3D11DeviceContext* dxcontext,
@@ -236,10 +241,12 @@ MainEffect::MainEffect(ID3D11DeviceContext* dxcontext,
 		ShaderFactory::Get()->GetShader<SimplePixelShader>("PostMainPS.cso"))
 {
 	text.Init(width, height, DXGI_FORMAT_R32G32B32A32_FLOAT);
+	depth.Init(width, height);
 }
 
 MainEffect::~MainEffect() {
 	text.Release();
+	depth.Release();
 }
 
 ID3D11ShaderResourceView* MainEffect::RenderResource() {
@@ -248,6 +255,14 @@ ID3D11ShaderResourceView* MainEffect::RenderResource() {
 
 ID3D11RenderTargetView* MainEffect::RenderTarget() const {
 	return text.RenderTarget();
+}
+
+ID3D11ShaderResourceView* MainEffect::DepthResource() {
+	return depth.SRV();
+}
+
+ID3D11DepthStencilView* MainEffect::DepthView() {
+	return depth.Depth();
 }
 
 void MotionBlurEffect::ClearData(const float color[4]) {
@@ -271,7 +286,6 @@ MotionBlurEffect::MotionBlurEffect(ID3D11DeviceContext* dxcontext,
 	matrix id = DirectX::XMMatrixIdentity();
 	XMStoreFloat4x4(&current_view_inverse, id);
 	XMStoreFloat4x4(&current_view, id);
-	XMStoreFloat4x4(&prev_view, id);
 }
 
 MotionBlurEffect::~MotionBlurEffect() {
@@ -279,6 +293,7 @@ MotionBlurEffect::~MotionBlurEffect() {
 
 void MotionBlurEffect::Prepare() {
 	PostProcess::Prepare();
+
 	ps->SetMatrix4x4("view_inverse", current_view_inverse);
 	ps->SetMatrix4x4("prev_view", prev_view);
 }

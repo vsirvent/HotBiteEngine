@@ -1684,8 +1684,13 @@ void RenderSystem::SetPostProcessPipeline(Core::PostProcess* pipeline) {
 		else {
 			first_pass_target = &first_pass_texture;
 			second_pass_target = pipeline;
-		}		
-		depth_target = pipeline;
+		}
+		if (pipeline->DepthResource() != nullptr) {
+			depth_target = pipeline;
+		}
+		else {
+			depth_target = dxcore;
+		}
 		post_process_pipeline = pipeline;
 		PostProcess* last = pipeline;
 		pipeline->SetShaderResourceView(LIGHT_TEXTURE, light_map.SRV());
@@ -1700,6 +1705,7 @@ void RenderSystem::SetPostProcessPipeline(Core::PostProcess* pipeline) {
 	}
 	else {
 		first_pass_target = dxcore;
+		depth_target = dxcore;
 	}
 }
 
@@ -1715,32 +1721,30 @@ void RenderSystem::Update() {
 
 void RenderSystem::PostProcessLight() {
 	ID3D11DeviceContext* context = DXCore::Get()->context;
-	//for (int i = 0; i < 3; ++i) {
-		ID3D11RenderTargetView* rv[1] = { temp_map.RenderTarget() };
-		context->OMSetRenderTargets(1, rv, nullptr);
-		context->RSSetViewports(1, &dxcore->viewport);
-		context->RSSetState(dxcore->drawing_rasterizer);
-		SimpleVertexShader* vs = ShaderFactory::Get()->GetShader<SimpleVertexShader>("PostMainVS.cso");
-		SimplePixelShader* ps = ShaderFactory::Get()->GetShader<SimplePixelShader>("PostBlur.cso");
-		vs->SetShader();
-		ps->SetShader();
-		ps->SetInt(SCREEN_W, bloom_map.Width());
-		ps->SetInt(SCREEN_H, bloom_map.Height());
-		ps->SetSamplerState(BASIC_SAMPLER, dxcore->basic_sampler);
-		ps->SetShaderResourceView("renderTexture", bloom_map.SRV());
-		ps->SetInt("horizontal", 1);
-		ps->CopyAllBufferData();
-		ScreenDraw::Get()->Draw();
-		ps->SetShaderResourceView("renderTexture", nullptr);
-		ps->CopyAllBufferData();
-		rv[0] = { bloom_map.RenderTarget() };
-		context->OMSetRenderTargets(1, rv, nullptr);
-		ps->SetInt("horizontal", 0);
-		ps->SetShaderResourceView("renderTexture", temp_map.SRV());
-		ps->CopyAllBufferData();
-		ScreenDraw::Get()->Draw();
-		ps->SetShaderResourceView("renderTexture", nullptr);
-	//}
+	ID3D11RenderTargetView* rv[1] = { temp_map.RenderTarget() };
+	context->OMSetRenderTargets(1, rv, nullptr);
+	context->RSSetViewports(1, &dxcore->viewport);
+	context->RSSetState(dxcore->drawing_rasterizer);
+	SimpleVertexShader* vs = ShaderFactory::Get()->GetShader<SimpleVertexShader>("PostMainVS.cso");
+	SimplePixelShader* ps = ShaderFactory::Get()->GetShader<SimplePixelShader>("PostBlur.cso");
+	vs->SetShader();
+	ps->SetShader();
+	ps->SetInt(SCREEN_W, bloom_map.Width());
+	ps->SetInt(SCREEN_H, bloom_map.Height());
+	ps->SetSamplerState(BASIC_SAMPLER, dxcore->basic_sampler);
+	ps->SetShaderResourceView("renderTexture", bloom_map.SRV());
+	ps->SetInt("horizontal", 1);
+	ps->CopyAllBufferData();
+	ScreenDraw::Get()->Draw();
+	ps->SetShaderResourceView("renderTexture", nullptr);
+	ps->CopyAllBufferData();
+	rv[0] = { bloom_map.RenderTarget() };
+	context->OMSetRenderTargets(1, rv, nullptr);
+	ps->SetInt("horizontal", 0);
+	ps->SetShaderResourceView("renderTexture", temp_map.SRV());
+	ps->CopyAllBufferData();
+	ScreenDraw::Get()->Draw();
+	ps->SetShaderResourceView("renderTexture", nullptr);
 }
 
 void RenderSystem::Draw() {
@@ -1777,7 +1781,7 @@ void RenderSystem::Draw() {
 		PostProcessLight();
 		if (post_process_pipeline != nullptr) {
 			post_process_pipeline->SetShaderResourceView(DEPTH_TEXTURE, depth_map.SRV());
-			post_process_pipeline->SetView(cam_entity.camera->view, cam_entity.camera->inverse_view, cam_entity.camera->inverse_projection);
+			post_process_pipeline->SetView(*(cam_entity.camera));
 		}
 		ProcessRT();
 	}

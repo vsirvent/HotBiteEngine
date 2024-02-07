@@ -102,12 +102,20 @@ namespace HotBiteTool {
 			auto c = world.GetCoordinator();
 			gui = new UI::GUI(context, width, height, world.GetCoordinator());
 			post = new MainEffect(context, width, height);
+			dof = new DOFProcess(context, width, height, world.GetCoordinator());
+
 
 			world.Load(world_file);
 			world.Init();
 			world.Run(fps);
 
-			post->SetNext(gui);
+			post->SetNext(dof);
+			dof->SetNext(gui);
+
+			dof->SetAmplitude(2.0f);
+			dof->SetFocus(6.0f);
+			dof->SetEnabled(true);
+
 			world.SetPostProcessPipeline(post);
 		
 		}

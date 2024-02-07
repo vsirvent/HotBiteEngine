@@ -64,6 +64,7 @@ private:
 	World loading;
 	MainEffect* main_fx = nullptr;
 	MotionBlurEffect* motion_blur = nullptr;
+	Core::DOFProcess* dof = nullptr;
 	PostGame* post_game = nullptr;
 	UI::GUI* gui = nullptr;
 	
@@ -217,6 +218,7 @@ public:
 			int h = GetHeight();
 			//We have depth of field effect as post process
 			main_fx = new MainEffect(context, w, h);
+			dof = new DOFProcess(context, w, h, c);
 			motion_blur = new MotionBlurEffect(context, w, h);
 			//we add to the chain a GUI post process stage to render UI
 			gui = new UI::GUI(context, w, h, world.GetCoordinator());
@@ -226,9 +228,14 @@ public:
 			render->Update();
 
 			//Connect the post-chain effects
-			main_fx->SetNext(post_game);
+			main_fx->SetNext(dof);
+			dof->SetNext(motion_blur);
 			motion_blur->SetNext(post_game);
 			post_game->SetNext(gui);
+
+			dof->SetAmplitude(10.0f);
+			dof->SetFocus(6.0f);
+			dof->SetEnabled(true);
 
 			//Set the post-chain begin to the renderer
 			world.SetPostProcessPipeline(main_fx);
@@ -723,6 +730,9 @@ public:
 	void UpdateSystems(ECS::Event& ev) {
 		player_system->Update(0, 0);
 		enemy_system->Update(0, 0);
+		auto cam = world.GetCoordinator()->GetSystem<CameraSystem>()->GetCameras().GetData()[0];
+		float distance = LENGHT_F3(SUB_F3_F3(world.GetCoordinator()->GetComponent<Transform>(player).position, cam.camera->final_position));
+		dof->SetFocus(distance);
 	}
 	
 	//Here we setup the player entity, in the main scene FBX file it's just a square
