@@ -33,6 +33,7 @@ SOFTWARE.
 #include <DirectXColors.h>
 #include <SimpleMath.h>
 #include <vector>
+#include <Components\Camera.h>
 
 namespace HotBite {
 	namespace Engine {
@@ -92,10 +93,6 @@ namespace HotBite {
 				virtual void Prepare();
 				virtual void UnPrepare();
 				virtual void Render();
-				virtual ID3D11ShaderResourceView* RenderResource() override;
-				virtual ID3D11RenderTargetView* RenderTarget() const override;
-				virtual ID3D11ShaderResourceView* DepthResource() override;
-				virtual ID3D11DepthStencilView* DepthView() override;
 				virtual void ClearData(const float color[4]) = 0;
 
 			public:
@@ -125,7 +122,12 @@ namespace HotBite {
 				virtual void SetTarget(IRenderTarget* t, IDepthResource* d);
 
 				//Useful data that is set to shaders in the post-chain
-				virtual void SetView(const float4x4& view, const float4x4& view_inverse, const float4x4& projection_inverse);
+				virtual void SetView(const Components::Camera& camera);
+
+				virtual ID3D11ShaderResourceView* RenderResource() override;
+				virtual ID3D11RenderTargetView* RenderTarget() const override;
+				virtual ID3D11ShaderResourceView* DepthResource() override;
+				virtual ID3D11DepthStencilView* DepthView() override;
 			};
 
 			class GenericPostProcess : public HotBite::Engine::Core::PostProcess
@@ -147,42 +149,21 @@ namespace HotBite {
 				virtual ID3D11RenderTargetView* RenderTarget() const override;
 			};
 			
-			class DOPEffect : public PostProcess
+			class MainEffect : public PostProcess
 			{
 			private:
-				RenderTexture2D text{ 3 };
+				RenderTexture2D text;
 				DepthTexture2D depth;
-				float4x4 current_projection_inverse{};
-				float near_factor = 0.0f;
-				float far_factor = 0.0f;
-				bool active = true;
 				virtual void ClearData(const float color[4]);
 
 			public:
-				DOPEffect(ID3D11DeviceContext* dxcontext,
-					int width, int height, float near_factor, float far_factor);
-				virtual ~DOPEffect();
-
-				void SetFar(float far_factor) { this->far_factor = far_factor; }
-				void SetNear(float near_factor) { this->near_factor = near_factor; }
-				void SetActive(bool active) { this->active = active; }
-				float GetFar(void) const { return far_factor; }
-				float GetNear(void) const { return near_factor; }
-				bool GetActive(void) const { return active; }
+				MainEffect(ID3D11DeviceContext* dxcontext, int width, int height);
+				virtual ~MainEffect();
 
 				virtual ID3D11ShaderResourceView* RenderResource() override;
 				virtual ID3D11RenderTargetView* RenderTarget() const override;
 				virtual ID3D11ShaderResourceView* DepthResource() override;
 				virtual ID3D11DepthStencilView* DepthView() override;
-
-				virtual void Prepare() override;
-				virtual void UnPrepare() override;
-
-				//Override parent method ans save the information used by our post-effect.
-				virtual void SetView(const float4x4& view, const float4x4& view_inverse, const float4x4& projection_inverse) {
-					current_projection_inverse = projection_inverse;
-					PostProcess::SetView(view, view_inverse, projection_inverse);
-				}
 			};
 
 			class MotionBlurEffect : public PostProcess
@@ -193,7 +174,7 @@ namespace HotBite {
 				float4x4 current_view_inverse{};
 				float4x4 current_view{};
 				float4x4 prev_view{};
-
+				
 				virtual void ClearData(const float color[4]);
 
 			public:
@@ -207,13 +188,70 @@ namespace HotBite {
 				virtual void Prepare() override;
 
 				//Override parent method ans save the information used by our post-effect.
-				virtual void SetView(const float4x4& view, const float4x4& view_inverse, const float4x4& projection_inverse) override {
+				virtual void SetView(const Components::Camera& camera) override {
 					prev_view = current_view;
-					current_view = view;
-					current_view_inverse = view_inverse;
-					PostProcess::SetView(view, view_inverse, projection_inverse);
+					current_view = camera.view;
+					current_view_inverse = camera.inverse_view;
+
+					PostProcess::SetView(camera);
 				}
 			};
+
+
+			class DOFProcess : public HotBite::Engine::Core::GenericPostProcess
+			{
+			private:
+				bool enabled = false;
+				float focus = 0.0f;
+				float amplitude = 0.0f;
+				HotBite::Engine::Core::RenderTexture2D temp;
+
+			public:
+				enum EType {
+					DOF
+				};
+				DOFProcess(ID3D11DeviceContext* dxcontext,
+					int width, int height, HotBite::Engine::ECS::Coordinator* c) : 
+					GenericPostProcess(dxcontext, width, height, c, "PostMainVS.cso", "PostDOP.cso")
+				{
+					temp.Init(width, height, DXGI_FORMAT_R32G32B32A32_FLOAT);
+				}
+
+				virtual ~DOFProcess() {
+					temp.Release();
+				}
+
+				void SetFocus(float val) {
+					focus = val;
+				}
+
+				void SetAmplitude(float val) {
+					amplitude = val;
+				}
+
+				void SetEnabled(bool val) {
+					enabled = val;
+				}
+		
+				void Render() override {
+					ID3D11RenderTargetView* rv[1] = { temp.RenderTarget() };
+					context->OMSetRenderTargets(1, rv, TargetDepthView());
+					ps->SetInt("dopActive", enabled);
+					ps->SetFloat("focusZ", focus);
+					ps->SetFloat("amplitude", amplitude);
+					ps->SetInt("type", 1);
+					ps->CopyAllBufferData();
+					PostProcess::Render();
+
+					rv[0] = { TargetRenderView() };
+					context->OMSetRenderTargets(1, rv, TargetDepthView());
+					ps->SetShaderResourceView("renderTexture", temp.SRV());
+					ps->SetInt("type", 2);
+					ps->CopyAllBufferData();
+					PostProcess::Render();
+				}
+			};
+
 		}
 	}
 }

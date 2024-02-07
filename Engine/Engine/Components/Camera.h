@@ -50,7 +50,10 @@ namespace HotBite {
 				* of transformation known as a projection => projectionMatrix
 				*/
 				float4x4 projection;
+				float4x4 inverse_projection;
 				matrix xm_projection;
+
+				float4x4 view_projection;
 				matrix xm_view_projection;
 
 				/**
@@ -68,8 +71,6 @@ namespace HotBite {
 				vector4d xm_rotation;
 				float4x4 view;
 				float4x4 inverse_view;
-				float4x4 inverse_projection;
-				float4x4 inverse_view_projection;
 
 				static float3 GetScreenPixel(const matrix& camera_matrix, const float3& world_position);
 			};

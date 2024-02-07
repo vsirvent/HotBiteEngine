@@ -534,5 +534,8 @@
     <FxCompile Include="Engine\Core\Shaders\ComputeShaders\BlurCS.hlsl">
       <Filter>Engine\Core\Shaders\ComputeShaders</Filter>
     </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\PostProcess\PostDOP.hlsl">
+      <Filter>Engine\Core\Shaders\PostProcess</Filter>
+    </FxCompile>
   </ItemGroup>
 </Project>
