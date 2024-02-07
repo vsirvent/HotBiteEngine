@@ -53,6 +53,7 @@ namespace HotBite {
 #define ALPHA_ENABLED_FLAG (1 << 5)
 #define ARM_MAP_ENABLED_FLAG (1 << 6)
 #define EMISSION_MAP_ENABLED_FLAG (1 << 7)
+#define OPACITY_MAP_ENABLED_FLAG (1 << 8)
 #define BLEND_ENABLED_FLAG (1 << 10)
 #define PARALLAX_SHADOW_ENABLED_FLAG (1 << 11)
 #define RAY_TRACING_ENABLED_FLAG (1 << 12)
@@ -75,6 +76,7 @@ namespace HotBite {
 				std::string ao_textname;
 				std::string arm_textname;
 				std::string emission_textname;
+				std::string opacity_textname;
 			};
 
 			class MaterialData {
@@ -91,6 +93,7 @@ namespace HotBite {
 				ID3D11ShaderResourceView* ao = nullptr;
 				ID3D11ShaderResourceView* arm = nullptr;
 				ID3D11ShaderResourceView* emission = nullptr;
+				ID3D11ShaderResourceView* opacity = nullptr;
 
 				MaterialProps props;
 				MaterialTextures texture_names;

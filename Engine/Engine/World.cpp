@@ -412,6 +412,9 @@ void  World::LoadMaterialsNode(const nlohmann::json& materials_info,
 				if (textures.contains("emission_textname")) {
 					m->texture_names.emission_textname = texture_path + (std::string)textures["emission_textname"];
 				}
+				if (textures.contains("opacity_textname")) {
+					m->texture_names.opacity_textname = texture_path + (std::string)textures["opacity_textname"];
+				}
 			}
 			if (mat_json.contains("shaders")) {
 				std::string name = mat_json["name"];

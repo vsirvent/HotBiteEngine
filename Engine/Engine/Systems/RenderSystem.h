@@ -81,6 +81,7 @@ namespace HotBite {
 				static const std::string AO_TEXTURE;
 				static const std::string ARM_TEXTURE;
 				static const std::string EMISSION_TEXTURE;
+				static const std::string OPACITY_TEXTURE;
 				static const std::string HIGH_TEXTURE;
 				static const std::string HIGH_TEXTURE_ENABLED;
 				static const std::string NORMAL_TEXTURE;

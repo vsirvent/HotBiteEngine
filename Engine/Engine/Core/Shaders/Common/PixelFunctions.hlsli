@@ -34,6 +34,7 @@ Texture2D specularTexture;
 Texture2D aoTexture;
 Texture2D armTexture;
 Texture2D emissionTexture;
+Texture2D opacityTexture;
 Texture2D meshNormalTexture;
 Texture2D highTexture;
 

@@ -60,7 +60,13 @@ namespace HotBite {
 					}
 					for (auto& multi_texture : multi_textures_json["textures"]) {
 						int layer = multi_texture["layer"];
-						multi_texture_mask[layer] = Core::LoadTexture(root_path + "\\" + (std::string)multi_texture["mask"]);
+						std::string mask_texture = (std::string)multi_texture["mask"];
+						if (!mask_texture.empty()) {
+							multi_texture_mask[layer] = Core::LoadTexture(root_path + "\\" + mask_texture);
+						}
+						else {
+							multi_texture_mask[layer] = nullptr;
+						}
 						multi_texture_operation[layer] = multi_texture["op"];
 						multi_texture_uv_scales[layer] = multi_texture["uv_scale"];
 						multi_texture_value[layer] = multi_texture["value"];

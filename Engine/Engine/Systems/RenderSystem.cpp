@@ -54,6 +54,7 @@ const std::string RenderSystem::HIGH_TEXTURE = "highTexture";
 const std::string RenderSystem::AO_TEXTURE = "aoTexture";
 const std::string RenderSystem::ARM_TEXTURE = "armTexture";
 const std::string RenderSystem::EMISSION_TEXTURE = "emissionTexture";
+const std::string RenderSystem::OPACITY_TEXTURE = "opacityTexture";
 const std::string RenderSystem::HIGH_TEXTURE_ENABLED = "highTextureEnable";
 const std::string RenderSystem::NORMAL_TEXTURE = "normalTexture";
 const std::string RenderSystem::SPEC_TEXTURE = "specularTexture";
@@ -1425,6 +1426,7 @@ void RenderSystem::PrepareMaterial(Core::MaterialData* material, Core::SimpleVer
 		ps->SetShaderResourceView(AO_TEXTURE, material->ao);
 		ps->SetShaderResourceView(ARM_TEXTURE, material->arm);
 		ps->SetShaderResourceView(EMISSION_TEXTURE, material->emission);
+		ps->SetShaderResourceView(OPACITY_TEXTURE, material->opacity);
 		ps->SetShaderResourceView("rgbaNoise", rgba_noise_texture.SRV());
 		ps->SetInt(HIGH_TEXTURE_ENABLED, material->high != nullptr);
 	}
@@ -1446,6 +1448,7 @@ void RenderSystem::UnprepareMaterial(Core::MaterialData* material, Core::SimpleV
 		ps->SetShaderResourceView(AO_TEXTURE, nullptr);
 		ps->SetShaderResourceView(ARM_TEXTURE, nullptr);
 		ps->SetShaderResourceView(EMISSION_TEXTURE, nullptr);
+		ps->SetShaderResourceView(OPACITY_TEXTURE, nullptr);
 		ps->SetShaderResourceView("rgbaNoise", nullptr);
 	}
 	if (material->props.flags & BLEND_ENABLED_FLAG) {

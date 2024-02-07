@@ -114,6 +114,7 @@ void MaterialData::Load(const std::string& root, const std::string& mat) {
 	SetTexture(ao, texture_names.ao_textname, root, j["ao_textname"]);
 	SetTexture(arm, texture_names.arm_textname, root, j["arm_textname"]);
 	SetTexture(emission, texture_names.emission_textname, root, j["emission_textname"]);
+	SetTexture(opacity, texture_names.opacity_textname, root, j["opacity_textname"]);
 	UpdateFlags();
 }
 
@@ -139,6 +140,9 @@ void MaterialData::UpdateFlags() {
 	if (emission != nullptr) {
 		props.flags |= EMISSION_MAP_ENABLED_FLAG;
 	}
+	if (opacity != nullptr) {
+		props.flags |= OPACITY_MAP_ENABLED_FLAG;
+	}
 }
 
 bool MaterialData::Init() {
@@ -151,6 +155,7 @@ bool MaterialData::Init() {
 	ao = LoadTexture(texture_names.ao_textname);
 	arm = LoadTexture(texture_names.arm_textname);
 	emission = LoadTexture(texture_names.emission_textname);
+	opacity = LoadTexture(texture_names.opacity_textname);
 	UpdateFlags();
 	return ret;
 }
@@ -180,5 +185,13 @@ void MaterialData::Release() {
 	if (arm) {
 		arm->Release();
 		arm = nullptr;
+	}
+	if (emission) {
+		emission->Release();
+		emission = nullptr;
+	}
+	if (opacity) {
+		opacity->Release();
+		opacity = nullptr;
 	}
 }

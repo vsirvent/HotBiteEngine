@@ -186,6 +186,7 @@ public:
 		props["ao_textname"] = std::make_shared<Prop<std::string>>("");
 		props["arm_textname"] = std::make_shared<Prop<std::string>>("");
 		props["emission_textname"] = std::make_shared<Prop<std::string>>("");
+		props["opacity_textname"] = std::make_shared<Prop<std::string>>("");
 		props["vs"] = std::make_shared<Prop<std::string>>("");
 		props["hs"] = std::make_shared<Prop<std::string>>("");
 		props["ds"] = std::make_shared<Prop<std::string>>("");
@@ -222,6 +223,8 @@ public:
 			props["ao_textname"]->SetValue<std::string>(js["ao_textname"]);
 			props["arm_textname"]->SetValue<std::string>(js["arm_textname"]);
 			props["emission_textname"]->SetValue<std::string>(js["emission_textname"]);
+			props["opacity_textname"]->SetValue<std::string>(js["opacity_textname"]);
+
 			props["vs"]->SetValue<std::string>(js["vs"]);
 			props["hs"]->SetValue<std::string>(js["hs"]);
 			props["ds"]->SetValue<std::string>(js["ds"]);
@@ -526,7 +529,7 @@ public:
 	}
 
 	[CategoryAttribute("Material")]
-	property float Opacity {
+	property float OpacityValue {
 		float get()
 		{
 			return material->props["opacity"]->GetValue<float>();
@@ -714,6 +717,28 @@ public:
 				File::Copy(newValue, dest_file);
 			}
 			material->props["diffuse_textname"]->SetValue<std::string>(msclr::interop::marshal_as<std::string>(file));
+		}
+	}
+
+	[CategoryAttribute("Textures")]
+	[EditorAttribute(CustomImageEditor::typeid, System::Drawing::Design::UITypeEditor::typeid)]
+	property String^ Opacity {
+		String^ get()
+		{
+			return gcnew String(material->props["opacity_textname"]->GetValue<std::string>().c_str());
+		}
+		void set(String^ newValue)
+		{
+			System::String^ file = Path::GetFileName(newValue);
+			if (file->Length > 0) {
+				System::String^ dest_file = root_folder + file;
+				try {
+					File::Delete(dest_file);
+				}
+				catch (...) {}
+				File::Copy(newValue, dest_file);
+			}
+			material->props["opacity_textname"]->SetValue<std::string>(msclr::interop::marshal_as<std::string>(file));
 		}
 	}
 

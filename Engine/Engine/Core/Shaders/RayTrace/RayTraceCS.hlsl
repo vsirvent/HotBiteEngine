@@ -33,11 +33,13 @@ struct RayObject {
 
 struct IntersectionResult
 {
-    float distance;
-    float2 uv;
     float3 v0;
     float3 v1;
     float3 v2;
+
+    float distance;
+    float2 uv;
+
     uint3 vindex;
     uint object;
 };
@@ -505,7 +507,7 @@ Ray GetRefractedRayFromRay(Ray source, float in_density, float out_density, floa
     ray.orig = source.orig;
     float3 out_dir = refract(source.dir, normal, in_density / out_density);
     ray.dir = normalize(out_dir);
-    ray.orig.xyz += ray.dir * 0.01f;
+    ray.orig.xyz += ray.dir * 0.1f;
     ray.density = out_density;
     ray.bounces = source.bounces + 1;
     ray.ratio = ratio;
@@ -524,7 +526,6 @@ float3 GetColor(Ray origRay)
     IntersectionResult result;
 
     Ray ray = origRay;
-    float colorCount = 0.0f;
     float3 finalColor = float3(0.0f, 0.0f, 0.0f);
 
     bool end = false;
@@ -649,13 +650,15 @@ float3 GetColor(Ray origRay)
 
             finalColor += color * ray.ratio * o.opacity;
             ray.orig = pos;
+
+            //If not opaque surface, generate a refraction ray
             if (ray.bounces < 5 && o.opacity < 1.0f) {
                 if (ray.bounces % 2 == 0) {
                     normal = -normal;
                 }
                 ray = GetRefractedRayFromRay(ray, ray.density,
-                                                    ray.density != 1.0? 1.0f:o.density,
-                                                    normal, ray.ratio * (1.0f - o.opacity));
+                                             ray.density != 1.0? 1.0f:o.density,
+                                             normal, ray.ratio * (1.0f - o.opacity));
                 end = false;
             }             
         }
@@ -701,7 +704,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
 
     RaySource ray_source = fromColor(ray0[ray_pixel], ray1[ray_pixel]);
     props[pixel] = ray_source.dispersion;
-    if (ray_source.dispersion < 0.0f || ray_source.dispersion == 1.0f) {
+    if (ray_source.dispersion < Epsilon || ray_source.dispersion == 1.0f) {
         return;
     }
     
@@ -710,16 +713,19 @@ void main(uint3 DTid : SV_DispatchThreadID)
         return;
     }
 
-    //Normal ray
-    Ray ray = GetReflectedRayFromSource(ray_source);
-    if (length(ray.dir) > 0.0f)
-    {
-        color0 = float4(GetColor(ray), 1.0f);
+    //Reflected ray
+    if (ray_source.opacity > Epsilon) {
+        Ray ray = GetReflectedRayFromSource(ray_source);
+        if (length(ray.dir) > Epsilon)
+        {
+            color0 = float4(GetColor(ray), 1.0f);
+        }
     }
+
+    //Refracted ray
     if (ray_source.opacity < 1.0f) {
-        //Refracted ray
-        ray = GetRefractedRayFromSource(ray_source);
-        if (length(ray.dir) > 0.0f)
+        Ray ray = GetRefractedRayFromSource(ray_source);
+        if (length(ray.dir) > Epsilon)
         {
             color1 = float4(GetColor(ray), 1.0f) * (1.0f - ray_source.opacity);
         }

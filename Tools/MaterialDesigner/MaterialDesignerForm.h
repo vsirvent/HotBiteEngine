@@ -754,7 +754,7 @@ namespace MaterialDesigner {
 				   HotBiteTool::ToolUi::SetMultiMaterial("Monkey", msclr::interop::marshal_as<std::string>(rootFolder->Text), mat_json);
 			   }
 			   else {
-				   auto dm = (Material*)defaultMaterial->ToPointer();
+				   Material* dm = (Material*)defaultMaterial->ToPointer();
 				   std::string mat_json = dm->ToJson().dump();
 				   HotBiteTool::ToolUi::SetMaterial("Cube", msclr::interop::marshal_as<std::string>(rootFolder->Text), mat_json);
 				   HotBiteTool::ToolUi::SetMaterial("Sphere", msclr::interop::marshal_as<std::string>(rootFolder->Text), mat_json);

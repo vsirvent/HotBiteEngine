@@ -6,7 +6,7 @@ RenderTargetRT MainRenderPS(GSOutput input)
 	pos.x /= screenW;
 	pos.y /= screenH;
 	float spec_intensity = 0.5f;
-	float4 wpos = input.worldPos;
+	float4 wpos = input.worldPos;	
 	wpos /= wpos.w;
 	float depth = length(input.worldPos.xyz - cameraPosition) - 1.0f;
 	float dz = depthTexture.SampleCmpLevelZero(PCFSampler, pos, depth);
@@ -55,7 +55,8 @@ RenderTargetRT MainRenderPS(GSOutput input)
 	for (i = 0; i < pointLightsCount; ++i) {
 		PointLightParallaxAtt[i] = 1.0f;
 	}
-
+	//wpos without parallax displacement
+	float3 wpos2 = wpos.xyz;
 	if (material.flags & NORMAL_MAP_ENABLED_FLAG || multi_texture_count > 0) {
 		// Build orthonormal basis.
 		float3 N = normal;
@@ -209,14 +210,19 @@ RenderTargetRT MainRenderPS(GSOutput input)
 		}
 	};
 #endif
-	finalColor *= material.opacity;
+	float opacity = material.opacity;
+	if (material.flags & OPACITY_MAP_ENABLED_FLAG) {
+		opacity += opacityTexture.Sample(basicSampler, input.uv).r;
+	}
+	opacity = saturate(opacity);
+	finalColor *= opacity;
 
 	output.scene = saturate(finalColor);
 	output.light_map = saturate(lumColor);
 	output.bloom_map = saturate(lightColor);
 
 	RaySource ray;
-	ray.orig = wpos.xyz;
+	ray.orig = wpos2.xyz;
 	if (disable_rt == 0 && (material.flags & RAYTRACING_ENABLED)) {
 		ray.dispersion = saturate(1.0f - spec_intensity);
 	}
@@ -225,7 +231,7 @@ RenderTargetRT MainRenderPS(GSOutput input)
 	}
 	ray.normal = normal;
 	ray.density = material.density;
-	ray.opacity = material.opacity;
+	ray.opacity = opacity;
 
 	output.rt_ray0_map = getColor0(ray);
 	output.rt_ray1_map = getColor1(ray);
