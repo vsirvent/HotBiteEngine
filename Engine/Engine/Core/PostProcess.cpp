@@ -225,59 +225,29 @@ ID3D11RenderTargetView* GenericPostProcess::RenderTarget() const {
 
 
 
-void DOPEffect::ClearData(const float color[4]) {
+void MainEffect::ClearData(const float color[4]) {
 	context->ClearRenderTargetView(text.RenderTarget(), color);
-	context->ClearDepthStencilView(
-		depth.Depth(),
-		D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL,
-		1.0f,
-		0);
 }
 
-DOPEffect::DOPEffect(ID3D11DeviceContext* dxcontext,
-	int width, int height, float near_factor, float far_factor) :
+MainEffect::MainEffect(ID3D11DeviceContext* dxcontext,
+	int width, int height) :
 	PostProcess(dxcontext,
 		ShaderFactory::Get()->GetShader<SimpleVertexShader>("PostMainVS.cso"),
-		ShaderFactory::Get()->GetShader<SimplePixelShader>("PostMainPS.cso")),
-	far_factor(far_factor), near_factor(near_factor) {
+		ShaderFactory::Get()->GetShader<SimplePixelShader>("PostMainPS.cso"))
+{
 	text.Init(width, height, DXGI_FORMAT_R32G32B32A32_FLOAT);
-	depth.Init(width, height);
 }
 
-DOPEffect::~DOPEffect() {
+MainEffect::~MainEffect() {
 	text.Release();
-	depth.Release();
 }
 
-ID3D11ShaderResourceView* DOPEffect::RenderResource() {
+ID3D11ShaderResourceView* MainEffect::RenderResource() {
 	return text.SRV();
 }
 
-ID3D11RenderTargetView* DOPEffect::RenderTarget() const {
+ID3D11RenderTargetView* MainEffect::RenderTarget() const {
 	return text.RenderTarget();
-}
-
-ID3D11ShaderResourceView* DOPEffect::DepthResource() {
-	return depth.SRV();
-}
-
-ID3D11DepthStencilView* DOPEffect::DepthView() {
-	return depth.Depth();
-}
-
-void DOPEffect::Prepare() {
-	context->GenerateMips(RenderResource());
-	PostProcess::Prepare();
-	ps->SetShaderResourceView(SimpleShaderKeys::DEPTH_TEXTURE, DepthResource());
-	ps->SetFloat(SimpleShaderKeys::NEAR_FACTOR, near_factor);
-	ps->SetFloat(SimpleShaderKeys::FAR_FACTOR, far_factor);
-	ps->SetInt(SimpleShaderKeys::DOP_ACTIVE, active);
-	ps->SetMatrix4x4(SimpleShaderKeys::PROJECTION_INVERSE, current_projection_inverse);
-}
-
-void DOPEffect::UnPrepare() {
-	ps->SetShaderResourceView(SimpleShaderKeys::DEPTH_TEXTURE, nullptr);
-	PostProcess::UnPrepare();
 }
 
 void MotionBlurEffect::ClearData(const float color[4]) {

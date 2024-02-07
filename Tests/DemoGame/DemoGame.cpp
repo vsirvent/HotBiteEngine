@@ -62,7 +62,7 @@ private:
 
 	World world;
 	World loading;
-	DOPEffect* dop_fx = nullptr;
+	MainEffect* main_fx = nullptr;
 	MotionBlurEffect* motion_blur = nullptr;
 	PostGame* post_game = nullptr;
 	UI::GUI* gui = nullptr;
@@ -216,7 +216,7 @@ public:
 			int w = GetWidth();
 			int h = GetHeight();
 			//We have depth of field effect as post process
-			dop_fx = new DOPEffect(context, w, h, 20.0f, 0.0f);
+			main_fx = new MainEffect(context, w, h);
 			motion_blur = new MotionBlurEffect(context, w, h);
 			//we add to the chain a GUI post process stage to render UI
 			gui = new UI::GUI(context, w, h, world.GetCoordinator());
@@ -226,12 +226,12 @@ public:
 			render->Update();
 
 			//Connect the post-chain effects
-			dop_fx->SetNext(post_game);
-			//motion_blur->SetNext(post_game);
+			main_fx->SetNext(post_game);
+			motion_blur->SetNext(post_game);
 			post_game->SetNext(gui);
 
 			//Set the post-chain begin to the renderer
-			world.SetPostProcessPipeline(dop_fx);
+			world.SetPostProcessPipeline(main_fx);
 			progress += 5.0f;
 			render->Update();
 
@@ -477,7 +477,7 @@ public:
 		world.Stop();
 		delete post_game;
 		delete motion_blur;
-		delete dop_fx;
+		delete main_fx;
 		delete gui;
 	}
 

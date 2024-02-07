@@ -66,8 +66,6 @@ struct ObjectInfo
 
 cbuffer externalData : register(b0)
 {
-    matrix invView;
-
     float time;
     float3 cameraPosition;
     float3 cameraDirection;
@@ -424,35 +422,6 @@ float3 GetDiffuseColor(uint object, float2 uv)
         return float3(0.0f, 0.0f, 0.0f);
     }
 }
-
-float3 CalculateRefractedVector(float3 incidentVector, float3 normalVector, float refractiveIndexRatio)
-{
-    // Ensure normalized input vectors
-    incidentVector = normalize(incidentVector);
-    normalVector = normalize(normalVector);
-
-    float cosThetaI = dot(incidentVector, normalVector);
-    float sinThetaI = sqrt(1.0 - cosThetaI * cosThetaI);
-
-    float sinThetaT = refractiveIndexRatio * sinThetaI;
-    float cosThetaT = sqrt(1.0 - sinThetaT * sinThetaT);
-
-    // Calculate the refracted vector
-    float3 refractedVector = refractiveIndexRatio * incidentVector + (refractiveIndexRatio * cosThetaI - cosThetaT) * normalVector;
-
-    return refractedVector;
-}
-
-float3 Refract(float3 incidentVec, float3 normal, float eta)
-{
-    float N_dot_I = dot(normal, incidentVec);
-    float k = 1.f - eta * eta * (1.f - N_dot_I * N_dot_I);
-    if (k < 0.f)
-        return reflect(incidentVec, normal);
-    else
-        return eta* incidentVec - (eta * N_dot_I + sqrt(k)) * normal;
-}
-
 
 Ray GetReflectedRayFromSource(RaySource source)
 {

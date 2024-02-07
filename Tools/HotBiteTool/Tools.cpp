@@ -22,7 +22,7 @@ namespace HotBiteTool {
 
 			//we add to the chain a GUI post process stage to render UI
 			gui = new UI::GUI(context, width, height, world.GetCoordinator());
-			post = new DOPEffect(context, width, height, 0, 100);
+			post = new MainEffect(context, width, height);
 			post->SetNext(gui);
 			world.SetPostProcessPipeline(post);
 			this->fps = fps;
@@ -101,7 +101,7 @@ namespace HotBiteTool {
 			
 			auto c = world.GetCoordinator();
 			gui = new UI::GUI(context, width, height, world.GetCoordinator());
-			post = new DOPEffect(context, width, height, 0, 100);
+			post = new MainEffect(context, width, height);
 
 			world.Load(world_file);
 			world.Init();

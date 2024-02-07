@@ -873,3 +873,9 @@ Solution/x64/Release/RayTraceCS.cso
 Solution/x64/Release/RayTraceCS.cso
 Solution/x64/Release/MaterialDesigner.exe
 Solution/x64/Debug/RayTraceCS.cso
+Solution/x64/Debug/BlurCS.cso
+Solution/x64/Debug/PostDOP.cso
+Solution/x64/Debug/RayTraceCS.cso
+Solution/x64/Debug/SmoothCS.cso
+Solution/x64/Debug/UpscaleCS.cso
+Solution/x64/Debug/AccumulatorCS.cso

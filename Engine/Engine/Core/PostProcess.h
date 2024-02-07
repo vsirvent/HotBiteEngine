@@ -147,42 +147,18 @@ namespace HotBite {
 				virtual ID3D11RenderTargetView* RenderTarget() const override;
 			};
 			
-			class DOPEffect : public PostProcess
+			class MainEffect : public PostProcess
 			{
 			private:
-				RenderTexture2D text{ 3 };
-				DepthTexture2D depth;
-				float4x4 current_projection_inverse{};
-				float near_factor = 0.0f;
-				float far_factor = 0.0f;
-				bool active = true;
+				RenderTexture2D text;
 				virtual void ClearData(const float color[4]);
 
 			public:
-				DOPEffect(ID3D11DeviceContext* dxcontext,
-					int width, int height, float near_factor, float far_factor);
-				virtual ~DOPEffect();
-
-				void SetFar(float far_factor) { this->far_factor = far_factor; }
-				void SetNear(float near_factor) { this->near_factor = near_factor; }
-				void SetActive(bool active) { this->active = active; }
-				float GetFar(void) const { return far_factor; }
-				float GetNear(void) const { return near_factor; }
-				bool GetActive(void) const { return active; }
+				MainEffect(ID3D11DeviceContext* dxcontext, int width, int height);
+				virtual ~MainEffect();
 
 				virtual ID3D11ShaderResourceView* RenderResource() override;
 				virtual ID3D11RenderTargetView* RenderTarget() const override;
-				virtual ID3D11ShaderResourceView* DepthResource() override;
-				virtual ID3D11DepthStencilView* DepthView() override;
-
-				virtual void Prepare() override;
-				virtual void UnPrepare() override;
-
-				//Override parent method ans save the information used by our post-effect.
-				virtual void SetView(const float4x4& view, const float4x4& view_inverse, const float4x4& projection_inverse) {
-					current_projection_inverse = projection_inverse;
-					PostProcess::SetView(view, view_inverse, projection_inverse);
-				}
 			};
 
 			class MotionBlurEffect : public PostProcess

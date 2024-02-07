@@ -1297,7 +1297,6 @@ void RenderSystem::ProcessRT() {
 		float3 dir;
 		XMStoreFloat3(&dir, cam_entity.camera->xm_direction);
 		rt_shader->SetFloat(TIME, time);
-		rt_shader->SetMatrix4x4("invView", cam_entity.camera->inverse_view_projection);
 		rt_shader->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
 		rt_shader->SetFloat3("cameraDirection", dir);
 		rt_shader->SetSamplerState(PCF_SAMPLER, dxcore->shadow_sampler);
