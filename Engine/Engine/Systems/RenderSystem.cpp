@@ -1212,12 +1212,13 @@ void RenderSystem::ProcessRT() {
 			ID3D11ShaderResourceView* diff;
 		};
 
-		auto fill = [=](RenderTree& tree, std::map<float, Node>& distance_map) {
+		bool enabled_layer[2]{false};
+		auto fill = [op = &enabled_layer[0], tr = &enabled_layer[1], ca = &cam_entity](RenderTree& tree, std::map<float, Node>& distance_map) {
 			for (auto& shaders : tree) {
 				for (auto& mat : shaders.second) {
 					for (auto& de : mat.second.second.GetData()) {
 						if (de.base->visible && de.mesh->GetData()->skeletons.empty()) {
-							float distance = LENGHT_F3(de.transform->position - cam_entity.camera->world_position);
+							float distance = LENGHT_F3(de.transform->position - ca->camera->world_position);
 							
 							
 							MaterialProps mo = de.mat->data->props;
@@ -1249,6 +1250,12 @@ void RenderSystem::ProcessRT() {
 							o.density = de.mat->data->props.density;
 							o.opacity = de.mat->data->props.opacity;
 
+							if (o.opacity > 0.0f) {
+								*op = true;
+							}
+							if (o.opacity < 1.0f) {
+								*tr = true;
+							}
 							distance_map[distance] = { o, mo, diffuse_text };
 						}
 					}
@@ -1342,27 +1349,29 @@ void RenderSystem::ProcessRT() {
 
 		//Smooth frame
 		for (int i = 0; i < 2; ++i) {
-			int32_t  groupsX = (int32_t)(ceil((float)rt_texture[i].Width() / 32.0f));
-			int32_t  groupsY = (int32_t)(ceil((float)rt_texture[i].Height() / 32.0f));
-			rt_smooth->SetUnorderedAccessView("input", rt_texture[i].UAV());
-			rt_smooth->SetUnorderedAccessView("output", rt_texture_tmp.UAV());
-			rt_smooth->SetUnorderedAccessView("props", rt_texture_props.UAV());
-			rt_smooth->SetInt("type", 1);
-			rt_smooth->CopyAllBufferData();
-			rt_smooth->SetShader();
-			dxcore->context->Dispatch(groupsX, groupsY, 1);
-			rt_smooth->SetInt("type", 2);
-			rt_smooth->SetUnorderedAccessView("input", nullptr);
-			rt_smooth->SetUnorderedAccessView("output", nullptr);
-			rt_smooth->CopyAllBufferData();
-			rt_smooth->SetUnorderedAccessView("input", rt_texture_tmp.UAV());
-			rt_smooth->SetUnorderedAccessView("output", rt_texture[i].UAV());
-			rt_smooth->CopyAllBufferData();
-			dxcore->context->Dispatch(groupsX, groupsY, 1);
-			rt_smooth->SetUnorderedAccessView("input", nullptr);
-			rt_smooth->SetUnorderedAccessView("output", nullptr);
-			rt_smooth->SetUnorderedAccessView("props", nullptr);
-			rt_smooth->CopyAllBufferData();
+			if (enabled_layer[i]) {
+				int32_t  groupsX = (int32_t)(ceil((float)rt_texture[i].Width() / 32.0f));
+				int32_t  groupsY = (int32_t)(ceil((float)rt_texture[i].Height() / 32.0f));
+				rt_smooth->SetUnorderedAccessView("input", rt_texture[i].UAV());
+				rt_smooth->SetUnorderedAccessView("output", rt_texture_tmp.UAV());
+				rt_smooth->SetUnorderedAccessView("props", rt_texture_props.UAV());
+				rt_smooth->SetInt("type", 1);
+				rt_smooth->CopyAllBufferData();
+				rt_smooth->SetShader();
+				dxcore->context->Dispatch(groupsX, groupsY, 1);
+				rt_smooth->SetInt("type", 2);
+				rt_smooth->SetUnorderedAccessView("input", nullptr);
+				rt_smooth->SetUnorderedAccessView("output", nullptr);
+				rt_smooth->CopyAllBufferData();
+				rt_smooth->SetUnorderedAccessView("input", rt_texture_tmp.UAV());
+				rt_smooth->SetUnorderedAccessView("output", rt_texture[i].UAV());
+				rt_smooth->CopyAllBufferData();
+				dxcore->context->Dispatch(groupsX, groupsY, 1);
+				rt_smooth->SetUnorderedAccessView("input", nullptr);
+				rt_smooth->SetUnorderedAccessView("output", nullptr);
+				rt_smooth->SetUnorderedAccessView("props", nullptr);
+				rt_smooth->CopyAllBufferData();
+			}
 		}
 	}
 }
