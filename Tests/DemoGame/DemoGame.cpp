@@ -233,8 +233,7 @@ public:
 			motion_blur->SetNext(post_game);
 			post_game->SetNext(gui);
 
-			dof->SetAmplitude(10.0f);
-			dof->SetFocus(6.0f);
+			dof->SetAmplitude(2.0f);
 			dof->SetEnabled(true);
 
 			//Set the post-chain begin to the renderer

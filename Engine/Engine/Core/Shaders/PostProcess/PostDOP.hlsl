@@ -41,14 +41,14 @@ cbuffer externalData : register(b0)
 #define EPSILON 1e-6
 #define VERTICAL 1
 #define HORIZONTAL 2
-#define KERNEL_SIZE 19
+#define KERNEL_SIZE 15
 #define HALF_KERNEL KERNEL_SIZE/2
 
 void FillGaussianArray(out float array[KERNEL_SIZE], float dispersion)
 {
     float sum = 0.0;
     int halfSize = KERNEL_SIZE / 2;
-    float variance = clamp(dispersion, 0.6f, HALF_KERNEL/2);
+    float variance = clamp(dispersion, 0.1f, 4.0f);
     int i;
     for (i = -HALF_KERNEL; i <= HALF_KERNEL; ++i)
     {
@@ -64,9 +64,11 @@ void FillGaussianArray(out float array[KERNEL_SIZE], float dispersion)
     }
 }
 
-float4 getColor(float2 pixel, float2 dir, float dispersion)
+float4 getColor(float2 pixel, float w, float h, float2 dir, float dispersion)
 {
-    if (dispersion < Epsilon) {
+    if (dispersion < 0.1f) {
+        pixel.x /= w;
+        pixel.y /= h;
         return renderTexture.Sample(basicSampler, pixel);
     }
     else {
@@ -104,9 +106,7 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
 
     if (dopActive) {
         float z0 = depthTexture.Sample(basicSampler, tpos).r;
-        if (z0 != FLT_MAX) {
-            dispersion = pow((focusZ - z0), 2.0f) * amplitude / 100.0f;
-        }
+        dispersion = pow((focusZ - z0), 2.0f) * amplitude / 100.0f;
     }
-    return getColor(pos.xy, dir, dispersion);
+    return getColor(pos.xy, w, h, dir, dispersion);
 }
