@@ -317,7 +317,7 @@ namespace HotBite {
 				static ShaderFactory* Get();
 				static void Release();
 
-				void Reset() {
+				void Reload() {
 					for (auto& shader : shaders) {
 						shader.second->Reload();
 					}

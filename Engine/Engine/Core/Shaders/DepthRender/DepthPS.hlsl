@@ -29,12 +29,8 @@ cbuffer externalData : register(b0)
 	float3 cameraPosition;	
 }
 
-DepthTarget main(DepthVertexToPixel input) : SV_TARGET
+float4 main(DepthVertexToPixel input) : SV_TARGET
 {
-	DepthTarget output;
-	output.view_pos = input.worldPos;
-
 	input.worldPos /= input.worldPos.w;
-	output.depth = length(input.worldPos.xyz - cameraPosition);
-	return output;
+	return length(input.worldPos.xyz - cameraPosition);
 }

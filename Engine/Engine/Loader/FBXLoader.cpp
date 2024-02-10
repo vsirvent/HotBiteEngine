@@ -639,8 +639,11 @@ FBXLoader::ProcessEntity(Core::FlatMap<std::string, Core::MeshData>& meshes,
 		matrix rot = XMMatrixRotationQuaternion(XMLoadFloat4(&transform.rotation));
 		matrix scle = XMMatrixScaling(transform.scale.x, transform.scale.y, transform.scale.z);
 		transform.world_xmmatrix = scle * rot * trans;
+
 		XMStoreFloat4x4(&transform.world_matrix, XMMatrixTranspose(transform.world_xmmatrix));
 		XMStoreFloat4x4(&transform.world_inv_matrix, XMMatrixTranspose(XMMatrixInverse(nullptr, transform.world_xmmatrix)));
+
+		transform.prev_world_matrix = transform.world_matrix;
 
 		if (node->GetNodeAttribute())
 		{

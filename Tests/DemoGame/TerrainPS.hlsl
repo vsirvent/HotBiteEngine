@@ -30,6 +30,7 @@ SOFTWARE.
 cbuffer externalData : register(b0)
 {
 	matrix world;
+	matrix prevWorld;
 	matrix view;
 	matrix projection;
 	AmbientLight ambientLight;

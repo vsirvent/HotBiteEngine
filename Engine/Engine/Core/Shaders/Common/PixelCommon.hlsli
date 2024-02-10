@@ -46,6 +46,8 @@ struct RenderTargetRT
 	float4 bloom_map : SV_TARGET2;
 	float4 rt_ray0_map : SV_TARGET3;
 	float4 rt_ray1_map : SV_TARGET4;
+	float4 pos0_map : SV_TARGET5;
+	float4 pos1_map : SV_TARGET6;
 };
 
 struct DirLight

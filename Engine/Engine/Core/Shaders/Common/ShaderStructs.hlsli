@@ -27,12 +27,6 @@ SOFTWARE.
 
 #include "Defines.hlsli"
 
-struct DepthTarget
-{
-	float4 depth : SV_TARGET0;
-	float4 view_pos : SV_TARGET1;
-};
-
 struct RaySource
 {
 	float3 orig;
@@ -131,12 +125,13 @@ struct DomainOutput
 struct GSOutput
 {
 	float4 position     : SV_POSITION;
-	float4 worldPos     : POSITION;
+	float4 worldPos     : POSITION0;
+	float4 objectPos    : POSITION1;
 	float3 normal		: NORMAL;
 	float2 uv			: TEXCOORD;
 	float2 mesh_uv		: TEXCOORD1;
-	float3 tangent      : POSITION1;
-	float3 bitangent    : POSITION2;
+	float3 tangent      : POSITION2;
+	float3 bitangent    : POSITION3;
 };
 
 struct GSSimpleOutput

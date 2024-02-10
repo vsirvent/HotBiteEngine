@@ -114,6 +114,10 @@ ID3D11ShaderResourceView* PostProcess::RenderResource() {
 	return nullptr;
 }
 
+ID3D11UnorderedAccessView* PostProcess::RenderUAV() {
+	return nullptr;
+}
+
 ID3D11RenderTargetView* PostProcess::RenderTarget() const {
 	return nullptr;
 }
@@ -240,7 +244,7 @@ MainEffect::MainEffect(ID3D11DeviceContext* dxcontext,
 		ShaderFactory::Get()->GetShader<SimpleVertexShader>("PostMainVS.cso"),
 		ShaderFactory::Get()->GetShader<SimplePixelShader>("PostMainPS.cso"))
 {
-	text.Init(width, height, DXGI_FORMAT_R32G32B32A32_FLOAT);
+	text.Init(width, height, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS);
 	depth.Init(width, height);
 }
 
@@ -251,6 +255,10 @@ MainEffect::~MainEffect() {
 
 ID3D11ShaderResourceView* MainEffect::RenderResource() {
 	return text.SRV();
+}
+
+ID3D11UnorderedAccessView* MainEffect::RenderUAV() {
+	return text.UAV();
 }
 
 ID3D11RenderTargetView* MainEffect::RenderTarget() const {

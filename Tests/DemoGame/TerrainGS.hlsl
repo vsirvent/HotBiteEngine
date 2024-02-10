@@ -86,6 +86,7 @@ void CreateGrass(float3 pos, matrix worldViewProj, inout TriangleStream< GSOutpu
 			else {
 				element.worldPos = float4(pos + rotate_vector(rotate_vector(p[elem], q), wind_q), 1.0f);
 			}
+			element.objectPos = float4(pos, 1.0f);
 			element.position = mul(element.worldPos, worldViewProj);
 			element.normal = float3(0.0f, 0.0f, 1.0f);
 			element.tangent = float3(0.0f, 0.0f, 0.0f);
@@ -161,6 +162,7 @@ void main(
 			element.uv = input[i].uv;
 			element.mesh_uv = input[i].mesh_uv;
 			element.worldPos = input[i].worldPos;
+			element.objectPos = input[i].position;
 			element.position = p[i];
 			element.normal = normalize(input[i].normal);
 			element.tangent = mul(tangent, (float3x3)world);

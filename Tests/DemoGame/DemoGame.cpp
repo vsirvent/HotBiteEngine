@@ -374,7 +374,7 @@ public:
 					}
 					else if (GetAsyncKeyState('1') & 0x8000) {
 						std::lock_guard<std::recursive_mutex> l(world.GetCoordinator()->GetSystem<RenderSystem>()->mutex);
-						ShaderFactory::Get()->Reset();
+						ShaderFactory::Get()->Reload();
 					}
 					else if (GetAsyncKeyState('Y') & 0x8000) {
 						if (tone == AudioSystem::INVALID_PLAY_ID) {

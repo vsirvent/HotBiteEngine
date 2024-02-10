@@ -40,6 +40,7 @@ namespace HotBite {
             class IRenderSource {
             public:
                 virtual ID3D11ShaderResourceView* RenderResource() = 0;
+                virtual ID3D11UnorderedAccessView* RenderUAV() = 0;
             };
 
             class IRenderTarget {

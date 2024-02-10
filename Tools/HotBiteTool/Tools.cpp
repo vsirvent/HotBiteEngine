@@ -36,7 +36,7 @@ namespace HotBiteTool {
 				static float rot_val = 0.0f;
 				auto rot = XMMatrixRotationAxis({ 0.0f, 1.0f, 0.0f }, rot_val);
 				vector3d move_q = XMQuaternionRotationMatrix(rot);
-				rot_val += 0.005f;
+				rot_val += 0.1f;
 				if (rot_val > XM_PI) rot_val = -XM_PI;
 				for (const auto& e : rotation_entities) {
 					auto& t = world.GetCoordinator()->GetComponent<Components::Transform>(e);
@@ -48,6 +48,10 @@ namespace HotBiteTool {
 				}
 				return true;
 			});
+		}
+
+		void ToolUi::ReloadShaders() {
+			ShaderFactory::Get()->Reload();
 		}
 
 		void ToolUi::LoadUI(json ui) {
@@ -103,19 +107,21 @@ namespace HotBiteTool {
 			gui = new UI::GUI(context, width, height, world.GetCoordinator());
 			post = new MainEffect(context, width, height);
 			dof = new DOFProcess(context, width, height, world.GetCoordinator());
-
+			motion = new MotionBlurEffect(context, width, height);
 
 			world.Load(world_file);
 			world.Init();
 			world.Run(fps);
 
-			post->SetNext(dof);
+			post->SetNext(gui);
+#if 0
+			motion->SetNext(dof);
 			dof->SetNext(gui);
 
 			dof->SetAmplitude(2.0f);
 			dof->SetFocus(6.0f);
 			dof->SetEnabled(true);
-
+#endif
 			world.SetPostProcessPipeline(post);
 		
 		}

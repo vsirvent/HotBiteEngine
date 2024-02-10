@@ -125,6 +125,7 @@ namespace HotBite {
 				virtual void SetView(const Components::Camera& camera);
 
 				virtual ID3D11ShaderResourceView* RenderResource() override;
+				virtual ID3D11UnorderedAccessView* RenderUAV() override;
 				virtual ID3D11RenderTargetView* RenderTarget() const override;
 				virtual ID3D11ShaderResourceView* DepthResource() override;
 				virtual ID3D11DepthStencilView* DepthView() override;
@@ -161,6 +162,7 @@ namespace HotBite {
 				virtual ~MainEffect();
 
 				virtual ID3D11ShaderResourceView* RenderResource() override;
+				virtual ID3D11UnorderedAccessView* RenderUAV() override;
 				virtual ID3D11RenderTargetView* RenderTarget() const override;
 				virtual ID3D11ShaderResourceView* DepthResource() override;
 				virtual ID3D11DepthStencilView* DepthView() override;
