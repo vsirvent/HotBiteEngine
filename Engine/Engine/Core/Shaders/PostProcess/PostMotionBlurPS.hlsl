@@ -26,16 +26,19 @@ cbuffer externalData
 {
     int screenW;
     int screenH;
-    matrix view_inverse;
-    matrix prev_view;
+    matrix view_proj;
+    matrix prev_view_proj;
 };
 
 Texture2D renderTexture;
-Texture2D<float> depthTexture;
+Texture2D positionTexture;
 
 SamplerState basicSampler;
 
-static const uint numSamples = 15;
+static const uint numSamples = 20;
+static const float MOTION_FACTOR = 0.05f;
+static const float MAX_VELOCITY_FACTOR = 5.0f;
+
 float4 main(float4 pos: SV_POSITION) : SV_TARGET
 {    
     float2 tpos = pos.xy;
@@ -44,43 +47,46 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
     float4 finalColor;
 
     // Get the depth buffer value at this pixel. 
-    float zOverW = depthTexture.Sample(basicSampler, tpos);
-    if (zOverW != FLT_MAX) {
-        // H is the viewport position at this pixel in the range -1 to 1.
-        float4 H = float4(tpos.x * 2.0f - 1.0f, (1.0f - tpos.y) * 2.0f - 1.0f, zOverW, 1.0f);
-        // Transform by the view-projection inverse.
-        float4 D = mul(H, view_inverse);
-        // Divide by w to get the world position.
-        float4 worldPos = D / D.w;
+    float4 p1World = positionTexture.Sample(basicSampler, tpos);
+    if (length(p1World) > 0) {
+        
+        float4 p0 = mul(p1World, prev_view_proj);
+        float4 p1 = mul(p1World, view_proj);
+        
+        p0 /= p0.w;
+        p1 /= p1.w;
 
-        // Current viewport position
-        float4 currentPos = H;
-        // Use the world position, and transform by the previous view projection matrix.
-        float4 previousPos = mul(worldPos, prev_view);
-        // Convert to nonhomogeneous points [-1,1] by dividing by w. 
-        previousPos /= previousPos.w;
         // Use this frame's position and last frame's to compute the pixel velocity.
-        float2 velocity = currentPos.xy - previousPos.xy;
+        float2 velocity = (p1.xy - p0.xy)*MOTION_FACTOR;
+        float dist = length(tpos - 0.5f)*2.0f;
+        velocity *= dist*dist;
 
-        velocity.x /= screenW;
-        velocity.y /= screenH;
+        float maxVelocity = MAX_VELOCITY_FACTOR / min(screenW, screenH); // Max velocity per pixel
+        float magnitude = length(velocity); // Calculate magnitude of velocity vector
 
+        // If magnitude exceeds max velocity, scale down the velocity vector
+        if (magnitude > maxVelocity)
+        {
+            float scale = maxVelocity / magnitude;
+            velocity *= scale;
+        }
+
+        velocity.y *= -1.0f;
         // Get the initial color at this pixel.
         if (length(velocity) > 0.0f) {
             uint w = 0;
             float4 color = { 0.0f, 0.0f, 0.0f, 0.0f };
-            float2 start_pos = tpos;// +(velocity * numSamples / 4);
-            tpos = saturate(start_pos);
-            for (uint i = numSamples; i > 0; --i) {
+            float2 start_pos = tpos - velocity * numSamples;
+            for (uint i = 1; i < numSamples; ++i) {
+                if (tpos.x >= 1.0f || tpos.x <= 0.0f || tpos.y >= 1.0f || tpos.y <= 0.0f) {
+                    continue;
+                }
                 // Sample the color buffer along the velocity vector.
                 float4 currentColor = renderTexture.SampleLevel(basicSampler, tpos, 0);
                 // Add the current color to our color sum. with a weight of the iteration
                 color += (currentColor * (float)(i));
-                w += (i);
-                tpos -= velocity;
-                if (tpos.x >= 1.0f || tpos.x <= 0.0f || tpos.y >= 1.0f || tpos.y <= 0.0f) {
-                    break;
-                }
+                w += i;
+                tpos += velocity;
             }
             finalColor = (color / (float)w);
         }

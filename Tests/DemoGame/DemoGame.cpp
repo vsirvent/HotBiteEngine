@@ -372,6 +372,10 @@ public:
 					else if (GetAsyncKeyState('T') & 0x8000) {
 						world.GetCoordinator()->GetSystem<RenderSystem>()->SetRayTracing(false);
 					}
+					else if (GetAsyncKeyState('1') & 0x8000) {
+						std::lock_guard<std::recursive_mutex> l(world.GetCoordinator()->GetSystem<RenderSystem>()->mutex);
+						ShaderFactory::Get()->Reset();
+					}
 					else if (GetAsyncKeyState('Y') & 0x8000) {
 						if (tone == AudioSystem::INVALID_PLAY_ID) {
 							tone = world.GetCoordinator()->GetSystem<AudioSystem>()->Play(4);

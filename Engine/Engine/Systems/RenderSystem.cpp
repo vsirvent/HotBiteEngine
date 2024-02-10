@@ -247,13 +247,16 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		if (FAILED(light_map.Init(w, h))) {
 			throw std::exception("light_map.Init failed");
 		}
+		if (FAILED(position_map.Init(w/2, h/2, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT))) {
+			throw std::exception("position_map.Init failed");
+		}
 		if (FAILED(bloom_map.Init(w, h))) {
 			throw std::exception("bloom_map.Init failed");
 		}
 		if (FAILED(temp_map.Init(w, h))) {
 			throw std::exception("temp_map.Init failed");
 		}
-		if (FAILED(depth_map.Init(w / 2, h / 2, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT))) {
+		if (FAILED(depth_map.Init(w/2 , h/2, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT))) {
 			throw std::exception("depth_map.Init failed");
 		}
 		if (FAILED(depth_view.Init(w/2, h/2))) {
@@ -307,6 +310,7 @@ RenderSystem::~RenderSystem() {
 	depth_map.Release();
 	depth_view.Release();
 	light_map.Release();
+	position_map.Release();
 	bloom_map.Release();
 	temp_map.Release();
 	first_pass_texture.Release();
@@ -386,8 +390,8 @@ void RenderSystem::DrawDepth(int w, int h, const float3& camera_position, const 
 	SimplePixelShader* ps = nullptr;
 
 	context->GSSetShader(nullptr, nullptr, 0);
-	ID3D11RenderTargetView* rv[1] = { depth_map.RenderTarget() };
-	context->OMSetRenderTargets(1, rv, depth_view.Depth());
+	ID3D11RenderTargetView* rv[2] = { depth_map.RenderTarget(), position_map.RenderTarget() };
+	context->OMSetRenderTargets(2, rv, depth_view.Depth());
 	context->RSSetViewports(1, &dxcore->half_viewport);
 	context->RSSetState(dxcore->drawing_rasterizer);
 
@@ -1665,6 +1669,7 @@ void RenderSystem::Clear(const float color[4]) {
 	static const float zero[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 	depth_map.Clear(max_depth);
 	depth_view.Clear();
+	position_map.Clear(zero);
 	light_map.Clear(color);
 	bloom_map.Clear(color);
 	temp_map.Clear(color);
@@ -1697,6 +1702,7 @@ void RenderSystem::SetPostProcessPipeline(Core::PostProcess* pipeline) {
 		pipeline->SetShaderResourceView("bloomTexture", bloom_map.SRV());
 		pipeline->SetShaderResourceView("rtTexture0", rt_texture[0].SRV());
 		pipeline->SetShaderResourceView("rtTexture1", rt_texture[1].SRV());
+		pipeline->SetShaderResourceView("positionTexture", position_map.SRV());
 
 		while (last->GetNext() != nullptr) {
 			last = last->GetNext();

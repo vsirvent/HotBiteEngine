@@ -74,6 +74,7 @@ namespace HotBite {
 				// Initialization method (since we can't invoke derived class
 				// overrides in the base class constructor)
 				bool LoadShaderFile(LPCWSTR shaderFile);
+				bool Reload();
 
 				// Simple helpers
 				bool IsShaderValid() { return shaderValid; }
@@ -126,6 +127,7 @@ namespace HotBite {
 			protected:
 
 				bool shaderValid;
+				std::wstring shaderFile;
 				ID3DBlob* shaderBlob;
 				ID3D11Device* device;
 				ID3D11DeviceContext* deviceContext;
@@ -310,9 +312,16 @@ namespace HotBite {
 
 				ShaderFactory() = default;
 				~ShaderFactory();
+
 			public:
 				static ShaderFactory* Get();
 				static void Release();
+
+				void Reset() {
+					for (auto& shader : shaders) {
+						shader.second->Reload();
+					}
+				}
 
 				template <typename T>
 				T* GetShader(const std::string& name) {

@@ -27,6 +27,12 @@ SOFTWARE.
 
 #include "Defines.hlsli"
 
+struct DepthTarget
+{
+	float4 depth : SV_TARGET0;
+	float4 view_pos : SV_TARGET1;
+};
+
 struct RaySource
 {
 	float3 orig;

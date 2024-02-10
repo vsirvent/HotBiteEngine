@@ -84,19 +84,30 @@ void ISimpleShader::CleanUp()
 	{
 		constantBuffers[i].ConstantBuffer->Release();
 		delete[] constantBuffers[i].LocalDataBuffer;
+		constantBuffers[i].LocalDataBuffer = nullptr;
 	}
 
 	if (constantBuffers)
 	{
 		delete[] constantBuffers;
+		constantBuffers = nullptr;
 		constantBufferCount = 0;
 	}
 
-	for (unsigned int i = 0; i < shaderResourceViews.size(); i++)
-		delete shaderResourceViews[i];
+	for (unsigned int i = 0; i < shaderResourceViews.size(); i++) {
+		if (shaderResourceViews[i]) {
+			delete shaderResourceViews[i];
+		}
+	}
 	
 	for (unsigned int i = 0; i < samplerStates.size(); i++)
-		delete samplerStates[i];
+	{
+		if (samplerStates[i]) {
+			delete samplerStates[i];
+		}
+	}
+	shaderResourceViews.clear();
+	samplerStates.clear();
 
 	// Clean up tables
 	varTable.clear();
@@ -114,8 +125,14 @@ void ISimpleShader::CleanUp()
 // 
 // Returns true if shader is loaded properly, false otherwise
 // --------------------------------------------------------
+bool ISimpleShader::Reload()
+{
+	return LoadShaderFile(shaderFile.c_str());
+}
+
 bool ISimpleShader::LoadShaderFile(LPCWSTR shaderFile)
 {
+	this->shaderFile = shaderFile;
 	// Load the shader to a blob and ensure it worked
 	HRESULT hr = D3DReadFileToBlob(shaderFile, &shaderBlob);
 	assert(hr == S_OK);

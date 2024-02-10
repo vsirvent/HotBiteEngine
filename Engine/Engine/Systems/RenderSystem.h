@@ -227,6 +227,7 @@ namespace HotBite {
 				Core::DXCore* dxcore = nullptr;				
 				Core::RenderTexture2D depth_map{ 3 };
 				Core::RenderTexture2D light_map;
+				Core::RenderTexture2D position_map;
 				Core::RenderTexture2D bloom_map;
 				Core::RenderTexture2D temp_map;
 				Core::RenderTexture2D rgba_noise_texture;

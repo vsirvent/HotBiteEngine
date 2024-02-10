@@ -171,7 +171,6 @@ namespace HotBite {
 			private:
 				RenderTexture2D text{ 3 };
 
-				float4x4 current_view_inverse{};
 				float4x4 current_view{};
 				float4x4 prev_view{};
 				
@@ -190,9 +189,7 @@ namespace HotBite {
 				//Override parent method ans save the information used by our post-effect.
 				virtual void SetView(const Components::Camera& camera) override {
 					prev_view = current_view;
-					current_view = camera.view;
-					current_view_inverse = camera.inverse_view;
-
+					current_view = camera.view_projection;
 					PostProcess::SetView(camera);
 				}
 			};

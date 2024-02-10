@@ -284,7 +284,7 @@ MotionBlurEffect::MotionBlurEffect(ID3D11DeviceContext* dxcontext,
 		ShaderFactory::Get()->GetShader<SimplePixelShader>("PostMotionBlurPS.cso")) {
 	text.Init(width, height, DXGI_FORMAT_R32G32B32A32_FLOAT);
 	matrix id = DirectX::XMMatrixIdentity();
-	XMStoreFloat4x4(&current_view_inverse, id);
+	XMStoreFloat4x4(&prev_view, id);
 	XMStoreFloat4x4(&current_view, id);
 }
 
@@ -294,6 +294,6 @@ MotionBlurEffect::~MotionBlurEffect() {
 void MotionBlurEffect::Prepare() {
 	PostProcess::Prepare();
 
-	ps->SetMatrix4x4("view_inverse", current_view_inverse);
-	ps->SetMatrix4x4("prev_view", prev_view);
+	ps->SetMatrix4x4("view_proj", current_view);
+	ps->SetMatrix4x4("prev_view_proj", prev_view);
 }
