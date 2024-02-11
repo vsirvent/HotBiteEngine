@@ -33,10 +33,18 @@ void AddIntPixel(uint2 pixel, uint w, uint h, float4 color)
     }
 }
 
-void AddPixel(float2 p, uint w, uint h, float4 color)
+void AddPixel(float2 p, uint w, uint h, float2 output_ratio, float4 color)
 {
-    float2 pfloor = floor(p);
-    float2 pceil = ceil(p);
+    p *= output_ratio;
+    
+    uint2 pfloor = floor(p);
+    uint2 pceil = ceil(p);
+
+    uint2 p00 = pfloor;
+    uint2 p11 = pceil;
+    uint2 p01 = { pfloor.x, pceil.y };
+    uint2 p10 = { pceil.x, pfloor.y };
+
 
     float2 w00 = { 1.0f - (p.x - pfloor.x), 1.0f - (p.y - pfloor.y) };
     float2 w01 = { 1.0f - (p.x - pfloor.x), (p.y - pfloor.y) };
@@ -44,15 +52,12 @@ void AddPixel(float2 p, uint w, uint h, float4 color)
     float2 w10 = { (p.x - pfloor.x), 1.0f - (p.y - pfloor.y) };
     float2 w11 = { (p.x - pfloor.x), (p.y - pfloor.y) };
 
-    uint2 p00 = pfloor;
-    uint2 p11 = pceil;
-    uint2 p01 = { pfloor.x, pceil.y };
-    uint2 p10 = { pceil.x, pfloor.y };
+    float output_intensity = output_ratio * output_ratio;
 
-    AddIntPixel(p00, w, h, color * w00.x * w00.y);
-    AddIntPixel(p01, w, h, color * w01.x * w01.y);
-    AddIntPixel(p10, w, h, color * w10.x * w10.y);
-    AddIntPixel(p11, w, h, color * w11.x * w11.y);
+    AddIntPixel(p00, w, h, color * w00.x * w00.y * output_intensity);
+    AddIntPixel(p01, w, h, color * w01.x * w01.y * output_intensity);
+    AddIntPixel(p10, w, h, color * w10.x * w10.y * output_intensity);
+    AddIntPixel(p11, w, h, color * w11.x * w11.y * output_intensity);
 }
 
 float KeepDecimals(float value, int nDecimalsToKeep)
@@ -68,10 +73,15 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 Gid: SV_GroupID, uint3 Tid: SV
     //float2 pixel = float2(DTid.x, DTid.y);
     float2 pixel = float2(Gid.x * NTHREADS + Tid.x, Gid.y * NTHREADS + Tid.y);
     uint w, h;
-    float2 dimension;
-    output.GetDimensions(w, h);
-    dimension.x = w;
-    dimension.y = h;
+    float2 in_dimension;
+    float2 out_dimension;
+
+    input.GetDimensions(w, h);
+    in_dimension.x = w;
+    in_dimension.y = h;
+
+    output.GetDimensions(out_dimension.x, out_dimension.y);
+    float2 output_ratio = out_dimension / in_dimension;
 
     float4 inputColor = input[pixel];
         
@@ -88,9 +98,9 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 Gid: SV_GroupID, uint3 Tid: SV
     p1.y *= -1.0f;
 
     float2 dir = p1.xy - p0.xy;
-    dir *= dimension*0.5f;
+    dir *= in_dimension * 0.5f;
         
-    float dir_len = min(length(dir), 100.0f);
+    float dir_len = min(length(dir), 40.0f);
 
     float fsteps = dir_len;
     
@@ -106,14 +116,14 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 Gid: SV_GroupID, uint3 Tid: SV
         n += step_size;
     }
 
-    AddPixel(pixel, w, h, inputColor / t);
+    AddPixel(pixel, w, h, output_ratio, inputColor / t);
     AllMemoryBarrierWithGroupSync();
     //Add the motion trace
     float2 p = pixel;
     n = step_size;
     while (n < fsteps) {
         float a = (fsteps - n) / (fsteps * t);
-        AddPixel(p, w, h, inputColor * a);        
+        AddPixel(p, w, h, output_ratio, inputColor * a);
         p += dir;
         n += step_size;
     }
