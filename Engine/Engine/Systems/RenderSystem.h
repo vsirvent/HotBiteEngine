@@ -235,7 +235,9 @@ namespace HotBite {
 				Core::RenderTexture2D rgba_noise_texture;
 				Core::RenderTexture2D first_pass_texture{ 1 };				
 				Core::DepthTexture2D depth_view;
+
 				Core::RenderTexture2D texture_tmp;
+				DataBuffer<uint8_t> texture_tmp_lock;
 
 				Core::PostProcess* post_process_pipeline = nullptr;				
 				Core::IRenderTarget* first_pass_target = nullptr;

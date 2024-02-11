@@ -34,9 +34,10 @@ namespace HotBiteTool {
 			timer0 = Scheduler::Get(MAIN_THREAD)->RegisterTimer(1000000000 / 60, [this](const Scheduler::TimerData&) {
 				std::scoped_lock l(world.GetCoordinator()->GetSystem<RenderSystem>()->mutex);
 				static float rot_val = 0.0f;
+				
 				auto rot = XMMatrixRotationAxis({ 0.0f, 1.0f, 0.0f }, rot_val);
 				vector3d move_q = XMQuaternionRotationMatrix(rot);
-				rot_val += 0.1f;
+				rot_val += 0.1f * sin((float)timeGetTime() / 1000.0f);
 				if (rot_val > XM_PI) rot_val = -XM_PI;
 				for (const auto& e : rotation_entities) {
 					auto& t = world.GetCoordinator()->GetComponent<Components::Transform>(e);

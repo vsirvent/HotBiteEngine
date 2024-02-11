@@ -301,6 +301,8 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		if (motion_blur == nullptr) {
 			throw std::exception("motion blur shader.Init failed");
 		}
+
+		texture_tmp_lock.Prepare(w * h);
 	}
 	catch (std::exception& e) {
 		printf("RenderSystem::Init: ERROR: %s\n", e.what());
@@ -1213,26 +1215,30 @@ void RenderSystem::ProcessMotionBlur() {
 	if (cameras.GetData().empty()) {
 		return;
 	}
+
+	static const float zero[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+	post_process_pipeline->Clear(zero);
 	ID3D11UnorderedAccessView* output = post_process_pipeline->RenderUAV();
 	if (output == nullptr) {
 		return;
 	}
-	ID3D11UnorderedAccessView* input = texture_tmp.UAV();
-
+	
 	CameraEntity& cam_entity = cameras.GetData()[0];
 
 	int32_t  groupsX = (int32_t)(ceil((float)texture_tmp.Width() / 32.0f));
 	int32_t  groupsY = (int32_t)(ceil((float)texture_tmp.Height() / 32.0f));
 	motion_blur->SetMatrix4x4("view_proj", cam_entity.camera->view_projection);
 	motion_blur->SetMatrix4x4("prev_view_proj", cam_entity.camera->prev_view_projection);
-	motion_blur->SetUnorderedAccessView("input", input);
+	motion_blur->SetShaderResourceView("input", texture_tmp.SRV());
 	motion_blur->SetUnorderedAccessView("output", output);
+	uint32_t nop = -1;
+	dxcore->context->CSSetUnorderedAccessViews(2, 1, texture_tmp_lock.UAV(), &nop);
 	motion_blur->SetShaderResourceView("positionTexture", position_map.SRV());
 	motion_blur->SetShaderResourceView("prevPositionTexture", prev_position_map.SRV());
 	motion_blur->CopyAllBufferData();
 	motion_blur->SetShader();
 	dxcore->context->Dispatch(groupsX, groupsY, 1);
-	motion_blur->SetUnorderedAccessView("input", nullptr);
+	motion_blur->SetShaderResourceView("input", nullptr);
 	motion_blur->SetUnorderedAccessView("output", nullptr);
 	motion_blur->SetShaderResourceView("positionTexture", nullptr);
 	motion_blur->SetShaderResourceView("prevPositionTexture", nullptr);
