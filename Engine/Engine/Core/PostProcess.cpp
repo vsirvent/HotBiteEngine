@@ -244,6 +244,7 @@ MainEffect::MainEffect(ID3D11DeviceContext* dxcontext,
 		ShaderFactory::Get()->GetShader<SimpleVertexShader>("PostMainVS.cso"),
 		ShaderFactory::Get()->GetShader<SimplePixelShader>("PostMainPS.cso"))
 {
+	//x2 scale to avoid resolution artifacts in motion blur
 	text.Init(width, height, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS);
 	depth.Init(width, height);
 }

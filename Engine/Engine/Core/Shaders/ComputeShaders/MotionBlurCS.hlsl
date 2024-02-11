@@ -36,7 +36,7 @@ void AddIntPixel(uint2 pixel, uint w, uint h, float4 color)
 void AddPixel(float2 p, uint w, uint h, float2 output_ratio, float4 color)
 {
     p *= output_ratio;
-    
+
     uint2 pfloor = floor(p);
     uint2 pceil = ceil(p);
 
@@ -45,19 +45,19 @@ void AddPixel(float2 p, uint w, uint h, float2 output_ratio, float4 color)
     uint2 p01 = { pfloor.x, pceil.y };
     uint2 p10 = { pceil.x, pfloor.y };
 
-
     float2 w00 = { 1.0f - (p.x - pfloor.x), 1.0f - (p.y - pfloor.y) };
     float2 w01 = { 1.0f - (p.x - pfloor.x), (p.y - pfloor.y) };
 
     float2 w10 = { (p.x - pfloor.x), 1.0f - (p.y - pfloor.y) };
     float2 w11 = { (p.x - pfloor.x), (p.y - pfloor.y) };
 
-    float output_intensity = output_ratio * output_ratio;
+    float output_intensity = output_ratio.x * output_ratio.x;
 
     AddIntPixel(p00, w, h, color * w00.x * w00.y * output_intensity);
     AddIntPixel(p01, w, h, color * w01.x * w01.y * output_intensity);
     AddIntPixel(p10, w, h, color * w10.x * w10.y * output_intensity);
     AddIntPixel(p11, w, h, color * w11.x * w11.y * output_intensity);
+
 }
 
 float KeepDecimals(float value, int nDecimalsToKeep)
@@ -67,11 +67,11 @@ float KeepDecimals(float value, int nDecimalsToKeep)
 }
 
 #define NTHREADS 32
+#define MAX_STEPS 20
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main(uint3 DTid : SV_DispatchThreadID, uint3 Gid: SV_GroupID, uint3 Tid: SV_GroupThreadID)
 {
-    //float2 pixel = float2(DTid.x, DTid.y);
-    float2 pixel = float2(Gid.x * NTHREADS + Tid.x, Gid.y * NTHREADS + Tid.y);
+    float2 pixel = float2(DTid.x, DTid.y);
     uint w, h;
     float2 in_dimension;
     float2 out_dimension;
@@ -89,7 +89,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 Gid: SV_GroupID, uint3 Tid: SV
     float4 p0World = prevPositionTexture[pixel];
     float4 dirWorld = p1World - p0World;
 
-    float4 p0 = mul(p0World, prev_view_proj);
+    float4 p0 = mul(p0World, view_proj);
     float4 p1 = mul(p1World, view_proj);
 
     p0 /= p0.w;
@@ -100,31 +100,34 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 Gid: SV_GroupID, uint3 Tid: SV
     float2 dir = p1.xy - p0.xy;
     dir *= in_dimension * 0.5f;
         
-    float dir_len = min(length(dir), 40.0f);
-
-    float fsteps = dir_len;
+    float fsteps = length(dir);
     
-    dir /= fsteps;
 
-    float step_size = length(dir);
+    float step_size = length(dir / fsteps);
 
-    float n = step_size;
+    float n = 1.0f;
     float t = 1.0f;
-    while (n < fsteps) {
+    int i = 0;
+    int real_steps = 0;
+   
+    while (n < fsteps && ++i < MAX_STEPS) {
         float a = (fsteps - n) / fsteps;
         t += a;
         n += step_size;
+        ++real_steps;
     }
 
     AddPixel(pixel, w, h, output_ratio, inputColor / t);
-    AllMemoryBarrierWithGroupSync();
+
     //Add the motion trace
     float2 p = pixel;
     n = step_size;
-    while (n < fsteps) {
+    dir /= fsteps;
+
+    for (i = 0; i < real_steps; ++i) {
+        p += dir*2.0f;
         float a = (fsteps - n) / (fsteps * t);
-        AddPixel(p, w, h, output_ratio, inputColor * a);
-        p += dir;
+        AddPixel(p, w, h, output_ratio, inputColor * a);       
         n += step_size;
     }
 }

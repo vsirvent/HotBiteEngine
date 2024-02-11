@@ -249,7 +249,6 @@ namespace HotBite {
 
 				//Ray tracing
 				bool rt_enabled = true;
-				static constexpr int RT_RESOLUTION_DIVIVER = 1;
 				Core::SimpleComputeShader* rt_shader = nullptr;
 				Core::SimpleComputeShader* rt_smooth = nullptr;
 
