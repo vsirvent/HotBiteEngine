@@ -2,7 +2,7 @@
 
 
 globallycoherent RWTexture2D<float4> output : register(u1);
-RWByteAddressBuffer outputLock : register(u2);
+globallycoherent RWByteAddressBuffer outputLock : register(u2);
 
 Texture2D<float4> input : register(t0);
 Texture2D<float4> positionTexture : register(t1);
@@ -14,14 +14,13 @@ cbuffer externalData : register(b0)
     matrix prev_view_proj;
 }
 
-static const uint numSamples = 15;
-static const float MOTION_FACTOR = 0.1f;
-static const float MAX_VELOCITY_FACTOR = 2.0f;
+#define MAX_STEPS 10
 
 void AddIntPixel(uint2 pixel, uint w, uint h, float4 color)
 {
     uint addr = (pixel.y * w + pixel.x);
     bool keepWaiting = true;
+    uint i = 0;
     while (keepWaiting) {
         uint originalValue;
         outputLock.InterlockedCompareExchange(addr, 0, 1, originalValue);
@@ -57,7 +56,6 @@ void AddPixel(float2 p, uint w, uint h, float2 output_ratio, float4 color)
     AddIntPixel(p01, w, h, color * w01.x * w01.y * output_intensity);
     AddIntPixel(p10, w, h, color * w10.x * w10.y * output_intensity);
     AddIntPixel(p11, w, h, color * w11.x * w11.y * output_intensity);
-
 }
 
 float KeepDecimals(float value, int nDecimalsToKeep)
@@ -67,11 +65,12 @@ float KeepDecimals(float value, int nDecimalsToKeep)
 }
 
 #define NTHREADS 32
-#define MAX_STEPS 20
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main(uint3 DTid : SV_DispatchThreadID, uint3 Gid: SV_GroupID, uint3 Tid: SV_GroupThreadID)
 {
-    float2 pixel = float2(DTid.x, DTid.y);
+    //float2 pixel = float2(DTid.x, DTid.y);
+    float2 pixel = float2(Gid.x * NTHREADS + Tid.x, Gid.y * NTHREADS + Tid.y);
+
     uint w, h;
     float2 in_dimension;
     float2 out_dimension;
@@ -117,15 +116,15 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 Gid: SV_GroupID, uint3 Tid: SV
         ++real_steps;
     }
 
-    AddPixel(pixel, w, h, output_ratio, inputColor / t);
+    AddIntPixel(pixel, w, h, inputColor / t);
 
     //Add the motion trace
     float2 p = pixel;
     n = step_size;
     dir /= fsteps;
-
+    float ratio = (float)fsteps / real_steps;
     for (i = 0; i < real_steps; ++i) {
-        p += dir*2.0f;
+        p += dir * ratio;
         float a = (fsteps - n) / (fsteps * t);
         AddPixel(p, w, h, output_ratio, inputColor * a);       
         n += step_size;
