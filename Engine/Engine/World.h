@@ -135,7 +135,7 @@ namespace HotBite {
 			virtual void Run(int render_fps, int background_fps = 0, int physics_fps = 0);
 			virtual void Stop();
 			virtual void LoadTemplate(const std::string& template_file, bool triangulate, bool relative, bool use_animation_names = false);
-
+			virtual void  World::LoadMaterialFiles(const nlohmann::json& materials_info, const std::string& path);
 			virtual void LoadMaterialsNode(const nlohmann::json& materials_info,
 										  const std::string& texture_path);
 

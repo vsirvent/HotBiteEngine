@@ -303,6 +303,10 @@ void World::LoadSky(const json& sky_info) {
 	coordinator.NotifySignatureChange(e);	
 }
 
+void  World::LoadMaterialFiles(const nlohmann::json& materials_info, const std::string& path) {
+
+}
+
 void  World::LoadMaterialsNode(const nlohmann::json& materials_info,
 	const std::string& texture_path) {
 	//Complete materials information
@@ -472,6 +476,10 @@ bool World::Load(const std::string& scene_file) {
 		//Complete materials information
 		if (jw.contains("materials")) {
 			LoadMaterialsNode(jw["materials"], path);
+		}
+
+		if (jw.contains("material_files")) {
+			LoadMaterialFiles(js["material_files"], path);
 		}
 				
 		//Complete meshes information
