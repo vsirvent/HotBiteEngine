@@ -471,6 +471,16 @@ public:
 	Material* material;
 	System::String^ root_folder;
 
+	void CopyFile(System::String^ orig, System::String^ dest) {
+		if (dest->Equals(orig) != 0) {
+			try {
+				File::Delete(dest);
+			}
+			catch (...) {}
+			File::Copy(orig, dest);
+		}
+	}
+
 	[CategoryAttribute("Material")]
 	property String^ Name {
 		String^ get()
@@ -709,16 +719,12 @@ public:
 		{
 			System::String^ file = Path::GetFileName(newValue);
 			if (file->Length > 0) {
-				System::String^ dest_file = root_folder + file;
-				try {
-					File::Delete(dest_file);
-				}
-				catch (...) {}
-				File::Copy(newValue, dest_file);
+				CopyFile(newValue, root_folder + file);
 			}
 			material->props["diffuse_textname"]->SetValue<std::string>(msclr::interop::marshal_as<std::string>(file));
 		}
 	}
+
 
 	[CategoryAttribute("Textures")]
 	[EditorAttribute(CustomImageEditor::typeid, System::Drawing::Design::UITypeEditor::typeid)]
@@ -731,12 +737,7 @@ public:
 		{
 			System::String^ file = Path::GetFileName(newValue);
 			if (file->Length > 0) {
-				System::String^ dest_file = root_folder + file;
-				try {
-					File::Delete(dest_file);
-				}
-				catch (...) {}
-				File::Copy(newValue, dest_file);
+				CopyFile(newValue, root_folder + file);
 			}
 			material->props["opacity_textname"]->SetValue<std::string>(msclr::interop::marshal_as<std::string>(file));
 		}
@@ -753,12 +754,7 @@ public:
 		{
 			System::String^ file = Path::GetFileName(newValue);
 			if (file->Length > 0) {
-				System::String^ dest_file = root_folder + file;
-				try {
-					File::Delete(dest_file);
-				}
-				catch (...) {}
-				File::Copy(newValue, dest_file);
+				CopyFile(newValue, root_folder + file);
 			}
 			material->props["normal_textname"]->SetValue<std::string>(msclr::interop::marshal_as<std::string>(file));
 		}
@@ -775,12 +771,7 @@ public:
 		{
 			System::String^ file = Path::GetFileName(newValue);
 			if (file->Length > 0) {
-				System::String^ dest_file = root_folder + file;
-				try {
-					File::Delete(dest_file);
-				}
-				catch (...) {}
-				File::Copy(newValue, dest_file);
+				CopyFile(newValue, root_folder + file);
 			}
 			material->props["high_textname"]->SetValue<std::string>(msclr::interop::marshal_as<std::string>(file));
 		}
@@ -797,12 +788,7 @@ public:
 		{
 			System::String^ file = Path::GetFileName(newValue);
 			if (file->Length > 0) {
-				System::String^ dest_file = root_folder + file;
-				try {
-					File::Delete(dest_file);
-				}
-				catch (...) {}
-				File::Copy(newValue, dest_file);
+				CopyFile(newValue, root_folder + file);
 			}
 			material->props["spec_textname"]->SetValue<std::string>(msclr::interop::marshal_as<std::string>(file));
 		}
@@ -819,12 +805,7 @@ public:
 		{
 			System::String^ file = Path::GetFileName(newValue);
 			if (file->Length > 0) {
-				System::String^ dest_file = root_folder + file;
-				try {
-					File::Delete(dest_file);
-				}
-				catch (...) {}
-				File::Copy(newValue, dest_file);
+				CopyFile(newValue, root_folder + file);
 			}
 			material->props["ao_textname"]->SetValue<std::string>(msclr::interop::marshal_as<std::string>(file));
 		}
@@ -841,12 +822,7 @@ public:
 		{
 			System::String^ file = Path::GetFileName(newValue);
 			if (file->Length > 0) {
-				System::String^ dest_file = root_folder + file;
-				try {
-					File::Delete(dest_file);
-				}
-				catch (...) {}
-				File::Copy(newValue, dest_file);
+				CopyFile(newValue, root_folder + file);
 			}
 			material->props["arm_textname"]->SetValue<std::string>(msclr::interop::marshal_as<std::string>(file));
 		}
@@ -863,12 +839,7 @@ public:
 		{
 			System::String^ file = Path::GetFileName(newValue);
 			if (file->Length > 0) {
-				System::String^ dest_file = root_folder + file;
-				try {
-					File::Delete(dest_file);
-				}
-				catch (...) {}
-				File::Copy(newValue, dest_file);
+				CopyFile(newValue, root_folder + file);
 			}
 			material->props["emission_textname"]->SetValue<std::string>(msclr::interop::marshal_as<std::string>(file));
 		}

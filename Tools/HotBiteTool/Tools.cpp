@@ -71,7 +71,7 @@ namespace HotBiteTool {
 			mdata->Load(root, mat);
 			if (e != ECS::INVALID_ENTITY_ID) {
 				Components::Material& m = c->GetComponent<Components::Material>(e);
-				m.multi_texture_count = 0;
+				m.multi_material.multi_texture_count = 0;
 				m.data = mdata;
 				c->NotifySignatureChange(e);
 			}
@@ -83,7 +83,7 @@ namespace HotBiteTool {
 			ECS::Entity e = c->GetEntityByName(entity);
 			if (e != ECS::INVALID_ENTITY_ID) {
 				Components::Material& m = c->GetComponent<Components::Material>(e);
-				m.LoadMultitexture(mat, root, world.GetMaterials());
+				m.multi_material.LoadMultitexture(mat, root, world.GetMaterials());
 				c->NotifySignatureChange(e);
 			}
 		}

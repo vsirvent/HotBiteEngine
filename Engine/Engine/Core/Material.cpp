@@ -85,40 +85,40 @@ void MaterialData::Load(const std::string& root, const std::string& mat) {
 	nlohmann::json j = nlohmann::json::parse(mat);
 	name = j["name"];
 
-	props.diffuseColor = parseColorStringF4(j["diffuse_color"]);
-	props.bloom_scale = j["bloom_scale"];
-	props.parallax_scale = j["parallax_scale"];
-	props.parallax_steps = j["parallax_steps"];
-	props.parallax_angle_steps = j["parallax_angle_steps"];
-	props.parallax_shadow_scale = j["parallax_shadow_scale"];
-	props.specIntensity = j["specular"];
-	props.opacity = j["opacity"];
-	props.density = j["density"];
+	props.diffuseColor = parseColorStringF4(j.value("diffuse_color", "#FFFFFFFF"));
+	props.bloom_scale = j.value("bloom_scale", 0.0f);
+	props.parallax_scale = j.value("parallax_scale", 0.0f);
+	props.parallax_steps = j.value("parallax_steps", 0.0f);
+	props.parallax_angle_steps = j.value("parallax_angle_steps", 0);
+	props.parallax_shadow_scale = j.value("parallax_shadow_scale", 0);
+	props.specIntensity = j.value("specular", 0.5f);
+	props.opacity = j.value("opacity", 1.0f);
+	props.density = j.value("density", 1.0f);
 	props.flags = 0;
 
-	tessellation_type = j["tess_type"];
-	tessellation_factor = j["tess_factor"];
-	displacement_scale = j["displacement_scale"];
-	if (j["raytrace"]) {
+	tessellation_type = j.value("tess_type", 0);
+	tessellation_factor = j.value("tess_factor", 0);
+	displacement_scale = j.value("displacement_scale", 0);
+	if (j.value("raytrace", true)) {
 		props.flags |= RAY_TRACING_ENABLED_FLAG;
 	}
-	if (j["alpha_enabled"]) {
+	if (j.value("alpha_enabled", false)) {
 		props.flags |= ALPHA_ENABLED_FLAG;
 	}
-	if (j["blend_enabled"]) {
+	if (j.value("blend_enabled", false)) {
 		props.flags |= BLEND_ENABLED_FLAG;
 	}
-	if (j["parallax_shadows"]) {
+	if (j.value("parallax_shadows", false)) {
 		props.flags |= PARALLAX_SHADOW_ENABLED_FLAG;
 	}
-	SetTexture(diffuse, texture_names.diffuse_texname, root, j["diffuse_textname"]);
-	SetTexture(high, texture_names.high_textname, root, j["high_textname"]);
-	SetTexture(normal, texture_names.normal_textname, root, j["normal_textname"]);
-	SetTexture(spec, texture_names.spec_textname, root, j["spec_textname"]);
-	SetTexture(ao, texture_names.ao_textname, root, j["ao_textname"]);
-	SetTexture(arm, texture_names.arm_textname, root, j["arm_textname"]);
-	SetTexture(emission, texture_names.emission_textname, root, j["emission_textname"]);
-	SetTexture(opacity, texture_names.opacity_textname, root, j["opacity_textname"]);
+	SetTexture(diffuse, texture_names.diffuse_texname, root, j.value("diffuse_textname", ""));
+	SetTexture(high, texture_names.high_textname, root, j.value("high_textname", ""));
+	SetTexture(normal, texture_names.normal_textname, root, j.value("normal_textname", ""));
+	SetTexture(spec, texture_names.spec_textname, root, j.value("spec_textname", ""));
+	SetTexture(ao, texture_names.ao_textname, root, j.value("ao_textname", ""));
+	SetTexture(arm, texture_names.arm_textname, root, j.value("arm_textname", ""));
+	SetTexture(emission, texture_names.emission_textname, root, j.value("emission_textname", ""));
+	SetTexture(opacity, texture_names.opacity_textname, root, j.value("opacity_textname", ""));
 	UpdateFlags();
 }
 

@@ -662,7 +662,11 @@ namespace MaterialDesigner {
 						delete m;
 					}
 					materials->Clear();
-					rootFolder->Text = gcnew System::String(((std::string)js["root"]).c_str());
+					std::string path = js["root"];
+					if (path[0] == '.') {
+						path = msclr::interop::marshal_as<std::string>(Path::GetDirectoryName(openFileDialog->FileName)) + "\\" + path;
+					}
+					rootFolder->Text = gcnew System::String(path.c_str());
 					for (const auto& mjs : js["materials"]) {
 						Material* m = new Material(this);
 						if (m != nullptr) {
@@ -689,6 +693,7 @@ namespace MaterialDesigner {
 						}
 					}
 					inputFile.close();
+
 					fileName = openFileDialog->FileName;
 					UpdateEditor();
 					if (materialList->Items->Count > 0) {
