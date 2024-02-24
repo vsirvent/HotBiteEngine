@@ -1736,12 +1736,12 @@ void RenderSystem::Clear(const float color[4]) {
 void RenderSystem::SetPostProcessPipeline(Core::PostProcess* pipeline) {
 	if (pipeline != nullptr) {
 		if (render_pass2_tree.empty()) {
-			first_pass_target = &texture_tmp;
+			first_pass_target = pipeline;
 			second_pass_target = nullptr;			
 		}
 		else {
 			first_pass_target = &first_pass_texture;
-			second_pass_target = &texture_tmp;
+			second_pass_target = pipeline;
 		}
 		if (pipeline->DepthResource() != nullptr) {
 			depth_target = pipeline;
@@ -1839,12 +1839,13 @@ void RenderSystem::Draw() {
 			DrawScene(w, h, camera_position, view, projection, first_pass_texture.SRV(), second_pass_target, render_pass2_tree);
 		}
 		PostProcessLight();
-		ProcessMotionBlur();
+		ProcessRT();
+		//ProcessMotionBlur();
 		if (post_process_pipeline != nullptr) {
 			post_process_pipeline->SetShaderResourceView(DEPTH_TEXTURE, depth_map.SRV());
 			post_process_pipeline->SetView(*(cam_entity.camera));
 		}
-		ProcessRT();
+		
 	}
 	if (post_process_pipeline != nullptr) {
 		DXCore::Get()->context->RSSetViewports(1, &dxcore->viewport);

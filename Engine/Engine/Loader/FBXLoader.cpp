@@ -242,9 +242,9 @@ int FBXLoader::LoadMeshes(Core::FlatMap<std::string, Core::MeshData>& meshes, Fb
 
 				FbxVector4 norm(0, 0, 0, 0);
 				fbxMesh->GetPolygonVertexNormal(i, j, norm);
-				vertices[ind].Normal.x += (float)norm.mData[0];
-				vertices[ind].Normal.y += (float)norm.mData[1];
-				vertices[ind].Normal.z += (float)norm.mData[2];
+				vertices[ind].Normal.x = (float)norm.mData[0];
+				vertices[ind].Normal.y = (float)norm.mData[1];
+				vertices[ind].Normal.z = (float)norm.mData[2];
 
 				FbxVector2 uvCoord(0, 0);
 				bool uvFlag = false;
@@ -407,18 +407,31 @@ int FBXLoader::LoadMeshes(Core::FlatMap<std::string, Core::MeshData>& meshes, Fb
 				}
 			}
 		}
-		for (auto cv : cloned_vertices) {
-			vector<int> ids;
-			Vertex mixed_vertex = MixSimilarVertices(vertices, cloned_vertices, cv.first, cv.second, used_vertices, ids);
-			for (auto id : ids) {
-				vertices[id].Normal = mixed_vertex.Normal;
-				vertices[id].Tangent = mixed_vertex.Tangent;
-				vertices[id].Bitangent = mixed_vertex.Bitangent;
-				memcpy(vertices[id].Boneids, mixed_vertex.Boneids, sizeof(mixed_vertex.Boneids));
-				vertices[id].Weights = mixed_vertex.Weights;
 
+		bool smooth = true;
+		FbxProperty p = node->FindProperty("smooth", false);
+		if (p.IsValid())
+		{
+			smooth = (bool)p.Get<int>();
+		}
+		if (name.find(".NoSmooth") != std::string::npos) {
+			smooth = false;
+		}
+		if (smooth) {
+			for (auto cv : cloned_vertices) {
+				vector<int> ids;
+				Vertex mixed_vertex = MixSimilarVertices(vertices, cloned_vertices, cv.first, cv.second, used_vertices, ids);
+				for (auto id : ids) {
+					vertices[id].Normal = mixed_vertex.Normal;
+					vertices[id].Tangent = mixed_vertex.Tangent;
+					vertices[id].Bitangent = mixed_vertex.Bitangent;
+					memcpy(vertices[id].Boneids, mixed_vertex.Boneids, sizeof(mixed_vertex.Boneids));
+					vertices[id].Weights = mixed_vertex.Weights;
+
+				}
 			}
 		}
+
 		printf("Loaded mesh %s\n", name.c_str());
 		MeshData* mesh = meshes.Create(name);
 		mesh->Init(vb, name, vertices, indices, skeleton);

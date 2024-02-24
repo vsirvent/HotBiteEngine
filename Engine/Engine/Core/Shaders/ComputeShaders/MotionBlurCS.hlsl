@@ -115,9 +115,9 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 Gid: SV_GroupID, uint3 Tid: SV
         n += step_size;
         ++real_steps;
     }
-
-    AddIntPixel(pixel, w, h, inputColor);
 #if 0
+    //AddIntPixel(pixel, w, h, inputColor);
+#else
     AddIntPixel(pixel, w, h, inputColor / t);
     //Add the motion trace
     float2 p = pixel;
@@ -125,7 +125,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 Gid: SV_GroupID, uint3 Tid: SV
     dir /= fsteps;
     float ratio = (float)fsteps / real_steps;
     for (i = 0; i < real_steps; ++i) {
-        p += dir * ratio;
+        p += dir * ratio * 4.0f;
         float a = (fsteps - n) / (fsteps * t);
         AddPixel(p, w, h, output_ratio, inputColor * a);       
         n += step_size;

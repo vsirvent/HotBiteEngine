@@ -506,10 +506,10 @@ float3 GetColor(Ray origRay)
         for (uint i = 0; i < nobjects; ++i)
         {
             ObjectInfo o = objectInfos[i];
-            float objectExtent = length(o.aabb_max - o.aabb_min);
+            float objectExtent = 4.0f*length(o.aabb_max - o.aabb_min);
             float distanceToObject = length(o.position - cameraPosition) - objectExtent;
 
-            if (distanceToObject < max_distance && distanceToObject < ray.t  && IntersectAABB(ray, o.aabb_min, o.aabb_max))
+            if (distanceToObject < max_distance && distanceToObject < result.distance && IntersectAABB(ray, o.aabb_min, o.aabb_max))
             {
                 RayObject oray;
                 IntersectionResult object_result;
@@ -539,8 +539,8 @@ float3 GetColor(Ray origRay)
                         tmp_result.distance = FLT_MAX;
                         if (IntersectTri(oray, idx, o.vertexOffset, tmp_result))
                         {
-                            tmp_result.distance *= determinant(o.world);
-                            if (tmp_result.distance < result.distance && tmp_result.distance < oray.t)
+                            tmp_result.distance *= abs(determinant(o.world));
+                            if (tmp_result.distance < result.distance && tmp_result.distance < object_result.distance)
                             {
                                 object_result.v0 = tmp_result.v0;
                                 object_result.v1 = tmp_result.v1;
@@ -549,7 +549,6 @@ float3 GetColor(Ray origRay)
                                 object_result.distance = tmp_result.distance;
                                 object_result.uv = tmp_result.uv;
                                 object_result.object = i;
-                                oray.t = tmp_result.distance;
                             }
                         }
                     }
@@ -560,10 +559,10 @@ float3 GetColor(Ray origRay)
                     }
                 }
 
-                if (oray.t > Epsilon && oray.t < ray.t)
+                if (object_result.distance > Epsilon && object_result.distance < ray.t)
                 {
                     collide = true;
-                    ray.t = oray.t;
+                    ray.t = object_result.distance;
                     result.v0 = object_result.v0;
                     result.v1 = object_result.v1;
                     result.v2 = object_result.v2;
