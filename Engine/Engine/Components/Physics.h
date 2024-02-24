@@ -25,6 +25,7 @@ SOFTWARE.
 #pragma once
 
 #include <reactphysics3d\reactphysics3d.h>
+#include <reactphysics3d\body\CollisionBody.h>
 #include <Defines.h>
 #include <Core/PhysicsCommon.h>
 #include <map>
@@ -44,7 +45,9 @@ namespace HotBite {
 				reactphysics3d::Collider* collider = nullptr;
 				reactphysics3d::Transform last_body_transform;
 				reactphysics3d::PhysicsWorld* world = nullptr;
-				float bounce = 0.0f;
+				float bounce = -1.0f;
+				float friction = -1.0f;
+				float air_friction = -1.0f;
 				eShapeForm shape = eShapeForm::SHAPE_CAPSULE;
 				Physics() = default;
 				virtual ~Physics();

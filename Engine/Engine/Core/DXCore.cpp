@@ -478,7 +478,7 @@ ID3D11DepthStencilView* DXCore::DepthView() {
 
 void DXCore::Present()
 {
-	swapChain->Present(0, 0);
+	swapChain->Present(1, 0);
 	OnFrame();
 }
 
@@ -636,6 +636,7 @@ LRESULT DXCore::ProcessMessage(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPara
 			c->SendEvent(this, EVENT_ID_DETROY);
 		}
 		PostQuitMessage(0); // Send a quit message to our own program
+		ExitProcess(0);
 		return 0;
 
 		// Prevent beeping when we "alt-enter" into fullscreen

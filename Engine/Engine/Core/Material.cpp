@@ -89,16 +89,16 @@ void MaterialData::Load(const std::string& root, const std::string& mat) {
 	props.bloom_scale = j.value("bloom_scale", 0.0f);
 	props.parallax_scale = j.value("parallax_scale", 0.0f);
 	props.parallax_steps = j.value("parallax_steps", 0.0f);
-	props.parallax_angle_steps = j.value("parallax_angle_steps", 0);
-	props.parallax_shadow_scale = j.value("parallax_shadow_scale", 0);
+	props.parallax_angle_steps = j.value("parallax_angle_steps", 0.0f);
+	props.parallax_shadow_scale = j.value("parallax_shadow_scale", 0.0f);
 	props.specIntensity = j.value("specular", 0.5f);
 	props.opacity = j.value("opacity", 1.0f);
 	props.density = j.value("density", 1.0f);
 	props.flags = 0;
 
 	tessellation_type = j.value("tess_type", 0);
-	tessellation_factor = j.value("tess_factor", 0);
-	displacement_scale = j.value("displacement_scale", 0);
+	tessellation_factor = j.value("tess_factor", 0.0f);
+	displacement_scale = j.value("displacement_scale", 0.0f);
 	if (j.value("raytrace", true)) {
 		props.flags |= RAY_TRACING_ENABLED_FLAG;
 	}

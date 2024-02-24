@@ -97,7 +97,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 Gid: SV_GroupID, uint3 Tid: SV
     p1.y *= -1.0f;
 
     float2 dir = p1.xy - p0.xy;
-    dir *= in_dimension * 0.5f;
+    dir *= in_dimension;
         
     float fsteps = length(dir);
     
@@ -116,8 +116,9 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 Gid: SV_GroupID, uint3 Tid: SV
         ++real_steps;
     }
 
+    AddIntPixel(pixel, w, h, inputColor);
+#if 0
     AddIntPixel(pixel, w, h, inputColor / t);
-
     //Add the motion trace
     float2 p = pixel;
     n = step_size;
@@ -129,4 +130,5 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 Gid: SV_GroupID, uint3 Tid: SV
         AddPixel(p, w, h, output_ratio, inputColor * a);       
         n += step_size;
     }
+#endif
 }

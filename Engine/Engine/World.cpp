@@ -581,6 +581,12 @@ bool World::Load(const std::string& scene_file) {
 					if (physics_json.contains("bounce")) {
 						physics.bounce = physics_json["bounce"];
 					}
+					if (physics_json.contains("friction")) {
+						physics.friction = physics_json["friction"];
+					}
+					if (physics_json.contains("air_friction")) {
+						physics.air_friction = physics_json["air_friction"];
+					}
 					if (physics_json.contains("shape")) {
 						const std::string& shape = physics_json["shape"];
 						if (shape == "CAPSULE") {
@@ -721,7 +727,7 @@ void World::Init() {
 				printf("No shape for mesh %s\n", e.first.c_str());
 			}
 			p.Init(phys_world, p.type, shape, b.bounding_box.Extents, t.position, t.scale, t.rotation, p.shape);
-			p.GetMaterial()->setBounciness(p.bounce);
+			
 		}
 	}	
 	vertex_buffer->Prepare();

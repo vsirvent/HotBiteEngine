@@ -79,8 +79,17 @@ bool Physics::Init(PhysicsWorld* w,
 		if (collider != nullptr) {
 			Material& material = collider->getMaterial();
 			material.setBounciness(0.01f);
-			material.setFrictionCoefficient(2.0f);
+			material.setFrictionCoefficient(0.5f);
 		}
+	}
+	if (bounce >= 0.0f) {
+		GetMaterial()->setBounciness(bounce);
+	}
+	if (friction >= 0.0f) {
+		GetMaterial()->setFrictionCoefficient(friction);
+	}	
+	if (air_friction >= 0.0f) {
+		body->setLinearDamping(friction);
 	}
 	physics_mutex.unlock();
 	return (body != nullptr);
