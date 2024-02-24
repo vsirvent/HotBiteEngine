@@ -113,6 +113,21 @@ namespace HotBite {
 				orientedBox bounding_box = {};
 			};
 
+			struct MultiMaterial {
+				std::vector<Core::MaterialData*> multi_texture_data;
+				std::vector<ID3D11ShaderResourceView*> multi_texture_mask;
+				std::vector<uint32_t> multi_texture_operation;
+				std::vector<float> multi_texture_value;
+				std::vector<float> multi_texture_uv_scales;
+				uint32_t multi_texture_count = 0;
+				float multi_parallax_scale = 0.0f;
+				uint32_t tessellation_type = 0;
+				float tessellation_factor = 0;
+				float displacement_scale = 0.0f;
+
+				bool LoadMultitexture(const std::string& json_str, const std::string& root_path, const Core::FlatMap<std::string, Core::MaterialData>& materials);
+			};
+
 			/**
 			 * The component that contains the entity materials
 			 */
@@ -140,19 +155,7 @@ namespace HotBite {
 				//We can reuse a material in several components
 				Core::MaterialData* data;
 				//Multimaterial data painted over main "data" material
-				uint32_t multi_texture_count = 0;
-				float multi_parallax_scale = 0.0f;
-				uint32_t tessellation_type = 0;
-				float tessellation_factor = 0;
-				float displacement_scale = 0.0f;
-
-				std::vector<Core::MaterialData*> multi_texture_data;
-				std::vector<ID3D11ShaderResourceView*> multi_texture_mask;
-				std::vector<uint32_t> multi_texture_operation;
-				std::vector<float> multi_texture_value;
-				std::vector<float> multi_texture_uv_scales;
-
-				bool LoadMultitexture(const std::string& json_str, const std::string& root_path, const Core::FlatMap<std::string, Core::MaterialData>& materials);
+				MultiMaterial multi_material;
 			};
 
 			/**

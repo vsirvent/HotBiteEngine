@@ -1141,7 +1141,7 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 		for (auto &mat: shaders.second) {
 			if (!mat.second.second.GetData().empty()) {
 				PrepareMaterial(mat.first, vs, hs, ds, gs, ps);
-				if (mat.second.first->multi_texture_count > 0) {
+				if (mat.second.first->multi_material.multi_texture_count > 0) {
 					PrepareMultiMaterial(mat.second.first, vs, hs, ds, gs, ps);
 					ds->CopyAllBufferData();
 				}
@@ -1155,7 +1155,7 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 					UnprepareEntity(de, vs, hs, ds, gs, ps);
 					total_count++;
 				}
-				if (mat.second.first->multi_texture_count > 0) {
+				if (mat.second.first->multi_material.multi_texture_count > 0) {
 					UnprepareMultiMaterial(mat.second.first, vs, hs, ds, gs, ps);
 				}
 				UnprepareMaterial(mat.first, vs, hs, ds, gs, ps);
@@ -1471,49 +1471,49 @@ void RenderSystem::UnprepareMaterial(Core::MaterialData* material, Core::SimpleV
 void RenderSystem::PrepareMultiMaterial(Components::Material* material, Core::SimpleVertexShader* vs,
 	                                    Core::SimpleHullShader* hs, Core::SimpleDomainShader* ds,
 	                                    Core::SimpleGeometryShader* gs, Core::SimplePixelShader* ps) {
-	if (material->multi_texture_count > 0) {
-		for (uint32_t i = 0; i < material->multi_texture_count; ++i) {
-			if (material->multi_texture_data[i] != nullptr) {
-				multitext_diff[i] = material->multi_texture_data[i]->diffuse;
-				multitext_norm[i] = material->multi_texture_data[i]->normal;
-				multitext_spec[i] = material->multi_texture_data[i]->spec;
-				multitext_ao[i] = material->multi_texture_data[i]->ao;
-				multitext_arm[i] = material->multi_texture_data[i]->arm;
-				multitext_disp[i] = material->multi_texture_data[i]->high;
-				multitext_mask[i] = material->multi_texture_mask[i];
+	if (material->multi_material.multi_texture_count > 0) {
+		for (uint32_t i = 0; i < material->multi_material.multi_texture_count; ++i) {
+			if (material->multi_material.multi_texture_data[i] != nullptr) {
+				multitext_diff[i] = material->multi_material.multi_texture_data[i]->diffuse;
+				multitext_norm[i] = material->multi_material.multi_texture_data[i]->normal;
+				multitext_spec[i] = material->multi_material.multi_texture_data[i]->spec;
+				multitext_ao[i] = material->multi_material.multi_texture_data[i]->ao;
+				multitext_arm[i] = material->multi_material.multi_texture_data[i]->arm;
+				multitext_disp[i] = material->multi_material.multi_texture_data[i]->high;
+				multitext_mask[i] = material->multi_material.multi_texture_mask[i];
 			}
 		}
 	}
 	if (vs != nullptr) {
-		vs->SetInt(TESS_TYPE, material->tessellation_type);
-		vs->SetFloat(TESS_FACTOR, material->tessellation_factor);
+		vs->SetInt(TESS_TYPE, material->multi_material.tessellation_type);
+		vs->SetFloat(TESS_FACTOR, material->multi_material.tessellation_factor);
 	}
 
 	if (ds != nullptr) {
-		ds->SetInt(SimpleShaderKeys::MULTI_TEXTURE_COUNT, material->multi_texture_count);
-		if (material->multi_texture_count > 0) {
-			ds->SetData("packed_multi_texture_values", material->multi_texture_value.data(), material->multi_texture_count * sizeof(float));
-			ds->SetData("packed_multi_texture_uv_scales", material->multi_texture_uv_scales.data(), material->multi_texture_count * sizeof(float));
-			ds->SetData("packed_multi_texture_operations", material->multi_texture_operation.data(), material->multi_texture_count * sizeof(uint32_t));
-			ds->SetShaderResourceViewArray("multi_highTexture[0]", multitext_disp.data(), material->multi_texture_count);
-			ds->SetFloat(DISPLACEMENT_SCALE, material->displacement_scale);
+		ds->SetInt(SimpleShaderKeys::MULTI_TEXTURE_COUNT, material->multi_material.multi_texture_count);
+		if (material->multi_material.multi_texture_count > 0) {
+			ds->SetData("packed_multi_texture_values", material->multi_material.multi_texture_value.data(), material->multi_material.multi_texture_count * sizeof(float));
+			ds->SetData("packed_multi_texture_uv_scales", material->multi_material.multi_texture_uv_scales.data(), material->multi_material.multi_texture_count * sizeof(float));
+			ds->SetData("packed_multi_texture_operations", material->multi_material.multi_texture_operation.data(), material->multi_material.multi_texture_count * sizeof(uint32_t));
+			ds->SetShaderResourceViewArray("multi_highTexture[0]", multitext_disp.data(), material->multi_material.multi_texture_count);
+			ds->SetFloat(DISPLACEMENT_SCALE, material->multi_material.displacement_scale);
 		}
 	}
 	
 	if (ps != nullptr) {
-		ps->SetInt(SimpleShaderKeys::MULTI_TEXTURE_COUNT, material->multi_texture_count);
-		if (material->multi_texture_count > 0) {		
-			ps->SetFloat("multi_parallax_scale", material->multi_parallax_scale);
-			ps->SetData("packed_multi_texture_values", material->multi_texture_value.data(), material->multi_texture_count * sizeof(float));
-			ps->SetData("packed_multi_texture_uv_scales", material->multi_texture_uv_scales.data(), material->multi_texture_count * sizeof(float));
-			ps->SetData("packed_multi_texture_operations", material->multi_texture_operation.data(), material->multi_texture_count * sizeof(uint32_t));
-			ps->SetShaderResourceViewArray("multi_diffuseTexture[0]", multitext_diff.data(), material->multi_texture_count);
-			ps->SetShaderResourceViewArray("multi_normalTexture[0]", multitext_norm.data(), material->multi_texture_count);
-			ps->SetShaderResourceViewArray("multi_specularTexture[0]", multitext_spec.data(), material->multi_texture_count);
-			ps->SetShaderResourceViewArray("multi_aoTexture[0]", multitext_ao.data(), material->multi_texture_count);
-			ps->SetShaderResourceViewArray("multi_armTexture[0]", multitext_arm.data(), material->multi_texture_count);
-			ps->SetShaderResourceViewArray("multi_highTexture[0]", multitext_disp.data(), material->multi_texture_count);
-			ps->SetShaderResourceViewArray("multi_maskTexture[0]", multitext_mask.data(), material->multi_texture_count);
+		ps->SetInt(SimpleShaderKeys::MULTI_TEXTURE_COUNT, material->multi_material.multi_texture_count);
+		if (material->multi_material.multi_texture_count > 0) {		
+			ps->SetFloat("multi_parallax_scale", material->multi_material.multi_parallax_scale);
+			ps->SetData("packed_multi_texture_values", material->multi_material.multi_texture_value.data(), material->multi_material.multi_texture_count * sizeof(float));
+			ps->SetData("packed_multi_texture_uv_scales", material->multi_material.multi_texture_uv_scales.data(), material->multi_material.multi_texture_count * sizeof(float));
+			ps->SetData("packed_multi_texture_operations", material->multi_material.multi_texture_operation.data(), material->multi_material.multi_texture_count * sizeof(uint32_t));
+			ps->SetShaderResourceViewArray("multi_diffuseTexture[0]", multitext_diff.data(), material->multi_material.multi_texture_count);
+			ps->SetShaderResourceViewArray("multi_normalTexture[0]", multitext_norm.data(), material->multi_material.multi_texture_count);
+			ps->SetShaderResourceViewArray("multi_specularTexture[0]", multitext_spec.data(), material->multi_material.multi_texture_count);
+			ps->SetShaderResourceViewArray("multi_aoTexture[0]", multitext_ao.data(), material->multi_material.multi_texture_count);
+			ps->SetShaderResourceViewArray("multi_armTexture[0]", multitext_arm.data(), material->multi_material.multi_texture_count);
+			ps->SetShaderResourceViewArray("multi_highTexture[0]", multitext_disp.data(), material->multi_material.multi_texture_count);
+			ps->SetShaderResourceViewArray("multi_maskTexture[0]", multitext_mask.data(), material->multi_material.multi_texture_count);
 		}
 	}
 }
@@ -1521,23 +1521,23 @@ void RenderSystem::PrepareMultiMaterial(Components::Material* material, Core::Si
 void RenderSystem::UnprepareMultiMaterial(Components::Material* material, Core::SimpleVertexShader* vs,
 	                                      Core::SimpleHullShader* hs, Core::SimpleDomainShader* ds,
 	                                      Core::SimpleGeometryShader* gs, Core::SimplePixelShader* ps) {
-	if (material->multi_texture_count > 0) {
+	if (material->multi_material.multi_texture_count > 0) {
 		static ID3D11ShaderResourceView* zero_text[MAX_MULTI_TEXTURE] = {};
 
 		if (ps) {
 			ps->SetInt(SimpleShaderKeys::MULTI_TEXTURE_COUNT, 0);
 		
-			ps->SetShaderResourceViewArray("multi_diffuseTexture[0]", zero_text, material->multi_texture_count);
-			ps->SetShaderResourceViewArray("multi_normalTexture[0]", zero_text, material->multi_texture_count);
-			ps->SetShaderResourceViewArray("multi_specularTexture[0]", zero_text, material->multi_texture_count);
-			ps->SetShaderResourceViewArray("multi_aoTexture[0]", zero_text, material->multi_texture_count);
-			ps->SetShaderResourceViewArray("multi_armTexture[0]", zero_text, material->multi_texture_count);
-			ps->SetShaderResourceViewArray("multi_highTexture[0]", zero_text, material->multi_texture_count);
-			ps->SetShaderResourceViewArray("multi_maskTexture[0]", zero_text, material->multi_texture_count);
+			ps->SetShaderResourceViewArray("multi_diffuseTexture[0]", zero_text, material->multi_material.multi_texture_count);
+			ps->SetShaderResourceViewArray("multi_normalTexture[0]", zero_text, material->multi_material.multi_texture_count);
+			ps->SetShaderResourceViewArray("multi_specularTexture[0]", zero_text, material->multi_material.multi_texture_count);
+			ps->SetShaderResourceViewArray("multi_aoTexture[0]", zero_text, material->multi_material.multi_texture_count);
+			ps->SetShaderResourceViewArray("multi_armTexture[0]", zero_text, material->multi_material.multi_texture_count);
+			ps->SetShaderResourceViewArray("multi_highTexture[0]", zero_text, material->multi_material.multi_texture_count);
+			ps->SetShaderResourceViewArray("multi_maskTexture[0]", zero_text, material->multi_material.multi_texture_count);
 		}
 		if (ds) {
 			ds->SetInt(SimpleShaderKeys::MULTI_TEXTURE_COUNT, 0);
-			ds->SetShaderResourceViewArray("multi_highTexture[0]", zero_text, material->multi_texture_count);
+			ds->SetShaderResourceViewArray("multi_highTexture[0]", zero_text, material->multi_material.multi_texture_count);
 		}
 	}
 }

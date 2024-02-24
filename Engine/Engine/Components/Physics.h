@@ -44,6 +44,7 @@ namespace HotBite {
 				reactphysics3d::Collider* collider = nullptr;
 				reactphysics3d::Transform last_body_transform;
 				reactphysics3d::PhysicsWorld* world = nullptr;
+				float bounce = 0.0f;
 				eShapeForm shape = eShapeForm::SHAPE_CAPSULE;
 				Physics() = default;
 				virtual ~Physics();

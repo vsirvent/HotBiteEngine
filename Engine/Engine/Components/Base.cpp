@@ -35,7 +35,7 @@ namespace HotBite {
 		namespace Components {
 						
 
-			bool Material::LoadMultitexture(const std::string& json_str, const std::string& root_path, const Core::FlatMap<std::string, Core::MaterialData>& materials) {
+			bool MultiMaterial::LoadMultitexture(const std::string& json_str, const std::string& root_path, const Core::FlatMap<std::string, Core::MaterialData>& materials) {
 				try
 				{
 					const nlohmann::json multi_textures_json = nlohmann::json::parse(json_str);

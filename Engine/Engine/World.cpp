@@ -304,10 +304,33 @@ void World::LoadSky(const json& sky_info) {
 }
 
 void  World::LoadMaterialFiles(const nlohmann::json& materials_info, const std::string& path) {
+	for (const std::string& file: materials_info) {
+		std::string file_path = path + file;
+		auto input_file = std::ifstream(file_path);
+		json scene = json::parse(input_file);
 
+		const std::string root = path + (std::string)scene["root"];
+		auto c = GetCoordinator();
+		std::scoped_lock l(c->GetSystem<RenderSystem>()->mutex);
+
+		auto& materials = GetMaterials();
+		for (const auto& m : scene["materials"]) {
+			std::string name = m["name"];
+			MaterialData* mdata = materials.Get(name);
+			if (mdata == nullptr) {
+				materials.Insert(name, MaterialData{ name });
+				mdata = materials.Get(name);
+			}
+			mdata->Load(root, m.dump());
+		}
+	}
 }
 
-void  World::LoadMaterialsNode(const nlohmann::json& materials_info,
+void World::LoadMultiMaterial(const std::string& name, const nlohmann::json& multi_material_info) {
+	multi_materials[name] = multi_material_info;
+}
+
+void World::LoadMaterialsNode(const nlohmann::json& materials_info,
 	const std::string& texture_path) {
 	//Complete materials information
 	for (auto& mat_json : materials_info) {
@@ -319,121 +342,7 @@ void  World::LoadMaterialsNode(const nlohmann::json& materials_info,
 		}
 		//assert(!material_list.empty() && "material not found.");
 		for (MaterialData* m : material_list) {
-			if (mat_json.contains("opacity")) {
-				m->props.opacity = mat_json["opacity"];
-			}
-			if (mat_json.contains("density")) {
-				m->props.density = mat_json["density"];
-			}
-			if (mat_json.contains("diffuse_color")) {
-				m->props.diffuseColor = ColorFromStr(mat_json["diffuse_color"]);
-			}
-			if (mat_json.contains("ambient_color")) {
-				m->props.ambientColor = ColorFromStr(mat_json["ambient_color"]);
-			}
-			if (mat_json.contains("spec_intensity")) {
-				m->props.specIntensity = mat_json["spec_intensity"];
-			}
-			if (mat_json.contains("parallax_scale")) {
-				m->props.parallax_scale = mat_json["parallax_scale"];
-			}
-			if (mat_json.contains("parallax_steps")) {
-				m->props.parallax_steps = mat_json["parallax_steps"];
-			}
-			if (mat_json.contains("parallax_angle_steps")) {
-				m->props.parallax_angle_steps = mat_json["parallax_angle_steps"];
-			}
-			if (mat_json.contains("parallax_shadow_scale")) {
-				m->props.parallax_shadow_scale = mat_json["parallax_shadow_scale"];
-			}
-			if (mat_json.contains("tess_type")) {
-				m->tessellation_type = mat_json["tess_type"];
-			}
-			if (mat_json.contains("tess_factor")) {
-				m->tessellation_factor = mat_json["tess_factor"];
-			}
-			if (mat_json.contains("displacement_scale")) {
-				m->displacement_scale = mat_json["displacement_scale"];
-			}
-			if (mat_json.contains("bloom_scale")) {
-				m->props.bloom_scale = mat_json["bloom_scale"];
-			}
-			if (mat_json.contains("normal_map_enabled")) {
-				if (mat_json["normal_map_enabled"]) {
-					m->props.flags |= NORMAL_MAP_ENABLED_FLAG;
-				}
-				else {
-					m->props.flags &= ~NORMAL_MAP_ENABLED_FLAG;
-				}
-			}
-			if (mat_json.contains("alpha_enabled")) {
-				if (mat_json["alpha_enabled"]) {
-					m->props.flags |= ALPHA_ENABLED_FLAG;
-					if (mat_json.contains("alpha_color")) {
-						m->props.alphaColor = ColorRGBFromStr(mat_json["alpha_color"]);
-					}
-				}
-				else {
-					m->props.flags &= ~ALPHA_ENABLED_FLAG;
-				}
-			}
-			if (mat_json.contains("blend_enabled")) {
-				if (mat_json["blend_enabled"]) {
-					m->props.flags |= BLEND_ENABLED_FLAG;
-				}
-				else {
-					m->props.flags &= ~BLEND_ENABLED_FLAG;
-				}
-			}
-			if (mat_json.contains("parallax_shadows")) {
-				if (mat_json["parallax_shadows"]) {
-					m->props.flags |= PARALLAX_SHADOW_ENABLED_FLAG;
-				}
-				else {
-					m->props.flags &= ~PARALLAX_SHADOW_ENABLED_FLAG;
-				}
-			}
-			if (mat_json.contains("textures")) {
-				auto& textures = mat_json["textures"];
-				if (textures.contains("diffuse_textname")) {
-					m->texture_names.diffuse_texname = texture_path + (std::string)textures["diffuse_textname"];
-				}
-				if (textures.contains("normal_textname")) {
-					m->texture_names.normal_textname = texture_path + (std::string)textures["normal_textname"];
-				}
-				if (textures.contains("high_textname")) {
-					m->texture_names.high_textname = texture_path + (std::string)textures["high_textname"];
-				}
-				if (textures.contains("spec_textname")) {
-					m->texture_names.spec_textname = texture_path + (std::string)textures["spec_textname"];
-				}
-				if (textures.contains("ao_textname")) {
-					m->texture_names.ao_textname = texture_path + (std::string)textures["ao_textname"];
-				}
-				if (textures.contains("arm_textname")) {
-					m->texture_names.arm_textname = texture_path + (std::string)textures["arm_textname"];
-				}
-				if (textures.contains("emission_textname")) {
-					m->texture_names.emission_textname = texture_path + (std::string)textures["emission_textname"];
-				}
-				if (textures.contains("opacity_textname")) {
-					m->texture_names.opacity_textname = texture_path + (std::string)textures["opacity_textname"];
-				}
-			}
-			if (mat_json.contains("shaders")) {
-				std::string name = mat_json["name"];
-				const json& shaders = mat_json["shaders"];
-				if (shaders.contains("vs"))
-					m->shaders.vs = ShaderFactory::Get()->GetShader<SimpleVertexShader>(shaders["vs"]);
-				if (shaders.contains("hs"))
-					m->shaders.hs = ShaderFactory::Get()->GetShader<SimpleHullShader>(shaders["hs"]);
-				if (shaders.contains("ds"))
-					m->shaders.ds = ShaderFactory::Get()->GetShader<SimpleDomainShader>(shaders["ds"]);
-				if (shaders.contains("gs"))
-					m->shaders.gs = ShaderFactory::Get()->GetShader<SimpleGeometryShader>(shaders["gs"]);
-				if (shaders.contains("ps"))
-					m->shaders.ps = ShaderFactory::Get()->GetShader<SimplePixelShader>(shaders["ps"]);
-			}
+			m->Load(texture_path, mat_json.dump());
 		}
 	}
 }
@@ -479,7 +388,7 @@ bool World::Load(const std::string& scene_file) {
 		}
 
 		if (jw.contains("material_files")) {
-			LoadMaterialFiles(js["material_files"], path);
+			LoadMaterialFiles(jw["material_files"], path);
 		}
 				
 		//Complete meshes information
@@ -669,6 +578,9 @@ bool World::Load(const std::string& scene_file) {
 							assert(false && "Unknown physics type.");
 						}
 					}
+					if (physics_json.contains("bounce")) {
+						physics.bounce = physics_json["bounce"];
+					}
 					if (physics_json.contains("shape")) {
 						const std::string& shape = physics_json["shape"];
 						if (shape == "CAPSULE") {
@@ -715,7 +627,14 @@ bool World::Load(const std::string& scene_file) {
 				if (entity.contains("multi_texture")) {
 					auto& multi_textures_json = entity["multi_texture"];
 					Components::Material &m = coordinator.GetComponent<Components::Material>(e);
-					m.LoadMultitexture(multi_textures_json.dump(), path, materials);
+					std::string name = multi_textures_json["name"];
+					const auto mt = multi_materials.find(name);
+					if (mt != multi_materials.end()) {
+						m.multi_material.LoadMultitexture(mt->second, path, materials);
+					}
+					else {
+						m.multi_material.LoadMultitexture(multi_textures_json.dump(), path, materials);
+					}
 				}
 				if (changed) {
 					coordinator.NotifySignatureChange(e);
@@ -745,28 +664,28 @@ void World::Init() {
 	}
 	//Init multitextures
 	for (auto& m : coordinator.GetComponents<Components::Material>()->Array()) {
-		for (uint32_t i = 0; i < m.multi_texture_count; ++i) {
-			if (m.multi_texture_data[i] != nullptr) {
-				if (m.multi_texture_data[i]->diffuse != nullptr) {
-					m.multi_texture_operation[i] |= TEXT_DIFF;
+		for (uint32_t i = 0; i < m.multi_material.multi_texture_count; ++i) {
+			if (m.multi_material.multi_texture_data[i] != nullptr) {
+				if (m.multi_material.multi_texture_data[i]->diffuse != nullptr) {
+					m.multi_material.multi_texture_operation[i] |= TEXT_DIFF;
 				}
-				if (m.multi_texture_data[i]->normal != nullptr) {
-					m.multi_texture_operation[i] |= TEXT_NORM;
+				if (m.multi_material.multi_texture_data[i]->normal != nullptr) {
+					m.multi_material.multi_texture_operation[i] |= TEXT_NORM;
 				}
-				if (m.multi_texture_data[i]->spec != nullptr) {
-					m.multi_texture_operation[i] |= TEXT_SPEC;
+				if (m.multi_material.multi_texture_data[i]->spec != nullptr) {
+					m.multi_material.multi_texture_operation[i] |= TEXT_SPEC;
 				}
-				if (m.multi_texture_data[i]->ao != nullptr) {
-					m.multi_texture_operation[i] |= TEXT_AO;
+				if (m.multi_material.multi_texture_data[i]->ao != nullptr) {
+					m.multi_material.multi_texture_operation[i] |= TEXT_AO;
 				}
-				if (m.multi_texture_data[i]->arm != nullptr) {
-					m.multi_texture_operation[i] |= TEXT_ARM;
+				if (m.multi_material.multi_texture_data[i]->arm != nullptr) {
+					m.multi_material.multi_texture_operation[i] |= TEXT_ARM;
 				}
-				if (m.multi_texture_data[i]->high != nullptr) {
-					m.multi_texture_operation[i] |= TEXT_DISP;
+				if (m.multi_material.multi_texture_data[i]->high != nullptr) {
+					m.multi_material.multi_texture_operation[i] |= TEXT_DISP;
 				}
-				if (m.multi_texture_mask[i] != nullptr) {
-					m.multi_texture_operation[i] |= TEXT_MASK;
+				if (m.multi_material.multi_texture_mask[i] != nullptr) {
+					m.multi_material.multi_texture_operation[i] |= TEXT_MASK;
 				}
 			}
 		}
@@ -802,6 +721,7 @@ void World::Init() {
 				printf("No shape for mesh %s\n", e.first.c_str());
 			}
 			p.Init(phys_world, p.type, shape, b.bounding_box.Extents, t.position, t.scale, t.rotation, p.shape);
+			p.GetMaterial()->setBounciness(p.bounce);
 		}
 	}	
 	vertex_buffer->Prepare();

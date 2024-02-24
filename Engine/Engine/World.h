@@ -86,7 +86,7 @@ namespace HotBite {
 
 			//Absolute path of assets location
 			std::string path;
-			
+			std::unordered_map<std::string, nlohmann::json> multi_materials;
 			Core::FlatMap<std::string, Core::MaterialData> materials{ ECS::MAX_ENTITIES };
 			Core::FlatMap<std::string, Core::MeshData> meshes{ ECS::MAX_ENTITIES };
 			Core::FlatMap<std::string, Core::ShapeData> shapes{ ECS::MAX_ENTITIES };
@@ -135,9 +135,10 @@ namespace HotBite {
 			virtual void Run(int render_fps, int background_fps = 0, int physics_fps = 0);
 			virtual void Stop();
 			virtual void LoadTemplate(const std::string& template_file, bool triangulate, bool relative, bool use_animation_names = false);
-			virtual void  World::LoadMaterialFiles(const nlohmann::json& materials_info, const std::string& path);
+			virtual void LoadMaterialFiles(const nlohmann::json& materials_info, const std::string& path);
 			virtual void LoadMaterialsNode(const nlohmann::json& materials_info,
 										  const std::string& texture_path);
+			virtual void LoadMultiMaterial(const std::string& name, const nlohmann::json& multi_material_info);
 
 			template<typename T>
 			void RegisterComponent()

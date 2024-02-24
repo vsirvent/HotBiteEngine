@@ -63,7 +63,7 @@ MaterialData::~MaterialData() {
 
 void MaterialData::SetTexture(ID3D11ShaderResourceView*& texture, std::string& current_texture, const std::string& root, const std::string& file) {
 	std::string new_texure = root + std::string("\\") + file;
-	if (current_texture != new_texure) {
+	if (!file.empty() && current_texture != new_texure) {
 		current_texture = new_texure;
 		if (texture) {
 			texture->Release();
@@ -73,7 +73,11 @@ void MaterialData::SetTexture(ID3D11ShaderResourceView*& texture, std::string& c
 		}
 		else {
 			texture = nullptr;
+			current_texture.clear();
 		}
+	}
+	else {
+		current_texture.clear();
 	}
 }
 
