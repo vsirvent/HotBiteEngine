@@ -12,6 +12,7 @@ namespace HotBiteTool {
 		void CreateToolUi(HINSTANCE instance, HWND parent = NULL, int32_t w = 0, int32_t h = 0, int32_t fps = 30);
 		void Run();
 		void LoadUI(const json& ui);
+		void ReloadShaders();
 		void SetMaterial(const std::string& entity, const std::string& root, const std::string& mat);
 		void SetMultiMaterial(const std::string& entity, const std::string& root, const std::string& mat);
 		void LoadWorld(const std::string& world_level);

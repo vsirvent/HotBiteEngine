@@ -67,7 +67,6 @@ void StaticMeshSystem::Init(StaticMeshEntity& entity) {
 	Mesh* mesh = entity.mesh;
 
 	//Init default values
-	XMStoreFloat4x4(&transform->world_matrix, XMMatrixTranspose(XMMatrixIdentity()));		
 	entity.transform->dirty = true;
 	Update(entity, 0, 0);
 }
@@ -114,6 +113,7 @@ void StaticMeshSystem::Update(StaticMeshEntity& entity, int64_t elapsed_nsec, in
 				transform->world_xmmatrix = transform->world_xmmatrix * t;
 			}
 		}
+		transform->prev_world_matrix = transform->world_matrix;
 		XMStoreFloat4x4(&transform->world_matrix, XMMatrixTranspose(transform->world_xmmatrix));
 		XMStoreFloat4x4(&transform->world_inv_matrix, XMMatrixTranspose(XMMatrixInverse(nullptr, transform->world_xmmatrix)));
 

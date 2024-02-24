@@ -229,8 +229,8 @@ public:
 
 			//Connect the post-chain effects
 			main_fx->SetNext(dof);
-			dof->SetNext(motion_blur);
-			motion_blur->SetNext(post_game);
+			dof->SetNext(post_game);
+			//motion_blur->SetNext(post_game);
 			post_game->SetNext(gui);
 
 			dof->SetAmplitude(2.0f);
@@ -374,7 +374,7 @@ public:
 					}
 					else if (GetAsyncKeyState('1') & 0x8000) {
 						std::lock_guard<std::recursive_mutex> l(world.GetCoordinator()->GetSystem<RenderSystem>()->mutex);
-						ShaderFactory::Get()->Reset();
+						ShaderFactory::Get()->Reload();
 					}
 					else if (GetAsyncKeyState('Y') & 0x8000) {
 						if (tone == AudioSystem::INVALID_PLAY_ID) {

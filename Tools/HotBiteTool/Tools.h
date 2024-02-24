@@ -22,6 +22,7 @@ namespace HotBiteTool {
 		private:
 			Core::PostProcess* post = nullptr;
 			Core::DOFProcess* dof = nullptr;
+			Core::MotionBlurEffect* motion = nullptr;
 			UI::GUI* gui = nullptr;
 			std::shared_ptr<HotBite::Engine::UI::TextureWidget> debug;
 			Scheduler::TimerId timer0;
@@ -33,6 +34,7 @@ namespace HotBiteTool {
 			ToolUi(HINSTANCE hInstance, HWND parent, int32_t w, int32_t h, int32_t fps);
 			virtual ~ToolUi();
 
+			void ReloadShaders();
 			void LoadUI(json ui);
 			void SetMaterial(const std::string& entity, const std::string& root, const std::string& mat);
 			void SetMultiMaterial(const std::string& entity, const std::string& root, const std::string& mat);

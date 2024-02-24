@@ -65,6 +65,7 @@ namespace HotBite {
 				static std::recursive_mutex mutex;
 
 				static const std::string WORLD;
+				static const std::string PREV_WORLD;
 				static const std::string MESH_NORMAL_MAP;
 				static const std::string MESH_NORMAL_MAP_ENABLE;
 				static const std::string AMBIENT_LIGHT;
@@ -228,22 +229,27 @@ namespace HotBite {
 				Core::RenderTexture2D depth_map{ 3 };
 				Core::RenderTexture2D light_map;
 				Core::RenderTexture2D position_map;
+				Core::RenderTexture2D prev_position_map;
 				Core::RenderTexture2D bloom_map;
 				Core::RenderTexture2D temp_map;
 				Core::RenderTexture2D rgba_noise_texture;
 				Core::RenderTexture2D first_pass_texture{ 1 };				
 				Core::DepthTexture2D depth_view;
-				
+
+				Core::RenderTexture2D texture_tmp;
+				DataBuffer<uint8_t> texture_tmp_lock;
+
 				Core::PostProcess* post_process_pipeline = nullptr;				
 				Core::IRenderTarget* first_pass_target = nullptr;
 				Core::IRenderTarget* second_pass_target = nullptr;
 				Core::IDepthResource* depth_target = nullptr;
-				
+
+				//Motion blur
+				Core::SimpleComputeShader* motion_blur = nullptr;
+
 				//Ray tracing
 				bool rt_enabled = true;
-				static constexpr int RT_RESOLUTION_DIVIVER = 1;
 				Core::SimpleComputeShader* rt_shader = nullptr;
-				Core::SimpleComputeShader* rt_acc = nullptr;
 				Core::SimpleComputeShader* rt_smooth = nullptr;
 
 				//RT texture 1: Reflexed rays
@@ -251,7 +257,6 @@ namespace HotBite {
 				static constexpr int RT_NTEXTURES = 2;
 				Core::RenderTexture2D rt_texture[RT_NTEXTURES];
 				Core::RenderTexture2D rt_texture_props;
-				Core::RenderTexture2D rt_texture_tmp;
 				Core::RenderTexture2D rt_ray_sources0;
 				Core::RenderTexture2D rt_ray_sources1;
 				BVHBuffer* bvh_buffer = nullptr;
@@ -271,6 +276,7 @@ namespace HotBite {
 					ID3D11ShaderResourceView* prev_pass_texture,
 					Core::IRenderTarget* target, RenderTree& tree);
 				void ProcessRT();
+				void ProcessMotionBlur();
 				void DrawParticles(int w, int h, const float3& camera_position, const matrix& view, const matrix& projection, RenderParticleTree& tree);
 				bool IsVisible(const float3& camera_pos, const DrawableEntity& drawable, const matrix& view_projection, int w, int h) const;
 				void CheckSceneVisibility(RenderTree& tree);

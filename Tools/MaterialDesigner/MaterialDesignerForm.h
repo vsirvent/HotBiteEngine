@@ -101,6 +101,8 @@ namespace MaterialDesigner {
 	protected: System::Windows::Forms::Label^ label5;
 	private: System::Windows::Forms::ListBox^ layerList;
 	private: System::Windows::Forms::ToolStripMenuItem^ emptyToolStripMenuItem;
+	private: System::Windows::Forms::ToolStripSeparator^ toolStripSeparator1;
+	private: System::Windows::Forms::ToolStripMenuItem^ reloadShadersToolStripMenuItem;
 	protected:
 
 	protected:
@@ -177,6 +179,7 @@ namespace MaterialDesigner {
 			this->sphereToolStripMenuItem = (gcnew System::Windows::Forms::ToolStripMenuItem());
 			this->panelToolStripMenuItem = (gcnew System::Windows::Forms::ToolStripMenuItem());
 			this->monkeyToolStripMenuItem = (gcnew System::Windows::Forms::ToolStripMenuItem());
+			this->emptyToolStripMenuItem = (gcnew System::Windows::Forms::ToolStripMenuItem());
 			this->splitContainer1 = (gcnew System::Windows::Forms::SplitContainer());
 			this->layerList = (gcnew System::Windows::Forms::ListBox());
 			this->buttonAddLayer = (gcnew System::Windows::Forms::Button());
@@ -192,7 +195,8 @@ namespace MaterialDesigner {
 			this->button1 = (gcnew System::Windows::Forms::Button());
 			this->rootFolder = (gcnew System::Windows::Forms::TextBox());
 			this->label3 = (gcnew System::Windows::Forms::Label());
-			this->emptyToolStripMenuItem = (gcnew System::Windows::Forms::ToolStripMenuItem());
+			this->toolStripSeparator1 = (gcnew System::Windows::Forms::ToolStripSeparator());
+			this->reloadShadersToolStripMenuItem = (gcnew System::Windows::Forms::ToolStripMenuItem());
 			this->MainTab->SuspendLayout();
 			this->Design->SuspendLayout();
 			this->Code->SuspendLayout();
@@ -376,9 +380,10 @@ namespace MaterialDesigner {
 			// 
 			// editorToolStripMenuItem
 			// 
-			this->editorToolStripMenuItem->DropDownItems->AddRange(gcnew cli::array< System::Windows::Forms::ToolStripItem^  >(5) {
+			this->editorToolStripMenuItem->DropDownItems->AddRange(gcnew cli::array< System::Windows::Forms::ToolStripItem^  >(7) {
 				this->cubeToolStripMenuItem,
-					this->sphereToolStripMenuItem, this->panelToolStripMenuItem, this->monkeyToolStripMenuItem, this->emptyToolStripMenuItem
+					this->sphereToolStripMenuItem, this->panelToolStripMenuItem, this->monkeyToolStripMenuItem, this->emptyToolStripMenuItem, this->toolStripSeparator1,
+					this->reloadShadersToolStripMenuItem
 			});
 			this->editorToolStripMenuItem->Name = L"editorToolStripMenuItem";
 			this->editorToolStripMenuItem->Size = System::Drawing::Size(50, 20);
@@ -411,6 +416,13 @@ namespace MaterialDesigner {
 			this->monkeyToolStripMenuItem->Size = System::Drawing::Size(180, 22);
 			this->monkeyToolStripMenuItem->Text = L"Monkey";
 			this->monkeyToolStripMenuItem->Click += gcnew System::EventHandler(this, &MaterialDesignerForm::monkeyToolStripMenuItem_Click);
+			// 
+			// emptyToolStripMenuItem
+			// 
+			this->emptyToolStripMenuItem->Name = L"emptyToolStripMenuItem";
+			this->emptyToolStripMenuItem->Size = System::Drawing::Size(180, 22);
+			this->emptyToolStripMenuItem->Text = L"Empty";
+			this->emptyToolStripMenuItem->Click += gcnew System::EventHandler(this, &MaterialDesignerForm::emptyToolStripMenuItem_Click);
 			// 
 			// splitContainer1
 			// 
@@ -589,12 +601,17 @@ namespace MaterialDesigner {
 			this->label3->Text = L"Root:";
 			this->label3->TextAlign = System::Drawing::ContentAlignment::MiddleLeft;
 			// 
-			// emptyToolStripMenuItem
+			// toolStripSeparator1
 			// 
-			this->emptyToolStripMenuItem->Name = L"emptyToolStripMenuItem";
-			this->emptyToolStripMenuItem->Size = System::Drawing::Size(180, 22);
-			this->emptyToolStripMenuItem->Text = L"Empty";
-			this->emptyToolStripMenuItem->Click += gcnew System::EventHandler(this, &MaterialDesignerForm::emptyToolStripMenuItem_Click);
+			this->toolStripSeparator1->Name = L"toolStripSeparator1";
+			this->toolStripSeparator1->Size = System::Drawing::Size(177, 6);
+			// 
+			// reloadShadersToolStripMenuItem
+			// 
+			this->reloadShadersToolStripMenuItem->Name = L"reloadShadersToolStripMenuItem";
+			this->reloadShadersToolStripMenuItem->Size = System::Drawing::Size(180, 22);
+			this->reloadShadersToolStripMenuItem->Text = L"Reload shaders";
+			this->reloadShadersToolStripMenuItem->Click += gcnew System::EventHandler(this, &MaterialDesignerForm::reloadShadersToolStripMenuItem_Click);
 			// 
 			// MaterialDesignerForm
 			// 
@@ -981,5 +998,8 @@ namespace MaterialDesigner {
 			}
 		}
 	}
+private: System::Void reloadShadersToolStripMenuItem_Click(System::Object^ sender, System::EventArgs^ e) {
+	HotBiteTool::ToolUi::ReloadShaders();
+}
 };
 }

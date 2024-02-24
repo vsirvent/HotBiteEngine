@@ -233,6 +233,7 @@ void PhysicsSystem::Update(PhysicsEntity& pe, int64_t elapsed_nsec, int64_t tota
 		transform->rotation.w = q.w;
 
 		transform->world_xmmatrix = s * r * t;
+		transform->prev_world_matrix = transform->world_matrix;
 		XMStoreFloat4x4(&transform->world_matrix, XMMatrixTranspose(transform->world_xmmatrix));
 		XMStoreFloat4x4(&transform->world_inv_matrix, XMMatrixTranspose(XMMatrixInverse(nullptr, transform->world_xmmatrix)));
 

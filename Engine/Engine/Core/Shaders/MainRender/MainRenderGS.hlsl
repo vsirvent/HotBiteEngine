@@ -113,6 +113,7 @@ void main(
 			element.mesh_uv = input[i].mesh_uv;
 			element.worldPos = input[i].worldPos;
 			element.position = p[i];
+			element.objectPos = input[i].position;
 			element.normal = normalize(input[i].normal);
 			element.tangent = mul(tangent, (float3x3)world);
 			element.bitangent = mul(bitangent, (float3x3)world);

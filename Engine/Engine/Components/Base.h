@@ -93,6 +93,8 @@ namespace HotBite {
 				float4 rotation = { 0.0f, 0.0f, 0.0f, 1.0f };
 				//The entity world matrix ready to be used in the vertex shader
 				float4x4 world_matrix = {};
+				//The previous entity world matrix used to calculate vertex speed
+				float4x4 prev_world_matrix = {};
 				//The entity inverse world matrix ready to be used in the vertex shader
 				float4x4 world_inv_matrix = {};
 				//The entity world matrix to be used in the application

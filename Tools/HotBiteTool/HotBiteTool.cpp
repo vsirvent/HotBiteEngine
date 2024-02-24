@@ -6,6 +6,12 @@ namespace HotBiteTool {
 	namespace ToolUi {
 		ToolUi* tool_ui = nullptr;
 
+		void ReloadShaders()
+		{
+			if (tool_ui != nullptr) {
+				tool_ui->ReloadShaders();
+			}
+		}
 		void CreateToolUi(HINSTANCE instance, HWND parent, int32_t w, int32_t h, int32_t fps) {
 			if (tool_ui == nullptr) {
 				tool_ui = new ToolUi(instance, parent, w, h, fps);

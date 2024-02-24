@@ -32,12 +32,12 @@ cbuffer externalData
 
 Texture2D renderTexture;
 Texture2D positionTexture;
-
+Texture2D prevPositionTexture;
 SamplerState basicSampler;
 
-static const uint numSamples = 20;
-static const float MOTION_FACTOR = 0.05f;
-static const float MAX_VELOCITY_FACTOR = 5.0f;
+static const uint numSamples = 15;
+static const float MOTION_FACTOR = 0.1f;
+static const float MAX_VELOCITY_FACTOR = 2.0f;
 
 float4 main(float4 pos: SV_POSITION) : SV_TARGET
 {    
@@ -50,7 +50,8 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
     float4 p1World = positionTexture.Sample(basicSampler, tpos);
     if (length(p1World) > 0) {
         
-        float4 p0 = mul(p1World, prev_view_proj);
+        float4 p0World = prevPositionTexture.Sample(basicSampler, tpos);
+        float4 p0 = mul(p0World, prev_view_proj);
         float4 p1 = mul(p1World, view_proj);
         
         p0 /= p0.w;
@@ -58,9 +59,10 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
 
         // Use this frame's position and last frame's to compute the pixel velocity.
         float2 velocity = (p1.xy - p0.xy)*MOTION_FACTOR;
+#if 0
         float dist = length(tpos - 0.5f)*2.0f;
         velocity *= dist*dist;
-
+#endif
         float maxVelocity = MAX_VELOCITY_FACTOR / min(screenW, screenH); // Max velocity per pixel
         float magnitude = length(velocity); // Calculate magnitude of velocity vector
 

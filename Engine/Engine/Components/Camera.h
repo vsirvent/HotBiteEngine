@@ -53,6 +53,7 @@ namespace HotBite {
 				float4x4 inverse_projection;
 				matrix xm_projection;
 
+				float4x4 prev_view_projection;
 				float4x4 view_projection;
 				matrix xm_view_projection;
 
