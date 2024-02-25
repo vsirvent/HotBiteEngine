@@ -370,10 +370,9 @@ HRESULT DXCore::InitDirectX()
 	ZeroMemory(&shadowRenderStateDesc, sizeof(D3D11_RASTERIZER_DESC));
 	shadowRenderStateDesc.CullMode = D3D11_CULL_BACK;
 	shadowRenderStateDesc.FillMode = D3D11_FILL_SOLID;
-	shadowRenderStateDesc.DepthBias = 0;
+	shadowRenderStateDesc.DepthBias = 100;
 	shadowRenderStateDesc.DepthClipEnable = false;
 	shadowRenderStateDesc.SlopeScaledDepthBias = 2.0f;
-	shadowRenderStateDesc.DepthBias = 0;
 	if (FAILED(hr = device->CreateRasterizerState(&shadowRenderStateDesc, &shadow_rasterizer))) {
 		return hr;
 	}
@@ -478,7 +477,7 @@ ID3D11DepthStencilView* DXCore::DepthView() {
 
 void DXCore::Present()
 {
-	swapChain->Present(1, 0);
+	swapChain->Present(0, 0);
 	OnFrame();
 }
 

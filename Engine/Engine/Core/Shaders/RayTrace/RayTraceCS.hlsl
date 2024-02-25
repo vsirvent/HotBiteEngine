@@ -288,7 +288,7 @@ bool IntersectTri(RayObject ray, uint indexOffset, uint vertexOffset, out Inters
     const float t = f * dot(edge2, q);
 
     // Check if the intersection is within the valid range along the ray
-    if (t > 0 && t < ray.t)
+    if (t > 0)
     {
         result.v0 = v0;
         result.v1 = v1;
@@ -509,7 +509,7 @@ float3 GetColor(Ray origRay)
             float objectExtent = 4.0f*length(o.aabb_max - o.aabb_min);
             float distanceToObject = length(o.position - cameraPosition) - objectExtent;
 
-            if (distanceToObject < max_distance && distanceToObject < result.distance && IntersectAABB(ray, o.aabb_min, o.aabb_max))
+            if (distanceToObject < max_distance && IntersectAABB(ray, o.aabb_min, o.aabb_max))
             {
                 RayObject oray;
                 IntersectionResult object_result;
@@ -539,7 +539,7 @@ float3 GetColor(Ray origRay)
                         tmp_result.distance = FLT_MAX;
                         if (IntersectTri(oray, idx, o.vertexOffset, tmp_result))
                         {
-                            tmp_result.distance *= abs(determinant(o.world));
+                            //tmp_result.distance *= (length(o.world[0].xyzw) + length(o.world[1].xyzw) + length(o.world[2].xyzw))/3.0f;
                             if (tmp_result.distance < result.distance && tmp_result.distance < object_result.distance)
                             {
                                 object_result.v0 = tmp_result.v0;
@@ -559,7 +559,7 @@ float3 GetColor(Ray origRay)
                     }
                 }
 
-                if (object_result.distance > Epsilon && object_result.distance < ray.t)
+                if (object_result.distance > Epsilon && object_result.distance < result.distance)
                 {
                     collide = true;
                     ray.t = object_result.distance;

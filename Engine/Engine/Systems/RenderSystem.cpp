@@ -1401,13 +1401,14 @@ void RenderSystem::ProcessRT() {
 		}
 
 		//Smooth frame
+		rt_smooth->SetUnorderedAccessView("props", rt_texture_props.UAV());
+		rt_smooth->SetShaderResourceView("depth", depth_map.SRV());
 		for (int i = 0; i < 2; ++i) {
 			if (enabled_layer[i]) {
 				int32_t  groupsX = (int32_t)(ceil((float)rt_texture[i].Width() / 32.0f));
 				int32_t  groupsY = (int32_t)(ceil((float)rt_texture[i].Height() / 32.0f));
 				rt_smooth->SetUnorderedAccessView("input", rt_texture[i].UAV());
 				rt_smooth->SetUnorderedAccessView("output", texture_tmp.UAV());
-				rt_smooth->SetUnorderedAccessView("props", rt_texture_props.UAV());
 				rt_smooth->SetInt("type", 1);
 				rt_smooth->CopyAllBufferData();
 				rt_smooth->SetShader();
@@ -1422,9 +1423,9 @@ void RenderSystem::ProcessRT() {
 				dxcore->context->Dispatch(groupsX, groupsY, 1);
 				rt_smooth->SetUnorderedAccessView("input", nullptr);
 				rt_smooth->SetUnorderedAccessView("output", nullptr);
-				rt_smooth->SetUnorderedAccessView("props", nullptr);
-				rt_smooth->CopyAllBufferData();
 			}
+			rt_smooth->SetUnorderedAccessView("props", nullptr);
+			rt_smooth->SetShaderResourceView("depth", nullptr);
 		}
 	}
 }

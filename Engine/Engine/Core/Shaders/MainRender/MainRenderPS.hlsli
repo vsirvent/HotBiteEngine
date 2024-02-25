@@ -88,7 +88,7 @@ RenderTargetRT MainRenderPS(GSOutput input)
 			float3 tbn_fragment_displacement;
 
 			input.uv = CalculateDepthUVBinary(scale, steps, angle_steps, input.uv, tbn_cam_pos, tbn_fragment_pos, calculated_values, h, tbn_fragment_displacement);
-			wpos.xyz -= (mul(tbn_fragment_displacement, (float3x3)tbn) - normal);
+			wpos.xyz -= (mul(tbn_fragment_displacement, (float3x3)tbn) - 0.5*normal);
 
 			if (material.flags & PARALLAX_SHADOW_ENABLED_FLAG) {
 				float lh = 0.0f;
@@ -195,7 +195,7 @@ RenderTargetRT MainRenderPS(GSOutput input)
 		finalColor += emission;
 		lightColor += emission;
 	}
-#if 1
+#if 0
 	//Emission of point lights	
 	matrix worldViewProj = mul(view, projection);
 	float3 p2 = mul(input.worldPos, view).xyz;

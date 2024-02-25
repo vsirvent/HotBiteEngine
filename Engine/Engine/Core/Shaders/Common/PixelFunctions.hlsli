@@ -46,7 +46,7 @@ TextureCube<float> PointShadowMapTexture[MAX_LIGHTS];
 //Packed array
 static float2 lps[MAX_LIGHTS] = (float2[MAX_LIGHTS])LightPerspectiveValues;
 
-#define max_nsteps 20
+#define max_nsteps 100
 
 float CloudPCF(float4 position, DirLight light, float cloud_density)
 {
@@ -124,10 +124,10 @@ float PointShadowPCF(float3 ToPixel, PointLight light, int index)
 	float Z = max(ToPixelAbs.x, max(ToPixelAbs.y, ToPixelAbs.z));
 	float d = ((lps[index].x * Z + lps[index].y) / Z);
 	//This offset allows to avoid self shadow
-	d -= 0.01f;
 	float step = 0.02f;
 	float att1 = 0.0f;
 	float count = 0.00001f;
+	d -= 0.0001f;
 	for (float x = -0.06f; x < 0.06f; x += step) {
 		for (float y = -0.06f; y < 0.06f; y += step) {
 			att1 += PointShadowMapTexture[index].SampleCmpLevelZero(PCFSampler, float3(ToPixel.x + x, ToPixel.y + y, ToPixel.z), d).r;
@@ -226,7 +226,7 @@ float3 DirVolumetricLight(float4 position, DirLight light, int index, float time
 	float3 lcolor = light.Color.rgb * light.intensity;
 
 	float3 color = { 0.f, 0.f, 0.f };
-	float step = 0.5f;
+	float step = 0.1f;
 	float max_vol = 1.0f;
 	float3 ToEye = cameraPosition.xyz - position.xyz;
 	float3 camDir = cameraDirection.xyz;
@@ -292,6 +292,9 @@ float3 DirVolumetricLight(float4 position, DirLight light, int index, float time
 				else {
 					break;
 				}
+			}
+			if (length(position - cameraPosition) < 1.0f) {
+				break;
 			}
 			if (light.range > 0.0f) {
 				float3 ToLight = light.position - position.xyz;

@@ -172,8 +172,8 @@ void PhysicsSystem::onContact(const reactphysics3d::CollisionCallback::CallbackD
 			pair0->clear();
 			pair1->clear();
 			for (uint32_t c = 0; c < contactPair.getNbContactPoints(); ++c) {
-				pair0->insert(contactPair.getContactPoint(c).getLocalPointOnCollider1());
-				pair1->insert(contactPair.getContactPoint(c).getLocalPointOnCollider1());
+				pair0->insert(contactPair.getContactPoint(c).getWorldNormal());
+				pair1->insert(contactPair.getContactPoint(c).getWorldNormal());
 			}			
 		}
 		if (contactPair.getEventType() == ContactPair::EventType::ContactStart || contactPair.getEventType() == ContactPair::EventType::ContactExit) {

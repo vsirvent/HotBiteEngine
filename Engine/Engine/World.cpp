@@ -68,7 +68,9 @@ void World::SetupCoordinator(ECS::Coordinator* c) {
 bool World::PreLoad(Core::DXCore* dx) {
 	
 	dx_core = dx;
-	phys_world = physics_common.createPhysicsWorld();
+	auto settings = reactphysics3d::PhysicsWorld::WorldSettings();
+	settings.persistentContactDistanceThreshold = 0.1f;
+	phys_world = physics_common.createPhysicsWorld(settings);
 	vertex_buffer = new VertexBuffer<Core::Vertex>();
 	bvh_buffer = new BVHBuffer();
 
@@ -768,6 +770,7 @@ void World::Run(int render_fps, int background_fps, int physics_fps) {
 			physics_mutex.lock();
 			//physics systems moves information to transform component used by the renderer,
 			//so we need to take the renderer lock for this
+			phys_world->update((float)t.period / 1000000000.0f);
 			physics_system->Update(t.period, t.total, false);
 			camera_system->Update(t.period, t.total);
 			coordinator.SendEvent(this, World::EVENT_ID_UPDATE_BACKGROUND);
@@ -808,7 +811,7 @@ void World::Run(int render_fps, int background_fps, int physics_fps) {
 				while (current_physics_thread_nsec >= current_server_nsec) { Sleep(1); }
 			}
 			physics_mutex.lock();
-			phys_world->update((float)t.period / 1000000000.0f);			
+			//phys_world->update((float)t.period / 1000000000.0f);			
 			coordinator.SendEvent(this, World::EVENT_ID_UPDATE_PHYSICS);
 			physics_mutex.unlock();
 			current_physics_thread_nsec += physics_thread_period;			

@@ -127,7 +127,7 @@ class OverlapCallback {
          */
         class CallbackData {
 
-            private:
+            public:
 
                 // -------------------- Attributes -------------------- //
 

@@ -472,7 +472,7 @@ public:
 	System::String^ root_folder;
 
 	void CopyFile(System::String^ orig, System::String^ dest) {
-		if (dest->Equals(orig) != 0) {
+		if (dest->Equals(orig) == false) {
 			try {
 				File::Delete(dest);
 			}

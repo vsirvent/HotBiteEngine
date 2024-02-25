@@ -59,13 +59,13 @@ HRESULT DirectionalLight::Init(const float3& c, const float3& dir,
 	this->data.color = c;
 	this->data.cast_shadow = cast_shadow;
 	if (cast_shadow) {
-		int w = (int)((float)texture_resolution_ratio * DXCore::Get()->GetWidth() / shadow_resolution_divisor);
+		int w = (int)((float)texture_resolution_ratio * DXCore::Get()->GetWidth() * shadow_resolution_divisor);
 		do {
 			texture.Init(w, w);
 			hr = static_texture.Init(w, w);
 			if (FAILED(hr)) {
 				texture_resolution_ratio /= 2;
-				w = (int)((float)texture_resolution_ratio * DXCore::Get()->GetWidth() / shadow_resolution_divisor);
+				w = (int)((float)texture_resolution_ratio * DXCore::Get()->GetWidth() * shadow_resolution_divisor);
 			}
 		} while (FAILED(hr) && texture_resolution_ratio > 0);
 		if (FAILED(hr)) {
