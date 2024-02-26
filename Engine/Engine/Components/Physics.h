@@ -36,9 +36,10 @@ namespace HotBite {
 
 			struct Physics {
 				enum eShapeForm {
+					SHAPE_NONE,
 					SHAPE_CAPSULE,
 					SHAPE_BOX,
-					SHAPE_SPHERE
+					SHAPE_SPHERE,
 				};
 				reactphysics3d::BodyType type = reactphysics3d::BodyType::STATIC;
 				reactphysics3d::RigidBody* body = nullptr;
