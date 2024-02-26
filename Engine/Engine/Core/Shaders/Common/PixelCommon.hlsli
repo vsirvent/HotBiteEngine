@@ -90,6 +90,9 @@ struct MaterialColor
 	float opacity;
 	float density;
 
+	float emission;
+	float3 emission_color;
+
 	float3 alphaColor;	
 #define NORMAL_MAP_ENABLED_FLAG 1 << 0
 #define PARALLAX_MAP_ENABLED_FLAG 1 << 1

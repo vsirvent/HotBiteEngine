@@ -96,6 +96,7 @@ RWTexture2D<float4> output1 : register(u1);
 RWTexture2D<float> props : register(u3);
 RWTexture2D<float4> ray0 : register(u4);
 RWTexture2D<float4> ray1 : register(u5);
+RWTexture2D<float4> bloom : register(u6);
 
 Texture2D<float4> DiffuseTextures[MAX_OBJECTS];
 Texture2D<float> DirShadowMapTexture[MAX_LIGHTS];
@@ -485,7 +486,7 @@ Ray GetRefractedRayFromRay(Ray source, float in_density, float out_density, floa
     return ray;
 }
 
-float3 GetColor(Ray origRay)
+float3 GetColor(Ray origRay, out float3 bloom)
 {
 	
     static const float max_distance = 500.0f;
@@ -496,6 +497,7 @@ float3 GetColor(Ray origRay)
 
     Ray ray = origRay;
     float3 finalColor = float3(0.0f, 0.0f, 0.0f);
+    bloom = float3(0.0f, 0.0f, 0.0f);
 
     bool end = false;
     while (!end)
@@ -539,7 +541,7 @@ float3 GetColor(Ray origRay)
                         tmp_result.distance = FLT_MAX;
                         if (IntersectTri(oray, idx, o.vertexOffset, tmp_result))
                         {
-                            //tmp_result.distance *= (length(o.world[0].xyzw) + length(o.world[1].xyzw) + length(o.world[2].xyzw))/3.0f;
+                            tmp_result.distance /= determinant(o.world);
                             if (tmp_result.distance < result.distance && tmp_result.distance < object_result.distance)
                             {
                                 object_result.v0 = tmp_result.v0;
@@ -616,6 +618,9 @@ float3 GetColor(Ray origRay)
                 color *= material.diffuseColor.rgb;
             }
 
+            float4 emission = material.emission * float4(material.emission_color, 1.0f);
+            bloom += emission;
+
             finalColor += color * ray.ratio * o.opacity;
             ray.orig = pos;
 
@@ -681,12 +686,13 @@ void main(uint3 DTid : SV_DispatchThreadID)
         return;
     }
 
+    float3 bloomColor = { 0.0f, 0.0f, 0.0f };
     //Reflected ray
     if (ray_source.opacity > Epsilon) {
         Ray ray = GetReflectedRayFromSource(ray_source);
         if (length(ray.dir) > Epsilon)
         {
-            color0 = float4(GetColor(ray), 1.0f);
+            color0 = float4(GetColor(ray, bloomColor), 1.0f);
         }
     }
 
@@ -695,10 +701,11 @@ void main(uint3 DTid : SV_DispatchThreadID)
         Ray ray = GetRefractedRayFromSource(ray_source);
         if (length(ray.dir) > Epsilon)
         {
-            color1 = float4(GetColor(ray), 1.0f) * (1.0f - ray_source.opacity);
+            color1 = float4(GetColor(ray, bloomColor), 1.0f) * (1.0f - ray_source.opacity);
         }
     }
 
     output0[pixel] = color0;
     output1[pixel] = color1;
+    bloom[pixel] = float4(bloomColor, 1.0f);
 }

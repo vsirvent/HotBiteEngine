@@ -164,6 +164,8 @@ public:
 		props["diffuse_color"] = std::make_shared<Prop<std::string>>("#FFFFFFFF");
 		props["ambient_color"] = std::make_shared<Prop<std::string>>("#FFFFFFFF");
 		props["specular"] = std::make_shared<Prop<float>>(0.5f);
+		props["emission"] = std::make_shared<Prop<float>>(0.0f);
+		props["emission_color"] = std::make_shared<Prop<std::string>>("#00000000");
 		props["raytrace"] = std::make_shared<Prop<bool>>(true);
 		props["opacity"] = std::make_shared<Prop<float>>(1.0f);
 		props["density"] = std::make_shared<Prop<float>>(1.0f);
@@ -196,40 +198,42 @@ public:
 
 	virtual bool FromJson(const json& js) {
 		try {
-			props["name"]->SetValue<std::string>(js["name"]);
-			props["diffuse_color"]->SetValue<std::string>(js["diffuse_color"]);
-			props["ambient_color"]->SetValue<std::string>(js["ambient_color"]);
-			props["parallax_scale"]->SetValue<float>(js["parallax_scale"]);
-			props["parallax_steps"]->SetValue<float>(js["parallax_steps"]);
-			props["parallax_angle_steps"]->SetValue<float>(js["parallax_angle_steps"]);
-			props["parallax_shadows"]->SetValue<bool>(js["parallax_shadows"]);
-			props["parallax_shadow_scale"]->SetValue<int>(js["parallax_shadow_scale"]);
+			props["name"]->SetValue<std::string>(js.value("name", ""));
+			props["diffuse_color"]->SetValue<std::string>(js.value("diffuse_color", "#FFFFFFFF"));
+			props["ambient_color"]->SetValue<std::string>(js.value("ambient_color", "#FFFFFFFF"));
+			props["parallax_scale"]->SetValue<float>(js.value("parallax_scale", 0.0f));
+			props["parallax_steps"]->SetValue<float>(js.value("parallax_steps", 0.0f));
+			props["parallax_angle_steps"]->SetValue<float>(js.value("parallax_angle_steps", 0.0f));
+			props["parallax_shadows"]->SetValue<bool>(js.value("parallax_shadows", false));
+			props["parallax_shadow_scale"]->SetValue<int>(js.value("parallax_shadow_scale", 0));
 			
-			props["specular"]->SetValue<float>(js["specular"]);
-			props["raytrace"]->SetValue<bool>(js["raytrace"]);
-			props["opacity"]->SetValue<float>(js["opacity"]); 
-			props["density"]->SetValue<float>(js["density"]);
-			props["tess_type"]->SetValue<int>(js["tess_type"]);
-			props["tess_factor"]->SetValue<float>(js["tess_factor"]);
-			props["displacement_scale"]->SetValue<float>(js["displacement_scale"]);
-			props["bloom_scale"]->SetValue<float>(js["bloom_scale"]);
-			props["normal_map_enabled"]->SetValue<bool>(js["normal_map_enabled"]);
-			props["alpha_enabled"]->SetValue<bool>(js["alpha_enabled"]);
-			props["blend_enabled"]->SetValue<bool>(js["blend_enabled"]);
-			props["diffuse_textname"]->SetValue<std::string>(js["diffuse_textname"]);
-			props["normal_textname"]->SetValue<std::string>(js["normal_textname"]);
-			props["high_textname"]->SetValue<std::string>(js["high_textname"]);
-			props["spec_textname"]->SetValue<std::string>(js["spec_textname"]);
-			props["ao_textname"]->SetValue<std::string>(js["ao_textname"]);
-			props["arm_textname"]->SetValue<std::string>(js["arm_textname"]);
-			props["emission_textname"]->SetValue<std::string>(js["emission_textname"]);
-			props["opacity_textname"]->SetValue<std::string>(js["opacity_textname"]);
+			props["specular"]->SetValue<float>(js.value("specular", 1.0f));
+			props["emission"]->SetValue<float>(js.value("emission", 0.0f));
+			props["emission_color"]->SetValue<std::string>(js.value("emission_color", "#00000000"));
+			props["raytrace"]->SetValue<bool>(js.value("raytrace", true));
+			props["opacity"]->SetValue<float>(js.value("opacity", 1.0f)); 
+			props["density"]->SetValue<float>(js.value("density", 1.0f));
+			props["tess_type"]->SetValue<int>(js.value("tess_type", 0));
+			props["tess_factor"]->SetValue<float>(js.value("tess_factor", 0.0f));
+			props["displacement_scale"]->SetValue<float>(js.value("displacement_scale", 0.0f));
+			props["bloom_scale"]->SetValue<float>(js.value("bloom_scale", 0.0f));
+			props["normal_map_enabled"]->SetValue<bool>(js.value("normal_map_enabled", true));
+			props["alpha_enabled"]->SetValue<bool>(js.value("alpha_enabled", false));
+			props["blend_enabled"]->SetValue<bool>(js.value("blend_enabled", false));
+			props["diffuse_textname"]->SetValue<std::string>(js.value("diffuse_textname", ""));
+			props["normal_textname"]->SetValue<std::string>(js.value("normal_textname", ""));
+			props["high_textname"]->SetValue<std::string>(js.value("high_textname", ""));
+			props["spec_textname"]->SetValue<std::string>(js.value("spec_textname", ""));
+			props["ao_textname"]->SetValue<std::string>(js.value("ao_textname", ""));
+			props["arm_textname"]->SetValue<std::string>(js.value("arm_textname", ""));
+			props["emission_textname"]->SetValue<std::string>(js.value("emission_textname", ""));
+			props["opacity_textname"]->SetValue<std::string>(js.value("opacity_textname", ""));
 
-			props["vs"]->SetValue<std::string>(js["vs"]);
-			props["hs"]->SetValue<std::string>(js["hs"]);
-			props["ds"]->SetValue<std::string>(js["ds"]);
-			props["gs"]->SetValue<std::string>(js["gs"]);
-			props["ps"]->SetValue<std::string>(js["ps"]);
+			props["vs"]->SetValue<std::string>(js.value("vs", ""));
+			props["hs"]->SetValue<std::string>(js.value("hs", ""));
+			props["ds"]->SetValue<std::string>(js.value("ds", ""));
+			props["gs"]->SetValue<std::string>(js.value("gs", ""));
+			props["ps"]->SetValue<std::string>(js.value("ps", ""));
 		}
 		catch (...) {
 			return false;
@@ -257,13 +261,13 @@ public:
 
 	virtual bool FromJson(const json& js) {
 		try {
-			props["mask"]->SetValue<std::string>(js["mask"]);
-			props["mask_noise"]->SetValue<int>(js["mask_noise"]);
-			props["uv_noise"]->SetValue<int>(js["uv_noise"]);
-			props["texture"]->SetValue<std::string>(js["texture"]);
-			props["op"]->SetValue<int>(js["op"]);
-			props["value"]->SetValue<float>(js["value"]);
-			props["uv_scale"]->SetValue<float>(js["uv_scale"]);
+			props["mask"]->SetValue<std::string>(js.value("mask", ""));
+			props["mask_noise"]->SetValue<int>(js.value("mask_noise", 0));
+			props["uv_noise"]->SetValue<int>(js.value("uv_noise", 0));
+			props["texture"]->SetValue<std::string>(js.value("texture", ""));
+			props["op"]->SetValue<int>(js.value("op", 0));
+			props["value"]->SetValue<float>(js.value("value", 0.0f));
+			props["uv_scale"]->SetValue<float>(js.value("uv_scale", 0.0f));
 		}
 		catch (...) {
 			return false;
@@ -290,13 +294,13 @@ public:
 
 	virtual bool FromJson(const json& js) {
 		try {
-			props["name"]->SetValue<std::string>(js["name"]);
-			props["parallax_scale"]->SetValue<float>(js["parallax_scale"]);
-			props["parallax_steps"]->SetValue<float>(js["parallax_steps"]);
-			props["parallax_angle_steps"]->SetValue<float>(js["parallax_angle_steps"]);
-			props["tess_type"]->SetValue<int>(js["tess_type"]);
-			props["tess_factor"]->SetValue<float>(js["tess_factor"]);
-			props["displacement_scale"]->SetValue<float>(js["displacement_scale"]);
+			props["name"]->SetValue<std::string>(js.value("name", ""));
+			props["parallax_scale"]->SetValue<float>(js.value("parallax_scale", 0.0f));
+			props["parallax_steps"]->SetValue<float>(js.value("parallax_steps", 0.0f));
+			props["parallax_angle_steps"]->SetValue<float>(js.value("parallax_angle_steps", 0.0f));
+			props["tess_type"]->SetValue<int>(js.value("tess_type", 0));
+			props["tess_factor"]->SetValue<float>(js.value("tess_factor", 0.0f));
+			props["displacement_scale"]->SetValue<float>(js.value("displacement_scale", 0.0f));
 
 			for (const auto& t : js["textures"]) {
 				layers.push_back(MultiMaterialLayer(t));
@@ -522,6 +526,35 @@ public:
 		void set(float newValue)
 		{
 			return material->props["specular"]->SetValue<float>((float)newValue);
+		}
+	}
+
+	[CategoryAttribute("Material")]
+	property float EmissionIntensity {
+		float get()
+		{
+			return material->props["emission"]->GetValue<float>();
+		}
+
+		void set(float newValue)
+		{
+			return material->props["emission"]->SetValue<float>((float)newValue);
+		}
+	}
+
+	[CategoryAttribute("Material")]
+	property Drawing::Color EmissionColor {
+		Drawing::Color get()
+		{
+			auto color = HotBite::Engine::Core::parseColorStringF4(material->props["emission_color"]->GetValue<std::string>());
+			return Drawing::Color::FromArgb((int)(color.w * 255.0f), (int)(color.x * 255.0f), (int)(color.y * 255.0f), (int)(color.z * 255.0f));
+		}
+
+		void set(Drawing::Color newValue)
+		{
+			char color[64];
+			snprintf(color, 64, "#%02X%02X%02X%02X", newValue.R, newValue.G, newValue.B, newValue.A);
+			return material->props["emission_color"]->SetValue<std::string>(color);
 		}
 	}
 

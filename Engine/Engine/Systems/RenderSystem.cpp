@@ -254,7 +254,7 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		if (FAILED(prev_position_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT))) {
 			throw std::exception("prev_position_map.Init failed");
 		}
-		if (FAILED(bloom_map.Init(w, h))) {
+		if (FAILED(bloom_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("bloom_map.Init failed");
 		}
 		if (FAILED(temp_map.Init(w, h))) {
@@ -1344,6 +1344,7 @@ void RenderSystem::ProcessRT() {
 		rt_shader->SetData("objectInfos", objects, len * sizeof(ObjectInfo));
 		rt_shader->SetUnorderedAccessView("output0", rt_texture[0].UAV());
 		rt_shader->SetUnorderedAccessView("output1", rt_texture[1].UAV());
+		rt_shader->SetUnorderedAccessView("bloom", bloom_map.UAV());
 		rt_shader->SetUnorderedAccessView("props", rt_texture_props.UAV());
 		rt_shader->SetUnorderedAccessView("ray0", rt_ray_sources0.UAV());
 		rt_shader->SetUnorderedAccessView("ray1", rt_ray_sources1.UAV());
@@ -1388,6 +1389,7 @@ void RenderSystem::ProcessRT() {
 		rt_shader->SetUnorderedAccessView("output0", nullptr);
 		rt_shader->SetUnorderedAccessView("output1", nullptr);
 		rt_shader->SetUnorderedAccessView("output2", nullptr);
+		rt_shader->SetUnorderedAccessView("bloom", nullptr);
 		rt_shader->SetUnorderedAccessView("props", nullptr);
 		rt_shader->SetUnorderedAccessView("ray0", nullptr);
 		rt_shader->SetUnorderedAccessView("ray1", nullptr);
@@ -1839,8 +1841,8 @@ void RenderSystem::Draw() {
 			CheckSceneVisibility(render_pass2_tree);
 			DrawScene(w, h, camera_position, view, projection, first_pass_texture.SRV(), second_pass_target, render_pass2_tree);
 		}
-		PostProcessLight();
 		ProcessRT();
+		PostProcessLight();		
 		//ProcessMotionBlur();
 		if (post_process_pipeline != nullptr) {
 			post_process_pipeline->SetShaderResourceView(DEPTH_TEXTURE, depth_map.SRV());

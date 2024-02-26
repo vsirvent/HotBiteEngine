@@ -92,6 +92,8 @@ void MaterialData::Load(const std::string& root, const std::string& mat) {
 	props.parallax_angle_steps = j.value("parallax_angle_steps", 0.0f);
 	props.parallax_shadow_scale = j.value("parallax_shadow_scale", 0.0f);
 	props.specIntensity = j.value("specular", 0.5f);
+	props.emission = j.value("emission", 0.0f);
+	props.emission_color = parseColorStringF3(j.value("emission_color", "#00000000"));
 	props.opacity = j.value("opacity", 1.0f);
 	props.density = j.value("density", 1.0f);
 	props.flags = 0;

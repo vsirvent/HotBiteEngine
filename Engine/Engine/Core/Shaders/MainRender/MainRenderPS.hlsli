@@ -189,12 +189,16 @@ RenderTargetRT MainRenderPS(GSOutput input)
 			finalColor *= armTexture.Sample(basicSampler, input.uv).r;
 		}
 	}
-
+	float4 emission;
 	if (material.flags & EMISSION_MAP_ENABLED_FLAG) {
-		float4 emission = emissionTexture.Sample(basicSampler, input.uv);
-		finalColor += emission;
-		lightColor += emission;
+		emission = emissionTexture.Sample(basicSampler, input.uv);
 	}
+	else {
+		emission = float4(material.emission_color, 1.0f);
+	}
+	emission *= material.emission;
+	finalColor += emission;
+	lightColor += emission;
 #if 0
 	//Emission of point lights	
 	matrix worldViewProj = mul(view, projection);
