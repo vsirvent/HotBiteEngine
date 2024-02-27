@@ -36,7 +36,10 @@ namespace HotBite {
 			using EventId = uint32_t;
 			using ParamId = uint32_t;
 
-			class IEventSender {};
+			class IEventSender {
+			public:
+				virtual ~IEventSender() {}
+			};
 			
 			class Event
 			{

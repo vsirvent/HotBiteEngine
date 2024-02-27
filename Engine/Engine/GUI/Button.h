@@ -40,7 +40,7 @@ namespace HotBite {
 
 			class Button : public Label, public ECS::EventListener {
 			private:
-				std::shared_ptr<InteractiveWidget> interactive;
+				InteractiveWidget* interactive;
 
 			public:
 				static inline uint64_t BUTTON_WIDGET_ID = GetTypeId<Button>();
@@ -56,7 +56,7 @@ namespace HotBite {
 
 				void SetupListeners(ECS::Coordinator* c) {
 					Init(c);
-					interactive = std::make_shared<UI::InteractiveWidget>(this);
+					interactive = new UI::InteractiveWidget(this);
 					AddEventListenerByEntity(UI::InteractiveWidget::EVENT_ID_MOUSE_LDOWN,
 						GetId(),
 						std::bind(&Button::OnLDown, this, std::placeholders::_1));
@@ -95,6 +95,7 @@ namespace HotBite {
 
 				virtual ~Button() {
 					coordinator->GetSystem<Systems::AudioSystem>()->RemoveSound(click_sound_id);
+					delete interactive;
 				}
 
 				virtual void OnLDown(ECS::Event& ev) {

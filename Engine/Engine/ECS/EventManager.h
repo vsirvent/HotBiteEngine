@@ -64,7 +64,10 @@ namespace HotBite {
 					uint32_t listener_id = listener_ids.front();
 					listener_ids.pop_front();
 					EventListenerId id{ listener_id, eventId };
-					listener_by_id[id.listener_id] = &(listeners[eventId].emplace_back(listener));
+					assert(listener_by_id.find(id.listener_id) == listener_by_id.end());
+					EventPair key(eventId, ECS::INVALID_ENTITY_ID);
+					listener_by_id[id.listener_id] = key;
+					listeners[key].emplace_back(listener);
 					return id;
 				}
 
@@ -74,41 +77,54 @@ namespace HotBite {
 					uint32_t listener_id = listener_ids.front();
 					listener_ids.pop_front();
 					EventListenerId id{ listener_id, eventId, e };
-					listener_by_id[id.listener_id] = &(listeners_by_entity[std::pair<EventId, Entity>(eventId, e)].emplace_back(listener));
+					assert(listener_by_id.find(id.listener_id) == listener_by_id.end());
+					EventPair key(eventId, e);
+					listener_by_id[id.listener_id] = key;
+					listeners_by_entity[key].emplace_back(listener);
 					return id;
 				}
 
 				void RemoveListener(const EventListenerId& id)
 				{
+					bool removed = false;
 					auto it = listener_by_id.find(id.listener_id);
-					if (it != listener_by_id.end() && it->first != 0 && it->second != nullptr) {
-						for (auto it2 = listeners[id.ev_id].begin(); it2 != listeners[id.ev_id].end(); ++it2) {
-							if (&(*it2) == it->second) {
-								if (id.e != INVALID_ENTITY_ID) {
-									listeners_by_entity[std::pair<uint32_t, Entity>(id.ev_id, id.e)].erase(it2);
-								}
-								else {
-									listeners[id.ev_id].erase(it2);
-								}
-								break;
+					if (it != listener_by_id.end()) {
+						if (id.e != INVALID_ENTITY_ID) {
+							auto it2 = listeners_by_entity.find(it->second);
+							if (it2 != listeners_by_entity.end()) {
+								listeners_by_entity.erase(it2);
+								removed = true;
 							}
 						}
+						else {
+							auto it2 = listeners.find(it->second);
+							if (it2 != listeners.end()) {
+								listeners.erase(it2);
+								removed = true;
+							}
+						}
+						//assert(removed == true);
 						listener_by_id.erase(it);
-						listener_ids.push_back(id.ev_id);
+						listener_ids.push_back(id.listener_id);
 					}
+					//assert(removed == true);
 				}
 
 				void SendEvent(Event& event)
 				{
 					uint32_t type = event.GetType();
 					Entity e = event.GetEntity();
-					auto& listeners_by_type = listeners[type];
-					for (const auto& listener : listeners_by_type)
-					{
-						listener(event);
+					EventPair nid(type, ECS::INVALID_ENTITY_ID);
+					auto it = listeners.find(nid);
+					if (it != listeners.end()) {
+						for (const auto& listener : it->second)
+						{
+							listener(event);
+						}
 					}
 					if (e != INVALID_ENTITY_ID) {
-						auto listeners_by_type_entity = listeners_by_entity.find(std::pair<EventId, Entity>(type, e));
+						EventPair eid(type, e);
+						auto listeners_by_type_entity = listeners_by_entity.find(eid);
 						if (listeners_by_type_entity != listeners_by_entity.end()) {
 							for (const auto& listener : listeners_by_type_entity->second) {
 								listener(event);
@@ -121,13 +137,17 @@ namespace HotBite {
 				{
 					uint32_t type = event.GetType();
 					Entity e = event.GetEntity();
-					auto& listeners_by_type = listeners[type];
-					for (const auto& listener : listeners_by_type)
-					{
-						listener(event);
+					EventPair nid(type, ECS::INVALID_ENTITY_ID);
+					auto it = listeners.find(nid);
+					if (it != listeners.end()) {
+						for (const auto& listener : it->second)
+						{
+							listener(event);
+						}
 					}
 					if (e != INVALID_ENTITY_ID) {
-						auto listeners_by_type_entity = listeners_by_entity.find(std::pair<EventId, Entity>(type, e));
+						EventPair eid(type, e);
+						auto listeners_by_type_entity = listeners_by_entity.find(eid);
 						if (listeners_by_type_entity != listeners_by_entity.end()) {
 							for (const auto& listener : listeners_by_type_entity->second) {
 								listener(event);
@@ -143,10 +163,11 @@ namespace HotBite {
 
 			private:
 				static const int MAX_LISTENERS = 5000;
+				using EventPair = std::pair<EventId, Entity>;
 				std::list<uint32_t> listener_ids;
-				std::unordered_map<std::pair<EventId, Entity>, std::vector<std::function<void(Event&)>>> listeners_by_entity;
-				std::unordered_map<EventId, std::vector<std::function<void(Event&)>>> listeners;
-				std::unordered_map<uint32_t, std::function<void(Event&)>*> listener_by_id;
+				std::unordered_map<EventPair, std::vector<std::function<void(Event&)>>> listeners_by_entity;
+				std::unordered_map<EventPair, std::vector<std::function<void(Event&)>>> listeners;
+				std::unordered_map<uint32_t, EventPair> listener_by_id;
 			};
 		}
 	}

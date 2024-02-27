@@ -13,6 +13,7 @@ namespace HotBiteTool {
 		ToolUi::ToolUi(HINSTANCE hInstance, HWND parent, int32_t w, int32_t h, int32_t fps) : DXCore(hInstance, "ToolUi", w, h, true, true) {
 			//Initialize core DirectX
 			InitWindow(parent);
+			CreateConsoleWindow(512, 512, 512, 512);
 			InitDirectX();
 			//Initialize world
 			world.PreLoad(this);
@@ -57,7 +58,7 @@ namespace HotBiteTool {
 
 		void ToolUi::LoadUI(json ui) {
 			std::scoped_lock l(world.GetCoordinator()->GetSystem<RenderSystem>()->mutex);
-			ECS::Coordinator* c = world.GetCoordinator();
+			ECS::Coordinator* c = world.GetCoordinator();			
 			gui->LoadUI(c, ui);	
 		}
 

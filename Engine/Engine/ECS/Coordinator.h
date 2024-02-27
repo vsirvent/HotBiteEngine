@@ -238,15 +238,14 @@ namespace HotBite {
 				}
 
 				void Reset() {
+					for (auto& id : ev_list_ids) {
+						event_coordinator->RemoveEventListener(id);
+					}
 					event_coordinator = nullptr;
 				}
 
 				virtual ~EventListener() {
-					if (event_coordinator != nullptr) {
-						for (auto& id : ev_list_ids) {
-							event_coordinator->RemoveEventListener(id);
-						}
-					}
+					Reset();
 				}
 
 				// Event methods

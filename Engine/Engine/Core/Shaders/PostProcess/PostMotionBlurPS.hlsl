@@ -36,7 +36,7 @@ Texture2D prevPositionTexture;
 SamplerState basicSampler;
 
 static const uint numSamples = 15;
-static const float MOTION_FACTOR = 0.1f;
+static const float MOTION_FACTOR = 10.0f;
 static const float MAX_VELOCITY_FACTOR = 2.0f;
 
 float4 main(float4 pos: SV_POSITION) : SV_TARGET
@@ -58,7 +58,7 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
         p1 /= p1.w;
 
         // Use this frame's position and last frame's to compute the pixel velocity.
-        float2 velocity = (p1.xy - p0.xy)*MOTION_FACTOR;
+        float2 velocity = (p1.xy - p0.xy)*MOTION_FACTOR/ screenW;
 #if 0
         float dist = length(tpos - 0.5f)*2.0f;
         velocity *= dist*dist;

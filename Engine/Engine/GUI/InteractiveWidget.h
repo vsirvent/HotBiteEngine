@@ -37,7 +37,7 @@ namespace HotBite {
 	namespace Engine {
 		namespace UI {
 
-			class InteractiveWidget : public ECS::IEventSender, public ECS::EventListener {
+			class InteractiveWidget : virtual public ECS::EventListener, virtual public ECS::IEventSender {
 			
 			public:
 				static inline ECS::EventId EVENT_ID_MOUSE_MOVE = ECS::GetEventId<InteractiveWidget>(0x00);
@@ -79,6 +79,7 @@ namespace HotBite {
 							float2 relative_coords = { (p.x - widget->position.x) / widget->width, (p.y - widget->position.y) / widget->height };
 							e.SetSender(this);
 							e.SetEntity(widget->id);
+							e.SetParam<std::string>(DXCore::PARAM_SENDER_NAME, widget->name);
 							e.SetParam<float>(DXCore::PARAM_RELATIVE_ID_X, 1.0f - relative_coords.x);
 							e.SetParam<float>(DXCore::PARAM_RELATIVE_ID_Y, 1.0f - relative_coords.y);
 							e.SetType(ECS::GetEventId<InteractiveWidget>(ev.GetType()));							
@@ -118,6 +119,10 @@ namespace HotBite {
 					AddEventListener(DXCore::EVENT_ID_MOUSE_RDOWN, std::bind(&InteractiveWidget::OnMouseEvent, this, std::placeholders::_1));
 					AddEventListener(DXCore::EVENT_ID_MOUSE_RUP, std::bind(&InteractiveWidget::OnMouseEvent, this, std::placeholders::_1));
 					AddEventListener(DXCore::EVENT_ID_MOUSE_MOVE, std::bind(&InteractiveWidget::OnMouseEvent, this, std::placeholders::_1));
+				}
+
+				virtual ~InteractiveWidget() {
+
 				}
 
 				bool IsHover() const {

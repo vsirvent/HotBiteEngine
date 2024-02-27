@@ -73,6 +73,7 @@ namespace HotBite {
 				static inline ECS::ParamId PARAM_RELATIVE_ID_X = 0x04;
 				static inline ECS::ParamId PARAM_RELATIVE_ID_Y = 0x05;
 				static inline ECS::ParamId PARAM_ID_KEY = 0x06;
+				static inline ECS::ParamId PARAM_SENDER_NAME = 0x07;
 
 				static constexpr int NTHREADS = 7;
 				static constexpr int MAIN_THREAD = 0;

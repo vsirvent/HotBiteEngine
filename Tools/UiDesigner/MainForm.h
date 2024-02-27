@@ -555,15 +555,17 @@ namespace UiDesigner {
 		}
 
 		TreeNode^ GetNode(TreeNodeCollection^ nodes, String^ name) {
+			TreeNode^ ret = nullptr;
 			for each (TreeNode ^ n in nodes) {
 				if (String::Compare(n->Text, name) == 0) {
 					return n;
 				}
-				else {
-					return GetNode(n->Nodes, name);
+				ret = GetNode(n->Nodes, name);
+				if (ret != nullptr) {
+					break;
 				}
 			}
-			return nullptr;
+			return ret;
 		}
 
 		void UpdateEditor() {
