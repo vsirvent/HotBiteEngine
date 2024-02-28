@@ -57,6 +57,11 @@ namespace HotBite {
 					return e;
 				}
 
+				void ChangeEntityName(const std::string& old_name, const std::string& new_name)
+				{
+					entity_manager->ChangeEntityName(old_name, new_name);
+				}
+
 				void DestroyEntity(Entity entity)
 				{
 					entity_manager->DestroyEntity(entity);

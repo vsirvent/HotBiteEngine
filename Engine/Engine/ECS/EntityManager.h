@@ -56,6 +56,18 @@ namespace HotBite {
 					return id;
 				}
 
+				void ChangeEntityName(const std::string& old_name, const std::string& new_name) {
+					auto it0 = entity_by_name.find(old_name);
+					if (it0 != entity_by_name.end()) {
+						auto it1 = name_by_entity.find(it0->second);
+						assert(it1 != name_by_entity.end());
+						it1->second = new_name;
+						assert(entity_by_name.find(new_name) == entity_by_name.end() && "Name already exists.");
+						entity_by_name[new_name] = it0->second;
+						entity_by_name.erase(it0);
+					}
+				}
+
 				Entity GetEntityByName(const std::string& name) const
 				{
 					Entity id = INVALID_ENTITY_ID;

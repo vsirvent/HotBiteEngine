@@ -138,6 +138,26 @@ namespace HotBite {
 					}
 				}
 
+				std::shared_ptr<Widget> GetWidget(const std::string& name) {
+					std::shared_ptr<Widget> ret;
+					auto w = foreground_widgets.find(name);
+					if (w != foreground_widgets.end()) {
+						ret = w->second;
+					}
+					return ret;
+				}
+
+				std::shared_ptr<Widget> GetWidget(ECS::Entity id) {
+					std::shared_ptr<Widget> ret;
+					for (const auto& w : foreground_widgets) {
+						if (w.second->GetId() == id) {
+							ret = w.second;
+							break;
+						}
+					}
+					return ret;
+				}
+
 				virtual void RemoveBackgroundWidget(const std::string& name) {
 					auto w = background_widgets.find(name);
 					if (w != background_widgets.end()) {
@@ -180,6 +200,11 @@ namespace HotBite {
 				}
 
 				virtual const std::string& GetName() const { return name; }
+
+				virtual void SetName(const std::string& new_name) { 
+					coordinator->ChangeEntityName(name, new_name);
+					name = new_name; 					
+				}
 
 				virtual void SetBackGroundImage(ID3D11ShaderResourceView* image) {
 					if (background_image != nullptr) {

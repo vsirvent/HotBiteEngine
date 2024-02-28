@@ -78,8 +78,7 @@ namespace HotBite {
 					}
 				}
 
-				bool LoadUI(ECS::Coordinator* c, json ui) {
-					Reset();
+				bool AddUI(ECS::Coordinator* c, json ui) {
 					try {
 						auto& ui_node = ui["ui"];
 						auto& widgets = ui_node["widgets"];
@@ -126,6 +125,11 @@ namespace HotBite {
 						return false;
 					}
 					return true;
+				}
+
+				bool LoadUI(ECS::Coordinator* c, json ui) {
+					Reset();
+					return AddUI(c, ui);
 				}
 
 				void Reset() {
