@@ -66,7 +66,7 @@ void MaterialData::SetTexture(ID3D11ShaderResourceView*& texture, std::string& c
 	if (!file.empty() && current_texture != new_texure) {
 		current_texture = new_texure;
 		if (texture) {
-			texture->Release();
+			ReleaseTexture(texture);
 		}
 		if (!file.empty()) {
 			texture = LoadTexture(current_texture);
@@ -169,35 +169,35 @@ bool MaterialData::Init() {
 void MaterialData::Release() {
 	init = false;
 	if (diffuse) {
-		diffuse->Release();
+		ReleaseTexture(diffuse);
 		diffuse = nullptr;
 	}
 	if (normal) {
-		normal->Release();
+		ReleaseTexture(normal);
 		normal = nullptr;
 	}
 	if (high) {
-		high->Release();
+		ReleaseTexture(high);
 		high = nullptr;
 	}
 	if (spec) {
-		spec->Release();
+		ReleaseTexture(spec);
 		spec = nullptr;
 	}
 	if (ao) {
-		ao->Release();
+		ReleaseTexture(ao);
 		ao = nullptr;
 	}
 	if (arm) {
-		arm->Release();
+		ReleaseTexture(arm);
 		arm = nullptr;
 	}
 	if (emission) {
-		emission->Release();
+		ReleaseTexture(emission);
 		emission = nullptr;
 	}
 	if (opacity) {
-		opacity->Release();
+		ReleaseTexture(opacity);
 		opacity = nullptr;
 	}
 }

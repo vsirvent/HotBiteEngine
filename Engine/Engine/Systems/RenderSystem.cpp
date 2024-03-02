@@ -1334,6 +1334,9 @@ void RenderSystem::ProcessRT() {
 
 		std::map<float, Node> distance_map;
 
+		ID3D11RenderTargetView* nullRenderTargetViews[1] = { nullptr };
+		dxcore->context->OMSetRenderTargets(1, nullRenderTargetViews, nullptr);
+
 		fill(render_tree, distance_map);
 		fill(render_pass2_tree, distance_map);
 		int len = 0;

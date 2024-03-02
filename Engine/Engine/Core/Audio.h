@@ -36,7 +36,6 @@ namespace HotBite {
             {
             private:
 
-               
                 LPDIRECTSOUNDFULLDUPLEX     DSFD;
                 LPDIRECTSOUND8              DS8; //to write to the device
                 LPDIRECTSOUNDCAPTURE8       DSC; //to read from the device
@@ -85,9 +84,7 @@ namespace HotBite {
                 void Run(void);
                 void Stop(void);
                 int  write(BYTE* pBufferData, long BufferLen);
-
             };
-
         }
     }
 }

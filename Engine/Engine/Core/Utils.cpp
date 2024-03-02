@@ -101,10 +101,12 @@ namespace HotBite {
 				}
 			}
 
+			std::mutex texture_mutex;
 			std::unordered_map<std::string, ID3D11ShaderResourceView*> textures;
 			std::unordered_map<ID3D11ShaderResourceView*, std::string> textures_names;
 
 			void ReleaseTexture(ID3D11ShaderResourceView* srv) {
+				std::lock_guard<std::mutex> l(texture_mutex);
 				if (srv != nullptr && srv->Release() == 0) {
 					auto it0 = textures_names.find(srv);
 					auto it1 = textures.find(it0->second);
@@ -115,6 +117,7 @@ namespace HotBite {
 
 			ID3D11ShaderResourceView* LoadTexture(const std::string& filename)
 			{
+				std::lock_guard<std::mutex> l(texture_mutex);
 				ID3D11ShaderResourceView* srv = nullptr;
 				HRESULT ret = S_OK;
 				if (!filename.empty()) {
