@@ -118,6 +118,9 @@ namespace HotBite {
 				bool Init();
 				void Release();
 			};
+
+			void ReleaseTexture(ID3D11ShaderResourceView* srv);
+			ID3D11ShaderResourceView* LoadTexture(const std::string& filename);
 		}
 	}
 }

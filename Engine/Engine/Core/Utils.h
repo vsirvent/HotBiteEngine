@@ -59,8 +59,7 @@ namespace HotBite {
             template <typename T> int sgn(T val) {
                 return (T(0) < val) - (val < T(0));
             }
-            void ReleaseTexture(ID3D11ShaderResourceView* srv);
-            ID3D11ShaderResourceView* LoadTexture(const std::string& filename);
+
             float4 ColorFromStr(const std::string& color);
             float3 ColorRGBFromStr(const std::string& color);
             float2 WorldToScreen(const float3& world_position, const matrix& view_projection, const float w, const float h);

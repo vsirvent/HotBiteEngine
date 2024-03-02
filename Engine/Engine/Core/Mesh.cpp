@@ -25,6 +25,7 @@ SOFTWARE.
 #include "Mesh.h"
 #include "DXCore.h"
 #include "Utils.h"
+#include "Material.h"
 #include <memory>
 
 using namespace HotBite::Engine;
