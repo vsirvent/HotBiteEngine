@@ -39,12 +39,18 @@ using namespace HotBite::Engine::Loader;
 using namespace HotBite::Engine::Network::LockStep;
 
 World::World() {
+	coordinator = new Coordinator();
+	templates_coordinator = new Coordinator();
 }
 
 World::~World() {
 	Release();
-	delete vertex_buffer;
 	EventListener::Reset();
+	delete coordinator;
+	delete templates_coordinator;
+	if (phys_world != nullptr) {
+		physics_common.destroyPhysicsWorld(phys_world);
+	}
 }
 
 void World::SetupCoordinator(ECS::Coordinator* c) {
@@ -74,10 +80,10 @@ bool World::PreLoad(Core::DXCore* dx) {
 	vertex_buffer = new VertexBuffer<Core::Vertex>();
 	bvh_buffer = new BVHBuffer();
 
-	SetupCoordinator(&coordinator);
-	SetupCoordinator(&templates_coordinator);
+	SetupCoordinator(coordinator);
+	SetupCoordinator(templates_coordinator);
 
-	EventListener::Init(&coordinator);
+	EventListener::Init(coordinator);
 
 	camera_system = RegisterSystem<Systems::CameraSystem>();
 	dirlight_system = RegisterSystem<Systems::DirectionalLightSystem>();
@@ -118,7 +124,7 @@ void World::OnLockStepTick(ECS::Event& ev) {
 		render_system->mutex.lock();		
 		for (auto const& c : st->GetCommands()) {
 			lockstep_tick_ev.SetParam<std::shared_ptr<Command>>(Command::EVENT_PARAM_COMMAND, c);
-			coordinator.SendEvent(lockstep_tick_ev);
+			coordinator->SendEvent(lockstep_tick_ev);
 		}
 		render_system->mutex.unlock();
 		tick_period = st->GetTickPeriod();
@@ -170,10 +176,7 @@ bool World::Release() {
 	}
 	meshes.Clear();
 	animations.Clear();
-	if (phys_world != nullptr) {
-		physics_common.destroyPhysicsWorld(phys_world);
-		phys_world = nullptr;
-	}
+	
 	delete vertex_buffer;
 	vertex_buffer = nullptr;
 	delete bvh_buffer;
@@ -210,19 +213,19 @@ void World::LoadFBX(const std::string& file, bool triangulate, bool relative,
 			fbxsdk::FbxNode* n = scene->GetRootNode()->GetChild(i);
 			loader.LoadMaterials(materials, n);
 		}
-		coordinator.SendEvent(this, EVENT_ID_MATERIALS_LOADED);
+		coordinator->SendEvent(this, EVENT_ID_MATERIALS_LOADED);
 		//Load meshes
 		for (int i = 0; i < scene->GetRootNode()->GetChildCount(); ++i) {
 			fbxsdk::FbxNode* n = scene->GetRootNode()->GetChild(i);
 			loader.LoadMeshes(meshes, n, vb);
 		}
-		coordinator.SendEvent(this, EVENT_ID_MESHES_LOADED);
+		coordinator->SendEvent(this, EVENT_ID_MESHES_LOADED);
 		//Load shapes
 		for (int i = 0; i < scene->GetRootNode()->GetChildCount(); ++i) {
 			fbxsdk::FbxNode* n = scene->GetRootNode()->GetChild(i);
 			loader.LoadShapes(shapes, n);
 		}
-		coordinator.SendEvent(this, EVENT_ID_SHAPES_LOADED);
+		coordinator->SendEvent(this, EVENT_ID_SHAPES_LOADED);
 
 		//Load animations
 		loader.LoadSkeletons(file, animations, scene->GetRootNode(), use_animation_names);
@@ -239,19 +242,19 @@ void World::LoadSky(const json& sky_info) {
 	std::string file = sky_info["file"];
 	bool triangulate = sky_info["triangulate"];
 
-	LoadFBX(file, triangulate, true, materials, meshes, shapes, &coordinator, vertex_buffer);
+	LoadFBX(file, triangulate, true, materials, meshes, shapes, coordinator, vertex_buffer);
 
 
-	ECS::Entity e = coordinator.GetEntityByName(sky_info["name"]);
+	ECS::Entity e = coordinator->GetEntityByName(sky_info["name"]);
 	assert(e != ECS::INVALID_ENTITY_ID && "Invalid sky name.");
 
-	coordinator.AddComponent<Components::Sky>(e, Components::Sky{});
-	Components::Sky& sky = coordinator.GetComponent<Components::Sky>(e);
+	coordinator->AddComponent<Components::Sky>(e, Components::Sky{});
+	Components::Sky& sky = coordinator->GetComponent<Components::Sky>(e);
 	if (sky_info.contains("space_name") && !sky_info["space_name"].empty()) {
-		ECS::Entity se = templates_coordinator.GetEntityByName(sky_info["space_name"]);
+		ECS::Entity se = templates_coordinator->GetEntityByName(sky_info["space_name"]);
 		if (se != ECS::INVALID_ENTITY_ID) {
-			sky.space_material = templates_coordinator.GetComponent<Components::Material>(se).data;
-			sky.space_mesh = templates_coordinator.GetComponent<Components::Mesh>(se).GetData();
+			sky.space_material = templates_coordinator->GetComponent<Components::Material>(se).data;
+			sky.space_mesh = templates_coordinator->GetComponent<Components::Mesh>(se).GetData();
 		}
 	}
 	if (sky_info.contains("day_backcolor")) {
@@ -273,8 +276,8 @@ void World::LoadSky(const json& sky_info) {
 		sky.cloud_density = sky_info["cloud_density"];
 	}
 	if (sky_info.contains("sun")) {
-		coordinator.AddComponent<Components::DirectionalLight>(e, Components::DirectionalLight{});
-		Components::DirectionalLight& directional = coordinator.GetComponent<Components::DirectionalLight>(e);
+		coordinator->AddComponent<Components::DirectionalLight>(e, Components::DirectionalLight{});
+		Components::DirectionalLight& directional = coordinator->GetComponent<Components::DirectionalLight>(e);
 		sky.dir_light = &directional;
 		const json& light = sky_info["sun"];
 		float3 direction = {};
@@ -284,7 +287,7 @@ void World::LoadSky(const json& sky_info) {
 		directional.Init(ColorRGBFromStr(light["color"]), direction, light["cast_shadow"], light["resolution"], light["density"]);
 		if (light.contains("skip")) {
 			for (const auto& s : light["skip"]) {
-				ECS::Entity skip = coordinator.GetEntityByName(s);
+				ECS::Entity skip = coordinator->GetEntityByName(s);
 				directional.AddSkipEntity(skip);
 			}
 		}
@@ -296,13 +299,13 @@ void World::LoadSky(const json& sky_info) {
 		}
 	}
 	if (sky_info.contains("ambient")) {
-		coordinator.AddComponent<Components::AmbientLight>(e, Components::AmbientLight{});
-		Components::AmbientLight& ambient = coordinator.GetComponent<Components::AmbientLight>(e);
+		coordinator->AddComponent<Components::AmbientLight>(e, Components::AmbientLight{});
+		Components::AmbientLight& ambient = coordinator->GetComponent<Components::AmbientLight>(e);
 		const json& light = sky_info["ambient"];
 		ambient.GetData().colorUp = ColorRGBFromStr(light["color_up"]);
 		ambient.GetData().colorDown = ColorRGBFromStr(light["color_down"]);
 	}
-	coordinator.NotifySignatureChange(e);	
+	coordinator->NotifySignatureChange(e);	
 }
 
 void  World::LoadMaterialFiles(const nlohmann::json& materials_info, const std::string& path) {
@@ -350,24 +353,26 @@ void World::LoadMaterialsNode(const nlohmann::json& materials_info,
 }
 
 void World::LoadTemplate(const std::string& template_file, bool triangulate, bool relative, bool use_animation_names) {
-	LoadFBX(template_file, triangulate, relative, materials, meshes, shapes, &templates_coordinator, vertex_buffer, use_animation_names);
+	LoadFBX(template_file, triangulate, relative, materials, meshes, shapes, templates_coordinator, vertex_buffer, use_animation_names);
 }
 
-bool World::Load(const std::string& scene_file) {
+bool World::Load(const std::string& scene_file, std::function<void(float)> OnLoadProgress) {
 	bool ret = true;
 	try {
+		float progress = 0.0f;
 		//Load json world
 		json scene = json::parse(std::ifstream(scene_file));
 		json& jw = scene["world"];
 		path = jw["path"];
-
+		if (OnLoadProgress != nullptr) { OnLoadProgress(progress += 5.0f); }
 		//Load the FBX scene, entities
 		//can point to already created materials and meshes
 		json& world_fbx = jw["level"];
 		{
 			std::string file = world_fbx["file"];
 			bool triangulate = world_fbx["triangulate"];
-			LoadFBX(file, triangulate, true, materials, meshes, shapes, &coordinator, vertex_buffer);
+			LoadFBX(file, triangulate, true, materials, meshes, shapes, coordinator, vertex_buffer);
+			if (OnLoadProgress != nullptr) { OnLoadProgress(progress += 10.0f); }
 		}
 
 		//Load templates
@@ -376,13 +381,15 @@ bool World::Load(const std::string& scene_file) {
 			for (json& t : template_files) {
 				LoadTemplate(t["file"], t["triangulate"], true);
 			}
-			coordinator.SendEvent(this, EVENT_ID_TEMPLATES_LOADED);
+			coordinator->SendEvent(this, EVENT_ID_TEMPLATES_LOADED);
+			if (OnLoadProgress != nullptr) { OnLoadProgress(progress += 10.0f); }
 		}
 
 		//Load sky
 		if (jw.contains("sky")) {
 			LoadSky(jw["sky"]);
 		}
+		if (OnLoadProgress != nullptr) { OnLoadProgress(progress += 10.0f); }
 
 		//Complete materials information
 		if (jw.contains("materials")) {
@@ -392,7 +399,8 @@ bool World::Load(const std::string& scene_file) {
 		if (jw.contains("material_files")) {
 			LoadMaterialFiles(jw["material_files"], path);
 		}
-				
+		if (OnLoadProgress != nullptr) { OnLoadProgress(progress += 10.0f); }
+
 		//Complete meshes information
 		for (auto& mesh_json : jw["meshes"]) {
 			std::list<MeshData*> mesh_list = meshes.GetStrMatch(mesh_json["name"]);
@@ -427,15 +435,16 @@ bool World::Load(const std::string& scene_file) {
 				}
 			}
 		}
+		if (OnLoadProgress != nullptr) { OnLoadProgress(progress += 10.0f); }
 
 		//Complete lights information
 		for (auto& light : jw["lights"]) {
 			std::string name = light["name"];
 			std::string type = light["type"];
 			if (type == "ambient") {
-				ECS::Entity e = coordinator.GetEntityByName(name);
+				ECS::Entity e = coordinator->GetEntityByName(name);
 				if (e == ECS::INVALID_ENTITY_ID) {
-					e = coordinator.CreateEntity(name);
+					e = coordinator->CreateEntity(name);
 				}
 				{
 					Components::Base base;
@@ -445,32 +454,32 @@ bool World::Load(const std::string& scene_file) {
 					ambient.GetData().colorUp = ColorRGBFromStr(light["color_up"]);
 					ambient.GetData().colorDown = ColorRGBFromStr(light["color_down"]);
 
-					coordinator.AddComponent<Components::Base>(e, std::move(base));
-					coordinator.AddComponent<Components::AmbientLight>(e, std::move(ambient));
-					coordinator.NotifySignatureChange(e);
+					coordinator->AddComponent<Components::Base>(e, std::move(base));
+					coordinator->AddComponent<Components::AmbientLight>(e, std::move(ambient));
+					coordinator->NotifySignatureChange(e);
 				}
 			}
 			else if (type == "directional") {
-				ECS::Entity e = coordinator.GetEntityByName(name);
+				ECS::Entity e = coordinator->GetEntityByName(name);
 				if (e == ECS::INVALID_ENTITY_ID) {
-					e = coordinator.CreateEntity(name);
+					e = coordinator->CreateEntity(name);
 				}
-				coordinator.AddComponent<Components::Base>(e, Components::Base{});
-				coordinator.AddComponent<Components::DirectionalLight>(e, Components::DirectionalLight{});
-				Components::Base& base = coordinator.GetComponent<Components::Base>(e);
-				Components::DirectionalLight& directional = coordinator.GetComponent<Components::DirectionalLight>(e);
+				coordinator->AddComponent<Components::Base>(e, Components::Base{});
+				coordinator->AddComponent<Components::DirectionalLight>(e, Components::DirectionalLight{});
+				Components::Base& base = coordinator->GetComponent<Components::Base>(e);
+				Components::DirectionalLight& directional = coordinator->GetComponent<Components::DirectionalLight>(e);
 				base.name = name;
 				base.id = e;
 				directional.Init(ColorRGBFromStr(light["color"]), float3{ light["direction"]["x"], light["direction"]["y"], light["direction"]["z"] }, light["cast_shadow"], light["resolution"], light["density"]);
 				if (light.contains("parent")) {
-					ECS::Entity p = coordinator.GetEntityByName(light["parent"]);
+					ECS::Entity p = coordinator->GetEntityByName(light["parent"]);
 					directional.SetParent(p);
 					directional.AddSkipEntity(p);
-					directional.SetPosition(coordinator.GetComponent<Components::Transform>(p).position);
+					directional.SetPosition(coordinator->GetComponent<Components::Transform>(p).position);
 				}
 				if (light.contains("skip")) {
 					for (const auto& s : light["skip"]) {
-						ECS::Entity skip = coordinator.GetEntityByName(s);
+						ECS::Entity skip = coordinator->GetEntityByName(s);
 						directional.AddSkipEntity(skip);
 					}
 				}
@@ -480,65 +489,66 @@ bool World::Load(const std::string& scene_file) {
 				if (light.contains("fog")) {
 					directional.SetFog(light["fog"]);
 				}
-				coordinator.NotifySignatureChange(e);
+				coordinator->NotifySignatureChange(e);
 			}
 			else if (type == "point") {
-				ECS::Entity e = coordinator.GetEntityByName(name);
+				ECS::Entity e = coordinator->GetEntityByName(name);
 				if (e == ECS::INVALID_ENTITY_ID) {
-					e = coordinator.CreateEntity(name);
+					e = coordinator->CreateEntity(name);
 				}
-				coordinator.AddComponent<Components::Base>(e, Components::Base{});
-				coordinator.AddComponent<Components::Transform>(e, Components::Transform{});
-				coordinator.AddComponent<Components::PointLight>(e, Components::PointLight{});
-				Components::Base& base = coordinator.GetComponent<Components::Base>(e);
-				Components::PointLight& point = coordinator.GetComponent<Components::PointLight>(e);
-				Components::Transform& transform = coordinator.GetComponent<Components::Transform>(e);
+				coordinator->AddComponent<Components::Base>(e, Components::Base{});
+				coordinator->AddComponent<Components::Transform>(e, Components::Transform{});
+				coordinator->AddComponent<Components::PointLight>(e, Components::PointLight{});
+				Components::Base& base = coordinator->GetComponent<Components::Base>(e);
+				Components::PointLight& point = coordinator->GetComponent<Components::PointLight>(e);
+				Components::Transform& transform = coordinator->GetComponent<Components::Transform>(e);
 				base.name = name;
 				base.id = e;
 				point.Init(ColorRGBFromStr(light["color"]), light["range"], light["cast_shadow"], light["resolution"], light["density"]);
 				transform.position = { light["position"]["x"], light["position"]["y"], light["position"]["z"] };
-				coordinator.NotifySignatureChange(e);
+				coordinator->NotifySignatureChange(e);
 			}
 		}
+		if (OnLoadProgress != nullptr) { OnLoadProgress(progress += 10.0f); }
 
 		//Complete entities information
 		for (auto& entity : jw["entities"]) {
 			std::string name = entity["name"];
-			std::list<ECS::Entity> entity_list = coordinator.GetEntitiesByName(name);
+			std::list<ECS::Entity> entity_list = coordinator->GetEntitiesByName(name);
 			assert(!entity_list.empty() && "entity not found.");
 			for (ECS::Entity e : entity_list) {
 				assert(e != ECS::INVALID_ENTITY_ID && "Unknown entity.");
 				bool changed = false;
 				if (entity.contains("cast_shadow")) {
-					Components::Base& base = coordinator.GetComponent<Components::Base>(e);
+					Components::Base& base = coordinator->GetComponent<Components::Base>(e);
 					base.cast_shadow = entity["cast_shadow"];
 					changed = true;
 				}					
 				if (entity.contains("pass")) {
-					Components::Base& base = coordinator.GetComponent<Components::Base>(e);
+					Components::Base& base = coordinator->GetComponent<Components::Base>(e);
 					base.pass = entity["pass"];
 					changed = true;
 				}
 				if (entity.contains("player")) {
 					bool player = entity["player"];
 					if (player) {
-						coordinator.AddComponent<Components::Player>(e, Components::Player{});
+						coordinator->AddComponent<Components::Player>(e, Components::Player{});
 						changed = true;
 					}
 				}
 				if (entity.contains("parent")) {
 					std::string parent_name = entity["parent"];
 					if (!parent_name.empty()) {
-						ECS::Entity pe = coordinator.GetEntityByName(parent_name);
+						ECS::Entity pe = coordinator->GetEntityByName(parent_name);
 						assert(pe != ECS::INVALID_ENTITY_ID && "Unknown parent.");
-						Components::Base& base = coordinator.GetComponent<Components::Base>(e);
+						Components::Base& base = coordinator->GetComponent<Components::Base>(e);
 						base.parent = pe;
 						changed = true;
 					}
 				}
 				if (entity.contains("position")) {
 					json& pos = entity["position"];
-					Components::Transform& t = coordinator.GetComponent<Components::Transform>(e);
+					Components::Transform& t = coordinator->GetComponent<Components::Transform>(e);
 					t.position.x = pos["x"];
 					t.position.y = pos["y"];
 					t.position.z = pos["z"];
@@ -547,7 +557,7 @@ bool World::Load(const std::string& scene_file) {
 				}
 				if (entity.contains("scale")) {
 					json& scl = entity["scale"];
-					Components::Transform& t = coordinator.GetComponent<Components::Transform>(e);
+					Components::Transform& t = coordinator->GetComponent<Components::Transform>(e);
 					t.scale.x = scl["x"];
 					t.scale.y = scl["y"];
 					t.scale.z = scl["z"];
@@ -556,7 +566,7 @@ bool World::Load(const std::string& scene_file) {
 				}
 				if (entity.contains("rotation")) {
 					json& rot = entity["rotation"];
-					Components::Transform& t = coordinator.GetComponent<Components::Transform>(e);
+					Components::Transform& t = coordinator->GetComponent<Components::Transform>(e);
 					t.rotation.x = rot["x"];
 					t.rotation.y = rot["y"];
 					t.rotation.z = rot["z"];
@@ -604,19 +614,19 @@ bool World::Load(const std::string& scene_file) {
 							assert(false && "Unknown physics shape.");
 						}
 					}
-					coordinator.AddComponent<Components::Physics>(e, std::move(physics));
+					coordinator->AddComponent<Components::Physics>(e, std::move(physics));
 					changed = true;
 				}
 				if (entity.contains("template")) {
 					std::string template_entity_name = entity["template"];
 					if (!template_entity_name.empty()) {
-						ECS::Entity te = templates_coordinator.GetEntityByName(template_entity_name);
+						ECS::Entity te = templates_coordinator->GetEntityByName(template_entity_name);
 						if (te != ECS::INVALID_ENTITY_ID) {
-							Components::Mesh& tmesh = templates_coordinator.GetComponent<Components::Mesh>(te);
-							Components::Material& tmat = templates_coordinator.GetComponent<Components::Material>(te);
+							Components::Mesh& tmesh = templates_coordinator->GetComponent<Components::Mesh>(te);
+							Components::Material& tmat = templates_coordinator->GetComponent<Components::Material>(te);
 
-							Components::Mesh& mesh = coordinator.GetComponent<Components::Mesh>(e);
-							Components::Material& mat = coordinator.GetComponent<Components::Material>(e);
+							Components::Mesh& mesh = coordinator->GetComponent<Components::Mesh>(e);
+							Components::Material& mat = coordinator->GetComponent<Components::Material>(e);
 
 							mesh.SetData(tmesh.GetData());
 							mat.data = tmat.data;
@@ -626,7 +636,7 @@ bool World::Load(const std::string& scene_file) {
 				}
 				if (entity.contains("material")) {
 					auto& material = entity["material"];
-					Components::Material& m = coordinator.GetComponent<Components::Material>(e);
+					Components::Material& m = coordinator->GetComponent<Components::Material>(e);
 					auto mat = GetMaterials().Get(material);
 					if (mat != nullptr) {
 						m.data = mat;
@@ -634,7 +644,7 @@ bool World::Load(const std::string& scene_file) {
 				}
 				if (entity.contains("multi_texture")) {
 					auto& multi_textures_json = entity["multi_texture"];
-					Components::Material &m = coordinator.GetComponent<Components::Material>(e);
+					Components::Material &m = coordinator->GetComponent<Components::Material>(e);
 					std::string name = multi_textures_json["name"];
 					const auto mt = multi_materials.find(name);
 					if (mt != multi_materials.end()) {
@@ -645,22 +655,25 @@ bool World::Load(const std::string& scene_file) {
 					}
 				}
 				if (changed) {
-					coordinator.NotifySignatureChange(e);
+					coordinator->NotifySignatureChange(e);
 				}
 			}
 		}
+		if (OnLoadProgress != nullptr) { OnLoadProgress(progress += 10.0f); }
 
 		if (jw.contains("audio")) {
 			//Audio config load
 			audio_system->Config(path, jw["audio"]);
 		}
+		if (OnLoadProgress != nullptr) { OnLoadProgress(progress += 10.0f); }
+
 	}
 	catch (std::exception& e) {
 		printf("World::Load: Fail: %s\n", e.what());
 		assert(false && "Bad world.");
 	}
 
-	printf("Worl load DONE: %llu entities loaded\n", coordinator.GetEntites().size());
+	printf("Worl load DONE: %llu entities loaded\n", coordinator->GetEntites().size());
 	return ret;
 }
 
@@ -671,7 +684,7 @@ void World::Init() {
 		m.Init();
 	}
 	//Init multitextures
-	for (auto& m : coordinator.GetComponents<Components::Material>()->Array()) {
+	for (auto& m : coordinator->GetComponents<Components::Material>()->Array()) {
 		for (uint32_t i = 0; i < m.multi_material.multi_texture_count; ++i) {
 			if (m.multi_material.multi_texture_data[i] != nullptr) {
 				if (m.multi_material.multi_texture_data[i]->diffuse != nullptr) {
@@ -705,22 +718,22 @@ void World::Init() {
 	}
 
 	//Init physics
-	for (auto& e : coordinator.GetEntites()) {
-		Components::Base& base = coordinator.GetComponent<Components::Base>(e.second);
-		if (coordinator.ContainsComponent<Components::Mesh>(e.second)) {
+	for (auto& e : coordinator->GetEntites()) {
+		Components::Base& base = coordinator->GetComponent<Components::Base>(e.second);
+		if (coordinator->ContainsComponent<Components::Mesh>(e.second)) {
 			printf("Entity %s\n", base.name.c_str());
 			ShapeData* shape = nullptr;
-			if (coordinator.ContainsComponent<Components::Sky>(e.second)) {
+			if (coordinator->ContainsComponent<Components::Sky>(e.second)) {
 				continue;
 			}
-			if (!coordinator.ContainsComponent<Components::Physics>(e.second)) {
-				coordinator.AddComponent(e.second, Components::Physics{});
-				coordinator.NotifySignatureChange(e.second);
+			if (!coordinator->ContainsComponent<Components::Physics>(e.second)) {
+				coordinator->AddComponent(e.second, Components::Physics{});
+				coordinator->NotifySignatureChange(e.second);
 			}
-			Components::Physics& p = coordinator.GetComponent<Components::Physics>(e.second);
-			Components::Transform& t = coordinator.GetComponent<Components::Transform>(e.second);
-			Components::Bounds& b = coordinator.GetComponent<Components::Bounds>(e.second);
-			Components::Base& base = coordinator.GetComponent<Components::Base>(e.second);
+			Components::Physics& p = coordinator->GetComponent<Components::Physics>(e.second);
+			Components::Transform& t = coordinator->GetComponent<Components::Transform>(e.second);
+			Components::Bounds& b = coordinator->GetComponent<Components::Bounds>(e.second);
+			Components::Base& base = coordinator->GetComponent<Components::Base>(e.second);
 			if (p.type != reactphysics3d::BodyType::DYNAMIC) {
 				//Dynamic bodies use capsules, can't use mesh shape
 				shape = shapes.Get(e.first);
@@ -741,95 +754,104 @@ void World::Init() {
 }
 
 void World::Run(int render_fps, int background_fps, int physics_fps) {
-	if (background_fps != 0) {
-		background_thread_period = 1000000000 / background_fps;
-	}
-	if (physics_fps != 0) {
-		physics_thread_period = 1000000000 / physics_fps;
-	}
-	if (run_timer_ids[DXCore::MAIN_THREAD].empty()) {
-		
-		physics_system->Update(0, 0, true);
+	if (!running) {
+		running = true;
+		if (background_fps != 0) {
+			background_thread_period = 1000000000 / background_fps;
+		}
+		if (physics_fps != 0) {
+			physics_thread_period = 1000000000 / physics_fps;
+		}
+		coordinator->GetSystem<AudioSystem>()->Start();
 
-		run_timer_ids[DXCore::MAIN_THREAD].push_back(Scheduler::Get(DXCore::MAIN_THREAD)->RegisterTimer(1000000000 / render_fps, [this](const Scheduler::TimerData& t) {
-			//Update render system that don't need sync with lockstep
-			particle_system->Update(t.period, t.total);
-			render_system->Update();
-			render_system->mutex.lock();
-			coordinator.SendEvent(this, World::EVENT_ID_UPDATE_MAIN);
-			render_system->mutex.unlock();
-			return true;
-		}));
-		
-		run_timer_ids[DXCore::BACKGROUND_THREAD].push_back(Scheduler::Get(DXCore::BACKGROUND_THREAD)->RegisterTimer(background_thread_period, [this](const Scheduler::TimerData& t) {
-			//Update systems that need sync with lockstep
-			if (lockstep_sync) {
-				while (current_background_thread_nsec >= current_server_nsec) { Sleep(1); }
-			}
-			render_system->mutex.lock();
-			physics_mutex.lock();
-			//physics systems moves information to transform component used by the renderer,
-			//so we need to take the renderer lock for this
-			phys_world->update((float)t.period / 1000000000.0f);
-			physics_system->Update(t.period, t.total, false);
-			camera_system->Update(t.period, t.total);
-			coordinator.SendEvent(this, World::EVENT_ID_UPDATE_BACKGROUND);
-			physics_mutex.unlock();
-			render_system->mutex.unlock();
-			current_background_thread_nsec += background_thread_period;
-			return true;
-		}));
+		if (run_timer_ids[DXCore::MAIN_THREAD].empty()) {
 
-		run_timer_ids[DXCore::BACKGROUND2_THREAD].push_back(Scheduler::Get(DXCore::BACKGROUND2_THREAD)->RegisterTimer(background_thread_period, [this](const Scheduler::TimerData& t) {
-			//Update systems that don't need sync with lockstep nor physics dependencies
-			render_system->mutex.lock();
-			sky_system->Update(t.period, t.total);
-			animation_mesh_system->Update(t.period, t.total);
-			coordinator.SendEvent(this, World::EVENT_ID_UPDATE_BACKGROUND2);
-			render_system->mutex.unlock();
-			return true;
-			}));
+			physics_system->Update(0, 0, true);
 
-		run_timer_ids[DXCore::BACKGROUND3_THREAD].push_back(Scheduler::Get(DXCore::BACKGROUND3_THREAD)->RegisterTimer(background_thread_period, [this](const Scheduler::TimerData& t) {
-			//Update systems that don't need sync with lockstep but physics dependencies,
-			//Entities can have parents whose transform is updated by physics so we need 
-			//to take the physics lock for this
-			render_system->mutex.lock();
-			physics_mutex.lock();
-			static_mesh_system->Update(t.period, t.total);
-			dirlight_system->Update(t.period, t.total);
-			pointlight_system->Update(t.period, t.total);
-			coordinator.SendEvent(this, World::EVENT_ID_UPDATE_BACKGROUND3);
-			physics_mutex.unlock();
-			render_system->mutex.unlock();
-			return true;
-			}));
+			run_timer_ids[DXCore::MAIN_THREAD].push_back(Scheduler::Get(DXCore::MAIN_THREAD)->RegisterTimer(1000000000 / render_fps, [this](const Scheduler::TimerData& t) {
+				//Update render system that don't need sync with lockstep
+				particle_system->Update(t.period, t.total);
+				render_system->Update();
+				render_system->mutex.lock();
+				coordinator->SendEvent(this, World::EVENT_ID_UPDATE_MAIN);
+				render_system->mutex.unlock();
+				return true;
+				}));
 
-		run_timer_ids[DXCore::PHYSICS_THREAD].push_back(Scheduler::Get(DXCore::PHYSICS_THREAD)->RegisterTimer(physics_thread_period, [this](const Scheduler::TimerData& t) {
-			//Update physics that need sync with lockstep
-			if (lockstep_sync) {
-				while (current_physics_thread_nsec >= current_server_nsec) { Sleep(1); }
-			}
-			physics_mutex.lock();
-			//phys_world->update((float)t.period / 1000000000.0f);			
-			coordinator.SendEvent(this, World::EVENT_ID_UPDATE_PHYSICS);
-			physics_mutex.unlock();
-			current_physics_thread_nsec += physics_thread_period;			
-			return true;
-		}));
+			run_timer_ids[DXCore::BACKGROUND_THREAD].push_back(Scheduler::Get(DXCore::BACKGROUND_THREAD)->RegisterTimer(background_thread_period, [this](const Scheduler::TimerData& t) {
+				//Update systems that need sync with lockstep
+				if (lockstep_sync) {
+					while (current_background_thread_nsec >= current_server_nsec) { Sleep(1); }
+				}
+				render_system->mutex.lock();
+				physics_mutex.lock();
+				//physics systems moves information to transform component used by the renderer,
+				//so we need to take the renderer lock for this
+				phys_world->update((float)t.period / 1000000000.0f);
+				physics_system->Update(t.period, t.total, false);
+				camera_system->Update(t.period, t.total);
+				coordinator->SendEvent(this, World::EVENT_ID_UPDATE_BACKGROUND);
+				physics_mutex.unlock();
+				render_system->mutex.unlock();
+				current_background_thread_nsec += background_thread_period;
+				return true;
+				}));
+
+			run_timer_ids[DXCore::BACKGROUND2_THREAD].push_back(Scheduler::Get(DXCore::BACKGROUND2_THREAD)->RegisterTimer(background_thread_period, [this](const Scheduler::TimerData& t) {
+				//Update systems that don't need sync with lockstep nor physics dependencies
+				render_system->mutex.lock();
+				sky_system->Update(t.period, t.total);
+				animation_mesh_system->Update(t.period, t.total);
+				coordinator->SendEvent(this, World::EVENT_ID_UPDATE_BACKGROUND2);
+				render_system->mutex.unlock();
+				return true;
+				}));
+
+			run_timer_ids[DXCore::BACKGROUND3_THREAD].push_back(Scheduler::Get(DXCore::BACKGROUND3_THREAD)->RegisterTimer(background_thread_period, [this](const Scheduler::TimerData& t) {
+				//Update systems that don't need sync with lockstep but physics dependencies,
+				//Entities can have parents whose transform is updated by physics so we need 
+				//to take the physics lock for this
+				render_system->mutex.lock();
+				physics_mutex.lock();
+				static_mesh_system->Update(t.period, t.total);
+				dirlight_system->Update(t.period, t.total);
+				pointlight_system->Update(t.period, t.total);
+				coordinator->SendEvent(this, World::EVENT_ID_UPDATE_BACKGROUND3);
+				physics_mutex.unlock();
+				render_system->mutex.unlock();
+				return true;
+				}));
+
+			run_timer_ids[DXCore::PHYSICS_THREAD].push_back(Scheduler::Get(DXCore::PHYSICS_THREAD)->RegisterTimer(physics_thread_period, [this](const Scheduler::TimerData& t) {
+				//Update physics that need sync with lockstep
+				if (lockstep_sync) {
+					while (current_physics_thread_nsec >= current_server_nsec) { Sleep(1); }
+				}
+				physics_mutex.lock();
+				//phys_world->update((float)t.period / 1000000000.0f);			
+				coordinator->SendEvent(this, World::EVENT_ID_UPDATE_PHYSICS);
+				physics_mutex.unlock();
+				current_physics_thread_nsec += physics_thread_period;
+				return true;
+				}));
+		}
 	}
 }
 
 void World::Stop() {
-	for (int i = 0; i < DXCore::NTHREADS; ++i) {
-		render_system->mutex.lock();
-		physics_mutex.lock();
-		while (!run_timer_ids[i].empty()) {
-			Scheduler::Get(i)->RemoveTimerAsync(run_timer_ids[i].front());
-			run_timer_ids[i].pop_front();
+	if (running) {
+		running = false;
+		for (int i = 0; i < DXCore::NTHREADS; ++i) {
+			render_system->mutex.lock();
+			physics_mutex.lock();
+			while (!run_timer_ids[i].empty()) {
+				Scheduler::Get(i)->RemoveTimerAsync(run_timer_ids[i].front());
+				run_timer_ids[i].pop_front();
+			}
+			coordinator->GetSystem<AudioSystem>()->Stop();
+			physics_mutex.unlock();
+			render_system->mutex.unlock();
 		}
-		physics_mutex.unlock();
-		render_system->mutex.unlock();
 	}
 }
 

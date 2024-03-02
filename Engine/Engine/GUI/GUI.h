@@ -54,7 +54,7 @@ namespace HotBite {
 				HotBite::Engine::ECS::Coordinator* coordinator = nullptr;
 				HotBite::Engine::Core::RenderTexture2D text;
 				virtual void ClearData(const float color[4]);
-				std::map<std::string, std::shared_ptr<Widget>> widgets;
+				std::map<ECS::Entity, std::shared_ptr<Widget>> widgets;
 
 			public:
 				GUI(ID3D11DeviceContext* dxcontext,
@@ -67,15 +67,37 @@ namespace HotBite {
 				virtual void UnPrepare() override;
 
 				void AddWidget(std::shared_ptr<Widget> widget) {
-					widgets[widget->GetName()] = widget;
+					widgets[widget->GetId()] = widget;
 					widget->SetRenderTarget(TargetRenderView());
 				}
 
 				void RemoveWidget(const std::string& name) {
-					auto w = widgets.find(name);
-					if (w != widgets.end()) {
-						widgets.erase(w);
+					for (auto it = widgets.begin(); it != widgets.end(); ++it) {
+						if (it->second && it->second->GetName() == name) {
+							widgets.erase(it);
+							break;
+						}
 					}
+				}
+				
+				std::shared_ptr<Widget> GetWidget(const std::string& name) {
+					std::shared_ptr<Widget> ret;
+					for (auto it = widgets.begin(); it != widgets.end(); ++it) {
+						if (it->second && it->second->GetName() == name) {
+							ret = it->second;
+							break;
+						}
+					}
+					return ret;
+				}
+
+				std::shared_ptr<Widget> GetWidget(ECS::Entity id) {
+					std::shared_ptr<Widget> ret;
+					auto it = widgets.find(id);
+					if (it != widgets.end()) {
+						ret = it->second;
+					}
+					return ret;
 				}
 
 				bool AddUI(ECS::Coordinator* c, json ui) {
@@ -135,27 +157,7 @@ namespace HotBite {
 				void Reset() {
 					widgets.clear();
 				}
-
-				std::shared_ptr<Widget> GetWidget(const std::string& name) {
-					std::shared_ptr<Widget> ret;
-					auto w = widgets.find(name);
-					if (w != widgets.end()) {
-						ret = w->second;
-					}
-					return ret;
-				}
-
-				std::shared_ptr<Widget> GetWidget(ECS::Entity id) {
-					std::shared_ptr<Widget> ret;
-					for (const auto& w : widgets) {
-						if (w.second->GetId() == id) {
-							ret = w.second;
-							break;
-						}
-					}
-					return ret;
-				}
-
+				
 				virtual void Render() override {
 					PostProcess::Render();
 					DXCore::Get()->context->OMSetBlendState(DXCore::Get()->blend, NULL, ~0U);

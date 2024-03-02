@@ -94,6 +94,8 @@ namespace HotBite {
 				}
 
 				virtual ~Button() {
+					ReleaseTexture(hover_image);
+					ReleaseTexture(click_image);
 					coordinator->GetSystem<Systems::AudioSystem>()->RemoveSound(click_sound_id);
 					delete interactive;
 				}
@@ -115,7 +117,9 @@ namespace HotBite {
 				}
 
 				virtual void OnHoverStart(ECS::Event& ev) {
-					background_image = hover_image;
+					if (hover_image != nullptr) {
+						background_image = hover_image;
+					}
 					coordinator->GetSystem<Systems::AudioSystem>()->Play(hover_sound_id);
 				}
 
@@ -150,17 +154,13 @@ namespace HotBite {
 				}
 
 				virtual void SetHoverImage(const std::string& filename) {
-					if (hover_image != nullptr) {
-						hover_image->Release();
-					}
+					ReleaseTexture(hover_image);
 					std::string file = root + "\\" + filename;
 					hover_image = LoadTexture(file);
 				}
 
 				virtual void SetPressedImage(const std::string& filename) {
-					if (click_image != nullptr) {
-						click_image->Release();
-					}
+					ReleaseTexture(click_image);
 					std::string file = root + "\\" + filename;
 					click_image = LoadTexture(file);
 				}

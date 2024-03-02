@@ -104,10 +104,9 @@ AudioSystem::AudioSystem() {
 	sound = new SoundDeviceGrabber();
 	buffer = new int16_t[Core::SoundDevice::BUFFER_SAMPLES];
 	audio_scheduler = Core::Scheduler::Get(Core::DXCore::AUDIO_THREAD);
-	audio_timer = audio_scheduler->RegisterTimer(MSEC_TO_NSEC(Core::SoundDevice::AUDIO_PERIOD_MS), std::bind(&AudioSystem::OnTick, this, std::placeholders::_1));
 	vrelative_mic_position[EMic::LEFT] = XMLoadFloat3(&relative_mic_position[EMic::LEFT]);
 	vrelative_mic_position[EMic::RIGHT] = XMLoadFloat3(&relative_mic_position[EMic::RIGHT]);
-
+	
 	physics_worker = std::thread([&]() {
 			PlayInfoPtr play_info;
 			while (!physics_worker_end) {
@@ -119,10 +118,9 @@ AudioSystem::AudioSystem() {
 }
 
 AudioSystem::~AudioSystem() {
-	audio_scheduler->RemoveTimer(audio_timer);
+	Stop();
 	physics_worker_end = true;
-	physics_worker.join();
-	sound->Stop();
+	physics_worker.join();	
 	delete sound;
 	delete[] buffer;
 }
@@ -131,6 +129,22 @@ void AudioSystem::OnLocalTransformChanged(ECS::Event& ev) {
 	AutoLock l(lock);
 	CalculateMicPositions();
 }
+
+void AudioSystem::Start() {
+	if (audio_timer == Scheduler::INVALID_TIMER_ID) {
+		audio_timer = audio_scheduler->RegisterTimer(MSEC_TO_NSEC(Core::SoundDevice::AUDIO_PERIOD_MS), std::bind(&AudioSystem::OnTick, this, std::placeholders::_1));
+		sound->Run();
+	}	
+}
+
+void AudioSystem::Stop() {
+	if (audio_timer != Scheduler::INVALID_TIMER_ID) {
+		audio_scheduler->RemoveTimer(audio_timer);
+		audio_timer = Scheduler::INVALID_TIMER_ID;
+		sound->Stop();
+	}
+}
+
 
 void AudioSystem::SetCameraEntity(ECS::Entity entity) {
 	AutoLock l(lock);

@@ -491,20 +491,25 @@ HRESULT DXCore::Run()
 		return true;
 		});
 
-	SetThreadAffinityMask(GetCurrentThread(), 1);
+	//SetThreadAffinityMask(GetCurrentThread(), 1);
 	for (int i = 1; i < NTHREADS; ++i) {
 		threads.emplace(std::thread([&e = this->end, i](){
+			if (i == AUDIO_THREAD) {
+				if (!SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL)) {
+					printf("DXCore::Run: Failed to set thread priority to real-time. Error code: %d\n", GetLastError());
+				}
+			}
 			while (!e) {
 				Scheduler::Get(i)->Update();
 				Scheduler::Get(i)->Idle();
 			}
 		}));
-		DWORD_PTR dw = SetThreadAffinityMask(threads.front().native_handle(), DWORD_PTR(1) << (i));
-		if (dw == 0)
-		{
-			DWORD dwErr = GetLastError();
-			printf("SetThreadAffinityMask failed: %d\n", dwErr);
-		}
+		//DWORD_PTR dw = SetThreadAffinityMask(threads.front().native_handle(), DWORD_PTR(1) << (i));
+		//if (dw == 0)
+		//{
+		//	DWORD dwErr = GetLastError();
+		//	printf("SetThreadAffinityMask failed: %d\n", dwErr);
+		//}
 	}
 	while (!end && msg.message != WM_QUIT && msg.message != WM_DESTROY)
 	{

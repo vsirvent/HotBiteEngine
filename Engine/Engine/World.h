@@ -92,8 +92,8 @@ namespace HotBite {
 			Core::FlatMap<std::string, Core::ShapeData> shapes{ ECS::MAX_ENTITIES };
 			Core::FlatMap<std::string, std::shared_ptr<Core::Skeleton>> animations{ ECS::MAX_ENTITIES };
 
-			ECS::Coordinator coordinator;
-			ECS::Coordinator templates_coordinator;
+			ECS::Coordinator* coordinator = nullptr;
+			ECS::Coordinator* templates_coordinator = nullptr;
 
 			std::shared_ptr<Systems::CameraSystem> camera_system;
 			std::shared_ptr<Systems::DirectionalLightSystem> dirlight_system;
@@ -105,7 +105,7 @@ namespace HotBite {
 			std::shared_ptr<Systems::AnimationMeshSystem> animation_mesh_system;
 			std::shared_ptr<Systems::ParticleSystem> particle_system;
 			std::shared_ptr<Systems::AudioSystem> audio_system;
-
+			bool running = false;
 			bool init = false;
 			std::unordered_map<std::string, std::shared_ptr<ECS::System>> systems_by_name;
 			std::list<int> run_timer_ids[Core::DXCore::NTHREADS];
@@ -129,7 +129,7 @@ namespace HotBite {
 			virtual bool Release();
 			virtual void SetLockStepSync(bool enabled);
 			virtual bool GetLockStepSync(void);
-			virtual bool Load(const std::string& scene_file);
+			virtual bool Load(const std::string& scene_file, std::function<void(float)> OnLoadProgress = nullptr);
 			virtual void Init();
 			virtual void SetPostProcessPipeline(Core::PostProcess* pipeline);
 			virtual void Run(int render_fps, int background_fps = 0, int physics_fps = 0);
@@ -143,13 +143,13 @@ namespace HotBite {
 			template<typename T>
 			void RegisterComponent()
 			{
-				coordinator.RegisterComponent<T>();
+				coordinator->RegisterComponent<T>();
 			}
 
 			template<typename T>
 			std::shared_ptr<T> RegisterSystem()
 			{
-				std::shared_ptr<T> system = coordinator.RegisterSystem<T>();
+				std::shared_ptr<T> system = coordinator->RegisterSystem<T>();
 				systems_by_name[typeid(T).name()] = system;
 				return system;
 			}
@@ -157,7 +157,7 @@ namespace HotBite {
 			ECS::Coordinator* GetCoordinator() { 
 				ECS::Coordinator* ret = nullptr;
 				if (init) {
-					ret = &coordinator;
+					ret = coordinator;
 				}
 				return ret; 
 			}
@@ -165,7 +165,7 @@ namespace HotBite {
 			ECS::Coordinator* GetTemplatesCoordinator() {
 				ECS::Coordinator* ret = nullptr;
 				if (init) {
-					ret = &templates_coordinator;
+					ret = templates_coordinator;
 				}
 				return ret;
 			}

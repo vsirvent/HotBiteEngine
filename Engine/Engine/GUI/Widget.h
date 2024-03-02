@@ -75,8 +75,8 @@ namespace HotBite {
 				bool init = false;
 				std::string name;
 				std::unique_ptr<PrimitiveBatch<VertexType>> sprite;
-				std::map<std::string, std::shared_ptr<Widget>> background_widgets;
-				std::map<std::string, std::shared_ptr<Widget>> foreground_widgets;
+				std::map<ECS::Entity, std::shared_ptr<Widget>> background_widgets;
+				std::map<ECS::Entity, std::shared_ptr<Widget>> foreground_widgets;
 				bool visible = true;
 				float flayer = 0.001f;
 				VertexType v[4];
@@ -111,57 +111,59 @@ namespace HotBite {
 				}
 
 				virtual ~Widget() {
-					if (background_image != nullptr) {
-						background_image->Release();
-					}
+					ReleaseTexture(background_image);
 					coordinator->DestroyEntity(id);
 				}
 
 				ECS::Entity GetId() const { return id; }
 
 				virtual void AddBackgroundWidget(std::shared_ptr<Widget> widget) {
-					background_widgets[widget->GetName()] = widget;
+					background_widgets[widget->GetId()] = widget;
 					widget->SetRenderTarget(d3d_render_target);
 					widget->SetVisible(visible);
 				}
 
 				virtual void AddWidget(std::shared_ptr<Widget> widget) {
-					foreground_widgets[widget->GetName()] = widget;
+					foreground_widgets[widget->GetId()] = widget;
 					widget->SetRenderTarget(d3d_render_target);					
 					widget->SetVisible(visible);
 				}
 
 				virtual void RemoveWidget(const std::string& name) {
-					auto w = foreground_widgets.find(name);
-					if (w != foreground_widgets.end()) {
-						foreground_widgets.erase(w);
+					for (auto it = foreground_widgets.begin(); it != foreground_widgets.end(); ++it) {
+						if (it->second && it->second->GetName() == name) {
+							foreground_widgets.erase(it);
+							break;
+						}
 					}
 				}
 
 				std::shared_ptr<Widget> GetWidget(const std::string& name) {
 					std::shared_ptr<Widget> ret;
-					auto w = foreground_widgets.find(name);
-					if (w != foreground_widgets.end()) {
-						ret = w->second;
-					}
-					return ret;
-				}
-
-				std::shared_ptr<Widget> GetWidget(ECS::Entity id) {
-					std::shared_ptr<Widget> ret;
-					for (const auto& w : foreground_widgets) {
-						if (w.second->GetId() == id) {
-							ret = w.second;
+					for (auto it = foreground_widgets.begin(); it != foreground_widgets.end(); ++it) {
+						if (it->second && it->second->GetName() == name) {
+							ret = it->second;
 							break;
 						}
 					}
 					return ret;
 				}
 
+				std::shared_ptr<Widget> GetWidget(ECS::Entity id) {
+					std::shared_ptr<Widget> ret;
+					auto it = foreground_widgets.find(id);
+					if (it != foreground_widgets.end()) {
+						ret = it->second;
+					}
+					return ret;
+				}
+
 				virtual void RemoveBackgroundWidget(const std::string& name) {
-					auto w = background_widgets.find(name);
-					if (w != background_widgets.end()) {
-						background_widgets.erase(w);
+					for (auto it = background_widgets.begin(); it != background_widgets.end(); ++it) {
+						if (it->second && it->second->GetName() == name) {
+							background_widgets.erase(it);
+							break;
+						}
 					}
 				}
 
@@ -208,7 +210,7 @@ namespace HotBite {
 
 				virtual void SetBackGroundImage(ID3D11ShaderResourceView* image) {
 					if (background_image != nullptr) {
-						background_image->Release();
+						ReleaseTexture(background_image);
 					}
 					background_image = image;
 					if (background_image != nullptr) {
@@ -217,9 +219,7 @@ namespace HotBite {
 				}
 
 				virtual void SetBackGroundImage(const std::string& filename) {
-					if (background_image != nullptr) {
-						background_image->Release();
-					}
+					ReleaseTexture(background_image);
 					background_image = LoadTexture(filename);
 				}
 
@@ -245,7 +245,7 @@ namespace HotBite {
 				}
 
 				virtual float2 GetPosition() const {
-					return position;
+					return { position.x * 0.5f + 0.5f, position.y * 0.5f + 0.5f };
 				}
 
 				virtual void SetPosition(const float2& pos) {

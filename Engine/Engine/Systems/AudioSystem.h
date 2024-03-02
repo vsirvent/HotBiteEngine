@@ -188,7 +188,7 @@ namespace HotBite {
                 Core::SoundDeviceGrabber* sound = nullptr;
                 mutable Core::spin_lock lock;
                 Core::Scheduler* audio_scheduler;
-                int audio_timer;
+                int audio_timer = Core::Scheduler::INVALID_TIMER_ID;
 
                 void OnLocalTransformChanged(ECS::Event& ev);
                 void CalculateMicPositions();
@@ -203,6 +203,9 @@ namespace HotBite {
 
                 AudioSystem();
                 ~AudioSystem();
+
+                void Start();
+                void Stop();
 
                 void OnRegister(ECS::Coordinator* c) override;
                 void OnEntitySignatureChanged(ECS::Entity entity, const ECS::Signature& entity_signature) override;

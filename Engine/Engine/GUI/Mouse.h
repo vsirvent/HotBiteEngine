@@ -80,7 +80,7 @@ namespace HotBite {
 					ShowCursor(true);
 					for (auto const& c : cursors) {
 						if (c.second) {
-							c.second->Release();
+							ReleaseTexture(c.second);
 						}
 					}
 				}
@@ -88,9 +88,7 @@ namespace HotBite {
 				void AddCursor(uint32_t id, const std::string& image_file) {
 					auto it = cursors.find(id);
 					if (it != cursors.end()) {
-						if (it->second) {
-							it->second->Release();
-						}
+						ReleaseTexture(it->second);
 						it->second = LoadTexture(image_file);
 					}
 					else {

@@ -174,7 +174,6 @@ SoundDeviceGrabber::write(BYTE* pBufferData, long BufferLen)
     if (!(DSBSTATUS_PLAYING & bufferStatus)) {
         Run();
     }
-
     hr = buffer->Lock(offset, BufferLen, &lpvPtr1, &dwBytes1, &lpvPtr2, &dwBytes2, 0);
 
     if (DSERR_BUFFERLOST == hr) {
@@ -192,8 +191,9 @@ SoundDeviceGrabber::write(BYTE* pBufferData, long BufferLen)
         }
         // Release the data back to DirectSound. 
         hr = buffer->Unlock(lpvPtr1, dwBytes1, lpvPtr2, dwBytes2);
-        offset = (offset + BufferLen) % BUFF_PLAY;
     }
+    offset = (offset + BufferLen) % BUFF_PLAY;
+    
     return hr;
 }
 

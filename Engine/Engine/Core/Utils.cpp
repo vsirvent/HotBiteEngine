@@ -101,30 +101,53 @@ namespace HotBite {
 				}
 			}
 
+			std::unordered_map<std::string, ID3D11ShaderResourceView*> textures;
+			std::unordered_map<ID3D11ShaderResourceView*, std::string> textures_names;
+
+			void ReleaseTexture(ID3D11ShaderResourceView* srv) {
+				if (srv != nullptr && srv->Release() == 0) {
+					auto it0 = textures_names.find(srv);
+					auto it1 = textures.find(it0->second);
+					textures.erase(it1);
+					textures_names.erase(it0);
+				}
+			}
+
 			ID3D11ShaderResourceView* LoadTexture(const std::string& filename)
 			{
 				ID3D11ShaderResourceView* srv = nullptr;
 				HRESULT ret = S_OK;
 				if (!filename.empty()) {
-					try {
-						std::wstring ws(filename.begin(), filename.end());
-						if (filename.find(".dds") != std::string::npos || filename.find(".DDS") != std::string::npos) {
-							ret = DirectX::CreateDDSTextureFromFile(DXCore::Get()->device, DXCore::Get()->context, ws.c_str(), nullptr, &srv);
-							if (!SUCCEEDED(ret)) {
-								throw std::exception("CreateDDSTextureFromFile failed");
+					auto it = textures.find(filename);
+					if (it == textures.end()) {					
+						try {
+							std::wstring ws(filename.begin(), filename.end());
+							if (filename.find(".dds") != std::string::npos || filename.find(".DDS") != std::string::npos) {
+								ret = DirectX::CreateDDSTextureFromFile(DXCore::Get()->device, DXCore::Get()->context, ws.c_str(), nullptr, &srv);
+								if (!SUCCEEDED(ret)) {
+									throw std::exception("CreateDDSTextureFromFile failed");
+								}
+								printf("Loaded DDS texture %s\n", filename.c_str());
 							}
-							printf("Loaded DDS texture %s\n", filename.c_str());
-						}
-						else {
-							ret = DirectX::CreateWICTextureFromFile(DXCore::Get()->device, DXCore::Get()->context, ws.c_str(), nullptr, &srv);
-							if (!SUCCEEDED(ret)) {
-								throw std::exception("CreateWICTextureFromMemory failed");
+							else {
+								ret = DirectX::CreateWICTextureFromFile(DXCore::Get()->device, DXCore::Get()->context, ws.c_str(), nullptr, &srv);
+								if (!SUCCEEDED(ret)) {
+									throw std::exception("CreateWICTextureFromMemory failed");
+								}
 							}
-						}
 
+						}
+						catch (std::exception e) {
+							printf("Error: %s, error %d loading texture %s\n", e.what(), ret, filename.c_str());
+						}
+						if (srv != nullptr) {
+							textures[filename] = srv;
+							textures_names[srv] = filename;
+						}
 					}
-					catch (std::exception e) {
-						printf("Error: %s, error %d loading texture %s\n", e.what(), ret, filename.c_str());
+					else {
+						srv = it->second;
+						srv->AddRef();
 					}
 				}
 				return srv;
