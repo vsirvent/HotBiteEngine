@@ -90,8 +90,7 @@ namespace HotBite {
 				return srv;
 			}
 
-			void
-				MaterialData::_MaterialData() {
+			void MaterialData::_MaterialData() {
 				//Set default shaders, after loading the scene the shaders can be changed
 				shaders.vs = ShaderFactory::Get()->GetShader<SimpleVertexShader>("MainRenderVS.cso");
 				shaders.hs = ShaderFactory::Get()->GetShader<SimpleHullShader>("MainRenderHS.cso");
@@ -115,8 +114,37 @@ namespace HotBite {
 			}
 
 			MaterialData::MaterialData(const MaterialData& other) {
-				assert(!other.init && "Material can't be copied once initialized.");
 				*this = other;
+			}
+
+			MaterialData& MaterialData::operator=(const MaterialData& other) {
+				if (init) {
+					Release();
+				}
+				this->props = other.props;
+				this->texture_names = other.texture_names;
+				this->shaders = other.shaders;
+				this->shadow_shaders = other.shadow_shaders;
+				this->depth_shaders = other.depth_shaders;
+
+				this->tessellation_type = other.tessellation_type;
+				this->tessellation_factor = other.tessellation_factor;
+				this->displacement_scale = other.displacement_scale;
+				this->bloom_scale = other.bloom_scale;
+
+				this->init = other.init;
+
+				if (init) {
+					diffuse = LoadTexture(texture_names.diffuse_texname);
+					high = LoadTexture(texture_names.high_textname);
+					normal = LoadTexture(texture_names.normal_textname);
+					spec = LoadTexture(texture_names.spec_textname);
+					ao = LoadTexture(texture_names.ao_textname);
+					arm = LoadTexture(texture_names.arm_textname);
+					emission = LoadTexture(texture_names.emission_textname);
+					opacity = LoadTexture(texture_names.opacity_textname);
+				}
+				return *this;
 			}
 
 			MaterialData::~MaterialData() {
@@ -184,6 +212,7 @@ namespace HotBite {
 				SetTexture(emission, texture_names.emission_textname, root, j.value("emission_textname", ""));
 				SetTexture(opacity, texture_names.opacity_textname, root, j.value("opacity_textname", ""));
 				UpdateFlags();
+				init = true;
 			}
 
 			void MaterialData::UpdateFlags() {
@@ -215,6 +244,7 @@ namespace HotBite {
 
 			bool MaterialData::Init() {
 				bool ret = false;
+				Release();
 				init = true;
 				diffuse = LoadTexture(texture_names.diffuse_texname);
 				high = LoadTexture(texture_names.high_textname);

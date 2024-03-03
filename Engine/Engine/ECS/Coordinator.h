@@ -41,6 +41,14 @@ namespace HotBite {
 				static inline EventId EVENT_ID_ENTITY_REMOVED = GetEventId<Coordinator>(0x01);
 				static inline EventId EVENT_ID_ENTITY_CHANGED = GetEventId<Coordinator>(0x02);
 
+				Coordinator() = default;
+
+				~Coordinator() {
+					system_manager = nullptr;
+					component_manager = nullptr;
+					entity_manager = nullptr;
+					event_manager = nullptr;
+				}
 				void Init()
 				{
 					component_manager = std::make_unique<ComponentManager>();

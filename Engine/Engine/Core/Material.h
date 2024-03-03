@@ -113,6 +113,7 @@ namespace HotBite {
 				MaterialData();
 				MaterialData(const std::string& name);
 				MaterialData(const MaterialData& other);
+				MaterialData& operator=(const MaterialData& other);
 				~MaterialData();
 				void Load(const std::string& root, const std::string& mat);
 				bool Init();

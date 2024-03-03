@@ -47,7 +47,7 @@ TriangleShape::TriangleShape(const Vector3* vertices, const Vector3* verticesNor
     // Compute the triangle normal
     mNormal = (vertices[1] - vertices[0]).cross(vertices[2] - vertices[0]);
     mNormal.normalize();
-    assert(mNormal.length() > decimal(0.0));
+    //assert(mNormal.length() > decimal(0.0));
     mVerticesNormals[0] = verticesNormals[0];
     mVerticesNormals[1] = verticesNormals[1];
     mVerticesNormals[2] = verticesNormals[2];

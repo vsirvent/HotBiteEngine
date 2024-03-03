@@ -112,6 +112,10 @@ int64_t Scheduler::GetElapsedNanoSeconds() {
 	return ((GetCycles() - t0)) * cycles_to_nsec;
 }
 
+int64_t Scheduler::GetElapsedMilliSeconds() {
+	return NSEC_TO_MSEC(Scheduler::GetElapsedNanoSeconds());
+}
+
 int Scheduler::RegisterTimer(int64_t period_nsec, std::function<bool(const TimerData&)> cb) {
 	TimerData td = {};
 	if (cb != nullptr) {

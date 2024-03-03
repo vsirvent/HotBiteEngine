@@ -46,6 +46,7 @@ World::World() {
 World::~World() {
 	Release();
 	EventListener::Reset();
+	systems_by_name.clear();
 	delete coordinator;
 	delete templates_coordinator;
 	if (phys_world != nullptr) {
@@ -356,15 +357,14 @@ void World::LoadTemplate(const std::string& template_file, bool triangulate, boo
 	LoadFBX(template_file, triangulate, relative, materials, meshes, shapes, templates_coordinator, vertex_buffer, use_animation_names);
 }
 
-bool World::Load(const std::string& scene_file, std::function<void(float)> OnLoadProgress) {
+bool World::Load(const std::string& scene_file, float* progress, std::function<void(float)> OnLoadProgress, float progress_unit) {
 	bool ret = true;
 	try {
-		float progress = 0.0f;
 		//Load json world
 		json scene = json::parse(std::ifstream(scene_file));
 		json& jw = scene["world"];
 		path = jw["path"];
-		if (OnLoadProgress != nullptr) { OnLoadProgress(progress += 5.0f); }
+		if (OnLoadProgress != nullptr) { OnLoadProgress(*progress += 5.0f * progress_unit); }
 		//Load the FBX scene, entities
 		//can point to already created materials and meshes
 		json& world_fbx = jw["level"];
@@ -372,7 +372,7 @@ bool World::Load(const std::string& scene_file, std::function<void(float)> OnLoa
 			std::string file = world_fbx["file"];
 			bool triangulate = world_fbx["triangulate"];
 			LoadFBX(file, triangulate, true, materials, meshes, shapes, coordinator, vertex_buffer);
-			if (OnLoadProgress != nullptr) { OnLoadProgress(progress += 10.0f); }
+			if (OnLoadProgress != nullptr) { OnLoadProgress(*progress += 5.0f * progress_unit); }
 		}
 
 		//Load templates
@@ -382,14 +382,14 @@ bool World::Load(const std::string& scene_file, std::function<void(float)> OnLoa
 				LoadTemplate(t["file"], t["triangulate"], true);
 			}
 			coordinator->SendEvent(this, EVENT_ID_TEMPLATES_LOADED);
-			if (OnLoadProgress != nullptr) { OnLoadProgress(progress += 10.0f); }
+			if (OnLoadProgress != nullptr) { OnLoadProgress(*progress += 10.0f * progress_unit); }
 		}
 
 		//Load sky
 		if (jw.contains("sky")) {
 			LoadSky(jw["sky"]);
 		}
-		if (OnLoadProgress != nullptr) { OnLoadProgress(progress += 10.0f); }
+		if (OnLoadProgress != nullptr) { OnLoadProgress(*progress += 10.0f * progress_unit); }
 
 		//Complete materials information
 		if (jw.contains("materials")) {
@@ -399,7 +399,7 @@ bool World::Load(const std::string& scene_file, std::function<void(float)> OnLoa
 		if (jw.contains("material_files")) {
 			LoadMaterialFiles(jw["material_files"], path);
 		}
-		if (OnLoadProgress != nullptr) { OnLoadProgress(progress += 10.0f); }
+		if (OnLoadProgress != nullptr) { OnLoadProgress(*progress += 10.0f * progress_unit); }
 
 		//Complete meshes information
 		for (auto& mesh_json : jw["meshes"]) {
@@ -435,7 +435,7 @@ bool World::Load(const std::string& scene_file, std::function<void(float)> OnLoa
 				}
 			}
 		}
-		if (OnLoadProgress != nullptr) { OnLoadProgress(progress += 10.0f); }
+		if (OnLoadProgress != nullptr) { OnLoadProgress(*progress += 10.0f * progress_unit); }
 
 		//Complete lights information
 		for (auto& light : jw["lights"]) {
@@ -509,7 +509,7 @@ bool World::Load(const std::string& scene_file, std::function<void(float)> OnLoa
 				coordinator->NotifySignatureChange(e);
 			}
 		}
-		if (OnLoadProgress != nullptr) { OnLoadProgress(progress += 10.0f); }
+		if (OnLoadProgress != nullptr) { OnLoadProgress(*progress += 10.0f * progress_unit); }
 
 		//Complete entities information
 		for (auto& entity : jw["entities"]) {
@@ -659,13 +659,13 @@ bool World::Load(const std::string& scene_file, std::function<void(float)> OnLoa
 				}
 			}
 		}
-		if (OnLoadProgress != nullptr) { OnLoadProgress(progress += 10.0f); }
+		if (OnLoadProgress != nullptr) { OnLoadProgress(*progress += 10.0f * progress_unit); }
 
 		if (jw.contains("audio")) {
 			//Audio config load
 			audio_system->Config(path, jw["audio"]);
 		}
-		if (OnLoadProgress != nullptr) { OnLoadProgress(progress += 10.0f); }
+		if (OnLoadProgress != nullptr) { OnLoadProgress(*progress += 10.0f * progress_unit); }
 
 	}
 	catch (std::exception& e) {

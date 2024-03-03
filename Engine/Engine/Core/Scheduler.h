@@ -141,7 +141,8 @@ namespace HotBite {
 				//Time functions				
 				void NanoSleep(int64_t nsec);
 				int64_t GetElapsedNanoSeconds();
-				
+				int64_t GetElapsedMilliSeconds();
+
 				//Timers management
 				TimerId RegisterTimer(int64_t period_nsec, std::function<bool(const TimerData&)> cb);
 				TimerId Exec(std::function<bool(const TimerData&)> cb);

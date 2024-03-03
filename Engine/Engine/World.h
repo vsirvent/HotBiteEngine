@@ -129,7 +129,7 @@ namespace HotBite {
 			virtual bool Release();
 			virtual void SetLockStepSync(bool enabled);
 			virtual bool GetLockStepSync(void);
-			virtual bool Load(const std::string& scene_file, std::function<void(float)> OnLoadProgress = nullptr);
+			virtual bool Load(const std::string& scene_file, float* progress = nullptr, std::function<void(float)> OnLoadProgress = nullptr, float progress_unit = 1.0f);
 			virtual void Init();
 			virtual void SetPostProcessPipeline(Core::PostProcess* pipeline);
 			virtual void Run(int render_fps, int background_fps = 0, int physics_fps = 0);
