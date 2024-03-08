@@ -41,6 +41,7 @@ namespace HotBite {
 					SHAPE_BOX,
 					SHAPE_SPHERE,
 				};
+				static std::unordered_map<reactphysics3d::RigidBody*, uint32_t> mBodyRefs;
 				reactphysics3d::BodyType type = reactphysics3d::BodyType::STATIC;
 				reactphysics3d::RigidBody* body = nullptr;
 				reactphysics3d::Collider* collider = nullptr;
@@ -51,6 +52,7 @@ namespace HotBite {
 				float air_friction = -1.0f;
 				eShapeForm shape = eShapeForm::SHAPE_CAPSULE;
 				Physics() = default;
+				Physics(const Physics& other);
 				virtual ~Physics();
 				Physics& operator=(const Physics& other);
 				void SetEnabled(bool enabled);

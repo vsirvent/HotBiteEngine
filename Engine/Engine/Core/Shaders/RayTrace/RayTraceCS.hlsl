@@ -511,7 +511,7 @@ float3 GetColor(Ray origRay, out float3 bloom)
             float objectExtent = 4.0f*length(o.aabb_max - o.aabb_min);
             float distanceToObject = length(o.position - cameraPosition) - objectExtent;
 
-            if (distanceToObject < max_distance && IntersectAABB(ray, o.aabb_min, o.aabb_max))
+            if (distanceToObject < max_distance && distanceToObject < result.distance && IntersectAABB(ray, o.aabb_min, o.aabb_max))
             {
                 RayObject oray;
                 IntersectionResult object_result;

@@ -65,7 +65,7 @@ namespace HotBite {
 					size_t new_index = component_array.size();
 					entity_to_index_map[entity] = new_index;
 					index_to_entity_map[new_index] = entity;
-					component_array.push_back(std::forward<T>(component));
+					component_array.emplace_back(std::forward<T>(component));
 				}
 
 				Entity RemoveData(Entity entity)
@@ -75,7 +75,7 @@ namespace HotBite {
 					size_t size = component_array.size();
 					size_t index_of_removed_entity = entity_to_index_map[entity];
 					size_t index_of_last_element = size - 1;
-					component_array[index_of_removed_entity] = component_array[index_of_last_element];
+					component_array[index_of_removed_entity] = std::move(component_array[index_of_last_element]);
 
 					// Update map to point to moved spot
 					Entity entity_of_last_element = index_to_entity_map[index_of_last_element];

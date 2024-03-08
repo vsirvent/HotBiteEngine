@@ -31,6 +31,8 @@ using namespace DirectX;
 using namespace HotBite::Engine::Components;
 using namespace HotBite::Engine::Core;
 
+std::unordered_map<reactphysics3d::RigidBody*, uint32_t> Physics::mBodyRefs;
+
 bool Physics::Init(PhysicsWorld* w,
 	BodyType body_type, ShapeData* shape_data, const float3& extends,
 	const float3& p, const float3& s, const float4& r, eShapeForm form) {
@@ -39,10 +41,13 @@ bool Physics::Init(PhysicsWorld* w,
 	Quaternion q{ r.x, r.y, r.z, r.w };
 	Transform t(Vector3{ p.x, p.y, p.z }, q.getUnit());
 	body = w->createRigidBody(t);
+	this->shape = form;
+	this->type = body_type;
 	if (body != nullptr) {
 		body->setType(body_type);
+		mBodyRefs[body]++;
 		//body->setAngularLockAxisFactor(rp3d::Vector3(0, 0, 0));
-		CollisionShape* shape = NULL;
+		CollisionShape* cshape = NULL;
 		if (shape_data == NULL) {
 			float3 e = MULT_F3_F3(extends, s);
 			vector4d xm_r = XMVectorSet(r.x, r.y, r.z, r.w);
@@ -53,28 +58,28 @@ bool Physics::Init(PhysicsWorld* w,
 			switch (form) {
 			case eShapeForm::SHAPE_CAPSULE: {
 				if (radius > 0.0f) {
-					shape = physics_common.createCapsuleShape(radius, e.y * 2.0f);
+					cshape = physics_common.createCapsuleShape(radius, e.y * 2.0f);
 					Transform tshape(Vector3{ 0.0f, 0.0f,  radius + e.y }, q.getUnit());
-					collider = body->addCollider(shape, tshape);
+					collider = body->addCollider(cshape, tshape);
 				}
 			}break;
 			case eShapeForm::SHAPE_BOX: {
-				shape = physics_common.createBoxShape({ e.x, e.y, e.z });
+				cshape = physics_common.createBoxShape({ e.x, e.y, e.z });
 				Transform tshape(Vector3{ 0.0f, 0.0f,  0.0f }, q.getUnit());
-				collider = body->addCollider(shape, tshape);
+				collider = body->addCollider(cshape, tshape);
 			}break;
 			case eShapeForm::SHAPE_SPHERE: {
 				if (radius > 0.0f) {
-					shape = physics_common.createSphereShape(e.y);
+					cshape = physics_common.createSphereShape(e.y);
 					Transform tshape(Vector3{ 0.0f, 0.0f, 0.0f }, q.getUnit());
-					collider = body->addCollider(shape, tshape);
+					collider = body->addCollider(cshape, tshape);
 				}
 			}break;
 			}
 		}
 		else {
-			shape = shape_data->shape;
-			collider = body->addCollider(shape, Transform::identity());
+			cshape = shape_data->shape;
+			collider = body->addCollider(cshape, Transform::identity());
 		}
 		if (collider != nullptr) {
 			Material& material = collider->getMaterial();
@@ -90,24 +95,40 @@ bool Physics::Init(PhysicsWorld* w,
 	}	
 	if (air_friction >= 0.0f) {
 		body->setLinearDamping(friction);
-	}
+	}	
 	physics_mutex.unlock();
 	return (body != nullptr);
 }
 
 Physics::~Physics() {
+	physics_mutex.lock();
 	if (body != nullptr) {
-		world->destroyRigidBody(body);
+		auto it = mBodyRefs.find(body);
+		if (it != mBodyRefs.end()) {
+			if (--(it->second) == 0) {
+				world->destroyRigidBody(it->first);
+				mBodyRefs.erase(it);
+			}
+		}
+		body = nullptr;
 	}
+	physics_mutex.unlock();
+}
+
+Physics::Physics(const Physics& other) {
+	physics_mutex.lock();
+	Physics::~Physics();
+	memcpy(this, &other, sizeof(Physics));
+	mBodyRefs[body]++;
+	physics_mutex.unlock();
 }
 
 Physics& Physics::operator=(const Physics& other) {
+	physics_mutex.lock();
 	Physics::~Physics();
-	type = other.type;
-	body = other.body;
-	collider = other.collider;
-	last_body_transform = other.last_body_transform;
-	world = other.world;
+	memcpy(this, &other, sizeof(Physics));
+	mBodyRefs[body]++;
+	physics_mutex.unlock();
 	return *this;
 }
 

@@ -855,5 +855,3 @@ void World::Stop() {
 	}
 }
 
-
-

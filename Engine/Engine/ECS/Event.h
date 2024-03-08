@@ -70,7 +70,7 @@ namespace HotBite {
 				}
 
 				template<typename T>
-				auto GetParam(ParamId id)
+				T GetParam(ParamId id)
 				{
 					return std::any_cast<T>(data[id]);
 				}
