@@ -41,7 +41,7 @@ namespace HotBite {
 				static inline ECS::EventId EVENT_ID_COLLISION_END = ECS::GetEventId<PhysicsSystem>(0x01);
 				static inline ECS::ParamId EVENT_PARAM_ENTITY_1 = 0x01;
 				static inline ECS::ParamId EVENT_PARAM_ENTITY_2 = 0x02;
-
+				static inline ECS::ParamId EVENT_PARAM_COLLISION_FORCE = 0x03;
 			private:
 				struct PhysicsEntity {
 					Components::Transform* transform;
@@ -65,6 +65,7 @@ namespace HotBite {
 				std::unordered_map<reactphysics3d::CollisionBody*, PhysicsEntity*> entity_by_body;
 				std::unordered_map<ECS::Entity, std::unordered_map<int32_t, int64_t>> last_event_by_entity;
 
+				PhysicsEntity* GetEntity(const reactphysics3d::CollisionBody* body);
 			public:
 				void OnRegister(ECS::Coordinator* c) override;
 				void OnEntitySignatureChanged(ECS::Entity entity, const ECS::Signature& entity_signature) override;

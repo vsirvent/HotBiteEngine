@@ -60,7 +60,7 @@ namespace HotBite {
 				//Use parent rotation
 				bool parent_position = true;
 				//Render only when vertex in screen or always
-				eDrawMethod draw_method = eDrawMethod::DRAW_ALWAYS;
+				eDrawMethod draw_method = eDrawMethod::DRAW_SCREEN;
 				//The pass where this entity is rendered
 				uint32_t pass = 1;
 				//Entity visible

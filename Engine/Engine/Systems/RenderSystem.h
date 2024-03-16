@@ -37,7 +37,7 @@ SOFTWARE.
 #include <Core\Material.h>
 #include <Core\Mesh.h>
 #include <Core\PostProcess.h>
-
+#include <Core\BVH.h>
 
 namespace HotBite {
 	namespace Engine {
@@ -249,6 +249,7 @@ namespace HotBite {
 
 				//Ray tracing
 				bool rt_enabled = true;
+				Core::TBVH tbhv{ MAX_OBJECTS };
 				Core::SimpleComputeShader* rt_shader = nullptr;
 				Core::SimpleComputeShader* rt_smooth = nullptr;
 

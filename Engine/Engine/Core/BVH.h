@@ -30,6 +30,65 @@ SOFTWARE.
 namespace HotBite {
 	namespace Engine {
 		namespace Core {
+			struct ObjectInfo
+			{
+				float4x4 world;
+				float4x4 inv_world;
+
+				float3 aabb_min;
+				uint32_t object_offset;
+
+				float3 aabb_max;
+				uint32_t vertex_offset;
+
+				float3 position;
+				uint32_t index_offset;
+
+				float density;
+				float opacity;
+				float padding0;
+				float padding1;
+			};
+
+			class TBVH {
+			public:
+				struct Node
+				{
+					//--
+					float3 aabb_min{ FLT_MAX, FLT_MAX, FLT_MAX };
+					uint16_t left_child = 0;
+					uint16_t right_child = 0;
+					//--
+					float3 aabb_max{ -FLT_MAX, -FLT_MAX, -FLT_MAX };
+					uint32_t index = 0;
+				};
+			private:
+				struct NodeIdx
+				{
+					uint32_t index_offset = 0;
+					uint32_t index_count = 0;
+				};
+			public:
+
+				TBVH(uint32_t max_size);
+				~TBVH();
+
+				void Load(const ObjectInfo* objects, int size);
+
+				const Node* Root() const { return nodes; }
+				uint32_t Size() const { return nodes_used; }
+
+			private:
+				Node* nodes = nullptr;
+				NodeIdx* nodes_idxs = nullptr;
+				uint32_t* indices = nullptr;
+				uint32_t root_idx = 0;
+				uint32_t nodes_used = 0;
+
+				void UpdateNodeBounds(uint32_t node_idx, const ObjectInfo* objects, const uint32_t* indices);
+				void Subdivide(uint32_t node_idx, const ObjectInfo* objects, uint32_t* indices);
+			};
+
 			class BVH {
 			public:
 				struct Node
@@ -255,26 +314,6 @@ namespace HotBite {
 				ID3D11ShaderResourceView* const* SRV() const {
 					return &srv;
 				}
-			};
-
-			struct ObjectInfo
-			{
-				float4x4 world;
-				float4x4 inv_world;
-
-				float3 aabb_min;
-				uint32_t object_offset;
-
-				float3 aabb_max;
-				uint32_t vertex_offset;
-
-				float3 position;
-				uint32_t index_offset;
-
-				float density;
-				float opacity;
-				float padding0;
-				float padding1;
 			};
 
 			using BVHBuffer = Buffer<BVH::Node>;

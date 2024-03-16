@@ -81,6 +81,151 @@ namespace HotBite {
 				return float3{ v1.x / v2, v1.y / v2, v1.z / v2 };
 			}
 
+			TBVH::TBVH(uint32_t max_size) {
+				nodes = new Node[max_size * 2 - 1];
+				nodes_idxs = new NodeIdx[max_size * 2 - 1];
+				indices = new uint32_t[max_size];
+			}
+
+			TBVH::~TBVH() {
+				delete[] nodes;
+				delete[] nodes_idxs;
+				delete[] indices;
+			}
+
+			void TBVH::Load(const ObjectInfo* objects, int size) {
+				//store only first index of the triangle
+				for (int i = 0; i < size; ++i) {
+					uint32_t vidx = i;
+					indices[i] = vidx;
+				}
+
+				root_idx = 0;
+				nodes_used = 1;
+
+				// assign all triangles to root node
+				Node& root = nodes[root_idx];
+				NodeIdx& ridx = nodes_idxs[root_idx];
+				ridx.index_offset = 0;
+				ridx.index_count = (int32_t)size;
+
+				UpdateNodeBounds(root_idx, objects, indices);
+				Subdivide(root_idx, objects, indices);
+			}
+
+			void TBVH::UpdateNodeBounds(uint32_t node_idx, const ObjectInfo* objects, const uint32_t* indices) {
+				Node& node = nodes[node_idx];
+				NodeIdx& nidx = nodes_idxs[node_idx];
+				for (uint32_t i = nidx.index_offset; i < nidx.index_offset + nidx.index_count; ++i)
+				{
+					const auto& o = objects[indices[i]];
+
+					auto checkMin = [](const float3& p0, const float3& p1) {
+						return float3{ fminf(p0.x, p1.x), fminf(p0.y, p1.y), fminf(p0.z, p1.z) };
+					};
+
+					auto checkMax = [](const float3& p0, const float3& p1) {
+						return float3{ fmaxf(p0.x, p1.x), fmaxf(p0.y, p1.y), fmaxf(p0.z, p1.z) };
+					};
+
+					node.aabb_min = checkMin(node.aabb_min, o.aabb_min);
+					node.aabb_max = checkMax(node.aabb_max, o.aabb_max);
+				}
+			}
+			void TBVH::Subdivide(uint32_t node_idx, const ObjectInfo* objects, uint32_t* indices) {
+				Node& node = nodes[node_idx];
+				NodeIdx& nidx = nodes_idxs[node_idx];
+
+				assert(nidx.index_count > 0);
+				// terminate recursion
+				if (nidx.index_count == 1) {
+					node.left_child = 0;
+					node.right_child = 0;
+					node.index = indices[nidx.index_offset];
+					return;
+				}
+
+				// determine split axis and position
+				auto checkMin = [](const float3& p0, const float3& p1) {
+					return float3{ fminf(p0.x, p1.x), fminf(p0.y, p1.y), fminf(p0.z, p1.z) };
+				};
+
+				auto checkMax = [](const float3& p0, const float3& p1) {
+					return float3{ fmaxf(p0.x, p1.x), fmaxf(p0.y, p1.y), fmaxf(p0.z, p1.z) };
+				};
+				float3 split{};
+				float3 min{ FLT_MAX, FLT_MAX, FLT_MAX }, max{ -FLT_MAX, -FLT_MAX, -FLT_MAX };
+				for (uint32_t p = nidx.index_offset; p < nidx.index_offset + nidx.index_count; ++p) {
+					const float3& center = objects[indices[p]].position;
+					split = ADD_F3_F3(split, center);
+					min = checkMin(min, center);
+					max = checkMax(max, center);
+				}
+				float3 extent = { abs(max.x - min.x), abs(max.y - min.y), abs(max.z - min.z) };
+				int axis = 0;
+				if (extent.y > extent.x) axis = 1;
+				if (extent.z > component(extent, axis)) axis = 2;
+				float split_pos = component(split, axis);
+				split_pos /= nidx.index_count;
+				int left_count = 0;
+				int right_count = 0;
+				int left_offset = 0;
+				int right_offset = 0;
+				if (LENGHT_F3(extent) > FLT_EPSILON)
+				{
+					// in-place partition
+					int i = nidx.index_offset;
+					int j = i + nidx.index_count - 1;
+
+					while (i <= j)
+					{
+						const auto& centroid = objects[indices[i]].position;
+						if (component(centroid, axis) < split_pos) {
+							i++;
+						}
+						else {
+							uint32_t tmp = indices[i];
+							indices[i] = indices[j];
+							indices[j] = tmp;
+							--j;
+						}
+					}
+
+					// abort split if one of the sides is empty
+					left_count = i - nidx.index_offset;
+					left_offset = nidx.index_offset;
+
+					right_count = nidx.index_count - left_count;
+					right_offset = left_offset + left_count;
+				}
+				else {
+					left_offset = nidx.index_offset;
+					left_count = nidx.index_count / 2;
+					right_offset = left_offset + left_count;
+					right_count = nidx.index_count / 2;
+				}
+				assert(left_count != 0 && right_count != 0);
+				assert(left_count + right_count >= 2);
+
+				// create child nodes
+				int left_child_idx = nodes_used++;
+				int right_child_idx = nodes_used++;
+
+				nodes_idxs[left_child_idx].index_offset = left_offset;
+				nodes_idxs[left_child_idx].index_count = left_count;
+				node.left_child = left_child_idx;
+
+				nodes_idxs[right_child_idx].index_offset = right_offset;
+				nodes_idxs[right_child_idx].index_count = right_count;
+				node.right_child = right_child_idx;
+
+				UpdateNodeBounds(left_child_idx, objects, indices);
+				UpdateNodeBounds(right_child_idx, objects, indices);
+
+				Subdivide(left_child_idx, objects, indices);
+				Subdivide(right_child_idx, objects, indices);
+				nidx.index_count = 0;
+			}
 
 			BVH::BVH() {
 			}
@@ -88,6 +233,7 @@ namespace HotBite {
 			BVH::~BVH() {
 				if (nodes != nullptr) {
 					delete[] nodes;
+					delete[] nodes_idxs;
 				}
 			}
 
@@ -96,7 +242,7 @@ namespace HotBite {
 					delete[] nodes;
 					delete[] nodes_idxs;
 				}
-				
+
 				std::vector<uint32_t> indices(vertex_idxs.size() / 3);
 				std::vector<float3> centroids(indices.size());
 
@@ -124,7 +270,7 @@ namespace HotBite {
 			}
 
 			void BVH::UpdateNodeBounds(uint32_t node_idx, const std::vector<HotBite::Engine::Core::Vertex>& vertices,
-				                       const std::vector<uint32_t>& triangle_indices, const std::vector<uint32_t>& vertex_idxs)
+				const std::vector<uint32_t>& triangle_indices, const std::vector<uint32_t>& vertex_idxs)
 			{
 				Node& node = nodes[node_idx];
 				NodeIdx& nidx = nodes_idxs[node_idx];
@@ -138,7 +284,7 @@ namespace HotBite {
 					auto checkMin = [](const float3& p0, const float3& p1) {
 						return float3{ fminf(p0.x, p1.x), fminf(p0.y, p1.y), fminf(p0.z, p1.z) };
 					};
-					
+
 					auto checkMax = [](const float3& p0, const float3& p1) {
 						return float3{ fmaxf(p0.x, p1.x), fmaxf(p0.y, p1.y), fmaxf(p0.z, p1.z) };
 					};
@@ -224,7 +370,7 @@ namespace HotBite {
 					right_count = nidx.index_count - left_count;
 					right_offset = left_offset + left_count;
 #else
-					
+
 					std::list<uint32_t> split_triangle_indices;
 					std::list<float3> split_centroids;
 
@@ -256,7 +402,7 @@ namespace HotBite {
 				}
 				else {
 					left_offset = nidx.index_offset;
-					left_count = nidx.index_count/2;
+					left_count = nidx.index_count / 2;
 					right_offset = left_offset + left_count;
 					right_count = nidx.index_count / 2;
 				}

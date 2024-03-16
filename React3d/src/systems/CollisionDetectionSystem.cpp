@@ -976,7 +976,7 @@ void CollisionDetectionSystem::createSnapshotContacts(Array<ContactPair>& contac
     for (uint32 p=0; p < nbContactPairs; p++) {
 
         ContactPair& contactPair = contactPairs[p];
-        assert(contactPair.nbPotentialContactManifolds > 0);
+        if (contactPair.nbPotentialContactManifolds == 0) { continue; }
 
         contactPair.contactManifoldsIndex = static_cast<uint32>(contactManifolds.size());
         contactPair.nbContactManifolds = contactPair.nbPotentialContactManifolds;

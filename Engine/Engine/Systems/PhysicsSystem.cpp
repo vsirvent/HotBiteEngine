@@ -56,7 +56,9 @@ void PhysicsSystem::OnEntitySignatureChanged(Entity entity, const Signature& ent
 	{		
 		PhysicsEntity pe{ coordinator, entity };
 		physics.Insert(entity, pe);
-		entity_by_body[pe.physics->body] = physics.Get(entity);
+		if (pe.physics->body != nullptr) {
+			entity_by_body[pe.physics->body] = physics.Get(entity);
+		}
 	}
 	else
 	{
@@ -139,15 +141,27 @@ void PhysicsSystem::onTrigger(const reactphysics3d::OverlapCallback::CallbackDat
 	}
 }
 
+PhysicsSystem::PhysicsEntity* PhysicsSystem::GetEntity(const reactphysics3d::CollisionBody* body) {
+	for (PhysicsSystem::PhysicsEntity& p : physics.GetData()) {
+		if (p.physics->body == body) {
+			return &p;
+		}
+	}
+	return nullptr;
+}
+
 void PhysicsSystem::onContact(const reactphysics3d::CollisionCallback::CallbackData& callbackData) {
 	// For each contact pair
 	AutoLock l(lock);
 	for (uint32_t p = 0; p < callbackData.getNbContactPairs(); ++p) {
+
 		const ContactPair& contactPair = callbackData.getContactPair(p);
+		const auto b1 = contactPair.getBody1();
+		const auto b2 = contactPair.getBody2();
 		if (contactPair.getEventType() == ContactPair::EventType::ContactExit) {
-			auto it1 = contacts_by_body.find(contactPair.getBody1());
+			auto it1 = contacts_by_body.find(b1);
 			if (it1 != contacts_by_body.end()) {
-				auto it2 = it1->second.find(contactPair.getBody2());
+				auto it2 = it1->second.find(b2);
 				if (it2 != it1->second.end()) {
 					it1->second.erase(it2);
 					if (it1->second.empty()) {
@@ -155,9 +169,9 @@ void PhysicsSystem::onContact(const reactphysics3d::CollisionCallback::CallbackD
 					}
 				}
 			}
-			it1 = contacts_by_body.find(contactPair.getBody2());
+			it1 = contacts_by_body.find(b2);
 			if (it1 != contacts_by_body.end()) {
-				auto it2 = it1->second.find(contactPair.getBody1());
+				auto it2 = it1->second.find(b1);
 				if (it2 != it1->second.end()) {
 					it1->second.erase(it2);
 					if (it1->second.empty()) {
@@ -167,41 +181,63 @@ void PhysicsSystem::onContact(const reactphysics3d::CollisionCallback::CallbackD
 			}
 			
 		} else {
-			auto* pair0 = &(contacts_by_body[contactPair.getBody1()][contactPair.getBody2()]);
-			auto* pair1 = &(contacts_by_body[contactPair.getBody2()][contactPair.getBody1()]);
-			pair0->clear();
-			pair1->clear();
+
+			auto& pair0 = (contacts_by_body[b1][b2]);
+			auto& pair1 = (contacts_by_body[b2][b1]);
+			pair0.clear();
+			pair1.clear();
 			for (uint32_t c = 0; c < contactPair.getNbContactPoints(); ++c) {
-				pair0->insert(contactPair.getContactPoint(c).getWorldNormal());
-				pair1->insert(contactPair.getContactPoint(c).getWorldNormal());
+				pair0.insert(contactPair.getContactPoint(c).getWorldNormal());
+				pair1.insert(contactPair.getContactPoint(c).getWorldNormal());
 			}			
 		}
 		if (contactPair.getEventType() == ContactPair::EventType::ContactStart || contactPair.getEventType() == ContactPair::EventType::ContactExit) {
-			const auto b1 = entity_by_body.find(contactPair.getBody1());
-			const auto b2 = entity_by_body.find(contactPair.getBody2());
-			const auto end = entity_by_body.cend();
-			if (b1 != end && b2 != end) {
+			auto eb1 = entity_by_body.find(b1);
+			auto eb2 = entity_by_body.find(b2);
+			auto end = entity_by_body.cend();
+			if (eb1 == end) {
+				PhysicsEntity* pe = GetEntity(b1);
+				if (pe != nullptr) {
+					entity_by_body[b1] = pe;
+					eb1 = entity_by_body.find(b1);
+				}
+			}
+			if (eb2 == end) {
+				PhysicsEntity* pe = GetEntity(b2);
+				if (pe != nullptr) {
+					entity_by_body[b2] = pe;
+					eb1 = entity_by_body.find(b2);
+				}
+			}
+			if (eb1 != end && eb2 != end) {
 				Event ev;
 				switch (contactPair.getEventType()) {
 				case ContactPair::EventType::ContactStart:
+				{
+					float force = 0.0f;
+					for (uint32_t i = 0; i < contactPair.getNbContactPoints(); ++i) {
+						force += contactPair.getContactPoint(0).getPenetrationDepth();
+					}
 					ev.SetType(EVENT_ID_COLLISION_START);
-					break;
+					ev.SetParam<float>(EVENT_PARAM_COLLISION_FORCE, force);
+				} break;
 				case ContactPair::EventType::ContactExit:
+				{
 					ev.SetType(EVENT_ID_COLLISION_END);
-					break;
+				}break;
 				}
 				int64_t now = Scheduler::GetNanoSeconds();
-				ev.SetParam(EVENT_PARAM_ENTITY_1, b1->second->base->id);
-				ev.SetParam(EVENT_PARAM_ENTITY_2, b2->second->base->id);
-				if ((now - last_event_by_entity[b1->second->base->id][(int)contactPair.getEventType()]) > MSEC_TO_NSEC(10)) {
-					ev.SetEntity(b1->second->base->id);
+				ev.SetParam(EVENT_PARAM_ENTITY_1, eb1->second->base->id);
+				ev.SetParam(EVENT_PARAM_ENTITY_2, eb2->second->base->id);
+				if ((now - last_event_by_entity[eb1->second->base->id][(int)contactPair.getEventType()]) > MSEC_TO_NSEC(10)) {
+					ev.SetEntity(eb1->second->base->id);
 					coordinator->SendEvent(ev);
-					last_event_by_entity[b1->second->base->id][(int)contactPair.getEventType()] = now;
+					last_event_by_entity[eb1->second->base->id][(int)contactPair.getEventType()] = now;
 				}
-				if ((now - last_event_by_entity[b2->second->base->id][(int)contactPair.getEventType()]) > MSEC_TO_NSEC(10)) {
-					ev.SetEntity(b2->second->base->id);
+				if ((now - last_event_by_entity[eb2->second->base->id][(int)contactPair.getEventType()]) > MSEC_TO_NSEC(10)) {
+					ev.SetEntity(eb2->second->base->id);
 					coordinator->SendEvent(ev);
-					last_event_by_entity[b2->second->base->id][(int)contactPair.getEventType()] = now;
+					last_event_by_entity[eb2->second->base->id][(int)contactPair.getEventType()] = now;
 				}				
 			}		
 		}

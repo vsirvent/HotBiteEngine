@@ -89,6 +89,34 @@ namespace HotBite {
         float3 operator-(const float3& a, const float3& b);
         float2 operator-(const float2& a, const float2& b);
         
+        // Function to multiply two quaternions (float4)
+        inline float4 quaternion_multiply(const float4& q1, const float4& q2) {
+            float4 result;
+            result.x = q1.w * q2.x + q1.x * q2.w + q1.y * q2.z - q1.z * q2.y;
+            result.y = q1.w * q2.y - q1.x * q2.z + q1.y * q2.w + q1.z * q2.x;
+            result.z = q1.w * q2.z + q1.x * q2.y - q1.y * q2.x + q1.z * q2.w;
+            result.w = q1.w * q2.w - q1.x * q2.x - q1.y * q2.y - q1.z * q2.z;
+            return result;
+        }
+
+        // Function to compute the conjugate of a quaternion (float4)
+        inline float4 quaternion_conjugate(const float4& q) {
+            float4 conjugate;
+            conjugate.x = -q.x;
+            conjugate.y = -q.y;
+            conjugate.z = -q.z;
+            conjugate.w = q.w;
+            return conjugate;
+        }
+
+        // Function to express rotation quaternion q1 with respect to q2
+        inline float4 express_rotation_with_respect_to(const float4& q1, const float4& q2) {
+            // Step 1: Compute intermediate quaternion product
+            float4 q_intermediate = quaternion_multiply(q1, quaternion_conjugate(q2));
+             return q_intermediate;
+
+        }
+
         inline  bool EQ_INT2(const float2& a, const float2& b) {
             return (int)a.x == (int)b.x && (int)a.y == (int)b.y;
         }
@@ -99,6 +127,10 @@ namespace HotBite {
 
         inline float3 SUB_F3_F3(const float3& a, const float3& b) {
             return { a.x - b.x , a.y - b.y , a.z - b.z };
+        }
+
+        inline float4 SUB_F4_F4(const float4& a, const float4& b) {
+            return { a.x - b.x , a.y - b.y , a.z - b.z, a.w - b.w };
         }
 
         inline float2 ADD_F2_F2(const float2& a, const float2& b) {

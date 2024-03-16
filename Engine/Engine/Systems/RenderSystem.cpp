@@ -477,7 +477,7 @@ void RenderSystem::DrawDepth(int w, int h, const float3& camera_position, const 
 		for (auto &mat: shaders.second) {
 			if (!(mat.first->props.flags & (ALPHA_ENABLED_FLAG | BLEND_ENABLED_FLAG))) {
 				for (auto &de : mat.second.second.GetData()) {
-					if (de.base->visible && de.base->scene_visible && de.base->draw_depth) {
+					if (de.base->visible && de.base->draw_depth) {
 						PrepareEntity(de, vs, hs, ds, gs, ps);
 						Mesh* mesh = de.mesh;						
 						DXCore::Get()->context->DrawIndexed((UINT)mesh->index_count, (UINT)mesh->index_offset, (INT)mesh->vertex_offset);						
@@ -701,7 +701,7 @@ void RenderSystem::CastShadows(int w, int h, const float3& camera_position, cons
 					for (auto& de: mat.second.second.GetData()) {
 						if (de.base->visible && de.base->cast_shadow && !l.light->IsSkipEntity(de.base->id) &&
 							//we paint static objects if static_shadows = true || dynamic objects if static_shadows = false
-							((!static_shadows && !de.base->is_static && de.base->scene_visible) || (static_shadows && de.base->is_static))) {
+							((!static_shadows && !de.base->is_static) || (static_shadows && de.base->is_static))) {
 							PrepareEntity(de, vs, hs, ds, gs, ps);
 							Mesh* mesh = de.mesh;
 							DXCore::Get()->context->DrawIndexed((UINT)mesh->index_count, (UINT)mesh->index_offset, (INT)mesh->vertex_offset);						
@@ -1297,7 +1297,7 @@ void RenderSystem::ProcessRT() {
 							o.index_offset = (uint32_t)de.mesh->GetData()->indexOffset;
 							o.object_offset = (uint32_t)de.mesh->GetData()->bvhOffset;
 
-							o.position = de.transform->position;
+							o.position = orientedBoxCenter;
 							o.world = de.transform->world_matrix;
 							o.inv_world = de.transform->world_inv_matrix;
 							
@@ -1333,7 +1333,7 @@ void RenderSystem::ProcessRT() {
 		};
 
 		std::map<float, Node> distance_map;
-
+		
 		ID3D11RenderTargetView* nullRenderTargetViews[1] = { nullptr };
 		dxcore->context->OMSetRenderTargets(1, nullRenderTargetViews, nullptr);
 
@@ -1342,9 +1342,12 @@ void RenderSystem::ProcessRT() {
 		int len = 0;
 		sort(distance_map, objects, objectMaterials, diffuseTextures, len);
 
+		tbhv.Load(objects, len);
+
 		rt_shader->SetInt("nobjects", len);
 		rt_shader->SetData("objectMaterials", objectMaterials, len * sizeof(MaterialProps));
 		rt_shader->SetData("objectInfos", objects, len * sizeof(ObjectInfo));
+		rt_shader->SetData("objectBVH", tbhv.Root(), tbhv.Size() * sizeof(TBVH::Node));
 		rt_shader->SetUnorderedAccessView("output0", rt_texture[0].UAV());
 		rt_shader->SetUnorderedAccessView("output1", rt_texture[1].UAV());
 		rt_shader->SetUnorderedAccessView("bloom", bloom_map.UAV());

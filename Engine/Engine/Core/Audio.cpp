@@ -166,7 +166,8 @@ SoundDeviceGrabber::write(BYTE* pBufferData, long BufferLen)
     DWORD endWritePos = (offset + BufferLen) % BUFF_PLAY;
     if ((offset <= readPos && endWritePos >= readPos) ||
         (offset >= readPos && (offset - readPos) < SoundDevice::BUFFER_OFFSET/4)) {
-        printf("SoundDeviceGrabber::write: Reset audio buffer\n");
+        printf("SoundDeviceGrabber::write: Reset audio buffer, offset = %d, readPost = %d, SoundDevice::BUFFER_OFFSET = %d\n",
+            offset, readPos, SoundDevice::BUFFER_OFFSET);
         offset = (readPos + SoundDevice::BUFFER_OFFSET) % BUFF_PLAY;
     }
 

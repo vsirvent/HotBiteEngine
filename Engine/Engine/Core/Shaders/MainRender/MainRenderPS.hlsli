@@ -150,6 +150,7 @@ RenderTargetRT MainRenderPS(GSOutput input)
 	}
 #endif
 	finalColor += lumColor;
+#if 1
 	// Apply textures
 	if (material.flags & DIFFUSSE_MAP_ENABLED_FLAG || multi_texture_count > 0) {
 		float3 text_color;
@@ -175,7 +176,7 @@ RenderTargetRT MainRenderPS(GSOutput input)
 	else {
 		finalColor *= material.diffuseColor;
 	}
-
+#endif
 	// Apply ambient occlusion
 	if (multi_texture_count > 0) {
 		finalColor *= getMutliTextureValueLevel(basicSampler, 2, MULTITEXT_AO, multi_texture_count, multi_texture_operations,

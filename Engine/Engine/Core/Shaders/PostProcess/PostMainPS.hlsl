@@ -23,6 +23,7 @@ SOFTWARE.
 */
 
 #include "../Common/Utils.hlsli"
+#include "../Common/QuickNoise.hlsli"
 
 Texture2D renderTexture : register(t0);
 Texture2D depthTexture: register(t3);
@@ -41,6 +42,7 @@ cbuffer externalData : register(b0)
     float nearFactor;
     float farFactor;
     matrix projection_inverse;
+    float time;
 }
 
 float4 main(float4 pos: SV_POSITION) : SV_TARGET
@@ -69,5 +71,8 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
     float4 rt1 = rtTexture1.Sample(basicSampler, tpos);
     
     color += (color + l * 0.5f) * rt0 + rt1 + b;
+#if 0
+    color.rgb += 0.05f * simplex3d_fractal(float3(400.0f*tpos.xy, time*random(1000.0f*time)));
+#endif
     return color;
 }
