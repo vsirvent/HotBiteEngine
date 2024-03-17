@@ -58,6 +58,7 @@ HRESULT DirectionalLight::Init(const float3& c, const float3& dir,
 	this->data.density = volume_density / 1000.0f;
 	this->data.color = c;
 	this->data.cast_shadow = cast_shadow;
+	
 	if (cast_shadow) {
 		int w = (int)((float)texture_resolution_ratio * DXCore::Get()->GetWidth() * shadow_resolution_divisor);
 		do {

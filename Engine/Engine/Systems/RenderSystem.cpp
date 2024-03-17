@@ -240,6 +240,7 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		dxcore = dx_core;
 		vertex_buffer = vb;
 		bvh_buffer = bvh;
+		tbvh_buffer.Prepare(MAX_OBJECTS * 2 - 1);
 		first_pass_target = dxcore;		
 		depth_target = dxcore;
 		int w = dxcore->GetWidth();
@@ -260,10 +261,10 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		if (FAILED(temp_map.Init(w, h))) {
 			throw std::exception("temp_map.Init failed");
 		}
-		if (FAILED(depth_map.Init(w/2 , h/2, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT))) {
+		if (FAILED(depth_map.Init(w / TEXTURE_RESOLUTION_DIVIDER, h / TEXTURE_RESOLUTION_DIVIDER, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT))) {
 			throw std::exception("depth_map.Init failed");
 		}
-		if (FAILED(depth_view.Init(w/2, h/2))) {
+		if (FAILED(depth_view.Init(w / TEXTURE_RESOLUTION_DIVIDER, h / TEXTURE_RESOLUTION_DIVIDER))) {
 			throw std::exception("depth_view.Init failed");
 		}
 		if (FAILED(first_pass_texture.Init(w, h))) {
@@ -273,14 +274,14 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 			throw std::exception("rgba_noise_texture.Init failed");
 		}
 		for (int i = 0; i < RT_NTEXTURES; ++i) {
-			if (FAILED(rt_texture[i].Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+			if (FAILED(rt_texture[i].Init(w/ TEXTURE_RESOLUTION_DIVIDER, h/ TEXTURE_RESOLUTION_DIVIDER, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 				throw std::exception("rt_texture.Init failed");
 			}
 		}
-		if (FAILED(rt_texture_props.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+		if (FAILED(rt_texture_props.Init(w/ TEXTURE_RESOLUTION_DIVIDER, h/ TEXTURE_RESOLUTION_DIVIDER, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("rt_texture_props.Init failed");
 		}
-		if (FAILED(texture_tmp.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+		if (FAILED(texture_tmp.Init(w/ TEXTURE_RESOLUTION_DIVIDER, h/ TEXTURE_RESOLUTION_DIVIDER, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("texture_tmp.Init failed");
 		}
 		if (FAILED(rt_ray_sources0.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
@@ -1342,12 +1343,12 @@ void RenderSystem::ProcessRT() {
 		int len = 0;
 		sort(distance_map, objects, objectMaterials, diffuseTextures, len);
 
-		tbhv.Load(objects, len);
+		//tbvh.Load(objects, len);
+		//tbvh_buffer.Refresh(tbvh.Root(), 0, tbvh.Size());
 
 		rt_shader->SetInt("nobjects", len);
 		rt_shader->SetData("objectMaterials", objectMaterials, len * sizeof(MaterialProps));
 		rt_shader->SetData("objectInfos", objects, len * sizeof(ObjectInfo));
-		rt_shader->SetData("objectBVH", tbhv.Root(), tbhv.Size() * sizeof(TBVH::Node));
 		rt_shader->SetUnorderedAccessView("output0", rt_texture[0].UAV());
 		rt_shader->SetUnorderedAccessView("output1", rt_texture[1].UAV());
 		rt_shader->SetUnorderedAccessView("bloom", bloom_map.UAV());
@@ -1387,11 +1388,14 @@ void RenderSystem::ProcessRT() {
 		rt_shader->CopyAllBufferData();
 
 		dxcore->context->CSSetShaderResources(2, 1, bvh_buffer->SRV());
-		dxcore->context->CSSetShaderResources(3, 1, vertex_buffer->VertexSRV());
-		dxcore->context->CSSetShaderResources(4, 1, vertex_buffer->IndexSRV());
+		//dxcore->context->CSSetShaderResources(3, 1, tbvh_buffer.SRV());
+		dxcore->context->CSSetShaderResources(4, 1, vertex_buffer->VertexSRV());
+		dxcore->context->CSSetShaderResources(5, 1, vertex_buffer->IndexSRV());
 
 		rt_shader->SetShader();		
-		dxcore->context->Dispatch(rt_texture[0].Width()/32, rt_texture[0].Height()/32 + 1, 1);
+		int32_t  groupsX = (int32_t)(ceil((float)rt_texture[0].Width() / 32.0f));
+		int32_t  groupsY = (int32_t)(ceil((float)rt_texture[0].Height() / 32.0f));
+		dxcore->context->Dispatch(groupsX, groupsY, 1);
 		rt_shader->SetUnorderedAccessView("output0", nullptr);
 		rt_shader->SetUnorderedAccessView("output1", nullptr);
 		rt_shader->SetUnorderedAccessView("output2", nullptr);
@@ -1413,8 +1417,8 @@ void RenderSystem::ProcessRT() {
 		rt_smooth->SetShaderResourceView("depth", depth_map.SRV());
 		for (int i = 0; i < 2; ++i) {
 			if (enabled_layer[i]) {
-				int32_t  groupsX = (int32_t)(ceil((float)rt_texture[i].Width() / 32.0f));
-				int32_t  groupsY = (int32_t)(ceil((float)rt_texture[i].Height() / 32.0f));
+				groupsX = (int32_t)(ceil((float)rt_texture[i].Width() / 32.0f));
+				groupsY = (int32_t)(ceil((float)rt_texture[i].Height() / 32.0f));
 				rt_smooth->SetUnorderedAccessView("input", rt_texture[i].UAV());
 				rt_smooth->SetUnorderedAccessView("output", texture_tmp.UAV());
 				rt_smooth->SetInt("type", 1);

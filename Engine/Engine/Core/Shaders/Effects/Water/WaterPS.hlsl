@@ -73,6 +73,7 @@ float3 CalcWaterDirectional(float3 normal, float3 position, float2 uv, DirLight 
 	float3 finalColor = pow(color * saturate(NDotL), 4.0f) * 0.5f;
 	float3 bloomColor = { 0.f, 0.f, 0.f };
 	// Blinn specular
+#if 0
 	float3 ToEye = cameraPosition.xyz - position;
 	ToEye = normalize(ToEye);
 	float3 HalfWay = normalize(ToEye + light.DirToLight);
@@ -80,8 +81,20 @@ float3 CalcWaterDirectional(float3 normal, float3 position, float2 uv, DirLight 
 	float3 spec_color = { 0.f, 0.f, 0.f };
 	spec_color += pow(NDotH, 400.0f) * spec_intensity;
 	finalColor += spec_color;
-	bloomColor += (saturate(NDotH - 0.9999f)) * 9999.0f * (spec_intensity);
+	bloomColor += (saturate(NDotH - 0.99f)) * 99.0f * (spec_intensity);
 	bloom.rgb += bloomColor;
+#endif
+	float3 ToEye = cameraPosition.xyz - position.xyz;
+	ToEye = normalize(ToEye);
+	float3 HalfWay = normalize(ToEye + light.DirToLight);
+	float NDotH = saturate(dot(HalfWay, normal));
+	float3 spec_color = { 0.f, 0.f, 0.f };
+	spec_color += pow(NDotH, 200.0f) * spec_intensity * 10.0f;
+	spec_color += color * pow(NDotH, 100.0f) * spec_intensity;
+	spec_color += color * pow(NDotH, 2.0f) * spec_intensity * 0.1f;
+	finalColor += spec_color;
+	bloomColor += spec_color;
+
 	return finalColor;
 }
 
@@ -139,21 +152,21 @@ RenderTargetRT main(GSOutput input)
 	float4 finalColor = { 0.0f, 0.0f, 0.0f, 1.0f };
 	float4 lightColor = { 0.0f, 0.0f, 0.0f, 1.0f };
 	
-	float3 normal = { 0.0f, 1.0f, 0.0f };
-	float spec_intensity = 0.4f;
+	float3 normal = input.normal;// { 0.0f, 1.0f, 0.0f };
+	float spec_intensity = 1.0f;
 	
 	fnl_state state = fnlCreateState();
 	state.noise_type = FNL_NOISE_OPENSIMPLEX2S;
 	state.octaves = 2;
 	state.fractal_type = FNL_FRACTAL_FBM;
-	state.frequency = 0.5;
+	state.frequency = 0.6f;
 	state.gain = 0.6;
 	state.rotation_type_3d = FNL_ROTATION_IMPROVE_XY_PLANES;
 	float t = time * 0.2f;
     float n0 = fnlGetNoise3D(state, input.worldPos.x + t, input.worldPos.y + t, input.worldPos.z + t);
 	float n1 = fnlGetNoise3D(state, input.worldPos.z - t, input.worldPos.y - t, input.worldPos.x - t);
 	float3 bump = float3(n0, 0, n1);
-	normal = normalize(normal + bump*0.5);
+	normal = normalize(normal + bump);
 	
 	float2 pos2 = pos;
 	pos2.x += n0 * 0.015f;
@@ -165,9 +178,14 @@ RenderTargetRT main(GSOutput input)
 		pos = pos2;
 	}
 	float dz = depthTexture.Sample(basicSampler, pos);
+
+	float4 lumColor = float4(0.0f, 0.0f, 0.0f, 0.0f);
+	// Calculate the ambient light
+	lumColor.rgb += CalcAmbient(normal);
+
 	//Apply directional light
 	for (i = 0; i < dirLightsCount; ++i) {
-		finalColor.rgb += CalcWaterDirectional(normal, input.worldPos.xyz, input.uv, dirLights[i], i, spec_intensity, lightColor).rgb;
+		lumColor.rgb += CalcWaterDirectional(normal, input.worldPos.xyz, input.uv, dirLights[i], i, spec_intensity, lightColor).rgb;
 		if (dirLights[i].density > 0.0f) {
 			lightColor.rgb += DirVolumetricLight(input.worldPos, dirLights[i], i, time, cloud_density);
 		}
@@ -176,13 +194,25 @@ RenderTargetRT main(GSOutput input)
 	// Apply point lights
 	for (i = 0; i < pointLightsCount; ++i) {
 		if (length(input.worldPos.xyz - pointLights[i].Position) < pointLights[i].Range) {
-			finalColor.rgb += CalcWaterPoint(normal, input.worldPos.xyz, input.uv, pointLights[i], i, spec_intensity, lightColor).rgb;
+			lumColor.rgb += CalcWaterPoint(normal, input.worldPos.xyz, input.uv, pointLights[i], i, spec_intensity, lightColor).rgb;
 			if (pointLights[i].density > 0.0f) {
 				lightColor.rgb += VolumetricLight(input.worldPos, pointLights[i], i);
 			}
 		}
 	}
-	
+#if 1
+	finalColor.rgb += lumColor.rgb;
+
+	// Apply textures
+	if (material.flags & DIFFUSSE_MAP_ENABLED_FLAG || multi_texture_count > 0) {
+		float3 text_color = diffuseTexture.Sample(basicSampler, input.uv).rgb;
+		finalColor.rgb *= text_color;
+	}
+	else {
+		finalColor *= material.diffuseColor * 0.3f;
+	}
+#endif
+
 	// Apply textures
 	float dist_to_terrain = 0.0f;
 	float dist_to_terrain2 = 0.0f;
@@ -190,7 +220,7 @@ RenderTargetRT main(GSOutput input)
 		dist_to_terrain = saturate(1.0f - (dz - depth) / 15.0f);
 		dist_to_terrain2 = saturate( 1.0f - (dz - depth) / 30.0f);
 	}
-	float3 terrain_color = 0.5f*(renderTexture.Sample(basicSampler, pos).rgb * dist_to_terrain + float3(0.0f, 0.0f, 0.1f) * (1.0f - dist_to_terrain))* dist_to_terrain2;	
+	float3 terrain_color = 0.7f*(renderTexture.Sample(basicSampler, pos).rgb * dist_to_terrain + float3(0.0f, 0.0f, 0.1f) * (1.0f - dist_to_terrain))* dist_to_terrain2;	
 	finalColor.rgb += terrain_color;
 	
 	//Emission of point lights	
@@ -206,13 +236,13 @@ RenderTargetRT main(GSOutput input)
 		}
 	};
 
-	output.light_map = saturate(lightColor);
+	output.light_map = saturate(lumColor);
 	output.bloom_map = saturate(lightColor);
 	output.scene = saturate(finalColor);
 	RaySource ray;
 	ray.orig = input.worldPos.xyz;
 	ray.dispersion = 0.0f;
-	ray.normal = normalize(float3(0.0f, 1.0f, 0.0f) + 0.2f * normal);
+	ray.normal = normalize(float3(0.0f, 1.0f, 0.0f) + 0.1f * normal);
 	ray.density = material.density;
 	ray.opacity = material.opacity;
 	output.rt_ray0_map = getColor0(ray);

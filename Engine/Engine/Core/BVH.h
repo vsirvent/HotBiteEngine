@@ -50,18 +50,20 @@ namespace HotBite {
 				float padding1;
 			};
 
+
+			struct BVHNode
+			{
+				//--
+				float3 aabb_min{ FLT_MAX, FLT_MAX, FLT_MAX };
+				uint16_t left_child = 0;
+				uint16_t right_child = 0;
+				//--
+				float3 aabb_max{ -FLT_MAX, -FLT_MAX, -FLT_MAX };
+				uint32_t index = 0;
+			};
+
+
 			class TBVH {
-			public:
-				struct Node
-				{
-					//--
-					float3 aabb_min{ FLT_MAX, FLT_MAX, FLT_MAX };
-					uint16_t left_child = 0;
-					uint16_t right_child = 0;
-					//--
-					float3 aabb_max{ -FLT_MAX, -FLT_MAX, -FLT_MAX };
-					uint32_t index = 0;
-				};
 			private:
 				struct NodeIdx
 				{
@@ -75,11 +77,11 @@ namespace HotBite {
 
 				void Load(const ObjectInfo* objects, int size);
 
-				const Node* Root() const { return nodes; }
+				const BVHNode* Root() const { return nodes; }
 				uint32_t Size() const { return nodes_used; }
 
 			private:
-				Node* nodes = nullptr;
+				BVHNode* nodes = nullptr;
 				NodeIdx* nodes_idxs = nullptr;
 				uint32_t* indices = nullptr;
 				uint32_t root_idx = 0;
@@ -91,16 +93,7 @@ namespace HotBite {
 
 			class BVH {
 			public:
-				struct Node
-				{
-					//--
-					float3 aabb_min{ FLT_MAX, FLT_MAX, FLT_MAX };
-					uint16_t left_child = 0;
-					uint16_t right_child = 0;
-					//--
-					float3 aabb_max{ -FLT_MAX, -FLT_MAX, -FLT_MAX };
-					uint32_t index = 0;
-				};
+				
 
 				struct NodeIdx
 				{
@@ -113,11 +106,11 @@ namespace HotBite {
 
 				void Init(const std::vector<HotBite::Engine::Core::Vertex>& vertices, const std::vector<uint32_t>& vertex_idxs);
 
-				const Node* Root() const { return nodes; }
+				const BVHNode* Root() const { return nodes; }
 				uint32_t Size() const { return nodes_used; }
 
 			private:
-				Node* nodes = nullptr;
+				BVHNode* nodes = nullptr;
 				NodeIdx* nodes_idxs = nullptr;
 				uint32_t root_idx = 0;
 				uint32_t nodes_used = 0;
@@ -295,7 +288,7 @@ namespace HotBite {
 					D3D11_MAPPED_SUBRESOURCE resource;
 					//Update vertex buffer
 					context->Map(buffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &resource);
-					memcpy(resource.pData, nodes.data(), (UINT)(sizeof(BVH::Node) * len));
+					memcpy(resource.pData, nodes.data(), (UINT)(sizeof(BVHNode) * len));
 					context->Unmap(buffer, 0);
 				}
 
@@ -316,7 +309,76 @@ namespace HotBite {
 				}
 			};
 
-			using BVHBuffer = Buffer<BVH::Node>;
+			template<typename T>
+			class ExtBuffer {
+			private:
+				ID3D11Buffer* buffer = nullptr;
+				ID3D11ShaderResourceView* srv = nullptr;
+
+			public:
+				ExtBuffer() {
+				}
+
+				~ExtBuffer() {
+					Unprepare();
+				}
+
+				HRESULT Prepare(uint32_t size) {
+					HRESULT hr = S_OK;
+					ID3D11Device* device = Core::DXCore::Get()->device;
+					D3D11_BUFFER_DESC vbd;
+					D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+
+					vbd.Usage = D3D11_USAGE_DYNAMIC;
+					vbd.ByteWidth = (UINT)(sizeof(T) * size);
+					vbd.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+					vbd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+					vbd.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+					vbd.StructureByteStride = sizeof(T);
+					
+					hr = device->CreateBuffer(&vbd, nullptr, &buffer);
+					if (FAILED(hr)) { goto end; }
+
+					srvDesc.Format = DXGI_FORMAT_UNKNOWN;
+					srvDesc.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
+					srvDesc.Buffer.FirstElement = 0;
+					srvDesc.Buffer.NumElements = size;
+					hr = device->CreateShaderResourceView(buffer, &srvDesc, &srv);
+					if (FAILED(hr)) { goto end; }
+				end:
+					return hr;
+				}
+
+				void Refresh(const T* data, uint32_t start, uint32_t len) {
+					if (len > 0) {
+						ID3D11DeviceContext* context = Core::DXCore::Get()->context;
+						D3D11_MAPPED_SUBRESOURCE resource;
+						//Update vertex buffer
+						context->Map(buffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &resource);
+						memcpy(resource.pData, data, (UINT)(sizeof(T) * len));
+						context->Unmap(buffer, 0);
+					}
+				}
+
+				HRESULT Unprepare() {
+					ID3D11DeviceContext* context = Core::DXCore::Get()->context;
+					HRESULT hr = S_OK;
+					if (buffer != nullptr) {
+						int count = buffer->Release();
+						hr |= (count == 0) ? S_OK : E_FAIL;
+						srv->Release();
+						srv = nullptr;
+					}
+					return hr;
+				}
+
+				ID3D11ShaderResourceView* const* SRV() const {
+					return &srv;
+				}
+			};
+
+			using BVHBuffer = Buffer<BVHNode>;
+			using ExtBVHBuffer = ExtBuffer<BVHNode>;
 		}
 	}
 }

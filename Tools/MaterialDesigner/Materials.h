@@ -194,6 +194,15 @@ public:
 		props["ds"] = std::make_shared<Prop<std::string>>("");
 		props["gs"] = std::make_shared<Prop<std::string>>("");
 		props["ps"] = std::make_shared<Prop<std::string>>("");
+		props["draw_vs"] = std::make_shared < Prop<std::string>>("MainRenderVS.cso");
+		props["draw_hs"] = std::make_shared < Prop<std::string>>("MainRenderHS.cso");
+		props["draw_ds"] = std::make_shared < Prop<std::string>>("MainRenderDS.cso");
+		props["draw_gs"] = std::make_shared < Prop<std::string>>("MainRenderGS.cso");
+		props["draw_ps"] = std::make_shared < Prop<std::string>>("MainRenderPS.cso");
+		props["shadow_vs"] = std::make_shared < Prop<std::string>>("ShadowVS.cso");
+		props["shadow_gs"] = std::make_shared < Prop<std::string>>("ShadowMapCubeGS.cso");
+		props["depth_vs"] = std::make_shared < Prop<std::string>>("DepthVS.cso");
+		props["depth_ps"] = std::make_shared < Prop<std::string>>("DepthPS.cso");
 	};
 
 	virtual bool FromJson(const json& js) {
@@ -229,11 +238,16 @@ public:
 			props["emission_textname"]->SetValue<std::string>(js.value("emission_textname", ""));
 			props["opacity_textname"]->SetValue<std::string>(js.value("opacity_textname", ""));
 
-			props["vs"]->SetValue<std::string>(js.value("vs", ""));
-			props["hs"]->SetValue<std::string>(js.value("hs", ""));
-			props["ds"]->SetValue<std::string>(js.value("ds", ""));
-			props["gs"]->SetValue<std::string>(js.value("gs", ""));
-			props["ps"]->SetValue<std::string>(js.value("ps", ""));
+			props["draw_vs"]->SetValue<std::string>(js.value("draw_vs", "MainRenderVS.cso"));
+			props["draw_hs"]->SetValue<std::string>(js.value("draw_hs", "MainRenderHS.cso"));
+			props["draw_ds"]->SetValue<std::string>(js.value("draw_ds", "MainRenderDS.cso"));
+			props["draw_gs"]->SetValue<std::string>(js.value("draw_gs", "MainRenderGS.cso"));
+			props["draw_ps"]->SetValue<std::string>(js.value("draw_ps", "MainRenderPS.cso"));
+
+			props["shadow_vs"]->SetValue<std::string>(js.value("shadow_vs", "ShadowVS.cso"));
+			props["shadow_gs"]->SetValue<std::string>(js.value("shadow_gs", "ShadowMapCubeGS.cso"));
+			props["depth_vs"]->SetValue<std::string>(js.value("depth_vs", "DepthVS.cso"));
+			props["depth_ps"]->SetValue<std::string>(js.value("depth_ps", "DepthPS.cso"));
 		}
 		catch (...) {
 			return false;
@@ -468,6 +482,33 @@ public:
 		}
 	}
 };
+
+ref class ShaderFileEditor : ImageEditor
+{
+public:
+	virtual Object^ EditValue(ITypeDescriptorContext^ context, System::IServiceProvider^ provider, Object^ value) override
+	{
+		OpenFileDialog^ openFileDialog = gcnew OpenFileDialog();
+
+		openFileDialog->Filter = "Shader Files|*.cso";
+		openFileDialog->Title = "Select a shader";
+
+		if (value != nullptr && value->GetType() == String::typeid)
+		{
+			openFileDialog->FileName = dynamic_cast<String^>(value);
+		}
+
+		if (openFileDialog->ShowDialog() == DialogResult::OK)
+		{
+			return openFileDialog->FileName;
+		}
+		else
+		{
+			return value;
+		}
+	}
+};
+
 
 public ref class MaterialProp
 {
@@ -877,6 +918,89 @@ public:
 			material->props["emission_textname"]->SetValue<std::string>(msclr::interop::marshal_as<std::string>(file));
 		}
 	}
+
+#if 0
+	props["draw_vs"] = std::make_shared < Prop<std::string>>("MainRenderVS.cso");
+	props["draw_hs"] = std::make_shared < Prop<std::string>>("MainRenderHS.cso");
+	props["draw_ds"] = std::make_shared < Prop<std::string>>("MainRenderDS.cso");
+	props["draw_gs"] = std::make_shared < Prop<std::string>>("MainRenderGS.cso");
+	props["draw_ps"] = std::make_shared < Prop<std::string>>("MainRenderPS.cso");
+	props["shadow_vs"] = std::make_shared < Prop<std::string>>("ShadowVS.cso");
+	props["shadow_gs"] = std::make_shared < Prop<std::string>>("ShadowMapCubeGS.cso");
+	props["depth_vs"] = std::make_shared < Prop<std::string>>("DepthVS.cso");
+	props["depth_vs"] = std::make_shared < Prop<std::string>>("DepthPS.cso");
+#endif
+	[CategoryAttribute("Shaders")]
+	[EditorAttribute(ShaderFileEditor::typeid, System::Drawing::Design::UITypeEditor::typeid)]
+	property String^ DrawVS {
+		String^ get()
+		{
+			return gcnew String(material->props["draw_vs"]->GetValue<std::string>().c_str());
+		}
+		void set(String^ newValue)
+		{
+			System::String^ file = Path::GetFileName(newValue);
+			material->props["draw_vs"]->SetValue<std::string>(msclr::interop::marshal_as<std::string>(file));
+		}
+	}
+
+	[CategoryAttribute("Shaders")]
+	[EditorAttribute(ShaderFileEditor::typeid, System::Drawing::Design::UITypeEditor::typeid)]
+	property String^ DrawHS {
+		String^ get()
+		{
+			return gcnew String(material->props["draw_hs"]->GetValue<std::string>().c_str());
+		}
+		void set(String^ newValue)
+		{
+			System::String^ file = Path::GetFileName(newValue);
+			material->props["draw_hs"]->SetValue<std::string>(msclr::interop::marshal_as<std::string>(file));
+		}
+	}
+
+	[CategoryAttribute("Shaders")]
+	[EditorAttribute(ShaderFileEditor::typeid, System::Drawing::Design::UITypeEditor::typeid)]
+	property String^ DrawDS {
+		String^ get()
+		{
+			return gcnew String(material->props["draw_ds"]->GetValue<std::string>().c_str());
+		}
+		void set(String^ newValue)
+		{
+			System::String^ file = Path::GetFileName(newValue);
+			material->props["draw_ds"]->SetValue<std::string>(msclr::interop::marshal_as<std::string>(file));
+		}
+	}
+
+	[CategoryAttribute("Shaders")]
+	[EditorAttribute(ShaderFileEditor::typeid, System::Drawing::Design::UITypeEditor::typeid)]
+	property String^ DrawGS {
+		String^ get()
+		{
+			return gcnew String(material->props["draw_gs"]->GetValue<std::string>().c_str());
+		}
+		void set(String^ newValue)
+		{
+			System::String^ file = Path::GetFileName(newValue);
+			material->props["draw_gs"]->SetValue<std::string>(msclr::interop::marshal_as<std::string>(file));
+		}
+	}
+
+	[CategoryAttribute("Shaders")]
+	[EditorAttribute(ShaderFileEditor::typeid, System::Drawing::Design::UITypeEditor::typeid)]
+	property String^ DrawPS {
+		String^ get()
+		{
+			return gcnew String(material->props["draw_ps"]->GetValue<std::string>().c_str());
+		}
+		void set(String^ newValue)
+		{
+			System::String^ file = Path::GetFileName(newValue);
+			material->props["draw_ps"]->SetValue<std::string>(msclr::interop::marshal_as<std::string>(file));
+		}
+	}
+
+
 
 	MaterialProp(Material* material, System::String^ path) {
 		this->material = material;

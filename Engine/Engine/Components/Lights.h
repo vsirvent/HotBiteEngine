@@ -89,6 +89,7 @@ namespace HotBite {
 			{
 			public:
 #define DIR_LIGHT_FLAG_FOG 1
+#define DIR_LIGHT_FLAG_INVERSE 2
 				struct Data {
 					float3 color{};
 					float  intensity = 1.0f;
@@ -132,7 +133,12 @@ namespace HotBite {
 					if (enable) data.flags |= DIR_LIGHT_FLAG_FOG;
 					else data.flags &= ~DIR_LIGHT_FLAG_FOG;
 				}
-				bool GetFog() { return data.flags & DIR_LIGHT_FLAG_FOG; }
+				bool GetFog() { return data.flags & DIR_LIGHT_FLAG_INVERSE; }
+				void SetInverse(bool enable) {
+					if (enable) data.flags |= DIR_LIGHT_FLAG_INVERSE;
+					else data.flags &= ~DIR_LIGHT_FLAG_INVERSE;
+				}
+				bool GetInverse() { return data.flags & DIR_LIGHT_FLAG_INVERSE; }
 				void SetRange(float range) { data.range = range; }
 				float GetRange() const { return data.range; }
 				

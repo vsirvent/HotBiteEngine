@@ -117,6 +117,17 @@ namespace HotBite {
 				}
 
 				template<typename T>
+				void AddComponentIfNotExists(Entity entity, const T& component)
+				{
+					if (!component_manager->ContainsComponent<T>(entity)) {
+						component_manager->AddComponent<T>(entity, component);
+						auto signature = entity_manager->GetSignature(entity);
+						signature.set(component_manager->GetComponentType<T>(), true);
+						entity_manager->SetSignature(entity, signature);
+					}
+				}
+
+				template<typename T>
 				void AddComponent(Entity entity)
 				{
 					component_manager->EmplaceComponent<T>(entity, T{});

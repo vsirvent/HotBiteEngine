@@ -211,6 +211,19 @@ namespace HotBite {
 				SetTexture(arm, texture_names.arm_textname, root, j.value("arm_textname", ""));
 				SetTexture(emission, texture_names.emission_textname, root, j.value("emission_textname", ""));
 				SetTexture(opacity, texture_names.opacity_textname, root, j.value("opacity_textname", ""));
+
+				shaders.vs = ShaderFactory::Get()->GetShader<SimpleVertexShader>(j.value("draw_vs", "MainRenderVS.cso"));
+				shaders.hs = ShaderFactory::Get()->GetShader<SimpleHullShader>(j.value("draw_hs", "MainRenderHS.cso"));
+				shaders.ds = ShaderFactory::Get()->GetShader<SimpleDomainShader>(j.value("draw_ds", "MainRenderDS.cso"));
+				shaders.gs = ShaderFactory::Get()->GetShader<SimpleGeometryShader>(j.value("draw_gs", "MainRenderGS.cso"));
+				shaders.ps = ShaderFactory::Get()->GetShader<SimplePixelShader>(j.value("draw_ps", "MainRenderPS.cso"));
+
+				shadow_shaders.vs = ShaderFactory::Get()->GetShader<SimpleVertexShader>(j.value("shadow_vs", "ShadowVS.cso"));
+				shadow_shaders.gs = ShaderFactory::Get()->GetShader<SimpleGeometryShader>(j.value("shadow_gs", "ShadowMapCubeGS.cso"));
+
+				depth_shaders.vs = ShaderFactory::Get()->GetShader<SimpleVertexShader>(j.value("depth_vs", "DepthVS.cso"));
+				depth_shaders.ps = ShaderFactory::Get()->GetShader<SimplePixelShader>(j.value("depth_ps", "DepthPS.cso"));
+
 				UpdateFlags();
 				init = true;
 			}

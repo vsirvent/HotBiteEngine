@@ -144,7 +144,7 @@ float PointShadowPCFFast(float3 ToPixel, PointLight light, int index)
 	float Z = max(ToPixelAbs.x, max(ToPixelAbs.y, ToPixelAbs.z));
 	float d = (lps[index].x * Z + lps[index].y) / Z;
 	//This offset allows to avoid self shadow
-	d -= 0.01f;
+	d -= 0.0001f;
 	float att1 = PointShadowMapTexture[index].SampleCmpLevelZero(PCFSampler, float3(ToPixel.x, ToPixel.y, ToPixel.z), d).r;
 	return saturate(att1);
 }
@@ -226,19 +226,20 @@ float3 DirVolumetricLight(float4 position, DirLight light, int index, float time
 	float3 lcolor = light.Color.rgb * light.intensity;
 
 	float3 color = { 0.f, 0.f, 0.f };
-	float step = 0.1f;
+#if 1
+	float step = 0.5f;
 	float max_vol = 1.0f;
 	float3 ToEye = cameraPosition.xyz - position.xyz;
 	float3 camDir = cameraDirection.xyz;
 	float angle_extra = saturate(pow(dot(normalize(camDir), normalize(light.DirToLight)), 3.0f)) * 2.0f;
-	float density_step = light.density * step;	
+	float density_step = light.density * step;
 	float shadow, fog, att;
 	int apply_fog = light.flags & DIR_LIGHT_FLAG_FOG;
 	float ToLight;
 	float DistToLight;
 	float LightRange;
 	float3 step_color = (lcolor * density_step);	
-	float3 step_color2 = step_color * angle_extra;
+	float3 step_color2 = step_color;
 	float ToEyeDist = length(ToEye);
 	int nsteps = ToEyeDist / step;
 	float3 ToEyeRayUnit = ToEye / nsteps;
@@ -293,9 +294,7 @@ float3 DirVolumetricLight(float4 position, DirLight light, int index, float time
 					break;
 				}
 			}
-			if (length(position - cameraPosition) < 1.0f) {
-				break;
-			}
+			
 			if (light.range > 0.0f) {
 				float3 ToLight = light.position - position.xyz;
 				ToLight *= -light.DirToLight;
@@ -331,13 +330,14 @@ float3 DirVolumetricLight(float4 position, DirLight light, int index, float time
 			}
 		}
 	}
+#endif
 	return color;
 }
 
 float3 VolumetricLight(float3 position, PointLight light, int index) {
 	float3 color = { 0.f, 0.f, 0.f };
 	float3 step_color = light.Color.rgb;
-	float step = 0.5f;
+	float step = 0.2f;
 	float max_vol = 0.3f;
 	step_color.rgb *= (light.density * step);
 
@@ -352,7 +352,7 @@ float3 VolumetricLight(float3 position, PointLight light, int index) {
 	float mag = 0.0f;
 	if (nsteps > max_nsteps) {
 		int diff = nsteps - max_nsteps;
-		position += ToEyeRayUnit * diff;
+		//position += ToEyeRayUnit * diff;
 		nsteps = max_nsteps;
 	}
 	for (int i = 0; i <= nsteps; ++i) {
@@ -390,7 +390,7 @@ float3 VolumetricLight(float3 position, PointLight light, int index) {
 		}
 		was_light = is_light;
 #else
-		float att = 1.0f;
+		float att = DistToLightNorm;
 		att *= shadow;
 #endif		
 		saturate(att);

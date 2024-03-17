@@ -53,6 +53,7 @@ struct RenderTargetRT
 struct DirLight
 {
 #define DIR_LIGHT_FLAG_FOG 1
+#define DIR_LIGHT_FLAG_INVERSE 2
 	float3 Color;
 	float  intensity;
 	float3 DirToLight;

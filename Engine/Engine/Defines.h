@@ -117,6 +117,8 @@ namespace HotBite {
 
         }
 
+
+
         inline  bool EQ_INT2(const float2& a, const float2& b) {
             return (int)a.x == (int)b.x && (int)a.y == (int)b.y;
         }
@@ -139,6 +141,14 @@ namespace HotBite {
 
         inline float3 MULT_F3_F3(const float3& a, const float3& b) {
             return { a.x * b.x , a.y * b.y , a.z * b.z };
+        }
+
+        inline float DOT_F3_F3(const float3& a, const float3& b) {
+            return { a.x * b.x + a.y * b.y + a.z * b.z };
+        }
+
+        inline float3 DIV_F3_F3(const float3& a, const float3& b) {
+            return { a.x / b.x , a.y / b.y , a.z / b.z };
         }
 
         inline float3 MULT_F3_F(const float3& a, const float& b) {
@@ -179,6 +189,26 @@ namespace HotBite {
 
         inline float2 DIV_F2(const float2& a, const float d) {
             return { a.x / d, a.y / d };
+        }
+
+        inline float distance_point_line(float3 p0, float3 line_endpoint1, float3 line_endpoint0) {
+            float3 line_direction = line_endpoint1 - line_endpoint0;
+            float3 point_direction = p0 - line_endpoint0;
+
+            float t = DOT_F3_F3(point_direction, line_direction) / DOT_F3_F3(line_direction, line_direction);
+
+            float3 distance_vector;
+
+            if (t < 0.0f)
+                distance_vector = point_direction;
+            else if (t > 1.0f)
+                distance_vector = p0 - line_endpoint1;
+            else
+                distance_vector = SUB_F3_F3(point_direction, MULT_F3_F(line_direction, t));
+
+            return std::sqrt(distance_vector.x * distance_vector.x +
+                distance_vector.y * distance_vector.y +
+                distance_vector.z * distance_vector.z);
         }
 	}
 }

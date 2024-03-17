@@ -200,7 +200,7 @@ RenderTargetRT MainRenderPS(GSOutput input)
 	emission *= material.emission;
 	finalColor += emission;
 	lightColor += emission;
-#if 0
+#if 1
 	//Emission of point lights	
 	matrix worldViewProj = mul(view, projection);
 	float3 p2 = mul(input.worldPos, view).xyz;

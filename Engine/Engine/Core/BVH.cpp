@@ -82,7 +82,7 @@ namespace HotBite {
 			}
 
 			TBVH::TBVH(uint32_t max_size) {
-				nodes = new Node[max_size * 2 - 1];
+				nodes = new BVHNode[max_size * 2 - 1];
 				nodes_idxs = new NodeIdx[max_size * 2 - 1];
 				indices = new uint32_t[max_size];
 			}
@@ -104,7 +104,7 @@ namespace HotBite {
 				nodes_used = 1;
 
 				// assign all triangles to root node
-				Node& root = nodes[root_idx];
+				BVHNode& root = nodes[root_idx];
 				NodeIdx& ridx = nodes_idxs[root_idx];
 				ridx.index_offset = 0;
 				ridx.index_count = (int32_t)size;
@@ -114,7 +114,7 @@ namespace HotBite {
 			}
 
 			void TBVH::UpdateNodeBounds(uint32_t node_idx, const ObjectInfo* objects, const uint32_t* indices) {
-				Node& node = nodes[node_idx];
+				BVHNode& node = nodes[node_idx];
 				NodeIdx& nidx = nodes_idxs[node_idx];
 				for (uint32_t i = nidx.index_offset; i < nidx.index_offset + nidx.index_count; ++i)
 				{
@@ -133,7 +133,7 @@ namespace HotBite {
 				}
 			}
 			void TBVH::Subdivide(uint32_t node_idx, const ObjectInfo* objects, uint32_t* indices) {
-				Node& node = nodes[node_idx];
+				BVHNode& node = nodes[node_idx];
 				NodeIdx& nidx = nodes_idxs[node_idx];
 
 				assert(nidx.index_count > 0);
@@ -246,7 +246,7 @@ namespace HotBite {
 				std::vector<uint32_t> indices(vertex_idxs.size() / 3);
 				std::vector<float3> centroids(indices.size());
 
-				nodes = new Node[indices.size() * 2 - 1];
+				nodes = new BVHNode[indices.size() * 2 - 1];
 				nodes_idxs = new NodeIdx[indices.size() * 2 - 1];
 
 				//store only first index of the triangle
@@ -260,7 +260,7 @@ namespace HotBite {
 				nodes_used = 1;
 
 				// assign all triangles to root node
-				Node& root = nodes[root_idx];
+				BVHNode& root = nodes[root_idx];
 				NodeIdx& ridx = nodes_idxs[root_idx];
 				ridx.index_offset = 0;
 				ridx.index_count = (int32_t)indices.size();
@@ -272,7 +272,7 @@ namespace HotBite {
 			void BVH::UpdateNodeBounds(uint32_t node_idx, const std::vector<HotBite::Engine::Core::Vertex>& vertices,
 				const std::vector<uint32_t>& triangle_indices, const std::vector<uint32_t>& vertex_idxs)
 			{
-				Node& node = nodes[node_idx];
+				BVHNode& node = nodes[node_idx];
 				NodeIdx& nidx = nodes_idxs[node_idx];
 				for (uint32_t i = nidx.index_offset; i < nidx.index_offset + nidx.index_count; ++i)
 				{
@@ -302,7 +302,7 @@ namespace HotBite {
 			void BVH::Subdivide(uint32_t node_idx, const std::vector<HotBite::Engine::Core::Vertex>& vertices,
 				std::vector<uint32_t>& triangle_indices, std::vector<float3>& centroids, const std::vector<uint32_t>& vertex_idxs)
 			{
-				Node& node = nodes[node_idx];
+				BVHNode& node = nodes[node_idx];
 				NodeIdx& nidx = nodes_idxs[node_idx];
 
 				assert(nidx.index_count > 0);

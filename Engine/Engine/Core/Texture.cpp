@@ -171,7 +171,7 @@ namespace HotBite {
 			}
 
 			HRESULT DepthTextureCube::Init(int w, int h) {
-
+				Release();
 				ID3D11Device* device = DXCore::Get()->device;
 				HRESULT hr = S_OK;
 				init = true;

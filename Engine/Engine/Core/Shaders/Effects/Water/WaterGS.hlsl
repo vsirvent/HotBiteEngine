@@ -58,8 +58,8 @@ void main(
 	
 	for (i = 0; i < 3; i++) {
 		wp[i] = input[i].worldPos;
-		float water_level = 0.5f*snoise(float2(time * 0.2f + wp[i].x * 0.1f, 
-			                                   time * 0.2f + wp[i].z * 0.1f)) + 0.5f;
+		float water_level = 0.4f*snoise(float2(time * 0.2f + wp[i].x * 0.2f, 
+			                                   time * 0.2f + wp[i].z * 0.2f)) + 0.5f;
 		wl1[i] = water_level;
 		wl0[i] = input[i].worldPos.y;
 

@@ -295,9 +295,8 @@ void World::LoadSky(const json& sky_info) {
 		if (light.contains("range")) {
 			directional.SetRange(light["range"]);
 		}
-		if (light.contains("fog")) {
-			directional.SetFog(light["fog"]);
-		}
+		directional.SetFog(light.value("fog", false));
+		directional.SetInverse(light.value("inverse_shadow", false));
 	}
 	if (sky_info.contains("ambient")) {
 		coordinator->AddComponent<Components::AmbientLight>(e, Components::AmbientLight{});
@@ -486,26 +485,33 @@ bool World::Load(const std::string& scene_file, float* progress, std::function<v
 				if (light.contains("range")) {
 					directional.SetRange(light["range"]);
 				}
-				if (light.contains("fog")) {
-					directional.SetFog(light["fog"]);
-				}
+				directional.SetFog(light.value("fog", false));
+				directional.SetInverse(light.value("inverse_shadow", false));
 				coordinator->NotifySignatureChange(e);
 			}
 			else if (type == "point") {
 				ECS::Entity e = coordinator->GetEntityByName(name);
 				if (e == ECS::INVALID_ENTITY_ID) {
-					e = coordinator->CreateEntity(name);
+					e = coordinator->CreateEntity(name);		
 				}
-				coordinator->AddComponent<Components::Base>(e, Components::Base{});
-				coordinator->AddComponent<Components::Transform>(e, Components::Transform{});
-				coordinator->AddComponent<Components::PointLight>(e, Components::PointLight{});
+				coordinator->AddComponentIfNotExists<Components::Base>(e, Components::Base{});
+				coordinator->AddComponentIfNotExists<Components::Transform>(e, Components::Transform{});
+				coordinator->AddComponentIfNotExists<Components::PointLight>(e, Components::PointLight{});
 				Components::Base& base = coordinator->GetComponent<Components::Base>(e);
 				Components::PointLight& point = coordinator->GetComponent<Components::PointLight>(e);
 				Components::Transform& transform = coordinator->GetComponent<Components::Transform>(e);
+				if (coordinator->ContainsComponent<Components::Mesh>(e)) {
+					coordinator->RemoveComponent<Components::Mesh>(e);
+				}
+				if (coordinator->ContainsComponent<Components::Material>(e)) {
+					coordinator->RemoveComponent<Components::Material>(e);
+				}
 				base.name = name;
 				base.id = e;
 				point.Init(ColorRGBFromStr(light["color"]), light["range"], light["cast_shadow"], light["resolution"], light["density"]);
-				transform.position = { light["position"]["x"], light["position"]["y"], light["position"]["z"] };
+				if (light.contains("position")) {
+					transform.position = { light["position"]["x"], light["position"]["y"], light["position"]["z"] };
+				}
 				coordinator->NotifySignatureChange(e);
 			}
 		}

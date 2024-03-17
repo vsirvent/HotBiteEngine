@@ -225,6 +225,8 @@ namespace HotBite {
 				void OnEntityDestroyed(ECS::Entity entity) override;
 
 			private:
+				static constexpr uint32_t TEXTURE_RESOLUTION_DIVIDER = 2;
+
 				Core::DXCore* dxcore = nullptr;				
 				Core::RenderTexture2D depth_map{ 3 };
 				Core::RenderTexture2D light_map;
@@ -249,7 +251,7 @@ namespace HotBite {
 
 				//Ray tracing
 				bool rt_enabled = true;
-				Core::TBVH tbhv{ MAX_OBJECTS };
+				Core::TBVH tbvh{ MAX_OBJECTS };
 				Core::SimpleComputeShader* rt_shader = nullptr;
 				Core::SimpleComputeShader* rt_smooth = nullptr;
 
@@ -260,7 +262,8 @@ namespace HotBite {
 				Core::RenderTexture2D rt_texture_props;
 				Core::RenderTexture2D rt_ray_sources0;
 				Core::RenderTexture2D rt_ray_sources1;
-				BVHBuffer* bvh_buffer = nullptr;
+				Core::ExtBVHBuffer tbvh_buffer;
+				Core::BVHBuffer* bvh_buffer = nullptr;
 
 				float time = 0.0f;
 				bool tess_enabled = true;

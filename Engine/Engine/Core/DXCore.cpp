@@ -370,7 +370,7 @@ HRESULT DXCore::InitDirectX()
 	ZeroMemory(&shadowRenderStateDesc, sizeof(D3D11_RASTERIZER_DESC));
 	shadowRenderStateDesc.CullMode = D3D11_CULL_BACK;
 	shadowRenderStateDesc.FillMode = D3D11_FILL_SOLID;
-	shadowRenderStateDesc.DepthBias = 100;
+	//shadowRenderStateDesc.DepthBias = 100;
 	shadowRenderStateDesc.DepthClipEnable = false;
 	shadowRenderStateDesc.SlopeScaledDepthBias = 2.0f;
 	if (FAILED(hr = device->CreateRasterizerState(&shadowRenderStateDesc, &shadow_rasterizer))) {
