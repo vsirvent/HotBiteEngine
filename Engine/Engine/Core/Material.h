@@ -47,6 +47,9 @@ namespace HotBite {
 				float emission = 0.0f;
 				float3 emission_color = {};
 
+				float rt_reflex = 0.2f;
+				float3 padding;
+
 				float3 alphaColor = {};				
 #define NORMAL_MAP_ENABLED_FLAG 1
 #define PARALLAX_MAP_ENABLED_FLAG (1 << 1)

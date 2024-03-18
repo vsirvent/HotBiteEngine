@@ -235,7 +235,7 @@ float3 DirVolumetricLight(float4 position, DirLight light, int index, float time
 	float density_step = light.density * step;
 	float shadow, fog, att;
 	int apply_fog = light.flags & DIR_LIGHT_FLAG_FOG;
-	float ToLight;
+	float3 ToLight;
 	float DistToLight;
 	float LightRange;
 	float3 step_color = (lcolor * density_step);	

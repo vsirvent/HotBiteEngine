@@ -88,7 +88,7 @@ RenderTargetRT MainRenderPS(GSOutput input)
 			float3 tbn_fragment_displacement;
 
 			input.uv = CalculateDepthUVBinary(scale, steps, angle_steps, input.uv, tbn_cam_pos, tbn_fragment_pos, calculated_values, h, tbn_fragment_displacement);
-			wpos.xyz -= (mul(tbn_fragment_displacement, (float3x3)tbn) - 0.5*normal);
+			wpos.xyz += 0.5f*(mul(tbn_fragment_displacement, (float3x3)tbn) + normal);
 
 			if (material.flags & PARALLAX_SHADOW_ENABLED_FLAG) {
 				float lh = 0.0f;
@@ -237,7 +237,7 @@ RenderTargetRT MainRenderPS(GSOutput input)
 	ray.normal = normal;
 	ray.density = material.density;
 	ray.opacity = opacity;
-
+	ray.reflex = material.rt_reflex;
 	output.rt_ray0_map = getColor0(ray);
 	output.rt_ray1_map = getColor1(ray);
 

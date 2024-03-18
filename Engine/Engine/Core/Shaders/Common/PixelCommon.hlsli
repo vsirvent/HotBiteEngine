@@ -94,6 +94,9 @@ struct MaterialColor
 	float emission;
 	float3 emission_color;
 
+	float rt_reflex;
+	float3 padding;
+
 	float3 alphaColor;	
 #define NORMAL_MAP_ENABLED_FLAG 1 << 0
 #define PARALLAX_MAP_ENABLED_FLAG 1 << 1

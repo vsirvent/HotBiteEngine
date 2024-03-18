@@ -164,6 +164,7 @@ public:
 		props["diffuse_color"] = std::make_shared<Prop<std::string>>("#FFFFFFFF");
 		props["ambient_color"] = std::make_shared<Prop<std::string>>("#FFFFFFFF");
 		props["specular"] = std::make_shared<Prop<float>>(0.5f);
+		props["rt_reflex"] = std::make_shared<Prop<float>>(0.2f);
 		props["emission"] = std::make_shared<Prop<float>>(0.0f);
 		props["emission_color"] = std::make_shared<Prop<std::string>>("#00000000");
 		props["raytrace"] = std::make_shared<Prop<bool>>(true);
@@ -218,6 +219,7 @@ public:
 			
 			props["specular"]->SetValue<float>(js.value("specular", 1.0f));
 			props["emission"]->SetValue<float>(js.value("emission", 0.0f));
+			props["rt_reflex"]->SetValue<float>(js.value("rt_reflex", 0.2f));
 			props["emission_color"]->SetValue<std::string>(js.value("emission_color", "#00000000"));
 			props["raytrace"]->SetValue<bool>(js.value("raytrace", true));
 			props["opacity"]->SetValue<float>(js.value("opacity", 1.0f)); 
@@ -609,6 +611,19 @@ public:
 		void set(bool newValue)
 		{
 			return material->props["raytrace"]->SetValue<bool>(newValue);
+		}
+	}
+
+	[CategoryAttribute("Material")]
+	property float RayTraceReflex {
+		float get()
+		{
+			return material->props["rt_reflex"]->GetValue<float>();
+		}
+
+		void set(float newValue)
+		{
+			return material->props["rt_reflex"]->SetValue<float>(newValue);
 		}
 	}
 

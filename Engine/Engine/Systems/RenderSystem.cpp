@@ -261,10 +261,10 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		if (FAILED(temp_map.Init(w, h))) {
 			throw std::exception("temp_map.Init failed");
 		}
-		if (FAILED(depth_map.Init(w / TEXTURE_RESOLUTION_DIVIDER, h / TEXTURE_RESOLUTION_DIVIDER, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT))) {
+		if (FAILED(depth_map.Init(w / 2, h / 2, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT))) {
 			throw std::exception("depth_map.Init failed");
 		}
-		if (FAILED(depth_view.Init(w / TEXTURE_RESOLUTION_DIVIDER, h / TEXTURE_RESOLUTION_DIVIDER))) {
+		if (FAILED(depth_view.Init(w / 2, h / 2))) {
 			throw std::exception("depth_view.Init failed");
 		}
 		if (FAILED(first_pass_texture.Init(w, h))) {
@@ -1842,7 +1842,6 @@ void RenderSystem::Draw() {
 		static const float zero[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 		rt_ray_sources0.Clear(zero);
 		rt_ray_sources1.Clear(zero);
-
 		CastShadows(w, h, camera_position, view, projection, false);
 		DrawDepth(w, h, camera_position, view, projection);
 		DrawSky(w, h, camera_position, view, projection);

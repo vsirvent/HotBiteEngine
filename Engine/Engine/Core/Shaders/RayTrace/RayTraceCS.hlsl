@@ -721,7 +721,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
         }
     }
 
-    output0[pixel] = color0;
+    output0[pixel] = color0 * ray_source.reflex;
     output1[pixel] = color1;
     for (int bx = 0; bx < bloomRatio.x; ++bx) {
         for (int by = 0; by < bloomRatio.y; ++by) {

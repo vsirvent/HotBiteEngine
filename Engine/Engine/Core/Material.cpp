@@ -186,6 +186,7 @@ namespace HotBite {
 				props.emission_color = parseColorStringF3(j.value("emission_color", "#00000000"));
 				props.opacity = j.value("opacity", 1.0f);
 				props.density = j.value("density", 1.0f);
+				props.rt_reflex = j.value("rt_reflex", 0.2f);
 				props.flags = 0;
 
 				tessellation_type = j.value("tess_type", 0);

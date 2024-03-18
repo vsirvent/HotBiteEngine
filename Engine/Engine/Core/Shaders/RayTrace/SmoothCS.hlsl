@@ -9,7 +9,7 @@ Texture2D<float> depth : register(t0);
 #define EPSILON 1e-6
 #define VERTICAL 1
 #define HORIZONTAL 2
-#define KERNEL_SIZE 19
+#define KERNEL_SIZE 31
 #define HALF_KERNEL KERNEL_SIZE/2
 cbuffer externalData : register(b0)
 {
@@ -20,7 +20,6 @@ void FillGaussianArray(out float array[KERNEL_SIZE], float dispersion)
 {
     float sum = 0.0;
     int halfSize = KERNEL_SIZE / 2;
-    dispersion += 0.2f;
     float variance = 0.6f + dispersion * (float)HALF_KERNEL;
     int i;
     for (i = -HALF_KERNEL; i <= HALF_KERNEL; ++i)
@@ -47,12 +46,12 @@ float4 getColor(float2 pixel, float2 dir, float dispersion)
         FillGaussianArray(BlurWeights, dispersion);
         float4 color = float4(0.f, 0.f, 0.f, 1.f);
         float2 tpos;
-        float pixelDepth = depth[pixel];
+        float pixelDepth = depth[pixel/2];
         float4 baseColor = input[pixel];
         for (int i = -HALF_KERNEL; i <= HALF_KERNEL; ++i) {
             tpos = pixel + dir * i;
-            float d = depth[tpos];
-            float4 c = lerp(input[tpos], baseColor, saturate(abs(d - pixelDepth) * 5.0f));
+            float d = depth[tpos/2];
+            float4 c = lerp(input[tpos], baseColor, saturate(abs(d - pixelDepth)*2.0f));
             color += c * BlurWeights[i + HALF_KERNEL];
         }
         return color;

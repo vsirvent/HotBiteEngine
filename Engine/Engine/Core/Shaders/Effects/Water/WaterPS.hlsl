@@ -196,7 +196,7 @@ RenderTargetRT main(GSOutput input)
 		if (length(input.worldPos.xyz - pointLights[i].Position) < pointLights[i].Range) {
 			lumColor.rgb += CalcWaterPoint(normal, input.worldPos.xyz, input.uv, pointLights[i], i, spec_intensity, lightColor).rgb;
 			if (pointLights[i].density > 0.0f) {
-				lightColor.rgb += VolumetricLight(input.worldPos, pointLights[i], i);
+				lightColor.rgb += VolumetricLight(input.worldPos.xyz, pointLights[i], i);
 			}
 		}
 	}
@@ -242,12 +242,14 @@ RenderTargetRT main(GSOutput input)
 	RaySource ray;
 	ray.orig = input.worldPos.xyz;
 	ray.dispersion = 0.0f;
+	ray.reflex = 1.0f;
 	ray.normal = normalize(float3(0.0f, 1.0f, 0.0f) + 0.1f * normal);
 	ray.density = material.density;
-	ray.opacity = material.opacity;
+	ray.opacity = 1.0f;
 	output.rt_ray0_map = getColor0(ray);
 	output.rt_ray1_map = getColor1(ray);
-
+	output.pos0_map = input.worldPos;
+	output.pos1_map = input.worldPos;
 	return output;
 }
 

@@ -34,15 +34,19 @@ struct RaySource
 	float3 normal;
 	float density;
 	float opacity;
+	float reflex;
 };
 
 RaySource fromColor(float4 color0, float4 color1)
 {
 	RaySource ray;
 	ray.orig = color0.xyz;
-	ray.dispersion = color0.w;
 	ray.normal = color1.xyz;
-	uint w = asuint(color1.w);
+
+	uint w = asuint(color0.w);
+	ray.dispersion = (float)(w >> 16) / 1000.0f;
+	ray.reflex = (float)(w & 0xFFFF) / 1000.0f;
+    w = asuint(color1.w);
 	ray.density = (float)(w >> 16) / 1000.0f;
 	ray.opacity = (float)(w & 0xFFFF) / 1000.0f;
 	return ray;
@@ -50,7 +54,10 @@ RaySource fromColor(float4 color0, float4 color1)
 
 float4 getColor0(RaySource ray)
 {
-	return float4(ray.orig, ray.dispersion);
+	uint d = (ray.dispersion * 1000.0f);
+	uint r = (ray.reflex * 1000.0f);
+	float w = asfloat(d << 16 | (r & 0xFFFF));
+	return float4(ray.orig, w);
 }
 
 float4 getColor1(RaySource ray)
