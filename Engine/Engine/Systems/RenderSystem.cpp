@@ -278,6 +278,12 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 				throw std::exception("rt_texture.Init failed");
 			}
 		}
+		for (int i = 0; i < RT_NTEXTURES; ++i) {
+			if (FAILED(rt_texture_out[i].Init(w / TEXTURE_RESOLUTION_DIVIDER, h / TEXTURE_RESOLUTION_DIVIDER, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+				throw std::exception("rt_texture.Init failed");
+			}
+		}
+
 		if (FAILED(rt_texture_props.Init(w/ TEXTURE_RESOLUTION_DIVIDER, h/ TEXTURE_RESOLUTION_DIVIDER, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("rt_texture_props.Init failed");
 		}
@@ -324,6 +330,9 @@ RenderSystem::~RenderSystem() {
 	rgba_noise_texture.Release();
 	for (int i = 0; i < RT_NTEXTURES; ++i) {
 		rt_texture[i].Release();
+	}
+	for (int i = 0; i < RT_NTEXTURES; ++i) {
+		rt_texture_out[i].Release();
 	}
 	texture_tmp.Release();
 	rt_texture_props.Release();
@@ -1249,9 +1258,9 @@ void RenderSystem::ProcessMotionBlur() {
 void RenderSystem::ProcessRT() {
 	static const float zero[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 	static const float neg[4] = { -1.0f, -1.0f, -1.0f, -1.0f };
-	rt_texture_props.Clear(neg);
+	//rt_texture_props.Clear(neg);
 	for (int i = 0; i < RT_NTEXTURES; ++i) {
-		rt_texture[i].Clear(zero);
+		//rt_texture[i].Clear(zero);
 	}
 	if (rt_enabled && bvh_buffer != nullptr) {
 		auto& device = dxcore->device;
@@ -1347,6 +1356,7 @@ void RenderSystem::ProcessRT() {
 		//tbvh_buffer.Refresh(tbvh.Root(), 0, tbvh.Size());
 
 		rt_shader->SetInt("nobjects", len);
+		rt_shader->SetInt("frame_count", frame_count++);
 		rt_shader->SetData("objectMaterials", objectMaterials, len * sizeof(MaterialProps));
 		rt_shader->SetData("objectInfos", objects, len * sizeof(ObjectInfo));
 		rt_shader->SetUnorderedAccessView("output0", rt_texture[0].UAV());
@@ -1393,8 +1403,8 @@ void RenderSystem::ProcessRT() {
 		dxcore->context->CSSetShaderResources(5, 1, vertex_buffer->IndexSRV());
 
 		rt_shader->SetShader();		
-		int32_t  groupsX = (int32_t)(ceil((float)rt_texture[0].Width() / 32.0f));
-		int32_t  groupsY = (int32_t)(ceil((float)rt_texture[0].Height() / 32.0f));
+		int32_t  groupsX = (int32_t)(ceil((float)rt_texture[0].Width() / 32))/2;
+		int32_t  groupsY = (int32_t)(ceil((float)rt_texture[0].Height() / 32))/2;
 		dxcore->context->Dispatch(groupsX, groupsY, 1);
 		rt_shader->SetUnorderedAccessView("output0", nullptr);
 		rt_shader->SetUnorderedAccessView("output1", nullptr);
@@ -1430,7 +1440,7 @@ void RenderSystem::ProcessRT() {
 				rt_smooth->SetUnorderedAccessView("output", nullptr);
 				rt_smooth->CopyAllBufferData();
 				rt_smooth->SetUnorderedAccessView("input", texture_tmp.UAV());
-				rt_smooth->SetUnorderedAccessView("output", rt_texture[i].UAV());
+				rt_smooth->SetUnorderedAccessView("output", rt_texture_out[i].UAV());
 				rt_smooth->CopyAllBufferData();
 				dxcore->context->Dispatch(groupsX, groupsY, 1);
 				rt_smooth->SetUnorderedAccessView("input", nullptr);
@@ -1766,8 +1776,8 @@ void RenderSystem::SetPostProcessPipeline(Core::PostProcess* pipeline) {
 		PostProcess* last = pipeline;
 		pipeline->SetShaderResourceView(LIGHT_TEXTURE, light_map.SRV());
 		pipeline->SetShaderResourceView("bloomTexture", bloom_map.SRV());
-		pipeline->SetShaderResourceView("rtTexture0", rt_texture[0].SRV());
-		pipeline->SetShaderResourceView("rtTexture1", rt_texture[1].SRV());
+		pipeline->SetShaderResourceView("rtTexture0", rt_texture_out[0].SRV());
+		pipeline->SetShaderResourceView("rtTexture1", rt_texture_out[1].SRV());
 		pipeline->SetShaderResourceView("positionTexture", position_map.SRV());
 		pipeline->SetShaderResourceView("prevPositionTexture", prev_position_map.SRV());
 

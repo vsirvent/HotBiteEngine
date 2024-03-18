@@ -66,6 +66,7 @@ struct ObjectInfo
 
 cbuffer externalData : register(b0)
 {
+    uint frame_count;
     float time;
     float3 cameraPosition;
     float3 cameraDirection;
@@ -677,8 +678,10 @@ void main(uint3 DTid : SV_DispatchThreadID)
         bloom_dimensions.y = h;
     }
 
-    float x = (float)DTid.x;
-    float y = (float)DTid.y;
+    uint f = frame_count % 4;
+
+    float x = (float)DTid.x * 2 + f % 2;
+    float y = (float)DTid.y * 2 + f / 2;
 
     uint2 rayMapRatio = ray_map_dimensions / dimensions;
     uint2 bloomRatio = bloom_dimensions / dimensions;
@@ -721,10 +724,16 @@ void main(uint3 DTid : SV_DispatchThreadID)
         }
     }
 
-    output0[pixel] = color0 * ray_source.reflex;
-    output1[pixel] = color1;
-    for (int bx = 0; bx < bloomRatio.x; ++bx) {
-        for (int by = 0; by < bloomRatio.y; ++by) {
+
+    for (uint px = 0; px < 2; ++px) {
+        for (uint py = 0; py < 2; ++py) {
+            uint2 p = { pixel.x + px, pixel.y + py };
+            output0[p] = output0[p] * 0.5f + color0 * ray_source.reflex * 0.5f;
+            output1[p] = output1[p] * 0.5f + color1 * 0.5f;
+        }
+    }
+    for (uint bx = 0; bx < bloomRatio.x; ++bx) {
+        for (uint by = 0; by < bloomRatio.y; ++by) {
             uint2 bpixel = { pixel.x * bloomRatio.x + bx, pixel.y * bloomRatio.y + by };
             bloom[bpixel] += float4(bloomColor * 0.8f, 1.0f);
         }

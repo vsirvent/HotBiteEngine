@@ -259,6 +259,7 @@ namespace HotBite {
 				//RT texture 2: Refracted rays
 				static constexpr int RT_NTEXTURES = 2;
 				Core::RenderTexture2D rt_texture[RT_NTEXTURES];
+				Core::RenderTexture2D rt_texture_out[RT_NTEXTURES];
 				Core::RenderTexture2D rt_texture_props;
 				Core::RenderTexture2D rt_ray_sources0;
 				Core::RenderTexture2D rt_ray_sources1;
@@ -270,7 +271,7 @@ namespace HotBite {
 				bool normal_material_map = true;
 				bool normal_mesh_map = true;
 				bool wireframe_enabled = false;
-				
+				uint32_t frame_count = 0;
 				bool cloud_test = false;
 
 				void DrawSky(int w, int h, const float3& camera_position, const matrix& view, const matrix& projection);
