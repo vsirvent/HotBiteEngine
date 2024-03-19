@@ -225,7 +225,7 @@ namespace HotBite {
 				void OnEntityDestroyed(ECS::Entity entity) override;
 
 			private:
-				static constexpr uint32_t TEXTURE_RESOLUTION_DIVIDER = 1;
+				static constexpr uint32_t TEXTURE_RESOLUTION_DIVIDER = 2;
 
 				Core::DXCore* dxcore = nullptr;				
 				Core::RenderTexture2D depth_map{ 3 };

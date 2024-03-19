@@ -337,7 +337,7 @@ float3 DirVolumetricLight(float4 position, DirLight light, int index, float time
 float3 VolumetricLight(float3 position, PointLight light, int index) {
 	float3 color = { 0.f, 0.f, 0.f };
 	float3 step_color = light.Color.rgb;
-	float step = 0.2f;
+	float step = 0.5f;
 	float max_vol = 0.3f;
 	step_color.rgb *= (light.density * step);
 
@@ -352,13 +352,15 @@ float3 VolumetricLight(float3 position, PointLight light, int index) {
 	float mag = 0.0f;
 	if (nsteps > max_nsteps) {
 		int diff = nsteps - max_nsteps;
-		//position += ToEyeRayUnit * diff;
 		nsteps = max_nsteps;
 	}
 	for (int i = 0; i <= nsteps; ++i) {
 		position += ToEyeRayUnit;
 		float3 ToLight = position - lposition;
-		float LightRange = (light.Range - length(ToLight)) / light.Range;
+		if (length(ToLight) > light.Range) {
+			break;
+		}
+		float LightRange = (light.Range - ) / light.Range;
 		float DistToLightNorm = saturate(LightRange);
 		float shadow = 1.0f;
 		if (light.cast_shadow) {

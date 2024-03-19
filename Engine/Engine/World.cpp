@@ -440,79 +440,73 @@ bool World::Load(const std::string& scene_file, float* progress, std::function<v
 		for (auto& light : jw["lights"]) {
 			std::string name = light["name"];
 			std::string type = light["type"];
-			if (type == "ambient") {
-				ECS::Entity e = coordinator->GetEntityByName(name);
-				if (e == ECS::INVALID_ENTITY_ID) {
-					e = coordinator->CreateEntity(name);
-				}
-				{
-					Components::Base base;
-					Components::AmbientLight ambient;
-					base.name = name;
-					base.id = e;
-					ambient.GetData().colorUp = ColorRGBFromStr(light["color_up"]);
-					ambient.GetData().colorDown = ColorRGBFromStr(light["color_down"]);
-
-					coordinator->AddComponent<Components::Base>(e, std::move(base));
-					coordinator->AddComponent<Components::AmbientLight>(e, std::move(ambient));
-					coordinator->NotifySignatureChange(e);
-				}
+			auto light_entities = coordinator->GetEntitiesByName(name);
+			if (light_entities.empty()) {
+				light_entities.push_back(coordinator->CreateEntity(name));
 			}
-			else if (type == "directional") {
-				ECS::Entity e = coordinator->GetEntityByName(name);
-				if (e == ECS::INVALID_ENTITY_ID) {
-					e = coordinator->CreateEntity(name);
-				}
-				coordinator->AddComponent<Components::Base>(e, Components::Base{});
-				coordinator->AddComponent<Components::DirectionalLight>(e, Components::DirectionalLight{});
-				Components::Base& base = coordinator->GetComponent<Components::Base>(e);
-				Components::DirectionalLight& directional = coordinator->GetComponent<Components::DirectionalLight>(e);
-				base.name = name;
-				base.id = e;
-				directional.Init(ColorRGBFromStr(light["color"]), float3{ light["direction"]["x"], light["direction"]["y"], light["direction"]["z"] }, light["cast_shadow"], light["resolution"], light["density"]);
-				if (light.contains("parent")) {
-					ECS::Entity p = coordinator->GetEntityByName(light["parent"]);
-					directional.SetParent(p);
-					directional.AddSkipEntity(p);
-					directional.SetPosition(coordinator->GetComponent<Components::Transform>(p).position);
-				}
-				if (light.contains("skip")) {
-					for (const auto& s : light["skip"]) {
-						ECS::Entity skip = coordinator->GetEntityByName(s);
-						directional.AddSkipEntity(skip);
+			for (auto e : light_entities) {
+				if (type == "ambient") {
+					{
+						Components::Base base;
+						Components::AmbientLight ambient;
+						base.name = name;
+						base.id = e;
+						ambient.GetData().colorUp = ColorRGBFromStr(light["color_up"]);
+						ambient.GetData().colorDown = ColorRGBFromStr(light["color_down"]);
+
+						coordinator->AddComponent<Components::Base>(e, std::move(base));
+						coordinator->AddComponent<Components::AmbientLight>(e, std::move(ambient));
+						coordinator->NotifySignatureChange(e);
 					}
 				}
-				if (light.contains("range")) {
-					directional.SetRange(light["range"]);
+				else if (type == "directional") {
+					coordinator->AddComponent<Components::Base>(e, Components::Base{});
+					coordinator->AddComponent<Components::DirectionalLight>(e, Components::DirectionalLight{});
+					Components::Base& base = coordinator->GetComponent<Components::Base>(e);
+					Components::DirectionalLight& directional = coordinator->GetComponent<Components::DirectionalLight>(e);
+					base.name = name;
+					base.id = e;
+					directional.Init(ColorRGBFromStr(light["color"]), float3{ light["direction"]["x"], light["direction"]["y"], light["direction"]["z"] }, light["cast_shadow"], light["resolution"], light["density"]);
+					if (light.contains("parent")) {
+						ECS::Entity p = coordinator->GetEntityByName(light["parent"]);
+						directional.SetParent(p);
+						directional.AddSkipEntity(p);
+						directional.SetPosition(coordinator->GetComponent<Components::Transform>(p).position);
+					}
+					if (light.contains("skip")) {
+						for (const auto& s : light["skip"]) {
+							ECS::Entity skip = coordinator->GetEntityByName(s);
+							directional.AddSkipEntity(skip);
+						}
+					}
+					if (light.contains("range")) {
+						directional.SetRange(light["range"]);
+					}
+					directional.SetFog(light.value("fog", false));
+					directional.SetInverse(light.value("inverse_shadow", false));
+					coordinator->NotifySignatureChange(e);
 				}
-				directional.SetFog(light.value("fog", false));
-				directional.SetInverse(light.value("inverse_shadow", false));
-				coordinator->NotifySignatureChange(e);
-			}
-			else if (type == "point") {
-				ECS::Entity e = coordinator->GetEntityByName(name);
-				if (e == ECS::INVALID_ENTITY_ID) {
-					e = coordinator->CreateEntity(name);		
+				else if (type == "point") {
+					coordinator->AddComponentIfNotExists<Components::Base>(e, Components::Base{});
+					coordinator->AddComponentIfNotExists<Components::Transform>(e, Components::Transform{});
+					coordinator->AddComponentIfNotExists<Components::PointLight>(e, Components::PointLight{});
+					Components::Base& base = coordinator->GetComponent<Components::Base>(e);
+					Components::PointLight& point = coordinator->GetComponent<Components::PointLight>(e);
+					Components::Transform& transform = coordinator->GetComponent<Components::Transform>(e);
+					if (coordinator->ContainsComponent<Components::Mesh>(e)) {
+						coordinator->RemoveComponent<Components::Mesh>(e);
+					}
+					if (coordinator->ContainsComponent<Components::Material>(e)) {
+						coordinator->RemoveComponent<Components::Material>(e);
+					}
+					base.name = name;
+					base.id = e;
+					point.Init(ColorRGBFromStr(light["color"]), light["range"], light["cast_shadow"], light["resolution"], light["density"]);
+					if (light.contains("position")) {
+						transform.position = { light["position"]["x"], light["position"]["y"], light["position"]["z"] };
+					}
+					coordinator->NotifySignatureChange(e);
 				}
-				coordinator->AddComponentIfNotExists<Components::Base>(e, Components::Base{});
-				coordinator->AddComponentIfNotExists<Components::Transform>(e, Components::Transform{});
-				coordinator->AddComponentIfNotExists<Components::PointLight>(e, Components::PointLight{});
-				Components::Base& base = coordinator->GetComponent<Components::Base>(e);
-				Components::PointLight& point = coordinator->GetComponent<Components::PointLight>(e);
-				Components::Transform& transform = coordinator->GetComponent<Components::Transform>(e);
-				if (coordinator->ContainsComponent<Components::Mesh>(e)) {
-					coordinator->RemoveComponent<Components::Mesh>(e);
-				}
-				if (coordinator->ContainsComponent<Components::Material>(e)) {
-					coordinator->RemoveComponent<Components::Material>(e);
-				}
-				base.name = name;
-				base.id = e;
-				point.Init(ColorRGBFromStr(light["color"]), light["range"], light["cast_shadow"], light["resolution"], light["density"]);
-				if (light.contains("position")) {
-					transform.position = { light["position"]["x"], light["position"]["y"], light["position"]["z"] };
-				}
-				coordinator->NotifySignatureChange(e);
 			}
 		}
 		if (OnLoadProgress != nullptr) { OnLoadProgress(*progress += 10.0f * progress_unit); }

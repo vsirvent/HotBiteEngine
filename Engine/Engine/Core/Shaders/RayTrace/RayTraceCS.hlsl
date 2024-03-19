@@ -654,9 +654,11 @@ float3 GetColor(Ray origRay, out float3 bloom)
     return finalColor;
 }
 
-#define NTHREADS 32
-#define DENSITY 1.0f
 
+#define DENSITY 1.0f
+#define DIVIDER 1
+#define DIVIDER2 1
+#define NTHREADS 32
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main(uint3 DTid : SV_DispatchThreadID)
 {
@@ -678,24 +680,26 @@ void main(uint3 DTid : SV_DispatchThreadID)
         bloom_dimensions.y = h;
     }
 
-    uint f = frame_count % 4;
+    uint f = frame_count % (DIVIDER2);
 
-    float x = (float)DTid.x * 2 + f % 2;
-    float y = (float)DTid.y * 2 + f / 2;
+    float x = (float)DTid.x * DIVIDER + f % DIVIDER;
+    float y = (float)DTid.y * DIVIDER + f / DIVIDER;
 
     uint2 rayMapRatio = ray_map_dimensions / dimensions;
     uint2 bloomRatio = bloom_dimensions / dimensions;
 
     float4 color0 = float4(0.0f, 0.0f, 0.0f, 0.0f);
     float4 color1 = float4(0.0f, 0.0f, 0.0f, 0.0f);
+    float3 bloomColor = { 0.0f, 0.0f, 0.0f };
 
     uint2 pixel;
     uint2 ray_pixel;
     pixel = float2(x, y);
     ray_pixel = float2(x * rayMapRatio.x, y * rayMapRatio.y);
-
+    
     RaySource ray_source = fromColor(ray0[ray_pixel], ray1[ray_pixel]);
-    props[pixel] = ray_source.dispersion;
+
+    props[pixel] = props[pixel]*0.5f + ray_source.dispersion*0.5f;
     if (ray_source.dispersion < Epsilon || ray_source.dispersion == 1.0f) {
         return;
     }
@@ -705,7 +709,6 @@ void main(uint3 DTid : SV_DispatchThreadID)
         return;
     }
 
-    float3 bloomColor = { 0.0f, 0.0f, 0.0f };
     //Reflected ray
     if (ray_source.opacity > Epsilon) {
         Ray ray = GetReflectedRayFromSource(ray_source);
@@ -724,14 +727,20 @@ void main(uint3 DTid : SV_DispatchThreadID)
         }
     }
 
-
-    for (uint px = 0; px < 2; ++px) {
-        for (uint py = 0; py < 2; ++py) {
+    float a = 1.0f / ((float)DIVIDER*2.0f);
+    float b = 1.0f - a;
+#if 1
+    output0[pixel] = color0 * ray_source.reflex;
+    output1[pixel] = color1;
+#else
+    for (uint px = 0; px < DIVIDER; ++px) {
+        for (uint py = 0; py < DIVIDER; ++py) {
             uint2 p = { pixel.x + px, pixel.y + py };
-            output0[p] = output0[p] * 0.5f + color0 * ray_source.reflex * 0.5f;
-            output1[p] = output1[p] * 0.5f + color1 * 0.5f;
+            output0[p] = output0[p] * b + color0 * ray_source.reflex * a;
+            output1[p] = output1[p] * b + color1 * a;
         }
     }
+#endif
     for (uint bx = 0; bx < bloomRatio.x; ++bx) {
         for (uint by = 0; by < bloomRatio.y; ++by) {
             uint2 bpixel = { pixel.x * bloomRatio.x + bx, pixel.y * bloomRatio.y + by };

@@ -1403,8 +1403,8 @@ void RenderSystem::ProcessRT() {
 		dxcore->context->CSSetShaderResources(5, 1, vertex_buffer->IndexSRV());
 
 		rt_shader->SetShader();		
-		int32_t  groupsX = (int32_t)(ceil((float)rt_texture[0].Width() / 32))/2;
-		int32_t  groupsY = (int32_t)(ceil((float)rt_texture[0].Height() / 32))/2;
+		int32_t  groupsX = (int32_t)(ceil((float)rt_texture[0].Width() / (32.0f)));
+		int32_t  groupsY = (int32_t)(ceil((float)rt_texture[0].Height() / (32.0f)));
 		dxcore->context->Dispatch(groupsX, groupsY, 1);
 		rt_shader->SetUnorderedAccessView("output0", nullptr);
 		rt_shader->SetUnorderedAccessView("output1", nullptr);
@@ -1425,6 +1425,7 @@ void RenderSystem::ProcessRT() {
 		//Smooth frame
 		rt_smooth->SetUnorderedAccessView("props", rt_texture_props.UAV());
 		rt_smooth->SetShaderResourceView("depth", depth_map.SRV());
+		rt_smooth->SetInt("divider", TEXTURE_RESOLUTION_DIVIDER);
 		for (int i = 0; i < 2; ++i) {
 			if (enabled_layer[i]) {
 				groupsX = (int32_t)(ceil((float)rt_texture[i].Width() / 32.0f));
@@ -1436,9 +1437,6 @@ void RenderSystem::ProcessRT() {
 				rt_smooth->SetShader();
 				dxcore->context->Dispatch(groupsX, groupsY, 1);
 				rt_smooth->SetInt("type", 2);
-				rt_smooth->SetUnorderedAccessView("input", nullptr);
-				rt_smooth->SetUnorderedAccessView("output", nullptr);
-				rt_smooth->CopyAllBufferData();
 				rt_smooth->SetUnorderedAccessView("input", texture_tmp.UAV());
 				rt_smooth->SetUnorderedAccessView("output", rt_texture_out[i].UAV());
 				rt_smooth->CopyAllBufferData();
