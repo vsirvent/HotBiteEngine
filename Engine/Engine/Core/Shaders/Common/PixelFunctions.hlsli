@@ -340,66 +340,73 @@ float3 VolumetricLight(float3 position, PointLight light, int index) {
 	float step = 0.5f;
 	float max_vol = 0.3f;
 	step_color.rgb *= (light.density * step);
+	float3 intersection_position;
 
-	float3 lposition = light.Position;
-	float3 ToEye = cameraPosition.xyz - position;
-	float ToEyeDist = length(ToEye);
-	int nsteps = ToEyeDist / step;
-	float3 ToEyeRayUnit = ToEye / nsteps;
-	float extra_step_w = ((ToEyeDist / step) - (float)nsteps);
-	bool was_light = false;
-	float3 ToEyeRayUnitMicroStep = ToEyeRayUnit / 10.0f;
-	float mag = 0.0f;
-	if (nsteps > max_nsteps) {
-		int diff = nsteps - max_nsteps;
-		nsteps = max_nsteps;
-	}
-	for (int i = 0; i <= nsteps; ++i) {
-		position += ToEyeRayUnit;
-		float3 ToLight = position - lposition;
-		if (length(ToLight) > light.Range) {
-			break;
+	if (line_sphere_intersection(position, cameraPosition.xyz, light.Position, light.Range, intersection_position)) {
+		position = intersection_position;
+		float3 lposition = light.Position;
+		float3 ToEye = cameraPosition.xyz - position;
+		float ToEyeDist = length(ToEye);
+		int nsteps = ToEyeDist / step;
+		float3 ToEyeRayUnit = ToEye / nsteps;
+		float extra_step_w = ((ToEyeDist / step) - (float)nsteps);
+		bool was_light = false;
+		float3 ToEyeRayUnitMicroStep = ToEyeRayUnit / 10.0f;
+		float mag = 0.0f;
+		
+		if (nsteps > max_nsteps) {
+			int diff = nsteps - max_nsteps;
+			position += ToEyeRayUnit * diff;
+			nsteps = max_nsteps;
 		}
-		float LightRange = (light.Range - ) / light.Range;
-		float DistToLightNorm = saturate(LightRange);
-		float shadow = 1.0f;
-		if (light.cast_shadow) {
-			shadow = PointShadowPCFFast(ToLight, light, index);
-		}
+		for (int i = 0; i <= nsteps; ++i) {
+			position += ToEyeRayUnit;
+			float3 ToLight = position - lposition;
+			float ToLightDist = length(ToLight);
+			if (ToLightDist > light.Range * 1.1f) {
+				break;
+			}
+			float LightRange = (light.Range - ToLightDist) / light.Range;
+			float DistToLightNorm = saturate(LightRange);
+			float shadow = 1.0f;
+			if (light.cast_shadow) {
+				shadow = PointShadowPCFFast(ToLight, light, index);
+			}
 #if 0
-		bool is_light = (shadow > 0.0f);
-		float att = saturate(pow(DistToLightNorm, 4.0f));
-		if (i == nsteps) {
-			att *= extra_step_w;
-		}
-		else {
-			if (was_light && !is_light) {
-				float3 current_pos = position;
-				for (int i = 9; i >= 0; --i) {
-					current_pos -= ToEyeRayUnitMicroStep;
-					float3 testToLight = current_pos - lposition;
-					float test = PointShadowPCFFast(testToLight, light, index);
-					if (test > 0.9f) {
-						float w = (float)i / 10.0f;
-						att *= w;
-						break;
-					}
-				}
+			bool is_light = (shadow > 0.0f);
+			float att = saturate(pow(DistToLightNorm, 4.0f));
+			if (i == nsteps) {
+				att *= extra_step_w;
 			}
 			else {
-				att *= shadow;
+				if (was_light && !is_light) {
+					float3 current_pos = position;
+					for (int i = 9; i >= 0; --i) {
+						current_pos -= ToEyeRayUnitMicroStep;
+						float3 testToLight = current_pos - lposition;
+						float test = PointShadowPCFFast(testToLight, light, index);
+						if (test > 0.9f) {
+							float w = (float)i / 10.0f;
+							att *= w;
+							break;
+						}
+					}
+				}
+				else {
+					att *= shadow;
+				}
 			}
-		}
-		was_light = is_light;
+			was_light = is_light;
 #else
-		float att = DistToLightNorm;
-		att *= shadow;
+			float att = DistToLightNorm;
+			att *= shadow;
 #endif		
-		saturate(att);
-		color += step_color * att;
-		mag = max(color.r, max(color.g, color.b));
-		if (mag > max_vol) {
-			break;
+			saturate(att);
+			color += step_color * att;
+			mag = max(color.r, max(color.g, color.b));
+			if (mag > max_vol) {
+				break;
+			}
 		}
 	}
 	return color;

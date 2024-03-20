@@ -168,6 +168,25 @@ namespace HotBite {
 				virtual ID3D11DepthStencilView* DepthView() override;
 			};
 
+			class VolumetricLightEffect : public PostProcess
+			{
+			private:
+				RenderTexture2D text;
+				DepthTexture2D depth;
+				DepthTexture2D world;
+				virtual void ClearData(const float color[4]);
+
+			public:
+				VolumetricLightEffect(ID3D11DeviceContext* dxcontext, int width, int height);
+				virtual ~VolumetricLightEffect();
+
+				virtual ID3D11ShaderResourceView* RenderResource() override;
+				virtual ID3D11UnorderedAccessView* RenderUAV() override;
+				virtual ID3D11RenderTargetView* RenderTarget() const override;
+				virtual ID3D11ShaderResourceView* DepthResource() override;
+				virtual ID3D11DepthStencilView* DepthView() override;
+			};
+
 			class MotionBlurEffect : public PostProcess
 			{
 			private:

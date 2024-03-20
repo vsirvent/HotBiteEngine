@@ -143,9 +143,9 @@ RenderTargetRT MainRenderPS(GSOutput input)
 	for (i = 0; i < pointLightsCount; ++i) {
 		if (length(wpos - pointLights[i].Position) < pointLights[i].Range) {
 			lumColor.rgb += CalcPoint(normal, wpos, input.uv, material, pointLights[i], i, lightColor) * PointLightParallaxAtt[i];
-			if (pointLights[i].density > 0.0f && disable_vol == 0) {
-				lightColor.rgb += VolumetricLight(wpos, pointLights[i], i);
-			}
+		}
+		if (pointLights[i].density > 0.0f && disable_vol == 0) {
+			lightColor.rgb += VolumetricLight(wpos, pointLights[i], i);
 		}
 	}
 #endif

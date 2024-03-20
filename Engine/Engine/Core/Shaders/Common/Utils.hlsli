@@ -25,6 +25,8 @@ SOFTWARE.
 #ifndef __UTILS_HLSLI__
 #define __UTILS_HLSLI__
 
+float Epsilon = 1e-10;
+
 static const float getSmoothPixelWeights[3] =
 {
 	0.1,
@@ -143,8 +145,52 @@ float ditance_point_line(float2 p0, float2 line_endpoint1, float2 line_endpoint0
 
 }
 
+// Function to calculate intersection between line segment and sphere, returning the closer intersection point to P1
+bool line_sphere_intersection(float3 p1, float3 p2, float3 center, float radius, out float3 intersectionPoint) {
+	float3 d = p2 - p1;
+	float3 f = p1 - center;
 
-float Epsilon = 1e-10;
+	if (length(f) < radius) {
+		intersectionPoint = p1;
+		return true;
+	}
+
+	float a = dot(d, d);
+	float b = 2.0f * dot(f, d);
+	float c = dot(f, f) - radius * radius;
+
+	float discriminant = b * b - 4 * a * c;
+	if (discriminant < 0) {
+		// No intersection
+		return false;
+	}
+	else if (abs(discriminant) < Epsilon) {
+		// Tangent case
+		float t = -b / (2.0f * a);
+		intersectionPoint = p1 + t * d;
+		return true;
+	}
+	else {
+		float t1 = (-b + sqrt(discriminant)) / (2.0f * a);
+		float t2 = (-b - sqrt(discriminant)) / (2.0f * a);
+
+		float3 intersectionPoint1 = p1 + t1 * d;
+		float3 intersectionPoint2 = p1 + t2 * d;
+
+		// Calculate distances from P1 to intersection points
+		float dist1 = length(intersectionPoint1 - p1);
+		float dist2 = length(intersectionPoint2 - p1);
+
+		// Choose the closer intersection point
+		if (dist1 < dist2) {
+			intersectionPoint = intersectionPoint1;
+		}
+		else {
+			intersectionPoint = intersectionPoint2;
+		}
+		return true;
+	}
+}
 
 float3 HUEtoRGB(in float H)
 {
