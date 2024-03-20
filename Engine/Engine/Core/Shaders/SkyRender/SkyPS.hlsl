@@ -110,19 +110,6 @@ RenderTarget main(VertexToPixel input)
 			}
 		}
 
-		// Calculate the directional light
-		for (i = 0; i < dirLightsCount; ++i) {
-			if (dirLights[i].density > 0.0f) {
-				lightColor.rgb += DirVolumetricLight(input.worldPos, dirLights[i], i, time, cloud_density);
-			}
-		}
-		// Calculate the point lights
-		for (i = 0; i < pointLightsCount; ++i) {
-			if (pointLights[i].density > 0.0f) {
-				lightColor.rgb += VolumetricLight(input.worldPos, pointLights[i], i);
-			}
-		}
-
 		float4 cloud = { 0.0f, 0.0f, 0.0f, 0.0f };
 		float4 finalColor_precloud = finalColor * 1.8f;
 

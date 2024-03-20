@@ -60,6 +60,10 @@ namespace HotBite {
 
 				static inline ECS::EventId EVENT_ID_SHADOW_POINT_LIGHT_PREPARE_SHADER = ECS::GetEventId<RenderSystem>(0x0f);
 				static inline ECS::EventId EVENT_ID_SHADOW_POINT_LIGHT_UNPREPARE_SHADER = ECS::GetEventId<RenderSystem>(0x10);
+
+				static inline ECS::EventId EVENT_ID_PREPARE_POST = ECS::GetEventId<RenderSystem>(0x11);
+				static inline ECS::EventId EVENT_ID_UNPREPARE_POST = ECS::GetEventId<RenderSystem>(0x12);
+
 				static constexpr uint32_t STATIC_SHADOW_REFRESH_PERIOD = 1000;
 				static inline ECS::ParamId EVENT_PARAM_SHADER = 0x00;				
 				static std::recursive_mutex mutex;
@@ -224,6 +228,12 @@ namespace HotBite {
 				void OnEntitySignatureChanged(ECS::Entity entity, const ECS::Signature& entity_signature) override;
 				void OnEntityDestroyed(ECS::Entity entity) override;
 
+				void PrepareLights(Core::SimpleVertexShader* vs, Core::SimpleHullShader* hs, Core::SimpleDomainShader* ds, Core::SimpleGeometryShader* gs, Core::SimplePixelShader* ps);
+				void UnprepareLights(Core::SimpleVertexShader* vs, Core::SimpleHullShader* hs, Core::SimpleDomainShader* ds, Core::SimpleGeometryShader* gs, Core::SimplePixelShader* ps);
+
+				void PrepareVolumetricShader(Core::SimplePixelShader* ps);
+				void UnprepareVolumetricShader(Core::SimplePixelShader* ps);
+
 			private:
 				static constexpr uint32_t TEXTURE_RESOLUTION_DIVIDER = 2;
 
@@ -287,9 +297,6 @@ namespace HotBite {
 				void CheckSceneVisibility(RenderTree& tree);
 				void PostProcessLight();
 				
-				void PrepareLights(Core::SimpleVertexShader* vs, Core::SimpleHullShader* hs, Core::SimpleDomainShader* ds, Core::SimpleGeometryShader* gs, Core::SimplePixelShader* ps);
-				void UnprepareLights(Core::SimpleVertexShader* vs, Core::SimpleHullShader* hs, Core::SimpleDomainShader* ds, Core::SimpleGeometryShader* gs, Core::SimplePixelShader* ps);
-
 				void PrepareMaterial(Core::MaterialData* material, Core::SimpleVertexShader* vs, Core::SimpleHullShader* hs, Core::SimpleDomainShader* ds, Core::SimpleGeometryShader* gs, Core::SimplePixelShader* ps);
 				void UnprepareMaterial(Core::MaterialData* material, Core::SimpleVertexShader* vs, Core::SimpleHullShader* hs, Core::SimpleDomainShader* ds, Core::SimpleGeometryShader* gs, Core::SimplePixelShader* ps);
 
@@ -316,7 +323,7 @@ namespace HotBite {
 				void SetPostProcessPipeline(Core::PostProcess* pipeline);
 				void Draw();
 				void Update();
-
+				
 				//Render parameters
 				void EnableTessellation(bool enabled);
 				bool IsEnabledTessellation() const;

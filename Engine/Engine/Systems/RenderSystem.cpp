@@ -1656,6 +1656,41 @@ void RenderSystem::UnprepareLights(Core::SimpleVertexShader* vs, Core::SimpleHul
 	}
 }
 
+void RenderSystem::PrepareVolumetricShader(Core::SimplePixelShader* ps) {
+	SkyEntity* sky = nullptr;
+	int w = dxcore->GetWidth();
+	int h = dxcore->GetHeight();
+	float speed = 1.0f;
+	if (!skies.GetData().empty()) {
+		sky = &(skies.GetData()[0]);
+		speed = sky->sky->second_speed;
+	}
+
+	assert(!cameras.GetData().empty() && "No cameras found");
+	CameraEntity& cam_entity = cameras.GetData()[0];
+	time = ((float)Scheduler::Get()->GetElapsedNanoSeconds() * speed) / 1000000000.0f;
+	float3 dir;
+	XMStoreFloat3(&dir, cam_entity.camera->xm_direction);
+
+	ps->SetFloat(TIME, time);
+	ps->SetInt(SCREEN_W, w);
+	ps->SetInt(SCREEN_H, h);
+	ps->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
+	ps->SetFloat3("cameraDirection", dir);
+	ps->SetSamplerState(BASIC_SAMPLER, dxcore->basic_sampler);
+	
+	if (sky != nullptr) {
+		ps->SetFloat("cloud_density", sky->sky->cloud_density);
+	}
+	ps->SetShaderResourceView("worldTexture", position_map.SRV());
+	PrepareLights(nullptr, nullptr, nullptr, nullptr, ps);
+}
+
+void RenderSystem::UnprepareVolumetricShader(Core::SimplePixelShader* ps) {
+	ps->SetShaderResourceView("worldTexture", nullptr);
+	UnprepareLights(nullptr, nullptr, nullptr, nullptr, ps);
+}
+
 void RenderSystem::PrepareEntity(DrawableEntity& entity, SimpleVertexShader* vs, SimpleHullShader* hs, SimpleDomainShader* ds, SimpleGeometryShader* gs, SimplePixelShader* ps) {
 	Event e(this, entity.base->id, EVENT_ID_PREPARE_ENTITY);
 	e.SetParam<ShaderKey>(EVENT_PARAM_SHADER, ShaderKey{ vs, hs, ds, gs, ps });
@@ -1869,7 +1904,9 @@ void RenderSystem::Draw() {
 	}
 	if (post_process_pipeline != nullptr) {
 		DXCore::Get()->context->RSSetViewports(1, &dxcore->viewport);
+		coordinator->SendEvent(this, EVENT_ID_PREPARE_POST);
 		post_process_pipeline->Process();
+		coordinator->SendEvent(this, EVENT_ID_UNPREPARE_POST);
 	}
 }
 

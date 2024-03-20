@@ -129,6 +129,9 @@ namespace HotBite {
 				virtual ID3D11RenderTargetView* RenderTarget() const override;
 				virtual ID3D11ShaderResourceView* DepthResource() override;
 				virtual ID3D11DepthStencilView* DepthView() override;
+
+				SimpleVertexShader* GetVS() { return vs; }
+				SimplePixelShader* GetPS() { return ps; }
 			};
 
 			class GenericPostProcess : public HotBite::Engine::Core::PostProcess
@@ -172,8 +175,6 @@ namespace HotBite {
 			{
 			private:
 				RenderTexture2D text;
-				DepthTexture2D depth;
-				DepthTexture2D world;
 				virtual void ClearData(const float color[4]);
 
 			public:
@@ -183,8 +184,6 @@ namespace HotBite {
 				virtual ID3D11ShaderResourceView* RenderResource() override;
 				virtual ID3D11UnorderedAccessView* RenderUAV() override;
 				virtual ID3D11RenderTargetView* RenderTarget() const override;
-				virtual ID3D11ShaderResourceView* DepthResource() override;
-				virtual ID3D11DepthStencilView* DepthView() override;
 			};
 
 			class MotionBlurEffect : public PostProcess

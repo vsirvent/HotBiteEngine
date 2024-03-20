@@ -22,6 +22,11 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+#ifndef __PIXEL_FUNCTIONS_INCLUDED__
+#define __PIXEL_FUNCTIONS_INCLUDED__
+
+
+#include "PixelCommon.hlsli"
 #include "FastNoise.hlsli"
 #include "QuickNoise.hlsli"
 #include "NoiseSimplex.hlsli"
@@ -569,3 +574,4 @@ float2 CalculateDepthUVBinary(float scale, float base_steps, float angle_steps, 
 	return curr_uvw.xy;
 }
 
+#endif

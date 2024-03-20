@@ -25,13 +25,15 @@ SOFTWARE.
 #ifndef __PIXEL_COMMON_HLSLI__
 #define __PIXEL_COMMON_HLSLI__
 
+
+SamplerState basicSampler;
+SamplerComparisonState PCFSampler;
+
 #include "Defines.hlsli"
 #include "QuickNoise.hlsli"
 #include "NoiseSimplex.hlsli"
 #include "Utils.hlsli"
 
-SamplerState basicSampler;
-SamplerComparisonState PCFSampler;
 
 struct RenderTarget
 {

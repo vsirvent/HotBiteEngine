@@ -133,9 +133,6 @@ RenderTargetRT MainRenderPS(GSOutput input)
 	// Calculate the directional light
 	for (i = 0; i < dirLightsCount; ++i) {
 		lumColor.rgb += CalcDirectional(normal, wpos, input.uv, material, dirLights[i], cloud_density, i, lightColor) * DirLightParallaxAtt[i];
-		if (dirLights[i].density > 0.0f && disable_vol == 0) {
-			lightColor.rgb += DirVolumetricLight(wpos, dirLights[i], i, time, cloud_density);
-		}
 	}
 #endif
 #if 1
@@ -143,9 +140,6 @@ RenderTargetRT MainRenderPS(GSOutput input)
 	for (i = 0; i < pointLightsCount; ++i) {
 		if (length(wpos - pointLights[i].Position) < pointLights[i].Range) {
 			lumColor.rgb += CalcPoint(normal, wpos, input.uv, material, pointLights[i], i, lightColor) * PointLightParallaxAtt[i];
-		}
-		if (pointLights[i].density > 0.0f && disable_vol == 0) {
-			lightColor.rgb += VolumetricLight(wpos, pointLights[i], i);
 		}
 	}
 #endif

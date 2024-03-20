@@ -186,18 +186,12 @@ RenderTargetRT main(GSOutput input)
 	//Apply directional light
 	for (i = 0; i < dirLightsCount; ++i) {
 		lumColor.rgb += CalcWaterDirectional(normal, input.worldPos.xyz, input.uv, dirLights[i], i, spec_intensity, lightColor).rgb;
-		if (dirLights[i].density > 0.0f) {
-			lightColor.rgb += DirVolumetricLight(input.worldPos, dirLights[i], i, time, cloud_density);
-		}
 	}
 
 	// Apply point lights
 	for (i = 0; i < pointLightsCount; ++i) {
 		if (length(input.worldPos.xyz - pointLights[i].Position) < pointLights[i].Range) {
 			lumColor.rgb += CalcWaterPoint(normal, input.worldPos.xyz, input.uv, pointLights[i], i, spec_intensity, lightColor).rgb;
-			if (pointLights[i].density > 0.0f) {
-				lightColor.rgb += VolumetricLight(input.worldPos.xyz, pointLights[i], i);
-			}
 		}
 	}
 #if 1

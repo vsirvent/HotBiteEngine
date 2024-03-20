@@ -149,18 +149,12 @@ RenderTarget main(GSOutput input)
 	//Apply directional light
 	for (i = 0; i < dirLightsCount; ++i) {
 		finalColor.rgb += CalcLavaDirectional(normal, input.worldPos, input.uv, dirLights[i], i, spec_intensity, lightColor).rgb;
-		if (dirLights[i].density > 0.0f) {
-			lightColor.rgb = climit3(lightColor.rgb + DirVolumetricLight(input.worldPos, dirLights[i], i, time, cloud_density));
-		}
 	}
 
 	// Apply point lights
 	for (i = 0; i < pointLightsCount; ++i) {
 		if (length(input.worldPos.xyz - pointLights[i].Position) < pointLights[i].Range) {
 			finalColor.rgb += CalcLavaPoint(normal, input.worldPos.xyz, input.uv, pointLights[i], i, spec_intensity, lightColor).rgb;
-			if (pointLights[i].density > 0.0f) {
-				lightColor.rgb = climit3(lightColor.rgb + VolumetricLight(input.worldPos.xyz, pointLights[i], i));
-			}
 		}
 	}
 #endif
