@@ -300,6 +300,10 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		if (rt_shader == nullptr) {
 			throw std::exception("raytrace shader.Init failed");
 		}
+		vol_shader = ShaderFactory::Get()->GetShader<SimpleComputeShader>("VolumetricLightCS.cso");
+		if (vol_shader == nullptr) {
+			throw std::exception("raytrace shader.Init failed");
+		}
 		rt_smooth = ShaderFactory::Get()->GetShader<SimpleComputeShader>("SmoothCS.cso");
 		if (rt_smooth == nullptr) {
 			throw std::exception("raytrace shader.Init failed");
@@ -1140,7 +1144,6 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 				ps->SetSamplerState(PCF_SAMPLER, dxcore->shadow_sampler);
 				ps->SetSamplerState(BASIC_SAMPLER, dxcore->basic_sampler);
 				ps->SetShaderResourceView(DEPTH_TEXTURE, depth_map.SRV());
-				ps->SetInt("disable_vol", prev_pass_texture != nullptr);
 				if (prev_pass_texture != nullptr) {
 					ps->SetShaderResourceView("renderTexture", prev_pass_texture);					
 				}
@@ -1375,25 +1378,7 @@ void RenderSystem::ProcessRT() {
 		rt_shader->SetSamplerState(BASIC_SAMPLER, dxcore->basic_sampler);
 		rt_shader->SetShaderResourceViewArray("DiffuseTextures[0]", diffuseTextures, len);
 		
-		if (!ambient_lights.GetData().empty()) {
-			rt_shader->SetData(AMBIENT_LIGHT, &ambient_lights.GetData()[0].light->GetData(), sizeof(AmbientLight::Data));
-		}
-		rt_shader->SetInt(DIRLIGHT_COUNT, (int)scene_lighting.dir_lights.size());
-		if (!scene_lighting.dir_lights.empty()) {
-			rt_shader->SetData(DIR_LIGHTS, scene_lighting.dir_lights.data(), (int)(sizeof(DirectionalLight::Data) * scene_lighting.dir_lights.size()));
-		}
-		rt_shader->SetInt(POINT_LIGHT_COUNT, (int)scene_lighting.point_lights.size());
-		if (!scene_lighting.point_lights.empty()) {
-			rt_shader->SetData(POINT_LIGHTS, scene_lighting.point_lights.data(), (int)(sizeof(PointLight::Data) * scene_lighting.point_lights.size()));
-		}
-		if (!scene_lighting.shadows_perspectives.empty()) {
-			rt_shader->SetData(LIGHT_PERSPECTIVE_VALUES, scene_lighting.shadows_perspectives.data(), (int)(sizeof(float2) * scene_lighting.shadows_perspectives.size()));
-			rt_shader->SetShaderResourceViewArray(POINT_SHADOW_MAP_TEXTURE, scene_lighting.shadows.data(), (int)(scene_lighting.shadows.size()));
-		}
-		if (!scene_lighting.dir_shadows.empty()) {
-			rt_shader->SetData(DIR_PERSPECTIVE_VALUES, scene_lighting.dir_shadows_perspectives.data(), (int)(sizeof(float4x4) * scene_lighting.dir_shadows_perspectives.size()));
-			rt_shader->SetShaderResourceViewArray(DIR_SHADOW_MAP_TEXTURE, scene_lighting.dir_shadows.data(), (int)(scene_lighting.dir_shadows.size()));
-		}
+		PrepareLights(rt_shader);
 
 		rt_shader->CopyAllBufferData();
 
@@ -1414,13 +1399,7 @@ void RenderSystem::ProcessRT() {
 		rt_shader->SetUnorderedAccessView("ray0", nullptr);
 		rt_shader->SetUnorderedAccessView("ray1", nullptr);
 
-		static ID3D11ShaderResourceView* no_data[MAX_LIGHTS] = {};
-		if (!scene_lighting.shadows.empty()) {
-			rt_shader->SetShaderResourceViewArray(POINT_SHADOW_MAP_TEXTURE, no_data, MAX_LIGHTS);
-		}
-		if (!scene_lighting.dir_shadows.empty()) {
-			rt_shader->SetShaderResourceViewArray(DIR_SHADOW_MAP_TEXTURE, no_data, MAX_LIGHTS);
-		}
+		UnprepareLights(rt_shader);
 
 		//Smooth frame
 		rt_smooth->SetUnorderedAccessView("props", rt_texture_props.UAV());
@@ -1613,50 +1592,51 @@ void RenderSystem::UnprepareMultiMaterial(Components::Material* material, Core::
 	}
 }
 
+void RenderSystem::PrepareLights(Core::ISimpleShader* s) {
+	if (!ambient_lights.GetData().empty()) {
+		s->SetData(AMBIENT_LIGHT, &ambient_lights.GetData()[0].light->GetData(), sizeof(AmbientLight::Data));
+	}
+	s->SetInt(DIRLIGHT_COUNT, (int)scene_lighting.dir_lights.size());
+	if (!scene_lighting.dir_lights.empty()) {
+		s->SetData(DIR_LIGHTS, scene_lighting.dir_lights.data(), (int)(sizeof(DirectionalLight::Data) * scene_lighting.dir_lights.size()));
+	}
+	s->SetInt(POINT_LIGHT_COUNT, (int)scene_lighting.point_lights.size());
+	if (!scene_lighting.point_lights.empty()) {
+		s->SetData(POINT_LIGHTS, scene_lighting.point_lights.data(), (int)(sizeof(PointLight::Data) * scene_lighting.point_lights.size()));
+	}
+	if (!scene_lighting.shadows_perspectives.empty()) {
+		s->SetData(LIGHT_PERSPECTIVE_VALUES, scene_lighting.shadows_perspectives.data(), (int)(sizeof(float2) * scene_lighting.shadows_perspectives.size()));
+		s->SetShaderResourceViewArray(POINT_SHADOW_MAP_TEXTURE, scene_lighting.shadows.data(), (int)(scene_lighting.shadows.size()));
+	}
+	if (!scene_lighting.dir_shadows.empty()) {
+		s->SetData(DIR_PERSPECTIVE_VALUES, scene_lighting.dir_shadows_perspectives.data(), (int)(sizeof(float4x4) * scene_lighting.dir_shadows_perspectives.size()));
+		s->SetShaderResourceViewArray(DIR_SHADOW_MAP_TEXTURE, scene_lighting.dir_shadows.data(), (int)(scene_lighting.dir_shadows.size()));
+	}
+}
+
+void RenderSystem::UnprepareLights(Core::ISimpleShader* s) {
+	ID3D11ShaderResourceView* no_data[MAX_LIGHTS] = {};
+	if (!scene_lighting.shadows.empty()) {
+		s->SetShaderResourceViewArray(POINT_SHADOW_MAP_TEXTURE, no_data, MAX_LIGHTS);
+	}
+	if (!scene_lighting.dir_shadows.empty()) {
+		s->SetShaderResourceViewArray(DIR_SHADOW_MAP_TEXTURE, no_data, MAX_LIGHTS);
+	}
+}
+
 void RenderSystem::PrepareLights(Core::SimpleVertexShader* vs, Core::SimpleHullShader* hs, Core::SimpleDomainShader* ds, Core::SimpleGeometryShader* gs, Core::SimplePixelShader* ps) {
 	if (ps != nullptr) {
-		if (!ambient_lights.GetData().empty()) {
-			ps->SetData(AMBIENT_LIGHT, &ambient_lights.GetData()[0].light->GetData(), sizeof(AmbientLight::Data));
-		}
-		ps->SetInt(DIRLIGHT_COUNT, (int)scene_lighting.dir_lights.size());
-		if (!scene_lighting.dir_lights.empty()) {
-			ps->SetData(DIR_LIGHTS, scene_lighting.dir_lights.data(), (int)(sizeof(DirectionalLight::Data) * scene_lighting.dir_lights.size()));
-		}
-		ps->SetInt(POINT_LIGHT_COUNT, (int)scene_lighting.point_lights.size());
-		if (!scene_lighting.point_lights.empty()) {
-			ps->SetData(POINT_LIGHTS, scene_lighting.point_lights.data(), (int)(sizeof(PointLight::Data) * scene_lighting.point_lights.size()));
-		}
-		if (!scene_lighting.shadows_perspectives.empty()) {
-			ps->SetData(LIGHT_PERSPECTIVE_VALUES, scene_lighting.shadows_perspectives.data(), (int)(sizeof(float2) * scene_lighting.shadows_perspectives.size()));
-			ps->SetShaderResourceViewArray(POINT_SHADOW_MAP_TEXTURE, scene_lighting.shadows.data(), (int)(scene_lighting.shadows.size()));
-		}
-		if (!scene_lighting.dir_shadows.empty()) {
-			ps->SetData(DIR_PERSPECTIVE_VALUES, scene_lighting.dir_shadows_perspectives.data(), (int)(sizeof(float4x4) * scene_lighting.dir_shadows_perspectives.size()));
-			ps->SetShaderResourceViewArray(DIR_SHADOW_MAP_TEXTURE, scene_lighting.dir_shadows.data(), (int)(scene_lighting.dir_shadows.size()));
-		}
-		//if (!scene_lighting.dir_static_shadows.empty()) {
-		//	ps->SetData(DIR_STATIC_PERSPECTIVE_VALUES, scene_lighting.dir_static_shadows_perspectives.data(), (int)(sizeof(float4x4) * scene_lighting.dir_static_shadows_perspectives.size()));
-		//	ps->SetShaderResourceViewArray(DIR_STATIC_SHADOW_MAP_TEXTURE, scene_lighting.dir_static_shadows.data(), (int)(scene_lighting.dir_static_shadows.size()));
-		//}
+		PrepareLights(ps);
 	}
 }
 
 void RenderSystem::UnprepareLights(Core::SimpleVertexShader* vs, Core::SimpleHullShader* hs, Core::SimpleDomainShader* ds, Core::SimpleGeometryShader* gs, Core::SimplePixelShader* ps) {
 	if (ps != nullptr) {
-		ID3D11ShaderResourceView* no_data[MAX_LIGHTS] = {};
-		if (!scene_lighting.shadows.empty()) {
-			ps->SetShaderResourceViewArray(POINT_SHADOW_MAP_TEXTURE, no_data, MAX_LIGHTS);
-		}
-		if (!scene_lighting.dir_shadows.empty()) {
-			ps->SetShaderResourceViewArray(DIR_SHADOW_MAP_TEXTURE, no_data, MAX_LIGHTS);
-		}
-		//if (!scene_lighting.dir_static_shadows.empty()) {
-		//	ps->SetShaderResourceViewArray(DIR_STATIC_SHADOW_MAP_TEXTURE, no_data, min((int)scene_lighting.dir_static_shadows.size(), MAX_LIGHTS));
-		//}
+		UnprepareLights(ps);
 	}
 }
 
-void RenderSystem::PrepareVolumetricShader(Core::SimplePixelShader* ps) {
+void RenderSystem::PrepareVolumetricShader(Core::ISimpleShader* s) {
 	SkyEntity* sky = nullptr;
 	int w = dxcore->GetWidth();
 	int h = dxcore->GetHeight();
@@ -1672,23 +1652,23 @@ void RenderSystem::PrepareVolumetricShader(Core::SimplePixelShader* ps) {
 	float3 dir;
 	XMStoreFloat3(&dir, cam_entity.camera->xm_direction);
 
-	ps->SetFloat(TIME, time);
-	ps->SetInt(SCREEN_W, w);
-	ps->SetInt(SCREEN_H, h);
-	ps->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
-	ps->SetFloat3("cameraDirection", dir);
-	ps->SetSamplerState(BASIC_SAMPLER, dxcore->basic_sampler);
+	s->SetFloat(TIME, time);
+	s->SetInt(SCREEN_W, w);
+	s->SetInt(SCREEN_H, h);
+	s->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
+	s->SetFloat3("cameraDirection", dir);
+	s->SetSamplerState(BASIC_SAMPLER, dxcore->basic_sampler);
 	
 	if (sky != nullptr) {
-		ps->SetFloat("cloud_density", sky->sky->cloud_density);
+		s->SetFloat("cloud_density", sky->sky->cloud_density);
 	}
-	ps->SetShaderResourceView("worldTexture", position_map.SRV());
-	PrepareLights(nullptr, nullptr, nullptr, nullptr, ps);
+	s->SetShaderResourceView("worldTexture", position_map.SRV());
+	PrepareLights(s);
 }
 
-void RenderSystem::UnprepareVolumetricShader(Core::SimplePixelShader* ps) {
-	ps->SetShaderResourceView("worldTexture", nullptr);
-	UnprepareLights(nullptr, nullptr, nullptr, nullptr, ps);
+void RenderSystem::UnprepareVolumetricShader(Core::ISimpleShader* s) {
+	s->SetShaderResourceView("worldTexture", nullptr);
+	UnprepareLights(s);
 }
 
 void RenderSystem::PrepareEntity(DrawableEntity& entity, SimpleVertexShader* vs, SimpleHullShader* hs, SimpleDomainShader* ds, SimpleGeometryShader* gs, SimplePixelShader* ps) {
@@ -1836,6 +1816,22 @@ void RenderSystem::Update() {
 }
 
 void RenderSystem::PostProcessLight() {
+
+	if (!cameras.GetData().empty()) {
+		CameraEntity& cam_entity = cameras.GetData()[0];
+		PrepareVolumetricShader(vol_shader);
+		vol_shader->SetMatrix4x4("view_inverse", cam_entity.camera->inverse_view);
+		vol_shader->SetMatrix4x4("projection_inverse", cam_entity.camera->inverse_projection);
+		vol_shader->SetUnorderedAccessView("output", bloom_map.UAV());
+		vol_shader->CopyAllBufferData();
+		vol_shader->SetShader();
+		int32_t  groupsX = (int32_t)(ceil((float)bloom_map.Width() / (32.0f)));
+		int32_t  groupsY = (int32_t)(ceil((float)bloom_map.Height() / (32.0f)));
+		dxcore->context->Dispatch(groupsX, groupsY, 1);
+		vol_shader->SetUnorderedAccessView("output", nullptr);
+		UnprepareVolumetricShader(vol_shader);
+	}
+
 	ID3D11DeviceContext* context = DXCore::Get()->context;
 	ID3D11RenderTargetView* rv[1] = { temp_map.RenderTarget() };
 	context->OMSetRenderTargets(1, rv, nullptr);

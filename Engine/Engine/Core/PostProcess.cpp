@@ -274,36 +274,6 @@ ID3D11DepthStencilView* MainEffect::DepthView() {
 	return depth.Depth();
 }
 
-void VolumetricLightEffect::ClearData(const float color[4]) {
-	context->ClearRenderTargetView(text.RenderTarget(), color);
-}
-
-VolumetricLightEffect::VolumetricLightEffect(ID3D11DeviceContext* dxcontext,
-	int width, int height) :
-	PostProcess(dxcontext,
-		ShaderFactory::Get()->GetShader<SimpleVertexShader>("PostMainVS.cso"),
-		ShaderFactory::Get()->GetShader<SimplePixelShader>("VolumetricLightPS.cso"))
-{
-	//x2 scale to avoid resolution artifacts in motion blur
-	text.Init(width, height, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS);
-}
-
-VolumetricLightEffect::~VolumetricLightEffect() {
-	text.Release();
-}
-
-ID3D11ShaderResourceView* VolumetricLightEffect::RenderResource() {
-	return text.SRV();
-}
-
-ID3D11UnorderedAccessView* VolumetricLightEffect::RenderUAV() {
-	return text.UAV();
-}
-
-ID3D11RenderTargetView* VolumetricLightEffect::RenderTarget() const {
-	return text.RenderTarget();
-}
-
 void MotionBlurEffect::ClearData(const float color[4]) {
 	context->ClearRenderTargetView(RenderTarget(), color);
 }

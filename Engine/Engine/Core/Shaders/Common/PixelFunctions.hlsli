@@ -372,7 +372,7 @@ float3 VolumetricLight(float3 position, PointLight light, int index) {
 				break;
 			}
 			float LightRange = (light.Range - ToLightDist) / light.Range;
-			float DistToLightNorm = saturate(LightRange);
+			float DistToLightNorm = saturate(LightRange * LightRange);
 			float shadow = 1.0f;
 			if (light.cast_shadow) {
 				shadow = PointShadowPCFFast(ToLight, light, index);

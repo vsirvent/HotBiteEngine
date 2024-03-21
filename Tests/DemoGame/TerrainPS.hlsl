@@ -64,10 +64,6 @@ cbuffer externalData : register(b0)
 	float4 packed_multi_texture_uv_scales[MAX_MULTI_TEXTURE / 4];
 }
 
-cbuffer objectData : register(b1)
-{
-	int disable_vol;
-}
 #include <Common/MultiTexture.hlsli>
 #include <Common/PixelFunctions.hlsli>
 #include <MainRender/MainRenderPS.hlsli>

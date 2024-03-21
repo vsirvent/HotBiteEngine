@@ -59,8 +59,6 @@ cbuffer externalData : register(b0)
 	uint4 packed_multi_texture_operations[MAX_MULTI_TEXTURE / 4];
 	float4 packed_multi_texture_values[MAX_MULTI_TEXTURE / 4];
 	float4 packed_multi_texture_uv_scales[MAX_MULTI_TEXTURE / 4];
-
-	int disable_vol;
 }
 
 cbuffer objectData : register(b1)

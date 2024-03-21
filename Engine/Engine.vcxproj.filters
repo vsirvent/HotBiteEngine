@@ -540,8 +540,8 @@
     <FxCompile Include="Engine\Core\Shaders\ComputeShaders\MotionBlurCS.hlsl">
       <Filter>Engine\Core\Shaders\ComputeShaders</Filter>
     </FxCompile>
-    <FxCompile Include="Engine\Core\Shaders\PostProcess\VolumetricLightPS.hlsl">
-      <Filter>Engine\Core\Shaders\PostProcess</Filter>
+    <FxCompile Include="Engine\Core\Shaders\ComputeShaders\VolumetricLightCS.hlsl">
+      <Filter>Engine\Core\Shaders\ComputeShaders</Filter>
     </FxCompile>
   </ItemGroup>
 </Project>

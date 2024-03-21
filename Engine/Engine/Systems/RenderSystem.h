@@ -228,11 +228,11 @@ namespace HotBite {
 				void OnEntitySignatureChanged(ECS::Entity entity, const ECS::Signature& entity_signature) override;
 				void OnEntityDestroyed(ECS::Entity entity) override;
 
+				void PrepareLights(Core::ISimpleShader* s);
+				void UnprepareLights(Core::ISimpleShader* s);
+
 				void PrepareLights(Core::SimpleVertexShader* vs, Core::SimpleHullShader* hs, Core::SimpleDomainShader* ds, Core::SimpleGeometryShader* gs, Core::SimplePixelShader* ps);
 				void UnprepareLights(Core::SimpleVertexShader* vs, Core::SimpleHullShader* hs, Core::SimpleDomainShader* ds, Core::SimpleGeometryShader* gs, Core::SimplePixelShader* ps);
-
-				void PrepareVolumetricShader(Core::SimplePixelShader* ps);
-				void UnprepareVolumetricShader(Core::SimplePixelShader* ps);
 
 			private:
 				static constexpr uint32_t TEXTURE_RESOLUTION_DIVIDER = 2;
@@ -276,6 +276,9 @@ namespace HotBite {
 				Core::ExtBVHBuffer tbvh_buffer;
 				Core::BVHBuffer* bvh_buffer = nullptr;
 
+				//Volumetric lights
+				Core::SimpleComputeShader* vol_shader = nullptr;
+
 				float time = 0.0f;
 				bool tess_enabled = true;
 				bool normal_material_map = true;
@@ -311,6 +314,9 @@ namespace HotBite {
 				void AddParticle(ECS::Entity entity, const Core::ShaderKey& key, Core::MaterialData* mat, RenderParticleTree& tree, const RenderSystem::ParticleEntity& particle);
 				void RemoveParticle(ECS::Entity entity, RenderParticleTree& tree);
 				void RemoveDrawable(ECS::Entity entity, RenderTree& tree);
+
+				void PrepareVolumetricShader(Core::ISimpleShader* ps);
+				void UnprepareVolumetricShader(Core::ISimpleShader* ps);
 				
 			public:
 				

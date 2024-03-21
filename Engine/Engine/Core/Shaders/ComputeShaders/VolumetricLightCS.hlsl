@@ -26,9 +26,8 @@ SOFTWARE.
 #include "../Common/Utils.hlsli"
 #include "../Common/PixelCommon.hlsli"
 
-Texture2D renderTexture : register(t0);
-Texture2D worldTexture: register(t2);
-
+Texture2D<float4> worldTexture: register(t0);
+RWTexture2D<float4> output : register(u0);
 
 cbuffer externalData : register(b0)
 {
@@ -40,14 +39,15 @@ cbuffer externalData : register(b0)
     PointLight pointLights[MAX_LIGHTS];
     float3 cameraPosition;
     float3 cameraDirection;
-	float cloud_density;
-
+    float cloud_density;
+    matrix view_inverse;
+    matrix projection_inverse;
     float4 LightPerspectiveValues[MAX_LIGHTS / 2];
     matrix DirPerspectiveMatrix[MAX_LIGHTS];
     matrix DirStaticPerspectiveMatrix[MAX_LIGHTS];
 
-	int dirLightsCount;
-	int pointLightsCount;
+    int dirLightsCount;
+    int pointLightsCount;
 
     uint multi_texture_count;
     float multi_parallax_scale;
@@ -56,34 +56,43 @@ cbuffer externalData : register(b0)
     float4 packed_multi_texture_values[MAX_MULTI_TEXTURE / 4];
     float4 packed_multi_texture_uv_scales[MAX_MULTI_TEXTURE / 4];
 
-	int disable_vol;
+    int disable_vol;
 }
 
 #include "../Common/PixelFunctions.hlsli"
 
-float4 main(float4 pos: SV_POSITION) : SV_TARGET
+#define NTHREADS 32
+[numthreads(NTHREADS, NTHREADS, 1)]
+void main(uint3 DTid : SV_DispatchThreadID)
 {
-	int i = 0;
-	float2 tpos = pos.xy;
-	tpos.x /= screenW;
-	tpos.y /= screenH;
-	float4 lightColor = renderTexture.SampleLevel(basicSampler, tpos, 0);
-	float4 wpos = worldTexture.SampleLevel(basicSampler, tpos, 0);
-	if (length(wpos) < Epsilon) {
-		wpos.xyz = cameraPosition * cameraDirection * 1000.0f;
-	}
-	// Calculate the directional light
-	for (i = 0; i < dirLightsCount; ++i) {
-		if (dirLights[i].density > 0.0f && disable_vol == 0) {
-			lightColor.rgb += DirVolumetricLight(wpos, dirLights[i], i, time, cloud_density);
-		}
-	}
+    float2 pixel = float2(DTid.x, DTid.y);
+    float4 lightColor = { 0.0f, 0.0f, 0.0f, 1.0f };
+    float4 wpos = worldTexture[pixel];
+    if (length(wpos) <= Epsilon) {
+        float2 tpos = pixel.xy;
+        tpos.x /= screenW;
+        tpos.y /= screenH;
 
-	// Calculate the point lights
-	for (i = 0; i < pointLightsCount; ++i) {
-		if (pointLights[i].density > 0.0f && disable_vol == 0) {
-			lightColor.rgb += VolumetricLight(wpos, pointLights[i], i);
-		}
-	}
-	return lightColor;
+        float4 H = float4(tpos.x * 2.0f - 1.0f, (1.0f - tpos.y) * 2.0f - 1.0f, 0.0f, 1.0f);
+        float4 D = mul(H, projection_inverse);
+        float4 eyepos = D / D.w;
+        float3 worldPos = mul(eyepos, view_inverse).xyz;
+        float3 dir = normalize(worldPos - cameraPosition);
+        wpos.xyz = cameraPosition + dir * 1000.0f;
+    }
+    int i = 0;
+    // Calculate the directional light
+    for (i = 0; i < dirLightsCount; ++i) {
+        if (dirLights[i].density > 0.0f && disable_vol == 0) {
+            lightColor.rgb += DirVolumetricLight(wpos, dirLights[i], i, time, cloud_density);
+        }
+    }
+
+    // Calculate the point lights
+    for (i = 0; i < pointLightsCount; ++i) {
+        if (pointLights[i].density > 0.0f && disable_vol == 0) {
+            lightColor.rgb += VolumetricLight(wpos.xyz, pointLights[i], i);
+        }
+    }
+    output[pixel] += lightColor;
 }
