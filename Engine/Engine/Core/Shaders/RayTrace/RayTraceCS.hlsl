@@ -700,7 +700,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     RaySource ray_source = fromColor(ray0[ray_pixel], ray1[ray_pixel]);
 
     props[pixel] = props[pixel]*0.5f + ray_source.dispersion*0.5f;
-    if (ray_source.dispersion < Epsilon || ray_source.dispersion == 1.0f) {
+    if (ray_source.dispersion >= 1.0f || ray_source.reflex < Epsilon) {
         return;
     }
     

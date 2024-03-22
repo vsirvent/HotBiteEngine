@@ -211,9 +211,9 @@ void AudioSystem::CalculatePointPhysics(PlayInfoPtr info, const float3& point, E
 	mic_lock.lock();
 	float3 v = SUB_F3_F3(point, mic_positions[channel]);
 	mic_lock.unlock();
-	double d2 = (double)LENGHT_SQUARE_F3(v);
+	double d2 = (double)LENGHT_F3(v);
 	physics.lock.lock();
-	physics.distance = sqrt(d2);
+	physics.distance = d2;
 	if (d2 < 1.0) {
 		d2 = 1.0;
 	}
@@ -292,9 +292,9 @@ void AudioSystem::CalculateCubePhysics(PlayInfoPtr info, const BoundsEntity& e, 
 
 		//Distance square from local camera to point
 		auto& physics = info->physics[channel];
-		double d2 = (double)LENGHT_SQUARE_F3(v);
+		double d2 = (double)LENGHT_F3(v);
 		physics.lock.lock();
-		physics.distance = sqrt(d2);
+		physics.distance = d2;
 		if (d2 < 1.0) {
 			d2 = 1.0;
 		}

@@ -224,14 +224,16 @@ RenderTargetRT MainRenderPS(GSOutput input)
 	ray.orig = wpos2.xyz;
 	if (disable_rt == 0 && (material.flags & RAYTRACING_ENABLED)) {
 		ray.dispersion = saturate(1.0f - spec_intensity);
+		ray.reflex = material.rt_reflex;
 	}
 	else {
 		ray.dispersion = -1.0f;
+		ray.reflex = 0.0f;
 	}
 	ray.normal = normal;
 	ray.density = material.density;
 	ray.opacity = opacity;
-	ray.reflex = material.rt_reflex;
+	
 	output.rt_ray0_map = getColor0(ray);
 	output.rt_ray1_map = getColor1(ray);
 

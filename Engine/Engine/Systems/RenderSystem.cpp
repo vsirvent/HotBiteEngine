@@ -1259,12 +1259,14 @@ void RenderSystem::ProcessMotionBlur() {
 }
 
 void RenderSystem::ProcessRT() {
+#if 0
 	static const float zero[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 	static const float neg[4] = { -1.0f, -1.0f, -1.0f, -1.0f };
-	//rt_texture_props.Clear(neg);
+	rt_texture_props.Clear(neg);
 	for (int i = 0; i < RT_NTEXTURES; ++i) {
-		//rt_texture[i].Clear(zero);
+		rt_texture[i].Clear(zero);
 	}
+#endif
 	if (rt_enabled && bvh_buffer != nullptr) {
 		auto& device = dxcore->device;
 		ObjectInfo objects[MAX_OBJECTS]{};
