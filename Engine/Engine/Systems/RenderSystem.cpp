@@ -1259,14 +1259,7 @@ void RenderSystem::ProcessMotionBlur() {
 }
 
 void RenderSystem::ProcessRT() {
-#if 0
-	static const float zero[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-	static const float neg[4] = { -1.0f, -1.0f, -1.0f, -1.0f };
-	rt_texture_props.Clear(neg);
-	for (int i = 0; i < RT_NTEXTURES; ++i) {
-		rt_texture[i].Clear(zero);
-	}
-#endif
+
 	if (rt_enabled && bvh_buffer != nullptr) {
 		auto& device = dxcore->device;
 		ObjectInfo objects[MAX_OBJECTS]{};
@@ -1436,29 +1429,48 @@ bool RenderSystem::IsVisible(const float3& camera_pos, const DrawableEntity& dra
 	if (drawable.base->draw_method == DRAW_ALWAYS) {
 		return true;
 	}
+
+	// Get the center and extents of the oriented box
+	const float3& orientedBoxCenter = drawable.bounds->final_box.Center;
+	const float3& orientedBoxExtents = drawable.bounds->final_box.Extents;
+
+	// Calculate the minimum and maximum points of the AABB
+	float3 aabb_min = { orientedBoxCenter.x - orientedBoxExtents.x,
+					orientedBoxCenter.y - orientedBoxExtents.y,
+					orientedBoxCenter.z - orientedBoxExtents.z };
+
+	float3 aabb_max = { orientedBoxCenter.x + orientedBoxExtents.x,
+					orientedBoxCenter.y + orientedBoxExtents.y,
+					orientedBoxCenter.z + orientedBoxExtents.z };
+
 	float3 points[8];
 	float3& worldpos = drawable.bounds->final_box.Center;
-	//float3 dir = { worldpos.x - camera_pos.x, worldpos.y - camera_pos.y, worldpos.z - camera_pos.z };
-	//float dist2 = abs(DIST2(dir));
-	//if (dist2 < DIST2(drawable.bounds->final_box.Extents) * 4) {
-	//	return true;
-	//}
+	float3 dir = { worldpos.x - camera_pos.x, worldpos.y - camera_pos.y, worldpos.z - camera_pos.z };
+	float dist2 = abs(DIST2(dir));
+	if (dist2 < DIST2(drawable.bounds->final_box.Extents) * 2) {
+		return true;
+	}
+
 	float box_dist2 = DIST2(drawable.bounds->final_box.Extents);
 	drawable.bounds->final_box.GetCorners(points);
+	float2 screen_min{ FLT_MAX, FLT_MAX };
+	float2 screen_max{ -FLT_MAX, -FLT_MAX };
+	bool in_x, in_y;
 	for (int i = 0; i < 8; ++i) {
-		float3 diff = { points[i].x - camera_pos.x, points[i].y - camera_pos.y, points[i].z - camera_pos.z };
-		float dist2 = abs(DIST2(diff));
-		if (dist2 < box_dist2) {
-			ret = true;
-			break;
-		}
-		float2 screen = WorldToScreen(points[i], view_projection, (float)w, (float)h);
-		if ((screen.x > 0 && screen.x < w) && (screen.y > 0 && screen.y < h)) {
-			ret = true;
-			break;
+		float2 pscreen = WorldToScreen(points[i], view_projection, (float)w, (float)h);
+		screen_min.x = min(screen_min.x, pscreen.x);
+		screen_min.y = min(screen_min.y, pscreen.y);
+		screen_max.x = max(screen_max.x, pscreen.x);
+		screen_max.y = max(screen_max.y, pscreen.y);
+		in_x = (screen_min.x >= 0 && screen_min.x <= w) || (screen_max.x >= 0 && screen_max.x <= w) || (screen_min.x <= 0 && screen_max.x >= w);
+		in_y = (screen_min.y >= 0 && screen_min.y <= h) || (screen_max.y >= 0 && screen_max.y <= h) || (screen_min.y <= 0 && screen_max.y >= h);
+		if (in_x && in_y) {
+			return true;
 		}
 	}
-	return ret;
+	in_x = (screen_min.x >= 0 && screen_min.x <= w) || (screen_max.x >= 0 && screen_max.x <= w) || (screen_min.x <= 0 && screen_max.x >= w);
+	in_y = (screen_min.y >= 0 && screen_min.y <= h) || (screen_max.y >= 0 && screen_max.y <= h) || (screen_min.y <= 0 && screen_max.y >= h);
+	return (in_x && in_y);
 }
 
 void RenderSystem::PrepareMaterial(Core::MaterialData* material, Core::SimpleVertexShader* vs, Core::SimpleHullShader* hs, Core::SimpleDomainShader* ds, Core::SimpleGeometryShader* gs, Core::SimplePixelShader* ps) {
