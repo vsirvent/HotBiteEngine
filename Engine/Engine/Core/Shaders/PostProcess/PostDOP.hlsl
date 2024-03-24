@@ -41,7 +41,7 @@ cbuffer externalData : register(b0)
 #define EPSILON 1e-6
 #define VERTICAL 1
 #define HORIZONTAL 2
-#define KERNEL_SIZE 15
+#define KERNEL_SIZE 9
 #define HALF_KERNEL KERNEL_SIZE/2
 
 void FillGaussianArray(out float array[KERNEL_SIZE], float dispersion)

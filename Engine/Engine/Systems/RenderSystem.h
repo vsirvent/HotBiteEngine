@@ -240,6 +240,8 @@ namespace HotBite {
 				Core::DXCore* dxcore = nullptr;				
 				Core::RenderTexture2D depth_map{ 3 };
 				Core::RenderTexture2D light_map;
+				Core::RenderTexture2D vol_light_map;
+				Core::RenderTexture2D vol_light_map2;
 				Core::RenderTexture2D position_map;
 				Core::RenderTexture2D prev_position_map;
 				Core::RenderTexture2D bloom_map;
@@ -278,6 +280,7 @@ namespace HotBite {
 
 				//Volumetric lights
 				Core::SimpleComputeShader* vol_shader = nullptr;
+				Core::SimpleComputeShader* blur_shader = nullptr;
 
 				float time = 0.0f;
 				bool tess_enabled = true;

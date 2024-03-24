@@ -214,6 +214,16 @@ int FBXLoader::LoadMeshes(Core::FlatMap<std::string, Core::MeshData>& meshes, Fb
 		int vertexCount = fbxMesh->GetControlPointsCount();
 		std::vector<Vertex> vertices;
 
+		bool smooth = true;
+		FbxProperty p = node->FindProperty("smooth", false);
+		if (p.IsValid())
+		{
+			smooth = (bool)p.Get<int>();
+		}
+		if (name.find(".NoSmooth") != std::string::npos) {
+			smooth = false;
+		}
+
 		Vertex v = {};
 		for (int i = 0; i < vertexCount; i++)
 		{
@@ -408,15 +418,7 @@ int FBXLoader::LoadMeshes(Core::FlatMap<std::string, Core::MeshData>& meshes, Fb
 			}
 		}
 
-		bool smooth = true;
-		FbxProperty p = node->FindProperty("smooth", false);
-		if (p.IsValid())
-		{
-			smooth = (bool)p.Get<int>();
-		}
-		if (name.find(".NoSmooth") != std::string::npos) {
-			smooth = false;
-		}
+		
 		if (smooth) {
 			for (auto cv : cloned_vertices) {
 				vector<int> ids;
@@ -427,7 +429,6 @@ int FBXLoader::LoadMeshes(Core::FlatMap<std::string, Core::MeshData>& meshes, Fb
 					vertices[id].Bitangent = mixed_vertex.Bitangent;
 					memcpy(vertices[id].Boneids, mixed_vertex.Boneids, sizeof(mixed_vertex.Boneids));
 					vertices[id].Weights = mixed_vertex.Weights;
-
 				}
 			}
 		}

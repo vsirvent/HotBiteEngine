@@ -118,7 +118,6 @@ float DirShadowPCFFAST(float4 position, DirLight light, int index)
 	if (p.x < 0.0f || p.x > 1.0f || p.y < 0.0f || p.y > 1.0f) {
 		return 0.5f;
 	}
-	p.z -= 0.1f;
 	float att1 = DirShadowMapTexture[index].SampleCmpLevelZero(PCFSampler, float2(p.x, p.y), p.z).r;
 	return saturate(att1);
 }
@@ -228,28 +227,33 @@ float3 CalcDirectionalWithoutNormal(float4 position, MaterialColor material, Dir
 }
 
 float3 DirVolumetricLight(float4 position, DirLight light, int index, float time, float cloud_density) {
-	float3 lcolor = light.Color.rgb * light.intensity;
 
+	float3 lcolor = light.Color.rgb * light.intensity;
 	float3 color = { 0.f, 0.f, 0.f };
-#if 1
+
 	float step = 0.5f;
 	float max_vol = 1.0f;
+
 	float3 ToEye = cameraPosition.xyz - position.xyz;
+	float ToEyeDist = length(ToEye);
+	int nsteps = ToEyeDist / step;
+	float3 ToEyeRayUnit = ToEye / nsteps;
+
 	float3 camDir = cameraDirection.xyz;
 	float angle_extra = saturate(pow(dot(normalize(camDir), normalize(light.DirToLight)), 3.0f)) * 2.0f;
 	float density_step = light.density * step;
 	float shadow, fog, att;
 	int apply_fog = light.flags & DIR_LIGHT_FLAG_FOG;
-	float3 ToLight;
-	float DistToLight;
-	float LightRange;
 	float3 step_color = (lcolor * density_step);	
 	float3 step_color2 = step_color;
-	float ToEyeDist = length(ToEye);
-	int nsteps = ToEyeDist / step;
-	float3 ToEyeRayUnit = ToEye / nsteps;
-	float density_y = 1.0f;
+	
+	//fog height
 	float max_h = 80.0f;
+
+	float3 ToLight = { 0.0f, 0.0f, 0.0f };
+	float DistToLight = 0.0f;
+	float LightRange = 0.0f;
+	float density_y = 1.0f;
 	if (light.range > 0.0f) {
 		ToLight = light.position - position.xyz;
 		ToLight *= -light.DirToLight;
@@ -259,30 +263,13 @@ float3 DirVolumetricLight(float4 position, DirLight light, int index, float time
 	}
 	if (density_y > 0.0f) {
 
-		//Part of the last march
-		float extra_step_w = ((ToEyeDist / step) - (float)nsteps);
-
-		//We fine check shadow changes
-		bool was_light = false;
-		float3 ToEyeRayUnitMicroStep = ToEyeRayUnit / 10.0f;
-
 		//End if maximum volume achieved
 		float mag = 0.0f;
 		float n = 1.0f;
 
 		if (nsteps > max_nsteps) {
 			int diff = nsteps - max_nsteps;
-			if (diff > 50) {
-				diff -= 50;
-				if (diff < 500) {
-					float diff2 = clamp(diff, 0, 100);
-					if (apply_fog != 0 && max_h > position.y) {
-						float h_att = saturate((max_h - position.y) / max_h);
-						color += step_color2 * h_att * diff2 * 0.5f;
-					}
-				}
-				position.xyz += ToEyeRayUnit * diff;
-			}
+			position.xyz += ToEyeRayUnit * diff;
 			nsteps = max_nsteps;
 		}
 		
@@ -328,14 +315,13 @@ float3 DirVolumetricLight(float4 position, DirLight light, int index, float time
 			}
 			att *= shadow;
 			color += step_color * clamp(att * fog, 0.0f, 30.0f);
-			color += step_color2 * att;
 			mag = max(color.r, max(color.g, color.b));
 			if (mag > max_vol) {
 				break;
 			}
 		}
 	}
-#endif
+
 	return color;
 }
 
@@ -355,8 +341,6 @@ float3 VolumetricLight(float3 position, PointLight light, int index) {
 		int nsteps = ToEyeDist / step;
 		float3 ToEyeRayUnit = ToEye / nsteps;
 		float extra_step_w = ((ToEyeDist / step) - (float)nsteps);
-		bool was_light = false;
-		float3 ToEyeRayUnitMicroStep = ToEyeRayUnit / 10.0f;
 		float mag = 0.0f;
 		
 		if (nsteps > max_nsteps) {
@@ -368,7 +352,7 @@ float3 VolumetricLight(float3 position, PointLight light, int index) {
 			position += ToEyeRayUnit;
 			float3 ToLight = position - lposition;
 			float ToLightDist = length(ToLight);
-			if (ToLightDist > light.Range * 1.1f) {
+			if (ToLightDist > light.Range) {
 				break;
 			}
 			float LightRange = (light.Range - ToLightDist) / light.Range;
@@ -377,35 +361,8 @@ float3 VolumetricLight(float3 position, PointLight light, int index) {
 			if (light.cast_shadow) {
 				shadow = PointShadowPCFFast(ToLight, light, index);
 			}
-#if 0
-			bool is_light = (shadow > 0.0f);
-			float att = saturate(pow(DistToLightNorm, 4.0f));
-			if (i == nsteps) {
-				att *= extra_step_w;
-			}
-			else {
-				if (was_light && !is_light) {
-					float3 current_pos = position;
-					for (int i = 9; i >= 0; --i) {
-						current_pos -= ToEyeRayUnitMicroStep;
-						float3 testToLight = current_pos - lposition;
-						float test = PointShadowPCFFast(testToLight, light, index);
-						if (test > 0.9f) {
-							float w = (float)i / 10.0f;
-							att *= w;
-							break;
-						}
-					}
-				}
-				else {
-					att *= shadow;
-				}
-			}
-			was_light = is_light;
-#else
 			float att = DistToLightNorm;
 			att *= shadow;
-#endif		
 			saturate(att);
 			color += step_color * att;
 			mag = max(color.r, max(color.g, color.b));

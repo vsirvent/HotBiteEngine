@@ -65,11 +65,26 @@ cbuffer externalData : register(b0)
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main(uint3 DTid : SV_DispatchThreadID)
 {
-    float2 pixel = float2(DTid.x, DTid.y);
+    uint2 input_dimensions;
+    uint2 output_dimensions;
+    {
+        uint w, h;
+        worldTexture.GetDimensions(w, h);
+        input_dimensions.x = w;
+        input_dimensions.y = h;
+        output.GetDimensions(w, h);
+        output_dimensions.x = w;
+        output_dimensions.y = h;
+    }
+
+    uint2 input_ratio = input_dimensions / output_dimensions;
+
+    float2 output_pixel = float2(DTid.x, DTid.y);
+    float2 input_pixel = output_pixel * input_ratio;
     float4 lightColor = { 0.0f, 0.0f, 0.0f, 1.0f };
-    float4 wpos = worldTexture[pixel];
+    float4 wpos = worldTexture[input_pixel];
     if (length(wpos) <= Epsilon) {
-        float2 tpos = pixel.xy;
+        float2 tpos = input_pixel.xy;
         tpos.x /= screenW;
         tpos.y /= screenH;
 
@@ -78,7 +93,8 @@ void main(uint3 DTid : SV_DispatchThreadID)
         float4 eyepos = D / D.w;
         float3 worldPos = mul(eyepos, view_inverse).xyz;
         float3 dir = normalize(worldPos - cameraPosition);
-        wpos.xyz = cameraPosition + dir * 1000.0f;
+        wpos.xyz = cameraPosition + dir * 100.0f;
+        wpos.w = 1.0f;
     }
     int i = 0;
     // Calculate the directional light
@@ -94,5 +110,5 @@ void main(uint3 DTid : SV_DispatchThreadID)
             lightColor.rgb += VolumetricLight(wpos.xyz, pointLights[i], i);
         }
     }
-    output[pixel] += lightColor;
+    output[output_pixel] = lightColor;
 }

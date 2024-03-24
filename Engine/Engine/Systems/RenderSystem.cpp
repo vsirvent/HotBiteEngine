@@ -249,6 +249,12 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		if (FAILED(light_map.Init(w, h))) {
 			throw std::exception("light_map.Init failed");
 		}
+		if (FAILED(vol_light_map.Init(w / 2, h / 2, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+			throw std::exception("light_map.Init failed");
+		}
+		if (FAILED(vol_light_map2.Init(w / 2, h / 2, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+			throw std::exception("light_map.Init failed");
+		}
 		if (FAILED(position_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT))) {
 			throw std::exception("position_map.Init failed");
 		}
@@ -302,11 +308,15 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		}
 		vol_shader = ShaderFactory::Get()->GetShader<SimpleComputeShader>("VolumetricLightCS.cso");
 		if (vol_shader == nullptr) {
-			throw std::exception("raytrace shader.Init failed");
+			throw std::exception("VolumetricLightCS shader.Init failed");
+		}
+		blur_shader = ShaderFactory::Get()->GetShader<SimpleComputeShader>("BlurCS.cso");
+		if (blur_shader == nullptr) {
+			throw std::exception("BlurCS shader.Init failed");
 		}
 		rt_smooth = ShaderFactory::Get()->GetShader<SimpleComputeShader>("SmoothCS.cso");
 		if (rt_smooth == nullptr) {
-			throw std::exception("raytrace shader.Init failed");
+			throw std::exception("SmoothCS shader.Init failed");
 		}
 		motion_blur = ShaderFactory::Get()->GetShader<SimpleComputeShader>("MotionBlurCS.cso");
 		if (motion_blur == nullptr) {
@@ -326,6 +336,8 @@ RenderSystem::~RenderSystem() {
 	depth_map.Release();
 	depth_view.Release();
 	light_map.Release();
+	vol_light_map.Release();
+	vol_light_map2.Release();
 	position_map.Release();
 	prev_position_map.Release();
 	bloom_map.Release();
@@ -1802,6 +1814,7 @@ void RenderSystem::SetPostProcessPipeline(Core::PostProcess* pipeline) {
 		post_process_pipeline = pipeline;
 		PostProcess* last = pipeline;
 		pipeline->SetShaderResourceView(LIGHT_TEXTURE, light_map.SRV());
+		pipeline->SetShaderResourceView("volLightTexture", vol_light_map.SRV());
 		pipeline->SetShaderResourceView("bloomTexture", bloom_map.SRV());
 		pipeline->SetShaderResourceView("rtTexture0", rt_texture_out[0].SRV());
 		pipeline->SetShaderResourceView("rtTexture1", rt_texture_out[1].SRV());
@@ -1836,14 +1849,33 @@ void RenderSystem::PostProcessLight() {
 		PrepareVolumetricShader(vol_shader);
 		vol_shader->SetMatrix4x4("view_inverse", cam_entity.camera->inverse_view);
 		vol_shader->SetMatrix4x4("projection_inverse", cam_entity.camera->inverse_projection);
-		vol_shader->SetUnorderedAccessView("output", bloom_map.UAV());
+		vol_shader->SetUnorderedAccessView("output", vol_light_map.UAV());
 		vol_shader->CopyAllBufferData();
 		vol_shader->SetShader();
-		int32_t  groupsX = (int32_t)(ceil((float)bloom_map.Width() / (32.0f)));
-		int32_t  groupsY = (int32_t)(ceil((float)bloom_map.Height() / (32.0f)));
+		int32_t  groupsX = (int32_t)(ceil((float)vol_light_map.Width() / (32.0f)));
+		int32_t  groupsY = (int32_t)(ceil((float)vol_light_map.Height() / (32.0f)));
 		dxcore->context->Dispatch(groupsX, groupsY, 1);
 		vol_shader->SetUnorderedAccessView("output", nullptr);
 		UnprepareVolumetricShader(vol_shader);
+
+		//Smooth frame
+		blur_shader->SetUnorderedAccessView("input", vol_light_map.UAV());
+		blur_shader->SetUnorderedAccessView("output", vol_light_map2.UAV());
+
+		groupsX = (int32_t)(ceil((float)vol_light_map.Width() / 32.0f));
+		groupsY = (int32_t)(ceil((float)vol_light_map.Height() / 32.0f));
+		blur_shader->SetFloat("variance", 5.0f);
+		blur_shader->SetInt("type", 1);
+		blur_shader->CopyAllBufferData();
+		blur_shader->SetShader();
+		dxcore->context->Dispatch(groupsX, groupsY, 1);
+		blur_shader->SetInt("type", 2);
+		blur_shader->SetUnorderedAccessView("input", vol_light_map2.UAV());
+		blur_shader->SetUnorderedAccessView("output", vol_light_map.UAV());
+		blur_shader->CopyAllBufferData();
+		dxcore->context->Dispatch(groupsX, groupsY, 1);
+		blur_shader->SetUnorderedAccessView("input", nullptr);
+		blur_shader->SetUnorderedAccessView("output", nullptr);
 	}
 
 	ID3D11DeviceContext* context = DXCore::Get()->context;

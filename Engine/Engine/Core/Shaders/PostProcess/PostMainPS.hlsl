@@ -31,6 +31,7 @@ Texture2D lightTexture: register(t4);
 Texture2D bloomTexture: register(t5);
 Texture2D rtTexture0 : register(t6);
 Texture2D rtTexture1 : register(t7);
+Texture2D volLightTexture: register(t8);
 
 SamplerState basicSampler : register(s0);
 
@@ -69,8 +70,9 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
 #endif
     float4 rt0 = rtTexture0.Sample(basicSampler, tpos);
     float4 rt1 = rtTexture1.Sample(basicSampler, tpos);
-    
-    color += (color + 2.0f*l) * rt0 + rt1 + b;
+    float4 vol = volLightTexture.Sample(basicSampler, tpos);
+
+    color += (color + 2.0f*l) * rt0 + rt1 + b + vol;
 #if 0
     color.rgb += 0.05f * simplex3d_fractal(float3(400.0f*tpos.xy, time*random(1000.0f*time)));
 #endif
