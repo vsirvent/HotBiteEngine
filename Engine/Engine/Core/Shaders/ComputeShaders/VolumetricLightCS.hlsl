@@ -28,6 +28,7 @@ SOFTWARE.
 
 Texture2D<float4> worldTexture: register(t0);
 RWTexture2D<float4> output : register(u0);
+RWTexture2D<uint> vol_data: register(u2);
 
 cbuffer externalData : register(b0)
 {
@@ -110,5 +111,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
             lightColor.rgb += VolumetricLight(wpos.xyz, pointLights[i], i);
         }
     }
+    float illumitation = length(lightColor) * 1000.0f;
+    InterlockedAdd(vol_data[uint2(0, 0)], (uint)(illumitation));
     output[output_pixel] = lightColor;
 }

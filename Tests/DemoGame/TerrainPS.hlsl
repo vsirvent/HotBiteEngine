@@ -138,7 +138,8 @@ RenderTargetRT main(GSOutput input)
 		ray.normal = normal;
 		ray.density = 1.0f;
 		ray.opacity = 1.0f;
-	
+		ray.reflex = 1.0f;
+
 		output.rt_ray0_map = getColor0(ray);
 		output.rt_ray1_map = getColor1(ray);
 

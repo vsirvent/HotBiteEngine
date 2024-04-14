@@ -281,6 +281,11 @@ namespace HotBite {
 				//Volumetric lights
 				Core::SimpleComputeShader* vol_shader = nullptr;
 				Core::SimpleComputeShader* blur_shader = nullptr;
+				struct VoumetricLightData {
+					uint32_t golbal_illumination;
+					float3 padding;
+				};
+				Core::RenderTexture2D vol_data;
 
 				float time = 0.0f;
 				bool tess_enabled = true;

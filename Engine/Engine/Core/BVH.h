@@ -151,7 +151,7 @@ namespace HotBite {
 
 					bd.Usage = D3D11_USAGE_DEFAULT;
 					bd.ByteWidth = data_size;
-					bd.CPUAccessFlags = 0;
+					bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
 					bd.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS;
 					bd.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS;
 					bd.StructureByteStride = sizeof(T);
@@ -186,6 +186,19 @@ namespace HotBite {
 
 				end:
 					return hr;
+				}
+
+				void Clear(uint32_t start = 0, uint32_t len = 0) {
+					if (len == 0) {
+						len = (uint32_t)size;
+					}
+					if (len > 0 && start < (uint32_t)size) {
+						ID3D11DeviceContext* context = Core::DXCore::Get()->context;
+						D3D11_MAPPED_SUBRESOURCE resource;
+						context->Map(buffer, 0, D3D11_MAP_WRITE, 0, &resource);
+						memset(resource.pData, 0, (UINT)(sizeof(T) * len));
+						context->Unmap(buffer, 0);
+					}
 				}
 
 

@@ -36,6 +36,8 @@ using namespace HotBite::Engine::Components;
 using namespace HotBite::Engine::Core;
 using namespace DirectX;
 
+static const float zero[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+
 const std::string RenderSystem::WORLD = "world";
 const std::string RenderSystem::PREV_WORLD = "prevWorld";
 const std::string RenderSystem::MESH_NORMAL_MAP = "meshNormalTexture";
@@ -302,6 +304,10 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		if (FAILED(rt_ray_sources1.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("rt_ray_sources1.Init failed");
 		}
+		if (FAILED(vol_data.Init(16, 16, DXGI_FORMAT::DXGI_FORMAT_R32_UINT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+			throw std::exception("vol_data.Init failed");
+		}
+
 		rt_shader = ShaderFactory::Get()->GetShader<SimpleComputeShader>("RayTraceCS.cso");
 		if (rt_shader == nullptr) {
 			throw std::exception("raytrace shader.Init failed");
@@ -324,6 +330,7 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		}
 
 		texture_tmp_lock.Prepare(w * h * 4);
+
 	}
 	catch (std::exception& e) {
 		printf("RenderSystem::Init: ERROR: %s\n", e.what());
@@ -354,6 +361,7 @@ RenderSystem::~RenderSystem() {
 	rt_texture_props.Release();
 	rt_ray_sources0.Release();
 	rt_ray_sources1.Release();
+	vol_data.Release();
 }
 
 void RenderSystem::AddDrawable(ECS::Entity entity, const Core::ShaderKey& key, Components::Material* mat, RenderTree& tree, const RenderSystem::DrawableEntity& drawable) {
@@ -1240,8 +1248,6 @@ void RenderSystem::ProcessMotionBlur() {
 	if (cameras.GetData().empty()) {
 		return;
 	}
-
-	static const float zero[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 	post_process_pipeline->Clear(zero);
 	ID3D11UnorderedAccessView* output = post_process_pipeline->RenderUAV();
 	if (output == nullptr) {
@@ -1780,7 +1786,6 @@ void RenderSystem::SetEntityLights(Lighted* lighted, ECS::EntityVector<Direction
 void RenderSystem::Clear(const float color[4]) {
 	dxcore->ClearScreen(color);
 	static const float max_depth[4] = { FLT_MAX, FLT_MAX, FLT_MAX, FLT_MAX };
-	static const float zero[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 	depth_map.Clear(max_depth);
 	depth_view.Clear();
 	position_map.Clear(zero);
@@ -1845,22 +1850,27 @@ void RenderSystem::Update() {
 void RenderSystem::PostProcessLight() {
 
 	if (!cameras.GetData().empty()) {
+
+		vol_data.Clear(zero);
 		CameraEntity& cam_entity = cameras.GetData()[0];
 		PrepareVolumetricShader(vol_shader);
 		vol_shader->SetMatrix4x4("view_inverse", cam_entity.camera->inverse_view);
 		vol_shader->SetMatrix4x4("projection_inverse", cam_entity.camera->inverse_projection);
 		vol_shader->SetUnorderedAccessView("output", vol_light_map.UAV());
+		vol_shader->SetUnorderedAccessView("vol_data", vol_data.UAV());
 		vol_shader->CopyAllBufferData();
 		vol_shader->SetShader();
 		int32_t  groupsX = (int32_t)(ceil((float)vol_light_map.Width() / (32.0f)));
 		int32_t  groupsY = (int32_t)(ceil((float)vol_light_map.Height() / (32.0f)));
 		dxcore->context->Dispatch(groupsX, groupsY, 1);
 		vol_shader->SetUnorderedAccessView("output", nullptr);
+		vol_shader->SetUnorderedAccessView("vol_data", nullptr);
 		UnprepareVolumetricShader(vol_shader);
 
 		//Smooth frame
 		blur_shader->SetUnorderedAccessView("input", vol_light_map.UAV());
 		blur_shader->SetUnorderedAccessView("output", vol_light_map2.UAV());
+		blur_shader->SetShaderResourceView("vol_data", vol_data.SRV());
 
 		groupsX = (int32_t)(ceil((float)vol_light_map.Width() / 32.0f));
 		groupsY = (int32_t)(ceil((float)vol_light_map.Height() / 32.0f));
@@ -1870,12 +1880,15 @@ void RenderSystem::PostProcessLight() {
 		blur_shader->SetShader();
 		dxcore->context->Dispatch(groupsX, groupsY, 1);
 		blur_shader->SetInt("type", 2);
+		blur_shader->SetUnorderedAccessView("input", nullptr);
+		blur_shader->SetUnorderedAccessView("output", nullptr);
 		blur_shader->SetUnorderedAccessView("input", vol_light_map2.UAV());
 		blur_shader->SetUnorderedAccessView("output", vol_light_map.UAV());
 		blur_shader->CopyAllBufferData();
 		dxcore->context->Dispatch(groupsX, groupsY, 1);
 		blur_shader->SetUnorderedAccessView("input", nullptr);
 		blur_shader->SetUnorderedAccessView("output", nullptr);
+		blur_shader->SetShaderResourceView("vol_data", nullptr);
 	}
 
 	ID3D11DeviceContext* context = DXCore::Get()->context;
@@ -1923,8 +1936,7 @@ void RenderSystem::Draw() {
 		//but this is fine to just make the overhead of casting shadow of static objects almost zero (cost reduced by /STATIC_SHADOW_REFRESH_PERIOD)
 		//if ((count++ % STATIC_SHADOW_REFRESH_PERIOD) == 0) {
 		//	CastShadows(w, h, camera_position, view, projection, true);
-		//}
-		static const float zero[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+		//}		
 		rt_ray_sources0.Clear(zero);
 		rt_ray_sources1.Clear(zero);
 		CastShadows(w, h, camera_position, view, projection, false);

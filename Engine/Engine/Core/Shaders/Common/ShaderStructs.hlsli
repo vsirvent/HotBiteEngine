@@ -76,6 +76,12 @@ float getDispersion(float4 color) {
 	return color.r;
 }
 
+struct VolumetricLightData
+{
+	uint globalIllumination;
+	float3 padding;
+};
+
 struct DepthVertexToPixel
 {
 	float4 position		: SV_POSITION;	// XYZW position (System Value Position)
