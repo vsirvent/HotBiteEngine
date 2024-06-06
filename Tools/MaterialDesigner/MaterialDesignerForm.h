@@ -38,7 +38,7 @@ namespace MaterialDesigner {
 
 			HotBiteTool::ToolUi::LoadWorld(root + "material_scene.json");
 			HotBiteTool::ToolUi::RotateEntity("Cube.NoSmooth");
-			HotBiteTool::ToolUi::RotateEntity("Plane");
+			HotBiteTool::ToolUi::RotateEntity("Plane.NoSmooth");
 			HotBiteTool::ToolUi::RotateEntity("Sphere");
 			HotBiteTool::ToolUi::RotateEntity("Cup");
 			rootFolder->Text = Environment::GetFolderPath(Environment::SpecialFolder::MyDocuments);
@@ -765,14 +765,14 @@ namespace MaterialDesigner {
 				   std::string mat_json = m->ToJson().dump();
 				   HotBiteTool::ToolUi::SetMaterial("Cube.NoSmooth", msclr::interop::marshal_as<std::string>(rootFolder->Text), mat_json);
 				   HotBiteTool::ToolUi::SetMaterial("Sphere", msclr::interop::marshal_as<std::string>(rootFolder->Text), mat_json);
-				   HotBiteTool::ToolUi::SetMaterial("Plane", msclr::interop::marshal_as<std::string>(rootFolder->Text), mat_json);
+				   HotBiteTool::ToolUi::SetMaterial("Plane.NoSmooth", msclr::interop::marshal_as<std::string>(rootFolder->Text), mat_json);
 				   HotBiteTool::ToolUi::SetMaterial("Cup", msclr::interop::marshal_as<std::string>(rootFolder->Text), mat_json);
 			   }else if (multiMaterialList->SelectedIndex >= 0) {
 				   MultiMaterial* m = GetMaterial<MultiMaterial>(multiMaterialList->SelectedItem->ToString(), multiMaterials);
 				   std::string mat_json = m->ToJson().dump();
 				   HotBiteTool::ToolUi::SetMultiMaterial("Cube.NoSmooth", msclr::interop::marshal_as<std::string>(rootFolder->Text), mat_json);
 				   HotBiteTool::ToolUi::SetMultiMaterial("Sphere", msclr::interop::marshal_as<std::string>(rootFolder->Text), mat_json);
-				   HotBiteTool::ToolUi::SetMultiMaterial("Plane", msclr::interop::marshal_as<std::string>(rootFolder->Text), mat_json);
+				   HotBiteTool::ToolUi::SetMultiMaterial("Plane.NoSmooth", msclr::interop::marshal_as<std::string>(rootFolder->Text), mat_json);
 				   HotBiteTool::ToolUi::SetMultiMaterial("Cup", msclr::interop::marshal_as<std::string>(rootFolder->Text), mat_json);
 			   }
 			   else {
@@ -780,7 +780,7 @@ namespace MaterialDesigner {
 				   std::string mat_json = dm->ToJson().dump();
 				   HotBiteTool::ToolUi::SetMaterial("Cube.NoSmooth", msclr::interop::marshal_as<std::string>(rootFolder->Text), mat_json);
 				   HotBiteTool::ToolUi::SetMaterial("Sphere", msclr::interop::marshal_as<std::string>(rootFolder->Text), mat_json);
-				   HotBiteTool::ToolUi::SetMaterial("Plane", msclr::interop::marshal_as<std::string>(rootFolder->Text), mat_json);
+				   HotBiteTool::ToolUi::SetMaterial("Plane.NoSmooth", msclr::interop::marshal_as<std::string>(rootFolder->Text), mat_json);
 				   HotBiteTool::ToolUi::SetMaterial("Cup", msclr::interop::marshal_as<std::string>(rootFolder->Text), mat_json);
 			   }
 		   }
@@ -802,12 +802,12 @@ namespace MaterialDesigner {
 		   void UpdateEditor() {
 			   HotBiteTool::ToolUi::SetVisible("Cube.NoSmooth", false);
 			   HotBiteTool::ToolUi::SetVisible("Sphere", false);
-			   HotBiteTool::ToolUi::SetVisible("Plane", false);
+			   HotBiteTool::ToolUi::SetVisible("Plane.NoSmooth", false);
 			   HotBiteTool::ToolUi::SetVisible("Cup", false);
 			   switch (currentModel) {
 			   case Model::CUBE: HotBiteTool::ToolUi::SetVisible("Cube.NoSmooth", true); break;
 			   case Model::SPHERE: HotBiteTool::ToolUi::SetVisible("Sphere", true); break;
-			   case Model::PLANE: HotBiteTool::ToolUi::SetVisible("Plane", true); break;
+			   case Model::PLANE: HotBiteTool::ToolUi::SetVisible("Plane.NoSmooth", true); break;
 			   case Model::CUSTOM: HotBiteTool::ToolUi::SetVisible("Cup", true); break;
 			   default: break;
 			   }

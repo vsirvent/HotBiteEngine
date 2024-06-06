@@ -235,7 +235,7 @@ namespace HotBite {
 				void UnprepareLights(Core::SimpleVertexShader* vs, Core::SimpleHullShader* hs, Core::SimpleDomainShader* ds, Core::SimpleGeometryShader* gs, Core::SimplePixelShader* ps);
 
 			private:
-				static constexpr uint32_t TEXTURE_RESOLUTION_DIVIDER = 2;
+				static constexpr uint32_t TEXTURE_RESOLUTION_DIVIDER = 1;
 
 				Core::DXCore* dxcore = nullptr;				
 				Core::RenderTexture2D depth_map{ 3 };

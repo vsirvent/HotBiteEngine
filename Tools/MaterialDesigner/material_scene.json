@@ -32,13 +32,12 @@
         "name": "MaterialDesignerFloor",
         "spec_intensity": 0.5,
         "parallax_scale": 0.1,
-        "textures": {
-          "diffuse_textname": ".\\assets\\textures\\Bricks076C_1K\\Bricks076C_1K_Color.jpg",
-          "normal_textname": ".\\assets\\textures\\Bricks076C_1K\\Bricks076C_1K_NormalDX.jpg",
-          "high_textname": ".\\assets\\textures\\Bricks076C_1K\\Bricks076C_1K_Displacement.jpg",
-          "spec_textname": ".\\assets\\textures\\Bricks076C_1K\\Bricks076C_1K_Roughness.jpg",
-          "ao_textname": ".\\assets\\textures\\Bricks076C_1K\\Bricks076C_1K_AmbientOcclusion.jpg"
-        }
+        "parallax_steps": 10,
+        "diffuse_textname": ".\\assets\\textures\\Bricks076C_1K\\Bricks076C_1K_Color.jpg",
+        "normal_textname": ".\\assets\\textures\\Bricks076C_1K\\Bricks076C_1K_NormalDX.jpg",
+        "high_textname": ".\\assets\\textures\\Bricks076C_1K\\Bricks076C_1K_Displacement.jpg",
+        "spec_textname": ".\\assets\\textures\\Bricks076C_1K\\Bricks076C_1K_Roughness.jpg",
+        "ao_textname": ".\\assets\\textures\\Bricks076C_1K\\Bricks076C_1K_AmbientOcclusion.jpg"
       }
     ],
     "entities": [

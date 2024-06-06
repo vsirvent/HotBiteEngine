@@ -894,3 +894,4 @@ Solution/x64/Release/MotionBlurCS.cso
 Solution/x64/Release/Marbles.exe
 Solution/x64/Release/AccumulatorCS.cso
 *.cso
+Solution/x64/Release/GameServer.exe
