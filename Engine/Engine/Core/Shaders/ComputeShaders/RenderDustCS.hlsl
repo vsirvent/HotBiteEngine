@@ -26,8 +26,8 @@ SOFTWARE.
 #include "../Common/Utils.hlsli"
 #include "../Common/PixelCommon.hlsli"
 
-Texture2D<float4> worldTexture: register(t0);
 RWTexture2D<float4> output : register(u0);
+RWTexture2D<float4> dustTexture : register(u1);
 RWTexture2D<uint> vol_data: register(u2);
 
 cbuffer externalData : register(b0)
@@ -40,9 +40,10 @@ cbuffer externalData : register(b0)
     PointLight pointLights[MAX_LIGHTS];
     float3 cameraPosition;
     float3 cameraDirection;
-    float cloud_density;
-    matrix view_inverse;
-    matrix projection_inverse;
+    
+    matrix view;
+    matrix projection;
+    
     float4 LightPerspectiveValues[MAX_LIGHTS / 2];
     matrix DirPerspectiveMatrix[MAX_LIGHTS];
     matrix DirStaticPerspectiveMatrix[MAX_LIGHTS];
@@ -56,8 +57,6 @@ cbuffer externalData : register(b0)
     uint4 packed_multi_texture_operations[MAX_MULTI_TEXTURE / 4];
     float4 packed_multi_texture_values[MAX_MULTI_TEXTURE / 4];
     float4 packed_multi_texture_uv_scales[MAX_MULTI_TEXTURE / 4];
-
-    int disable_vol;
 }
 
 #include "../Common/PixelFunctions.hlsli"
@@ -66,53 +65,29 @@ cbuffer externalData : register(b0)
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main(uint3 DTid : SV_DispatchThreadID)
 {
-    uint2 input_dimensions;
-    uint2 output_dimensions;
-    {
-        uint w, h;
-        worldTexture.GetDimensions(w, h);
-        input_dimensions.x = w;
-        input_dimensions.y = h;
-        output.GetDimensions(w, h);
-        output_dimensions.x = w;
-        output_dimensions.y = h;
-    }
-
-    uint2 input_ratio = input_dimensions / output_dimensions;
-
-    float2 output_pixel = float2(DTid.x, DTid.y);
-    float2 input_pixel = output_pixel * input_ratio;
+    float2 input_pixel = float2(DTid.x, DTid.y);
     float4 lightColor = { 0.0f, 0.0f, 0.0f, 1.0f };
-    float4 wpos = worldTexture[input_pixel];
-    if (length(wpos) <= Epsilon) {
-        float2 tpos = input_pixel.xy;
-        tpos.x /= screenW;
-        tpos.y /= screenH;
 
-        float4 H = float4(tpos.x * 2.0f - 1.0f, (1.0f - tpos.y) * 2.0f - 1.0f, 0.0f, 1.0f);
-        float4 D = mul(H, projection_inverse);
-        float4 eyepos = D / D.w;
-        float3 worldPos = mul(eyepos, view_inverse).xyz;
-        float3 dir = normalize(worldPos - cameraPosition);
-        wpos.xyz = cameraPosition + dir * 100.0f;
-        wpos.w = 1.0f;
-    }
-    int i = 0;
-    // Calculate the directional light
-    for (i = 0; i < dirLightsCount; ++i) {
-        if (dirLights[i].density > 0.0f && disable_vol == 0) {
-            lightColor.rgb += DirVolumetricLight(wpos, dirLights[i], i, time, cloud_density);
-        }
-    }
+    float4 wpos = dustTexture[input_pixel];
 
-    // Calculate the point lights
-    for (i = 0; i < pointLightsCount; ++i) {
-        if (pointLights[i].density > 0.0f && disable_vol == 0) {
-            lightColor.rgb += VolumetricLight(wpos.xyz, pointLights[i], i);
-        }
-    }
+    //Convert to view space
+    matrix worldViewProj = mul(view, projection);
 
-    float illumitation = length(lightColor) * 900.0f;
-    InterlockedAdd(vol_data[uint2(0, 0)], (uint)(illumitation));
-    output[output_pixel] = lightColor;
+    float4 viewPos = mul(wpos, worldViewProj);
+    viewPos /= viewPos.w;
+    
+    //if we are in front of camera
+    if (viewPos.z > 0.0f && abs(viewPos.x) < 0.5f && abs(viewPos.y) < 0.5f)
+    {
+        viewPos.x /= viewPos.z;
+        viewPos.y /= -viewPos.z;
+        viewPos.x = (viewPos.x + 1.0f) * screenW / 2.0f;
+        viewPos.y = (viewPos.y + 1.0f) * screenH / 2.0f;
+        
+        float4 color = float4(1.0f, 1.0f, 1.0f, 1.0f);
+
+        float illumitation = length(color) * 900.0f;
+        //InterlockedAdd(vol_data[uint2(0, 0)], (uint) (illumitation));
+        output[viewPos.xy] += color;
+    }
 }

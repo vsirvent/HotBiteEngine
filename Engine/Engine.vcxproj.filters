@@ -543,5 +543,11 @@
     <FxCompile Include="Engine\Core\Shaders\ComputeShaders\VolumetricLightCS.hlsl">
       <Filter>Engine\Core\Shaders\ComputeShaders</Filter>
     </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\ComputeShaders\RenderDustCS.hlsl">
+      <Filter>Engine\Core\Shaders\ComputeShaders</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\ComputeShaders\UpdateDustCS.hlsl">
+      <Filter>Engine\Core\Shaders\ComputeShaders</Filter>
+    </FxCompile>
   </ItemGroup>
 </Project>

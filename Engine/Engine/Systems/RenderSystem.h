@@ -245,6 +245,7 @@ namespace HotBite {
 				Core::RenderTexture2D position_map;
 				Core::RenderTexture2D prev_position_map;
 				Core::RenderTexture2D bloom_map;
+				Core::RenderTexture2D dust_map;
 				Core::RenderTexture2D temp_map;
 				Core::RenderTexture2D rgba_noise_texture;
 				Core::RenderTexture2D first_pass_texture{ 1 };				
@@ -266,6 +267,10 @@ namespace HotBite {
 				Core::TBVH tbvh{ MAX_OBJECTS };
 				Core::SimpleComputeShader* rt_shader = nullptr;
 				Core::SimpleComputeShader* rt_smooth = nullptr;
+
+				//Dust shader
+				Core::SimpleComputeShader* dust_update = nullptr;
+				Core::SimpleComputeShader* dust_render = nullptr;
 
 				//RT texture 1: Reflexed rays
 				//RT texture 2: Refracted rays
@@ -302,6 +307,7 @@ namespace HotBite {
 					ID3D11ShaderResourceView* prev_pass_texture,
 					Core::IRenderTarget* target, RenderTree& tree);
 				void ProcessRT();
+				void ProcessDust();
 				void ProcessMotionBlur();
 				void DrawParticles(int w, int h, const float3& camera_position, const matrix& view, const matrix& projection, RenderParticleTree& tree);
 				bool IsVisible(const float3& camera_pos, const DrawableEntity& drawable, const matrix& view_projection, int w, int h) const;

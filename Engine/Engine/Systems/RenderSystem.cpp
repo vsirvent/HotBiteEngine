@@ -266,6 +266,9 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		if (FAILED(bloom_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("bloom_map.Init failed");
 		}
+		if (FAILED(dust_map.Init(2048, 2048, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+			throw std::exception("dust_map.Init failed");
+		}
 		if (FAILED(temp_map.Init(w, h))) {
 			throw std::exception("temp_map.Init failed");
 		}
@@ -348,6 +351,7 @@ RenderSystem::~RenderSystem() {
 	position_map.Release();
 	prev_position_map.Release();
 	bloom_map.Release();
+	dust_map.Release();
 	temp_map.Release();
 	first_pass_texture.Release();
 	rgba_noise_texture.Release();
@@ -1276,6 +1280,47 @@ void RenderSystem::ProcessMotionBlur() {
 	motion_blur->CopyAllBufferData();
 }
 
+void RenderSystem::ProcessDust() {
+	int w = dxcore->GetWidth();
+	int h = dxcore->GetHeight();
+	assert(!cameras.GetData().empty() && "No cameras found");
+	CameraEntity& cam_entity = cameras.GetData()[0];
+	time = ((float)Scheduler::Get()->GetElapsedNanoSeconds()) / 1000000000.0f;
+	float3 dir;
+	XMStoreFloat3(&dir, cam_entity.camera->xm_direction);
+
+	int32_t  groupsX = (int32_t)(ceil((float)dust_map.Width() / (32.0f)));
+	int32_t  groupsY = (int32_t)(ceil((float)dust_map.Height() / (32.0f)));
+
+	//Update dust position
+	dust_update->SetFloat(TIME, time);
+	dust_update->SetFloat3("range", { 100.0f, 20.0f, 100.0f });
+	dust_update->SetUnorderedAccessView("dustTexture", dust_map.UAV());
+	dust_update->CopyAllBufferData();
+	dust_update->SetShader();
+	dxcore->context->Dispatch(groupsX, groupsY, 1);
+	dust_update->SetUnorderedAccessView("dustTexture", nullptr);
+
+	//Render dust
+	dust_render->SetFloat(TIME, time);
+	dust_render->SetInt(SCREEN_W, w);
+	dust_render->SetInt(SCREEN_H, h);
+	dust_render->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
+	dust_render->SetFloat3("cameraDirection", dir);
+	dust_render->SetSamplerState(BASIC_SAMPLER, dxcore->basic_sampler);
+	PrepareLights(dust_render);
+	dust_render->SetUnorderedAccessView("dustTexture", dust_map.UAV());
+	dust_render->SetUnorderedAccessView("output", vol_light_map.UAV());
+	dust_render->SetUnorderedAccessView("vol_data", vol_data.UAV());
+	dust_render->CopyAllBufferData();
+	dust_render->SetShader();
+	dxcore->context->Dispatch(groupsX, groupsY, 1);
+	dust_render->SetUnorderedAccessView("dustTexture", nullptr);
+	dust_render->SetUnorderedAccessView("output", nullptr);
+	dust_render->SetUnorderedAccessView("vol_data", nullptr);
+	UnprepareLights(dust_render);
+}
+
 void RenderSystem::ProcessRT() {
 
 	if (rt_enabled && bvh_buffer != nullptr) {
@@ -1916,6 +1961,8 @@ void RenderSystem::PostProcessLight() {
 	ps->CopyAllBufferData();
 	ScreenDraw::Get()->Draw();
 	ps->SetShaderResourceView("renderTexture", nullptr);
+
+	ProcessDust();
 }
 
 void RenderSystem::Draw() {
@@ -1948,8 +1995,7 @@ void RenderSystem::Draw() {
 			DrawScene(w, h, camera_position, view, projection, first_pass_texture.SRV(), second_pass_target, render_pass2_tree);
 		}
 		ProcessRT();
-		PostProcessLight();		
-		//ProcessMotionBlur();
+		PostProcessLight();
 		if (post_process_pipeline != nullptr) {
 			post_process_pipeline->SetShaderResourceView(DEPTH_TEXTURE, depth_map.SRV());
 			post_process_pipeline->SetView(*(cam_entity.camera));
