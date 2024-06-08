@@ -26,7 +26,8 @@ RWTexture2D<float4> dustTexture : register(u0);
 cbuffer externalData : register(b0)
 {
     float time;
-    float3 speed;
+    float3 range;
+    float3 offset;
 }
 
 SamplerState basicSampler;
@@ -47,11 +48,12 @@ void main(uint3 DTid : SV_DispatchThreadID)
     }
 
     float2 particle = float2(DTid.x, DTid.y);
-    float t = time * 0.1f;
+    float t = time;
     float3 p = float3(particle.x + t, particle.y + t, 1.0f);
     float4 position = float4((rgba_tnoise3d(p) - 0.5f) * 2.0f, 1.0f);
-    
+
     float4 wpos = dustTexture[particle];
-    position.xyz *= speed * 0.01f;
-    dustTexture[particle] = float4(wpos.xyz + position.xyz, wpos.w);
+    position.xyz *= range;
+    position.xyz += offset;
+    dustTexture[particle] = position;// float4(particle.x, 1.0f, particle.y, 1.0f);
 }

@@ -254,6 +254,9 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		if (FAILED(vol_light_map.Init(w / 2, h / 2, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("light_map.Init failed");
 		}
+		if (FAILED(dust_render_map.Init(w / 2, h / 2, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+			throw std::exception("dust_render_map.Init failed");
+		}
 		if (FAILED(vol_light_map2.Init(w / 2, h / 2, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("light_map.Init failed");
 		}
@@ -266,13 +269,13 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		if (FAILED(bloom_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("bloom_map.Init failed");
 		}
-		if (FAILED(dust_map.Init(2048, 2048, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+		if (FAILED(dust_map.Init(360, 360, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("dust_map.Init failed");
 		}
 		if (FAILED(temp_map.Init(w, h))) {
 			throw std::exception("temp_map.Init failed");
 		}
-		if (FAILED(depth_map.Init(w / 2, h / 2, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT))) {
+		if (FAILED(depth_map.Init(w / 2, h / 2, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("depth_map.Init failed");
 		}
 		if (FAILED(depth_view.Init(w / 2, h / 2))) {
@@ -310,7 +313,18 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		if (FAILED(vol_data.Init(16, 16, DXGI_FORMAT::DXGI_FORMAT_R32_UINT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("vol_data.Init failed");
 		}
-
+		dust_init = ShaderFactory::Get()->GetShader<SimpleComputeShader>("InitDustCS.cso");
+		if (dust_init == nullptr) {
+			throw std::exception("dust_init shader.Init failed");
+		}
+		dust_update = ShaderFactory::Get()->GetShader<SimpleComputeShader>("UpdateDustCS.cso");
+		if (dust_update == nullptr) {
+			throw std::exception("dust_update shader.Init failed");
+		}		
+		dust_render = ShaderFactory::Get()->GetShader<SimpleComputeShader>("RenderDustCS.cso");
+		if (dust_render == nullptr) {
+			throw std::exception("dust_render shader.Init failed");
+		}
 		rt_shader = ShaderFactory::Get()->GetShader<SimpleComputeShader>("RayTraceCS.cso");
 		if (rt_shader == nullptr) {
 			throw std::exception("raytrace shader.Init failed");
@@ -348,6 +362,7 @@ RenderSystem::~RenderSystem() {
 	light_map.Release();
 	vol_light_map.Release();
 	vol_light_map2.Release();
+	dust_render_map.Release();
 	position_map.Release();
 	prev_position_map.Release();
 	bloom_map.Release();
@@ -1292,32 +1307,57 @@ void RenderSystem::ProcessDust() {
 	int32_t  groupsX = (int32_t)(ceil((float)dust_map.Width() / (32.0f)));
 	int32_t  groupsY = (int32_t)(ceil((float)dust_map.Height() / (32.0f)));
 
+	if (!is_dust_init) {
+		//Update dust positions
+		dust_init->SetFloat(TIME, time);
+		dust_init->SetFloat3("range", { 30.0f, 20.0f, 100.0f });
+		dust_init->SetFloat3("offset", { 0.0f, 0.0f, 150.0f });
+		dust_init->SetUnorderedAccessView("dustTexture", dust_map.UAV());
+		dust_init->SetShaderResourceView("rgbaNoise", rgba_noise_texture.SRV());
+		dust_init->CopyAllBufferData();
+		dust_init->SetShader();
+		dxcore->context->Dispatch(groupsX, groupsY, 1);
+		dust_init->SetUnorderedAccessView("dustTexture", nullptr);
+		dust_init->SetShaderResourceView("rgbaNoise", nullptr);
+		is_dust_init = true;
+	}
+
 	//Update dust position
 	dust_update->SetFloat(TIME, time);
-	dust_update->SetFloat3("range", { 100.0f, 20.0f, 100.0f });
+	dust_update->SetFloat3("speed", { 1.0f, 0.1f, 1.0f });
 	dust_update->SetUnorderedAccessView("dustTexture", dust_map.UAV());
+	dust_update->SetShaderResourceView("rgbaNoise", rgba_noise_texture.SRV());
 	dust_update->CopyAllBufferData();
 	dust_update->SetShader();
 	dxcore->context->Dispatch(groupsX, groupsY, 1);
 	dust_update->SetUnorderedAccessView("dustTexture", nullptr);
+	dust_update->SetShaderResourceView("rgbaNoise", nullptr);
 
+	dust_render_map.Clear(zero);
 	//Render dust
 	dust_render->SetFloat(TIME, time);
 	dust_render->SetInt(SCREEN_W, w);
 	dust_render->SetInt(SCREEN_H, h);
+	dust_render->SetMatrix4x4(VIEW, cam_entity.camera->view);
+	dust_render->SetMatrix4x4(PROJECTION, cam_entity.camera->projection);
 	dust_render->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
 	dust_render->SetFloat3("cameraDirection", dir);
+	dust_render->SetSamplerState(PCF_SAMPLER, dxcore->shadow_sampler);
 	dust_render->SetSamplerState(BASIC_SAMPLER, dxcore->basic_sampler);
 	PrepareLights(dust_render);
 	dust_render->SetUnorderedAccessView("dustTexture", dust_map.UAV());
-	dust_render->SetUnorderedAccessView("output", vol_light_map.UAV());
-	dust_render->SetUnorderedAccessView("vol_data", vol_data.UAV());
+	dust_render->SetUnorderedAccessView("output", dust_render_map.UAV());
+	dust_render->SetUnorderedAccessView("depthTextureUAV", depth_map.UAV());
+	dust_render->SetShaderResourceView("rgbaNoise", rgba_noise_texture.SRV());
+	dust_render->SetShaderResourceView("vol_data", vol_data.SRV());
 	dust_render->CopyAllBufferData();
 	dust_render->SetShader();
 	dxcore->context->Dispatch(groupsX, groupsY, 1);
 	dust_render->SetUnorderedAccessView("dustTexture", nullptr);
 	dust_render->SetUnorderedAccessView("output", nullptr);
-	dust_render->SetUnorderedAccessView("vol_data", nullptr);
+	dust_render->SetUnorderedAccessView("depthTextureUAV", nullptr);
+	dust_render->SetShaderResourceView("rgbaNoise", nullptr);
+	dust_render->SetShaderResourceView("vol_data", nullptr);
 	UnprepareLights(dust_render);
 }
 
@@ -1866,6 +1906,7 @@ void RenderSystem::SetPostProcessPipeline(Core::PostProcess* pipeline) {
 		pipeline->SetShaderResourceView(LIGHT_TEXTURE, light_map.SRV());
 		pipeline->SetShaderResourceView("volLightTexture", vol_light_map.SRV());
 		pipeline->SetShaderResourceView("bloomTexture", bloom_map.SRV());
+		pipeline->SetShaderResourceView("dustTexture", dust_render_map.SRV());
 		pipeline->SetShaderResourceView("rtTexture0", rt_texture_out[0].SRV());
 		pipeline->SetShaderResourceView("rtTexture1", rt_texture_out[1].SRV());
 		pipeline->SetShaderResourceView("positionTexture", position_map.SRV());
@@ -1936,6 +1977,8 @@ void RenderSystem::PostProcessLight() {
 		blur_shader->SetShaderResourceView("vol_data", nullptr);
 	}
 
+	ProcessDust();
+
 	ID3D11DeviceContext* context = DXCore::Get()->context;
 	ID3D11RenderTargetView* rv[1] = { temp_map.RenderTarget() };
 	context->OMSetRenderTargets(1, rv, nullptr);
@@ -1962,7 +2005,7 @@ void RenderSystem::PostProcessLight() {
 	ScreenDraw::Get()->Draw();
 	ps->SetShaderResourceView("renderTexture", nullptr);
 
-	ProcessDust();
+
 }
 
 void RenderSystem::Draw() {

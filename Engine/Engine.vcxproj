@@ -274,6 +274,7 @@
     <None Include="Engine\Core\Shaders\Common\QuickNoise.hlsli" />
     <None Include="Engine\Core\Shaders\Common\RGBANoise.hlsli" />
     <None Include="Engine\Core\Shaders\Common\ShaderStructs.hlsli" />
+    <None Include="Engine\Core\Shaders\Common\SimpleLight.hlsli" />
     <None Include="Engine\Core\Shaders\Common\Utils.hlsli" />
     <None Include="Engine\Core\Shaders\GUI\GUICommon.hlsli" />
     <None Include="Engine\Core\Shaders\MainRender\MainRenderPS.hlsli" />
@@ -281,6 +282,11 @@
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="Engine\Core\Shaders\ComputeShaders\BlurCS.hlsl">
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Compute</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Compute</ShaderType>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\ComputeShaders\InitDustCS.hlsl">
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Compute</ShaderType>
       <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Compute</ShaderType>
@@ -293,9 +299,13 @@
     </FxCompile>
     <FxCompile Include="Engine\Core\Shaders\ComputeShaders\RenderDustCS.hlsl">
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Compute</ShaderType>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Compute</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
     </FxCompile>
     <FxCompile Include="Engine\Core\Shaders\ComputeShaders\UpdateDustCS.hlsl">
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Compute</ShaderType>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Compute</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
     </FxCompile>
     <FxCompile Include="Engine\Core\Shaders\ComputeShaders\VolumetricLightCS.hlsl">
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Compute</ShaderType>

@@ -112,7 +112,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
         }
     }
 
-    float illumitation = length(lightColor) * 900.0f;
+    float illumitation = length(lightColor) * 1000.0f;
     InterlockedAdd(vol_data[uint2(0, 0)], (uint)(illumitation));
     output[output_pixel] = lightColor;
 }

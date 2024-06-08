@@ -44,7 +44,31 @@ float rgba_fnoise(in float3 x)
 			lerp(rgba_hash(n + 270.0), rgba_hash(n + 271.0), f.x), f.y), f.z);
 }
 
+float rgba_tnoise(float2 x)
+{
+	float2 f = frac(x);
+	float2 p = x - f;
+	float2 uv = (p.xy + f.xy);
+	uv = fmod(uv, 256.0f) / 256.0f;
+	float4 v = rgbaNoise.SampleLevel(basicSampler, uv, 0);
+	return lerp(v.y, v.z, f.y);
+}
+
 float rgba_tnoise(float3 x)
+{
+#if 0
+	return rgba_fnoise(x);
+#else
+	float3 f = frac(x);
+	float3 p = x - f;
+	float2 uv = ((p.xy + float2(37.0, 17.0) * p.z) + f.xy);
+	uv = fmod(uv, 256.0f) / 256.0f;
+	float4 v = rgbaNoise.SampleLevel(basicSampler, uv, 0);
+	return lerp(v.y, v.z, f.z);
+#endif
+}
+
+float3 rgba_tnoise3d(float3 x)
 {
 #if 0
 	return rgba_fnoise(x);
@@ -54,7 +78,7 @@ float rgba_tnoise(float3 x)
 	float2 uv = ((p.xy + float2(37.0, 17.0) * p.z) + f.xy);
 	uv /= 256.0;
 	float4 v = rgbaNoise.SampleLevel(basicSampler, uv, 0);
-	return lerp(v.y, v.z, f.z);
+	return saturate(float3(lerp(v.y, v.z, v.x), lerp(v.x, v.y, v.z), lerp(v.x, v.z, v.y)));
 #endif
 }
 

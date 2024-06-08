@@ -246,6 +246,7 @@ namespace HotBite {
 				Core::RenderTexture2D prev_position_map;
 				Core::RenderTexture2D bloom_map;
 				Core::RenderTexture2D dust_map;
+				Core::RenderTexture2D dust_render_map;
 				Core::RenderTexture2D temp_map;
 				Core::RenderTexture2D rgba_noise_texture;
 				Core::RenderTexture2D first_pass_texture{ 1 };				
@@ -269,6 +270,8 @@ namespace HotBite {
 				Core::SimpleComputeShader* rt_smooth = nullptr;
 
 				//Dust shader
+				bool is_dust_init = false;
+				Core::SimpleComputeShader* dust_init = nullptr;
 				Core::SimpleComputeShader* dust_update = nullptr;
 				Core::SimpleComputeShader* dust_render = nullptr;
 

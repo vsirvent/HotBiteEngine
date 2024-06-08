@@ -28,7 +28,8 @@ SOFTWARE.
 
 RWTexture2D<float4> output : register(u0);
 RWTexture2D<float4> dustTexture : register(u1);
-RWTexture2D<uint> vol_data: register(u2);
+RWTexture2D<float> depthTextureUAV : register(u2);
+Texture2D<uint> vol_data: register(t0);
 
 cbuffer externalData : register(b0)
 {
@@ -46,48 +47,113 @@ cbuffer externalData : register(b0)
     
     float4 LightPerspectiveValues[MAX_LIGHTS / 2];
     matrix DirPerspectiveMatrix[MAX_LIGHTS];
-    matrix DirStaticPerspectiveMatrix[MAX_LIGHTS];
-
+   
     int dirLightsCount;
     int pointLightsCount;
 
-    uint multi_texture_count;
-    float multi_parallax_scale;
-
-    uint4 packed_multi_texture_operations[MAX_MULTI_TEXTURE / 4];
-    float4 packed_multi_texture_values[MAX_MULTI_TEXTURE / 4];
-    float4 packed_multi_texture_uv_scales[MAX_MULTI_TEXTURE / 4];
 }
 
-#include "../Common/PixelFunctions.hlsli"
+Texture2D<float> DirShadowMapTexture[MAX_LIGHTS];
+TextureCube<float> PointShadowMapTexture[MAX_LIGHTS];
+
+//Packed array
+static float2 lps[MAX_LIGHTS] = (float2[MAX_LIGHTS])LightPerspectiveValues;
+
+#include "../Common/SimpleLight.hlsli"
+#include "../Common/RGBANoise.hlsli"
 
 #define NTHREADS 32
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main(uint3 DTid : SV_DispatchThreadID)
 {
+    uint2 dimensions;
+    {
+        uint w, h;
+        output.GetDimensions(w, h);
+        dimensions.x = w;
+        dimensions.y = h;
+    }
+
     float2 input_pixel = float2(DTid.x, DTid.y);
     float4 lightColor = { 0.0f, 0.0f, 0.0f, 1.0f };
 
     float4 wpos = dustTexture[input_pixel];
 
-    //Convert to view space
-    matrix worldViewProj = mul(view, projection);
+    float t = time * 0.1f;
+    float3 p = float3(input_pixel.x + t, input_pixel.y + t, 1.0f);
+    wpos.w = wpos.w * 0.8f + saturate(rgba_tnoise(p)) * 0.2f;
+    dustTexture[input_pixel] = wpos;
+    float illumination = wpos.w;
+    wpos.w = 1.0f;
 
-    float4 viewPos = mul(wpos, worldViewProj);
-    viewPos /= viewPos.w;
+    //Convert to view space
+    float4 viewPos = mul(wpos, view);  // Transform to view space
+    float4 viewPos2 = viewPos;  // Transform to view space
+    viewPos2.x += 0.03f;
+
+    float4 projPos = mul(viewPos, projection); // Transform to clip space
+    projPos /= abs(projPos.w);
+
+    float4 projPos2 = mul(viewPos2, projection); // Transform to clip space
+    projPos2 /= abs(projPos2.w);
+
+    
     
     //if we are in front of camera
-    if (viewPos.z > 0.0f && abs(viewPos.x) < 0.5f && abs(viewPos.y) < 0.5f)
+    if (projPos.z > 0.0f && abs(projPos.x) <= 1.0f && abs(projPos.y) <= 1.0f)
     {
-        viewPos.x /= viewPos.z;
-        viewPos.y /= -viewPos.z;
-        viewPos.x = (viewPos.x + 1.0f) * screenW / 2.0f;
-        viewPos.y = (viewPos.y + 1.0f) * screenH / 2.0f;
-        
-        float4 color = float4(1.0f, 1.0f, 1.0f, 1.0f);
+      
+        float2 screenPos;
+        screenPos.x = (projPos.x * 0.5f + 0.5f) * dimensions.x;
+        screenPos.y = (1.0f - (projPos.y * 0.5f + 0.5f)) * dimensions.y; // Invert y-axis for screen coordinates
 
-        float illumitation = length(color) * 900.0f;
-        //InterlockedAdd(vol_data[uint2(0, 0)], (uint) (illumitation));
-        output[viewPos.xy] += color;
+        float2 screenPos2;
+        screenPos2.x = (projPos2.x * 0.5f + 0.5f) * dimensions.x;
+        screenPos2.y = (1.0f - (projPos2.y * 0.5f + 0.5f)) * dimensions.y; // Invert y-axis for screen coordinates
+
+        if (screenPos.x >= 0 && screenPos.x < dimensions.x && screenPos.y >= 0 && screenPos.y < dimensions.y)
+        {
+            float depth = depthTextureUAV[screenPos];
+            float dist_to_cam = length(wpos - cameraPosition);
+            if (depth > dist_to_cam)
+            {
+                
+                uint i = 0;
+                float3 normal = { 0.0f, 1.0f, 0.0f };
+                float3 color = float3(0.0f, 0.0f, 0.0f);
+                for (i = 0; i < dirLightsCount; ++i) {
+                    color += CalcDirectional(normal, wpos.xyz, dirLights[i], i);
+                }
+
+                // Calculate the point lights
+                for (i = 0; i < pointLightsCount; ++i) {
+                    if (length(wpos.xyz - pointLights[i].Position) < pointLights[i].Range) {
+                        color += CalcPoint(normal, wpos.xyz, pointLights[i], i);
+                    }
+                }
+#define MAX_GLOBAL_ILLUMINATION 0.5f
+                float global = (float)vol_data[uint2(0, 0)] / (float)(dimensions.x * dimensions.y * 1000);
+                float att = 1.0f;
+                global *= global;
+                global *= global;
+                att = -global + (1.0f + MAX_GLOBAL_ILLUMINATION);
+
+                float2 distanceScreen = abs(screenPos - screenPos2);
+                float halfDistance = floor(distanceScreen.x);
+                for (int x = -halfDistance; x < halfDistance; ++x) {
+                    for (int y = -halfDistance; y < halfDistance; ++y) {
+                        float w0 = saturate(1.0f - abs(x) / halfDistance);
+                        float w1 = saturate(1.0f - abs(y) / halfDistance);
+                        float total_att = att * illumination * w0 * w1 * 0.7f;
+                        if (total_att > 0.01f)
+                        {
+                            float2 output_pixel = screenPos + float2(x, y);
+                            output[output_pixel] = float4(saturate(color * total_att), 1.0f);
+                            depthTextureUAV[output_pixel] = dist_to_cam;
+                        }
+                    }
+                }
+            }
+        }
     }
 }

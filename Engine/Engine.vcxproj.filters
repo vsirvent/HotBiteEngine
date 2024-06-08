@@ -421,6 +421,9 @@
     <None Include="Engine\Core\Shaders\MainRender\MainRenderPS.hlsli">
       <Filter>Engine\Core\Shaders\MainRender</Filter>
     </None>
+    <None Include="Engine\Core\Shaders\Common\SimpleLight.hlsli">
+      <Filter>Engine\Core\Shaders\Common</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="Engine\Core\Shaders\DepthRender\DepthPS.hlsl">
@@ -547,6 +550,9 @@
       <Filter>Engine\Core\Shaders\ComputeShaders</Filter>
     </FxCompile>
     <FxCompile Include="Engine\Core\Shaders\ComputeShaders\UpdateDustCS.hlsl">
+      <Filter>Engine\Core\Shaders\ComputeShaders</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\ComputeShaders\InitDustCS.hlsl">
       <Filter>Engine\Core\Shaders\ComputeShaders</Filter>
     </FxCompile>
   </ItemGroup>
