@@ -270,7 +270,10 @@ namespace HotBite {
 				Core::SimpleComputeShader* rt_smooth = nullptr;
 
 				//Dust shader
+				bool dust_enabled = false;
 				bool is_dust_init = false;
+				float3 dust_area{};
+				float3 dust_offset{};
 				Core::SimpleComputeShader* dust_init = nullptr;
 				Core::SimpleComputeShader* dust_update = nullptr;
 				Core::SimpleComputeShader* dust_render = nullptr;
@@ -360,6 +363,10 @@ namespace HotBite {
 				bool GetCloudTest() const;
 				void SetRayTracing(bool enabled);
 				bool GetRayTracing() const;
+				void SetDustEnabled(bool enabled);
+				bool GetDustEnabled() const;
+				void SetDustEffectArea(int32_t num_particles, const float3& area, const float3& offset);
+
 				ID3D11ShaderResourceView* GetDepthMapSRV() { return depth_map.SRV(); }
 			};
 		}

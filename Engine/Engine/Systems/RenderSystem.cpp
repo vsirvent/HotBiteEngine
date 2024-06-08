@@ -269,9 +269,6 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		if (FAILED(bloom_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("bloom_map.Init failed");
 		}
-		if (FAILED(dust_map.Init(360, 360, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
-			throw std::exception("dust_map.Init failed");
-		}
 		if (FAILED(temp_map.Init(w, h))) {
 			throw std::exception("temp_map.Init failed");
 		}
@@ -1296,69 +1293,71 @@ void RenderSystem::ProcessMotionBlur() {
 }
 
 void RenderSystem::ProcessDust() {
-	int w = dxcore->GetWidth();
-	int h = dxcore->GetHeight();
-	assert(!cameras.GetData().empty() && "No cameras found");
-	CameraEntity& cam_entity = cameras.GetData()[0];
-	time = ((float)Scheduler::Get()->GetElapsedNanoSeconds()) / 1000000000.0f;
-	float3 dir;
-	XMStoreFloat3(&dir, cam_entity.camera->xm_direction);
+	if (dust_enabled && dust_map.UAV() != nullptr) {
+		int w = dxcore->GetWidth();
+		int h = dxcore->GetHeight();
+		assert(!cameras.GetData().empty() && "No cameras found");
+		CameraEntity& cam_entity = cameras.GetData()[0];
+		time = ((float)Scheduler::Get()->GetElapsedNanoSeconds()) / 1000000000.0f;
+		float3 dir;
+		XMStoreFloat3(&dir, cam_entity.camera->xm_direction);
 
-	int32_t  groupsX = (int32_t)(ceil((float)dust_map.Width() / (32.0f)));
-	int32_t  groupsY = (int32_t)(ceil((float)dust_map.Height() / (32.0f)));
+		int32_t  groupsX = (int32_t)(ceil((float)dust_map.Width() / (32.0f)));
+		int32_t  groupsY = (int32_t)(ceil((float)dust_map.Height() / (32.0f)));
 
-	if (!is_dust_init) {
-		//Update dust positions
-		dust_init->SetFloat(TIME, time);
-		dust_init->SetFloat3("range", { 30.0f, 20.0f, 100.0f });
-		dust_init->SetFloat3("offset", { 0.0f, 0.0f, 150.0f });
-		dust_init->SetUnorderedAccessView("dustTexture", dust_map.UAV());
-		dust_init->SetShaderResourceView("rgbaNoise", rgba_noise_texture.SRV());
-		dust_init->CopyAllBufferData();
-		dust_init->SetShader();
+		if (!is_dust_init) {
+			//Update dust positions
+			dust_init->SetFloat(TIME, time);
+			dust_init->SetFloat3("range", dust_area);
+			dust_init->SetFloat3("offset", dust_offset);
+			dust_init->SetUnorderedAccessView("dustTexture", dust_map.UAV());
+			dust_init->SetShaderResourceView("rgbaNoise", rgba_noise_texture.SRV());
+			dust_init->CopyAllBufferData();
+			dust_init->SetShader();
+			dxcore->context->Dispatch(groupsX, groupsY, 1);
+			dust_init->SetUnorderedAccessView("dustTexture", nullptr);
+			dust_init->SetShaderResourceView("rgbaNoise", nullptr);
+			is_dust_init = true;
+		}
+
+		//Update dust position
+		dust_update->SetFloat(TIME, time);
+		dust_update->SetFloat3("speed", { 1.0f, 0.1f, 1.0f });
+		dust_update->SetUnorderedAccessView("dustTexture", dust_map.UAV());
+		dust_update->SetShaderResourceView("rgbaNoise", rgba_noise_texture.SRV());
+		dust_update->CopyAllBufferData();
+		dust_update->SetShader();
 		dxcore->context->Dispatch(groupsX, groupsY, 1);
-		dust_init->SetUnorderedAccessView("dustTexture", nullptr);
-		dust_init->SetShaderResourceView("rgbaNoise", nullptr);
-		is_dust_init = true;
+		dust_update->SetUnorderedAccessView("dustTexture", nullptr);
+		dust_update->SetShaderResourceView("rgbaNoise", nullptr);
+
+		dust_render_map.Clear(zero);
+		//Render dust
+		dust_render->SetFloat(TIME, time);
+		dust_render->SetInt(SCREEN_W, w);
+		dust_render->SetInt(SCREEN_H, h);
+		dust_render->SetMatrix4x4(VIEW, cam_entity.camera->view);
+		dust_render->SetMatrix4x4(PROJECTION, cam_entity.camera->projection);
+		dust_render->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
+		dust_render->SetFloat3("cameraDirection", dir);
+		dust_render->SetSamplerState(PCF_SAMPLER, dxcore->shadow_sampler);
+		dust_render->SetSamplerState(BASIC_SAMPLER, dxcore->basic_sampler);
+		PrepareLights(dust_render);
+		dust_render->SetUnorderedAccessView("dustTexture", dust_map.UAV());
+		dust_render->SetUnorderedAccessView("output", dust_render_map.UAV());
+		dust_render->SetUnorderedAccessView("depthTextureUAV", depth_map.UAV());
+		dust_render->SetShaderResourceView("rgbaNoise", rgba_noise_texture.SRV());
+		dust_render->SetShaderResourceView("vol_data", vol_data.SRV());
+		dust_render->CopyAllBufferData();
+		dust_render->SetShader();
+		dxcore->context->Dispatch(groupsX, groupsY, 1);
+		dust_render->SetUnorderedAccessView("dustTexture", nullptr);
+		dust_render->SetUnorderedAccessView("output", nullptr);
+		dust_render->SetUnorderedAccessView("depthTextureUAV", nullptr);
+		dust_render->SetShaderResourceView("rgbaNoise", nullptr);
+		dust_render->SetShaderResourceView("vol_data", nullptr);
+		UnprepareLights(dust_render);
 	}
-
-	//Update dust position
-	dust_update->SetFloat(TIME, time);
-	dust_update->SetFloat3("speed", { 1.0f, 0.1f, 1.0f });
-	dust_update->SetUnorderedAccessView("dustTexture", dust_map.UAV());
-	dust_update->SetShaderResourceView("rgbaNoise", rgba_noise_texture.SRV());
-	dust_update->CopyAllBufferData();
-	dust_update->SetShader();
-	dxcore->context->Dispatch(groupsX, groupsY, 1);
-	dust_update->SetUnorderedAccessView("dustTexture", nullptr);
-	dust_update->SetShaderResourceView("rgbaNoise", nullptr);
-
-	dust_render_map.Clear(zero);
-	//Render dust
-	dust_render->SetFloat(TIME, time);
-	dust_render->SetInt(SCREEN_W, w);
-	dust_render->SetInt(SCREEN_H, h);
-	dust_render->SetMatrix4x4(VIEW, cam_entity.camera->view);
-	dust_render->SetMatrix4x4(PROJECTION, cam_entity.camera->projection);
-	dust_render->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
-	dust_render->SetFloat3("cameraDirection", dir);
-	dust_render->SetSamplerState(PCF_SAMPLER, dxcore->shadow_sampler);
-	dust_render->SetSamplerState(BASIC_SAMPLER, dxcore->basic_sampler);
-	PrepareLights(dust_render);
-	dust_render->SetUnorderedAccessView("dustTexture", dust_map.UAV());
-	dust_render->SetUnorderedAccessView("output", dust_render_map.UAV());
-	dust_render->SetUnorderedAccessView("depthTextureUAV", depth_map.UAV());
-	dust_render->SetShaderResourceView("rgbaNoise", rgba_noise_texture.SRV());
-	dust_render->SetShaderResourceView("vol_data", vol_data.SRV());
-	dust_render->CopyAllBufferData();
-	dust_render->SetShader();
-	dxcore->context->Dispatch(groupsX, groupsY, 1);
-	dust_render->SetUnorderedAccessView("dustTexture", nullptr);
-	dust_render->SetUnorderedAccessView("output", nullptr);
-	dust_render->SetUnorderedAccessView("depthTextureUAV", nullptr);
-	dust_render->SetShaderResourceView("rgbaNoise", nullptr);
-	dust_render->SetShaderResourceView("vol_data", nullptr);
-	UnprepareLights(dust_render);
 }
 
 void RenderSystem::ProcessRT() {
@@ -2100,5 +2099,27 @@ void RenderSystem::SetRayTracing(bool enabled) {
 bool RenderSystem::GetRayTracing() const {
 	return rt_enabled;
 }
+
+void RenderSystem::SetDustEnabled(bool enabled) {
+	dust_enabled = enabled;
+}
+
+bool RenderSystem::GetDustEnabled() const {
+	return dust_enabled;
+}
+
+void RenderSystem::SetDustEffectArea(int32_t num_particles, const float3& area, const float3& offset) {
+	dust_area = area;
+	dust_offset = offset;
+	int particles_texture_size = ((((int32_t)sqrt((float)num_particles) + 31) / 32) * 32); //Make it multiple of 32 to perfect fit computer shaders
+	if (dust_map.Width() != particles_texture_size) {
+		is_dust_init = false;
+		dust_map.Release();
+		if (FAILED(dust_map.Init(particles_texture_size, particles_texture_size, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+			throw std::exception("dust_map.Init failed");
+		}
+	}
+}
+
 
 

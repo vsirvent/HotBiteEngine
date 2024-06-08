@@ -140,12 +140,13 @@ void main(uint3 DTid : SV_DispatchThreadID)
 
                 float2 distanceScreen = abs(screenPos - screenPos2);
                 float halfDistance = floor(distanceScreen.x);
-                for (int x = -halfDistance; x < halfDistance; ++x) {
-                    for (int y = -halfDistance; y < halfDistance; ++y) {
+                for (int x = -halfDistance; x <= halfDistance; ++x) {
+                    for (int y = -halfDistance; y <= halfDistance; ++y) {
+                        float dist_att = saturate(distanceScreen.x);
                         float w0 = saturate(1.0f - abs(x) / halfDistance);
                         float w1 = saturate(1.0f - abs(y) / halfDistance);
-                        float total_att = att * illumination * w0 * w1 * 0.7f;
-                        if (total_att > 0.01f)
+                        float total_att = att * illumination * w0 * w1 * dist_att;
+                        if (total_att > 0.0001f)
                         {
                             float2 output_pixel = screenPos + float2(x, y);
                             output[output_pixel] = float4(saturate(color * total_att), 1.0f);
