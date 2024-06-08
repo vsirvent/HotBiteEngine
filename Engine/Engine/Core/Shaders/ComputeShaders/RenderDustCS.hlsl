@@ -89,7 +89,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     //Convert to view space
     float4 viewPos = mul(wpos, view);  // Transform to view space
     float4 viewPos2 = viewPos;  // Transform to view space
-    viewPos2.x += 0.03f;
+    viewPos2.x += 0.02f;
 
     float4 projPos = mul(viewPos, projection); // Transform to clip space
     projPos /= abs(projPos.w);
@@ -100,7 +100,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     
     
     //if we are in front of camera
-    if (projPos.z > 0.0f && abs(projPos.x) <= 1.0f && abs(projPos.y) <= 1.0f)
+    if (projPos.z >= 0.0f && abs(projPos.x) <= 1.0f && abs(projPos.y) <= 1.0f)
     {
       
         float2 screenPos;
