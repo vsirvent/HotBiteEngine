@@ -104,7 +104,7 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
         dir = uint2(1, 0);
     }
 
-    if (dopActive) {
+    if (false) {
         float z0 = depthTexture.Sample(basicSampler, tpos).r;
         dispersion = pow((focusZ - z0), 2.0f) * amplitude / 100.0f;
     }

@@ -254,6 +254,9 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		if (FAILED(vol_light_map.Init(w / 2, h / 2, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("light_map.Init failed");
 		}
+		if (FAILED(lens_flare_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+			throw std::exception("lens_flare_map.Init failed");
+		}
 		if (FAILED(dust_render_map.Init(w / 2, h / 2, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("dust_render_map.Init failed");
 		}
@@ -310,6 +313,10 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		if (FAILED(vol_data.Init(16, 16, DXGI_FORMAT::DXGI_FORMAT_R32_UINT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("vol_data.Init failed");
 		}
+		lens_flare = ShaderFactory::Get()->GetShader<SimpleComputeShader>("LensFlareCS.cso");
+		if (lens_flare == nullptr) {
+			throw std::exception("lens_flare shader.Init failed");
+		}
 		dust_init = ShaderFactory::Get()->GetShader<SimpleComputeShader>("InitDustCS.cso");
 		if (dust_init == nullptr) {
 			throw std::exception("dust_init shader.Init failed");
@@ -360,6 +367,7 @@ RenderSystem::~RenderSystem() {
 	vol_light_map.Release();
 	vol_light_map2.Release();
 	dust_render_map.Release();
+	lens_flare_map.Release();
 	position_map.Release();
 	prev_position_map.Release();
 	bloom_map.Release();
@@ -1337,6 +1345,7 @@ void RenderSystem::ProcessDust() {
 		dust_render->SetInt(SCREEN_W, w);
 		dust_render->SetInt(SCREEN_H, h);
 		dust_render->SetMatrix4x4(VIEW, cam_entity.camera->view);
+		dust_render->SetMatrix4x4("inverse_view", cam_entity.camera->inverse_view);
 		dust_render->SetMatrix4x4(PROJECTION, cam_entity.camera->projection);
 		dust_render->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
 		dust_render->SetFloat3("cameraDirection", dir);
@@ -1357,6 +1366,48 @@ void RenderSystem::ProcessDust() {
 		dust_render->SetShaderResourceView("rgbaNoise", nullptr);
 		dust_render->SetShaderResourceView("vol_data", nullptr);
 		UnprepareLights(dust_render);
+	}
+}
+
+void RenderSystem::ProcessLensFlare() {
+	if (lens_flare_enabled && lens_flare_map.UAV() != nullptr) {
+		lens_flare_map.Clear(zero);
+		
+		int32_t  groupsX = (int32_t)(ceil((float)lens_flare_map.Width() / (32.0f)));
+		int32_t  groupsY = (int32_t)(ceil((float)lens_flare_map.Height() / (32.0f)));
+		
+		int w = dxcore->GetWidth();
+		int h = dxcore->GetHeight();
+		assert(!cameras.GetData().empty() && "No cameras found");
+		CameraEntity& cam_entity = cameras.GetData()[0];
+		time = ((float)Scheduler::Get()->GetElapsedNanoSeconds()) / 1000000000.0f;
+		float3 dir;
+		XMStoreFloat3(&dir, cam_entity.camera->xm_direction);
+
+		//Render lens flare effect
+		lens_flare->SetFloat(TIME, time);
+		lens_flare->SetInt(SCREEN_W, w);
+		lens_flare->SetInt(SCREEN_H, h);
+		lens_flare->SetMatrix4x4(VIEW, cam_entity.camera->view);
+		lens_flare->SetMatrix4x4("inverse_view", cam_entity.camera->inverse_view);
+		lens_flare->SetMatrix4x4(PROJECTION, cam_entity.camera->projection);
+		lens_flare->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
+		lens_flare->SetFloat3("cameraDirection", dir);
+		lens_flare->SetSamplerState(PCF_SAMPLER, dxcore->shadow_sampler);
+		lens_flare->SetSamplerState(BASIC_SAMPLER, dxcore->basic_sampler);
+		PrepareLights(lens_flare);
+		lens_flare->SetUnorderedAccessView("output", lens_flare_map.UAV());
+		lens_flare->SetUnorderedAccessView("depthTextureUAV", depth_map.UAV());
+		lens_flare->SetShaderResourceView("rgbaNoise", rgba_noise_texture.SRV());
+		lens_flare->SetShaderResourceView("vol_data", vol_data.SRV());
+		lens_flare->CopyAllBufferData();
+		lens_flare->SetShader();
+		dxcore->context->Dispatch(groupsX, groupsY, 1);
+		lens_flare->SetUnorderedAccessView("output", nullptr);
+		lens_flare->SetUnorderedAccessView("depthTextureUAV", nullptr);
+		lens_flare->SetShaderResourceView("rgbaNoise", nullptr);
+		lens_flare->SetShaderResourceView("vol_data", nullptr);
+		UnprepareLights(lens_flare);
 	}
 }
 
@@ -1906,6 +1957,7 @@ void RenderSystem::SetPostProcessPipeline(Core::PostProcess* pipeline) {
 		pipeline->SetShaderResourceView("volLightTexture", vol_light_map.SRV());
 		pipeline->SetShaderResourceView("bloomTexture", bloom_map.SRV());
 		pipeline->SetShaderResourceView("dustTexture", dust_render_map.SRV());
+		pipeline->SetShaderResourceView("lensFlareTexture", lens_flare_map.SRV());
 		pipeline->SetShaderResourceView("rtTexture0", rt_texture_out[0].SRV());
 		pipeline->SetShaderResourceView("rtTexture1", rt_texture_out[1].SRV());
 		pipeline->SetShaderResourceView("positionTexture", position_map.SRV());
@@ -1977,6 +2029,7 @@ void RenderSystem::PostProcessLight() {
 	}
 
 	ProcessDust();
+	ProcessLensFlare();
 
 	ID3D11DeviceContext* context = DXCore::Get()->context;
 	ID3D11RenderTargetView* rv[1] = { temp_map.RenderTarget() };
@@ -2120,6 +2173,15 @@ void RenderSystem::SetDustEffectArea(int32_t num_particles, const float3& area, 
 		}
 	}
 }
+
+void RenderSystem::SetLensFlare(bool enabled) {
+	lens_flare_enabled = enabled;
+}
+
+bool RenderSystem::GetLensFlare() const {
+	return lens_flare_enabled;
+}
+
 
 
 

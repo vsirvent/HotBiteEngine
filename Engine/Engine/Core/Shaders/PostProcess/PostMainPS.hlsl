@@ -33,6 +33,7 @@ Texture2D rtTexture0 : register(t6);
 Texture2D rtTexture1 : register(t7);
 Texture2D volLightTexture: register(t8);
 Texture2D dustTexture: register(t9);
+Texture2D lensFlareTexture: register(t10);
 
 SamplerState basicSampler : register(s0);
 
@@ -73,10 +74,10 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
     float4 rt1 = rtTexture1.Sample(basicSampler, tpos);
     float4 vol = volLightTexture.Sample(basicSampler, tpos);
     float4 dust = dustTexture.Sample(basicSampler, tpos);
-
-    color += (color + 2.0f * l) * rt0 + rt1 + b + vol + dust;
+    float4 lens_flare = lensFlareTexture.Sample(basicSampler, tpos);
+    color += (color + 2.0f * l) * rt0 + rt1 + b + vol + dust + lens_flare;
 #if 0
     color.rgb += 0.05f * simplex3d_fractal(float3(400.0f*tpos.xy, time*random(1000.0f*time)));
 #endif
-    return color;
+    return climit4(color);
 }

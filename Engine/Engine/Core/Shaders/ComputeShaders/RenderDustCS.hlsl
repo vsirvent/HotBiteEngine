@@ -1,3 +1,4 @@
+
 /*
 The HotBite Game Engine
 
@@ -41,13 +42,14 @@ cbuffer externalData : register(b0)
     PointLight pointLights[MAX_LIGHTS];
     float3 cameraPosition;
     float3 cameraDirection;
-    
+
     matrix view;
+    matrix inverse_view;
     matrix projection;
-    
+
     float4 LightPerspectiveValues[MAX_LIGHTS / 2];
     matrix DirPerspectiveMatrix[MAX_LIGHTS];
-   
+
     int dirLightsCount;
     int pointLightsCount;
 
@@ -75,7 +77,6 @@ void main(uint3 DTid : SV_DispatchThreadID)
     }
 
     float2 input_pixel = float2(DTid.x, DTid.y);
-    float4 lightColor = { 0.0f, 0.0f, 0.0f, 1.0f };
 
     float4 wpos = dustTexture[input_pixel];
 
@@ -88,69 +89,81 @@ void main(uint3 DTid : SV_DispatchThreadID)
 
     //Convert to view space
     float4 viewPos = mul(wpos, view);  // Transform to view space
-    float4 viewPos2 = viewPos;  // Transform to view space
+    float4 viewPos2 = viewPos;  // Transform to view space the particle size
     viewPos2.x += 0.02f;
 
     float4 projPos = mul(viewPos, projection); // Transform to clip space
     projPos /= abs(projPos.w);
 
-    float4 projPos2 = mul(viewPos2, projection); // Transform to clip space
+    float4 projPos2 = mul(viewPos2, projection);
     projPos2 /= abs(projPos2.w);
 
-    
-    
+
+
     //if we are in front of camera
-    if (projPos.z >= 0.0f && abs(projPos.x) <= 1.0f && abs(projPos.y) <= 1.0f)
+    if (projPos.z >= 0.0f)
     {
-      
-        float2 screenPos;
-        screenPos.x = (projPos.x * 0.5f + 0.5f) * dimensions.x;
-        screenPos.y = (1.0f - (projPos.y * 0.5f + 0.5f)) * dimensions.y; // Invert y-axis for screen coordinates
+        if (projPos.x < -1.1f || projPos.x > 1.1f) {
+            //loop particle to the other side of the camera
+            viewPos.x = -viewPos.x;
+            wpos = mul(viewPos, inverse_view);
+            wpos /= abs(wpos.w);
+            wpos.w = dustTexture[input_pixel].w;
+            dustTexture[input_pixel] = wpos;
+        }
+        if (abs(projPos.x) <= 1.0f && abs(projPos.y) <= 1.0f) {
+            float2 screenPos;
+            screenPos.x = (projPos.x * 0.5f + 0.5f) * dimensions.x;
+            screenPos.y = (1.0f - (projPos.y * 0.5f + 0.5f)) * dimensions.y; // Invert y-axis for screen coordinates
 
-        float2 screenPos2;
-        screenPos2.x = (projPos2.x * 0.5f + 0.5f) * dimensions.x;
-        screenPos2.y = (1.0f - (projPos2.y * 0.5f + 0.5f)) * dimensions.y; // Invert y-axis for screen coordinates
-
-        if (screenPos.x >= 0 && screenPos.x < dimensions.x && screenPos.y >= 0 && screenPos.y < dimensions.y)
-        {
-            float depth = depthTextureUAV[screenPos];
-            float dist_to_cam = length(wpos - cameraPosition);
-            if (depth > dist_to_cam)
+            float2 screenPos2;
+            screenPos2.x = (projPos2.x * 0.5f + 0.5f) * dimensions.x;
+            screenPos2.y = (1.0f - (projPos2.y * 0.5f + 0.5f)) * dimensions.y;
+            if (screenPos.x >= 0 && screenPos.x < dimensions.x && screenPos.y >= 0 && screenPos.y < dimensions.y)
             {
-                
-                uint i = 0;
-                float3 normal = { 0.0f, 1.0f, 0.0f };
-                float3 color = float3(0.0f, 0.0f, 0.0f);
-                for (i = 0; i < dirLightsCount; ++i) {
-                    color += CalcDirectional(normal, wpos.xyz, dirLights[i], i);
-                }
+                float depth = depthTextureUAV[screenPos];
+                float dist_to_cam = length(wpos - cameraPosition);
+                if (depth > dist_to_cam)
+                {
 
-                // Calculate the point lights
-                for (i = 0; i < pointLightsCount; ++i) {
-                    if (length(wpos.xyz - pointLights[i].Position) < pointLights[i].Range) {
-                        color += CalcPoint(normal, wpos.xyz, pointLights[i], i);
+                    uint i = 0;
+                    float3 normal = { 0.0f, 1.0f, 0.0f };
+                    float3 color = float3(0.0f, 0.0f, 0.0f);
+
+                    // Calculate the directional lights
+                    for (i = 0; i < dirLightsCount; ++i) {
+                        color += CalcDirectional(normal, wpos.xyz, dirLights[i], i);
                     }
-                }
-#define MAX_GLOBAL_ILLUMINATION 0.5f
-                float global = (float)vol_data[uint2(0, 0)] / (float)(dimensions.x * dimensions.y * 1000);
-                float att = 1.0f;
-                global *= global;
-                global *= global;
-                att = -global + (1.0f + MAX_GLOBAL_ILLUMINATION);
 
-                float2 distanceScreen = abs(screenPos - screenPos2);
-                float halfDistance = floor(distanceScreen.x);
-                for (int x = -halfDistance; x <= halfDistance; ++x) {
-                    for (int y = -halfDistance; y <= halfDistance; ++y) {
-                        float dist_att = saturate(distanceScreen.x);
-                        float w0 = saturate(1.0f - abs(x) / halfDistance);
-                        float w1 = saturate(1.0f - abs(y) / halfDistance);
-                        float total_att = att * illumination * w0 * w1 * dist_att;
-                        if (total_att > 0.0001f)
-                        {
-                            float2 output_pixel = screenPos + float2(x, y);
-                            output[output_pixel] = float4(saturate(color * total_att), 1.0f);
-                            depthTextureUAV[output_pixel] = dist_to_cam;
+                    // Calculate the point lights
+                    for (i = 0; i < pointLightsCount; ++i) {
+                        if (length(wpos.xyz - pointLights[i].Position) < pointLights[i].Range) {
+                            color += CalcPoint(normal, wpos.xyz, pointLights[i], i);
+                        }
+                    }
+#define MAX_GLOBAL_ILLUMINATION 0.5f
+                    float global = (float)vol_data[uint2(0, 0)] / (float)(dimensions.x * dimensions.y * 1000);
+                    float att = 1.0f;
+                    global *= global;
+                    global *= global;
+                    att = -global + (1.0f + MAX_GLOBAL_ILLUMINATION);
+
+                    float2 distanceScreen = abs(screenPos - screenPos2);
+                    float halfDistance = floor(distanceScreen.x);
+                    for (int x = -halfDistance; x <= halfDistance; ++x) {
+                        for (int y = -halfDistance; y <= halfDistance; ++y) {
+                            float dist_att = saturate(distanceScreen.x);
+                            float w0 = saturate(1.0f - abs(x) / halfDistance);
+                            float w1 = saturate(1.0f - abs(y) / halfDistance);
+                            float total_att = att * illumination * w0 * w1 * dist_att;
+
+                            //Only write if we have a visible particle and attenuation is not too high that it will not be visible
+                            if (total_att > 0.0001f)
+                            {
+                                float2 output_pixel = screenPos + float2(x, y);
+                                output[output_pixel] = float4(saturate(color * total_att), 1.0f);
+                                depthTextureUAV[output_pixel] = dist_to_cam;
+                            }
                         }
                     }
                 }

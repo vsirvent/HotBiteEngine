@@ -555,5 +555,8 @@
     <FxCompile Include="Engine\Core\Shaders\ComputeShaders\InitDustCS.hlsl">
       <Filter>Engine\Core\Shaders\ComputeShaders</Filter>
     </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\ComputeShaders\LensFlareCS.hlsl">
+      <Filter>Engine\Core\Shaders\ComputeShaders</Filter>
+    </FxCompile>
   </ItemGroup>
 </Project>

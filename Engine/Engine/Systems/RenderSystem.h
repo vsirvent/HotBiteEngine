@@ -245,8 +245,6 @@ namespace HotBite {
 				Core::RenderTexture2D position_map;
 				Core::RenderTexture2D prev_position_map;
 				Core::RenderTexture2D bloom_map;
-				Core::RenderTexture2D dust_map;
-				Core::RenderTexture2D dust_render_map;
 				Core::RenderTexture2D temp_map;
 				Core::RenderTexture2D rgba_noise_texture;
 				Core::RenderTexture2D first_pass_texture{ 1 };				
@@ -274,9 +272,16 @@ namespace HotBite {
 				bool is_dust_init = false;
 				float3 dust_area{};
 				float3 dust_offset{};
+				Core::RenderTexture2D dust_map;
+				Core::RenderTexture2D dust_render_map;
 				Core::SimpleComputeShader* dust_init = nullptr;
 				Core::SimpleComputeShader* dust_update = nullptr;
 				Core::SimpleComputeShader* dust_render = nullptr;
+
+				//Lens flare
+				bool lens_flare_enabled = true;
+				Core::RenderTexture2D lens_flare_map;
+				Core::SimpleComputeShader* lens_flare = nullptr;
 
 				//RT texture 1: Reflexed rays
 				//RT texture 2: Refracted rays
@@ -314,6 +319,7 @@ namespace HotBite {
 					Core::IRenderTarget* target, RenderTree& tree);
 				void ProcessRT();
 				void ProcessDust();
+				void ProcessLensFlare();
 				void ProcessMotionBlur();
 				void DrawParticles(int w, int h, const float3& camera_position, const matrix& view, const matrix& projection, RenderParticleTree& tree);
 				bool IsVisible(const float3& camera_pos, const DrawableEntity& drawable, const matrix& view_projection, int w, int h) const;
@@ -366,6 +372,8 @@ namespace HotBite {
 				void SetDustEnabled(bool enabled);
 				bool GetDustEnabled() const;
 				void SetDustEffectArea(int32_t num_particles, const float3& area, const float3& offset);
+				void SetLensFlare(bool enabled);
+				bool GetLensFlare() const;
 
 				ID3D11ShaderResourceView* GetDepthMapSRV() { return depth_map.SRV(); }
 			};
