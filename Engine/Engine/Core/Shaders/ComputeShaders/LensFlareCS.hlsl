@@ -74,15 +74,17 @@ float4 EmitPoint(float2 pixel, float2 light_screen_pos, float2 dimenstion, Point
 
     float2 delta = pixel - light_screen_pos;
     float angle = atan2(delta.x, delta.y);
-    float angle1 = angle * 10.0f + dot(light.Position, cameraPosition) * 0.01f;
-    float angle2 = angle * 5.0f;
+    float angle_rot = angle + dot(light.Position, cameraPosition) * 0.0001f;;
+    float angle1 = angle_rot * 12.0f + 1.55;
+    float angle2 = angle_rot * 6.0f - 1.55;
     float angle3 = angle * 2.0f - 1.55;
 
-    float3 color = light.Color * pow(DistLightToPixel, 5.0f);
+    float3 color = saturate(light.Color * pow(DistLightToPixel, 5.0f));
     float3 color2 = light.Color;
-    float3 flare1 = saturate(color * sin(angle1) * 1.0f);
-    float3 flare2 = saturate(color * sin(angle2) * 1.0f);
-    float3 flare3 = saturate(color2 * pow(sin(angle3), 20.0f) * 1.0f);
+
+    float3 flare1 = saturate(color * sin(angle1));
+    float3 flare2 = saturate(color * sin(angle2));
+    float3 flare3 = saturate(color2 * pow(abs(sin(angle3)), 20.0f) * 1.0f);
 
     float dist_att = (dimenstion.x * 0.02f) / DistToLight;
     float3 att_dist_by_color = float3(dist_att, dist_att, dist_att * 1.5f);
@@ -92,9 +94,9 @@ float4 EmitPoint(float2 pixel, float2 light_screen_pos, float2 dimenstion, Point
     float3 att_height_by_color = float3(att_height, att_height, att_height * 1.2f);
     att_height_by_color = att_height_by_color;
 
-    color += (flare1 + flare2) * att_dist_by_color + flare3 * att_dist_by_color * att_height_by_color;
+    color += (flare1 + flare2) * att_dist_by_color * light.Range * 0.01f + flare3 * att_dist_by_color * att_height_by_color * light.Range * 0.02f;
     
-    color += pow(DistLightToPixel2, 10.0f) * 10.0f;
+    color += pow(DistLightToPixel2, 10.0f);
     return float4(color, 1.0f);
 }
 
@@ -135,17 +137,29 @@ void main(uint3 DTid : SV_DispatchThreadID)
             light_screen_pos.x = (lposition.x * 0.5f + 0.5f) * dimensions.x;
             light_screen_pos.y = (1.0f - (lposition.y * 0.5f + 0.5f)) * dimensions.y; // Invert y-axis for screen coordinates
 
-            float depth = depthTextureUAV[light_screen_pos * depth_ratio];
             float dist_to_cam = length(pointLights[i].Position - cameraPosition);
-
-            if (depth > dist_to_cam &&
+            float visibility = 0.0f;
+            float count = 0;
+            for (int x = -2; x <= 2; ++x) {
+                for (int y = -2; y <= 2; ++y) {
+                    float depth = depthTextureUAV[(light_screen_pos + float2(x, y))* depth_ratio];
+                    count += 1.0f;
+                    if (depth > dist_to_cam) {
+                        visibility += 1.0f;
+                    }
+                }
+            }
+            
+            visibility /= count;
+            
+            if (visibility > 0.0f &&
                 light_screen_pos.x > 0.0 && light_screen_pos.x < dimensions.x &&
                 light_screen_pos.y > 0.0 && light_screen_pos.y < dimensions.y) {
                 
                 
                 float4 color = EmitPoint(pixel, light_screen_pos, dimensions, pointLights[i]);
 
-                output[pixel] += color;
+                output[pixel] += color * visibility;
             }
         }
     };
