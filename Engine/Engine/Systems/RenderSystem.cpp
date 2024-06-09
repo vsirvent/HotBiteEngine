@@ -2028,9 +2028,6 @@ void RenderSystem::PostProcessLight() {
 		blur_shader->SetShaderResourceView("vol_data", nullptr);
 	}
 
-	ProcessDust();
-	ProcessLensFlare();
-
 	ID3D11DeviceContext* context = DXCore::Get()->context;
 	ID3D11RenderTargetView* rv[1] = { temp_map.RenderTarget() };
 	context->OMSetRenderTargets(1, rv, nullptr);
@@ -2057,7 +2054,8 @@ void RenderSystem::PostProcessLight() {
 	ScreenDraw::Get()->Draw();
 	ps->SetShaderResourceView("renderTexture", nullptr);
 
-
+	ProcessDust();
+	ProcessLensFlare();
 }
 
 void RenderSystem::Draw() {
@@ -2147,6 +2145,12 @@ bool RenderSystem::GetCloudTest() const {
 
 void RenderSystem::SetRayTracing(bool enabled) {
 	rt_enabled = enabled;
+	for (int i = 0; i < RT_NTEXTURES; ++i) {
+		rt_texture[i].Clear(zero);
+		rt_texture_out[i].Clear(zero);
+	}
+	light_map.Clear(zero);
+	bloom_map.Clear(zero);
 }
 
 bool RenderSystem::GetRayTracing() const {

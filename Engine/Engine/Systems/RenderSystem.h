@@ -267,6 +267,17 @@ namespace HotBite {
 				Core::SimpleComputeShader* rt_shader = nullptr;
 				Core::SimpleComputeShader* rt_smooth = nullptr;
 
+				//RT texture 1: Reflexed rays
+				//RT texture 2: Refracted rays
+				static constexpr int RT_NTEXTURES = 2;
+				Core::RenderTexture2D rt_texture[RT_NTEXTURES];
+				Core::RenderTexture2D rt_texture_out[RT_NTEXTURES];
+				Core::RenderTexture2D rt_texture_props;
+				Core::RenderTexture2D rt_ray_sources0;
+				Core::RenderTexture2D rt_ray_sources1;
+				Core::ExtBVHBuffer tbvh_buffer;
+				Core::BVHBuffer* bvh_buffer = nullptr;
+
 				//Dust shader
 				bool dust_enabled = false;
 				bool is_dust_init = false;
@@ -282,17 +293,6 @@ namespace HotBite {
 				bool lens_flare_enabled = true;
 				Core::RenderTexture2D lens_flare_map;
 				Core::SimpleComputeShader* lens_flare = nullptr;
-
-				//RT texture 1: Reflexed rays
-				//RT texture 2: Refracted rays
-				static constexpr int RT_NTEXTURES = 2;
-				Core::RenderTexture2D rt_texture[RT_NTEXTURES];
-				Core::RenderTexture2D rt_texture_out[RT_NTEXTURES];
-				Core::RenderTexture2D rt_texture_props;
-				Core::RenderTexture2D rt_ray_sources0;
-				Core::RenderTexture2D rt_ray_sources1;
-				Core::ExtBVHBuffer tbvh_buffer;
-				Core::BVHBuffer* bvh_buffer = nullptr;
 
 				//Volumetric lights
 				Core::SimpleComputeShader* vol_shader = nullptr;
