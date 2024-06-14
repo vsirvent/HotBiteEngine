@@ -162,7 +162,6 @@ void main(uint3 DTid : SV_DispatchThreadID)
                             {
                                 float2 output_pixel = screenPos + float2(x, y);
                                 output[output_pixel] = float4(saturate(color * total_att), 1.0f);
-                                depthTextureUAV[output_pixel] = dist_to_cam;
                             }
                         }
                     }

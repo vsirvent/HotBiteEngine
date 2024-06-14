@@ -41,7 +41,7 @@ cbuffer externalData : register(b0)
 #define EPSILON 1e-6
 #define VERTICAL 1
 #define HORIZONTAL 2
-#define KERNEL_SIZE 9
+#define KERNEL_SIZE 19
 #define HALF_KERNEL KERNEL_SIZE/2
 
 void FillGaussianArray(out float array[KERNEL_SIZE], float dispersion)
@@ -104,7 +104,7 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
         dir = uint2(1, 0);
     }
 
-    if (false) {
+    if (dopActive) {
         float z0 = depthTexture.Sample(basicSampler, tpos).r;
         dispersion = pow((focusZ - z0), 2.0f) * amplitude / 100.0f;
     }

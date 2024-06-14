@@ -293,6 +293,7 @@ namespace HotBite {
 				bool lens_flare_enabled = true;
 				Core::RenderTexture2D lens_flare_map;
 				Core::SimpleComputeShader* lens_flare = nullptr;
+				Core::DOFProcess* dof_effect = nullptr;
 
 				//Volumetric lights
 				Core::SimpleComputeShader* vol_shader = nullptr;

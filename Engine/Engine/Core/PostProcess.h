@@ -227,8 +227,16 @@ namespace HotBite {
 					focus = val;
 				}
 
+				float GetFocus() const {
+					return focus;
+				}
+
 				void SetAmplitude(float val) {
 					amplitude = val;
+				}
+
+				float GetAmplitude() const {
+					return amplitude;
 				}
 
 				void SetEnabled(bool val) {

@@ -36,6 +36,9 @@ cbuffer externalData : register(b0)
     int screenH;
     float time;
 
+    float focusZ;
+    float amplitude;
+
     AmbientLight ambientLight;
     DirLight dirLights[MAX_LIGHTS];
     PointLight pointLights[MAX_LIGHTS];
@@ -62,7 +65,7 @@ static float2 lps[MAX_LIGHTS] = (float2[MAX_LIGHTS])LightPerspectiveValues;
 #include "../Common/SimpleLight.hlsli"
 #include "../Common/RGBANoise.hlsli"
 
-float4 EmitPoint(float2 pixel, float2 light_screen_pos, float2 dimenstion, PointLight light)
+float4 EmitPoint(float2 pixel, float2 light_screen_pos, float2 dimenstion, PointLight light, float focus)
 {
     float2 ToLight = light_screen_pos - pixel;
     float DistToLight = length(ToLight);
@@ -80,6 +83,8 @@ float4 EmitPoint(float2 pixel, float2 light_screen_pos, float2 dimenstion, Point
     float angle3 = angle * 2.0f - 1.55;
 
     float3 color = saturate(light.Color * pow(DistLightToPixel, 5.0f));
+    color += color * saturate(0.5f - focus);
+
     float3 color2 = light.Color;
 
     float3 flare1 = saturate(color * sin(angle1));
@@ -94,7 +99,7 @@ float4 EmitPoint(float2 pixel, float2 light_screen_pos, float2 dimenstion, Point
     float3 att_height_by_color = float3(att_height, att_height, att_height * 1.2f);
     att_height_by_color = att_height_by_color;
 
-    color += (flare1 + flare2) * att_dist_by_color * light.Range * 0.01f + flare3 * att_dist_by_color * att_height_by_color * light.Range * 0.02f;
+    color += (flare1 + flare2) * att_dist_by_color * light.Range * 0.01f * focus + flare3 * att_dist_by_color * att_height_by_color * light.Range * 0.02f * focus;
     
     color += pow(DistLightToPixel2, 10.0f);
     return float4(color, 1.0f);
@@ -139,10 +144,12 @@ void main(uint3 DTid : SV_DispatchThreadID)
 
             float dist_to_cam = length(pointLights[i].Position - cameraPosition);
             float visibility = 0.0f;
-            float count = 0;
+            float count = 0.0f;
+            float z0 = 0.0f;
             for (int x = -2; x <= 2; ++x) {
                 for (int y = -2; y <= 2; ++y) {
                     float depth = depthTextureUAV[(light_screen_pos + float2(x, y))* depth_ratio];
+                    z0 += depth;
                     count += 1.0f;
                     if (depth > dist_to_cam) {
                         visibility += 1.0f;
@@ -151,13 +158,18 @@ void main(uint3 DTid : SV_DispatchThreadID)
             }
             
             visibility /= count;
-            
+            z0 /= count;
+
             if (visibility > 0.0f &&
                 light_screen_pos.x > 0.0 && light_screen_pos.x < dimensions.x &&
                 light_screen_pos.y > 0.0 && light_screen_pos.y < dimensions.y) {
                 
-                
-                float4 color = EmitPoint(pixel, light_screen_pos, dimensions, pointLights[i]);
+                float focus = 1.0f;
+                if (focusZ > 0.0f) {
+                    focus = 1.0f - saturate(pow((focusZ - z0), 2.0f) * amplitude * 0.001f) + 0.1f;
+                }
+
+                float4 color = EmitPoint(pixel, light_screen_pos, dimensions, pointLights[i], focus);
 
                 output[pixel] += color * visibility;
             }

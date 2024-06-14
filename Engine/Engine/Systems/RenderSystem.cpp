@@ -1389,6 +1389,8 @@ void RenderSystem::ProcessLensFlare() {
 		lens_flare->SetInt(SCREEN_W, w);
 		lens_flare->SetInt(SCREEN_H, h);
 		lens_flare->SetMatrix4x4(VIEW, cam_entity.camera->view);
+		lens_flare->SetFloat("focusZ", dof_effect ? dof_effect->GetFocus() : -1.0f);
+		lens_flare->SetFloat("amplitude", dof_effect ? dof_effect->GetAmplitude() : -1.0f);
 		lens_flare->SetMatrix4x4("inverse_view", cam_entity.camera->inverse_view);
 		lens_flare->SetMatrix4x4(PROJECTION, cam_entity.camera->projection);
 		lens_flare->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
@@ -1964,6 +1966,10 @@ void RenderSystem::SetPostProcessPipeline(Core::PostProcess* pipeline) {
 		pipeline->SetShaderResourceView("prevPositionTexture", prev_position_map.SRV());
 
 		while (last->GetNext() != nullptr) {
+			DOFProcess* tmp = dynamic_cast<DOFProcess*>(last);
+			if (tmp != nullptr) {
+				dof_effect = tmp;
+			}
 			last = last->GetNext();
 		}
 		last->SetTarget(dxcore, dxcore);
