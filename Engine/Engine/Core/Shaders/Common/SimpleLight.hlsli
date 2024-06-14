@@ -92,7 +92,6 @@ float3 CalcPoint(float3 normal, float3 position, PointLight light, int index)
 {
     float3 finalColor = { 0.f, 0.f, 0.f };
     float3 lposition = light.Position;
-    float lum = (light.Color.r + light.Color.g + light.Color.b) / 3.0f;
     float3 ToLight = lposition - position;
     float3 ToEye = cameraPosition - position;
     float DistToLight = length(ToLight);
@@ -106,7 +105,7 @@ float3 CalcPoint(float3 normal, float3 position, PointLight light, int index)
     float DistToLightNorm = saturate(LightRange);
     float Attn = saturate(DistToLightNorm * DistToLightNorm);
     if (light.cast_shadow) {
-        float shadow = PointShadowPCFFAST(position - light.Position, light, index);
+        float shadow = PointShadowPCFFAST(light.Position - position, light, index);
         finalColor *= shadow;
     }
     finalColor *= Attn;

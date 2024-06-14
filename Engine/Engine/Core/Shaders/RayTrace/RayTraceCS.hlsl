@@ -487,7 +487,7 @@ float3 GetColor(Ray origRay, out float3 bloom)
 
             normal = normalize(mul(normal, (float3x3)o.world));
             float4 pos = mul(float4(opos, 1.0f), o.world);
-            pos /= pos.w;
+            pos /= abs(pos.w);
             MaterialColor material = objectMaterials[result.object];
 
             float3 color = float3(0.0f, 0.0f, 0.0f);
@@ -588,12 +588,10 @@ void main(uint3 DTid : SV_DispatchThreadID)
     RaySource ray_source = fromColor(ray0[ray_pixel], ray1[ray_pixel]);
 
     props[pixel] = props[pixel]*0.5f + ray_source.dispersion*0.5f;
-    if (ray_source.dispersion >= 1.0f || ray_source.reflex < Epsilon) {
-        return;
-    }
-    
-    if (length(ray_source.normal) < Epsilon)
+    if (ray_source.dispersion >= 1.0f || ray_source.reflex < Epsilon || length(ray_source.normal) < Epsilon)
     {
+        output0[pixel] = color0;
+        output1[pixel] = color1;
         return;
     }
 
