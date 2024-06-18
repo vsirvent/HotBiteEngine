@@ -1966,7 +1966,7 @@ void RenderSystem::SetPostProcessPipeline(Core::PostProcess* pipeline) {
 		pipeline->SetShaderResourceView("prevPositionTexture", prev_position_map.SRV());
 
 		while (last->GetNext() != nullptr) {
-			DOFProcess* tmp = dynamic_cast<DOFProcess*>(last);
+			BaseDOFProcess* tmp = dynamic_cast<BaseDOFProcess*>(last);
 			if (tmp != nullptr) {
 				dof_effect = tmp;
 			}

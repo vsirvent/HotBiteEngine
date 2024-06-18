@@ -558,5 +558,8 @@
     <FxCompile Include="Engine\Core\Shaders\ComputeShaders\LensFlareCS.hlsl">
       <Filter>Engine\Core\Shaders\ComputeShaders</Filter>
     </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\PostProcess\PostDOFBoke.hlsl">
+      <Filter>Engine\Core\Shaders\PostProcess</Filter>
+    </FxCompile>
   </ItemGroup>
 </Project>

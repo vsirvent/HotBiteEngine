@@ -199,8 +199,46 @@ namespace HotBite {
 				}
 			};
 
+			class BaseDOFProcess: public HotBite::Engine::Core::GenericPostProcess
+			{
+			private:
+				bool enabled = false;
+				float focus = 0.0f;
+				float amplitude = 0.0f;
+			public:
 
-			class DOFProcess : public HotBite::Engine::Core::GenericPostProcess
+				BaseDOFProcess(ID3D11DeviceContext* dxcontext,
+					int width, int height, HotBite::Engine::ECS::Coordinator* c,
+					const std::string& vs, const std::string& ps) : GenericPostProcess(dxcontext, width, height, c, vs, ps) {}
+
+				virtual ~BaseDOFProcess() {}
+
+				void SetFocus(float val) {
+					focus = val;
+				}
+
+				float GetFocus() const {
+					return focus;
+				}
+
+				void SetAmplitude(float val) {
+					amplitude = val;
+				}
+
+				float GetAmplitude() const {
+					return amplitude;
+				}
+
+				void SetEnabled(bool val) {
+					enabled = val;
+				}
+
+				bool GetEnabled() const {
+					return enabled;
+				}
+			};
+
+			class DOFProcess : public BaseDOFProcess
 			{
 			private:
 				bool enabled = false;
@@ -209,17 +247,57 @@ namespace HotBite {
 				HotBite::Engine::Core::RenderTexture2D temp;
 
 			public:
-				enum EType {
-					DOF
-				};
+
 				DOFProcess(ID3D11DeviceContext* dxcontext,
 					int width, int height, HotBite::Engine::ECS::Coordinator* c) : 
-					GenericPostProcess(dxcontext, width, height, c, "PostMainVS.cso", "PostDOP.cso")
+					BaseDOFProcess(dxcontext, width, height, c, "PostMainVS.cso", "PostDOP.cso")
 				{
 					temp.Init(width, height, DXGI_FORMAT_R32G32B32A32_FLOAT);
 				}
 
 				virtual ~DOFProcess() {
+					temp.Release();
+				}
+
+				
+		
+				void Render() override {
+					ID3D11RenderTargetView* rv[1] = { temp.RenderTarget() };
+					context->OMSetRenderTargets(1, rv, TargetDepthView());
+					ps->SetInt("dopActive", enabled);
+					ps->SetFloat("focusZ", focus);
+					ps->SetFloat("amplitude", amplitude);
+					ps->SetInt("type", 1);
+					ps->CopyAllBufferData();
+					PostProcess::Render();
+
+					rv[0] = { TargetRenderView() };
+					context->OMSetRenderTargets(1, rv, TargetDepthView());
+					ps->SetShaderResourceView("renderTexture", temp.SRV());
+					ps->SetInt("type", 2);
+					ps->CopyAllBufferData();
+					PostProcess::Render();
+				}
+			};
+
+			class DOFBokeProcess : public BaseDOFProcess
+			{
+			private:
+				bool enabled = false;
+				float focus = 0.0f;
+				float amplitude = 0.0f;
+				HotBite::Engine::Core::RenderTexture2D temp;
+
+			public:
+
+				DOFBokeProcess(ID3D11DeviceContext* dxcontext,
+					int width, int height, HotBite::Engine::ECS::Coordinator* c) :
+					BaseDOFProcess(dxcontext, width, height, c, "PostMainVS.cso", "PostDOFBoke.cso")
+				{
+					temp.Init(width, height, DXGI_FORMAT_R32G32B32A32_FLOAT);
+				}
+
+				virtual ~DOFBokeProcess() {
 					temp.Release();
 				}
 
@@ -242,7 +320,7 @@ namespace HotBite {
 				void SetEnabled(bool val) {
 					enabled = val;
 				}
-		
+
 				void Render() override {
 					ID3D11RenderTargetView* rv[1] = { temp.RenderTarget() };
 					context->OMSetRenderTargets(1, rv, TargetDepthView());
@@ -261,7 +339,6 @@ namespace HotBite {
 					PostProcess::Render();
 				}
 			};
-
 		}
 	}
 }

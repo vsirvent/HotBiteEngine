@@ -56,7 +56,18 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
     float4 color = renderTexture.Sample(basicSampler, tpos);
     float4 l = lightTexture.Sample(basicSampler, tpos);
     float4 b = bloomTexture.Sample(basicSampler, tpos);    
+
+    float4 rt0 = rtTexture0.Sample(basicSampler, tpos);
+    float4 rt1 = rtTexture1.Sample(basicSampler, tpos);
+    float4 vol = volLightTexture.Sample(basicSampler, tpos);
+    float4 dust = dustTexture.Sample(basicSampler, tpos);
+    float4 lens_flare = lensFlareTexture.Sample(basicSampler, tpos);
+    color += (color + 2.0f * l) * rt0 + rt1 + b + vol + dust + lens_flare;
 #if 0
+    color.rgb += 0.05f * simplex3d_fractal(float3(400.0f*tpos.xy, time*random(1000.0f*time)));
+#endif
+
+#if 1
     if (length(color) < 1.0f) {
         float gamma = 1.1f;
         float saturation = 1.2f;
@@ -70,14 +81,6 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
         color.rgb = pow(abs(color.rgb), 1.0 / gamma);
     }
 #endif
-    float4 rt0 = rtTexture0.Sample(basicSampler, tpos);
-    float4 rt1 = rtTexture1.Sample(basicSampler, tpos);
-    float4 vol = volLightTexture.Sample(basicSampler, tpos);
-    float4 dust = dustTexture.Sample(basicSampler, tpos);
-    float4 lens_flare = lensFlareTexture.Sample(basicSampler, tpos);
-    color += (color + 2.0f * l) * rt0 + rt1 + b + vol + dust + lens_flare;
-#if 0
-    color.rgb += 0.05f * simplex3d_fractal(float3(400.0f*tpos.xy, time*random(1000.0f*time)));
-#endif
+
     return climit4(color);
 }
