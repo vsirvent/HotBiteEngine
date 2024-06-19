@@ -14,7 +14,6 @@ Texture2D<float> depth : register(t0);
 cbuffer externalData : register(b0)
 {
     uint type;
-    uint divider;
 }
 
 void FillGaussianArray(out float array[KERNEL_SIZE], float dispersion)
@@ -47,11 +46,27 @@ float4 getColor(float2 pixel, float2 dir, float dispersion)
         FillGaussianArray(BlurWeights, dispersion);
         float4 color = float4(0.f, 0.f, 0.f, 1.f);
         float2 tpos;
-        float pixelDepth = depth[pixel / divider];
+
+        uint2 input_dimensions;
+        uint2 depth_dimensions;
+        {
+            uint w, h;
+            input.GetDimensions(w, h);
+            input_dimensions.x = w;
+            input_dimensions.y = h;
+
+            depth.GetDimensions(w, h);
+            depth_dimensions.x = w;
+            depth_dimensions.y = h;
+        }
+
+        uint2 depthRatio = input_dimensions / depth_dimensions;
+        
+        float pixelDepth = depth[pixel / depthRatio];
         float4 baseColor = input[pixel];
         for (int i = -HALF_KERNEL; i <= HALF_KERNEL; ++i) {
             tpos = pixel + dir * i;
-            float d = depth[tpos / divider];
+            float d = depth[tpos / depthRatio];
             float4 c = lerp(input[tpos], baseColor, saturate(abs(d - pixelDepth) * 16.0f));
             color += c * BlurWeights[i + HALF_KERNEL];
         }

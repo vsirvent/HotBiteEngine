@@ -82,8 +82,8 @@ float4 EmitPoint(float2 pixel, float2 light_screen_pos, float2 dimenstion, Point
     float angle2 = angle_rot * 6.0f - 1.55;
     float angle3 = angle * 2.0f - 1.55;
 
-    float3 color = saturate(light.Color * pow(DistLightToPixel, 5.0f));
-    color += color * saturate(0.5f - focus);
+    float3 color = saturate(light.Color * pow(DistLightToPixel, 10.0f));
+    //color += color * saturate(0.5f - focus);
 
     float3 color2 = light.Color;
 
@@ -99,9 +99,9 @@ float4 EmitPoint(float2 pixel, float2 light_screen_pos, float2 dimenstion, Point
     float3 att_height_by_color = float3(att_height, att_height, att_height * 1.2f);
     att_height_by_color = att_height_by_color;
 
-    color += (flare1 + flare2) * att_dist_by_color * light.Range * 0.01f * focus + flare3 * att_dist_by_color * att_height_by_color * light.Range * 0.02f * focus;
+    //color += (flare1 + flare2) * att_dist_by_color * light.Range * 0.01f * focus + flare3 * att_dist_by_color * att_height_by_color * light.Range * 0.02f * focus;
     
-    color += pow(DistLightToPixel2, 10.0f);
+    //color += pow(DistLightToPixel2, 10.0f);
     return float4(color, 1.0f);
 }
 

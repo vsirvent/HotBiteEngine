@@ -67,13 +67,13 @@ void UnpackColors(float4 packedColors, out float4 color1, out float4 color2) {
 	scaledColor1.r = packedColor1_low & 0xFFFF;
 	scaledColor1.g = (packedColor1_low >> 16) & 0xFFFF;	
 	scaledColor1.b = packedColor1_hi & 0xFFFF;
-	scaledColor1.a = (packedColor1_low >> 16) & 0xFFFF;
+	scaledColor1.a = (packedColor1_hi >> 16) & 0xFFFF;
 
 	uint4 scaledColor2;
 	scaledColor2.r = packedColor2_low & 0xFFFF;
 	scaledColor2.g = (packedColor2_low >> 16) & 0xFFFF;
 	scaledColor2.b = packedColor2_hi & 0xFFFF;
-	scaledColor2.a = (packedColor2_low >> 16) & 0xFFFF;
+	scaledColor2.a = (packedColor2_hi >> 16) & 0xFFFF;
 
 	// Scale colors back from 0-65535.0 to 0-1
 	color1 = float4(scaledColor1) / 65535.0f;

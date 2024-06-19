@@ -201,7 +201,7 @@ namespace HotBite {
 
 			class BaseDOFProcess: public HotBite::Engine::Core::GenericPostProcess
 			{
-			private:
+			protected:
 				bool enabled = false;
 				float focus = 0.0f;
 				float amplitude = 0.0f;
@@ -241,9 +241,6 @@ namespace HotBite {
 			class DOFProcess : public BaseDOFProcess
 			{
 			private:
-				bool enabled = false;
-				float focus = 0.0f;
-				float amplitude = 0.0f;
 				HotBite::Engine::Core::RenderTexture2D temp;
 
 			public:
@@ -283,9 +280,6 @@ namespace HotBite {
 			class DOFBokeProcess : public BaseDOFProcess
 			{
 			private:
-				bool enabled = false;
-				float focus = 0.0f;
-				float amplitude = 0.0f;
 				HotBite::Engine::Core::RenderTexture2D temp;
 
 			public:
@@ -301,26 +295,6 @@ namespace HotBite {
 					temp.Release();
 				}
 
-				void SetFocus(float val) {
-					focus = val;
-				}
-
-				float GetFocus() const {
-					return focus;
-				}
-
-				void SetAmplitude(float val) {
-					amplitude = val;
-				}
-
-				float GetAmplitude() const {
-					return amplitude;
-				}
-
-				void SetEnabled(bool val) {
-					enabled = val;
-				}
-
 				void Render() override {
 					ID3D11RenderTargetView* rv[1] = { temp.RenderTarget() };
 					context->OMSetRenderTargets(1, rv, TargetDepthView());
@@ -330,13 +304,14 @@ namespace HotBite {
 					ps->SetInt("type", 1);
 					ps->CopyAllBufferData();
 					PostProcess::Render();
-
+					
 					rv[0] = { TargetRenderView() };
 					context->OMSetRenderTargets(1, rv, TargetDepthView());
 					ps->SetShaderResourceView("renderTexture", temp.SRV());
 					ps->SetInt("type", 2);
 					ps->CopyAllBufferData();
 					PostProcess::Render();
+					ps->SetShaderResourceView("renderTexture", nullptr);
 				}
 			};
 		}

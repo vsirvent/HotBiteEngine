@@ -67,7 +67,7 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
     color.rgb += 0.05f * simplex3d_fractal(float3(400.0f*tpos.xy, time*random(1000.0f*time)));
 #endif
 
-#if 1
+#if 0
     if (length(color) < 1.0f) {
         float gamma = 1.1f;
         float saturation = 1.2f;
