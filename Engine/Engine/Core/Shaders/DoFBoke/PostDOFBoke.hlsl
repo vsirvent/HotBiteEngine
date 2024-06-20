@@ -38,12 +38,14 @@ cbuffer externalData : register(b0)
     uint type;
 }
 
+//#define TEST
+
 static const float EPSILON = 1e-6f;
 static const uint VERTICAL = 1;
 static const uint HORIZONTAL = 2;
-static const int KERNEL_SIZE = 33;
+static const int KERNEL_SIZE = 63;
 static const int HALF_KERNEL = KERNEL_SIZE / 2;
-static const float MAX_VARIANCE = (float)KERNEL_SIZE / 5;
+static const float MAX_VARIANCE = (float)KERNEL_SIZE / 6;
 static const float M_PI = 3.14159265358979323846f; /* pi */
 
 struct complex {
@@ -103,12 +105,20 @@ float Length(const complex value) {
     return sqrt(Energy(value));
 }
 
-float ComplexToReal(const complex in_value) {
-    return in_value.real + in_value.img; //Length(in_value); // //  //in_value.real; // Length(in_value); // ; // in_value.real; // ComplexLength(in_value) + in_value.real;
+float ComplexToReal(const complex in_value, uint type) {
+#if 0 //def TEST
+    if (type == 0)
+       return in_value.real;
+    if (type == 1)
+       return in_value.img;
+    return 0.0f;
+#else
+    return in_value.real + in_value.img;
+#endif
 }
 
-float4 ComplexColorToColor(const complex_color ccolor) {
-    return float4(ComplexToReal(ccolor.r), ComplexToReal(ccolor.g), ComplexToReal(ccolor.b), 1.0f);
+float4 ComplexColorToColor(const complex_color ccolor, uint type) {
+    return float4(ComplexToReal(ccolor.r, type), ComplexToReal(ccolor.g, type), ComplexToReal(ccolor.b, type), 1.0f);
 }
 
 void InitComplexColor(out complex_color ccolor) {
@@ -133,17 +143,20 @@ void FillKernel(out complex array[KERNEL_SIZE], float dispersion)
 {
     float variance = clamp(dispersion, 0.1f, MAX_VARIANCE);
     float freq = MAX_VARIANCE / (variance * 2.0f);
-    float sum = 0.0f;
+    float energy = 0.0f;
     int i;
     for (i = -HALF_KERNEL; i <= HALF_KERNEL; ++i)
     {
         float x = i;
-        float val = exp(-(x * x) / (2.0f * variance * variance));
-        float pos = freq * (x * x) * M_PI / (float)KERNEL_SIZE;
+        float val = exp(-(x * x) / (2.0f * variance * variance)) / sqrt(2.0f * M_PI * variance * variance);
+        float pos = freq * (x * x) / (float)KERNEL_SIZE;
         array[i + HALF_KERNEL].real = val * cos(pos);
         array[i + HALF_KERNEL].img = val * sin(pos);
-        //sum += Length(array[i + HALF_KERNEL]);
+
+        complex c = array[i + HALF_KERNEL];
+        energy += Energy(c);
     }
+#if 0 //ndef TEST
     for (uint x = 0; x < KERNEL_SIZE; ++x)
     {
         for (uint y = 0; y < KERNEL_SIZE; ++y)
@@ -155,9 +168,17 @@ void FillKernel(out complex array[KERNEL_SIZE], float dispersion)
     sum = sqrt(sum);
     for (i = 0; i < KERNEL_SIZE; ++i)
     {
-        //array[i].real /= sum;
-        //array[i].img /= sum;
+        array[i].real /= sum;
+        array[i].img /= sum;
     }
+#else
+    energy = sqrt(energy);
+    for (i = 0; i < KERNEL_SIZE; ++i)
+    {
+        array[i].real /= energy;
+        array[i].img /= energy;
+    }
+#endif
 }
 
 float4 main(float4 pos: SV_POSITION) : SV_TARGET
@@ -190,9 +211,12 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
     if (type == VERTICAL) {
         uint2 p = pixel;
         if (dispersion < 0.1f) {
-            //float4 color = renderTexture.Load(float3(p, 0);
-            float c = (p.x % KERNEL_SIZE == 0 && p.y % KERNEL_SIZE == 0) ? 1.0f: 0.0f;
+#ifndef TEST
+            float4 color = renderTexture.Load(float3(p, 0));
+#else
+            float c = (p.x % KERNEL_SIZE == 0 && p.y % KERNEL_SIZE == 0) ? 0.5f : 0.0f;
             float4 color = float4(c, c, c, 1.0f);
+#endif
             ColorToComplexColor(color, ccolor);
         }
         else {
@@ -203,11 +227,13 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
 
             for (int i = -HALF_KERNEL; i <= HALF_KERNEL; ++i) {
                 p = pixel + dir * i;
-                //float4 color = renderTexture.Load(float3(p, 0);
-                float c = (p.x % KERNEL_SIZE == 0 && p.y % KERNEL_SIZE == 0) ? 1.0f : 0.0f;
+#ifndef TEST
+                float4 color = renderTexture.Load(float3(p, 0));
+#else
+                float c = (p.x % KERNEL_SIZE == 0 && p.y % KERNEL_SIZE == 0) ? 0.5f : 0.0f;
                 float4 color = float4(c, c, c, 1.0f);
+#endif
                 ColorToComplexColor(color, in_color);
-                //ColorToComplexColor(renderTexture.Load(float3(p, 0)), in_color);
                 AccMultComplexColor(in_color, kernel[i + HALF_KERNEL], ccolor);
             }
         }
@@ -229,6 +255,6 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
                 AccMultComplexColor(in_color, kernel[i + HALF_KERNEL], ccolor);
             }
         }
-        return ComplexColorToColor(ccolor);
+        return ComplexColorToColor(ccolor, (uint)(pixel.x / KERNEL_SIZE) % 2);
     }
 }

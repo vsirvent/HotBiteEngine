@@ -280,7 +280,10 @@ namespace HotBite {
 			class DOFBokeProcess : public BaseDOFProcess
 			{
 			private:
+				static const int32_t KERNEL_SIZE = 63;
+
 				HotBite::Engine::Core::RenderTexture2D temp;
+				HotBite::Engine::Core::RenderTexture2D kernel;
 
 			public:
 
@@ -289,10 +292,25 @@ namespace HotBite {
 					BaseDOFProcess(dxcontext, width, height, c, "PostMainVS.cso", "PostDOFBoke.cso")
 				{
 					temp.Init(width, height, DXGI_FORMAT_R32G32B32A32_FLOAT);
+
+					int32_t size = (KERNEL_SIZE + 15) & ~15; // Round to upper multiple of 16
+					int32_t num_kernels = (KERNEL_SIZE * 100) / 6; //max variance x100
+					num_kernels = (num_kernels + 15) & ~15;
+
+					kernel.Init(size, num_kernels, DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS);
+
+					SimpleComputeShader* kernel_init = ShaderFactory::Get()->GetShader<SimpleComputeShader>("InitDoFBoke");
+					kernel_init->SetUnorderedAccessView("dofKernels", kernel.UAV());
+					int32_t  groupsY = (int32_t)(ceil((float)kernel.Height() / 32.0f));
+					kernel_init->SetShader();
+					context->Dispatch(1, groupsY, 1);
+					kernel_init->SetUnorderedAccessView("dofKernels", nullptr);
+					ps->SetShaderResourceView("kernel", kernel.SRV());
 				}
 
 				virtual ~DOFBokeProcess() {
 					temp.Release();
+					kernel.Release();
 				}
 
 				void Render() override {

@@ -263,6 +263,7 @@
     <ClInclude Include="Engine\World.h" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="Engine\Core\Shaders\Common\Complex.hlsli" />
     <None Include="Engine\Core\Shaders\Common\Defines.hlsli" />
     <None Include="Engine\Core\Shaders\Common\FastNoise.hlsli" />
     <None Include="Engine\Core\Shaders\Common\Matrix.hlsli" />
@@ -276,6 +277,7 @@
     <None Include="Engine\Core\Shaders\Common\ShaderStructs.hlsli" />
     <None Include="Engine\Core\Shaders\Common\SimpleLight.hlsli" />
     <None Include="Engine\Core\Shaders\Common\Utils.hlsli" />
+    <None Include="Engine\Core\Shaders\DoFBoke\DoFBoke.hlsli" />
     <None Include="Engine\Core\Shaders\GUI\GUICommon.hlsli" />
     <None Include="Engine\Core\Shaders\MainRender\MainRenderPS.hlsli" />
     <None Include="packages.config" />
@@ -333,6 +335,15 @@
       <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Vertex</ShaderType>
       <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|x64'">5.0</ShaderModel>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\DoFBoke\InitDoFBokeCS.hlsl">
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Compute</ShaderType>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Compute</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\DoFBoke\PostDOFBoke.hlsl">
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Pixel</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
     </FxCompile>
     <FxCompile Include="Engine\Core\Shaders\Effects\Lava\LavaGS.hlsl">
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Geometry</ShaderType>
@@ -466,12 +477,6 @@
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Pixel</ShaderType>
       <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|x64'">5.0</ShaderModel>
       <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
-    </FxCompile>
-    <FxCompile Include="Engine\Core\Shaders\PostProcess\PostDOFBoke.hlsl">
-      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Pixel</ShaderType>
-      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
-      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Pixel</ShaderType>
-      <DisableOptimizations Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</DisableOptimizations>
     </FxCompile>
     <FxCompile Include="Engine\Core\Shaders\PostProcess\PostDOP.hlsl">
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Pixel</ShaderType>
