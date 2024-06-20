@@ -22,7 +22,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-static const float EPSILON = 1e-6f;
 static const uint VERTICAL = 1;
 static const uint HORIZONTAL = 2;
 static const float M_PI = 3.14159265358979323846f; /* pi */

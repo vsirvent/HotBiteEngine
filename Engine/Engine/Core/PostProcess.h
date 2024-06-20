@@ -293,19 +293,20 @@ namespace HotBite {
 				{
 					temp.Init(width, height, DXGI_FORMAT_R32G32B32A32_FLOAT);
 
-					int32_t size = (KERNEL_SIZE + 15) & ~15; // Round to upper multiple of 16
+					int32_t size = (KERNEL_SIZE/2 + 15) & ~15; // Round to upper multiple of 16, 1 float4 color stores 2 kernel values
 					int32_t num_kernels = (KERNEL_SIZE * 100) / 6; //max variance x100
 					num_kernels = (num_kernels + 15) & ~15;
 
 					kernel.Init(size, num_kernels, DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS);
 
-					SimpleComputeShader* kernel_init = ShaderFactory::Get()->GetShader<SimpleComputeShader>("InitDoFBoke");
+					SimpleComputeShader* kernel_init = ShaderFactory::Get()->GetShader<SimpleComputeShader>("InitDoFBokeCS.cso");
 					kernel_init->SetUnorderedAccessView("dofKernels", kernel.UAV());
 					int32_t  groupsY = (int32_t)(ceil((float)kernel.Height() / 32.0f));
 					kernel_init->SetShader();
+					kernel_init->CopyAllBufferData();
 					context->Dispatch(1, groupsY, 1);
 					kernel_init->SetUnorderedAccessView("dofKernels", nullptr);
-					ps->SetShaderResourceView("kernel", kernel.SRV());
+					kernel_init->CopyAllBufferData();
 				}
 
 				virtual ~DOFBokeProcess() {
@@ -316,10 +317,12 @@ namespace HotBite {
 				void Render() override {
 					ID3D11RenderTargetView* rv[1] = { temp.RenderTarget() };
 					context->OMSetRenderTargets(1, rv, TargetDepthView());
+					ps->SetFloat("kernel_size", KERNEL_SIZE);
 					ps->SetInt("dopActive", enabled);
 					ps->SetFloat("focusZ", focus);
 					ps->SetFloat("amplitude", amplitude);
 					ps->SetInt("type", 1);
+					ps->SetShaderResourceView("kernels", kernel.SRV());
 					ps->CopyAllBufferData();
 					PostProcess::Render();
 					
@@ -329,6 +332,7 @@ namespace HotBite {
 					ps->SetInt("type", 2);
 					ps->CopyAllBufferData();
 					PostProcess::Render();
+					ps->SetShaderResourceView("kernels", nullptr);
 					ps->SetShaderResourceView("renderTexture", nullptr);
 				}
 			};

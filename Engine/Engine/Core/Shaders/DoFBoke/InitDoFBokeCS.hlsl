@@ -26,6 +26,11 @@ RWTexture2D<float4> dofKernels : register(u0);
 #include "../Common/Complex.hlsli"
 #include "DoFBoke.hlsli"
 
+cbuffer externalData : register(b0)
+{
+    uint kernel_size;
+}
+
 complex GetKernelValue(uint position, float kernel_size, float variance, float freq)
 {
     float x = position;
@@ -51,7 +56,6 @@ void main(uint3 DTid : SV_DispatchThreadID)
 
     uint kernel_position = 0;
     uint kernel_unit = DTid.y;
-    int kernel_size = dimensions.x / 2 - 1;
     float fkernel_size = kernel_size;
     int half_kernel = kernel_size / 2;
     float dispersion = (float)kernel_unit / 100.0f;
@@ -61,33 +65,40 @@ void main(uint3 DTid : SV_DispatchThreadID)
     float freq = max_variance / (variance * 2.0f);
 
     int i;
-    for (i = -half_kernel; i <= half_kernel; ++i)
+    uint ii = 0;
+    for (i = -half_kernel; i <= half_kernel; i += 2, ++ii)
     {
         complex c = GetKernelValue(i, fkernel_size, variance, freq);
-        dofKernels[uint2(i + half_kernel, kernel_unit)] = c.real;
-        dofKernels[uint2(i + half_kernel + 1, kernel_unit)] = c.img;
+        float4 data;
+        data.r = c.real;
+        data.g = c.img;
+        c = GetKernelValue(i + 1, fkernel_size, variance, freq);
+        data.b = c.real;
+        data.a = c.img;
+        dofKernels[uint2(ii + half_kernel, kernel_unit)] = data;
     }
 
     //Normalize
     float sum = 0.0f;
-    for (uint x = 0; x < kernel_size; ++x)
+    for (uint x = 0; x < kernel_size; x += 2)
     {
         for (uint y = 0; y < kernel_size; ++y)
         {
             complex n0;
             complex n1;
-            n0.real = dofKernels[uint2(x, kernel_unit)];
-            n0.img = dofKernels[uint2(x + 1, kernel_unit)];
-            n1.real = dofKernels[uint2(y, kernel_unit)];
-            n1.img = dofKernels[uint2(y + 1, kernel_unit)];
+            float4 data = dofKernels[uint2(x, kernel_unit)];
+            n0.real = data.r;
+            n0.img = data.g;
+            n1.real = data.b;
+            n1.img = data.a;
             complex c = MultComplex(n0, n1);
             sum += c.real + c.img;
         }
     }
     sum = sqrt(sum);
   
-    for (i = 0; i < kernel_size * 2; ++i)
+    for (uint p = 0; p < kernel_size / 2; ++p)
     {
-        dofKernels[uint2(i, kernel_unit)] /= sum;
+        dofKernels[uint2(p, kernel_unit)] /= sum;
     }
 }

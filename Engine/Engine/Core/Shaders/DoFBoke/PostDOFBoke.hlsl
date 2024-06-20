@@ -22,13 +22,16 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-#include "../Common/Defines.hlsli"
-#include "../Common/Utils.hlsli"
+#include "../Common/Complex.hlsli"
+#include "DoFBoke.hlsli"
 
-Texture2D renderTexture : register(t0);
-Texture2D depthTexture: register(t1);
+Texture2D renderTexture;
+Texture2D depthTexture;
+Texture2D kernels;
 
 SamplerState basicSampler : register(s0);
+
+#define MAX_KERNEL_SIZE 128
 
 cbuffer externalData : register(b0)
 {
@@ -36,154 +39,26 @@ cbuffer externalData : register(b0)
     float focusZ;
     float amplitude;
     uint type;
+    uint kernel_size;
 }
 
-//#define TEST
-
-static const float EPSILON = 1e-6f;
-static const uint VERTICAL = 1;
-static const uint HORIZONTAL = 2;
-static const int KERNEL_SIZE = 63;
-static const int HALF_KERNEL = KERNEL_SIZE / 2;
-static const float MAX_VARIANCE = (float)KERNEL_SIZE / 6;
-static const float M_PI = 3.14159265358979323846f; /* pi */
-
-struct complex {
-    float real;
-    float img;
-};
-
-struct complex_color {
-    complex r;
-    complex g;
-    complex b;
-};
-
-complex MultComplex(const complex n0, const complex n1) {
-    complex ret;
-    ret.real = n0.real * n1.real - n0.img * n1.img;
-    ret.img = n0.real * n1.img + n0.img * n1.real;
-    return ret;
-}
-
-void AccMultComplex(const complex n0, const complex n1, in out complex val) {
-    val.real += n0.real * n1.real - n0.img * n1.img;
-    val.img += n0.real * n1.img + n0.img * n1.real;
-}
-
-void AccMultComplexColor(const complex_color in_color, const complex value, in out complex_color ccolor) {
-    AccMultComplex(in_color.r, value, ccolor.r);
-    AccMultComplex(in_color.g, value, ccolor.g);
-    AccMultComplex(in_color.b, value, ccolor.b);
-}
-
-void PackedComplexColorToComplexColor(float4 packed_color, in out complex_color ccolor) {
-    float4 c1;
-    float4 c2;
-    UnpackColors(packed_color, c1, c2);
-    ccolor.r.real = c1.r;
-    ccolor.g.real = c1.g;
-    ccolor.b.real = c1.b;
-    ccolor.r.img = c2.r;
-    ccolor.g.img = c2.g;
-    ccolor.b.img = c2.b;
-}
-
-void ColorToComplexColor(float4 color, out complex_color ccolor) {
-    ccolor.r.real = color.r;
-    ccolor.g.real = color.g;
-    ccolor.b.real = color.b;
-    ccolor.r.img = 0.0f;
-    ccolor.g.img = 0.0f;
-    ccolor.b.img = 0.0f;
-}
-
-float Energy(const complex value) {
-    return (value.real * value.real + value.img * value.img);
-}
-float Length(const complex value) {
-    return sqrt(Energy(value));
-}
-
-float ComplexToReal(const complex in_value, uint type) {
-#if 0 //def TEST
-    if (type == 0)
-       return in_value.real;
-    if (type == 1)
-       return in_value.img;
-    return 0.0f;
-#else
-    return in_value.real + in_value.img;
-#endif
-}
-
-float4 ComplexColorToColor(const complex_color ccolor, uint type) {
-    return float4(ComplexToReal(ccolor.r, type), ComplexToReal(ccolor.g, type), ComplexToReal(ccolor.b, type), 1.0f);
-}
-
-void InitComplexColor(out complex_color ccolor) {
-    ccolor.r.real = 0.0f;
-    ccolor.g.real = 0.0f;
-    ccolor.b.real = 0.0f;
-    ccolor.r.img = 0.0f;
-    ccolor.g.img = 0.0f;
-    ccolor.b.img = 0.0f;
-}
-
-float4 GetReal(const complex_color ccolor) {
-    return float4(ccolor.r.real, ccolor.g.real, ccolor.b.real, 1.0f);
-}
-
-float4 GetImg(const complex_color ccolor) {
-    return float4(ccolor.r.img, ccolor.g.img, ccolor.b.img, 1.0f);
-}
-
-
-void FillKernel(out complex array[KERNEL_SIZE], float dispersion)
+void FillKernel(out complex kernel[MAX_KERNEL_SIZE], float dispersion)
 {
-    float variance = clamp(dispersion, 0.1f, MAX_VARIANCE);
-    float freq = MAX_VARIANCE / (variance * 2.0f);
-    float energy = 0.0f;
-    int i;
-    for (i = -HALF_KERNEL; i <= HALF_KERNEL; ++i)
-    {
-        float x = i;
-        float val = exp(-(x * x) / (2.0f * variance * variance)) / sqrt(2.0f * M_PI * variance * variance);
-        float pos = freq * (x * x) / (float)KERNEL_SIZE;
-        array[i + HALF_KERNEL].real = val * cos(pos);
-        array[i + HALF_KERNEL].img = val * sin(pos);
-
-        complex c = array[i + HALF_KERNEL];
-        energy += Energy(c);
+    uint position = dispersion * 100;
+    for (uint i = 0; i < kernel_size; i += 2) {
+        float4 data = kernels.Load(float3(uint2(i / 2, position), 0));
+        kernel[i].real = data.r;
+        kernel[i].img = data.g;
+        kernel[i + 1].real = data.b;
+        kernel[i + 1].img = data.a;
     }
-#if 0 //ndef TEST
-    for (uint x = 0; x < KERNEL_SIZE; ++x)
-    {
-        for (uint y = 0; y < KERNEL_SIZE; ++y)
-        {
-            complex c = MultComplex(array[x], array[y]);
-            sum += c.real + c.img;
-        }
-    }
-    sum = sqrt(sum);
-    for (i = 0; i < KERNEL_SIZE; ++i)
-    {
-        array[i].real /= sum;
-        array[i].img /= sum;
-    }
-#else
-    energy = sqrt(energy);
-    for (i = 0; i < KERNEL_SIZE; ++i)
-    {
-        array[i].real /= energy;
-        array[i].img /= energy;
-    }
-#endif
 }
 
 float4 main(float4 pos: SV_POSITION) : SV_TARGET
 {
     float dispersion = 0.0f;
+    int half_kernel = kernel_size / 2;
+    float max_variance = (float)kernel_size / 6000.0f;
     uint2 dir = { 0, 0 };
     if (type == VERTICAL) {
         dir = uint2(0, 1);
@@ -202,6 +77,7 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
 
         float z0 = depthTexture.Sample(basicSampler, tpos).r;
         dispersion = pow((focusZ - z0), 2.0f) * amplitude / 100.0f;
+        dispersion = clamp(dispersion, 0.0f, max_variance);
     }
 
     complex_color ccolor;
@@ -214,27 +90,27 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
 #ifndef TEST
             float4 color = renderTexture.Load(float3(p, 0));
 #else
-            float c = (p.x % KERNEL_SIZE == 0 && p.y % KERNEL_SIZE == 0) ? 0.5f : 0.0f;
+            float c = (p.x % kernel_size == 0 && p.y % kernel_size == 0) ? 0.5f : 0.0f;
             float4 color = float4(c, c, c, 1.0f);
 #endif
             ColorToComplexColor(color, ccolor);
         }
         else {
             float2 dir = float2(1, 0);
-            complex kernel[KERNEL_SIZE];
+            complex kernel[MAX_KERNEL_SIZE];
             FillKernel(kernel, dispersion);
             complex_color in_color;
 
-            for (int i = -HALF_KERNEL; i <= HALF_KERNEL; ++i) {
+            for (int i = -half_kernel; i <= half_kernel; ++i) {
                 p = pixel + dir * i;
 #ifndef TEST
                 float4 color = renderTexture.Load(float3(p, 0));
 #else
-                float c = (p.x % KERNEL_SIZE == 0 && p.y % KERNEL_SIZE == 0) ? 0.5f : 0.0f;
+                float c = (p.x % kernel_size == 0 && p.y % kernel_size == 0) ? 0.5f : 0.0f;
                 float4 color = float4(c, c, c, 1.0f);
 #endif
                 ColorToComplexColor(color, in_color);
-                AccMultComplexColor(in_color, kernel[i + HALF_KERNEL], ccolor);
+                AccMultComplexColor(in_color, kernel[i + half_kernel], ccolor);
             }
         }
         //Vertical return packed color including real + img values
@@ -246,15 +122,15 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
             PackedComplexColorToComplexColor(renderTexture.Load(float3(p, 0)), ccolor);
         } else {
             float2 dir = float2(0, 1);
-            complex kernel[KERNEL_SIZE];
+            complex kernel[MAX_KERNEL_SIZE];
             FillKernel(kernel, dispersion);
             complex_color in_color;
-            for (int i = -HALF_KERNEL; i <= HALF_KERNEL; ++i) {
+            for (int i = -half_kernel; i <= half_kernel; ++i) {
                 p = pixel + dir * i;
                 PackedComplexColorToComplexColor(renderTexture.Load(float3(p, 0)), in_color);
-                AccMultComplexColor(in_color, kernel[i + HALF_KERNEL], ccolor);
+                AccMultComplexColor(in_color, kernel[i + half_kernel], ccolor);
             }
         }
-        return ComplexColorToColor(ccolor, (uint)(pixel.x / KERNEL_SIZE) % 2);
+        return ComplexColorToColor(ccolor, (uint)(pixel.x / kernel_size) % 2);
     }
 }
