@@ -99,9 +99,9 @@ float4 EmitPoint(float2 pixel, float2 light_screen_pos, float2 dimenstion, Point
     float3 att_height_by_color = float3(att_height, att_height, att_height * 1.2f);
     att_height_by_color = att_height_by_color;
 
-    //color += (flare1 + flare2) * att_dist_by_color * light.Range * 0.01f * focus + flare3 * att_dist_by_color * att_height_by_color * light.Range * 0.02f * focus;
+    color += (flare1 + flare2) * att_dist_by_color * light.Range * 0.01f * focus + flare3 * att_dist_by_color * att_height_by_color * light.Range * 0.02f * focus;
     
-    //color += pow(DistLightToPixel2, 10.0f);
+    color += pow(DistLightToPixel2, 10.0f);
     return float4(color, 1.0f);
 }
 

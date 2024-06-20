@@ -32,6 +32,8 @@ Texture2D kernels;
 SamplerState basicSampler : register(s0);
 
 #define MAX_KERNEL_SIZE 128
+#define MIN_DISPERSION 0.1f
+//#define TEST
 
 cbuffer externalData : register(b0)
 {
@@ -44,7 +46,7 @@ cbuffer externalData : register(b0)
 
 void FillKernel(out complex kernel[MAX_KERNEL_SIZE], float dispersion)
 {
-    uint position = dispersion * 100;
+    uint position = dispersion * 100.0f - 10.0f;
     for (uint i = 0; i < kernel_size; i += 2) {
         float4 data = kernels.Load(float3(uint2(i / 2, position), 0));
         kernel[i].real = data.r;
@@ -58,7 +60,7 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
 {
     float dispersion = 0.0f;
     int half_kernel = kernel_size / 2;
-    float max_variance = (float)kernel_size / 6000.0f;
+    float max_variance = (float)kernel_size / 6.0f;
     uint2 dir = { 0, 0 };
     if (type == VERTICAL) {
         dir = uint2(0, 1);
@@ -86,7 +88,7 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
 
     if (type == VERTICAL) {
         uint2 p = pixel;
-        if (dispersion < 0.1f) {
+        if (dispersion < MIN_DISPERSION) {
 #ifndef TEST
             float4 color = renderTexture.Load(float3(p, 0));
 #else
@@ -118,7 +120,7 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
     }
     else {
         uint2 p = pixel;
-        if (dispersion < 0.1f) {
+        if (dispersion < MIN_DISPERSION) {
             PackedComplexColorToComplexColor(renderTexture.Load(float3(p, 0)), ccolor);
         } else {
             float2 dir = float2(0, 1);
