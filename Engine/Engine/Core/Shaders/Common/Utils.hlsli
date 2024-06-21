@@ -34,6 +34,52 @@ static const float getSmoothPixelWeights[3] =
 	0.1,
 };
 
+float4 PackColors(float4 color1, float4 color2) {
+	// Scale colors from 0-1 to 0-1024.0 (10-bit maximum value)
+	uint4 scaledColor1 = uint4(color1 * 1024.0f);
+	uint4 scaledColor2 = uint4(color2 * 1024.0f);
+
+	uint color1_low = scaledColor1.g << 16 | scaledColor1.r;
+	uint color1_hi  = scaledColor1.a << 16 | scaledColor1.b;
+
+	uint color2_low = scaledColor2.g << 16 | scaledColor2.r;
+	uint color2_hi  = scaledColor2.a << 16 | scaledColor2.b;
+
+	// Store the packed colors in a float4
+	float4 packedColors;
+	packedColors.x = asfloat(color1_low);
+	packedColors.y = asfloat(color1_hi);
+	packedColors.z = asfloat(color2_low);
+	packedColors.w = asfloat(color2_hi);
+
+	return packedColors;
+}
+
+void UnpackColors(float4 packedColors, out float4 color1, out float4 color2) {
+	// Extract the packed colors
+	uint packedColor1_low = asuint(packedColors.x);
+	uint packedColor1_hi = asuint(packedColors.y);
+	uint packedColor2_low = asuint(packedColors.z);
+	uint packedColor2_hi = asuint(packedColors.w);
+
+	// Extract the RGB components from the packed colors
+	uint4 scaledColor1;
+	scaledColor1.r = packedColor1_low & 0xFFFF;
+	scaledColor1.g = (packedColor1_low >> 16) & 0xFFFF;	
+	scaledColor1.b = packedColor1_hi & 0xFFFF;
+	scaledColor1.a = (packedColor1_hi >> 16) & 0xFFFF;
+
+	uint4 scaledColor2;
+	scaledColor2.r = packedColor2_low & 0xFFFF;
+	scaledColor2.g = (packedColor2_low >> 16) & 0xFFFF;
+	scaledColor2.b = packedColor2_hi & 0xFFFF;
+	scaledColor2.a = (packedColor2_hi >> 16) & 0xFFFF;
+
+	// Scale colors back from 0-65535.0 to 0-1
+	color1 = float4(scaledColor1) / 1024.0f;
+	color2 = float4(scaledColor2) / 1024.0f;
+}
+
 float4 getSmoothPixel(SamplerState basicSampler, Texture2D t, float2 pos, float screenW, float screenH) {
 	float4 color = float4(0.f, 0.f, 0.f, 1.f);
 	float2 tpos;

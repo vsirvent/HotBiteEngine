@@ -199,29 +199,19 @@ namespace HotBite {
 				}
 			};
 
-
-			class DOFProcess : public HotBite::Engine::Core::GenericPostProcess
+			class BaseDOFProcess: public HotBite::Engine::Core::GenericPostProcess
 			{
-			private:
+			protected:
 				bool enabled = false;
 				float focus = 0.0f;
 				float amplitude = 0.0f;
-				HotBite::Engine::Core::RenderTexture2D temp;
-
 			public:
-				enum EType {
-					DOF
-				};
-				DOFProcess(ID3D11DeviceContext* dxcontext,
-					int width, int height, HotBite::Engine::ECS::Coordinator* c) : 
-					GenericPostProcess(dxcontext, width, height, c, "PostMainVS.cso", "PostDOP.cso")
-				{
-					temp.Init(width, height, DXGI_FORMAT_R32G32B32A32_FLOAT);
-				}
 
-				virtual ~DOFProcess() {
-					temp.Release();
-				}
+				BaseDOFProcess(ID3D11DeviceContext* dxcontext,
+					int width, int height, HotBite::Engine::ECS::Coordinator* c,
+					const std::string& vs, const std::string& ps) : GenericPostProcess(dxcontext, width, height, c, vs, ps) {}
+
+				virtual ~BaseDOFProcess() {}
 
 				void SetFocus(float val) {
 					focus = val;
@@ -242,6 +232,31 @@ namespace HotBite {
 				void SetEnabled(bool val) {
 					enabled = val;
 				}
+
+				bool GetEnabled() const {
+					return enabled;
+				}
+			};
+
+			class DOFProcess : public BaseDOFProcess
+			{
+			private:
+				HotBite::Engine::Core::RenderTexture2D temp;
+
+			public:
+
+				DOFProcess(ID3D11DeviceContext* dxcontext,
+					int width, int height, HotBite::Engine::ECS::Coordinator* c) : 
+					BaseDOFProcess(dxcontext, width, height, c, "PostMainVS.cso", "PostDOP.cso")
+				{
+					temp.Init(width, height, DXGI_FORMAT_R32G32B32A32_FLOAT);
+				}
+
+				virtual ~DOFProcess() {
+					temp.Release();
+				}
+
+				
 		
 				void Render() override {
 					ID3D11RenderTargetView* rv[1] = { temp.RenderTarget() };
@@ -262,6 +277,79 @@ namespace HotBite {
 				}
 			};
 
+			class DOFBokeProcess : public BaseDOFProcess
+			{
+			private:
+				static const int32_t KERNEL_SIZE = 35;
+
+				HotBite::Engine::Core::RenderTexture2D temp;
+				HotBite::Engine::Core::RenderTexture2D kernel;
+
+			public:
+
+				DOFBokeProcess(ID3D11DeviceContext* dxcontext,
+					int width, int height, HotBite::Engine::ECS::Coordinator* c) :
+					BaseDOFProcess(dxcontext, width, height, c, "PostMainVS.cso", "PostDOFBoke.cso")
+				{
+					temp.Init(width, height, DXGI_FORMAT_R32G32B32A32_FLOAT);
+
+					int32_t size = (KERNEL_SIZE + 15) & ~15; // Round to upper multiple of 16
+					float max_variance = ((float)KERNEL_SIZE) / 5.0f;
+					float min_variance = 0.1f;
+					int32_t num_kernels = (int32_t)(max_variance*100 - 10) + 1;
+					num_kernels = (num_kernels + 15) & ~15;
+
+					kernel.Init(size, num_kernels, DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS);
+
+					SimpleComputeShader* kernel_init = ShaderFactory::Get()->GetShader<SimpleComputeShader>("InitDoFBokeCS.cso");
+					kernel_init->SetInt("kernel_size", KERNEL_SIZE);
+					kernel_init->SetUnorderedAccessView("kernels", kernel.UAV());
+					int32_t  groupsY = (int32_t)(ceil((float)kernel.Height() / 32.0f));
+					kernel_init->SetShader();
+					kernel_init->CopyAllBufferData();
+					context->Dispatch(1, groupsY, 1);
+					kernel_init->SetUnorderedAccessView("kernels", nullptr);
+					kernel_init->CopyAllBufferData();
+				}
+
+				virtual ~DOFBokeProcess() {
+					temp.Release();
+					kernel.Release();
+				}
+
+				void Render() override {
+#if 0 //Uncomment to allow shader test and reload
+					SimpleComputeShader* kernel_init = ShaderFactory::Get()->GetShader<SimpleComputeShader>("InitDoFBokeCS.cso");
+					kernel_init->SetInt("kernel_size", KERNEL_SIZE);
+					kernel_init->SetUnorderedAccessView("kernels", kernel.UAV());
+					int32_t  groupsY = (int32_t)(ceil((float)kernel.Height() / 32.0f));
+					kernel_init->SetShader();
+					kernel_init->CopyAllBufferData();
+					context->Dispatch(1, groupsY, 1);
+					kernel_init->SetUnorderedAccessView("kernels", nullptr);
+					kernel_init->CopyAllBufferData();
+#endif
+					ID3D11RenderTargetView* rv[1] = { temp.RenderTarget() };
+					context->OMSetRenderTargets(1, rv, TargetDepthView());
+					ps->SetInt("kernel_size", KERNEL_SIZE);
+					ps->SetInt("dopActive", enabled);
+					ps->SetFloat("focusZ", focus);
+					ps->SetFloat("amplitude", amplitude);
+					ps->SetInt("type", 1);
+					ps->SetShaderResourceView("kernels", kernel.SRV());
+					ps->CopyAllBufferData();
+					PostProcess::Render();
+					
+					rv[0] = { TargetRenderView() };
+					context->OMSetRenderTargets(1, rv, TargetDepthView());
+					ps->SetShaderResourceView("renderTexture", temp.SRV());
+					ps->SetInt("type", 2);
+					ps->CopyAllBufferData();
+					PostProcess::Render();
+					ps->SetShaderResourceView("kernels", nullptr);
+					ps->SetShaderResourceView("renderTexture", nullptr);
+				}
+			};
 		}
 	}
 }

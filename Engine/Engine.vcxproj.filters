@@ -69,6 +69,9 @@
     <Filter Include="Engine\Core\Shaders\ComputeShaders">
       <UniqueIdentifier>{9900460c-047f-4701-aad9-b7d902997de0}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Engine\Core\Shaders\DoFBoke">
+      <UniqueIdentifier>{bf606861-2003-454a-ab74-7da83189dc71}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Engine\Core\DXCore.cpp">
@@ -424,6 +427,12 @@
     <None Include="Engine\Core\Shaders\Common\SimpleLight.hlsli">
       <Filter>Engine\Core\Shaders\Common</Filter>
     </None>
+    <None Include="Engine\Core\Shaders\Common\Complex.hlsli">
+      <Filter>Engine\Core\Shaders\Common</Filter>
+    </None>
+    <None Include="Engine\Core\Shaders\DoFBoke\DoFBoke.hlsli">
+      <Filter>Engine\Core\Shaders\DoFBoke</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="Engine\Core\Shaders\DepthRender\DepthPS.hlsl">
@@ -557,6 +566,12 @@
     </FxCompile>
     <FxCompile Include="Engine\Core\Shaders\ComputeShaders\LensFlareCS.hlsl">
       <Filter>Engine\Core\Shaders\ComputeShaders</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\DoFBoke\InitDoFBokeCS.hlsl">
+      <Filter>Engine\Core\Shaders\DoFBoke</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\DoFBoke\PostDOFBoke.hlsl">
+      <Filter>Engine\Core\Shaders\DoFBoke</Filter>
     </FxCompile>
   </ItemGroup>
 </Project>
