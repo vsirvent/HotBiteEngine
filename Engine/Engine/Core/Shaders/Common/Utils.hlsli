@@ -35,9 +35,9 @@ static const float getSmoothPixelWeights[3] =
 };
 
 float4 PackColors(float4 color1, float4 color2) {
-	// Scale colors from 0-1 to 0-65535.0 (16-bit maximum value)
-	uint4 scaledColor1 = uint4(saturate(color1) * 65535.0f);
-	uint4 scaledColor2 = uint4(saturate(color2) * 65535.0f);
+	// Scale colors from 0-1 to 0-1024.0 (10-bit maximum value)
+	uint4 scaledColor1 = uint4(color1 * 1024.0f);
+	uint4 scaledColor2 = uint4(color2 * 1024.0f);
 
 	uint color1_low = scaledColor1.g << 16 | scaledColor1.r;
 	uint color1_hi  = scaledColor1.a << 16 | scaledColor1.b;
@@ -76,8 +76,8 @@ void UnpackColors(float4 packedColors, out float4 color1, out float4 color2) {
 	scaledColor2.a = (packedColor2_hi >> 16) & 0xFFFF;
 
 	// Scale colors back from 0-65535.0 to 0-1
-	color1 = float4(scaledColor1) / 65535.0f;
-	color2 = float4(scaledColor2) / 65535.0f;
+	color1 = float4(scaledColor1) / 1024.0f;
+	color2 = float4(scaledColor2) / 1024.0f;
 }
 
 float4 getSmoothPixel(SamplerState basicSampler, Texture2D t, float2 pos, float screenW, float screenH) {

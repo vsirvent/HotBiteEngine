@@ -33,7 +33,6 @@ SamplerState basicSampler : register(s0);
 
 #define MAX_KERNEL_SIZE 128
 #define MIN_DISPERSION 0.1f
-//#define TEST
 
 cbuffer externalData : register(b0)
 {
@@ -47,12 +46,10 @@ cbuffer externalData : register(b0)
 void FillKernel(out complex kernel[MAX_KERNEL_SIZE], float dispersion)
 {
     uint position = dispersion * 100.0f - 10.0f;
-    for (uint i = 0; i < kernel_size; i += 2) {
-        float4 data = kernels.Load(float3(uint2(i / 2, position), 0));
+    for (uint i = 0; i < kernel_size; ++i) {
+        float4 data = kernels.Load(float3(uint2(i, position), 0));
         kernel[i].real = data.r;
         kernel[i].img = data.g;
-        kernel[i + 1].real = data.b;
-        kernel[i + 1].img = data.a;
     }
 }
 
@@ -60,14 +57,7 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
 {
     float dispersion = 0.0f;
     int half_kernel = kernel_size / 2;
-    float max_variance = (float)kernel_size / 6.0f;
-    uint2 dir = { 0, 0 };
-    if (type == VERTICAL) {
-        dir = uint2(0, 1);
-    }
-    else if (type == HORIZONTAL) {
-        dir = uint2(1, 0);
-    }
+    float max_variance = (float)kernel_size / 5.0f;
 
     if (dopActive) {
         uint2 dimensions;
@@ -76,21 +66,19 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
         dimensions.x = w;
         dimensions.y = h;
         float2 tpos = pos.xy / dimensions;
-
         float z0 = depthTexture.Sample(basicSampler, tpos).r;
         dispersion = pow((focusZ - z0), 2.0f) * amplitude / 100.0f;
         dispersion = clamp(dispersion, 0.0f, max_variance);
     }
-
     complex_color ccolor;
     InitComplexColor(ccolor);
     float2 pixel = pos.xy;
 
     if (type == VERTICAL) {
-        uint2 p = pixel;
+        float2 p = pixel;
         if (dispersion < MIN_DISPERSION) {
 #ifndef TEST
-            float4 color = renderTexture.Load(float3(p, 0));
+            float4 color = renderTexture[p];
 #else
             float c = (p.x % kernel_size == 0 && p.y % kernel_size == 0) ? 0.5f : 0.0f;
             float4 color = float4(c, c, c, 1.0f);
@@ -98,15 +86,15 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
             ColorToComplexColor(color, ccolor);
         }
         else {
-            float2 dir = float2(1, 0);
+            float2 dir = float2(1.0f, 0.0f);
             complex kernel[MAX_KERNEL_SIZE];
             FillKernel(kernel, dispersion);
             complex_color in_color;
 
             for (int i = -half_kernel; i <= half_kernel; ++i) {
-                p = pixel + dir * i;
+                p = pixel + dir * (float)i;
 #ifndef TEST
-                float4 color = renderTexture.Load(float3(p, 0));
+                float4 color = renderTexture[p];
 #else
                 float c = (p.x % kernel_size == 0 && p.y % kernel_size == 0) ? 0.5f : 0.0f;
                 float4 color = float4(c, c, c, 1.0f);
@@ -119,20 +107,22 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
         return PackColors(GetReal(ccolor), GetImg(ccolor));
     }
     else {
-        uint2 p = pixel;
+        int2 p = pixel;
+        complex_color ccolor_orig;
+        PackedComplexColorToComplexColor(renderTexture[p], ccolor_orig);
         if (dispersion < MIN_DISPERSION) {
-            PackedComplexColorToComplexColor(renderTexture.Load(float3(p, 0)), ccolor);
+            PackedComplexColorToComplexColor(renderTexture[p], ccolor);
         } else {
-            float2 dir = float2(0, 1);
+            float2 dir = float2(0, 1.0f);
             complex kernel[MAX_KERNEL_SIZE];
             FillKernel(kernel, dispersion);
             complex_color in_color;
             for (int i = -half_kernel; i <= half_kernel; ++i) {
                 p = pixel + dir * i;
-                PackedComplexColorToComplexColor(renderTexture.Load(float3(p, 0)), in_color);
+                PackedComplexColorToComplexColor(renderTexture[p], in_color);
                 AccMultComplexColor(in_color, kernel[i + half_kernel], ccolor);
             }
         }
-        return ComplexColorToColor(ccolor, (uint)(pixel.x / kernel_size) % 2);
+        return ComplexColorToColor(ccolor, (uint)((pixel.x + half_kernel) / kernel_size) % 3);
     }
 }

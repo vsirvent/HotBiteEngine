@@ -280,7 +280,7 @@ namespace HotBite {
 			class DOFBokeProcess : public BaseDOFProcess
 			{
 			private:
-				static const int32_t KERNEL_SIZE = 33;
+				static const int32_t KERNEL_SIZE = 35;
 
 				HotBite::Engine::Core::RenderTexture2D temp;
 				HotBite::Engine::Core::RenderTexture2D kernel;
@@ -293,8 +293,8 @@ namespace HotBite {
 				{
 					temp.Init(width, height, DXGI_FORMAT_R32G32B32A32_FLOAT);
 
-					int32_t size = (KERNEL_SIZE/2 + 15) & ~15; // Round to upper multiple of 16, 1 float4 color stores 2 kernel values
-					float max_variance = ((float)KERNEL_SIZE) / 6.0f;
+					int32_t size = (KERNEL_SIZE + 15) & ~15; // Round to upper multiple of 16, 1 float4 color stores 2 kernel values
+					float max_variance = ((float)KERNEL_SIZE) / 5.0f;
 					float min_variance = 0.1f;
 					int32_t num_kernels = (int32_t)(max_variance*100 - 10) + 1;
 					num_kernels = (num_kernels + 15) & ~15;
@@ -318,6 +318,17 @@ namespace HotBite {
 				}
 
 				void Render() override {
+#if 0 //Uncomment to allow shader test and reload
+					SimpleComputeShader* kernel_init = ShaderFactory::Get()->GetShader<SimpleComputeShader>("InitDoFBokeCS.cso");
+					kernel_init->SetInt("kernel_size", KERNEL_SIZE);
+					kernel_init->SetUnorderedAccessView("kernels", kernel.UAV());
+					int32_t  groupsY = (int32_t)(ceil((float)kernel.Height() / 32.0f));
+					kernel_init->SetShader();
+					kernel_init->CopyAllBufferData();
+					context->Dispatch(1, groupsY, 1);
+					kernel_init->SetUnorderedAccessView("kernels", nullptr);
+					kernel_init->CopyAllBufferData();
+#endif
 					ID3D11RenderTargetView* rv[1] = { temp.RenderTarget() };
 					context->OMSetRenderTargets(1, rv, TargetDepthView());
 					ps->SetInt("kernel_size", KERNEL_SIZE);

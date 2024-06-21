@@ -33,23 +33,18 @@ cbuffer externalData : register(b0)
 
 complex ReadKernel(uint position, uint kernel) {
     complex c;
-    float4 data = kernels[uint2(position / 2, kernel)];
-    if ((position % 2) == 0) {
-        c.real = data.r;
-        c.img = data.g;
-    }
-    else {
-        c.real = data.b;
-        c.img = data.a;
-    }
+    float4 data = kernels[uint2(position, kernel)];
+    c.real = data.r;
+    c.img = data.g;
     return c;
 }
 
 complex GetKernelValue(int position, float kernel_size, float variance, float freq)
 {
     float x = position;
-    float val = exp(-(x * x) / (2.0f * variance * variance));
-    float pos = freq * (x * x) / kernel_size;
+    float x2 = x * x;
+    float val = exp(-(x2) / (2.0f * variance * variance));
+    float pos = freq * (x2) / kernel_size;
     complex c;
     c.real = val * cos(pos);
     c.img = val * sin(pos);
@@ -72,42 +67,36 @@ void main(uint3 DTid : SV_DispatchThreadID)
     float fkernel_size = kernel_size;
     int half_kernel = kernel_size / 2;
     float dispersion = (float)kernel_unit / 100.0f;
-    float max_variance = fkernel_size / 6.0f;
+    float max_variance = fkernel_size / 5.0f;
     float variance = clamp(dispersion, 0.1f, max_variance);
 
     float freq = max_variance / (variance * M_PI);
 
     int i;
-    uint ii = 0;
-    for (i = -half_kernel; i <= half_kernel; i += 2, ++ii)
+    complex c;
+    for (i = -half_kernel; i <= half_kernel; ++i)
     {
-        complex c = GetKernelValue(i, fkernel_size, variance, freq);
-        float4 data;
-        data.r = c.real;
-        data.g = c.img;
-        c = GetKernelValue(i + 1, fkernel_size, variance, freq);
-        data.b = c.real;
-        data.a = c.img;
-        kernels[uint2(ii, kernel_unit)] = data;
+        c = GetKernelValue(i, fkernel_size, variance, freq);
+        kernels[uint2(i + half_kernel, kernel_unit)] = float4(c.real, c.img, 0.0f, 0.0f);
     }
-
+#ifndef TEST
     //Normalize
     float sum = 0.0f;
     for (uint x = 0; x < kernel_size; ++x)
     {
         complex n0 = ReadKernel(x, kernel_unit);
         for (uint y = 0; y < kernel_size; ++y)
-        {
-            
+        {            
             complex n1 = ReadKernel(y, kernel_unit);
             complex c = MultComplex(n0, n1);
-            sum += c.real + c.img;
+            sum += ComplexToReal(c);
         }
     }
     sum = sqrt(sum);
   
-    for (uint p = 0; p <= half_kernel; ++p)
+    for (uint p = 0; p < kernel_size; ++p)
     {
         kernels[uint2(p, kernel_unit)] /= sum;
     }
+#endif
 }
