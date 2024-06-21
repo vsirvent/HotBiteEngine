@@ -83,7 +83,7 @@ float Length(const complex value) {
 }
 
 float ComplexToReal(const complex in_value) {
-    return in_value.real + in_value.img * 3.0f;
+    return in_value.real + in_value.img * 2.0f;
 }
 
 float ComplexToReal(const complex in_value, uint type) {

@@ -43,16 +43,6 @@ cbuffer externalData : register(b0)
     uint kernel_size;
 }
 
-void FillKernel(out complex kernel[MAX_KERNEL_SIZE], float dispersion)
-{
-    uint position = dispersion * 100.0f - 10.0f;
-    for (uint i = 0; i < kernel_size; ++i) {
-        float4 data = kernels.Load(float3(uint2(i, position), 0));
-        kernel[i].real = data.r;
-        kernel[i].img = data.g;
-    }
-}
-
 float4 main(float4 pos: SV_POSITION) : SV_TARGET
 {
     float dispersion = 0.0f;
@@ -70,6 +60,7 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
         dispersion = pow((focusZ - z0), 2.0f) * amplitude / 100.0f;
         dispersion = clamp(dispersion, 0.0f, max_variance);
     }
+    uint position = dispersion * 100.0f - 10.0f;
     complex_color ccolor;
     InitComplexColor(ccolor);
     float2 pixel = pos.xy;
@@ -87,10 +78,7 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
         }
         else {
             float2 dir = float2(1.0f, 0.0f);
-            complex kernel[MAX_KERNEL_SIZE];
-            FillKernel(kernel, dispersion);
             complex_color in_color;
-
             for (int i = -half_kernel; i <= half_kernel; ++i) {
                 p = pixel + dir * (float)i;
 #ifndef TEST
@@ -100,7 +88,11 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
                 float4 color = float4(c, c, c, 1.0f);
 #endif
                 ColorToComplexColor(color, in_color);
-                AccMultComplexColor(in_color, kernel[i + half_kernel], ccolor);
+                float4 data = kernels.Load(float3(uint2(i + half_kernel, position), 0));
+                complex kvalue;
+                kvalue.real = data.r;
+                kvalue.img = data.g;
+                AccMultComplexColor(in_color, kvalue, ccolor);
             }
         }
         //Vertical return packed color including real + img values
@@ -114,15 +106,17 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
             PackedComplexColorToComplexColor(renderTexture[p], ccolor);
         } else {
             float2 dir = float2(0, 1.0f);
-            complex kernel[MAX_KERNEL_SIZE];
-            FillKernel(kernel, dispersion);
             complex_color in_color;
             for (int i = -half_kernel; i <= half_kernel; ++i) {
                 p = pixel + dir * i;
                 PackedComplexColorToComplexColor(renderTexture[p], in_color);
-                AccMultComplexColor(in_color, kernel[i + half_kernel], ccolor);
+                float4 data = kernels.Load(float3(uint2(i + half_kernel, position), 0));
+                complex kvalue;
+                kvalue.real = data.r;
+                kvalue.img = data.g;
+                AccMultComplexColor(in_color, kvalue, ccolor);
             }
         }
-        return ComplexColorToColor(ccolor, (uint)((pixel.x + half_kernel) / kernel_size) % 3);
+        return climit4(ComplexColorToColor(ccolor, (uint)((pixel.x + half_kernel) / kernel_size) % 3));
     }
 }
