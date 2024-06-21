@@ -293,7 +293,7 @@ namespace HotBite {
 				{
 					temp.Init(width, height, DXGI_FORMAT_R32G32B32A32_FLOAT);
 
-					int32_t size = (KERNEL_SIZE + 15) & ~15; // Round to upper multiple of 16, 1 float4 color stores 2 kernel values
+					int32_t size = (KERNEL_SIZE + 15) & ~15; // Round to upper multiple of 16
 					float max_variance = ((float)KERNEL_SIZE) / 5.0f;
 					float min_variance = 0.1f;
 					int32_t num_kernels = (int32_t)(max_variance*100 - 10) + 1;
