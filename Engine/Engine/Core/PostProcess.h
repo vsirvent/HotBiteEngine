@@ -280,11 +280,27 @@ namespace HotBite {
 			class DOFBokeProcess : public BaseDOFProcess
 			{
 			private:
-				static const int32_t KERNEL_SIZE = 35;
+				static const int32_t KERNEL_SIZE = 63;
 
 				HotBite::Engine::Core::RenderTexture2D temp;
 				HotBite::Engine::Core::RenderTexture2D kernel;
 
+				void InitKernels() {
+					auto init_kernel = [](ID3D11DeviceContext* dxcontext, SimpleComputeShader* shader, uint32_t kernel_size, uint32_t num_kernels,
+						uint32_t num_components, ID3D11UnorderedAccessView* uav) {
+							shader->SetInt("kernel_size", kernel_size);
+							shader->SetInt("ncomponents", num_components);
+							shader->SetUnorderedAccessView("kernels", uav);
+							shader->SetShader();
+							shader->CopyAllBufferData();
+							dxcontext->Dispatch(1, num_kernels, 1);
+							shader->SetUnorderedAccessView("kernels", nullptr);
+							shader->CopyAllBufferData();
+					};
+
+					SimpleComputeShader* kernel_init_shader = ShaderFactory::Get()->GetShader<SimpleComputeShader>("InitDoFBokeCS.cso");
+					init_kernel(context, kernel_init_shader, KERNEL_SIZE, kernel.Height(), 1, kernel.UAV());
+				}
 			public:
 
 				DOFBokeProcess(ID3D11DeviceContext* dxcontext,
@@ -296,20 +312,11 @@ namespace HotBite {
 					int32_t size = (KERNEL_SIZE + 15) & ~15; // Round to upper multiple of 16
 					float max_variance = ((float)KERNEL_SIZE) / 5.0f;
 					float min_variance = 0.1f;
-					int32_t num_kernels = (int32_t)(max_variance*100 - 10) + 1;
+					int32_t num_kernels = (int32_t)(max_variance * 100 - 10) + 1;
 					num_kernels = (num_kernels + 15) & ~15;
 
 					kernel.Init(size, num_kernels, DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS);
-
-					SimpleComputeShader* kernel_init = ShaderFactory::Get()->GetShader<SimpleComputeShader>("InitDoFBokeCS.cso");
-					kernel_init->SetInt("kernel_size", KERNEL_SIZE);
-					kernel_init->SetUnorderedAccessView("kernels", kernel.UAV());
-					int32_t  groupsY = (int32_t)(ceil((float)kernel.Height() / 32.0f));
-					kernel_init->SetShader();
-					kernel_init->CopyAllBufferData();
-					context->Dispatch(1, groupsY, 1);
-					kernel_init->SetUnorderedAccessView("kernels", nullptr);
-					kernel_init->CopyAllBufferData();
+					InitKernels();
 				}
 
 				virtual ~DOFBokeProcess() {
@@ -318,16 +325,8 @@ namespace HotBite {
 				}
 
 				void Render() override {
-#if 0 //Uncomment to allow shader test and reload
-					SimpleComputeShader* kernel_init = ShaderFactory::Get()->GetShader<SimpleComputeShader>("InitDoFBokeCS.cso");
-					kernel_init->SetInt("kernel_size", KERNEL_SIZE);
-					kernel_init->SetUnorderedAccessView("kernels", kernel.UAV());
-					int32_t  groupsY = (int32_t)(ceil((float)kernel.Height() / 32.0f));
-					kernel_init->SetShader();
-					kernel_init->CopyAllBufferData();
-					context->Dispatch(1, groupsY, 1);
-					kernel_init->SetUnorderedAccessView("kernels", nullptr);
-					kernel_init->CopyAllBufferData();
+#if 1 //Uncomment to allow shader test and reload
+					InitKernels();
 #endif
 					ID3D11RenderTargetView* rv[1] = { temp.RenderTarget() };
 					context->OMSetRenderTargets(1, rv, TargetDepthView());

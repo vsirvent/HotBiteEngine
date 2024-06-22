@@ -82,7 +82,7 @@ float4 EmitPoint(float2 pixel, float2 light_screen_pos, float2 dimenstion, Point
     float angle2 = angle_rot * 6.0f - 1.55;
     float angle3 = angle * 2.0f - 1.55;
 
-    float3 color = 20.0f * light.Color * pow(DistLightToPixel, 100.0f);
+    float3 color = 30.0f * light.Color * pow(DistLightToPixel, 100.0f);
     float3 color1 = color * 0.5f;
     float3 color2 = light.Color;
 

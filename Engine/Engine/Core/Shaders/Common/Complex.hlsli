@@ -24,7 +24,7 @@ SOFTWARE.
 
 #include "Defines.hlsli"
 #include "Utils.hlsli"
-//#define TEST
+#define TEST
 struct complex {
     float real;
     float img;
@@ -66,6 +66,23 @@ void PackedComplexColorToComplexColor(float4 packed_color, in out complex_color 
     ccolor.b.img = c2.b;
 }
 
+void PackedComplex2ColorToComplexColor(float4 packed_color, out complex_color ccolor1, out complex_color ccolor2) {
+    float4 c1, c2, c3, c4;
+    Unpack4Colors(packed_color, c1, c2, c3, c4);
+    ccolor1.r.real = c1.r;
+    ccolor1.g.real = c1.g;
+    ccolor1.b.real = c1.b;
+    ccolor1.r.img = c2.r;
+    ccolor1.g.img = c2.g;
+    ccolor1.b.img = c2.b;
+    ccolor2.r.real = c3.r;
+    ccolor2.g.real = c3.g;
+    ccolor2.b.real = c3.b;
+    ccolor2.r.img = c4.r;
+    ccolor2.g.img = c4.g;
+    ccolor2.b.img = c4.b;
+}
+
 void ColorToComplexColor(float4 color, out complex_color ccolor) {
     ccolor.r.real = color.r;
     ccolor.g.real = color.g;
@@ -83,7 +100,7 @@ float Length(const complex value) {
 }
 
 float ComplexToReal(const complex in_value) {
-    return in_value.real + in_value.img * 2.0f;
+    return in_value.real + in_value.img * in_value.img;
 }
 
 float ComplexToReal(const complex in_value, uint type) {
@@ -98,6 +115,10 @@ float ComplexToReal(const complex in_value, uint type) {
 #else
     return ComplexToReal(in_value);
 #endif
+}
+
+float4 ComplexColorToColor(const complex_color ccolor) {
+    return float4(ComplexToReal(ccolor.r), ComplexToReal(ccolor.g), ComplexToReal(ccolor.b), 1.0f);
 }
 
 float4 ComplexColorToColor(const complex_color ccolor, uint type) {
