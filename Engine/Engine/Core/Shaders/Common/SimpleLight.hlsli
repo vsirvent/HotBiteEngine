@@ -102,7 +102,7 @@ float3 CalcPoint(float3 normal, float3 position, PointLight light, int index)
 
     // Attenuation
     float LightRange = (light.Range - DistToLight) / light.Range;
-    float DistToLightNorm = saturate(LightRange);
+    float DistToLightNorm = LightRange;
     float Attn = saturate(DistToLightNorm * DistToLightNorm);
     if (light.cast_shadow) {
         float shadow = PointShadowPCFFAST(light.Position - position, light, index);

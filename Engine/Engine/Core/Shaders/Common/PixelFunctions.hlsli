@@ -204,7 +204,7 @@ float3 CalcDirectional(float3 normal, float4 position, float2 uv, MaterialColor 
 	}
 	float3 final = finalColor * shadow;
 	bloom.rgb += bloomColor * shadow * material.bloom_scale;;
-	return climit3(final);
+	return final;
 }
 
 float3 CalcDirectionalWithoutNormal(float4 position, MaterialColor material, DirLight light, float cloud_density, int index, inout float4 bloom)

@@ -230,9 +230,9 @@ RenderTargetRT main(GSOutput input)
 		}
 	};
 
-	output.light_map = saturate(lumColor);
-	output.bloom_map = saturate(lightColor);
-	output.scene = saturate(finalColor);
+	output.light_map = lumColor;
+	output.bloom_map = lightColor;
+	output.scene = finalColor;
 	RaySource ray;
 	ray.orig = input.worldPos.xyz;
 	ray.dispersion = 0.0f;

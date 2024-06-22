@@ -54,7 +54,7 @@ float4 blur32(Texture2D t, float2 pos) {
             color += t.Load(float3(pos.x, pos.y + dy, 0)) * BlurWeights32[dy + 16];
         }
     }
-    return saturate(color);
+    return color;
 }
 
 float4 blur16(Texture2D t, float2 pos) {
@@ -69,7 +69,7 @@ float4 blur16(Texture2D t, float2 pos) {
             color += t.Load(float3(pos.x, pos.y + dy, 0)) * BlurWeights16[dy + 8];
         }
     }
-    return saturate(color);
+    return color;
 }
 
 float4 main(float4 pos: SV_POSITION) : SV_TARGET

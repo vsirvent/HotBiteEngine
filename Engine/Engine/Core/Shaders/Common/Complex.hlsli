@@ -24,7 +24,7 @@ SOFTWARE.
 
 #include "Defines.hlsli"
 #include "Utils.hlsli"
-#define TEST
+//#define TEST
 struct complex {
     float real;
     float img;
@@ -100,7 +100,7 @@ float Length(const complex value) {
 }
 
 float ComplexToReal(const complex in_value) {
-    return in_value.real + in_value.img * in_value.img;
+    return in_value.real + in_value.img * 2.0f;
 }
 
 float ComplexToReal(const complex in_value, uint type) {

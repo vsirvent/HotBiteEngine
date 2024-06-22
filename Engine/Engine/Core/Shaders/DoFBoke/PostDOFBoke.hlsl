@@ -84,7 +84,7 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
 #ifndef TEST
             float4 color = renderTexture[p];
 #else
-            float c = ((uint)p.x % kernel_size == 0 && (uint)p.y % kernel_size == 0) ? 0.5f : 0.0f;
+            float c = ((uint)p.x % kernel_size == 0 && (uint)p.y % kernel_size == 0) ? 0.5f : 0.00051f;
             float4 color = float4(c, c, c, 1.0f);
 #endif
             ColorToComplexColor(color, ccolor);
@@ -98,7 +98,7 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
 #ifndef TEST
                 float4 color = renderTexture[p];
 #else
-                float c = ((uint)p.x % kernel_size == 0 && (uint)p.y % kernel_size == 0) ? 0.5f : 0.0f;
+                float c = ((uint)p.x % kernel_size == 0 && (uint)p.y % kernel_size == 0) ? 0.5f : 0.00051f;
                 float4 color = float4(c, c, c, 1.0f);
 #endif
                 ColorToComplexColor(color, in_color);
@@ -127,8 +127,18 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
                 AccMultComplexColor(in_color2, k1, ccolor2);
             }
         }
-        float c = ccolor2.r.img;
-        return float4(c, c, c, 1.0f);
-        //return climit4((ComplexColorToColor(ccolor) - ComplexColorToColor(ccolor2) * 0.5f));
+#ifdef TEST
+        int type = ((p.x + half_kernel) / kernel_size) % 4;
+        switch (type) {
+        case 0: return float4(climit4((ComplexColorToColor(ccolor) + ComplexColorToColor(ccolor2)) * 0.5f).r, 0.0f, 0.0f, 1.0f);
+        case 1: return float4(0.0f, climit4((ComplexColorToColor(ccolor))).g, 0.0f, 1.0f);
+        case 2: return float4(0.0f, 0.0f, climit4((ComplexColorToColor(ccolor2))).b, 1.0f);
+        case 3: return float4(climit4((ComplexColorToColor(ccolor) - 0.5f*ComplexColorToColor(ccolor2)) * 0.5f).rg, 0.0f, 1.0f);
+        }
+#else
+        float4 c1 = ComplexColorToColor(ccolor);
+        float4 c2 = ComplexColorToColor(ccolor2);
+        return climit4((c1 + c2)*0.5f);
+#endif
     }
 }

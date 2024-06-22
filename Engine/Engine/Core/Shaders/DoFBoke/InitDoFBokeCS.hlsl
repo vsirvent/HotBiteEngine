@@ -40,12 +40,12 @@ void ReadKernel(uint position, uint kernel, out complex c1, out complex c2) {
     c2.img = data.a;
 }
 
-complex GetKernelValue(int position, float kernel_size, float variance, float freq, float component)
+complex GetKernelValue(int position, float kernel_size, float variance, float freq)
 {
     float x = position;
     float x2 = x * x;
     float val = exp(-x2 / (2.0f * variance * variance));
-    float pos = (freq * component * (x2)) / kernel_size;
+    float pos = (freq * (x2)) / kernel_size;
     complex c;
     c.real = val * cos(pos);
     c.img = val * sin(pos);
@@ -76,8 +76,8 @@ void main(uint3 DTid : SV_DispatchThreadID)
     int i;
     for (i = -half_kernel; i <= half_kernel; ++i)
     {
-        complex c1 = GetKernelValue(i, fkernel_size, variance, freq, 0.5f);
-        complex c2 = GetKernelValue(i, fkernel_size, variance, freq, 7.0f);
+        complex c1 = GetKernelValue(i, fkernel_size, variance, freq * 0.5f);
+        complex c2 = GetKernelValue(i, fkernel_size, variance, freq * 1.2f);
         kernels[uint2(i + half_kernel, kernel_unit)] = float4(c1.real, c1.img, c2.real, c2.img);
     }
 #ifndef TEST

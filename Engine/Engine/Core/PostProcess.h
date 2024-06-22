@@ -280,7 +280,7 @@ namespace HotBite {
 			class DOFBokeProcess : public BaseDOFProcess
 			{
 			private:
-				static const int32_t KERNEL_SIZE = 63;
+				static const int32_t KERNEL_SIZE = 51;
 
 				HotBite::Engine::Core::RenderTexture2D temp;
 				HotBite::Engine::Core::RenderTexture2D kernel;
@@ -325,7 +325,7 @@ namespace HotBite {
 				}
 
 				void Render() override {
-#if 1 //Uncomment to allow shader test and reload
+#if 0 //Uncomment to allow shader test and reload
 					InitKernels();
 #endif
 					ID3D11RenderTargetView* rv[1] = { temp.RenderTarget() };
