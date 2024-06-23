@@ -26,7 +26,7 @@ RWTexture2D<float4> kernels : register(u0);
 
 #include "../Common/Complex.hlsli"
 
-static const float MIN_KERNEL_VALUE = 0.001f;
+static const float MIN_KERNEL_VALUE = 0.005f;
 
 cbuffer externalData : register(b0)
 {
@@ -78,6 +78,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     int i;
     bool o1 = false;
     bool o2 = false;
+    float4 offsets = float4(0.0f,0.0f, 0.0f, 0.0f);
     for (i = -half_kernel; i <= half_kernel; ++i)
     {
         complex c1 = GetKernelValue(i, fkernel_size, variance, freq * 0.5f);
@@ -85,13 +86,13 @@ void main(uint3 DTid : SV_DispatchThreadID)
         //Each kernel float4 stores 2 kernel values generated with different frequencies
         kernels[uint2(i + 1 + half_kernel, kernel_unit)] = float4(c1.real, c1.img, c2.real, c2.img);
         if (!o1 && Length(c1) > MIN_KERNEL_VALUE) {
-            float4 offsets = kernels[uint2(0, kernel_unit)];
+            offsets = kernels[uint2(0, kernel_unit)];
             offsets.r = (float)(i + half_kernel);
             kernels[uint2(0, kernel_unit)] = offsets;
             o1 = true;
         }
         if (!o2 && Length(c2) > MIN_KERNEL_VALUE) {
-            float4 offsets = kernels[uint2(0, kernel_unit)];
+            offsets = kernels[uint2(0, kernel_unit)];
             offsets.g = (float)(i + half_kernel);
             kernels[uint2(0, kernel_unit)] = offsets;
             o2 = true;
@@ -101,7 +102,8 @@ void main(uint3 DTid : SV_DispatchThreadID)
     //Normalize
     float sum1 = 0.0f;
     float sum2 = 0.0f;
-    for (uint x = 0; x < kernel_size; ++x)
+    uint o = min(offsets.r, offsets.g);
+    for (uint x = o; x < kernel_size - o; ++x)
     {
         complex c0_0, c1_0;
         ReadKernel(x, kernel_unit, c0_0, c1_0);
@@ -120,12 +122,12 @@ void main(uint3 DTid : SV_DispatchThreadID)
     sum1 = sqrt(sum1);
     sum2 = sqrt(sum2);
     
-    for (uint p = 1; p <= kernel_size; ++p)
+    for (uint p = o; p <= kernel_size - o; ++p)
     {
-        float4 v = kernels[uint2(p, kernel_unit)];
+        float4 v = kernels[uint2(p + 1, kernel_unit)];
         v.rg /= sum1;
         v.ba /= sum2;
-        kernels[uint2(p, kernel_unit)] = v;
+        kernels[uint2(p + 1, kernel_unit)] = v;
     }
 #endif
 }
