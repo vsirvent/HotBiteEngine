@@ -78,7 +78,7 @@ float3 CalcWaterDirectional(float3 normal, float3 position, float2 uv, DirLight 
 	float3 HalfWay = normalize(ToEye + light.DirToLight);
 	float NDotH = saturate(dot(HalfWay, normal));
 	float3 spec_color = { 0.f, 0.f, 0.f };
-	spec_color += pow(NDotH, 500.0f) * spec_intensity * 10.0f;
+	spec_color += pow(NDotH, 500.0f) * spec_intensity * 15.0f;
 //	spec_color += color * pow(NDotH, 100.0f) * spec_intensity;
 //	spec_color += color * pow(NDotH, 2.0f) * spec_intensity * 0.1f;
 	finalColor += spec_color;

@@ -26,6 +26,8 @@ RWTexture2D<float4> kernels : register(u0);
 
 #include "../Common/Complex.hlsli"
 
+static const float MIN_KERNEL_VALUE = 0.001f;
+
 cbuffer externalData : register(b0)
 {
     uint kernel_size;
@@ -33,7 +35,7 @@ cbuffer externalData : register(b0)
 }
 
 void ReadKernel(uint position, uint kernel, out complex c1, out complex c2) {
-    float4 data = kernels[uint2(position, kernel)];
+    float4 data = kernels[uint2(position + 1, kernel)];
     c1.real = data.r;
     c1.img = data.g;
     c2.real = data.b;
@@ -74,12 +76,26 @@ void main(uint3 DTid : SV_DispatchThreadID)
     float freq = max_variance / (variance * M_PI);
 
     int i;
+    bool o1 = false;
+    bool o2 = false;
     for (i = -half_kernel; i <= half_kernel; ++i)
     {
         complex c1 = GetKernelValue(i, fkernel_size, variance, freq * 0.5f);
         complex c2 = GetKernelValue(i, fkernel_size, variance, freq * 1.2f);
         //Each kernel float4 stores 2 kernel values generated with different frequencies
-        kernels[uint2(i + half_kernel, kernel_unit)] = float4(c1.real, c1.img, c2.real, c2.img);
+        kernels[uint2(i + 1 + half_kernel, kernel_unit)] = float4(c1.real, c1.img, c2.real, c2.img);
+        if (!o1 && Length(c1) > MIN_KERNEL_VALUE) {
+            float4 offsets = kernels[uint2(0, kernel_unit)];
+            offsets.r = (float)(i + half_kernel);
+            kernels[uint2(0, kernel_unit)] = offsets;
+            o1 = true;
+        }
+        if (!o2 && Length(c2) > MIN_KERNEL_VALUE) {
+            float4 offsets = kernels[uint2(0, kernel_unit)];
+            offsets.g = (float)(i + half_kernel);
+            kernels[uint2(0, kernel_unit)] = offsets;
+            o2 = true;
+        }
     }
 #ifndef TEST //Testing avoids normalization
     //Normalize
@@ -103,8 +119,8 @@ void main(uint3 DTid : SV_DispatchThreadID)
     }
     sum1 = sqrt(sum1);
     sum2 = sqrt(sum2);
-  
-    for (uint p = 0; p < kernel_size; ++p)
+    
+    for (uint p = 1; p <= kernel_size; ++p)
     {
         float4 v = kernels[uint2(p, kernel_unit)];
         v.rg /= sum1;

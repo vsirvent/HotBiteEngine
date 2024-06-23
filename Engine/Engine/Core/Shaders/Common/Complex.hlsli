@@ -36,6 +36,34 @@ struct complex_color {
     complex b;
 };
 
+complex InitComplex(float real, float img) {
+    complex c;
+    c.real = real;
+    c.img = img;
+    return c;
+}
+
+complex InitComplex() {
+    complex c;
+    c.real = 0.0f;
+    c.img = 0.0f;
+    return c;
+}
+
+complex AddComplex(const complex n0, const complex n1) {
+    complex ret;
+    ret.real = n0.real + n1.real;
+    ret.img = n0.img + n1.img;
+    return ret;
+}
+
+complex SubsComplex(const complex n0, const complex n1) {
+    complex ret;
+    ret.real = n0.real - n1.real;
+    ret.img = n0.img - n1.img;
+    return ret;
+}
+
 complex MultComplex(const complex n0, const complex n1) {
     complex ret;
     ret.real = n0.real * n1.real - n0.img * n1.img;
@@ -43,9 +71,37 @@ complex MultComplex(const complex n0, const complex n1) {
     return ret;
 }
 
+complex ScaleComplex(const complex n0, const float n1) {
+    complex ret;
+    ret.real = n0.real * n1;
+    ret.img = n0.img * n1;
+    return ret;
+}
+
+complex PowComplex(const complex n0) {
+
+    return MultComplex(n0, n0);
+}
+
 void AccMultComplex(const complex n0, const complex n1, in out complex val) {
     val.real += n0.real * n1.real - n0.img * n1.img;
     val.img += n0.real * n1.img + n0.img * n1.real;
+}
+
+complex_color MultComplexColor(const complex_color in_color, const complex value) {
+    complex_color ret;
+    ret.r = MultComplex(in_color.r, value);
+    ret.g = MultComplex(in_color.g, value);
+    ret.b = MultComplex(in_color.b, value);
+    return ret;
+}
+
+complex_color ScaleComplexColor(const complex_color in_color, const float value) {
+    complex_color ret;
+    ret.r = ScaleComplex(in_color.r, value);
+    ret.g = ScaleComplex(in_color.g, value);
+    ret.b = ScaleComplex(in_color.b, value);
+    return ret;
 }
 
 void AccMultComplexColor(const complex_color in_color, const complex value, in out complex_color ccolor) {

@@ -41,7 +41,7 @@ cbuffer externalData : register(b0)
 #define EPSILON 1e-6
 #define VERTICAL 1
 #define HORIZONTAL 2
-#define KERNEL_SIZE 33
+#define KERNEL_SIZE 51
 #define HALF_KERNEL KERNEL_SIZE/2
 
 void FillGaussianArray(out float array[KERNEL_SIZE], float dispersion)
@@ -53,7 +53,7 @@ void FillGaussianArray(out float array[KERNEL_SIZE], float dispersion)
     for (i = -HALF_KERNEL; i <= HALF_KERNEL; ++i)
     {
         int x = i;
-        array[i + halfSize] = exp(-(x * x) / (2.0 * variance * variance)) / sqrt(2.0 * 3.14159265358979323846 * variance * variance);
+        array[i + halfSize] = exp(-(x * x) / (2.0 * variance * variance));
         sum += array[i + halfSize];
     }
 
