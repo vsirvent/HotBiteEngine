@@ -21,10 +21,10 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
+
 RWTexture2D<float4> kernels : register(u0);
 
 #include "../Common/Complex.hlsli"
-#include "DoFBoke.hlsli"
 
 cbuffer externalData : register(b0)
 {
@@ -78,9 +78,10 @@ void main(uint3 DTid : SV_DispatchThreadID)
     {
         complex c1 = GetKernelValue(i, fkernel_size, variance, freq * 0.5f);
         complex c2 = GetKernelValue(i, fkernel_size, variance, freq * 1.2f);
+        //Each kernel float4 stores 2 kernel values generated with different frequencies
         kernels[uint2(i + half_kernel, kernel_unit)] = float4(c1.real, c1.img, c2.real, c2.img);
     }
-#ifndef TEST
+#ifndef TEST //Testing avoids normalization
     //Normalize
     float sum1 = 0.0f;
     float sum2 = 0.0f;

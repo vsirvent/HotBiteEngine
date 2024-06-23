@@ -37,4 +37,5 @@ SOFTWARE.
 #ifndef PI
 #define PI 3.14159265359f
 #endif 
+static const float M_PI = 3.14159265358979323846f; /* pi */
 #endif
