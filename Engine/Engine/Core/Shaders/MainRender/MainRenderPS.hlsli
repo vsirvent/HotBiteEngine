@@ -216,9 +216,9 @@ RenderTargetRT MainRenderPS(GSOutput input)
 	opacity = saturate(opacity);
 	finalColor *= opacity;
 
-	output.scene = saturate(finalColor);
-	output.light_map = saturate(lumColor);
-	output.bloom_map = saturate(lightColor);
+	output.scene = finalColor;
+	output.light_map = lumColor;
+	output.bloom_map = lightColor;
 
 	RaySource ray;
 	ray.orig = wpos2.xyz;

@@ -1349,6 +1349,8 @@ void RenderSystem::ProcessDust() {
 		dust_render->SetMatrix4x4(PROJECTION, cam_entity.camera->projection);
 		dust_render->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
 		dust_render->SetFloat3("cameraDirection", dir);
+		dust_render->SetFloat("focusZ", dof_effect ? dof_effect->GetFocus() : -1.0f);
+		dust_render->SetFloat("amplitude", dof_effect ? dof_effect->GetAmplitude() : 0.0f);
 		dust_render->SetSamplerState(PCF_SAMPLER, dxcore->shadow_sampler);
 		dust_render->SetSamplerState(BASIC_SAMPLER, dxcore->basic_sampler);
 		PrepareLights(dust_render);

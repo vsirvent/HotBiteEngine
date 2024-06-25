@@ -78,5 +78,5 @@ void main(uint3 DTid : SV_DispatchThreadID)
     if (type == HORIZONTAL) {
         color *= att;
     }
-    output[pixel] = saturate(color);
+    output[pixel] = max(color, 0);
 }

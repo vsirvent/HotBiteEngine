@@ -62,25 +62,6 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
     float4 vol = volLightTexture.Sample(basicSampler, tpos);
     float4 dust = dustTexture.Sample(basicSampler, tpos);
     float4 lens_flare = lensFlareTexture.Sample(basicSampler, tpos);
-    color += (color + 2.0f * l) * rt0 + rt1 + b + vol + dust + lens_flare;
-#if 0
-    color.rgb += 0.05f * simplex3d_fractal(float3(400.0f*tpos.xy, time*random(1000.0f*time)));
-#endif
-
-#if 0
-    if (length(color) < 1.0f) {
-        float gamma = 1.1f;
-        float saturation = 1.2f;
-
-        // convert from RGB to HSL
-        float3 hsl = RGBtoHSL(saturate(color.rgb));
-        // increase the saturation
-        hsl.y *= saturation;
-        // convert back from HSL to RGB
-        color.rgb = saturate(HSLtoRGB(hsl));
-        color.rgb = pow(abs(color.rgb), 1.0 / gamma);
-    }
-#endif
-
+    color += (color + 2.0f * l) * rt0 + rt1 + b + dust + lens_flare + vol;
     return color;
 }

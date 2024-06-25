@@ -123,7 +123,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     float2 depth_ratio = depth_dimensions / dimensions;
 
     float2 pixel = float2(DTid.x, DTid.y);
-    float2 depth_pixel = float2(pixel.x * depth_ratio.x, pixel.y * depth_ratio.y);
+    float2 depth_pixel = pixel * depth_ratio;
 
     //Calculate the lens flare effect for each available point light
     for (uint i = 0; i < pointLightsCount; ++i) {

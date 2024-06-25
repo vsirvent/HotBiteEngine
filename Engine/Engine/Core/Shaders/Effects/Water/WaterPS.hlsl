@@ -70,28 +70,17 @@ float3 CalcWaterDirectional(float3 normal, float3 position, float2 uv, DirLight 
 	float3 color = light.Color.rgb * light.intensity;
 	// Phong diffuse
 	float NDotL = dot(light.DirToLight, normal);
-	float3 finalColor = pow(color * saturate(NDotL), 4.0f) * 0.5f;
+	float3 finalColor = { 0.f, 0.f, 0.f };// pow(saturate(NDotL), 4.0f) * 0.1f;
 	float3 bloomColor = { 0.f, 0.f, 0.f };
 	// Blinn specular
-#if 0
-	float3 ToEye = cameraPosition.xyz - position;
-	ToEye = normalize(ToEye);
-	float3 HalfWay = normalize(ToEye + light.DirToLight);
-	float NDotH = saturate(dot(HalfWay, normal));
-	float3 spec_color = { 0.f, 0.f, 0.f };
-	spec_color += pow(NDotH, 400.0f) * spec_intensity;
-	finalColor += spec_color;
-	bloomColor += (saturate(NDotH - 0.99f)) * 99.0f * (spec_intensity);
-	bloom.rgb += bloomColor;
-#endif
 	float3 ToEye = cameraPosition.xyz - position.xyz;
 	ToEye = normalize(ToEye);
 	float3 HalfWay = normalize(ToEye + light.DirToLight);
 	float NDotH = saturate(dot(HalfWay, normal));
 	float3 spec_color = { 0.f, 0.f, 0.f };
-	spec_color += pow(NDotH, 200.0f) * spec_intensity * 10.0f;
-	spec_color += color * pow(NDotH, 100.0f) * spec_intensity;
-	spec_color += color * pow(NDotH, 2.0f) * spec_intensity * 0.1f;
+	spec_color += pow(NDotH, 500.0f) * spec_intensity * 15.0f;
+//	spec_color += color * pow(NDotH, 100.0f) * spec_intensity;
+//	spec_color += color * pow(NDotH, 2.0f) * spec_intensity * 0.1f;
 	finalColor += spec_color;
 	bloomColor += spec_color;
 
@@ -203,7 +192,7 @@ RenderTargetRT main(GSOutput input)
 		finalColor.rgb *= text_color;
 	}
 	else {
-		finalColor *= material.diffuseColor * 0.3f;
+		finalColor *= float4(0.9f, 0.9f, 1.0f, 1.0f) * 0.3f;
 	}
 #endif
 
@@ -230,9 +219,9 @@ RenderTargetRT main(GSOutput input)
 		}
 	};
 
-	output.light_map = saturate(lumColor);
-	output.bloom_map = saturate(lightColor);
-	output.scene = saturate(finalColor);
+	output.light_map = lumColor;
+	output.bloom_map = lightColor;
+	output.scene = finalColor;
 	RaySource ray;
 	ray.orig = input.worldPos.xyz;
 	ray.dispersion = 0.0f;
