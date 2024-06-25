@@ -280,7 +280,7 @@ namespace HotBite {
 			class DOFBokeProcess : public BaseDOFProcess
 			{
 			private:
-				static const int32_t KERNEL_SIZE = 51;
+				static const int32_t KERNEL_SIZE = 61;
 
 				HotBite::Engine::Core::RenderTexture2D temp;
 				HotBite::Engine::Core::RenderTexture2D kernel;

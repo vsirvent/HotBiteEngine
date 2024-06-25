@@ -84,7 +84,8 @@ void main(uint3 DTid : SV_DispatchThreadID)
 
     float t = time * 0.1f;
     float3 p = float3(input_pixel.x + t, input_pixel.y + t, 1.0f);
-    wpos.w = wpos.w * 0.8f + saturate(rgba_tnoise(p)) * 0.2f;
+    float noise = saturate(rgba_tnoise(p)) * 0.2f;
+    wpos.w = wpos.w * 0.8f + noise;
     dustTexture[input_pixel] = wpos;
     float illumination = wpos.w;
     wpos.w = 1.0f;
@@ -123,7 +124,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
             screenPos2.y = (1.0f - (projPos2.y * 0.5f + 0.5f)) * dimensions.y;
             if (screenPos.x >= 0 && screenPos.x < dimensions.x && screenPos.y >= 0 && screenPos.y < dimensions.y)
             {
-                float depth = depthTextureUAV[screenPos];
+                float depth = depthTextureUAV[screenPos/2];
                 float dist_to_cam = length(wpos - cameraPosition);
                 if (depth > dist_to_cam)
                 {
@@ -152,7 +153,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
 
                     float focus_gain = 1.0f;
                     if (focusZ > 0.0f) {
-                        focus_gain = clamp(abs(focusZ - depth)*amplitude*0.1f, 1.0f, 20.0f);
+                        focus_gain = clamp(abs(focusZ - depth) * amplitude * 0.1f * noise, 1.0f, 20.0f);
                     }
                     float2 distanceScreen = abs(screenPos - screenPos2);
                     float halfDistance = floor(distanceScreen.x);
@@ -168,6 +169,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
                             {
                                 float2 output_pixel = screenPos + float2(x, y);
                                 output[output_pixel] = float4(color * total_att, 1.0f);
+                                //depthTextureUAV[output_pixel / 2] = distanceScreen.x;
                             }
                         }
                     }
