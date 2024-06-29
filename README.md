@@ -43,6 +43,9 @@ Engine features:
 ### Material Editor
 ![](Tests/Images/MaterialEditor.png)
 
+### Motion Blur
+![](Tests/Images/motion_blur.png)
+
 ### Parallax texture with projected shadow
 ![](Tests/Images/parallax_shadow.png)
 Note how the projected shadow follows the parallax texture 3d effect.
