@@ -14,63 +14,29 @@ cbuffer externalData : register(b0)
     matrix prev_view_proj;
 }
 
-#define MAX_STEPS 10
+float2 GetPixelDir(float2 pixel) {
 
-void AddIntPixel(uint2 pixel, uint w, uint h, float4 color)
-{
-    uint addr = (pixel.y * w + pixel.x);
-    bool keepWaiting = true;
-    uint i = 0;
-    while (keepWaiting) {
-        uint originalValue;
-        outputLock.InterlockedCompareExchange(addr, 0, 1, originalValue);
-        if (originalValue == 0) {
-            output[pixel] += color;
-            outputLock.InterlockedExchange(addr, 0, originalValue);
-            keepWaiting = false;
-        }
-    }
+    float4 p0World = prevPositionTexture[pixel];
+    float4 p1World = positionTexture[pixel];
+
+    float4 p0 = mul(p0World, view_proj);
+    float4 p1 = mul(p1World, prev_view_proj);
+
+    p0 /= abs(p0.w);
+    p1 /= abs(p1.w);
+
+    p0.y *= -1.0f;
+    p1.y *= -1.0f;
+    return p1.xy - p0.xy;
 }
 
-void AddPixel(float2 p, uint w, uint h, float2 output_ratio, float4 color)
-{
-    p *= output_ratio;
-
-    uint2 pfloor = floor(p);
-    uint2 pceil = ceil(p);
-
-    uint2 p00 = pfloor;
-    uint2 p11 = pceil;
-    uint2 p01 = { pfloor.x, pceil.y };
-    uint2 p10 = { pceil.x, pfloor.y };
-
-    float2 w00 = { 1.0f - (p.x - pfloor.x), 1.0f - (p.y - pfloor.y) };
-    float2 w01 = { 1.0f - (p.x - pfloor.x), (p.y - pfloor.y) };
-
-    float2 w10 = { (p.x - pfloor.x), 1.0f - (p.y - pfloor.y) };
-    float2 w11 = { (p.x - pfloor.x), (p.y - pfloor.y) };
-
-    float output_intensity = output_ratio.x * output_ratio.x;
-
-    AddIntPixel(p00, w, h, color * w00.x * w00.y * output_intensity);
-    AddIntPixel(p01, w, h, color * w01.x * w01.y * output_intensity);
-    AddIntPixel(p10, w, h, color * w10.x * w10.y * output_intensity);
-    AddIntPixel(p11, w, h, color * w11.x * w11.y * output_intensity);
-}
-
-float KeepDecimals(float value, int nDecimalsToKeep)
-{
-    float power = pow(10, nDecimalsToKeep);
-    return round(value * power) / power;
-}
-
+#define MAX_STEPS 20
 #define NTHREADS 32
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main(uint3 DTid : SV_DispatchThreadID, uint3 Gid: SV_GroupID, uint3 Tid: SV_GroupThreadID)
 {
-    //float2 pixel = float2(DTid.x, DTid.y);
-    float2 pixel = float2(Gid.x * NTHREADS + Tid.x, Gid.y * NTHREADS + Tid.y);
-
+    float2 pixel = float2(DTid.x, DTid.y);
+    
     uint w, h;
     float2 in_dimension;
     float2 out_dimension;
@@ -81,54 +47,64 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 Gid: SV_GroupID, uint3 Tid: SV
 
     output.GetDimensions(out_dimension.x, out_dimension.y);
     float2 output_ratio = out_dimension / in_dimension;
-
-    float4 inputColor = input[pixel];
+    float2 input_ratio = 1.0f / output_ratio;
+    float2 input_pixel = pixel * input_ratio;
+    float2 output_pixel = pixel * output_ratio;
+    float4 inputColor = input[input_pixel];
         
-    float4 p1World = positionTexture[pixel];
-    float4 p0World = prevPositionTexture[pixel];
-    float4 dirWorld = p1World - p0World;
+    float2 dir = GetPixelDir(input_pixel);
+    float2 norm_dir = normalize(dir);
+    dir *= out_dimension;
 
-    float4 p0 = mul(p0World, view_proj);
-    float4 p1 = mul(p1World, view_proj);
+    float max_speed = out_dimension.x * 0.02f;
+    float speed = length(dir);
 
-    p0 /= p0.w;
-    p1 /= p1.w;
-    p0.y *= -1.0f;
-    p1.y *= -1.0f;
+    if (speed > max_speed) {
+        dir = normalize(dir) * max_speed;
+    }
 
-    float2 dir = p1.xy - p0.xy;
-    dir *= in_dimension;
-        
     float fsteps = length(dir);
     
+    if (fsteps >= 1.0f) {
+        float step_size = length(dir / fsteps);
 
-    float step_size = length(dir / fsteps);
+        float n = 1.0f;
+        float t = 1.0f;
+        int i = 0;
+        int real_steps = 0;
 
-    float n = 1.0f;
-    float t = 1.0f;
-    int i = 0;
-    int real_steps = 0;
-   
-    while (n < fsteps && ++i < MAX_STEPS) {
-        float a = (fsteps - n) / fsteps;
-        t += a;
-        n += step_size;
-        ++real_steps;
+        while (n < fsteps && n < MAX_STEPS) {
+            float a = (fsteps - n) / fsteps;
+            t += a;
+            n += step_size;
+            ++real_steps;
+        }
+
+        n = step_size;
+        dir /= fsteps;
+        float ratio = (float)fsteps / real_steps;
+        float2 p = pixel - dir * ratio * real_steps / 4.0f;
+        float w_extra = 0.0f;
+        float4 last_color = inputColor;
+
+        float4 output_color = inputColor / t;
+        if (real_steps > 0) {
+            for (i = 0; i < real_steps; ++i) {
+                p += dir * ratio;
+                float2 p2 = p * input_ratio;
+                float a = (fsteps - n) / (fsteps * t);
+                float2 pdir = normalize(GetPixelDir(p2));
+                float angle = saturate(dot(norm_dir, pdir));
+                last_color = input[p2] * angle + last_color * (1.0f - angle);
+                output_color += last_color * a;
+                w_extra += (1.0f - angle) * a;
+                n += step_size;
+            }
+            //output_color += output_color * w_extra;
+        }
+        output[pixel] = output_color;
     }
-#if 0
-    //AddIntPixel(pixel, w, h, inputColor);
-#else
-    AddIntPixel(pixel, w, h, inputColor / t);
-    //Add the motion trace
-    float2 p = pixel;
-    n = step_size;
-    dir /= fsteps;
-    float ratio = (float)fsteps / real_steps;
-    for (i = 0; i < real_steps; ++i) {
-        p += dir * ratio * 4.0f;
-        float a = (fsteps - n) / (fsteps * t);
-        AddPixel(p, w, h, output_ratio, inputColor * a);       
-        n += step_size;
+    else {
+        output[pixel] = inputColor;
     }
-#endif
 }

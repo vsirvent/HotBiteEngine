@@ -35,69 +35,63 @@ Texture2D positionTexture;
 Texture2D prevPositionTexture;
 SamplerState basicSampler;
 
-static const uint numSamples = 15;
-static const float MOTION_FACTOR = 10.0f;
-static const float MAX_VELOCITY_FACTOR = 2.0f;
+static const uint MAX_STEPS = 50;
 
 float4 main(float4 pos: SV_POSITION) : SV_TARGET
 {    
     float2 tpos = pos.xy;
-    tpos.x /= screenW;
-    tpos.y /= screenH;
-    float4 finalColor;
+    float2 dimension = float2(screenW, screenH);
+    tpos /= dimension;
+
+    float4 inputColor = renderTexture[pos.xy];
+    float4 output_color = inputColor;
 
     // Get the depth buffer value at this pixel. 
     float4 p1World = positionTexture.Sample(basicSampler, tpos);
     if (length(p1World) > 0) {
-        
+
         float4 p0World = prevPositionTexture.Sample(basicSampler, tpos);
         float4 p0 = mul(p0World, prev_view_proj);
         float4 p1 = mul(p1World, view_proj);
-        
-        p0 /= p0.w;
-        p1 /= p1.w;
 
-        // Use this frame's position and last frame's to compute the pixel velocity.
-        float2 velocity = (p1.xy - p0.xy)*MOTION_FACTOR/ screenW;
-#if 0
-        float dist = length(tpos - 0.5f)*2.0f;
-        velocity *= dist*dist;
-#endif
-        float maxVelocity = MAX_VELOCITY_FACTOR / min(screenW, screenH); // Max velocity per pixel
-        float magnitude = length(velocity); // Calculate magnitude of velocity vector
+        p0 /= abs(p0.w);
+        p1 /= abs(p1.w);
 
-        // If magnitude exceeds max velocity, scale down the velocity vector
-        if (magnitude > maxVelocity)
-        {
-            float scale = maxVelocity / magnitude;
-            velocity *= scale;
+        p0.y *= -1.0f;
+        p1.y *= -1.0f;
+
+        float2 dir = p1.xy - p0.xy;
+        dir *= dimension * 0.5f;
+
+        float fsteps = length(dir);
+
+
+        float step_size = length(dir / fsteps);
+
+        float n = 1.0f;
+        float t = 1.0f;
+        int i = 0;
+        int real_steps = 0;
+
+        while (n < fsteps && n < MAX_STEPS) {
+            float a = (fsteps - n) / fsteps;
+            t += a;
+            n += step_size;
+            ++real_steps;
         }
 
-        velocity.y *= -1.0f;
-        // Get the initial color at this pixel.
-        if (length(velocity) > 0.0f) {
-            uint w = 0;
-            float4 color = { 0.0f, 0.0f, 0.0f, 0.0f };
-            float2 start_pos = tpos - velocity * numSamples;
-            for (uint i = 1; i < numSamples; ++i) {
-                if (tpos.x >= 1.0f || tpos.x <= 0.0f || tpos.y >= 1.0f || tpos.y <= 0.0f) {
-                    continue;
-                }
-                // Sample the color buffer along the velocity vector.
-                float4 currentColor = renderTexture.SampleLevel(basicSampler, tpos, 0);
-                // Add the current color to our color sum. with a weight of the iteration
-                color += (currentColor * (float)(i));
-                w += i;
-                tpos += velocity;
-            }
-            finalColor = (color / (float)w);
-        }
-        else {
-            finalColor = renderTexture.Sample(basicSampler, tpos);
+        n = step_size;
+        dir /= fsteps;
+        float ratio = (float)fsteps / real_steps;
+        float4 inputColor = renderTexture[pos.xy];
+        output_color = output_color / t;
+        float2 p = pos - dir * ratio * real_steps / 5.0f;
+        for (i = 0; i < real_steps ; ++i) {
+            p += dir * ratio;
+            float a = (fsteps - n) / (fsteps * t);
+            output_color += renderTexture[p] * a;
+            n += step_size;
         }
     }
-    else {
-        finalColor = renderTexture.Sample(basicSampler, tpos);
-    }
-    return finalColor;
+    return output_color;
 }

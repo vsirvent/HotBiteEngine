@@ -251,8 +251,9 @@ namespace HotBite {
 				Core::DepthTexture2D depth_view;
 
 				Core::RenderTexture2D texture_tmp;
-				DataBuffer<uint8_t> texture_tmp_lock;
 
+				Core::RenderTexture2D motion_blur_map;
+				
 				Core::PostProcess* post_process_pipeline = nullptr;				
 				Core::IRenderTarget* first_pass_target = nullptr;
 				Core::IRenderTarget* second_pass_target = nullptr;
@@ -304,6 +305,9 @@ namespace HotBite {
 				};
 				Core::RenderTexture2D vol_data;
 
+				//Texture mixed
+				Core::SimpleComputeShader* mixer_shader = nullptr;
+
 				float time = 0.0f;
 				bool tess_enabled = true;
 				bool normal_material_map = true;
@@ -322,6 +326,8 @@ namespace HotBite {
 				void ProcessDust();
 				void ProcessLensFlare();
 				void ProcessMotionBlur();
+				void ProcessMix();
+
 				void DrawParticles(int w, int h, const float3& camera_position, const matrix& view, const matrix& projection, RenderParticleTree& tree);
 				bool IsVisible(const float3& camera_pos, const DrawableEntity& drawable, const matrix& view_projection, int w, int h) const;
 				void CheckSceneVisibility(RenderTree& tree);

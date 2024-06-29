@@ -570,5 +570,8 @@
     <FxCompile Include="Engine\Core\Shaders\DoFBoke\PostDOFBoke.hlsl">
       <Filter>Engine\Core\Shaders\DoFBoke</Filter>
     </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\ComputeShaders\TextureMixerCS.hlsl">
+      <Filter>Engine\Core\Shaders\ComputeShaders</Filter>
+    </FxCompile>
   </ItemGroup>
 </Project>

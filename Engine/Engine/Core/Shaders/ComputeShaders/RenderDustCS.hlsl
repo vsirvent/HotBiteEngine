@@ -151,28 +151,35 @@ void main(uint3 DTid : SV_DispatchThreadID)
                     global *= global;
                     att = -global + (1.0f + MAX_GLOBAL_ILLUMINATION);
 
-                    float focus_gain = 1.0f;
-                    if (focusZ > 0.0f) {
-                        focus_gain = clamp(abs(focusZ - depth) * amplitude * 0.1f * noise, 1.0f, 20.0f);
-                    }
                     float2 distanceScreen = abs(screenPos - screenPos2);
                     float halfDistance = floor(distanceScreen.x);
+#if 1
                     for (int x = -halfDistance; x <= halfDistance; ++x) {
                         for (int y = -halfDistance; y <= halfDistance; ++y) {
                             float dist_att = saturate(distanceScreen.x);
                             float w0 = saturate(1.0f - abs(x) / halfDistance);
                             float w1 = saturate(1.0f - abs(y) / halfDistance);
-                            float total_att = att * illumination * w0 * w1 * focus_gain;
+                            float total_att = att * illumination * w0 * w1;
 
                             //Only write if we have a visible particle and attenuation is not too high that it will not be visible
                             if (total_att > 0.0001f)
                             {
                                 float2 output_pixel = screenPos + float2(x, y);
                                 output[output_pixel] = float4(color * total_att, 1.0f);
-                                //depthTextureUAV[output_pixel / 2] = distanceScreen.x;
                             }
                         }
                     }
+#else
+                    float dist_att = saturate(distanceScreen.x);
+                    float total_att = att * illumination * focus_gain;
+
+                    //Only write if we have a visible particle and attenuation is not too high that it will not be visible
+                    if (total_att > 0.0001f)
+                    {
+                        float2 output_pixel = screenPos;
+                        output[output_pixel] = float4(color * total_att, 1.0f);
+                    }
+#endif
                 }
             }
         }

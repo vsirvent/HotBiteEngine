@@ -101,6 +101,9 @@ namespace HotBite {
 					SimpleVertexShader* vertex_shader,
 					SimplePixelShader* pixel_shader);
 
+				int GetW() const { return w; }
+				int GetH() const { return h; }
+
 				//Clear post-effect internal texture data
 				void Clear(const float color[4]);
 

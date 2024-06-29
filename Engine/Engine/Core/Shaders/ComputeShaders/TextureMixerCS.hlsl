@@ -25,7 +25,8 @@ SOFTWARE.
 #include "../Common/Utils.hlsli"
 #include "../Common/QuickNoise.hlsli"
 
-Texture2D renderTexture : register(t0);
+RWTexture2D<float4> output : register(u0);
+Texture2D input: register(t2);
 Texture2D depthTexture: register(t3);
 Texture2D lightTexture: register(t4);
 Texture2D bloomTexture: register(t5);
@@ -36,28 +37,27 @@ Texture2D dustTexture: register(t9);
 Texture2D lensFlareTexture: register(t10);
 SamplerState basicSampler : register(s0);
 
-cbuffer externalData : register(b0)
+#define NTHREADS 32
+[numthreads(NTHREADS, NTHREADS, 1)]
+void main(uint3 DTid : SV_DispatchThreadID)
 {
-	int screenW;
-	int screenH;
-}
+    uint w, h;
+    output.GetDimensions(w, h);
+    float2 pixel = float2(DTid.x, DTid.y);
 
-float4 main(float4 pos: SV_POSITION) : SV_TARGET
-{
-    float2 tpos = pos.xy;
-    tpos.x /= screenW;
-    tpos.y /= screenH;
-#if 0
-    float4 color = renderTexture.Sample(basicSampler, tpos);
-    float4 l = lightTexture.Sample(basicSampler, tpos);
-    float4 b = bloomTexture.Sample(basicSampler, tpos);    
+    float2 tpos = pixel;
+    tpos.x /= w;
+    tpos.y /= h;
 
-    float4 rt0 = rtTexture0.Sample(basicSampler, tpos);
-    float4 rt1 = rtTexture1.Sample(basicSampler, tpos);
-    float4 vol = volLightTexture.Sample(basicSampler, tpos);
-    float4 dust = dustTexture.Sample(basicSampler, tpos);
-    float4 lens_flare = lensFlareTexture.Sample(basicSampler, tpos);
+    float4 color = input[pixel];
+    float4 l = lightTexture.SampleLevel(basicSampler, tpos, 0);
+    float4 b = bloomTexture.SampleLevel(basicSampler, tpos, 0);
+    float4 rt0 = rtTexture0.SampleLevel(basicSampler, tpos, 0);
+    float4 rt1 = rtTexture1.SampleLevel(basicSampler, tpos, 0);
+    float4 vol = volLightTexture.SampleLevel(basicSampler, tpos, 0);
+    float4 dust = dustTexture.SampleLevel(basicSampler, tpos, 0);
+    float4 lens_flare = lensFlareTexture.SampleLevel(basicSampler, tpos, 0);
+
     color += (color + 2.0f * l) * rt0 + rt1 + b + dust + lens_flare + vol;
-#endif
-    return renderTexture.Sample(basicSampler, tpos);
+    output[pixel] = color;
 }
