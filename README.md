@@ -5,6 +5,7 @@ Engine features:
 
 - C++/DirectX-11
 - RAY TRACING!
+- Motion Blur
 - Material Editor
 - UI Editor
 - Based on Entity-Component-System architecture design
