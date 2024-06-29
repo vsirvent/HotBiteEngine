@@ -5,6 +5,7 @@ Engine features:
 
 - C++/DirectX-11
 - RAY TRACING!
+- Motion Blur
 - Material Editor
 - UI Editor
 - Based on Entity-Component-System architecture design
@@ -42,6 +43,9 @@ Engine features:
 
 ### Material Editor
 ![](Tests/Images/MaterialEditor.png)
+
+### Motion Blur
+![](Tests/Images/motion_blur.png)
 
 ### Parallax texture with projected shadow
 ![](Tests/Images/parallax_shadow.png)
