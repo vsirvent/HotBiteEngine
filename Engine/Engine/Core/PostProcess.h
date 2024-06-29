@@ -154,6 +154,7 @@ namespace HotBite {
 
 				virtual ID3D11ShaderResourceView* RenderResource() override;
 				virtual ID3D11RenderTargetView* RenderTarget() const override;
+				virtual ID3D11UnorderedAccessView* RenderUAV() override;
 			};
 			
 			class MainEffect : public PostProcess

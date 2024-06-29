@@ -1588,6 +1588,7 @@ void RenderSystem::ProcessRT() {
 		rt_shader->SetUnorderedAccessView("ray1", nullptr);
 
 		UnprepareLights(rt_shader);
+		rt_shader->CopyAllBufferData();
 
 		//Smooth frame
 		rt_smooth->SetUnorderedAccessView("props", rt_texture_props.UAV());
@@ -2098,7 +2099,8 @@ void RenderSystem::PostProcessLight() {
 	ps->CopyAllBufferData();
 	ScreenDraw::Get()->Draw();
 	ps->SetShaderResourceView("renderTexture", nullptr);
-
+	rv[0] = { nullptr };
+	context->OMSetRenderTargets(1, rv, nullptr);
 	ProcessDust();
 	ProcessLensFlare();
 }

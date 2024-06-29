@@ -208,7 +208,7 @@ GenericPostProcess::GenericPostProcess(ID3D11DeviceContext* dxcontext,
 		ShaderFactory::Get()->GetShader<SimplePixelShader>(ps)), //This is the custom post-process pixel shader of the demo
 	coordinator(c)
 {
-	text.Init(width, height, DXGI_FORMAT_R32G32B32A32_FLOAT);
+	text.Init(width, height, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS);
 }
 
 GenericPostProcess::~GenericPostProcess() {
@@ -227,6 +227,9 @@ ID3D11RenderTargetView* GenericPostProcess::RenderTarget() const {
 	return text.RenderTarget();
 }
 
+ID3D11UnorderedAccessView* GenericPostProcess::RenderUAV() {
+	return text.UAV();
+}
 
 
 void MainEffect::ClearData(const float color[4]) {
