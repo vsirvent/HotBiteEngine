@@ -37,6 +37,17 @@ Texture2D dustTexture: register(t9);
 Texture2D lensFlareTexture: register(t10);
 SamplerState basicSampler : register(s0);
 
+float4 readColor(float2 pixel, texture2D text, uint w, uint h) {
+    uint w2, h2;
+    text.GetDimensions(w2, h2);
+    if (w2 == w && h2 == h) {
+        return text.SampleLevel(basicSampler, pixel, 0);
+    }
+    else {
+        return GetInterpolatedColor(pixel, text, float2(w2, h2));
+    }
+}
+
 #define NTHREADS 32
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main(uint3 DTid : SV_DispatchThreadID)
@@ -50,13 +61,13 @@ void main(uint3 DTid : SV_DispatchThreadID)
     tpos.y /= h;
 
     float4 color = input[pixel];
-    float4 l = lightTexture.SampleLevel(basicSampler, tpos, 0);
-    float4 b = bloomTexture.SampleLevel(basicSampler, tpos, 0);
-    float4 rt0 = rtTexture0.SampleLevel(basicSampler, tpos, 0);
-    float4 rt1 = rtTexture1.SampleLevel(basicSampler, tpos, 0);
-    float4 vol = volLightTexture.SampleLevel(basicSampler, tpos, 0);
-    float4 dust = dustTexture.SampleLevel(basicSampler, tpos, 0);
-    float4 lens_flare = lensFlareTexture.SampleLevel(basicSampler, tpos, 0);
+    float4 l = readColor(tpos, lightTexture, w, h);
+    float4 b = readColor(tpos, bloomTexture, w, h);
+    float4 rt0 = readColor(tpos, rtTexture0, w, h);
+    float4 rt1 = readColor(tpos, rtTexture1, w, h);
+    float4 vol = readColor(tpos, volLightTexture, w, h);
+    float4 dust = readColor(tpos, dustTexture, w, h);
+    float4 lens_flare = readColor(tpos, lensFlareTexture, w, h);
 
     color += (color + 2.0f * l) * rt0 + rt1 + b + dust + lens_flare + vol;
     output[pixel] = color;

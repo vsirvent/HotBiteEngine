@@ -111,7 +111,9 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
             complex w0 = InitComplex(1.0f, 0.0f);
             complex w1 = InitComplex(1.0f, 0.0f);
 
-            bool normalize = false;
+            complex_color orig_color;
+            ColorToComplexColor(renderTexture[pixel], orig_color);
+
             float o1, o2;
             GetOfsset(kernels, position, o1, o2);
             float offset = min(o1, o2);
@@ -134,23 +136,14 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
                 int tmp_pos = position;
 #endif
                 if (tmp_pos < near_focus && abs(position - tmp_pos) > MAX_DISTANCE) {
-                    normalize = true;
-                    w0 = AddComplex(w0, k0);
-                    w1 = AddComplex(w1, k1);
+                    AccMultComplexColor(orig_color, k0, ccolor);
+                    AccMultComplexColor(orig_color, k1, ccolor2);
                 }
                 else {
                     ColorToComplexColor(color, in_color);
                     AccMultComplexColor(in_color, k0, ccolor);
                     AccMultComplexColor(in_color, k1, ccolor2);
                 }
-            }
-
-            // Normalize by the sum of the included weights
-            if (normalize) {
-                w0 = PowComplex(w0);
-                w1 = PowComplex(w1);
-                ccolor = ScaleComplexColor(ccolor, Length(w0));
-                ccolor2 = ScaleComplexColor(ccolor2, Length(w1));
             }
         }
         //Vertical return 2 complex colors packed in a single float4
@@ -162,6 +155,7 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
         if (position == 0) {
             PackedComplex2ColorToComplexColor(renderTexture[p], ccolor, ccolor2);
         } else {
+
             float2 dir = float2(0, 1.0f);
             complex_color in_color, in_color2;
             complex w0 = InitComplex(1.0f, 0.0f);
@@ -175,7 +169,7 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
                 p = pixel + dir * i;
                 complex k0, k1;
                 GetKernelValue(kernels, i + half_kernel, position, k0, k1);
-#ifdef GHOST
+#if 0 //def GHOST
                 //Ghosting is very noticiable when there is a big gap of depth distance and object is near focus
                 //in that case, we avoid adding that pixel and compensate later to add extra weight
                 int tmp_pos = GetPosition(p, ratio, max_positions);
