@@ -272,13 +272,13 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		if (FAILED(bloom_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("bloom_map.Init failed");
 		}
-		if (FAILED(temp_map.Init(w, h))) {
+		if (FAILED(temp_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("temp_map.Init failed");
 		}
-		if (FAILED(depth_map.Init(w / 2, h / 2, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+		if (FAILED(depth_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("depth_map.Init failed");
 		}
-		if (FAILED(depth_view.Init(w / 2, h / 2))) {
+		if (FAILED(depth_view.Init(w, h))) {
 			throw std::exception("depth_view.Init failed");
 		}
 		if (FAILED(first_pass_texture.Init(w, h))) {
@@ -356,6 +356,10 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		mixer_shader = ShaderFactory::Get()->GetShader<SimpleComputeShader>("TextureMixerCS.cso");
 		if (mixer_shader == nullptr) {
 			throw std::exception("mixer shader.Init failed");
+		}
+		aa_shader = ShaderFactory::Get()->GetShader<SimpleComputeShader>("AntiAliasCS.cso");
+		if (mixer_shader == nullptr) {
+			throw std::exception("AA shader.Init failed");
 		}
 
 	}
@@ -462,7 +466,7 @@ void RenderSystem::DrawDepth(int w, int h, const float3& camera_position, const 
 	context->GSSetShader(nullptr, nullptr, 0);
 	ID3D11RenderTargetView* rv[1] = { depth_map.RenderTarget() };
 	context->OMSetRenderTargets(1, rv, depth_view.Depth());
-	context->RSSetViewports(1, &dxcore->half_viewport);
+	context->RSSetViewports(1, &dxcore->viewport);
 	context->RSSetState(dxcore->drawing_rasterizer);
 
 	SkyEntity* sky = nullptr;
@@ -1271,17 +1275,39 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 	}
 }
 
-void RenderSystem::ProcessMix() {
+void RenderSystem::ProcessAntiAlias() {
 	if (post_process_pipeline == nullptr) {
 		return;
 	}
-	if (cameras.GetData().empty()) {
-		return;
-	}
+
 	ID3D11UnorderedAccessView* image = motion_blur_map.UAV();
 
 	int32_t  groupsX = (int32_t)(ceil((float)motion_blur_map.Width() / 32.0f));
 	int32_t  groupsY = (int32_t)(ceil((float)motion_blur_map.Height() / 32.0f));
+
+	aa_shader->SetShaderResourceView("depthTexture", depth_map.SRV());
+	aa_shader->SetShaderResourceView("normalTexture", rt_ray_sources1.SRV());
+	aa_shader->SetShaderResourceView("input", temp_map.SRV());
+	aa_shader->SetUnorderedAccessView("output", image);
+	aa_shader->CopyAllBufferData();
+	aa_shader->SetShader();
+	dxcore->context->Dispatch(groupsX, groupsY, 1);
+	aa_shader->SetUnorderedAccessView("output", nullptr);
+	aa_shader->SetShaderResourceView("depthTexture", nullptr);
+	aa_shader->SetShaderResourceView("normalTexture", nullptr);
+	aa_shader->SetShaderResourceView("input", nullptr);
+	aa_shader->CopyAllBufferData();
+}
+
+void RenderSystem::ProcessMix() {
+	if (post_process_pipeline == nullptr) {
+		return;
+	}
+
+	ID3D11UnorderedAccessView* image = temp_map.UAV();
+
+	int32_t  groupsX = (int32_t)(ceil((float)temp_map.Width() / 32.0f));
+	int32_t  groupsY = (int32_t)(ceil((float)temp_map.Height() / 32.0f));
 
 	mixer_shader->SetShaderResourceView("depthTexture", depth_map.SRV());
 	mixer_shader->SetShaderResourceView("lightTexture", light_map.SRV());
@@ -2137,6 +2163,7 @@ void RenderSystem::Draw() {
 		ProcessRT();
 		PostProcessLight();
 		ProcessMix();
+		ProcessAntiAlias();
 		ProcessMotionBlur();
 
 		if (post_process_pipeline != nullptr) {

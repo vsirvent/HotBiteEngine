@@ -169,7 +169,7 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
                 p = pixel + dir * i;
                 complex k0, k1;
                 GetKernelValue(kernels, i + half_kernel, position, k0, k1);
-#if 0 //def GHOST
+#ifdef GHOST
                 //Ghosting is very noticiable when there is a big gap of depth distance and object is near focus
                 //in that case, we avoid adding that pixel and compensate later to add extra weight
                 int tmp_pos = GetPosition(p, ratio, max_positions);

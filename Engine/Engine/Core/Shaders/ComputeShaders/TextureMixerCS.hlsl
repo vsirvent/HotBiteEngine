@@ -40,6 +40,7 @@ SamplerState basicSampler : register(s0);
 float4 readColor(float2 pixel, texture2D text, uint w, uint h) {
     uint w2, h2;
     text.GetDimensions(w2, h2);
+
     if (w2 == w && h2 == h) {
         return text.SampleLevel(basicSampler, pixel, 0);
     }

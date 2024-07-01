@@ -305,8 +305,11 @@ namespace HotBite {
 				};
 				Core::RenderTexture2D vol_data;
 
-				//Texture mixed
+				//Texture mixer
 				Core::SimpleComputeShader* mixer_shader = nullptr;
+
+				//Anti Alias
+				Core::SimpleComputeShader* aa_shader = nullptr;
 
 				float time = 0.0f;
 				bool tess_enabled = true;
@@ -327,6 +330,7 @@ namespace HotBite {
 				void ProcessLensFlare();
 				void ProcessMotionBlur();
 				void ProcessMix();
+				void ProcessAntiAlias();
 
 				void DrawParticles(int w, int h, const float3& camera_position, const matrix& view, const matrix& projection, RenderParticleTree& tree);
 				bool IsVisible(const float3& camera_pos, const DrawableEntity& drawable, const matrix& view_projection, int w, int h) const;

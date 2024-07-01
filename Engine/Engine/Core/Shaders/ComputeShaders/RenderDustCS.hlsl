@@ -124,7 +124,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
             screenPos2.y = (1.0f - (projPos2.y * 0.5f + 0.5f)) * dimensions.y;
             if (screenPos.x >= 0 && screenPos.x < dimensions.x && screenPos.y >= 0 && screenPos.y < dimensions.y)
             {
-                float depth = depthTextureUAV[screenPos/2];
+                float depth = depthTextureUAV[screenPos];
                 float dist_to_cam = length(wpos - cameraPosition);
                 if (depth > dist_to_cam)
                 {

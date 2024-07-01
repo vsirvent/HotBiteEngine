@@ -60,13 +60,13 @@ float4 getColor(float2 pixel, float2 dir, float dispersion)
             depth_dimensions.y = h;
         }
 
-        uint2 depthRatio = input_dimensions / depth_dimensions;
+        uint2 depthRatio = depth_dimensions / input_dimensions;
         
-        float pixelDepth = depth[pixel / depthRatio];
+        float pixelDepth = depth[pixel * depthRatio];
         float4 baseColor = input[pixel];
         for (int i = -HALF_KERNEL; i <= HALF_KERNEL; ++i) {
             tpos = pixel + dir * i;
-            float d = depth[tpos / depthRatio];
+            float d = depth[tpos * depthRatio];
             float4 c = lerp(input[tpos], baseColor, saturate(abs(d - pixelDepth) * 16.0f));
             color += c * BlurWeights[i + HALF_KERNEL];
         }

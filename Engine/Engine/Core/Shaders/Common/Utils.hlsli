@@ -54,10 +54,10 @@ float4 GetInterpolatedColor(float2 pixel, Texture2D text, float2 dimension) {
 	float2 w10 = float2(f.x, 1.0f - f.y);
 
 	// Perform the bilinear interpolation
-	return (text.Load(int3(p00, 0)) * w00.x * w00.y +
-		text.Load(int3(p11, 0)) * w11.x * w11.y +
-		text.Load(int3(p01, 0)) * w01.x * w01.y +
-		text.Load(int3(p10, 0)) * w10.x * w10.y);
+	return (text[p00] * w00.x * w00.y +
+		text[p11] * w11.x * w11.y +
+		text[p01] * w01.x * w01.y +
+		text[p10] * w10.x * w10.y);
 }
 
 float4 Pack4Colors(float4 color1, float4 color2, float4 color3, float4 color4) {
