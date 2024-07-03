@@ -311,6 +311,10 @@ namespace HotBite {
 				//Anti Alias
 				Core::SimpleComputeShader* aa_shader = nullptr;
 
+				//Motion texture
+				Core::RenderTexture2D motion_texture;
+				Core::SimpleComputeShader* motion_shader = nullptr;
+
 				float time = 0.0f;
 				bool tess_enabled = true;
 				bool normal_material_map = true;
@@ -325,6 +329,8 @@ namespace HotBite {
 				void DrawScene(int w, int h, const float3& camera_position, const matrix& view, const matrix& projection,
 					ID3D11ShaderResourceView* prev_pass_texture,
 					Core::IRenderTarget* target, RenderTree& tree);
+
+				void ProcessMotion();
 				void ProcessRT();
 				void ProcessDust();
 				void ProcessLensFlare();

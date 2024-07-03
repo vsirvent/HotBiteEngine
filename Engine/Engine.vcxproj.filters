@@ -576,5 +576,8 @@
     <FxCompile Include="Engine\Core\Shaders\ComputeShaders\AntiAliasCS.hlsl">
       <Filter>Engine\Core\Shaders\ComputeShaders</Filter>
     </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\ComputeShaders\MotionCS.hlsl">
+      <Filter>Engine\Core\Shaders\ComputeShaders</Filter>
+    </FxCompile>
   </ItemGroup>
 </Project>

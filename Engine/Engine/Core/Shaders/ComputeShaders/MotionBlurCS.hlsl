@@ -1,12 +1,10 @@
 #include "../Common/ShaderStructs.hlsli"
 
-
 globallycoherent RWTexture2D<float4> output : register(u1);
 globallycoherent RWByteAddressBuffer outputLock : register(u2);
 
 Texture2D<float4> input : register(t0);
-Texture2D<float4> positionTexture : register(t1);
-Texture2D<float4> prevPositionTexture : register(t2);
+Texture2D<float4> motionTexture : register(t1);
 
 cbuffer externalData : register(b0)
 {
@@ -15,19 +13,7 @@ cbuffer externalData : register(b0)
 }
 
 float2 GetPixelDir(float2 pixel) {
-
-    float4 p0World = prevPositionTexture[pixel];
-    float4 p1World = positionTexture[pixel];
-
-    float4 p0 = mul(p0World, view_proj);
-    float4 p1 = mul(p1World, prev_view_proj);
-
-    p0 /= abs(p0.w);
-    p1 /= abs(p1.w);
-
-    p0.y *= -1.0f;
-    p1.y *= -1.0f;
-    return p1.xy - p0.xy;
+    return motionTexture[pixel].xy;
 }
 
 #define MAX_STEPS 30

@@ -98,6 +98,7 @@ RWTexture2D<float> props : register(u3);
 RWTexture2D<float4> ray0 : register(u4);
 RWTexture2D<float4> ray1 : register(u5);
 RWTexture2D<float4> bloom : register(u6);
+Texture2D<float4> motionTexture : register(t1);
 
 Texture2D<float4> DiffuseTextures[MAX_OBJECTS];
 Texture2D<float> DirShadowMapTexture[MAX_LIGHTS];
@@ -544,8 +545,8 @@ float3 GetColor(Ray origRay, out float3 bloom)
 
 
 #define DENSITY 1.0f
-#define DIVIDER 1
-#define DIVIDER2 1
+#define DIVIDER 2
+#define DIVIDER2 4
 #define NTHREADS 32
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main(uint3 DTid : SV_DispatchThreadID)
@@ -570,21 +571,21 @@ void main(uint3 DTid : SV_DispatchThreadID)
 
     uint f = frame_count % (DIVIDER2);
 
-    float x = (float)DTid.x * DIVIDER + f % DIVIDER;
-    float y = (float)DTid.y * DIVIDER + f / DIVIDER;
+    float x = (float)DTid.x;
+    float y = (float)DTid.y;
 
-    uint2 rayMapRatio = ray_map_dimensions / dimensions;
-    uint2 bloomRatio = bloom_dimensions / dimensions;
+    float2 rayMapRatio = ray_map_dimensions / dimensions;
+    float2 bloomRatio = bloom_dimensions / dimensions;
 
     float4 color0 = float4(0.0f, 0.0f, 0.0f, 0.0f);
     float4 color1 = float4(0.0f, 0.0f, 0.0f, 0.0f);
     float3 bloomColor = { 0.0f, 0.0f, 0.0f };
 
-    uint2 pixel;
-    uint2 ray_pixel;
-    pixel = float2(x, y);
-    ray_pixel = float2(x * rayMapRatio.x, y * rayMapRatio.y);
-    
+    float2 pixel = float2(x, y);
+    float2 ray_pixel = pixel * rayMapRatio;
+    ray_pixel.x += f % DIVIDER;
+    ray_pixel.y += f / DIVIDER;
+
     RaySource ray_source = fromColor(ray0[ray_pixel], ray1[ray_pixel]);
 
     props[pixel] = props[pixel]*0.5f + ray_source.dispersion*0.5f;
@@ -613,24 +614,22 @@ void main(uint3 DTid : SV_DispatchThreadID)
         }
     }
 
-    float a = 1.0f / ((float)DIVIDER*2.0f);
-    float b = 1.0f - a;
-#if 1
+
+#if 0
     output0[pixel] = color0 * ray_source.reflex;
     output1[pixel] = color1;
 #else
-    for (uint px = 0; px < DIVIDER; ++px) {
-        for (uint py = 0; py < DIVIDER; ++py) {
-            uint2 p = { pixel.x + px, pixel.y + py };
-            output0[p] = output0[p] * b + color0 * ray_source.reflex * a;
-            output1[p] = output1[p] * b + color1 * a;
-        }
-    }
+    float a = 1.0f / ((float)DIVIDER2);
+    float b = 1.0f - a;
+    float2 prev_pixel = pixel - motionTexture[ray_pixel] * dimensions;
+    output0[pixel] = output0[prev_pixel] * b + color0 * ray_source.reflex * a;
+    output1[pixel] = output1[prev_pixel] * b + color1 * a;
 #endif
+
     for (uint bx = 0; bx < bloomRatio.x; ++bx) {
         for (uint by = 0; by < bloomRatio.y; ++by) {
             uint2 bpixel = { pixel.x * bloomRatio.x + bx, pixel.y * bloomRatio.y + by };
-            bloom[bpixel] += float4(bloomColor * 0.8f, 1.0f);
+            //bloom[bpixel] += float4(bloomColor * 0.8f, 1.0f);
         }
     }
 }

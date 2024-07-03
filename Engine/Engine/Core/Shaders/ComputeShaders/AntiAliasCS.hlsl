@@ -33,24 +33,23 @@ Texture2D depthTexture: register(t1);
 Texture2D normalTexture: register(t2);
 
 static const float BORDER_DIFF = 1.0f;
-static const float NORMAL_DIFF = 1.0f;// M_PI / 3.5f;
+static const float NORMAL_DIFF = 0.5f;
 
 float BorderValue(float2 pixel) {
-    float z0 = depthTexture[pixel].r;
+    float2 dp = pixel / 2;
+    float z0 = depthTexture[dp].r;
     float3 n0 = normalTexture[pixel].xyz;
     float border = 0.0f;
-    float maxz = 0.0f;
-
-    for (int x = -2; x < 2; ++x) {
-        for (int y = -2; y < 2; ++y) {
-            int2 p = (int2)pixel + int2(x, y);
-            float z = depthTexture[p].r;
-            maxz = max(maxz, z);
-            float diff = maxz - z0;
-            if (diff > BORDER_DIFF) {
-                border = max(border, saturate(diff / BORDER_DIFF - 1.0f));
-            }
-            float3 n = normalTexture[p].xyz;
+    //return 0.0f;
+    int l = 2;
+    for (int x = -l; x < l; ++x) {
+        for (int y = -l; y < l; ++y) {
+            float2 delta = float2(x, y);
+            float z = depthTexture[dp + delta].r;
+            float diff = abs(z - z0);
+            border = max(border, saturate(diff / BORDER_DIFF - BORDER_DIFF));
+            
+            float3 n = normalTexture[pixel + delta].xyz;
             float angle = acos(dot(n0, n));
             if (length(n) > 0.0f && angle > NORMAL_DIFF) {
                 border = max(border, saturate(angle / NORMAL_DIFF - 1.0f));
@@ -61,15 +60,18 @@ float BorderValue(float2 pixel) {
 }
 
 float4 SmoothColor(float2 pixel) {
-    float w[5] = { 0.15f, 0.25f, 0.3f, 0.25f, 0.15f };
+    float i = 0.0f;
+    float w[5] = { 0.1f, 0.25f, 0.3f, 0.25f, 0.1f };
     float4 color = float4(0.0f, 0.0f, 0.0f, 0.0f);
-    for (int x = -2; x <= 2; ++x) {
-        for (int y = -2; y <= 2; ++y) {
+    float l = 2;
+    for (int x = -l; x <= l; ++x) {
+        for (int y = -l; y <= l; ++y) {
             int2 p = (int2)pixel + int2(x, y);
-            color += input[p] * w[x + 2] * w[y + 2];
+            color += input[p] * w[x + l] * w[y + l];
+            i += 1.0f;
         }
     }
-#if 0 //def TEST
+#if 0//def TEST
     return float4(1.0f, 0.0f, 0.0f, 1.0f);
 #else
     return color;
