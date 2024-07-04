@@ -271,7 +271,9 @@ namespace HotBite {
 				//RT texture 1: Reflexed rays
 				//RT texture 2: Refracted rays
 				static constexpr int RT_NTEXTURES = 2;
-				Core::RenderTexture2D rt_texture[RT_NTEXTURES];
+				Core::RenderTexture2D rt_texture[2][RT_NTEXTURES];
+				Core::RenderTexture2D* rt_texture_ptr = rt_texture[0];
+				Core::RenderTexture2D* rt_texture_prev_ptr = rt_texture[1];
 				Core::RenderTexture2D rt_texture_out[RT_NTEXTURES];
 				Core::RenderTexture2D rt_texture_props;
 				Core::RenderTexture2D rt_ray_sources0;

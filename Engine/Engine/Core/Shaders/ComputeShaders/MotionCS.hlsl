@@ -16,15 +16,15 @@ float2 GetPixelDir(float2 pixel) {
     float4 p1World = positionTexture[pixel];
 
     if (length(p0World) > 0.0f && length(p1World) > 0.0f) {
-        float4 p0 = mul(p0World, view_proj);
-        float4 p1 = mul(p1World, prev_view_proj);
+        float4 p0 = mul(p0World, prev_view_proj);
+        float4 p1 = mul(p1World, view_proj);
 
         p0 /= abs(p0.w);
         p1 /= abs(p1.w);
 
         p0.y *= -1.0f;
         p1.y *= -1.0f;
-        return p1.xy - p0.xy;
+        return float2(0.0f, 0.0f); //p1.xy - p0.xy;
     }
     else {
         return float2(0.0f, 0.0f);

@@ -71,5 +71,6 @@ void main(uint3 DTid : SV_DispatchThreadID)
     float4 lens_flare = readColor(tpos, lensFlareTexture, w, h);
 
     color += (color + 2.0f * l) * rt0 + rt1 + b + dust + lens_flare + vol;
+    //color = rt0;
     output[pixel] = color;
 }
