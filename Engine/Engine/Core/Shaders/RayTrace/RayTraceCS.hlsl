@@ -634,7 +634,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
 
     float a;
     float b;
-    if (abs(current_dist - prev_dist) < 0.5f) {
+    if (abs(current_dist - prev_dist) < 0.05f) {
         a = 1.0f / ((float)DIVIDER2);
         b = 1.0f - a;
     }

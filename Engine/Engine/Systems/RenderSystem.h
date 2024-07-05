@@ -65,7 +65,7 @@ namespace HotBite {
 				static inline ECS::EventId EVENT_ID_UNPREPARE_POST = ECS::GetEventId<RenderSystem>(0x12);
 
 				static constexpr uint32_t STATIC_SHADOW_REFRESH_PERIOD = 1000;
-				static inline ECS::ParamId EVENT_PARAM_SHADER = 0x00;				
+				static inline ECS::ParamId EVENT_PARAM_SHADER = 0x00;
 				static std::recursive_mutex mutex;
 
 				static const std::string WORLD;
@@ -115,9 +115,9 @@ namespace HotBite {
 				static const std::string TESS_FACTOR;
 				static const std::string TESS_TYPE;
 				static const std::string DISPLACEMENT_SCALE;
-				
+
 			private:
-				
+
 				struct DrawableEntity {
 					Components::Transform* transform = nullptr;
 					Components::Mesh* mesh = nullptr;
@@ -148,9 +148,9 @@ namespace HotBite {
 				};
 				ECS::Signature particles_signature;
 
-				struct SkyEntity: public DrawableEntity {
+				struct SkyEntity : public DrawableEntity {
 					Components::Sky* sky;
-					SkyEntity(ECS::Coordinator* c, ECS::Entity entity): DrawableEntity(c, entity) {
+					SkyEntity(ECS::Coordinator* c, ECS::Entity entity) : DrawableEntity(c, entity) {
 						sky = &(c->GetComponent<Components::Sky>(entity));
 					}
 				};
@@ -194,7 +194,7 @@ namespace HotBite {
 					}
 				};
 				ECS::Signature camera_signature;
-				
+
 				using RenderTree = std::unordered_map <Core::ShaderKey, std::unordered_map<Core::MaterialData*, std::pair<Components::Material*, ECS::EntityVector<DrawableEntity> > > >;
 				using RenderParticleTree = std::map <Core::ShaderKey, std::map<Core::MaterialData*, std::pair<Core::MaterialData*, ECS::EntityVector<ParticleEntity> > > >;
 
@@ -237,8 +237,11 @@ namespace HotBite {
 			private:
 				static constexpr uint32_t TEXTURE_RESOLUTION_DIVIDER = 2;
 
-				Core::DXCore* dxcore = nullptr;				
-				Core::RenderTexture2D depth_map{ 3 };
+				Core::DXCore* dxcore = nullptr;
+				Core::RenderTexture2D depth_map_textures[2];
+				Core::RenderTexture2D* depth_map = &depth_map[0];
+				Core::RenderTexture2D* prev_depth_map = &depth_map[1];
+
 				Core::RenderTexture2D light_map;
 				Core::RenderTexture2D vol_light_map;
 				Core::RenderTexture2D vol_light_map2;
@@ -247,7 +250,7 @@ namespace HotBite {
 				Core::RenderTexture2D bloom_map;
 				Core::RenderTexture2D temp_map;
 				Core::RenderTexture2D rgba_noise_texture;
-				Core::RenderTexture2D first_pass_texture{ 1 };				
+				Core::RenderTexture2D first_pass_texture;				
 				Core::DepthTexture2D depth_view;
 
 				Core::RenderTexture2D texture_tmp;

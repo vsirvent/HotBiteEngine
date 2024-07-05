@@ -24,7 +24,7 @@ float2 GetPixelDir(float2 pixel) {
 
         p0.y *= -1.0f;
         p1.y *= -1.0f;
-        return float2(0.0f, 0.0f); //p1.xy - p0.xy;
+        return p1.xy - p0.xy;
     }
     else {
         return float2(0.0f, 0.0f);
