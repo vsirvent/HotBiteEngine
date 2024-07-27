@@ -239,8 +239,8 @@ namespace HotBite {
 
 				Core::DXCore* dxcore = nullptr;
 				Core::RenderTexture2D depth_map_textures[2];
-				Core::RenderTexture2D* depth_map = &depth_map[0];
-				Core::RenderTexture2D* prev_depth_map = &depth_map[1];
+				Core::RenderTexture2D* depth_map = &depth_map_textures[0];
+				Core::RenderTexture2D* prev_depth_map = &depth_map_textures[1];
 
 				Core::RenderTexture2D light_map;
 				Core::RenderTexture2D vol_light_map;
@@ -325,7 +325,11 @@ namespace HotBite {
 				bool normal_material_map = true;
 				bool normal_mesh_map = true;
 				bool wireframe_enabled = false;
+				bool aa_enabled = true;
 				uint32_t frame_count = 0;
+				uint32_t current = 0;
+				uint32_t prev = 1;
+
 				bool cloud_test = false;
 
 				void DrawSky(int w, int h, const float3& camera_position, const matrix& view, const matrix& projection);
@@ -396,8 +400,8 @@ namespace HotBite {
 				void SetDustEffectArea(int32_t num_particles, const float3& area, const float3& offset);
 				void SetLensFlare(bool enabled);
 				bool GetLensFlare() const;
-
-				ID3D11ShaderResourceView* GetDepthMapSRV() { return depth_map.SRV(); }
+				void SetAA(bool enabled);
+				bool GetAA() const;
 			};
 		}
 	}

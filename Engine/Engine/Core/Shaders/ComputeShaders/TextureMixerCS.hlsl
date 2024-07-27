@@ -25,6 +25,11 @@ SOFTWARE.
 #include "../Common/Utils.hlsli"
 #include "../Common/QuickNoise.hlsli"
 
+cbuffer externalData : register(b0)
+{
+    int rt_enabled;
+}
+
 RWTexture2D<float4> output : register(u0);
 Texture2D input: register(t2);
 Texture2D depthTexture: register(t3);
@@ -70,7 +75,11 @@ void main(uint3 DTid : SV_DispatchThreadID)
     float4 dust = readColor(tpos, dustTexture, w, h);
     float4 lens_flare = readColor(tpos, lensFlareTexture, w, h);
 
-    color += (color + 2.0f * l) * rt0 + rt1 + b + dust + lens_flare + vol;
-    //color = rt0;
+    if (rt_enabled) {
+        color += (color + 2.0f * l) * rt0 + rt1 + b + dust + lens_flare + vol;
+    }
+    else {
+        color += color * l * 0.2f + b + dust + lens_flare + vol;
+    }
     output[pixel] = color;
 }

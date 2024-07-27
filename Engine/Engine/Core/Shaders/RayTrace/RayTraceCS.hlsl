@@ -105,6 +105,8 @@ ByteAddressBuffer indicesBuffer : register(t5);
 Texture2D<float4> position_map : register(t6);
 Texture2D<float4> prev_position_map : register(t7);
 Texture2D<float4> motionTexture : register(t8);
+Texture2D<float4> depth_map : register(t9);
+Texture2D<float4> prev_depth_map : register(t10);
 
 Texture2D<float4> DiffuseTextures[MAX_OBJECTS];
 Texture2D<float> DirShadowMapTexture[MAX_LIGHTS];
@@ -628,32 +630,26 @@ void main(uint3 DTid : SV_DispatchThreadID)
 #ifndef TEMP_SAMPLING
     output0[pixel] = color0 * ray_source.reflex;
     output1[pixel] = color1;
-#else
-    float current_dist = length(position_map[ray_pixel] - cameraPosition);
-    float prev_dist = length(prev_position_map[ray_pixel] - cameraPosition);
-
-    float a;
-    float b;
-    if (abs(current_dist - prev_dist) < 0.05f) {
-        a = 1.0f / ((float)DIVIDER2);
-        b = 1.0f - a;
-    }
-    else {
-        a = 1.0f;
-        b = 0.0f;
-    }
-    float2 currentPixelNDC = (pixel / dimensions) * 2.0f - 1.0f;
-    float2 prev_pixelNDC = currentPixelNDC - motionTexture[ray_pixel].xy;
-    float2 prev_pixel = round((prev_pixelNDC + 1.0f) * 0.5f * dimensions);
-
-    output0[pixel] = prev_output0[prev_pixel] * b + color0 * ray_source.reflex * a;
-    output1[pixel] = prev_output1[prev_pixel] * b + color1 * a;
-#endif
 
     for (uint bx = 0; bx < bloomRatio.x; ++bx) {
         for (uint by = 0; by < bloomRatio.y; ++by) {
             uint2 bpixel = { pixel.x * bloomRatio.x + bx, pixel.y * bloomRatio.y + by };
-            //bloom[bpixel] += float4(bloomColor * 0.8f, 1.0f);
+            bloom[bpixel] += float4(bloomColor * 0.8f, 1.0f);
         }
     }
+#else
+    float2 depth_pixel = ray_pixel / 2.0f;
+    float current_dist = depth_map[depth_pixel];
+    float prev_dist = prev_depth_map[depth_pixel];
+
+    float a;
+    float b;
+    float diff = saturate(1.0f - abs(current_dist / prev_dist));
+    float speed = length(motionTexture[ray_pixel].xy) * dimensions.x * 0.5f;
+    a = saturate(1.0f / ((float)DIVIDER2) + diff + speed);
+    b = 1.0f - a;
+    
+    output0[pixel] = prev_output0[pixel] * b + color0 * ray_source.reflex * a;
+    output1[pixel] = prev_output1[pixel] * b + color1 * a;
+#endif
 }
