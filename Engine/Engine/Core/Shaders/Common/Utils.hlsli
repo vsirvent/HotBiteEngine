@@ -34,34 +34,34 @@ static const float getSmoothPixelWeights[3] =
 	0.1,
 };
 
-float4 GetInterpolatedColor(float2 pixel, Texture2D text, float2 dimension) {
-	// Scale pixel coordinates by texture dimensions
-	pixel *= dimension;
+float4 GetInterpolatedColor(float2 uv, Texture2D text, float2 dimension) {
+	// Calculate the texture coordinates in the range [0, 1]
+	float2 texCoords = uv * dimension;
 
 	// Calculate the integer coordinates of the four surrounding pixels
-	float2 p00 = floor(pixel);
-	float2 p11 = ceil(pixel);
-	float2 p01 = float2(p00.x, p11.y);
-	float2 p10 = float2(p11.x, p00.y);
+	int2 p00 = (int2)floor(texCoords);
+	int2 p11 = (int2)ceil(texCoords);
+	int2 p01 = int2(p00.x, p11.y);
+	int2 p10 = int2(p11.x, p00.y);
 
 	// Calculate the fractional part of the coordinates
-	float2 f = frac(pixel);
+	float2 f = frac(texCoords);
 
 	// Calculate the weights for bilinear interpolation
-	float2 w00 = (1.0f - f);
-	float2 w11 = f;
-	float2 w01 = float2(1.0f - f.x, f.y);
-	float2 w10 = float2(f.x, 1.0f - f.y);
+	float w00 = (1.0f - f.x) * (1.0f - f.y);
+	float w11 = f.x * f.y;
+	float w01 = (1.0f - f.x) * f.y;
+	float w10 = f.x * (1.0f - f.y);
 
 	// Perform the bilinear interpolation
-	return (text[p00] * w00.x * w00.y +
-		text[p11] * w11.x * w11.y +
-		text[p01] * w01.x * w01.y +
-		text[p10] * w10.x * w10.y);
+	return (text[p00] * w00 +
+		text[p11] * w11 +
+		text[p01] * w01 +
+		text[p10] * w10);
 }
 
 float4 Pack4Colors(float4 color1, float4 color2, float4 color3, float4 color4) {
-	// Scale colors from 0-1 to 0-256 (8-bit maximum value allow saturation to 10 bits)
+	// Scale colors from 0-1 to 0-256 (8-bit maximum value allow saturation to 10 bits)d
 	uint4 scaledColor1 = clamp(uint4((color1 + 0.5f) * 512.0f), 0, 1023);
 	uint4 scaledColor2 = clamp(uint4((color2 + 0.5f) * 512.0f), 0, 1023);
 	uint4 scaledColor3 = clamp(uint4((color3 + 0.5f) * 512.0f), 0, 1023);

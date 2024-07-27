@@ -27,30 +27,34 @@ SOFTWARE.
 
 //#define TEST
 
+cbuffer externalData : register(b0)
+{
+    int enabled;
+}
+
+
 RWTexture2D<float4> output : register(u0);
 Texture2D input: register(t0);
 Texture2D depthTexture: register(t1);
 Texture2D normalTexture: register(t2);
 
 static const float BORDER_DIFF = 1.0f;
-static const float NORMAL_DIFF = 1.0f;// M_PI / 3.5f;
+static const float NORMAL_DIFF = 0.5f;
 
 float BorderValue(float2 pixel) {
-    float z0 = depthTexture[pixel].r;
+    float2 dp = pixel / 2;
+    float z0 = depthTexture[dp].r;
     float3 n0 = normalTexture[pixel].xyz;
     float border = 0.0f;
-    float maxz = 0.0f;
-
-    for (int x = -2; x < 2; ++x) {
-        for (int y = -2; y < 2; ++y) {
-            int2 p = (int2)pixel + int2(x, y);
-            float z = depthTexture[p].r;
-            maxz = max(maxz, z);
-            float diff = maxz - z0;
-            if (diff > BORDER_DIFF) {
-                border = max(border, saturate(diff / BORDER_DIFF - 1.0f));
-            }
-            float3 n = normalTexture[p].xyz;
+    int l = 2;
+    for (int x = -l; x < l; ++x) {
+        for (int y = -l; y < l; ++y) {
+            float2 delta = float2(x, y);
+            float z = depthTexture[dp + delta].r;
+            float diff = abs(z - z0);
+            border = max(border, saturate(diff / BORDER_DIFF - BORDER_DIFF) / length(delta));
+            
+            float3 n = normalTexture[pixel + delta].xyz;
             float angle = acos(dot(n0, n));
             if (length(n) > 0.0f && angle > NORMAL_DIFF) {
                 border = max(border, saturate(angle / NORMAL_DIFF - 1.0f));
@@ -61,15 +65,17 @@ float BorderValue(float2 pixel) {
 }
 
 float4 SmoothColor(float2 pixel) {
-    float w[5] = { 0.15f, 0.25f, 0.3f, 0.25f, 0.15f };
+    float w[5] = { 0.1f, 0.2f, 0.4f, 0.2f, 0.1f };
     float4 color = float4(0.0f, 0.0f, 0.0f, 0.0f);
-    for (int x = -2; x <= 2; ++x) {
-        for (int y = -2; y <= 2; ++y) {
-            int2 p = (int2)pixel + int2(x, y);
-            color += input[p] * w[x + 2] * w[y + 2];
+    float l = 2;
+    int2 delta;
+    for (delta.x = -l; delta.x <= l; ++delta.x) {
+        for (delta.y = -l; delta.y <= l; ++delta.y) {
+            int2 p = pixel + delta;
+            color += input[p] * w[delta.x + l] * w[delta.y + l];
         }
     }
-#if 0 //def TEST
+#ifdef TEST
     return float4(1.0f, 0.0f, 0.0f, 1.0f);
 #else
     return color;
@@ -87,9 +93,12 @@ void main(uint3 DTid : SV_DispatchThreadID)
     float2 pixel = float2(DTid.x, DTid.y);
     
     float4 color = input[pixel];
-    float border = BorderValue(pixel);
-    if (border > 0.0f) {
-        color = color * (1.0f - border) + SmoothColor(pixel) * border;
+
+    if (enabled != 0) {
+        float border = BorderValue(pixel);
+        if (border > 0.0f) {
+            color = color * (1.0f - border) + SmoothColor(pixel) * border;
+        }
     }
 
     output[pixel] = color;

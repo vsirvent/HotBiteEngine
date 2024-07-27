@@ -284,7 +284,7 @@ namespace HotBite {
 			class DOFBokeProcess : public BaseDOFProcess
 			{
 			private:
-				static const int32_t KERNEL_SIZE = 61;
+				int32_t KERNEL_SIZE;
 
 				HotBite::Engine::Core::RenderTexture2D temp;
 				HotBite::Engine::Core::RenderTexture2D kernel;
@@ -313,6 +313,7 @@ namespace HotBite {
 				{
 					temp.Init(width, height, DXGI_FORMAT_R32G32B32A32_FLOAT);
 
+					KERNEL_SIZE = min(93, (width / 32) - 3);
 					int32_t size = (KERNEL_SIZE + 1 + 15) & ~15; // Round to upper multiple of 16
 					float max_variance = ((float)KERNEL_SIZE) / 5.0f;
 					float min_variance = 0.1f;
