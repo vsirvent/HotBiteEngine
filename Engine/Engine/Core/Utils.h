@@ -337,6 +337,9 @@ namespace HotBite {
             // Function to transform a bounding box by a world matrix
             DirectX::BoundingOrientedBox TransformBoundingBox(const DirectX::BoundingOrientedBox& originalBox, const DirectX::XMMATRIX& worldMatrix);
 
+            bool FileExists(const std::string& filename);
+
+            std::string WStringToString(const std::wstring& wstr);
 		}
 	}
 }

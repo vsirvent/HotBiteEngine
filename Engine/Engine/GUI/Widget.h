@@ -138,6 +138,10 @@ namespace HotBite {
 					}
 				}
 
+				std::map<ECS::Entity, std::shared_ptr<Widget>>& GetWidgets() {
+					return foreground_widgets;
+				}
+
 				std::shared_ptr<Widget> GetWidget(const std::string& name) {
 					std::shared_ptr<Widget> ret;
 					for (auto it = foreground_widgets.begin(); it != foreground_widgets.end(); ++it) {

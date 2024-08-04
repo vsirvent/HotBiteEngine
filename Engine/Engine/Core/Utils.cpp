@@ -241,6 +241,22 @@ namespace HotBite {
 
 				return transformedBox;
 			}
+
+			std::string WStringToString(const std::wstring& wstr) {
+				int bufferSize = WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, nullptr, 0, nullptr, nullptr);
+				if (bufferSize > 0) {
+					std::string result(bufferSize - 1, 0);
+					WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, &result[0], bufferSize, nullptr, nullptr);
+					return result;
+				}
+				else {
+					return ""; // Return empty string on failure
+				}
+			}
+
+			bool FileExists(const std::string& filename) {
+				return std::ifstream(filename).good();
+			}
 		}
 	}
 }

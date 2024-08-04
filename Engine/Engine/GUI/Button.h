@@ -147,21 +147,21 @@ namespace HotBite {
 					}
 				}
 
-				virtual void SetIdleImage(const std::string& filename) {
-					std::string file = root + "\\" + filename;
+				virtual void SetIdleImage(const std::string& filename, bool absolute_path = false) {
+					std::string file = (absolute_path ? "": root + "\\") + filename;
 					Widget::SetBackGroundImage(file);
 					idle_image = background_image;
 				}
 
-				virtual void SetHoverImage(const std::string& filename) {
+				virtual void SetHoverImage(const std::string& filename, bool absolute_path = false) {
 					ReleaseTexture(hover_image);
-					std::string file = root + "\\" + filename;
+					std::string file = (absolute_path ? "" : root + "\\") + filename;
 					hover_image = LoadTexture(file);
 				}
 
-				virtual void SetPressedImage(const std::string& filename) {
+				virtual void SetPressedImage(const std::string& filename, bool absolute_path = false) {
 					ReleaseTexture(click_image);
-					std::string file = root + "\\" + filename;
+					std::string file = (absolute_path ? "" : root + "\\") + filename;
 					click_image = LoadTexture(file);
 				}
 			};

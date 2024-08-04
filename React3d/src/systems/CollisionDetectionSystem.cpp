@@ -512,7 +512,10 @@ void CollisionDetectionSystem::computeConvexVsConcaveMiddlePhase(OverlappingPair
     // For each overlapping triangle
     const uint32 nbShapeIds = static_cast<uint32>(shapeIds.size());
     for (uint32 i=0; i < nbShapeIds; i++) {
-
+        auto* triangles = &triangleVertices[i * 3];
+        if (triangles[0] == triangles[1] && triangles[0] == triangles[2]) {
+            continue;
+        }
         // Create a triangle collision shape (the allocated memory for the TriangleShape will be released in the
         // destructor of the corresponding NarrowPhaseInfo.
         TriangleShape* triangleShape = new (allocator.allocate(sizeof(TriangleShape)))

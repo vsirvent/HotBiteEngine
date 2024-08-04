@@ -556,7 +556,7 @@ float3 GetColor(Ray origRay, out float3 bloom)
 #define DIVIDER 2
 #define DIVIDER2 4
 #define NTHREADS 32
-#define TEMP_SAMPLING
+//#define TEMP_SAMPLING
 
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main(uint3 DTid : SV_DispatchThreadID)

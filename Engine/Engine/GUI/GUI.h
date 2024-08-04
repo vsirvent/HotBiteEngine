@@ -79,6 +79,10 @@ namespace HotBite {
 						}
 					}
 				}
+
+				std::map<ECS::Entity, std::shared_ptr<Widget>>& GetWidgets() {
+					return widgets;
+				}
 				
 				std::shared_ptr<Widget> GetWidget(const std::string& name) {
 					std::shared_ptr<Widget> ret;
@@ -100,10 +104,11 @@ namespace HotBite {
 					return ret;
 				}
 
-				bool AddUI(ECS::Coordinator* c, json ui) {
+				bool AddUI(ECS::Coordinator* c, json ui, const std::string& root) {
 					try {
 						auto& ui_node = ui["ui"];
 						auto& widgets = ui_node["widgets"];
+						const std::string node_root = root + (std::string)ui_node["root"];
 						std::unordered_map<std::string, std::shared_ptr<Widget>> widget_by_name;
 						for (auto& widget : widgets) {
 							//Create the UI in the GUI post process stage
@@ -112,16 +117,16 @@ namespace HotBite {
 							widget["name"] = name.c_str();
 							std::shared_ptr<UI::Widget> w;
 							if (type == "widget") {
-								w = std::make_shared<UI::Widget>(c, widget, ui_node["root"]);
+								w = std::make_shared<UI::Widget>(c, widget, node_root);
 							}
 							else if (type == "label") {
-								w = std::make_shared<UI::Label>(c, widget, ui_node["root"]);
+								w = std::make_shared<UI::Label>(c, widget, node_root);
 							}
 							else if (type == "button") {
-								w = std::make_shared<UI::Button>(c, widget, ui_node["root"]);
+								w = std::make_shared<UI::Button>(c, widget, node_root);
 							}
 							else if (type == "progress") {
-								w = std::make_shared<UI::ProgressBar>(c, widget, ui_node["root"]);
+								w = std::make_shared<UI::ProgressBar>(c, widget, node_root);
 							}
 							widget_by_name[w->GetName()] = w;
 						}
@@ -149,9 +154,9 @@ namespace HotBite {
 					return true;
 				}
 
-				bool LoadUI(ECS::Coordinator* c, json ui) {
+				bool LoadUI(ECS::Coordinator* c, json ui, const std::string& root = "") {
 					Reset();
-					return AddUI(c, ui);
+					return AddUI(c, ui, root);
 				}
 
 				void Reset() {
