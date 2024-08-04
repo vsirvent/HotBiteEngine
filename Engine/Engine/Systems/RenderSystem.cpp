@@ -2328,6 +2328,22 @@ bool RenderSystem::GetAA() const {
 	return aa_enabled;
 }
 
+void RenderSystem::SetMotionBlur(bool enabled) {
+	motion_blur_enabled = enabled;
+}
+
+bool RenderSystem::GetMotionBlur() const {
+	return motion_blur_enabled;
+}
+
+void RenderSystem::SetDOF(bool enabled) {
+	dof_enabled = enabled;
+}
+
+bool RenderSystem::GetDOF() const {
+	return dof_enabled;
+}
+
 
 
 

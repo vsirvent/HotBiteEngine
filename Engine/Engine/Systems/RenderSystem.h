@@ -326,6 +326,8 @@ namespace HotBite {
 				bool normal_mesh_map = true;
 				bool wireframe_enabled = false;
 				bool aa_enabled = true;
+				bool motion_blur_enabled = true;
+				bool dof_enabled = true;
 				uint32_t frame_count = 0;
 				uint32_t current = 0;
 				uint32_t prev = 1;
@@ -402,6 +404,10 @@ namespace HotBite {
 				bool GetLensFlare() const;
 				void SetAA(bool enabled);
 				bool GetAA() const;
+				void SetMotionBlur(bool enabled);
+				bool GetMotionBlur() const;
+				void SetDOF(bool enabled);
+				bool GetDOF() const;
 			};
 		}
 	}
