@@ -1366,6 +1366,7 @@ void RenderSystem::ProcessMotionBlur() {
 	motion_blur->SetMatrix4x4("view_proj", cam_entity.camera->view_projection);
 	motion_blur->SetMatrix4x4("prev_view_proj", cam_entity.camera->prev_view_projection);
 	motion_blur->SetShaderResourceView("input", motion_blur_map.SRV());
+	motion_blur->SetInt("enabled", motion_blur_enabled);
 	motion_blur->SetUnorderedAccessView("output", post_process_pipeline->RenderUAV());
 	motion_blur->SetShaderResourceView("motionTexture", motion_texture.SRV());
 	motion_blur->CopyAllBufferData();
@@ -2204,6 +2205,8 @@ void RenderSystem::Draw() {
 		//if ((count++ % STATIC_SHADOW_REFRESH_PERIOD) == 0) {
 		//	CastShadows(w, h, camera_position, view, projection, true);
 		//}		
+		if (dof_effect) dof_effect->SetEnabled(dof_enabled);
+
 		rt_ray_sources0.Clear(zero);
 		rt_ray_sources1.Clear(zero);
 		CastShadows(w, h, camera_position, view, projection, false);

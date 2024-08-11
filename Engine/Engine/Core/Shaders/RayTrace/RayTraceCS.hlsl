@@ -594,6 +594,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     float2 pixel = float2(x, y);
     float2 ray_pixel = pixel * rayMapRatio;
 #ifdef TEMP_SAMPLING
+    float2 orig_ray_pixel = ray_pixel;
     ray_pixel.x += f % DIVIDER;
     ray_pixel.y += f / DIVIDER;
 #endif
@@ -645,7 +646,8 @@ void main(uint3 DTid : SV_DispatchThreadID)
     float a;
     float b;
     float diff = saturate(1.0f - abs(current_dist / prev_dist));
-    float speed = length(motionTexture[ray_pixel].xy) * dimensions.x * 0.5f;
+    float motion = motionTexture[orig_ray_pixel].xy;
+    float speed = length(motion) * dimensions.x * 0.5f;
     a = saturate(1.0f / ((float)DIVIDER2) + diff + speed);
     b = 1.0f - a;
     
