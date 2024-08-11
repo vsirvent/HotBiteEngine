@@ -122,6 +122,7 @@ int Scheduler::RegisterTimer(int64_t period_nsec, std::function<bool(const Timer
 		bool done = false;
 		td.period = period_nsec;
 		td.cb = cb;
+		td.start = GetElapsedNanoSeconds();
 		new_timer_mutex.lock();
 		assert(!timer_id_counters.empty() && "max scheduler timers reached.");
 		td.id = timer_id_counters.front();

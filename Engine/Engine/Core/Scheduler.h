@@ -86,6 +86,7 @@ namespace HotBite {
 					int64_t period;
 					int64_t elapsed;
 					int64_t total;
+					int64_t start;
 					int id;
 					std::function<bool(const TimerData&)> cb;
 				};

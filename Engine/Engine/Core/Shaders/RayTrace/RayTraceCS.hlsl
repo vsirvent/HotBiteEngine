@@ -64,6 +64,9 @@ struct ObjectInfo
     float padding1;
 };
 
+#define REFLEX_ENABLED 1
+#define REFRACT_ENABLED 2
+
 cbuffer externalData : register(b0)
 {
     uint frame_count;
@@ -71,6 +74,7 @@ cbuffer externalData : register(b0)
     float3 cameraPosition;
     float3 cameraDirection;
 
+    uint enabled;
     uint nobjects;
     ObjectInfo objectInfos[MAX_OBJECTS];
     MaterialColor objectMaterials[MAX_OBJECTS];
@@ -610,7 +614,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     }
 
     //Reflected ray
-    if (ray_source.opacity > Epsilon) {
+    if (ray_source.opacity > Epsilon && (enabled & REFLEX_ENABLED)) {
         Ray ray = GetReflectedRayFromSource(ray_source);
         if (length(ray.dir) > Epsilon)
         {
@@ -619,7 +623,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     }
 
     //Refracted ray
-    if (ray_source.opacity < 1.0f) {
+    if (ray_source.opacity < 1.0f && (enabled & REFRACT_ENABLED)) {
         Ray ray = GetRefractedRayFromSource(ray_source);
         if (length(ray.dir) > Epsilon)
         {

@@ -116,6 +116,11 @@ namespace HotBite {
 				static const std::string TESS_TYPE;
 				static const std::string DISPLACEMENT_SCALE;
 
+				enum class eRtQuality {
+					LOW,
+					HIGH
+				};
+
 			private:
 
 				struct DrawableEntity {
@@ -223,6 +228,8 @@ namespace HotBite {
 				std::array<ID3D11ShaderResourceView*, MAX_MULTI_TEXTURE> multitext_disp = {};
 				std::array<ID3D11ShaderResourceView*, MAX_MULTI_TEXTURE> multitext_mask = {};
 
+				
+
 			public:
 				void OnRegister(ECS::Coordinator* c) override;
 				void OnEntitySignatureChanged(ECS::Entity entity, const ECS::Signature& entity_signature) override;
@@ -235,7 +242,6 @@ namespace HotBite {
 				void UnprepareLights(Core::SimpleVertexShader* vs, Core::SimpleHullShader* hs, Core::SimpleDomainShader* ds, Core::SimpleGeometryShader* gs, Core::SimplePixelShader* ps);
 
 			private:
-				static constexpr uint32_t TEXTURE_RESOLUTION_DIVIDER = 2;
 
 				Core::DXCore* dxcore = nullptr;
 				Core::RenderTexture2D depth_map_textures[2];
@@ -266,7 +272,12 @@ namespace HotBite {
 				Core::SimpleComputeShader* motion_blur = nullptr;
 
 				//Ray tracing
-				bool rt_enabled = true;
+				eRtQuality rt_quality = eRtQuality::HIGH;
+				uint32_t RT_TEXTURE_RESOLUTION_DIVIDER = 1;
+				static constexpr uint32_t RT_REFLEX_ENABLE = 1;
+				static constexpr uint32_t RT_REFRACT_ENABLE = 2;
+
+				uint32_t rt_enabled = RT_REFLEX_ENABLE | RT_REFRACT_ENABLE;
 				Core::TBVH tbvh{ MAX_OBJECTS };
 				Core::SimpleComputeShader* rt_shader = nullptr;
 				Core::SimpleComputeShader* rt_smooth = nullptr;
@@ -341,6 +352,7 @@ namespace HotBite {
 					ID3D11ShaderResourceView* prev_pass_texture,
 					Core::IRenderTarget* target, RenderTree& tree);
 
+				void LoadRTResources();
 				void ProcessMotion();
 				void ProcessRT();
 				void ProcessDust();
@@ -395,8 +407,10 @@ namespace HotBite {
 				bool GetWireframe() const;
 				void SetCloudTest(bool enabled);
 				bool GetCloudTest() const;
-				void SetRayTracing(bool enabled);
-				bool GetRayTracing() const;
+				void SetRayTracingQuality(eRtQuality quality);
+				eRtQuality GetRayTracingQuality() const;
+				void SetRayTracing(bool reflex_enabled, bool refract_enabled);
+				void GetRayTracing(bool& reflex_enabled, bool& refract_enabled) const;
 				void SetDustEnabled(bool enabled);
 				bool GetDustEnabled() const;
 				void SetDustEffectArea(int32_t num_particles, const float3& area, const float3& offset);

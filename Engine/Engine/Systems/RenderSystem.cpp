@@ -292,25 +292,7 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		if (FAILED(rgba_noise_texture.Init(RGA_NOISE_W, RGBA_NOISE_H, DXGI_FORMAT::DXGI_FORMAT_R8G8B8A8_UNORM, (const uint8_t*)rgba_noise_map, RGBA_NOISE_LEN))) {
 			throw std::exception("rgba_noise_texture.Init failed");
 		}
-		for (int x = 0; x < RT_NTEXTURES; ++x) {
-			for (int i = 0; i < RT_NTEXTURES; ++i) {
-				if (FAILED(rt_texture[x][i].Init(w / TEXTURE_RESOLUTION_DIVIDER, h / TEXTURE_RESOLUTION_DIVIDER, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
-					throw std::exception("rt_texture.Init failed");
-				}
-			}
-		}
-		for (int i = 0; i < RT_NTEXTURES; ++i) {
-			if (FAILED(rt_texture_out[i].Init(w / TEXTURE_RESOLUTION_DIVIDER, h / TEXTURE_RESOLUTION_DIVIDER, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
-				throw std::exception("rt_texture.Init failed");
-			}
-		}
 
-		if (FAILED(rt_texture_props.Init(w/ TEXTURE_RESOLUTION_DIVIDER, h/ TEXTURE_RESOLUTION_DIVIDER, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
-			throw std::exception("rt_texture_props.Init failed");
-		}
-		if (FAILED(texture_tmp.Init(w/ TEXTURE_RESOLUTION_DIVIDER, h/ TEXTURE_RESOLUTION_DIVIDER, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
-			throw std::exception("texture_tmp.Init failed");
-		}
 		if (FAILED(motion_blur_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("texture_tmp.Init failed");
 		}
@@ -372,6 +354,8 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		if (motion_shader == nullptr) {
 			throw std::exception("Motion shader.Init failed");
 		}
+
+		LoadRTResources();
 	}
 	catch (std::exception& e) {
 		printf("RenderSystem::Init: ERROR: %s\n", e.what());
@@ -409,6 +393,34 @@ RenderSystem::~RenderSystem() {
 	rt_ray_sources0.Release();
 	rt_ray_sources1.Release();
 	vol_data.Release();
+}
+
+void RenderSystem::LoadRTResources() {
+	int w = dxcore->GetWidth();
+	int h = dxcore->GetHeight();
+	for (int x = 0; x < RT_NTEXTURES; ++x) {
+		for (int i = 0; i < RT_NTEXTURES; ++i) {
+			rt_texture[x][i].Release();
+			if (FAILED(rt_texture[x][i].Init(w / RT_TEXTURE_RESOLUTION_DIVIDER, h / RT_TEXTURE_RESOLUTION_DIVIDER, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+				throw std::exception("rt_texture.Init failed");
+			}
+		}
+	}
+	for (int i = 0; i < RT_NTEXTURES; ++i) {
+		rt_texture_out[i].Release();
+		if (FAILED(rt_texture_out[i].Init(w / RT_TEXTURE_RESOLUTION_DIVIDER, h / RT_TEXTURE_RESOLUTION_DIVIDER, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+			throw std::exception("rt_texture.Init failed");
+		}
+	}
+	rt_texture_props.Release();
+	if (FAILED(rt_texture_props.Init(w / RT_TEXTURE_RESOLUTION_DIVIDER, h / RT_TEXTURE_RESOLUTION_DIVIDER, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+		throw std::exception("rt_texture_props.Init failed");
+	}
+
+	texture_tmp.Release();
+	if (FAILED(texture_tmp.Init(w / RT_TEXTURE_RESOLUTION_DIVIDER, h / RT_TEXTURE_RESOLUTION_DIVIDER, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+		throw std::exception("texture_tmp.Init failed");
+	}
 }
 
 void RenderSystem::AddDrawable(ECS::Entity entity, const Core::ShaderKey& key, Components::Material* mat, RenderTree& tree, const RenderSystem::DrawableEntity& drawable) {
@@ -1610,6 +1622,7 @@ void RenderSystem::ProcessRT() {
 		rt_texture_ptr = rt_texture[current];
 		rt_texture_prev_ptr = rt_texture[prev];
 		rt_shader->SetInt("nobjects", len);
+		rt_shader->SetInt("enabled", rt_enabled);
 		rt_shader->SetMatrix4x4("view_proj", cam_entity.camera->view_projection);
 		rt_shader->SetMatrix4x4("prev_view_proj", cam_entity.camera->prev_view_projection);
 		rt_shader->SetInt("frame_count", frame_count);
@@ -1669,7 +1682,7 @@ void RenderSystem::ProcessRT() {
 		//Smooth frame
 		rt_smooth->SetUnorderedAccessView("props", rt_texture_props.UAV());
 		rt_smooth->SetShaderResourceView("depth", depth_map->SRV());
-		rt_smooth->SetInt("divider", TEXTURE_RESOLUTION_DIVIDER);
+		rt_smooth->SetInt("divider", RT_TEXTURE_RESOLUTION_DIVIDER);
 		for (int i = 0; i < 2; ++i) {
 			if (enabled_layer[i]) {
 				groupsX = (int32_t)(ceil((float)rt_texture_ptr[i].Width() / 32.0f));
@@ -2278,8 +2291,8 @@ bool RenderSystem::GetCloudTest() const {
 	return cloud_test;
 }
 
-void RenderSystem::SetRayTracing(bool enabled) {
-	rt_enabled = enabled;
+void RenderSystem::SetRayTracing(bool reflex_enabled, bool refract_enabled) {
+	rt_enabled = (reflex_enabled?RT_REFLEX_ENABLE:0) | (refract_enabled?RT_REFRACT_ENABLE:0);
 	for (int x = 0; x < 2; ++x) {
 		for (int i = 0; i < RT_NTEXTURES; ++i) {
 			rt_texture[x][i].Clear(zero);
@@ -2290,8 +2303,24 @@ void RenderSystem::SetRayTracing(bool enabled) {
 	bloom_map.Clear(zero);
 }
 
-bool RenderSystem::GetRayTracing() const {
-	return rt_enabled;
+void RenderSystem::GetRayTracing(bool& reflex_enabled, bool& refract_enabled) const {
+	reflex_enabled = rt_enabled & RT_REFLEX_ENABLE;
+	refract_enabled = rt_enabled & RT_REFRACT_ENABLE;
+}
+
+void RenderSystem::SetRayTracingQuality(eRtQuality quality) {
+	if (rt_quality != quality) {
+		rt_quality = quality;
+		switch (rt_quality) {
+		case eRtQuality::LOW: RT_TEXTURE_RESOLUTION_DIVIDER = 2; break;
+		case eRtQuality::HIGH: RT_TEXTURE_RESOLUTION_DIVIDER = 1; break;
+		}
+		LoadRTResources();
+	}
+}
+
+RenderSystem::eRtQuality RenderSystem::GetRayTracingQuality() const {
+	return rt_quality;
 }
 
 void RenderSystem::SetDustEnabled(bool enabled) {
