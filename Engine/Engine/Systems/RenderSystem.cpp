@@ -1678,7 +1678,7 @@ void RenderSystem::ProcessRT() {
 
 		UnprepareLights(rt_shader);
 		rt_shader->CopyAllBufferData();
-
+#if 1
 		//Smooth frame
 		rt_smooth->SetUnorderedAccessView("props", rt_texture_props.UAV());
 		rt_smooth->SetShaderResourceView("depth", depth_map->SRV());
@@ -1704,6 +1704,7 @@ void RenderSystem::ProcessRT() {
 			rt_smooth->SetUnorderedAccessView("props", nullptr);
 			rt_smooth->SetShaderResourceView("depth", nullptr);
 		}
+#endif
 	}
 }
 

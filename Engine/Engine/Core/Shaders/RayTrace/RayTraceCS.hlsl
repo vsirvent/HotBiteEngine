@@ -395,11 +395,11 @@ Ray GetRefractedRayFromRay(Ray source, float in_density, float out_density, floa
     return ray;
 }
 
-float3 GetColor(Ray origRay, out float3 bloom)
+float3 GetColor(Ray origRay, out float3 bloom, out float ray_distance)
 {
 
     static const float max_distance = 500.0f;
-
+    ray_distance = max_distance;
     uint stack[MAX_STACK_SIZE];
     bool collide = false;
     IntersectionResult result;
@@ -497,7 +497,7 @@ float3 GetColor(Ray origRay, out float3 bloom)
             float3 normal2 = asfloat(vertexBuffer.Load3(result.vindex.z + 12));
             float3 opos = (1.0f - result.uv.x - result.uv.y) * result.v0 + result.uv.x * result.v1 + result.uv.y * result.v2;
             float3 normal = (1.0f - result.uv.x - result.uv.y) * normal0 + result.uv.x * normal1 + result.uv.y * normal2;
-
+            ray_distance = result.distance;
             normal = normalize(mul(normal, (float3x3)o.world));
             float4 pos = mul(float4(opos, 1.0f), o.world);
             pos /= abs(pos.w);
@@ -552,6 +552,7 @@ float3 GetColor(Ray origRay, out float3 bloom)
 
         }
     }
+   
     return finalColor;
 }
 
@@ -618,7 +619,45 @@ void main(uint3 DTid : SV_DispatchThreadID)
         Ray ray = GetReflectedRayFromSource(ray_source);
         if (length(ray.dir) > Epsilon)
         {
-            color0 = float4(GetColor(ray, bloomColor), 1.0f);
+            Ray ray_orig = ray;
+            int count = 1;
+            float distance = FLT_MAX;
+            color0 = float4(GetColor(ray, bloomColor, distance), 1.0f);
+            float distance_att = max(distance * ray_source.dispersion * 0.3f, 1.0f);
+            if (ray_source.dispersion > 0.0f) {
+                if (distance_att < 10.0f) {
+                    float3 v0;
+                    if (ray_orig.dir.x != 0.0f && ray_orig.dir.y != 0.0f) {
+                        v0 = normalize(float3(-ray_orig.dir.y, ray_orig.dir.x, 0.0f));
+                    }
+                    else {
+                        v0 = float3(1.0f, 0.0f, 0.0f);
+                    }
+                    float3 v1 = normalize(cross(ray_orig.dir, v0));
+                    float3 dirs[3][2] = { {v1, v0 - v1, -v0 - v1 },
+                                          {-v1, -v0 + v1, v0 + v1 } };
+
+                    float loops = (int)(ray_source.dispersion * 5.0f);
+                    float delta = 0.0f;
+                    float dummy;
+                    for (int l = 0; l <= loops && delta < distance * 0.005f; ++l) {
+                        int ld = l % 2;
+                        delta = ray_source.dispersion * 0.015f * (l + 1.0f);
+                        for (int i = 0; i < 3; ++i) {
+                            float3 rdir = ray_orig.dir + dirs[i][ld] * delta;
+                            Ray ray2 = ray_orig;
+                            ray2.dir = rdir;
+                            color0 += float4(GetColor(ray2, bloomColor, dummy), 1.0f);
+                            count++;
+                        }
+                    }
+                    color0 /= (count * distance_att);
+                }
+                else
+                {
+                    color0 = float4(0.0f, 0.0f, 0.0f, 1.0f);
+                }
+            }
         }
     }
 
@@ -627,7 +666,8 @@ void main(uint3 DTid : SV_DispatchThreadID)
         Ray ray = GetRefractedRayFromSource(ray_source);
         if (length(ray.dir) > Epsilon)
         {
-            color1 = float4(GetColor(ray, bloomColor), 1.0f) * (1.0f - ray_source.opacity);
+            float dummy;
+            color1 = float4(GetColor(ray, bloomColor, dummy), 1.0f) * (1.0f - ray_source.opacity);
         }
     }
 
