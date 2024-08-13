@@ -129,13 +129,13 @@ void main(uint3 DTid : SV_DispatchThreadID)
     for (uint i = 0; i < pointLightsCount; ++i) {
         //if we are in front of camera and we are not behind an object
         float4 light_view_pos = mul(float4(pointLights[i].Position, 1.0f), view);
-        light_view_pos /= abs(light_view_pos.w);
+        light_view_pos /= light_view_pos.w;
 
         if (light_view_pos.z > 0.0f) {
             
             float2 light_screen_pos;
             float4 lposition = mul(light_view_pos, projection);
-            lposition /= abs(lposition.w);
+            lposition /= lposition.w;
 
             light_screen_pos.x = (lposition.x * 0.5f + 0.5f) * dimensions.x;
             light_screen_pos.y = (1.0f - (lposition.y * 0.5f + 0.5f)) * dimensions.y; // Invert y-axis for screen coordinates

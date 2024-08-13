@@ -60,6 +60,16 @@ float4 GetInterpolatedColor(float2 uv, Texture2D text, float2 dimension) {
 		text[p10] * w10);
 }
 
+void GetPerpendicularPlane(in float3 dir, out float3 v0, out float3 v1) {
+	if (dir.x != 0.0f && dir.y != 0.0f) {
+		v0 = normalize(float3(-dir.y, dir.x, 0.0f));
+	}
+	else {
+		v0 = float3(1.0f, 0.0f, 0.0f);
+	}
+	v1 = normalize(cross(dir, v0));
+}
+
 float4 Pack4Colors(float4 color1, float4 color2, float4 color3, float4 color4) {
 	// Scale colors from 0-1 to 0-256 (8-bit maximum value allow saturation to 10 bits)d
 	uint4 scaledColor1 = clamp(uint4((color1 + 0.5f) * 512.0f), 0, 1023);

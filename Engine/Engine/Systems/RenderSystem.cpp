@@ -1628,8 +1628,14 @@ void RenderSystem::ProcessRT() {
 		rt_shader->SetInt("frame_count", frame_count);
 		rt_shader->SetData("objectMaterials", objectMaterials, len * sizeof(MaterialProps));
 		rt_shader->SetData("objectInfos", objects, len * sizeof(ObjectInfo));
-		rt_shader->SetUnorderedAccessView("output0", rt_texture_ptr[0].UAV());
-		rt_shader->SetUnorderedAccessView("output1", rt_texture_ptr[1].UAV());
+		if (rt_quality == eRtQuality::HIGH) {
+			rt_shader->SetUnorderedAccessView("output0", rt_texture_out[0].UAV());
+			rt_shader->SetUnorderedAccessView("output1", rt_texture_out[1].UAV());
+		}
+		else {
+			rt_shader->SetUnorderedAccessView("output0", rt_texture_ptr[0].UAV());
+			rt_shader->SetUnorderedAccessView("output1", rt_texture_ptr[1].UAV());
+		}
 		rt_shader->SetUnorderedAccessView("prev_output0", rt_texture_prev_ptr[0].UAV());
 		rt_shader->SetUnorderedAccessView("prev_output1", rt_texture_prev_ptr[1].UAV());
 		rt_shader->SetShaderResourceView("position_map", position_map.SRV());
@@ -1678,33 +1684,34 @@ void RenderSystem::ProcessRT() {
 
 		UnprepareLights(rt_shader);
 		rt_shader->CopyAllBufferData();
-#if 1
-		//Smooth frame
-		rt_smooth->SetUnorderedAccessView("props", rt_texture_props.UAV());
-		rt_smooth->SetShaderResourceView("depth", depth_map->SRV());
-		rt_smooth->SetInt("divider", RT_TEXTURE_RESOLUTION_DIVIDER);
-		for (int i = 0; i < 2; ++i) {
-			if (enabled_layer[i]) {
-				groupsX = (int32_t)(ceil((float)rt_texture_ptr[i].Width() / 32.0f));
-				groupsY = (int32_t)(ceil((float)rt_texture_ptr[i].Height() / 32.0f));
-				rt_smooth->SetUnorderedAccessView("input", rt_texture_ptr[i].UAV());
-				rt_smooth->SetUnorderedAccessView("output", texture_tmp.UAV());
-				rt_smooth->SetInt("type", 1);
-				rt_smooth->CopyAllBufferData();
-				rt_smooth->SetShader();
-				dxcore->context->Dispatch(groupsX, groupsY, 1);
-				rt_smooth->SetInt("type", 2);
-				rt_smooth->SetUnorderedAccessView("input", texture_tmp.UAV());
-				rt_smooth->SetUnorderedAccessView("output", rt_texture_out[i].UAV());
-				rt_smooth->CopyAllBufferData();
-				dxcore->context->Dispatch(groupsX, groupsY, 1);
-				rt_smooth->SetUnorderedAccessView("input", nullptr);
-				rt_smooth->SetUnorderedAccessView("output", nullptr);
+		
+		if (rt_quality != eRtQuality::HIGH) {
+			//Smooth frame
+			rt_smooth->SetUnorderedAccessView("props", rt_texture_props.UAV());
+			rt_smooth->SetShaderResourceView("depth", depth_map->SRV());
+			rt_smooth->SetInt("divider", RT_TEXTURE_RESOLUTION_DIVIDER);
+			for (int i = 0; i < 2; ++i) {
+				if (enabled_layer[i]) {
+					groupsX = (int32_t)(ceil((float)rt_texture_ptr[i].Width() / 32.0f));
+					groupsY = (int32_t)(ceil((float)rt_texture_ptr[i].Height() / 32.0f));
+					rt_smooth->SetUnorderedAccessView("input", rt_texture_ptr[i].UAV());
+					rt_smooth->SetUnorderedAccessView("output", texture_tmp.UAV());
+					rt_smooth->SetInt("type", 1);
+					rt_smooth->CopyAllBufferData();
+					rt_smooth->SetShader();
+					dxcore->context->Dispatch(groupsX, groupsY, 1);
+					rt_smooth->SetInt("type", 2);
+					rt_smooth->SetUnorderedAccessView("input", texture_tmp.UAV());
+					rt_smooth->SetUnorderedAccessView("output", rt_texture_out[i].UAV());
+					rt_smooth->CopyAllBufferData();
+					dxcore->context->Dispatch(groupsX, groupsY, 1);
+					rt_smooth->SetUnorderedAccessView("input", nullptr);
+					rt_smooth->SetUnorderedAccessView("output", nullptr);
+				}
 			}
 			rt_smooth->SetUnorderedAccessView("props", nullptr);
 			rt_smooth->SetShaderResourceView("depth", nullptr);
 		}
-#endif
 	}
 }
 

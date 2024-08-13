@@ -171,6 +171,7 @@ RenderTargetRT MainRenderPS(GSOutput input)
 		finalColor *= material.diffuseColor;
 	}
 #endif
+
 	// Apply ambient occlusion
 	if (multi_texture_count > 0) {
 		finalColor *= getMutliTextureValueLevel(basicSampler, 2, MULTITEXT_AO, multi_texture_count, multi_texture_operations,

@@ -500,7 +500,7 @@ float3 GetColor(Ray origRay, out float3 bloom, out float ray_distance)
             ray_distance = result.distance;
             normal = normalize(mul(normal, (float3x3)o.world));
             float4 pos = mul(float4(opos, 1.0f), o.world);
-            pos /= abs(pos.w);
+            pos /= pos.w;
             MaterialColor material = objectMaterials[result.object];
 
             float3 color = float3(0.0f, 0.0f, 0.0f);
@@ -561,7 +561,6 @@ float3 GetColor(Ray origRay, out float3 bloom, out float ray_distance)
 #define DIVIDER 2
 #define DIVIDER2 4
 #define NTHREADS 32
-//#define TEMP_SAMPLING
 
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main(uint3 DTid : SV_DispatchThreadID)
@@ -598,11 +597,6 @@ void main(uint3 DTid : SV_DispatchThreadID)
 
     float2 pixel = float2(x, y);
     float2 ray_pixel = pixel * rayMapRatio;
-#ifdef TEMP_SAMPLING
-    float2 orig_ray_pixel = ray_pixel;
-    ray_pixel.x += f % DIVIDER;
-    ray_pixel.y += f / DIVIDER;
-#endif
 
     RaySource ray_source = fromColor(ray0[ray_pixel], ray1[ray_pixel]);
 
@@ -622,41 +616,31 @@ void main(uint3 DTid : SV_DispatchThreadID)
             Ray ray_orig = ray;
             int count = 1;
             float distance = FLT_MAX;
-            color0 = float4(GetColor(ray, bloomColor, distance), 1.0f);
             float distance_att = max(distance * ray_source.dispersion * 0.3f, 1.0f);
+            color0 = float4(GetColor(ray, bloomColor, distance), 1.0f);
             if (ray_source.dispersion > 0.0f) {
-                if (distance_att < 10.0f) {
-                    float3 v0;
-                    if (ray_orig.dir.x != 0.0f && ray_orig.dir.y != 0.0f) {
-                        v0 = normalize(float3(-ray_orig.dir.y, ray_orig.dir.x, 0.0f));
-                    }
-                    else {
-                        v0 = float3(1.0f, 0.0f, 0.0f);
-                    }
-                    float3 v1 = normalize(cross(ray_orig.dir, v0));
-                    float3 dirs[3][2] = { {v1, v0 - v1, -v0 - v1 },
-                                          {-v1, -v0 + v1, v0 + v1 } };
+                float3 v0, v1;
+                GetPerpendicularPlane(ray_orig.dir, v0, v1);
+                float3 dirs[3][2] = { {v1, v0 - v1, -v0 - v1 },
+                                        {-v1, -v0 + v1, v0 + v1 } };
 
-                    float loops = (int)(ray_source.dispersion * 5.0f);
-                    float delta = 0.0f;
-                    float dummy;
-                    for (int l = 0; l <= loops && delta < distance * 0.005f; ++l) {
-                        int ld = l % 2;
-                        delta = ray_source.dispersion * 0.015f * (l + 1.0f);
-                        for (int i = 0; i < 3; ++i) {
-                            float3 rdir = ray_orig.dir + dirs[i][ld] * delta;
-                            Ray ray2 = ray_orig;
-                            ray2.dir = rdir;
-                            color0 += float4(GetColor(ray2, bloomColor, dummy), 1.0f);
-                            count++;
-                        }
+                float loops = (int)(ray_source.dispersion * 5.0f);
+                float delta = 0.0f;
+                float dist;
+                for (int l = 0; l <= loops && delta < distance * 0.005f; ++l) {
+                    int ld = l % 2;
+                    delta = ray_source.dispersion * 0.01f * (l + 1.0f);
+                    for (int i = 0; i < 3; ++i) {
+                        float3 rdir = ray_orig.dir + dirs[i][ld] * delta;
+                        Ray ray2 = ray_orig;
+                        ray2.dir = rdir;
+                        float4 c = float4(GetColor(ray2, bloomColor, dist), 1.0f);
+                        float dist_att = max(dist * ray_source.dispersion * 0.3f, 1.0f);
+                        color0 += c / dist_att;
+                        count++;
                     }
-                    color0 /= (count * distance_att);
                 }
-                else
-                {
-                    color0 = float4(0.0f, 0.0f, 0.0f, 1.0f);
-                }
+                color0 /= count;
             }
         }
     }
@@ -671,8 +655,6 @@ void main(uint3 DTid : SV_DispatchThreadID)
         }
     }
 
-
-#ifndef TEMP_SAMPLING
     output0[pixel] = color0 * ray_source.reflex;
     output1[pixel] = color1;
 
@@ -682,20 +664,4 @@ void main(uint3 DTid : SV_DispatchThreadID)
             bloom[bpixel] += float4(bloomColor * 0.8f, 1.0f);
         }
     }
-#else
-    float2 depth_pixel = ray_pixel / 2.0f;
-    float current_dist = depth_map[depth_pixel];
-    float prev_dist = prev_depth_map[depth_pixel];
-
-    float a;
-    float b;
-    float diff = saturate(1.0f - abs(current_dist / prev_dist));
-    float motion = motionTexture[orig_ray_pixel].xy;
-    float speed = length(motion) * dimensions.x * 0.5f;
-    a = saturate(1.0f / ((float)DIVIDER2) + diff + speed);
-    b = 1.0f - a;
-    
-    output0[pixel] = prev_output0[pixel] * b + color0 * ray_source.reflex * a;
-    output1[pixel] = prev_output1[pixel] * b + color1 * a;
-#endif
 }

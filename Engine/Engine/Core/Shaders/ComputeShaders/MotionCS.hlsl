@@ -19,8 +19,8 @@ float2 GetPixelDir(float2 pixel) {
         float4 p0 = mul(p0World, view_proj);
         float4 p1 = mul(p1World, prev_view_proj);
 
-        p0 /= abs(p0.w);
-        p1 /= abs(p1.w);
+        p0 /= p0.w;
+        p1 /= p1.w;
 
         p0.y *= -1.0f;
         p1.y *= -1.0f;

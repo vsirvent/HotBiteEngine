@@ -1,10 +1,11 @@
+
 float PointShadowPCFFAST(float3 ToPixel, PointLight light, int index)
 {
     float3 ToPixelAbs = abs(ToPixel);
     float Z = max(ToPixelAbs.x, max(ToPixelAbs.y, ToPixelAbs.z));
     float d = (lps[index].x * Z + lps[index].y) / Z;
     //This offset allows to avoid self shadow
-    d -= 0.01f;
+    d -= 0.0001f;
     float att1 = PointShadowMapTexture[index].SampleCmpLevelZero(PCFSampler, float3(ToPixel.x, ToPixel.y, ToPixel.z), d).r;
     return saturate(att1);
 }
@@ -93,7 +94,6 @@ float3 CalcPoint(float3 normal, float3 position, PointLight light, int index)
     float3 finalColor = { 0.f, 0.f, 0.f };
     float3 lposition = light.Position;
     float3 ToLight = lposition - position;
-    float3 ToEye = cameraPosition - position;
     float DistToLight = length(ToLight);
     // Phong diffuse
     ToLight /= DistToLight; // Normalize
@@ -105,7 +105,7 @@ float3 CalcPoint(float3 normal, float3 position, PointLight light, int index)
     float DistToLightNorm = LightRange;
     float Attn = saturate(DistToLightNorm * DistToLightNorm);
     if (light.cast_shadow) {
-        float shadow = PointShadowPCFFAST(light.Position - position, light, index);
+        float shadow = PointShadowPCFFAST(position - lposition, light, index);
         finalColor *= shadow;
     }
     finalColor *= Attn;
