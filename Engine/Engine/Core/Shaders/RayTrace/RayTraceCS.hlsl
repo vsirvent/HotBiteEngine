@@ -245,6 +245,32 @@ float3 GetColor(Ray origRay, out float3 bloom, out float ray_distance)
     return finalColor;
 }
 
+float3 GenerateFibonacciHemisphereRay(float3 direction, uint index, uint N, float seed)
+{
+    // Introduce randomness using the seed
+    float randomFactor = frac(sin(dot(float2(index, seed), float2(12.9898f, 78.233f))) * 43758.5453f);
+    
+    // Calcula phi usando la secuencia de Fibonacci (aproximación dorada)
+    float phi = 2.0f * 3.14159265359f * (index / (1.618033988749895f * N)) + randomFactor;
+
+    // Calcula cosTheta y sinTheta usando la técnica de Fibonacci
+    float cosTheta = 1.0f - 2.0f * (index + 0.5f) / N;
+    float sinTheta = sqrt(1.0f - cosTheta * cosTheta);
+
+    // Coordenadas del rayo en el sistema local
+    float3 localRay = float3(cos(phi) * sinTheta, sin(phi) * sinTheta, cosTheta);
+
+    // Generar la base ortonormal con la dirección dada
+    float3 up = abs(direction.z) < 0.999f ? float3(0.0f, 0.0f, 1.0f) : float3(1.0f, 0.0f, 0.0f);
+    float3 tangent = normalize(cross(up, direction));
+    float3 bitangent = cross(direction, tangent);
+
+    // Convertir el rayo local a las coordenadas globales
+    float3 globalRay = localRay.x * tangent + localRay.y * bitangent + localRay.z * direction;
+
+    return normalize(globalRay);
+}
+
 
 #define DENSITY 1.0f
 #define DIVIDER 2
@@ -277,6 +303,11 @@ void main(uint3 DTid : SV_DispatchThreadID)
     float x = (float)DTid.x;
     float y = (float)DTid.y;
 
+    float rX = 16.0f * frac(sin(dot(float2(x / time, y * frac(time)), float2(12.9898f, 78.233f))) * 43758.5453f);
+    float rY = 16.0f * frac(sin(dot(float2(y / time, x * frac(time)), float2(12.9898f, 78.233f))) * 43758.5453f);
+
+    x *= rX;
+    y *= rY;
     float2 rayMapRatio = ray_map_dimensions / dimensions;
     float2 bloomRatio = bloom_dimensions / dimensions;
 
@@ -302,14 +333,35 @@ void main(uint3 DTid : SV_DispatchThreadID)
         Ray ray = GetReflectedRayFromSource(ray_source);
         if (length(ray.dir) > Epsilon)
         {
-            Ray ray_orig = ray;
-            int count = 1;
+            float3 orig_dir = ray.dir;
+            int count = 0;
+            color0 = float4(0.0f, 0.0f, 0.0f, 0.0f);
+
+#if 1
+            float4 color_diffuse = float4(0.0f, 0.0f, 0.0f, 0.0f);
+            float3 dummy;
+            float dist;
+            int N = 8;
+            for (int i = 0; i < N; ++i) {
+                ray.dir = GenerateFibonacciHemisphereRay(orig_dir, i, N, time);
+                color_diffuse += float4(GetColor(ray, dummy, dist), 1.0f);
+                count++;
+            }
+            color_diffuse /= count * 0.2f;
+            //color_diffuse *= ray_source.dispersion;
+            color0 += color_diffuse;
+#endif
+#if 1
+            float4 color_reflex = float4(0.0f, 0.0f, 0.0f, 0.0f);
+
+            ray.dir = orig_dir;
             float distance = FLT_MAX;
             float distance_att = max(distance * ray_source.dispersion * 0.3f, 1.0f);
-            color0 = float4(GetColor(ray, bloomColor, distance), 1.0f);
+            color_reflex += float4(GetColor(ray, bloomColor, distance), 1.0f);
+            count = 1;
             if (ray_source.dispersion > 0.0f) {
                 float3 v0, v1;
-                GetPerpendicularPlane(ray_orig.dir, v0, v1);
+                GetPerpendicularPlane(ray.dir, v0, v1);
                 float3 dirs[3][2] = { {v1, v0 - v1, -v0 - v1 },
                                         {-v1, -v0 + v1, v0 + v1 } };
 
@@ -320,17 +372,18 @@ void main(uint3 DTid : SV_DispatchThreadID)
                     int ld = l % 2;
                     delta = ray_source.dispersion * 0.01f * (l + 1.0f);
                     for (int i = 0; i < 3; ++i) {
-                        float3 rdir = ray_orig.dir + dirs[i][ld] * delta;
-                        Ray ray2 = ray_orig;
-                        ray2.dir = rdir;
-                        float4 c = float4(GetColor(ray2, bloomColor, dist), 1.0f);
+                        float3 rdir = orig_dir + dirs[i][ld] * delta;
+                        ray.dir = rdir;
+                        float4 c = float4(GetColor(ray, bloomColor, dist), 1.0f);
                         float dist_att = max(dist * ray_source.dispersion * 0.3f, 1.0f);
-                        color0 += c / dist_att;
+                        color_reflex += c / dist_att;
                         count++;
                     }
                 }
-                color0 /= count;
             }
+            color_reflex /= count;
+            color0 += color_reflex;// *(1.0f - ray_source.dispersion);
+#endif
         }
     }
 

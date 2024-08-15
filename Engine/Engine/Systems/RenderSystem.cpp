@@ -1621,8 +1621,10 @@ void RenderSystem::ProcessRT() {
 
 		//tbvh.Load(objects, len);
 		//tbvh_buffer.Refresh(tbvh.Root(), 0, tbvh.Size());
-		rt_texture_ptr = rt_texture[current];
-		rt_texture_prev_ptr = rt_texture[prev];
+		//rt_texture_ptr = rt_texture[current];
+		//rt_texture_prev_ptr = rt_texture[prev];
+		//rt_texture_out[0].Clear(zero);
+
 		rt_shader->SetInt("nobjects", len);
 		rt_shader->SetInt("enabled", rt_enabled);
 		rt_shader->SetMatrix4x4("view_proj", cam_entity.camera->view_projection);
@@ -1630,7 +1632,7 @@ void RenderSystem::ProcessRT() {
 		rt_shader->SetInt("frame_count", frame_count);
 		rt_shader->SetData("objectMaterials", objectMaterials, len * sizeof(MaterialProps));
 		rt_shader->SetData("objectInfos", objects, len * sizeof(ObjectInfo));
-		if (rt_quality == eRtQuality::HIGH) {
+		if (true) { //rt_quality == eRtQuality::HIGH) {
 			rt_shader->SetUnorderedAccessView("output0", rt_texture_out[0].UAV());
 			rt_shader->SetUnorderedAccessView("output1", rt_texture_out[1].UAV());
 		}
@@ -1671,6 +1673,8 @@ void RenderSystem::ProcessRT() {
 		rt_shader->SetShader();		
 		int32_t  groupsX = (int32_t)(ceil((float)rt_texture_ptr[0].Width() / (32.0f)));
 		int32_t  groupsY = (int32_t)(ceil((float)rt_texture_ptr[0].Height() / (32.0f)));
+		groupsX /= 4;
+		groupsY /= 4;
 		dxcore->context->Dispatch(groupsX, groupsY, 1);
 		rt_shader->SetUnorderedAccessView("output0", nullptr);
 		rt_shader->SetUnorderedAccessView("output1", nullptr);
@@ -1687,7 +1691,7 @@ void RenderSystem::ProcessRT() {
 		UnprepareLights(rt_shader);
 		rt_shader->CopyAllBufferData();
 		
-		if (rt_quality != eRtQuality::HIGH) {
+		if (false) { //rt_quality != eRtQuality::HIGH) {
 			//Smooth frame
 			rt_smooth->SetUnorderedAccessView("props", rt_texture_props.UAV());
 			rt_smooth->SetShaderResourceView("depth", depth_map->SRV());
