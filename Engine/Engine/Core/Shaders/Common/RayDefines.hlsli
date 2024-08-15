@@ -22,20 +22,66 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-#ifndef __DEFINES_HLSLI__
-#define __DEFINES_HLSLI__
+#ifndef RAY_DEFINES_
+#define RAY_DEFINES_
 
-#define MAX_MULTI_TEXTURE 8
-#define MAX_LIGHTS 8
-#define FLT_MAX 3.4e+38
-#define FLT_MIN 1.1e-38 
+#define MAX_OBJECTS 64
+#define MAX_STACK_SIZE 64
 
-#define EQUAL(x, y, delta) (abs(x - y) < delta)
-#define MAX_JOINTS 256
+struct BVHNode
+{
+    //--
+    float4 reg0; // aabb_min + left_child + right_child;
+    //--
+    float4 reg1; // aabb_max + index;
+};
 
-#define NUM_CONTROL_POINTS 3
-#ifndef PI
-#define PI 3.14159265359f
-#endif 
-static const float M_PI = 3.14159265358979323846f; /* pi */
+struct Ray {
+    float4 orig;
+    float3 dir;
+    float density;
+    uint bounces;
+    float ratio;
+    float t; //intersection distance    
+};
+
+struct RayObject {
+    float4 orig;
+    float3 dir;
+    float t;
+};
+
+struct IntersectionResult
+{
+    float3 v0;
+    float3 v1;
+    float3 v2;
+
+    float distance;
+    float2 uv;
+
+    uint3 vindex;
+    uint object;
+};
+
+struct ObjectInfo
+{
+    matrix world;
+    matrix inv_world;
+
+    float3 aabb_min;
+    uint objectOffset;
+
+    float3 aabb_max;
+    uint vertexOffset;
+
+    float3 position;
+    uint indexOffset;
+
+    float density;
+    float opacity;
+    float padding0;
+    float padding1;
+};
+
 #endif

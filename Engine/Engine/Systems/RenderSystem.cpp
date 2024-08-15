@@ -1346,6 +1346,8 @@ void RenderSystem::ProcessMix() {
 	mixer_shader->SetShaderResourceView("lensFlareTexture", lens_flare_map.SRV());
 	mixer_shader->SetShaderResourceView("rtTexture0", rt_texture_out[0].SRV());
 	mixer_shader->SetShaderResourceView("rtTexture1", rt_texture_out[1].SRV());
+	mixer_shader->SetShaderResourceView("positions", rt_ray_sources0.SRV());
+	mixer_shader->SetShaderResourceView("normals", rt_ray_sources1.SRV());
 	mixer_shader->SetShaderResourceView("input", post_process_pipeline->RenderResource());
 	mixer_shader->SetUnorderedAccessView("output", image);
 	mixer_shader->CopyAllBufferData();
@@ -2061,8 +2063,8 @@ void RenderSystem::Clear(const float color[4]) {
 	static const float max_depth[4] = { FLT_MAX, FLT_MAX, FLT_MAX, FLT_MAX };
 	depth_map->Clear(max_depth);
 	depth_view.Clear();
-	position_map.Clear(zero);
-	prev_position_map.Clear(zero);
+	position_map.Clear(max_depth);
+	prev_position_map.Clear(max_depth);
 	light_map.Clear(color);
 	bloom_map.Clear(color);
 	temp_map.Clear(color);

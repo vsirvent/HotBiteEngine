@@ -24,6 +24,7 @@ SOFTWARE.
 
 #include "../Common/Utils.hlsli"
 #include "../Common/QuickNoise.hlsli"
+#include "../Common/RayDefines.hlsli"
 
 cbuffer externalData : register(b0)
 {
@@ -40,6 +41,8 @@ Texture2D rtTexture1 : register(t7);
 Texture2D volLightTexture: register(t8);
 Texture2D dustTexture: register(t9);
 Texture2D lensFlareTexture: register(t10);
+Texture2D positions: register(t11);
+Texture2D normals: register(t12);
 SamplerState basicSampler : register(s0);
 
 float4 readColor(float2 pixel, texture2D text, uint w, uint h) {
@@ -50,7 +53,8 @@ float4 readColor(float2 pixel, texture2D text, uint w, uint h) {
         return text.SampleLevel(basicSampler, pixel, 0);
     }
     else {
-        return GetInterpolatedColor(pixel, text, float2(w2, h2));
+        //return GetInterpolatedColor(pixel, text, float2(w2, h2));
+        return Get3dInterpolatedColor(pixel, text, float2(w2, h2), positions, normals, float2(w, h));
     }
 }
 
@@ -77,6 +81,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
 
     if (rt_enabled) {
         color += (color + 2.0f * l) * rt0 + rt1 + b + dust + lens_flare + vol;
+        //color = rt0;
     }
     else {
         color += color * l * 0.2f + b + dust + lens_flare + vol;

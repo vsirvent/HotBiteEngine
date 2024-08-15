@@ -239,7 +239,7 @@ RenderTargetRT MainRenderPS(GSOutput input)
 	output.rt_ray1_map = getColor1(ray);
 
 	float4 prev_world_pos = mul(input.objectPos, prevWorld);
-	output.pos0_map = prev_world_pos;
-	output.pos1_map = input.worldPos;
+	output.pos0_map = prev_world_pos / prev_world_pos.w;
+	output.pos1_map = input.worldPos / input.worldPos.w;
 	return output;
 }

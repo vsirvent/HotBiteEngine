@@ -273,6 +273,8 @@
     <None Include="Engine\Core\Shaders\Common\PixelFunctions.hlsli" />
     <None Include="Engine\Core\Shaders\Common\Quaternion.hlsli" />
     <None Include="Engine\Core\Shaders\Common\QuickNoise.hlsli" />
+    <None Include="Engine\Core\Shaders\Common\RayFunctions.hlsli" />
+    <None Include="Engine\Core\Shaders\Common\RayDefines.hlsli" />
     <None Include="Engine\Core\Shaders\Common\RGBANoise.hlsli" />
     <None Include="Engine\Core\Shaders\Common\ShaderStructs.hlsli" />
     <None Include="Engine\Core\Shaders\Common\SimpleLight.hlsli" />
