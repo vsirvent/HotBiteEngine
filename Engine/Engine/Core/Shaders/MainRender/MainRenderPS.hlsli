@@ -143,7 +143,7 @@ RenderTargetRT MainRenderPS(GSOutput input)
 		}
 	}
 #endif
-	finalColor += lumColor;
+	
 #if 1
 	// Apply textures
 	if (material.flags & DIFFUSSE_MAP_ENABLED_FLAG || multi_texture_count > 0) {
@@ -157,18 +157,18 @@ RenderTargetRT MainRenderPS(GSOutput input)
 		}
 		if (material.flags & ALPHA_ENABLED_FLAG) {
 			if (length(material.alphaColor - text_color) > 0.4f) {
-				finalColor.rgb *= text_color;
+				finalColor.rgb = text_color;
 			}
 			else {
 				discard;
 			}
 		}
 		else {
-			finalColor.rgb *= text_color;
+			finalColor.rgb = text_color;
 		}
 	}
 	else {
-		finalColor *= material.diffuseColor;
+		finalColor = material.diffuseColor;
 	}
 #endif
 

@@ -25,13 +25,16 @@ SOFTWARE.
 #include "../Common/ShaderStructs.hlsli"
 #include "../Common/PixelCommon.hlsli"
 #include "../Common/RayDefines.hlsli"
+#include "../Common/RGBANoise.hlsli"
 
 #define REFLEX_ENABLED 1
 #define REFRACT_ENABLED 2
+#define INDIRECT_ENABLED 4
 
 cbuffer externalData : register(b0)
 {
     uint frame_count;
+    uint step;
     float time;
     float3 cameraPosition;
     float3 cameraDirection;
@@ -55,8 +58,6 @@ cbuffer externalData : register(b0)
 
 RWTexture2D<float4> output0 : register(u0);
 RWTexture2D<float4> output1 : register(u1);
-RWTexture2D<float4> prev_output0 : register(u2);
-RWTexture2D<float4> prev_output1 : register(u3);
 
 RWTexture2D<float> props : register(u4);
 RWTexture2D<float4> ray0 : register(u5);
@@ -69,10 +70,8 @@ StructuredBuffer<BVHNode> objectBVH: register(t3);
 ByteAddressBuffer vertexBuffer : register(t4);
 ByteAddressBuffer indicesBuffer : register(t5);
 Texture2D<float4> position_map : register(t6);
-Texture2D<float4> prev_position_map : register(t7);
 Texture2D<float4> motionTexture : register(t8);
 Texture2D<float4> depth_map : register(t9);
-Texture2D<float4> prev_depth_map : register(t10);
 
 Texture2D<float4> DiffuseTextures[MAX_OBJECTS];
 Texture2D<float> DirShadowMapTexture[MAX_LIGHTS];
@@ -87,8 +86,8 @@ static float2 lps[MAX_LIGHTS] = (float2[MAX_LIGHTS])LightPerspectiveValues;
 float3 GetColor(Ray origRay, out float3 bloom, out float ray_distance)
 {
 
-    static const float max_distance = 500.0f;
-    ray_distance = max_distance;
+    static const float max_distance = 100.0f;
+    ray_distance = FLT_MAX;
     uint stack[MAX_STACK_SIZE];
     bool collide = false;
     IntersectionResult result;
@@ -193,34 +192,42 @@ float3 GetColor(Ray origRay, out float3 bloom, out float ray_distance)
             MaterialColor material = objectMaterials[result.object];
 
             float3 color = float3(0.0f, 0.0f, 0.0f);
+            float4 emission = material.emission * float4(material.emission_color, 1.0f);
+            bloom += emission;
 
-            color += CalcAmbient(normal);
 
-            for (i = 0; i < dirLightsCount; ++i) {
-                color += CalcDirectional(normal, pos.xyz, dirLights[i], i);
+            if (material.emission > 0.0f) {
+                color = emission / max(ray.t, 1.0f);
             }
+            else {
+                color += CalcAmbient(normal);
 
-            // Calculate the point lights
-            for (i = 0; i < pointLightsCount; ++i) {
-                if (length(pos.xyz - pointLights[i].Position) < pointLights[i].Range) {
-                    color += CalcPoint(normal, pos.xyz, pointLights[i], i);
+                for (i = 0; i < dirLightsCount; ++i) {
+                    color += CalcDirectional(normal, pos.xyz, dirLights[i], i);
+                }
+
+                // Calculate the point lights
+                for (i = 0; i < pointLightsCount; ++i) {
+                    if (length(pos.xyz - pointLights[i].Position) < pointLights[i].Range) {
+                        color += CalcPoint(normal, pos.xyz, pointLights[i], i);
+                    }
+                }
+
+
+                //Calculate material color
+                if (material.flags & DIFFUSSE_MAP_ENABLED_FLAG) {
+                    float2 uv0 = asfloat(vertexBuffer.Load2(result.vindex.x + 24));
+                    float2 uv1 = asfloat(vertexBuffer.Load2(result.vindex.y + 24));
+                    float2 uv2 = asfloat(vertexBuffer.Load2(result.vindex.z + 24));
+                    float2 uv = uv0 * (1.0f - result.uv.x - result.uv.y) + uv1 * result.uv.x + uv2 * result.uv.y;
+                    color *= GetDiffuseColor(result.object, uv);
+                }
+                else {
+                    color *= material.diffuseColor.rgb;
                 }
             }
 
-            //Calculate material color
-            if (material.flags & DIFFUSSE_MAP_ENABLED_FLAG) {
-                float2 uv0 = asfloat(vertexBuffer.Load2(result.vindex.x + 24));
-                float2 uv1 = asfloat(vertexBuffer.Load2(result.vindex.y + 24));
-                float2 uv2 = asfloat(vertexBuffer.Load2(result.vindex.z + 24));
-                float2 uv = uv0 * (1.0f - result.uv.x - result.uv.y) + uv1 * result.uv.x + uv2 * result.uv.y;
-                color *= GetDiffuseColor(result.object, uv);
-            }
-            else {
-                color *= material.diffuseColor.rgb;
-            }
 
-            float4 emission = material.emission * float4(material.emission_color, 1.0f);
-            bloom += emission;
 
             finalColor += color * ray.ratio * o.opacity;
             ray.orig = pos;
@@ -245,32 +252,37 @@ float3 GetColor(Ray origRay, out float3 bloom, out float ray_distance)
     return finalColor;
 }
 
-float3 GenerateFibonacciHemisphereRay(float3 direction, uint index, uint N, float seed)
+float3 GenerateFibonacciHemisphereRay(float3 dir, float3 tangent, float3 bitangent, float index, float N, float3 seed)
 {
     // Introduce randomness using the seed
-    float randomFactor = frac(sin(dot(float2(index, seed), float2(12.9898f, 78.233f))) * 43758.5453f);
+#if 1
+    float rX = rgba_tnoise(seed);
+    //float rY = 0.5f * betterRandom(dir.x * dir.y, dir.z * index, time);
+
+    float a = (index + rX);
+    float b = (index + rX);
+#else
+    float a = index;
+    float b = index;
+#endif
+    float goldenRatio = 1.618033988749895f;
+    float theta = 2.0f * M_PI * a /(goldenRatio);
+    float phi = acos(1.0f - b / N); // Polar angle
+
+
+    float cosTheta = cos(theta);
+    float sinTheta = sin(theta);
     
-    // Calcula phi usando la secuencia de Fibonacci (aproximación dorada)
-    float phi = 2.0f * 3.14159265359f * (index / (1.618033988749895f * N)) + randomFactor;
+    float sinPhi = sin(phi);
+    float cosPhi = cos(phi);
 
-    // Calcula cosTheta y sinTheta usando la técnica de Fibonacci
-    float cosTheta = 1.0f - 2.0f * (index + 0.5f) / N;
-    float sinTheta = sqrt(1.0f - cosTheta * cosTheta);
-
-    // Coordenadas del rayo en el sistema local
-    float3 localRay = float3(cos(phi) * sinTheta, sin(phi) * sinTheta, cosTheta);
-
-    // Generar la base ortonormal con la dirección dada
-    float3 up = abs(direction.z) < 0.999f ? float3(0.0f, 0.0f, 1.0f) : float3(1.0f, 0.0f, 0.0f);
-    float3 tangent = normalize(cross(up, direction));
-    float3 bitangent = cross(direction, tangent);
+    float3 localRay = float3(cosTheta * sinPhi, sinTheta * sinPhi, cosPhi);
 
     // Convertir el rayo local a las coordenadas globales
-    float3 globalRay = localRay.x * tangent + localRay.y * bitangent + localRay.z * direction;
+    float3 globalRay = localRay.x * tangent + localRay.y * bitangent + localRay.z * dir;
 
-    return normalize(globalRay);
+    return normalize(dir + globalRay);
 }
-
 
 #define DENSITY 1.0f
 #define DIVIDER 2
@@ -302,12 +314,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
 
     float x = (float)DTid.x;
     float y = (float)DTid.y;
-
-    float rX = 16.0f * frac(sin(dot(float2(x / time, y * frac(time)), float2(12.9898f, 78.233f))) * 43758.5453f);
-    float rY = 16.0f * frac(sin(dot(float2(y / time, x * frac(time)), float2(12.9898f, 78.233f))) * 43758.5453f);
-
-    x *= rX;
-    y *= rY;
+   
     float2 rayMapRatio = ray_map_dimensions / dimensions;
     float2 bloomRatio = bloom_dimensions / dimensions;
 
@@ -321,89 +328,118 @@ void main(uint3 DTid : SV_DispatchThreadID)
     RaySource ray_source = fromColor(ray0[ray_pixel], ray1[ray_pixel]);
 
     props[pixel] = props[pixel]*0.5f + ray_source.dispersion*0.5f;
-    if (ray_source.dispersion >= 1.0f || ray_source.reflex < Epsilon || length(ray_source.normal) < Epsilon)
+
+    if (step == 1)
     {
-        output0[pixel] = color0;
-        output1[pixel] = color1;
-        return;
+        if (enabled == 0 || ray_source.dispersion >= 1.0f || ray_source.reflex < Epsilon || length(ray_source.normal) < Epsilon)
+        {
+            output0[pixel] = color0;
+            output1[pixel] = color1;
+            return;
+        }
+    }
+    else {
+        if (enabled == 0 || ray_source.dispersion < Epsilon || ray_source.reflex < Epsilon || length(ray_source.normal) < Epsilon)
+        {
+            output0[pixel] = color0;
+            return;
+        }
     }
 
     //Reflected ray
-    if (ray_source.opacity > Epsilon && (enabled & REFLEX_ENABLED)) {
+    if (ray_source.opacity > Epsilon) {
         Ray ray = GetReflectedRayFromSource(ray_source);
         if (length(ray.dir) > Epsilon)
         {
+            float3 orig_pos = ray.orig.xyz;
+            float3 normal = ray_source.normal;
             float3 orig_dir = ray.dir;
             int count = 0;
             color0 = float4(0.0f, 0.0f, 0.0f, 0.0f);
 
-#if 1
-            float4 color_diffuse = float4(0.0f, 0.0f, 0.0f, 0.0f);
-            float3 dummy;
-            float dist;
-            int N = 8;
-            for (int i = 0; i < N; ++i) {
-                ray.dir = GenerateFibonacciHemisphereRay(orig_dir, i, N, time);
-                color_diffuse += float4(GetColor(ray, dummy, dist), 1.0f);
-                count++;
+            if ((enabled & INDIRECT_ENABLED) && step == 2 && ray_source.dispersion > 0.0f) {
+                float4 color_diffuse = float4(0.0f, 0.0f, 0.0f, 0.0f);
+                float3 dummy;
+               
+
+                float3 up = abs(normal.z) < 0.999f ? float3(0.0f, 0.0f, 1.0f) : float3(1.0f, 0.0f, 0.0f);
+                float3 tangent = normalize(cross(up, normal));
+                float3 bitangent = cross(normal, tangent);
+
+                int N = 32.0f;
+                for (int i = 0; i < N; ++i) {
+                    float3 seed = orig_pos * time;
+                    ray.dir = GenerateFibonacciHemisphereRay(normal, tangent, bitangent, i, N, seed);
+                    ray.orig.xyz += ray.dir * 0.01f;
+                    float dist = FLT_MAX;
+                    float4 c = float4(GetColor(ray, dummy, dist), 1.0f);
+                    color_diffuse += saturate(c / max(dist * 0.1, 1.0f));
+                    count++;
+                }
+                color_diffuse /= count;
+                color0 += color_diffuse * ray_source.dispersion;
             }
-            color_diffuse /= count * 0.2f;
-            //color_diffuse *= ray_source.dispersion;
-            color0 += color_diffuse;
-#endif
-#if 1
-            float4 color_reflex = float4(0.0f, 0.0f, 0.0f, 0.0f);
 
-            ray.dir = orig_dir;
-            float distance = FLT_MAX;
-            float distance_att = max(distance * ray_source.dispersion * 0.3f, 1.0f);
-            color_reflex += float4(GetColor(ray, bloomColor, distance), 1.0f);
-            count = 1;
-            if (ray_source.dispersion > 0.0f) {
-                float3 v0, v1;
-                GetPerpendicularPlane(ray.dir, v0, v1);
-                float3 dirs[3][2] = { {v1, v0 - v1, -v0 - v1 },
-                                        {-v1, -v0 + v1, v0 + v1 } };
+            if ((enabled & REFLEX_ENABLED) && step == 1) {
+                float4 color_reflex = float4(0.0f, 0.0f, 0.0f, 0.0f);
 
-                float loops = (int)(ray_source.dispersion * 5.0f);
-                float delta = 0.0f;
-                float dist;
-                for (int l = 0; l <= loops && delta < distance * 0.005f; ++l) {
-                    int ld = l % 2;
-                    delta = ray_source.dispersion * 0.01f * (l + 1.0f);
-                    for (int i = 0; i < 3; ++i) {
-                        float3 rdir = orig_dir + dirs[i][ld] * delta;
-                        ray.dir = rdir;
-                        float4 c = float4(GetColor(ray, bloomColor, dist), 1.0f);
-                        float dist_att = max(dist * ray_source.dispersion * 0.3f, 1.0f);
-                        color_reflex += c / dist_att;
-                        count++;
+               
+                ray.dir = orig_dir;
+                float distance = FLT_MAX;
+                float4 c = float4(GetColor(ray, bloomColor, distance), 1.0f);
+                float distance_att = max(distance * ray_source.dispersion * 0.3f, 1.0f);
+                color_reflex += c / distance_att;
+                count = 1;
+                if (ray_source.dispersion > 0.0f) {
+                    float3 v0, v1;
+                    GetPerpendicularPlane(ray.dir, v0, v1);
+                    float3 dirs[3][2] = { {v1, v0 - v1, -v0 - v1 },
+                                            {-v1, -v0 + v1, v0 + v1 } };
+
+                    float loops = (int)(ray_source.dispersion * 2.0f);
+                    float delta = 0.0f;
+                    float dist;
+                    for (int l = 0; l <= loops && delta < distance * 0.005f; ++l) {
+                        int ld = l % 2;
+                        delta = ray_source.dispersion * 0.02f * (l + 1.0f);
+                        for (int i = 0; i < 3; ++i) {
+                            float3 rdir = orig_dir + dirs[i][ld] * delta;
+                            ray.dir = rdir;
+                            c = float4(GetColor(ray, bloomColor, dist), 1.0f);
+                            distance_att = max(dist * ray_source.dispersion, 1.0f);
+                            color_reflex += c / distance_att;
+                            count++;
+                        }
                     }
                 }
+                color_reflex /= count;
+                color0 += color_reflex;
             }
-            color_reflex /= count;
-            color0 += color_reflex;// *(1.0f - ray_source.dispersion);
+        }
+    }
+
+    if (step == 1) {
+        //Refracted ray
+        if (ray_source.opacity < 1.0f && (enabled & REFRACT_ENABLED)) {
+            Ray ray = GetRefractedRayFromSource(ray_source);
+            if (length(ray.dir) > Epsilon)
+            {
+                float dummy;
+                color1 = float4(GetColor(ray, bloomColor, dummy), 1.0f) * (1.0f - ray_source.opacity);
+            }
+        }
+        output0[pixel] = color0; // output0[pixel] * 0.25f + color0 * 0.75f;
+        output1[pixel] = color1;
+#if 1
+        for (uint bx = 0; bx < bloomRatio.x; ++bx) {
+            for (uint by = 0; by < bloomRatio.y; ++by) {
+                uint2 bpixel = { pixel.x * bloomRatio.x + bx, pixel.y * bloomRatio.y + by };
+                bloom[bpixel] += float4(bloomColor * 0.8f, 1.0f);
+            }
+        }
 #endif
-        }
     }
-
-    //Refracted ray
-    if (ray_source.opacity < 1.0f && (enabled & REFRACT_ENABLED)) {
-        Ray ray = GetRefractedRayFromSource(ray_source);
-        if (length(ray.dir) > Epsilon)
-        {
-            float dummy;
-            color1 = float4(GetColor(ray, bloomColor, dummy), 1.0f) * (1.0f - ray_source.opacity);
-        }
-    }
-
-    output0[pixel] = color0 * ray_source.reflex;
-    output1[pixel] = color1;
-
-    for (uint bx = 0; bx < bloomRatio.x; ++bx) {
-        for (uint by = 0; by < bloomRatio.y; ++by) {
-            uint2 bpixel = { pixel.x * bloomRatio.x + bx, pixel.y * bloomRatio.y + by };
-            bloom[bpixel] += float4(bloomColor * 0.8f, 1.0f);
-        }
+    else {
+        output0[pixel] = color0; // output0[pixel] * 0.25f + color0 * 0.75f;
     }
 }

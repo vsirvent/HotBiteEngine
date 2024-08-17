@@ -117,6 +117,7 @@ namespace HotBite {
 				static const std::string DISPLACEMENT_SCALE;
 
 				enum class eRtQuality {
+					OFF,
 					LOW,
 					HIGH
 				};
@@ -244,10 +245,8 @@ namespace HotBite {
 			private:
 
 				Core::DXCore* dxcore = nullptr;
-				Core::RenderTexture2D depth_map_textures[2];
-				Core::RenderTexture2D* depth_map = &depth_map_textures[0];
-				Core::RenderTexture2D* prev_depth_map = &depth_map_textures[1];
-
+				Core::RenderTexture2D depth_map;
+				
 				Core::RenderTexture2D light_map;
 				Core::RenderTexture2D vol_light_map;
 				Core::RenderTexture2D vol_light_map2;
@@ -276,18 +275,18 @@ namespace HotBite {
 				uint32_t RT_TEXTURE_RESOLUTION_DIVIDER = 1;
 				static constexpr uint32_t RT_REFLEX_ENABLE = 1;
 				static constexpr uint32_t RT_REFRACT_ENABLE = 2;
+				static constexpr uint32_t RT_INDIRECT_ENABLE = 4;
 
-				uint32_t rt_enabled = RT_REFLEX_ENABLE | RT_REFRACT_ENABLE;
+				uint32_t rt_enabled = RT_INDIRECT_ENABLE | RT_REFLEX_ENABLE | RT_REFRACT_ENABLE;
 				Core::TBVH tbvh{ MAX_OBJECTS };
 				Core::SimpleComputeShader* rt_shader = nullptr;
 				Core::SimpleComputeShader* rt_smooth = nullptr;
 
 				//RT texture 1: Reflexed rays
 				//RT texture 2: Refracted rays
-				static constexpr int RT_NTEXTURES = 2;
-				Core::RenderTexture2D rt_texture[2][RT_NTEXTURES];
-				Core::RenderTexture2D* rt_texture_ptr = rt_texture[0];
-				Core::RenderTexture2D* rt_texture_prev_ptr = rt_texture[1];
+				//RT texture 3: Indirect rays
+				static constexpr int RT_NTEXTURES = 3;
+				Core::RenderTexture2D rt_texture[RT_NTEXTURES];
 				Core::RenderTexture2D rt_texture_out[RT_NTEXTURES];
 				Core::RenderTexture2D rt_texture_props;
 				Core::RenderTexture2D rt_ray_sources0;
@@ -409,8 +408,8 @@ namespace HotBite {
 				bool GetCloudTest() const;
 				void SetRayTracingQuality(eRtQuality quality);
 				eRtQuality GetRayTracingQuality() const;
-				void SetRayTracing(bool reflex_enabled, bool refract_enabled);
-				void GetRayTracing(bool& reflex_enabled, bool& refract_enabled) const;
+				void SetRayTracing(bool reflex_enabled, bool refract_enabled, bool indirect_enabled);
+				void GetRayTracing(bool& reflex_enabled, bool& refract_enabled, bool& indirect_enabled) const;
 				void SetDustEnabled(bool enabled);
 				bool GetDustEnabled() const;
 				void SetDustEffectArea(int32_t num_particles, const float3& area, const float3& offset);

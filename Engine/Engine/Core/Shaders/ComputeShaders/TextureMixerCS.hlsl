@@ -29,6 +29,8 @@ SOFTWARE.
 cbuffer externalData : register(b0)
 {
     int rt_enabled;
+    int frame_count;
+    float time;
 }
 
 RWTexture2D<float4> output : register(u0);
@@ -38,12 +40,15 @@ Texture2D lightTexture: register(t4);
 Texture2D bloomTexture: register(t5);
 Texture2D rtTexture0 : register(t6);
 Texture2D rtTexture1 : register(t7);
-Texture2D volLightTexture: register(t8);
-Texture2D dustTexture: register(t9);
-Texture2D lensFlareTexture: register(t10);
-Texture2D positions: register(t11);
-Texture2D normals: register(t12);
+Texture2D rtTexture2 : register(t8);
+Texture2D volLightTexture: register(t9);
+Texture2D dustTexture: register(t10);
+Texture2D lensFlareTexture: register(t11);
+Texture2D positions: register(t12);
+Texture2D normals: register(t13);
 SamplerState basicSampler : register(s0);
+
+#include "../Common/RGBANoise.hlsli"
 
 float4 readColor(float2 pixel, texture2D text, uint w, uint h) {
     uint w2, h2;
@@ -75,16 +80,19 @@ void main(uint3 DTid : SV_DispatchThreadID)
     float4 b = readColor(tpos, bloomTexture, w, h);
     float4 rt0 = readColor(tpos, rtTexture0, w, h);
     float4 rt1 = readColor(tpos, rtTexture1, w, h);
+    float4 rt2 = saturate(readColor(tpos, rtTexture2, w, h));
     float4 vol = readColor(tpos, volLightTexture, w, h);
     float4 dust = readColor(tpos, dustTexture, w, h);
     float4 lens_flare = readColor(tpos, lensFlareTexture, w, h);
 
     if (rt_enabled) {
-        color = color * 0.5f + (color + l) * rt0 + rt1 + b + dust + lens_flare + vol;
-        //color = rt0 * 2.0f;
+        color = color * (l + rt2 * 2.0f) + (color + l ) * rt0 + rt1 + b + dust + lens_flare + vol;
+        //color = rt2;
     }
     else {
-        color += color * l * 0.2f + b + dust + lens_flare + vol;
+        color = color * l + b + dust + lens_flare + vol;
     }
-    output[pixel] = color;
+    uint2 p = pixel * 0.5f;
+    float r = 1.0f + (0.05f - 0.1f * rgba_tnoise(p * frame_count));
+    output[pixel] = color * r;
 }
