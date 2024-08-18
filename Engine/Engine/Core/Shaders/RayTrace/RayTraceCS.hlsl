@@ -197,7 +197,7 @@ float3 GetColor(Ray origRay, out float3 bloom, out float ray_distance)
 
 
             if (material.emission > 0.0f) {
-                color = emission / max(ray.t, 1.0f);
+                color = emission * dot(-normal, ray.dir) / max(ray.t, 1.0f);
             }
             else {
                 color += CalcAmbient(normal);
@@ -252,11 +252,11 @@ float3 GetColor(Ray origRay, out float3 bloom, out float ray_distance)
     return finalColor;
 }
 
-float3 GenerateFibonacciHemisphereRay(float3 dir, float3 tangent, float3 bitangent, float index, float N, float3 seed)
+float3 GenerateFibonacciHemisphereRay(float3 dir, float3 tangent, float3 bitangent, float index, float N, float NLevels, float3 seed)
 {
     // Introduce randomness using the seed
 #if 1
-    float rX = rgba_tnoise(seed);
+    float rX = rgba_tnoise3d(seed) - 0.5f;
     //float rY = 0.5f * betterRandom(dir.x * dir.y, dir.z * index, time);
 
     float a = (index + rX);
@@ -265,21 +265,43 @@ float3 GenerateFibonacciHemisphereRay(float3 dir, float3 tangent, float3 bitange
     float a = index;
     float b = index;
 #endif
-    float goldenRatio = 1.618033988749895f;
-    float theta = 2.0f * M_PI * a /(goldenRatio);
-    float phi = acos(1.0f - b / N); // Polar angle
+    index = abs(index + rX * N) % N;
+    // First point at the top (up direction)
+    if (index < Epsilon) {
+        return dir; // The first point is directly at the top
+    }
 
+    // We use a polar-level system to determine how many points per level
+    int level = 1;
+    int pointsAtLevel = 1; // Start with 1 point at the first level
+    int cumulativePoints = 1; // Keep track of cumulative points
 
-    float cosTheta = cos(theta);
-    float sinTheta = sin(theta);
-    
+    // Find the level for the given index
+    while (cumulativePoints + pointsAtLevel <= index) {
+        pointsAtLevel = (level * 3.0f);
+        level++;
+        cumulativePoints += pointsAtLevel;
+    }
+
+    // Calculate local index within the current level
+    int localIndex = index - cumulativePoints;
+    float phi = 0.1 * rX + (float)level / NLevels * (M_PI / 2.0f);
+
+    // Azimuthal angle (theta) based on number of points at this level
+    float theta = 0.1 * rX + 2.0f * M_PI * localIndex / pointsAtLevel; // Spread points evenly in azimuthal direction
+
+    // Convert spherical coordinates to Cartesian coordinates
     float sinPhi = sin(phi);
     float cosPhi = cos(phi);
+    float sinTheta = sin(theta);
+    float cosTheta = cos(theta);
 
-    float3 localRay = float3(cosTheta * sinPhi, sinTheta * sinPhi, cosPhi);
+    // Local ray direction in spherical coordinates
+    float3 localRay = float3(sinPhi * cosTheta, sinPhi * sinTheta, cosPhi);
 
-    // Convertir el rayo local a las coordenadas globales
+    // Convert local ray to global coordinates (tangent space to world space)
     float3 globalRay = localRay.x * tangent + localRay.y * bitangent + localRay.z * dir;
+
 
     return normalize(dir + globalRay);
 }
@@ -366,11 +388,18 @@ void main(uint3 DTid : SV_DispatchThreadID)
                 float3 tangent = normalize(cross(up, normal));
                 float3 bitangent = cross(normal, tangent);
 
-                int N = 32.0f;
-                for (int i = 0; i < N; ++i) {
-                    float3 seed = orig_pos * time;
-                    ray.dir = GenerateFibonacciHemisphereRay(normal, tangent, bitangent, i, N, seed);
-                    ray.orig.xyz += ray.dir * 0.01f;
+                
+                float NCOUNT = 32.0f;
+                uint N2 = 8;
+                float N = N2 * NCOUNT;
+                float NLevels = 19;
+
+                for (uint i = 0; i < N2; ++i) {
+                    float3 seed = orig_pos * time * (i + 1);
+                    float offset = i;
+                    float index = i * NCOUNT + offset;
+                    ray.dir = GenerateFibonacciHemisphereRay(normal, tangent, bitangent, index, N, NLevels, seed);
+                    ray.orig.xyz = orig_pos + ray.dir * 0.01f;
                     float dist = FLT_MAX;
                     float4 c = float4(GetColor(ray, dummy, dist), 1.0f);
                     color_diffuse += saturate(c / max(dist * 0.1, 1.0f));
@@ -440,6 +469,6 @@ void main(uint3 DTid : SV_DispatchThreadID)
 #endif
     }
     else {
-        output0[pixel] = color0; // output0[pixel] * 0.25f + color0 * 0.75f;
+        output0[pixel] = color0;
     }
 }

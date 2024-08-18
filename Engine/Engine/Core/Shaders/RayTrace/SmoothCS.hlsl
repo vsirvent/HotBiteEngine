@@ -59,7 +59,7 @@ float4 getColor(float2 pixel, float2 dir, float dispersion, float depthRatio)
                 c = lerp(input[tpos], baseColor, saturate(abs(d - pixelDepth) * 10.0f));
             }
             else {
-                c = baseColor;// lerp(input[tpos], baseColor, saturate(abs(d - pixelDepth) * 2.0f));
+                c = baseColor;// input[tpos];// lerp(input[tpos], baseColor, saturate(abs(d - pixelDepth) * 2.0f));
             }
             color += c * BlurWeights[i + HALF_KERNEL];
         }

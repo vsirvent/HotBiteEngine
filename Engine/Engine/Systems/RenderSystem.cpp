@@ -336,6 +336,10 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		if (rt_smooth == nullptr) {
 			throw std::exception("SmoothCS shader.Init failed");
 		}
+		rt_denoiser = ShaderFactory::Get()->GetShader<SimpleComputeShader>("DenoiserCS.cso");
+		if (rt_denoiser == nullptr) {
+			throw std::exception("DenoiserCS shader.Init failed");
+		}
 		motion_blur = ShaderFactory::Get()->GetShader<SimpleComputeShader>("MotionBlurCS.cso");
 		if (motion_blur == nullptr) {
 			throw std::exception("motion blur shader.Init failed");
@@ -1544,7 +1548,9 @@ void RenderSystem::ProcessRT() {
 			ID3D11ShaderResourceView* diff;
 		};
 
-		bool enabled_layer[2]{false};
+		bool enabled_layer[RT_NTEXTURES]{false};
+		enabled_layer[2] = rt_enabled & RT_INDIRECT_ENABLE;
+
 		auto fill = [op = &enabled_layer[0], tr = &enabled_layer[1], ca = &cam_entity](RenderTree& tree, std::map<float, Node>& distance_map) {
 			for (auto& shaders : tree) {
 				for (auto& mat : shaders.second) {
@@ -1680,8 +1686,8 @@ void RenderSystem::ProcessRT() {
 
 		rt_shader->SetUnorderedAccessView("output0", rt_texture[2].UAV());
 		
-		groupsX = (int32_t)(ceil((float)rt_texture[2].Width() / (32.0f)));
-		groupsY = (int32_t)(ceil((float)rt_texture[2].Height() / (32.0f)));
+		groupsX = (int32_t)(ceil((float)texture_tmp.Width() / (32.0f)));
+		groupsY = (int32_t)(ceil((float)texture_tmp.Height() / (32.0f)));
 		dxcore->context->Dispatch(groupsX, groupsY, 1);
 
 		rt_shader->SetUnorderedAccessView("output0", nullptr);
@@ -1697,10 +1703,56 @@ void RenderSystem::ProcessRT() {
 		UnprepareLights(rt_shader);
 		rt_shader->CopyAllBufferData();
 
+		//Denoiser
+		rt_denoiser->SetShaderResourceView("input", rt_texture[2].SRV());
+		rt_denoiser->SetUnorderedAccessView("output", texture_tmp.UAV());
+		rt_denoiser->SetShaderResourceView("normals", rt_ray_sources0.SRV());
+		rt_denoiser->SetShaderResourceView("positions", rt_ray_sources1.SRV());
+		rt_denoiser->SetInt("type", 3);
+		rt_denoiser->CopyAllBufferData();
+		rt_denoiser->SetShader();
+		dxcore->context->Dispatch(groupsX, groupsY, 1);
+		rt_denoiser->SetShaderResourceView("input", nullptr);
+		rt_denoiser->SetUnorderedAccessView("output", nullptr);
+		rt_denoiser->CopyAllBufferData();
+
+		//Denoiser
+		rt_denoiser->SetShaderResourceView("input", texture_tmp.SRV());
+		rt_denoiser->SetUnorderedAccessView("output", rt_texture[2].UAV());
+		rt_denoiser->SetInt("type", 4);
+		rt_denoiser->CopyAllBufferData();
+		dxcore->context->Dispatch(groupsX, groupsY, 1);
+		rt_denoiser->SetShaderResourceView("input", nullptr);
+		rt_denoiser->SetShaderResourceView("output", nullptr);
+		rt_denoiser->CopyAllBufferData();
+#if 0
+		//Denoiser
+		rt_denoiser->SetShaderResourceView("input", rt_texture[2].SRV());
+		rt_denoiser->SetUnorderedAccessView("output", texture_tmp.UAV());
+		rt_denoiser->SetInt("type", 1);
+		rt_denoiser->CopyAllBufferData();
+		dxcore->context->Dispatch(groupsX, groupsY, 1);
+
+		rt_denoiser->SetInt("type", 2);
+		rt_denoiser->SetShaderResourceView("input", nullptr);
+		rt_denoiser->SetUnorderedAccessView("output", nullptr);
+		rt_denoiser->CopyAllBufferData();
+		rt_denoiser->SetShaderResourceView("input", texture_tmp.SRV());
+		rt_denoiser->SetUnorderedAccessView("output", rt_texture[2].UAV());
+		rt_denoiser->CopyAllBufferData();
+		dxcore->context->Dispatch(groupsX, groupsY, 1);
+#endif
+		rt_denoiser->SetShaderResourceView("input", nullptr);
+		rt_denoiser->SetUnorderedAccessView("output", nullptr);
+		rt_denoiser->SetShaderResourceView("normals", nullptr);
+		rt_denoiser->SetShaderResourceView("positions", nullptr);
+		rt_denoiser->CopyAllBufferData();
+
 		//Smooth frame
 		rt_smooth->SetUnorderedAccessView("props", rt_texture_props.UAV());
 		rt_smooth->SetShaderResourceView("depth", depth_map.SRV());
 		rt_smooth->SetInt("divider", RT_TEXTURE_RESOLUTION_DIVIDER);
+		
 		int i = rt_quality == eRtQuality::HIGH?2:0;
 			
 		for (; i < RT_NTEXTURES; ++i) {
