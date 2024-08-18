@@ -11,6 +11,7 @@ Texture2D<float4> input : register(t0);
 RWTexture2D<float4> output : register(u0);
 Texture2D<float4> normals : register(t1);
 Texture2D<float4> positions : register(t2);
+Texture2D<float4> prev_output : register(t3);
 
 float4 RoundColor(float4 color, float precision) {
     return round(color * precision) / precision;
@@ -50,6 +51,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     float3 p0_position = positions[info_pixel].xyz;
 
     float4 c = float4(0.0f, 0.0f, 0.0f, 0.0f);
+    
     float count = 0.0f;
 
     float2 dir = float2(0.0f, 0.0f);
@@ -61,8 +63,8 @@ void main(uint3 DTid : SV_DispatchThreadID)
     }
 
     if (type == 1 || type == 2) {
-#define KERNEL 8
-
+        
+#define KERNEL 12
         float4 c0 = float4(0.0f, 0.0f, 0.0f, 0.0f);
         for (int i = -KERNEL; i <= KERNEL; ++i) {
             float2 p = pixel + dir * i;
@@ -70,22 +72,38 @@ void main(uint3 DTid : SV_DispatchThreadID)
             float3 p1_normal = normals[info_pixel].xyz;
             float3 p1_position = positions[info_pixel].xyz;
             float4 color = input[p];
-            float w = dot(p0_normal, p1_normal) / max(length(p1_position - p0_position), 1.0f);
+            float dist = max(length(p1_position - p0_position), 0.1f);
+            float n = saturate(dot(p0_normal, p1_normal));
+            float w = n / dist;
+            
             c0 += color * w;
             count += w;
         }
-        output[pixel] = c0 / count;
+
+        if (count > Epsilon) {
+            c0 /= count;
+        }
+        else {
+            c0 *= 0.0f;
+        }
+        if (type == 1) {
+            output[pixel] = c0;
+        }
+        else if (type == 2) {
+            float4 prev_color = prev_output[pixel];
+            output[pixel] = prev_color * 0.3f + c0 * 0.7f;
+        }
     }
     else if (type == 3 || type == 4) {
 
-#define SIZE 16
+#define SIZE 3
 #define NCOLORS (uint)(2 * SIZE + 1)
         uint maxColors = NCOLORS;
         ColorCount colorCounts[NCOLORS];
 
         float4 incolor = input[pixel];
-        if (incolor.a == 0.0f) {
-            output[pixel] = float4(0.0f, 0.0f, 0.0f, 0.0f);
+        if (true) { //incolor.a == 0.0f) {
+            output[pixel] = input[pixel]; // float4(0.0f, 0.0f, 0.0f, 0.0f);
             return;
         }
 
@@ -181,7 +199,12 @@ void main(uint3 DTid : SV_DispatchThreadID)
             }
         }
         if (wtotal > Epsilon) {
-            output[pixel] = mostFrequentColor / wtotal;
+            if (type == 3) {
+                output[pixel] = mostFrequentColor / wtotal;
+            }
+            else if (type == 4) {
+                output[pixel] = mostFrequentColor / wtotal;
+            }
         }
     }
 }

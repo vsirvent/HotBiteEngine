@@ -253,6 +253,7 @@ namespace HotBite {
 				Core::RenderTexture2D position_map;
 				Core::RenderTexture2D prev_position_map;
 				Core::RenderTexture2D bloom_map;
+				Core::RenderTexture2D emission_map;
 				Core::RenderTexture2D temp_map;
 				Core::RenderTexture2D rgba_noise_texture;
 				Core::RenderTexture2D first_pass_texture;				
@@ -287,7 +288,9 @@ namespace HotBite {
 				//RT texture 2: Refracted rays
 				//RT texture 3: Indirect rays
 				static constexpr int RT_NTEXTURES = 3;
-				Core::RenderTexture2D rt_texture[RT_NTEXTURES];
+				Core::RenderTexture2D rt_textures[2][RT_NTEXTURES];
+				Core::RenderTexture2D* rt_texture_prev;
+				Core::RenderTexture2D* rt_texture_curr;
 				Core::RenderTexture2D rt_texture_out[RT_NTEXTURES];
 				Core::RenderTexture2D rt_texture_props;
 				Core::RenderTexture2D rt_ray_sources0;

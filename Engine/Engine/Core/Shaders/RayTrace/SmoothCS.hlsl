@@ -9,7 +9,7 @@ Texture2D<float> depth : register(t0);
 #define EPSILON 1e-6
 #define VERTICAL 1
 #define HORIZONTAL 2
-#define KERNEL_SIZE 5
+#define KERNEL_SIZE 1
 #define HALF_KERNEL KERNEL_SIZE/2
 
 cbuffer externalData : register(b0)
@@ -56,10 +56,10 @@ float4 getColor(float2 pixel, float2 dir, float dispersion, float depthRatio)
             float d = depth[tpos * depthRatio];
             float4 c;
             if (use_depth != 0) {
-                c = lerp(input[tpos], baseColor, saturate(abs(d - pixelDepth) * 10.0f));
+                c = lerp(input[tpos], baseColor, saturate(abs(d - pixelDepth) * 1.0f));
             }
             else {
-                c = baseColor;// input[tpos];// lerp(input[tpos], baseColor, saturate(abs(d - pixelDepth) * 2.0f));
+                c = input[tpos];
             }
             color += c * BlurWeights[i + HALF_KERNEL];
         }

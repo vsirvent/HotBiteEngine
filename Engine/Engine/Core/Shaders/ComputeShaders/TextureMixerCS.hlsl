@@ -46,6 +46,7 @@ Texture2D dustTexture: register(t10);
 Texture2D lensFlareTexture: register(t11);
 Texture2D positions: register(t12);
 Texture2D normals: register(t13);
+Texture2D emissionTexture: register(t14);
 SamplerState basicSampler : register(s0);
 
 #include "../Common/RGBANoise.hlsli"
@@ -78,6 +79,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     float4 color = input[pixel];
     float4 l = readColor(tpos, lightTexture, w, h);
     float4 b = readColor(tpos, bloomTexture, w, h);
+    float4 e = readColor(tpos, emissionTexture, w, h);
     float4 rt0 = readColor(tpos, rtTexture0, w, h);
     float4 rt1 = readColor(tpos, rtTexture1, w, h);
     float4 rt2 = saturate(readColor(tpos, rtTexture2, w, h));
@@ -86,7 +88,8 @@ void main(uint3 DTid : SV_DispatchThreadID)
     float4 lens_flare = readColor(tpos, lensFlareTexture, w, h);
 
     if (rt_enabled) {
-        color = color * (l + rt2 * 2.0f) + (color + l ) * rt0 + rt1 + b + dust + lens_flare + vol;
+        color = color * (l + rt2) + color * e + rt1 + b + dust + lens_flare + vol;
+        color.rgb += saturate((color + l) * rt0 * 1.5f);
         //color = rt2;
     }
     else {

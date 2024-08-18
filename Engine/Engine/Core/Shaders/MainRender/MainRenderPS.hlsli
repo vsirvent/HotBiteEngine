@@ -81,8 +81,8 @@ RenderTargetRT MainRenderPS(GSOutput input)
 		
 		scale = abs(scale);
 		if ((material.flags & PARALLAX_MAP_ENABLED_FLAG || multi_texture_count > 0 ) && scale != 0.0f) {
-			float h = 0;
 			matrix global_to_tbn = inverse(tbn);
+			float h = 0;
 			float3 tbn_cam_pos = mul(float4(cameraPosition, 0.0f), global_to_tbn).xyz;
 			float3 tbn_fragment_pos = mul(input.worldPos, global_to_tbn).xyz;
 			float3 tbn_fragment_displacement;
@@ -195,6 +195,7 @@ RenderTargetRT MainRenderPS(GSOutput input)
 	emission *= material.emission;
 	finalColor += emission;
 	lightColor += emission;
+	lumColor += emission;
 #if 0
 	//Emission of point lights	
 	matrix worldViewProj = mul(view, projection);

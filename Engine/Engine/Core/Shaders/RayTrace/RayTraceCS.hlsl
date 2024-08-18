@@ -46,13 +46,13 @@ cbuffer externalData : register(b0)
 
     //Lights
     AmbientLight ambientLight;
-	DirLight dirLights[MAX_LIGHTS];
-	PointLight pointLights[MAX_LIGHTS];
-	uint dirLightsCount;
-	uint pointLightsCount;
+    DirLight dirLights[MAX_LIGHTS];
+    PointLight pointLights[MAX_LIGHTS];
+    uint dirLightsCount;
+    uint pointLightsCount;
 
-	float4 LightPerspectiveValues[MAX_LIGHTS / 2];
-	matrix DirPerspectiveMatrix[MAX_LIGHTS];
+    float4 LightPerspectiveValues[MAX_LIGHTS / 2];
+    matrix DirPerspectiveMatrix[MAX_LIGHTS];
 }
 
 
@@ -86,7 +86,7 @@ static float2 lps[MAX_LIGHTS] = (float2[MAX_LIGHTS])LightPerspectiveValues;
 float3 GetColor(Ray origRay, out float3 bloom, out float ray_distance)
 {
 
-    static const float max_distance = 100.0f;
+    static const float max_distance = 500.0f;
     ray_distance = FLT_MAX;
     uint stack[MAX_STACK_SIZE];
     bool collide = false;
@@ -139,13 +139,13 @@ float3 GetColor(Ray origRay, out float3 bloom, out float ray_distance)
                         if (IntersectTri(oray, idx, o.vertexOffset, tmp_result))
                         {
                             if (tmp_result.distance < object_result.distance) {
-                               object_result.v0 = tmp_result.v0;
-                               object_result.v1 = tmp_result.v1;
-                               object_result.v2 = tmp_result.v2;
-                               object_result.vindex = tmp_result.vindex;
-                               object_result.distance = tmp_result.distance;
-                               object_result.uv = tmp_result.uv;
-                               object_result.object = i;
+                                object_result.v0 = tmp_result.v0;
+                                object_result.v1 = tmp_result.v1;
+                                object_result.v2 = tmp_result.v2;
+                                object_result.vindex = tmp_result.vindex;
+                                object_result.distance = tmp_result.distance;
+                                object_result.uv = tmp_result.uv;
+                                object_result.object = i;
                             }
                         }
                     }
@@ -195,9 +195,8 @@ float3 GetColor(Ray origRay, out float3 bloom, out float ray_distance)
             float4 emission = material.emission * float4(material.emission_color, 1.0f);
             bloom += emission;
 
-
             if (material.emission > 0.0f) {
-                color = emission * dot(-normal, ray.dir) / max(ray.t, 1.0f);
+                color = emission * dot(-normal, ray.dir) * 2.0f/ max(ray.t, 1.0f);
             }
             else {
                 color += CalcAmbient(normal);
@@ -248,7 +247,7 @@ float3 GetColor(Ray origRay, out float3 bloom, out float ray_distance)
 
         }
     }
-   
+
     return finalColor;
 }
 
@@ -271,24 +270,23 @@ float3 GenerateFibonacciHemisphereRay(float3 dir, float3 tangent, float3 bitange
         return dir; // The first point is directly at the top
     }
 
-    // We use a polar-level system to determine how many points per level
-    int level = 1;
-    int pointsAtLevel = 1; // Start with 1 point at the first level
-    int cumulativePoints = 1; // Keep track of cumulative points
+    // Calculate the level directly using the inverse sum formula for the triangular number
+    float sqrtTerm = sqrt(1 + 8 * (index / 3.0f));
+    float level = floor((-1.0f + sqrtTerm) / 2.0f);
 
-    // Find the level for the given index
-    while (cumulativePoints + pointsAtLevel <= index) {
-        pointsAtLevel = (level * 3.0f);
-        level++;
-        cumulativePoints += pointsAtLevel;
-    }
+    // Calculate cumulative points up to the previous level
+    float cumulativePoints = 3.0f * level * (level + 1) / 2.0f;
+
+    // Points at the current level
+    float pointsAtLevel = level * 3.0f;
 
     // Calculate local index within the current level
     int localIndex = index - cumulativePoints;
-    float phi = 0.1 * rX + (float)level / NLevels * (M_PI / 2.0f);
+
+    float phi = (float)level / NLevels * (M_PI / 2.0f);
 
     // Azimuthal angle (theta) based on number of points at this level
-    float theta = 0.1 * rX + 2.0f * M_PI * localIndex / pointsAtLevel; // Spread points evenly in azimuthal direction
+    float theta = rX + 2.0f * M_PI * localIndex / pointsAtLevel; // Spread points evenly in azimuthal direction
 
     // Convert spherical coordinates to Cartesian coordinates
     float sinPhi = sin(phi);
@@ -336,7 +334,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
 
     float x = (float)DTid.x;
     float y = (float)DTid.y;
-   
+
     float2 rayMapRatio = ray_map_dimensions / dimensions;
     float2 bloomRatio = bloom_dimensions / dimensions;
 
@@ -349,7 +347,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
 
     RaySource ray_source = fromColor(ray0[ray_pixel], ray1[ray_pixel]);
 
-    props[pixel] = props[pixel]*0.5f + ray_source.dispersion*0.5f;
+    props[pixel] = props[pixel] * 0.5f + ray_source.dispersion * 0.5f;
 
     if (step == 1)
     {
@@ -382,17 +380,17 @@ void main(uint3 DTid : SV_DispatchThreadID)
             if ((enabled & INDIRECT_ENABLED) && step == 2 && ray_source.dispersion > 0.0f) {
                 float4 color_diffuse = float4(0.0f, 0.0f, 0.0f, 0.0f);
                 float3 dummy;
-               
+
 
                 float3 up = abs(normal.z) < 0.999f ? float3(0.0f, 0.0f, 1.0f) : float3(1.0f, 0.0f, 0.0f);
                 float3 tangent = normalize(cross(up, normal));
                 float3 bitangent = cross(normal, tangent);
 
-                
+
                 float NCOUNT = 32.0f;
                 uint N2 = 8;
                 float N = N2 * NCOUNT;
-                float NLevels = 19;
+                float NLevels = 14 * ray_source.dispersion;
 
                 for (uint i = 0; i < N2; ++i) {
                     float3 seed = orig_pos * time * (i + 1);
@@ -402,7 +400,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
                     ray.orig.xyz = orig_pos + ray.dir * 0.01f;
                     float dist = FLT_MAX;
                     float4 c = float4(GetColor(ray, dummy, dist), 1.0f);
-                    color_diffuse += saturate(c / max(dist * 0.1, 1.0f));
+                    color_diffuse += c / max(dist * 0.1, 1.0f);
                     count++;
                 }
                 color_diffuse /= count;
@@ -412,11 +410,11 @@ void main(uint3 DTid : SV_DispatchThreadID)
             if ((enabled & REFLEX_ENABLED) && step == 1) {
                 float4 color_reflex = float4(0.0f, 0.0f, 0.0f, 0.0f);
 
-               
+
                 ray.dir = orig_dir;
                 float distance = FLT_MAX;
                 float4 c = float4(GetColor(ray, bloomColor, distance), 1.0f);
-                float distance_att = max(distance * ray_source.dispersion * 0.3f, 1.0f);
+                float distance_att = max(distance, 1.0f);
                 color_reflex += c / distance_att;
                 count = 1;
                 if (ray_source.dispersion > 0.0f) {
@@ -425,24 +423,24 @@ void main(uint3 DTid : SV_DispatchThreadID)
                     float3 dirs[3][2] = { {v1, v0 - v1, -v0 - v1 },
                                             {-v1, -v0 + v1, v0 + v1 } };
 
-                    float loops = (int)(ray_source.dispersion * 2.0f);
+                    float loops = (int)(ray_source.dispersion * 5.0f);
                     float delta = 0.0f;
                     float dist;
                     for (int l = 0; l <= loops && delta < distance * 0.005f; ++l) {
                         int ld = l % 2;
-                        delta = ray_source.dispersion * 0.02f * (l + 1.0f);
+                        delta = ray_source.dispersion * 0.01f * (l + 1.0f);
                         for (int i = 0; i < 3; ++i) {
                             float3 rdir = orig_dir + dirs[i][ld] * delta;
                             ray.dir = rdir;
                             c = float4(GetColor(ray, bloomColor, dist), 1.0f);
-                            distance_att = max(dist * ray_source.dispersion, 1.0f);
+                            distance_att = max(dist, 1.0f);
                             color_reflex += c / distance_att;
                             count++;
                         }
                     }
                 }
                 color_reflex /= count;
-                color0 += color_reflex;
+                color0 += color_reflex * (1.0f - ray_source.dispersion);
             }
         }
     }
@@ -459,14 +457,15 @@ void main(uint3 DTid : SV_DispatchThreadID)
         }
         output0[pixel] = color0; // output0[pixel] * 0.25f + color0 * 0.75f;
         output1[pixel] = color1;
-#if 1
+        uint2 bpixel = { pixel.x * bloomRatio.x, pixel.y * bloomRatio.y };
+
+        float4 bColor = saturate(float4(bloomColor * (1.0f - ray_source.dispersion), 1.0f));
         for (uint bx = 0; bx < bloomRatio.x; ++bx) {
             for (uint by = 0; by < bloomRatio.y; ++by) {
                 uint2 bpixel = { pixel.x * bloomRatio.x + bx, pixel.y * bloomRatio.y + by };
-                bloom[bpixel] += float4(bloomColor * 0.8f, 1.0f);
+                bloom[bpixel] = bColor;
             }
         }
-#endif
     }
     else {
         output0[pixel] = color0;
