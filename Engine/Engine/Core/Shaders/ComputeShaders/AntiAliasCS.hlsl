@@ -46,7 +46,7 @@ float BorderValue(float2 pixel) {
     float z0 = depthTexture[dp].r;
     float3 n0 = normalTexture[pixel].xyz;
     float border = 0.0f;
-    int l = 2;
+    int l = 1;
     for (int x = -l; x < l; ++x) {
         for (int y = -l; y < l; ++y) {
             float2 delta = float2(x, y);

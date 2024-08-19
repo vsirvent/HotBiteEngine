@@ -5,6 +5,7 @@
 cbuffer externalData : register(b0)
 {
     uint type;
+    float3 cameraPosition;
 }
 
 Texture2D<float4> input : register(t0);
@@ -35,7 +36,12 @@ void main(uint3 DTid : SV_DispatchThreadID)
     uint2 normals_dimensions;
     {
         uint w, h;
-        input.GetDimensions(w, h);
+        if (type == 1 || type == 3) {
+            input.GetDimensions(w, h);
+        }
+        else if (type == 2 || type == 4) {
+            output.GetDimensions(w, h);
+        }
         input_dimensions.x = w;
         input_dimensions.y = h;
 
@@ -61,18 +67,19 @@ void main(uint3 DTid : SV_DispatchThreadID)
     else if (type == 2 || type == 4) {
         dir = float2(0.0f, 1.0f);
     }
-
+    float distToCam = min(pow(dist2(cameraPosition - p0_position), 1.0f), 10.0f);
     if (type == 1 || type == 2) {
         
-#define KERNEL 16
+#define KERNEL 8
         float4 c0 = float4(0.0f, 0.0f, 0.0f, 0.0f);
+        float dist_att = 0.0f;
         for (int i = -KERNEL; i <= KERNEL; ++i) {
             float2 p = pixel + dir * i;
             info_pixel = p * normalRatio;
             float3 p1_normal = normals[info_pixel].xyz;
             float3 p1_position = positions[info_pixel].xyz;
-            float4 color = input[p];
-            float dist = max(length(p1_position - p0_position), 0.1f);
+            float4 color = input[p]; 
+            float dist = max(length(p1_position - p0_position), 0.1f * distToCam);
             float n = saturate(dot(p0_normal, p1_normal));
             float w = n / dist;
             
@@ -91,16 +98,16 @@ void main(uint3 DTid : SV_DispatchThreadID)
         }
         else if (type == 2) {
             float4 prev_color = prev_output[pixel];
-            output[pixel] = prev_color * 0.3f + c0 * 0.7f;
+            output[pixel] = prev_color * 0.5f + c0 * 0.5f;
         }
     }
     else if (type == 3 || type == 4) {
 
-#define SIZE 5
+#define SIZE 1
 #define NCOLORS (uint)(2 * SIZE + 1)
         uint maxColors = NCOLORS;
         ColorCount colorCounts[NCOLORS];
-        if (true == 0.0f) {
+        if (true) {
             output[pixel] = input[pixel]; // float4(0.0f, 0.0f, 0.0f, 0.0f);
             return;
         }
@@ -183,8 +190,8 @@ void main(uint3 DTid : SV_DispatchThreadID)
                     float3 p1_normal = normals[info_pixel].xyz;
                     float3 p1_position = positions[info_pixel].xyz;
                     float4 color = input[cc.pixel];
-                    float dist = length(p1_position - p0_position);
-                    w = saturate(dot(p0_normal, p1_normal)) / max(dist, 0.001f);
+                    float dist = max(length(p1_position - p0_position), 0.001f * distToCam);
+                    w = 1.0f / dist;
                     float dcolor = (1.0f - length(color - meanColor));
                     w *= pow(dcolor, 2.0f);
                     mostFrequentColor += color * w;

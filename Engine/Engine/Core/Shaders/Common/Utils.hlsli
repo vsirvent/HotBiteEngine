@@ -63,6 +63,7 @@ float4 GetInterpolatedColor(float2 uv, Texture2D text, float2 dimension) {
 		text[p10] * w10);
 }
 
+
 bool IsInteger(float2 value) {
 	return all(value == floor(value));
 }

@@ -407,7 +407,7 @@ void RenderSystem::LoadRTResources() {
 	for (int x = 0; x < RT_NTEXTURES; ++x) {
 		int div = RT_TEXTURE_RESOLUTION_DIVIDER;
 		if (x == RT_NTEXTURES - 1) {
-			div *= 1;
+			div *= 2;
 		}
 
 		for (int n = 0; n < 2; ++n) {

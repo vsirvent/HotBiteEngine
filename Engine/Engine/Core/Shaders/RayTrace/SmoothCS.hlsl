@@ -48,7 +48,7 @@ float4 getColor(float2 pixel, float2 dir, float dispersion, float depthRatio)
         FillGaussianArray(BlurWeights, dispersion);
         float4 color = float4(0.f, 0.f, 0.f, 1.f);
         float2 tpos;
-        
+
         float pixelDepth = depth[pixel * depthRatio];
         float4 baseColor = input[pixel];
         for (int i = -HALF_KERNEL; i <= HALF_KERNEL; ++i) {
@@ -67,7 +67,7 @@ float4 getColor(float2 pixel, float2 dir, float dispersion, float depthRatio)
 void main(uint3 DTid : SV_DispatchThreadID)
 {
     uint2 dir = { 0, 0 };
-    if (type == VERTICAL) {        
+    if (type == VERTICAL) {
         dir = uint2(0, 1);
     }
     else if (type == HORIZONTAL) {
@@ -88,7 +88,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     }
 
     uint2 depthRatio = depth_dimensions / input_dimensions;
-    
+
     float2 pixel = float2(DTid.x, DTid.y);
     float dispersion = props[pixel];
     if (dispersion >= 0.0f) {
