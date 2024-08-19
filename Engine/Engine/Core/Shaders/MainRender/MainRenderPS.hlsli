@@ -220,7 +220,7 @@ RenderTargetRT MainRenderPS(GSOutput input)
 
 	output.scene = finalColor;
 	output.light_map = lumColor;
-	output.bloom_map = lightColor;
+	output.bloom_map = saturate(lightColor);
 
 	RaySource ray;
 	ray.orig = wpos2.xyz;

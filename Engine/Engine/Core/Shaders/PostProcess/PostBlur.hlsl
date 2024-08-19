@@ -61,12 +61,18 @@ float4 blur16(Texture2D t, float2 pos) {
     float4 color = float4(0.f, 0.f, 0.f, 1.f);
     if (horizontal) {
         for (int dx = -8; dx <= 8; ++dx) {
-            color += t.Load(float3(pos.x + dx, pos.y, 0)) * BlurWeights16[dx + 8];
+            float x = pos.x + dx;
+            if (x >= 0 && x < screenW - 8) {
+                color += t.Load(float3(x, pos.y, 0)) * BlurWeights16[dx + 8];
+            }
         }
     }
     else {
         for (int dy = -8; dy <= 8; ++dy) {
-            color += t.Load(float3(pos.x, pos.y + dy, 0)) * BlurWeights16[dy + 8];
+            float y = pos.y + dy;
+            if (y >= 0 && y < screenH - 8) {
+                color += t.Load(float3(pos.x, y, 0)) * BlurWeights16[dy + 8];
+            }
         }
     }
     return color;

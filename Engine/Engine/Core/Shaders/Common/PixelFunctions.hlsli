@@ -175,7 +175,7 @@ float3 CalcDirectional(float3 normal, float4 position, float2 uv, MaterialColor 
 	float3 color = light.Color.rgb * light.intensity;
 	// Phong diffuse
 	float NDotL = dot(light.DirToLight, normal);
-	float3 finalColor = color * saturate(NDotL) * (1.0f - spec_intensity);
+	float3 finalColor = color * saturate(NDotL);
 	float3 bloomColor = { 0.f, 0.f, 0.f };
 	//Back reflex
 	float NDotL2 = dot(-light.DirToLight, normal);

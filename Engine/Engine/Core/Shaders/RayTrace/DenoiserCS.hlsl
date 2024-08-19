@@ -64,7 +64,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
 
     if (type == 1 || type == 2) {
         
-#define KERNEL 12
+#define KERNEL 16
         float4 c0 = float4(0.0f, 0.0f, 0.0f, 0.0f);
         for (int i = -KERNEL; i <= KERNEL; ++i) {
             float2 p = pixel + dir * i;
@@ -96,13 +96,16 @@ void main(uint3 DTid : SV_DispatchThreadID)
     }
     else if (type == 3 || type == 4) {
 
-#define SIZE 3
+#define SIZE 5
 #define NCOLORS (uint)(2 * SIZE + 1)
         uint maxColors = NCOLORS;
         ColorCount colorCounts[NCOLORS];
-
+        if (true == 0.0f) {
+            output[pixel] = input[pixel]; // float4(0.0f, 0.0f, 0.0f, 0.0f);
+            return;
+        }
         float4 incolor = input[pixel];
-        if (true) { //incolor.a == 0.0f) {
+        if (incolor.a == 0.0f) {
             output[pixel] = input[pixel]; // float4(0.0f, 0.0f, 0.0f, 0.0f);
             return;
         }
