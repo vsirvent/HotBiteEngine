@@ -97,5 +97,5 @@ void main(uint3 DTid : SV_DispatchThreadID)
     }
     uint2 p = pixel * 0.5f;
     float r = 1.0f + (0.05f - 0.1f * rgba_tnoise(p * frame_count));
-    output[pixel] = color * r;
+    output[pixel] = climit4(color * r);
 }

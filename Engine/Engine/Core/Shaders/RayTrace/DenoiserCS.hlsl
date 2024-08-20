@@ -13,6 +13,7 @@ RWTexture2D<float4> output : register(u0);
 Texture2D<float4> normals : register(t1);
 Texture2D<float4> positions : register(t2);
 Texture2D<float4> prev_output : register(t3);
+Texture2D<float4> motion_texture : register(t4);
 
 float4 RoundColor(float4 color, float precision) {
     return round(color * precision) / precision;
@@ -55,7 +56,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     float2 info_pixel = pixel * normalRatio;
     float3 p0_normal = normals[info_pixel].xyz;
     float3 p0_position = positions[info_pixel].xyz;
-
+    
     float4 c = float4(0.0f, 0.0f, 0.0f, 0.0f);
     
     float count = 0.0f;
@@ -70,7 +71,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     float distToCam = min(pow(dist2(cameraPosition - p0_position), 1.0f), 10.0f);
     if (type == 1 || type == 2) {
         
-#define KERNEL 8
+#define KERNEL 40
         float4 c0 = float4(0.0f, 0.0f, 0.0f, 0.0f);
         float dist_att = 0.0f;
         for (int i = -KERNEL; i <= KERNEL; ++i) {
@@ -79,9 +80,12 @@ void main(uint3 DTid : SV_DispatchThreadID)
             float3 p1_normal = normals[info_pixel].xyz;
             float3 p1_position = positions[info_pixel].xyz;
             float4 color = input[p]; 
-            float dist = max(length(p1_position - p0_position), 0.1f * distToCam);
-            float n = saturate(dot(p0_normal, p1_normal));
-            float w = n / dist;
+            float dist = max(length(p1_position - p0_position), 0.01f);
+            float distNormal = length(p1_normal - p0_normal) / pow(distToCam, 3.0f);
+            distToCam = clamp(distToCam, 1.0f, 1000.0f);
+            float n = saturate(dot(p1_normal, p0_normal));
+            float d = clamp((distNormal * dist), 0.000001f, 1000.0f);
+            float w = pow(n, 10.0f) / d;
             
             c0 += color * w;
             count += w;
@@ -97,13 +101,15 @@ void main(uint3 DTid : SV_DispatchThreadID)
             output[pixel] = c0;
         }
         else if (type == 2) {
+            float motion = length(motion_texture[info_pixel].xyz);
+            float w = max(saturate(0.8 - motion * 50.0f), 0.1f);
             float4 prev_color = prev_output[pixel];
-            output[pixel] = prev_color * 0.5f + c0 * 0.5f;
+            output[pixel] = prev_color * w + c0 * (1.0f - w);
         }
     }
     else if (type == 3 || type == 4) {
 
-#define SIZE 1
+#define SIZE 8
 #define NCOLORS (uint)(2 * SIZE + 1)
         uint maxColors = NCOLORS;
         ColorCount colorCounts[NCOLORS];
@@ -190,7 +196,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
                     float3 p1_normal = normals[info_pixel].xyz;
                     float3 p1_position = positions[info_pixel].xyz;
                     float4 color = input[cc.pixel];
-                    float dist = max(length(p1_position - p0_position), 0.001f * distToCam);
+                    float dist = max(length(p1_normal - p0_normal), 0.0001f * distToCam);
                     w = 1.0f / dist;
                     float dcolor = (1.0f - length(color - meanColor));
                     w *= pow(dcolor, 2.0f);

@@ -252,39 +252,39 @@ float3 GetColor(Ray origRay, out float3 bloom, out float ray_distance)
 
 float3 GenerateFibonacciHemisphereRay(float3 dir, float3 tangent, float3 bitangent, float index, float N, float NLevels, float rX)
 {
-    // Introduce randomness using the seed
-#if 0
-    
-    
-    float a = (index + rX);
-    float b = (index + rX);
-#else
-    float a = index;
-    float b = index;
-#endif
     //index = abs(index + rX * N) % N;
+    index = rX * N;
     // First point at the top (up direction)
     if (index < Epsilon) {
         return dir; // The first point is directly at the top
     }
+    
+    // Quadratically increasing number of points per level
+// Calculate the level directly using the inverse sum formula for the quadratic number series
+    float cumulativePoints = 0;
+    float level = 1;
+    while (true) {
+        float c  = cumulativePoints + level * level;
+        if (c < index) {
+            cumulativePoints = c;
+        }
+        else {
+            break;
+        }
+        level++;
+    };
 
-    // Calculate the level directly using the inverse sum formula for the triangular number
-    float sqrtTerm = sqrt(1 + 8 * (index / 3.0f));
-    float level = floor((-1.0f + sqrtTerm) / 2.0f);
-
-    // Calculate cumulative points up to the previous level
-    float cumulativePoints = 3.0f * level * (level + 1) / 2.0f;
-
-    // Points at the current level
-    float pointsAtLevel = level * 3.0f;
+    // Points at the current level (quadratic growth)
+    float pointsAtLevel = level * level;  // Quadratic growth
 
     // Calculate local index within the current level
-    int localIndex = index - cumulativePoints;
+    float localIndex = index - cumulativePoints;
 
-    float phi = (float)level / NLevels * (M_PI / 2.0f);
+    float phi = level / NLevels * M_PI;
 
+    rX -= 0.5f;
     // Azimuthal angle (theta) based on number of points at this level
-    float theta =  (2.0f * rX) * M_PI * localIndex / pointsAtLevel; // Spread points evenly in azimuthal direction
+    float theta = 2.0f * M_PI * localIndex / pointsAtLevel; // Spread points evenly in azimuthal direction
 
     // Convert spherical coordinates to Cartesian coordinates
     float sinPhi = sin(phi);
@@ -386,25 +386,25 @@ void main(uint3 DTid : SV_DispatchThreadID)
 
 
                 float NCOUNT = 32.0f;
-                uint N2 = 10;
+                uint N2 = 32;
                 float N = N2 * NCOUNT;
-                float NLevels;
-                uint c = 1;
-                uint l = 1;
-                while (c < N) {
-                    c += l++ * 3;
-                }
-                NLevels = l;
-                NLevels *= 0.5f;
-                for (uint i = 0; i < N2; ++i) {
-                    float3 seed = orig_pos * time * (i + 1);
-                    float rX = rgba_tnoise3d(seed) - 0.5f;
-                    float index = rX * N2 + i * NCOUNT;
-                    ray.dir = GenerateFibonacciHemisphereRay(normal, tangent, bitangent, index, N, NLevels, rX);
-                    ray.orig.xyz = orig_pos + ray.dir * 0.01f;
+                float sqrtTerm = sqrt(1 + 4 * N);  // For quadratic series, we need a different formula
+                float NLevels = floor((-1.0f + sqrtTerm) / 2.0f);  // This gives the level
+
+                for (uint i = 0; i < 1; ++i) {
+                    float3 seed = orig_pos * fmod(frame_count + time, 256.0f) * (i + x + y + 1);
+                    seed = fmod(seed, float3(256.0f, 256.0f, 256.0f));
+                    float rX = rgba_tnoise3d(seed);
+                    uint offset = ((x + y) * N2) % NCOUNT;
+                    uint index = (i * NCOUNT + offset + rX / N) % N;
+                    float n1;
+                    do {
+                        ray.dir = GenerateFibonacciHemisphereRay(normal, tangent, bitangent, 0, N, NLevels, rX);
+                        n1 = dot(ray.dir, ray_source.normal);
+                    } while (n1 < 0.05f);
                     float dist = FLT_MAX;
                     float4 c = float4(GetColor(ray, dummy, dist), 1.0f);
-                    color_diffuse += c / max(dist, 1.0f);
+                    color_diffuse += c * n1 / max(log(dist), 1.0f);
                     count++;
                 }
                 color_diffuse /= count;
@@ -418,9 +418,9 @@ void main(uint3 DTid : SV_DispatchThreadID)
 
                 ray.dir = orig_dir;
                 float distance = FLT_MAX;
-                float4 c;// = float4(GetColor(ray, bloomColor, distance), 1.0f);
-                //color_reflex += c;
-                count = 0;
+                float4 c = float4(GetColor(ray, bloomColor, distance), 1.0f);
+                color_reflex += c / max(distance, 1.0f);
+                count = 1;
                 if (ray_source.dispersion > 0.0f) {
                     float3 v0, v1;
                     GetPerpendicularPlane(ray.dir, v0, v1);
@@ -430,12 +430,12 @@ void main(uint3 DTid : SV_DispatchThreadID)
                     float loops = (int)(ray_source.dispersion * 1.0f);
                     float delta = 0.0f;
                     float dist;
-                    for (int l = 0; l <= loops && delta < distance * 0.005f; ++l) {
+                    for (int l = 0; l < loops && delta < distance * 0.005f; ++l) {
                         int ld = l % 2;
                         delta = ray_source.dispersion * 0.02f * (l + 1.0f);
                         for (int i = 0; i < 3; ++i) {
                             float3 seed = orig_pos * time * (i + 1);
-                            float rX = 1.0f; // pow(ray_source.dispersion, 2.0f) * 20.0f * (rgba_tnoise3d(seed) - 0.5f);
+                            float rX = 1.0f;// pow(ray_source.dispersion, 2.0f) * 20.0f * (rgba_tnoise3d(seed) - 0.5f);
 
                             float3 rdir = orig_dir + dirs[i][ld] * delta * rX;
                             ray.dir = rdir;
