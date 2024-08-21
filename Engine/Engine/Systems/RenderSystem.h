@@ -291,7 +291,6 @@ namespace HotBite {
 				Core::RenderTexture2D rt_textures[2][RT_NTEXTURES];
 				Core::RenderTexture2D* rt_texture_prev;
 				Core::RenderTexture2D* rt_texture_curr;
-				Core::RenderTexture2D rt_texture_out[RT_NTEXTURES];
 				Core::RenderTexture2D rt_texture_props;
 				Core::RenderTexture2D rt_ray_sources0;
 				Core::RenderTexture2D rt_ray_sources1;

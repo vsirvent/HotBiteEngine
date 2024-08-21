@@ -66,6 +66,10 @@ float4 getColor(float2 pixel, float2 dir, float dispersion, float depthRatio)
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main(uint3 DTid : SV_DispatchThreadID)
 {
+    float2 pixel = float2(DTid.x, DTid.y);
+    output[pixel] = input[pixel];
+    return;
+#if 0
     uint2 dir = { 0, 0 };
     if (type == VERTICAL) {
         dir = uint2(0, 1);
@@ -89,7 +93,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
 
     uint2 depthRatio = depth_dimensions / input_dimensions;
 
-    float2 pixel = float2(DTid.x, DTid.y);
+
     float dispersion = props[pixel];
     if (dispersion >= 0.0f) {
         output[pixel] = getColor(pixel, dir, dispersion, depthRatio);
@@ -97,4 +101,5 @@ void main(uint3 DTid : SV_DispatchThreadID)
     else {
         output[pixel] = float4(0.0f, 0.0f, 0.0f, 0.0f);
     }
+#endif
 }

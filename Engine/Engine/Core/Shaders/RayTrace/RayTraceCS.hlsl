@@ -252,7 +252,7 @@ float3 GetColor(Ray origRay, out float3 bloom, out float ray_distance)
 
 float3 GenerateFibonacciHemisphereRay(float3 dir, float3 tangent, float3 bitangent, float dispersion, float N, float NLevels, float rX)
 {
-    float index = rX * N;
+    float index = rX * N * dispersion;
     // First point at the top (up direction)
     if (index < Epsilon) {
         return dir; // The first point is directly at the top
@@ -279,11 +279,11 @@ float3 GenerateFibonacciHemisphereRay(float3 dir, float3 tangent, float3 bitange
     // Calculate local index within the current level
     float localIndex = index - cumulativePoints;
 
-    float phi = level * dispersion / NLevels * M_PI * 0.5f;
+    float phi = level / NLevels * M_PI * 0.5f;
 
     rX -= 0.5f;
     // Azimuthal angle (theta) based on number of points at this level
-    float theta = 2.0f * M_PI * localIndex / pointsAtLevel; // Spread points evenly in azimuthal direction
+    float theta = rX + 2.0f * M_PI * localIndex / pointsAtLevel; // Spread points evenly in azimuthal direction
 
     // Convert spherical coordinates to Cartesian coordinates
     float sinPhi = sin(phi);
@@ -374,7 +374,44 @@ void main(uint3 DTid : SV_DispatchThreadID)
             int count = 0;
             color0 = float4(0.0f, 0.0f, 0.0f, 0.0f);
 
+
+            float NCOUNT = 32.0f;
+            uint N2 = 32;
+            float N = N2 * NCOUNT;
+            float sqrtTerm = sqrt(1 + 4 * N);  // For quadratic series, we need a different formula
+            float NLevels = floor((-1.0f + sqrtTerm) / 2.0f);  // This gives the level
+
+            if ((enabled & REFLEX_ENABLED) && step == 1) {
+                float4 color_reflex = float4(0.0f, 0.0f, 0.0f, 0.0f);
+                float3 dummy;
+
+                float3 up = abs(orig_dir.z) < 0.999f ? float3(0.0f, 0.0f, 1.0f) : float3(1.0f, 0.0f, 0.0f);
+                float3 tangent = normalize(cross(up, orig_dir));
+                float3 bitangent = cross(orig_dir, tangent);
+
+                for (uint i = 0; i < 1; ++i) {
+                    float scount = 1;
+                    float n1;
+                    do {
+                        float3 seed = orig_pos * fmod(frame_count + time * scount++, 256.0f) * (i + x + y + 1);
+                        seed = fmod(seed, float3(256.0f, 256.0f, 256.0f));
+                        float rX = rgba_tnoise3d(seed);
+                        ray.dir = GenerateFibonacciHemisphereRay(orig_dir, tangent, bitangent, pow(ray_source.dispersion, 4.0f), N, NLevels, rX);
+                        n1 = saturate(dot(ray.dir, ray_source.normal));
+                    } while (n1 < 0.05f && scount < 3);
+                    float dist = FLT_MAX;
+                    ray.orig.xyz = orig_pos + ray.dir * 0.1f;
+                    float4 c = float4(GetColor(ray, dummy, dist), 1.0f);
+                    color_reflex += c * n1 / max(dist, 1.0f);
+                    count++;
+                }
+                color_reflex /= count;
+                bloomColor /= count;
+                color0 += color_reflex;
+            }
+
             if ((enabled & INDIRECT_ENABLED) && step == 2) {
+                count = 0;
                 float4 color_diffuse = float4(0.0f, 0.0f, 0.0f, 0.0f);
                 float3 dummy;
 
@@ -384,11 +421,6 @@ void main(uint3 DTid : SV_DispatchThreadID)
                 float3 bitangent = cross(normal, tangent);
 
 
-                float NCOUNT = 32.0f;
-                uint N2 = 32;
-                float N = N2 * NCOUNT;
-                float sqrtTerm = sqrt(1 + 4 * N);  // For quadratic series, we need a different formula
-                float NLevels = floor((-1.0f + sqrtTerm) / 2.0f);  // This gives the level
 
                 for (uint i = 0; i < 1; ++i) {
                     float scount = 1;
@@ -397,9 +429,10 @@ void main(uint3 DTid : SV_DispatchThreadID)
                         float3 seed = orig_pos * fmod(frame_count + time * scount++, 256.0f) * (i + x + y + 1);
                         seed = fmod(seed, float3(256.0f, 256.0f, 256.0f));
                         float rX = rgba_tnoise3d(seed);
-                        ray.dir = GenerateFibonacciHemisphereRay(normal, tangent, bitangent, ray_source.dispersion, N, NLevels, rX);
-                        n1 = dot(ray.dir, ray_source.normal);
+                        ray.dir = GenerateFibonacciHemisphereRay(normal, tangent, bitangent, 1.0f, N, NLevels, rX);
+                        n1 = saturate(dot(ray.dir, normal));
                     } while (n1 < 0.05f);
+                    ray.orig.xyz = orig_pos + ray.dir * 0.01f;
                     float dist = FLT_MAX;
                     float4 c = float4(GetColor(ray, dummy, dist), 1.0f);
                     color_diffuse += c * n1 / max(dist, 1.0f);
@@ -408,44 +441,6 @@ void main(uint3 DTid : SV_DispatchThreadID)
                 color_diffuse /= count;
                 bloomColor /= count;
                 color0 += color_diffuse;
-            }
-
-            if ((enabled & REFLEX_ENABLED) && step == 1) {
-                float4 color_reflex = float4(0.0f, 0.0f, 0.0f, 0.0f);
-
-
-                ray.dir = orig_dir;
-                float distance = FLT_MAX;
-                float4 c = float4(GetColor(ray, bloomColor, distance), 1.0f);
-                color_reflex += c / max(distance, 1.0f);
-                count = 1;
-                if (ray_source.dispersion > 0.0f) {
-                    float3 v0, v1;
-                    GetPerpendicularPlane(ray.dir, v0, v1);
-                    float3 dirs[3][2] = { {v1, v0 - v1, -v0 - v1 },
-                                            {-v1, -v0 + v1, v0 + v1 } };
-
-                    float loops = (int)(ray_source.dispersion * 1.0f);
-                    float delta = 0.0f;
-                    float dist;
-                    for (int l = 0; l < loops && delta < distance * 0.005f; ++l) {
-                        int ld = l % 2;
-                        delta = ray_source.dispersion * 0.02f * (l + 1.0f);
-                        for (int i = 0; i < 3; ++i) {
-                            float3 seed = orig_pos * time * (i + 1);
-                            float rX = 1.0f;// pow(ray_source.dispersion, 2.0f) * 20.0f * (rgba_tnoise3d(seed) - 0.5f);
-
-                            float3 rdir = orig_dir + dirs[i][ld] * delta * rX;
-                            ray.dir = rdir;
-                            c = float4(GetColor(ray, bloomColor, dist), 1.0f);
-                            color_reflex += c / max(dist, 1.0f);
-                            count++;
-                        }
-                    }
-                }
-                color_reflex /= count;
-                bloomColor /= count;
-                color0 = color_reflex * (1.0f - ray_source.dispersion);
             }
         }
     }
