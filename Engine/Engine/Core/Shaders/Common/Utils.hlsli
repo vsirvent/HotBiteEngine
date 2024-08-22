@@ -90,59 +90,7 @@ float4 Get3dInterpolatedColor(float2 uv, Texture2D text, float2 dimension, Textu
 	uint2 pos_p01 = p01 * pos_ratio;
 	uint2 pos_p10 = p10 * pos_ratio;
 	uint2 in_pos = texCoords * pos_ratio;
-#if 1
-	// Calculate the fractional part of the coordinates
-	float2 f = frac(texCoords);
 
-	// Calculate the weights for bilinear interpolation
-	float w00 = (1.0f - f.x) * (1.0f - f.y);
-	float w11 = f.x * f.y;
-	float w01 = (1.0f - f.x) * f.y;
-	float w10 = f.x * (1.0f - f.y);
-
-	float3 n00 = normals[pos_p00].xyz;
-	float3 n11 = normals[pos_p11].xyz;
-	float3 n01 = normals[pos_p01].xyz;
-	float3 n10 = normals[pos_p10].xyz;
-	float3 nxx = normals[in_pos].xyz;
-
-	w00 *= max(0.0, dot(nxx, n00));  // Distance to wp00
-	w11 *= max(0.0, dot(nxx, n11));  // Distance to wp11
-	w01 *= max(0.0, dot(nxx, n01));  // Distance to wp01
-	w10 *= max(0.0, dot(nxx, n10));  // Distance to wp10
-
-
-	float3 wp00 = positions[pos_p00].xyz;
-	float3 wp11 = positions[pos_p11].xyz;
-	float3 wp01 = positions[pos_p01].xyz;
-	float3 wp10 = positions[pos_p10].xyz;
-	float3 wpxx = positions[in_pos].xyz;
-
-	if (wp00.x >= FLT_MAX || wp11.x >= FLT_MAX || wp01.x >= FLT_MAX || wp10.x >= FLT_MAX || wpxx.x >= FLT_MAX) {
-		return GetInterpolatedColor(uv, text, dimension);
-	}
-	// Small epsilon to avoid division by zero
-	float epsilon = 1e-10;
-	
-	// Normalize weights
-	float totalWeight = w00 + w11 + w01 + w10;
-
-	if (totalWeight < epsilon) {
-		return GetInterpolatedColor(uv, text, dimension);
-	}
-
-	w00 /= totalWeight;
-	w11 /= totalWeight;
-	w01 /= totalWeight;
-	w10 /= totalWeight;
-
-	// Perform the bilinear interpolation
-	return (text[p00] * w00 +
-		text[p11] * w11 +
-		text[p01] * w01 +
-		text[p10] * w10);
-	
-#else
 	float3 wp00 = positions[pos_p00].xyz;
 	float3 wp11 = positions[pos_p11].xyz;
 	float3 wp01 = positions[pos_p01].xyz;
@@ -160,7 +108,7 @@ float4 Get3dInterpolatedColor(float2 uv, Texture2D text, float2 dimension, Textu
 	float d10 = dist2(wpxx - wp10);  // Distance to wp10
 
 	// Small epsilon to avoid division by zero
-	float epsilon = 1e-10;
+	float epsilon = 1e-5;
 
 	// Calculate weights based on inverse distance (closer points have higher weight)
 	float w00 = 1.0f / max(d00, epsilon);
@@ -174,12 +122,11 @@ float4 Get3dInterpolatedColor(float2 uv, Texture2D text, float2 dimension, Textu
 	float3 n10 = normals[pos_p10].xyz;
 	float3 nxx = normals[in_pos].xyz;
 
-	w00 *= dot(nxx, n00);  // Distance to wp00
-	w11 *= dot(nxx, n11);  // Distance to wp11
-	w01 *= dot(nxx, n01);  // Distance to wp01
-	w10 *= dot(nxx, n10);  // Distance to wp10
-
-	
+	w00 *= saturate(dot(nxx, n00));  // Distance to wp00
+	w11 *= saturate(dot(nxx, n11));  // Distance to wp11
+	w01 *= saturate(dot(nxx, n01));  // Distance to wp01
+	w10 *= saturate(dot(nxx, n10));  // Distance to wp10
+		
 	// Normalize weights
 	float totalWeight = w00 + w11 + w01 + w10;
 
@@ -190,7 +137,7 @@ float4 Get3dInterpolatedColor(float2 uv, Texture2D text, float2 dimension, Textu
 	w11 /= totalWeight;
 	w01 /= totalWeight;
 	w10 /= totalWeight;
-#endif
+
 	return (text[p00] * w00 + text[p11] * w11 + text[p01] * w01 + text[p10] * w10);
 }
 
