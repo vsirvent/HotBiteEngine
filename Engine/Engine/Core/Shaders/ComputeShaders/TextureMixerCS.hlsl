@@ -90,7 +90,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     if (rt_enabled) {
         color = color * (l + rt2) + saturate(color * e) + rt1 + b + dust + lens_flare + vol;
         color.rgb += saturate((color + l) * rt0 * 1.5f);
-        //color = rt0 + rt2;
+        //color = rt2;
     }
     else {
         color = color * l + b + dust + lens_flare + vol;
