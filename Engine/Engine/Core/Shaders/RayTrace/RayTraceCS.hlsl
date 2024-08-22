@@ -442,7 +442,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
                     } while (n1 < 0.05f);
                     float dist = FLT_MAX;
                     float4 c = float4(GetColor(ray, dummy, dist), 1.0f);
-                    color_diffuse += c / max(dist, 1.0f);
+                    color_diffuse += c * n1 / max(dist, 1.0f);
                     count++;
                 }
                 color_diffuse /= count;

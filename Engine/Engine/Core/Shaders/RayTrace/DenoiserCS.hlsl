@@ -70,25 +70,23 @@ void main(uint3 DTid : SV_DispatchThreadID)
     }
     float2 dir = float2(0.0f, 0.0f);
     if (type == 1) {
-        dir = float2(0.0f, 1.0f);
+        dir = float2(1.0f, 0.0f);
     }
     else if (type == 2) {
-        dir = float2(1.0f, 0.0f);
+        dir = float2(0.0f, 1.0f);
     }
     float distToCam = min(pow(dist2(cameraPosition - p0_position), 1.0f), 10.0f);
     
     float4 c0 = float4(0.0f, 0.0f, 0.0f, 0.0f);
     float dist_att = 0.0f;
-    int kernel = 40;// floor(max(2.0f * ray_source.dispersion, min_dispersion));
+    int kernel = floor(max(32.0f * ray_source.dispersion, min_dispersion));
     for (int i = -kernel; i <= kernel; ++i) {
         float2 p = pixel + dir * i;
         info_pixel = p * normalRatio;
         float3 p1_normal = normals[info_pixel].xyz;
         float3 p1_position = positions[info_pixel].xyz;
         float4 color = input[p]; 
-        float dist = clamp(length(p1_position - p0_position), 0.8f, 1000.0f);
-        float distNormal = length(p1_normal - p0_normal) / pow(distToCam, 3.0f);
-        distToCam = clamp(distToCam, 1.0f, 1000.0f);
+        float dist = clamp(dist2(p1_position - p0_position), 0.9f, 1000.0f);
         float n = saturate(dot(p1_normal, p0_normal));
         float w = pow(n, 5.0f);
             
