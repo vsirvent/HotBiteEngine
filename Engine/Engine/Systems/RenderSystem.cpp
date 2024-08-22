@@ -1338,6 +1338,7 @@ void RenderSystem::ProcessMix() {
 
 	mixer_shader->SetInt("frame_count", frame_count);
 	mixer_shader->SetFloat("time", time);
+	mixer_shader->SetInt("debug", rt_debug);
 	mixer_shader->SetInt("rt_enabled", rt_enabled & (rt_quality != eRtQuality::OFF? 0xFF:0x00));
 	mixer_shader->SetShaderResourceView("depthTexture", depth_map.SRV());
 	mixer_shader->SetShaderResourceView("lightTexture", light_map.SRV());
@@ -1645,7 +1646,7 @@ void RenderSystem::ProcessRT() {
 		
 		rt_shader->SetShaderResourceView("position_map", position_map.SRV());
 		rt_shader->SetShaderResourceView("depth_map", depth_map.SRV());
-		rt_shader->SetShaderResourceView("motionTexture", motion_texture.SRV());
+		rt_shader->SetShaderResourceView("motion_texture", motion_texture.SRV());
 		rt_shader->SetUnorderedAccessView("bloom", emission_map.UAV());
 		rt_shader->SetUnorderedAccessView("props", rt_texture_props.UAV());
 		rt_shader->SetUnorderedAccessView("ray0", rt_ray_sources0.UAV());
@@ -1689,7 +1690,7 @@ void RenderSystem::ProcessRT() {
 		rt_shader->SetUnorderedAccessView("output0", nullptr);
 		rt_shader->SetUnorderedAccessView("output1", nullptr);
 		rt_shader->SetShaderResourceView("position_map", nullptr);
-		rt_shader->SetShaderResourceView("motionTexture", nullptr);
+		rt_shader->SetShaderResourceView("motion_texture", nullptr);
 		rt_shader->SetUnorderedAccessView("bloom", nullptr);
 		rt_shader->SetUnorderedAccessView("props", nullptr);
 		rt_shader->SetUnorderedAccessView("ray0", nullptr);
@@ -1700,10 +1701,13 @@ void RenderSystem::ProcessRT() {
 		rt_shader->CopyAllBufferData();
 
 		//Denoiser
+		rt_denoiser->SetInt("debug", rt_debug);
 		rt_denoiser->SetShaderResourceView("normals", rt_ray_sources1.SRV());
 		rt_denoiser->SetShaderResourceView("positions", rt_ray_sources0.SRV());
 		rt_denoiser->SetShaderResourceView("motion_texture", motion_texture.SRV());
-
+		rt_denoiser->SetShaderResourceView("prev_position_map", prev_position_map.SRV());
+		rt_denoiser->SetMatrix4x4(VIEW, cam_entity.camera->view);
+		rt_denoiser->SetMatrix4x4(PROJECTION, cam_entity.camera->projection);
 		int textures[] = { 0, 2 };
 		for (int i = 0; i < 2; ++i) {
 			int ntexture = textures[i];
@@ -1736,8 +1740,9 @@ void RenderSystem::ProcessRT() {
 		rt_denoiser->SetShaderResourceView("normals", nullptr);
 		rt_denoiser->SetShaderResourceView("positions", nullptr);
 		rt_denoiser->SetShaderResourceView("motion_texture", nullptr);
+		rt_denoiser->SetShaderResourceView("prev_position_map", nullptr);
 		rt_denoiser->CopyAllBufferData();
-#if 1
+#if 0
 		//Smooth frame
 		rt_smooth->SetUnorderedAccessView("props", rt_texture_props.UAV());
 		rt_smooth->SetShaderResourceView("depth", depth_map.SRV());
@@ -2458,6 +2463,14 @@ void RenderSystem::SetDOF(bool enabled) {
 
 bool RenderSystem::GetDOF() const {
 	return dof_enabled;
+}
+
+void RenderSystem::SetRTDebug(uint32_t debug) {
+	rt_debug = debug;
+}
+
+uint32_t RenderSystem::GetRTDebug() const {
+	return rt_debug;
 }
 
 

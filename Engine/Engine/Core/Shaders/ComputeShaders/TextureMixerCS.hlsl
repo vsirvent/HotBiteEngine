@@ -31,6 +31,7 @@ cbuffer externalData : register(b0)
     int rt_enabled;
     int frame_count;
     float time;
+    uint debug;
 }
 
 RWTexture2D<float4> output : register(u0);
@@ -88,9 +89,13 @@ void main(uint3 DTid : SV_DispatchThreadID)
     float4 lens_flare = readColor(tpos, lensFlareTexture, w, h);
 
     if (rt_enabled) {
-        color = color * (l + rt2) + saturate(color * e) + rt1 + b + dust + lens_flare + vol;
-        color.rgb += saturate((color + l) * rt0 * 1.5f);
-        //color = rt0 + rt2;
+        if (debug == 0) {
+            color = color * (l + rt2) + saturate(color * e) + rt1 + b + dust + lens_flare + vol;
+            color.rgb += saturate((color + l) * rt0 * 1.5f);
+        }
+        else {
+            color = rt0 + rt2;
+        }
     }
     else {
         color = color * l + b + dust + lens_flare + vol;

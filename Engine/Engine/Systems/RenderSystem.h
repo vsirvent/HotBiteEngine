@@ -341,6 +341,7 @@ namespace HotBite {
 				bool aa_enabled = true;
 				bool motion_blur_enabled = true;
 				bool dof_enabled = true;
+				uint32_t rt_debug = 0;
 				uint32_t frame_count = 0;
 				uint32_t current = 0;
 				uint32_t prev = 1;
@@ -424,6 +425,8 @@ namespace HotBite {
 				bool GetMotionBlur() const;
 				void SetDOF(bool enabled);
 				bool GetDOF() const;
+				void SetRTDebug(uint32_t debug);
+				uint32_t GetRTDebug() const;
 			};
 		}
 	}

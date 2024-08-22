@@ -252,6 +252,7 @@ float3 GetColor(Ray origRay, out float3 bloom, out float ray_distance)
 
 float3 GenerateFibonacciHemisphereRay(float3 dir, float3 tangent, float3 bitangent, float dispersion, float N, float NLevels, float rX)
 {
+    rX *= 0.1f;
     float index = rX * N * dispersion;
 
     // First point at the top (up direction)
@@ -262,7 +263,7 @@ float3 GenerateFibonacciHemisphereRay(float3 dir, float3 tangent, float3 bitange
     float cumulativePoints = 0;
     float level = 1;
     while (true) {
-        float c  = cumulativePoints + level * 2;
+        float c  = cumulativePoints + level * level;
         if (c < index) {
             cumulativePoints = c;
         }
@@ -272,14 +273,14 @@ float3 GenerateFibonacciHemisphereRay(float3 dir, float3 tangent, float3 bitange
         level++;
     };
 
-    float pointsAtLevel = level * 2;  // Quadratic growth
+    float pointsAtLevel = level * level;  // Quadratic growth
 
     // Calculate local index within the current level
     float localIndex = index - cumulativePoints;
 
-    float phi = level / NLevels * M_PI * 0.5f;
+    rX -= 0.1f;
+    float phi = rX + level / NLevels * M_PI * 0.5f;
 
-    rX -= 0.5f;
     // Azimuthal angle (theta) based on number of points at this level
     float theta = rX + 2.0f * M_PI * localIndex / pointsAtLevel; // Spread points evenly in azimuthal direction
 
@@ -380,7 +381,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
             float cumulativePoints = 0;
             float level = 1;
             while (true) {
-                float c = cumulativePoints + level * 2;
+                float c = cumulativePoints + level * level;
                 if (c < N) {
                     cumulativePoints = c;
                 }
@@ -401,13 +402,13 @@ void main(uint3 DTid : SV_DispatchThreadID)
                 for (uint i = 0; i < 1; ++i) {
                     float scount = 1;
                     float n1;
-                    do {
+                    //do {
                         float3 seed = orig_pos * fmod(frame_count + time * scount++, 256.0f) * (i + x + y + 1);
                         seed = fmod(seed, float3(256.0f, 256.0f, 256.0f));
                         float rX = rgba_tnoise3d(seed);
                         ray.dir = GenerateFibonacciHemisphereRay(orig_dir, tangent, bitangent, pow(ray_source.dispersion, 4.0f), N, level, rX);
                         n1 = saturate(dot(ray.dir, ray_source.normal));
-                    } while (n1 < 0.05f && scount < 3);
+                    //} while (n1 < 0.05f && scount < 3);
                     float dist = FLT_MAX;
                     float4 c = float4(GetColor(ray, dummy, dist), 1.0f);
                     color_reflex += c * n1 / max(dist, 1.0f);
@@ -430,7 +431,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
 
 
 
-                for (uint i = 0; i < 2; ++i) {
+                for (uint i = 0; i < 1; ++i) {
                     float scount = 1;
                     float n1;
                     do {

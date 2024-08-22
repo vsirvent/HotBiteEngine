@@ -7,6 +7,9 @@ cbuffer externalData : register(b0)
     uint type;
     float3 cameraPosition;
     uint light_type;
+    matrix view;
+    matrix projection;
+    uint debug;
 }
 
 Texture2D<float4> input : register(t0);
@@ -15,6 +18,7 @@ Texture2D<float4> normals : register(t1);
 Texture2D<float4> positions : register(t2);
 Texture2D<float4> prev_output : register(t3);
 Texture2D<float4> motion_texture : register(t4);
+Texture2D<float4> prev_position_map: register(t5);
 
 float4 RoundColor(float4 color, float precision) {
     return round(color * precision) / precision;
@@ -26,6 +30,7 @@ struct ColorCount {
     float4 rounded;
     uint count;
     uint next;
+    
 };
 
 #define NTHREADS 32
@@ -75,22 +80,29 @@ void main(uint3 DTid : SV_DispatchThreadID)
     else if (type == 2) {
         dir = float2(0.0f, 1.0f);
     }
-    float distToCam = min(pow(dist2(cameraPosition - p0_position), 1.0f), 10.0f);
-    
+
     float4 c0 = float4(0.0f, 0.0f, 0.0f, 0.0f);
     float dist_att = 0.0f;
-    int kernel = floor(max(32.0f * ray_source.dispersion, min_dispersion));
+    int kernel = debug == 1 ? 0:floor(max(16.0f * ray_source.dispersion, min_dispersion));
+    float motion = 0.0f;
     for (int i = -kernel; i <= kernel; ++i) {
         float2 p = pixel + dir * i;
-        info_pixel = p * normalRatio;
-        float3 p1_normal = normals[info_pixel].xyz;
-        float3 p1_position = positions[info_pixel].xyz;
-        float4 color = input[p]; 
+        p.x = clamp(p.x, 0.0f, input_dimensions.x - 1.0f);
+        p.y = clamp(p.y, 0.0f, input_dimensions.y - 1.0f);
+        float2 p1_info_pixel = p * normalRatio;
+        float3 p1_normal = normals[p1_info_pixel].xyz;
+        float3 p1_position = positions[p1_info_pixel].xyz;
+        if (type == 2) {
+            float m = length(motion_texture[p1_info_pixel].xyz);
+            if (m > motion) {
+                motion = m;
+            }
+        }
+        float4 color = input[p];
         float dist = clamp(dist2(p1_position - p0_position), 0.9f, 1000.0f);
         float n = saturate(dot(p1_normal, p0_normal));
-        float w = pow(n, 5.0f);
-            
-        c0 += color * saturate(w / dist);
+        float w = pow(n, 10.0f);
+         c0 += color * saturate(w / dist);
         count += w;
     }
 
@@ -104,8 +116,17 @@ void main(uint3 DTid : SV_DispatchThreadID)
         output[pixel] = c0;
     }
     else if (type == 2) {
-        float motion = length(motion_texture[info_pixel].xyz);
-        float w = max(saturate(0.7 - motion * 100.0f), 0.1f);
+        matrix worldViewProj = mul(view, projection);
+        float4 prev_pos = mul(prev_position_map[info_pixel], worldViewProj);
+        prev_pos.x /= prev_pos.w;
+        prev_pos.y /= -prev_pos.w;
+        prev_pos.x = (prev_pos.x + 1.0f) * normals_dimensions.x / 2.0f;
+        prev_pos.y = (prev_pos.y + 1.0f) * normals_dimensions.y / 2.0f;
+        float m = length(motion_texture[prev_pos.xy].xyz);
+        if (m > motion) {
+            motion = m;
+        }
+        float w = saturate(0.7 - motion * 100.0f);
         float4 prev_color = prev_output[pixel];
         output[pixel] = prev_color* w + c0 * (1.0f - w);
     }

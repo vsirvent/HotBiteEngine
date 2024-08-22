@@ -198,7 +198,7 @@ RenderTargetRT MainRenderPS(GSOutput input)
 	lumColor += emission;
 #if 0
 	//Emission of point lights	
-	matrix worldViewProj = mul(view, projection);
+	
 	float3 p2 = mul(input.worldPos, view).xyz;
 	for (i = 0; i < pointLightsCount; ++i) {
 		float3 p1 = mul(float4(pointLights[i].Position, 1.0f), view).xyz;
