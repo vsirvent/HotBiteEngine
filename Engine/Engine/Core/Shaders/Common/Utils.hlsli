@@ -22,10 +22,13 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+#include "Defines.hlsli"
+#include "RayDefines.hlsli"
+
 #ifndef __UTILS_HLSLI__
 #define __UTILS_HLSLI__
 
-float Epsilon = 1e-10;
+float Epsilon = 1e-6;
 
 static const float getSmoothPixelWeights[3] =
 {
@@ -58,6 +61,169 @@ float4 GetInterpolatedColor(float2 uv, Texture2D text, float2 dimension) {
 		text[p11] * w11 +
 		text[p01] * w01 +
 		text[p10] * w10);
+}
+
+
+bool IsInteger(float2 value) {
+	return all(value == floor(value));
+}
+
+float dist2(float3 p) {
+	return p.x * p.x + p.y * p.y + p.z * p.z;
+}
+float4 Get3dInterpolatedColor(float2 uv, Texture2D text, float2 dimension, Texture2D positions, Texture2D normals, float2 pos_dimension) {
+
+
+	// Calculate the texture coordinates in the range [0, 1]
+	float2 texCoords = uv * dimension;
+	float2 pos_ratio = pos_dimension / dimension;
+
+	// Calculate the integer coordinates of the four surrounding pixels
+	int2 p00 = (int2)floor(texCoords);
+	int2 p11 = int2(p00.x + 1, p00.y + 1);
+	int2 p01 = int2(p00.x, p00.y + 1);
+	int2 p10 = int2(p00.x + 1, p00.y);
+
+	//Get 3d positions
+	uint2 pos_p00 = p00 * pos_ratio;
+	uint2 pos_p11 = p11 * pos_ratio;
+	uint2 pos_p01 = p01 * pos_ratio;
+	uint2 pos_p10 = p10 * pos_ratio;
+	uint2 in_pos = texCoords * pos_ratio;
+#if 1
+	// Calculate the fractional part of the coordinates
+	float2 f = frac(texCoords);
+
+	// Calculate the weights for bilinear interpolation
+	float w00 = (1.0f - f.x) * (1.0f - f.y);
+	float w11 = f.x * f.y;
+	float w01 = (1.0f - f.x) * f.y;
+	float w10 = f.x * (1.0f - f.y);
+
+	float3 n00 = normals[pos_p00].xyz;
+	float3 n11 = normals[pos_p11].xyz;
+	float3 n01 = normals[pos_p01].xyz;
+	float3 n10 = normals[pos_p10].xyz;
+	float3 nxx = normals[in_pos].xyz;
+
+	w00 *= max(0.0, dot(nxx, n00));  // Distance to wp00
+	w11 *= max(0.0, dot(nxx, n11));  // Distance to wp11
+	w01 *= max(0.0, dot(nxx, n01));  // Distance to wp01
+	w10 *= max(0.0, dot(nxx, n10));  // Distance to wp10
+
+
+	float3 wp00 = positions[pos_p00].xyz;
+	float3 wp11 = positions[pos_p11].xyz;
+	float3 wp01 = positions[pos_p01].xyz;
+	float3 wp10 = positions[pos_p10].xyz;
+	float3 wpxx = positions[in_pos].xyz;
+
+	if (wp00.x >= FLT_MAX || wp11.x >= FLT_MAX || wp01.x >= FLT_MAX || wp10.x >= FLT_MAX || wpxx.x >= FLT_MAX) {
+		return GetInterpolatedColor(uv, text, dimension);
+	}
+	// Small epsilon to avoid division by zero
+	float epsilon = 1e-10;
+	
+	// Normalize weights
+	float totalWeight = w00 + w11 + w01 + w10;
+
+	if (totalWeight < epsilon) {
+		return GetInterpolatedColor(uv, text, dimension);
+	}
+
+	w00 /= totalWeight;
+	w11 /= totalWeight;
+	w01 /= totalWeight;
+	w10 /= totalWeight;
+
+	// Perform the bilinear interpolation
+	return (text[p00] * w00 +
+		text[p11] * w11 +
+		text[p01] * w01 +
+		text[p10] * w10);
+	
+#else
+	float3 wp00 = positions[pos_p00].xyz;
+	float3 wp11 = positions[pos_p11].xyz;
+	float3 wp01 = positions[pos_p01].xyz;
+	float3 wp10 = positions[pos_p10].xyz;
+	float3 wpxx = positions[in_pos].xyz;
+
+	if (wp00.x >= FLT_MAX || wp11.x >= FLT_MAX || wp01.x >= FLT_MAX || wp10.x >= FLT_MAX || wpxx.x >= FLT_MAX) {
+		return GetInterpolatedColor(uv, text, dimension);
+	}
+
+	// Calculate distances in 3D space between the sample point and the four surrounding points
+	float d00 = dist2(wpxx - wp00);  // Distance to wp00
+	float d11 = dist2(wpxx - wp11);  // Distance to wp11
+	float d01 = dist2(wpxx - wp01);  // Distance to wp01
+	float d10 = dist2(wpxx - wp10);  // Distance to wp10
+
+	// Small epsilon to avoid division by zero
+	float epsilon = 1e-10;
+
+	// Calculate weights based on inverse distance (closer points have higher weight)
+	float w00 = 1.0f / max(d00, epsilon);
+	float w11 = 1.0f / max(d11, epsilon);
+	float w01 = 1.0f / max(d01, epsilon);
+	float w10 = 1.0f / max(d10, epsilon);
+
+	float3 n00 = normals[pos_p00].xyz;
+	float3 n11 = normals[pos_p11].xyz;
+	float3 n01 = normals[pos_p01].xyz;
+	float3 n10 = normals[pos_p10].xyz;
+	float3 nxx = normals[in_pos].xyz;
+
+	w00 *= dot(nxx, n00);  // Distance to wp00
+	w11 *= dot(nxx, n11);  // Distance to wp11
+	w01 *= dot(nxx, n01);  // Distance to wp01
+	w10 *= dot(nxx, n10);  // Distance to wp10
+
+	
+	// Normalize weights
+	float totalWeight = w00 + w11 + w01 + w10;
+
+	if (totalWeight < 0.001f) {
+		return GetInterpolatedColor(uv, text, dimension);
+	}
+	w00 /= totalWeight;
+	w11 /= totalWeight;
+	w01 /= totalWeight;
+	w10 /= totalWeight;
+#endif
+	return (text[p00] * w00 + text[p11] * w11 + text[p01] * w01 + text[p10] * w10);
+}
+
+// Converts a 2D array index back to 3D coordinates
+uint3 Get3DPointFrom2DArray(uint2 index, uint zdim) {
+	uint x = index.x;
+	uint yz = index.y;
+
+	uint y = yz / zdim;
+	uint z = yz % zdim;
+
+	return uint3(x, y, z);
+}
+
+float3 GenerateDirection(int i, int N) {
+	// Golden ratio to create evenly spaced points
+	float phi = (1.0 + sqrt(5.0)) * 0.5;
+
+	// Calculate the spherical coordinates
+	float theta = 2.0 * M_PI * float(i) / phi;
+	float z = 1.0 - 2.0 * float(i) / float(N - 1); // z ranges from 1 to -1
+	float radius = sqrt(1.0 - z * z); // Radius for the xy-plane
+
+	// Convert spherical coordinates to Cartesian
+	float x = radius * cos(theta);
+	float y = radius * sin(theta);
+
+	return float3(x, y, z);
+}
+
+// Converts 3D coordinates to a 2D array index
+uint2 Get2DPointFrom3DArray(uint3 index, uint zdim) {
+	return uint2(index.x, index.y * zdim + index.z);
 }
 
 void GetPerpendicularPlane(in float3 dir, out float3 v0, out float3 v1) {

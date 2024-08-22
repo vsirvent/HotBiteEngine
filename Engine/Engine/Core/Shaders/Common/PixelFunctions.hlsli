@@ -165,6 +165,13 @@ float3 CalcAmbient(float3 normal)
 
 float3 CalcDirectional(float3 normal, float4 position, float2 uv, MaterialColor material, DirLight light, float cloud_density, int index, inout float4 bloom)
 {
+	float3 spec_intensity = material.specIntensity;
+	if (material.flags & SPECULAR_MAP_ENABLED_FLAG) {
+		spec_intensity *= specularTexture.Sample(basicSampler, uv).r;
+	}
+	else if (material.flags & ARM_MAP_ENABLED_FLAG) {
+		spec_intensity *= armTexture.Sample(basicSampler, uv).g;
+	}
 	float3 color = light.Color.rgb * light.intensity;
 	// Phong diffuse
 	float NDotL = dot(light.DirToLight, normal);
@@ -176,13 +183,7 @@ float3 CalcDirectional(float3 normal, float4 position, float2 uv, MaterialColor 
 
 	// Blinn specular
 #if 1
-	float3 spec_intensity = material.specIntensity;
-	if (material.flags & SPECULAR_MAP_ENABLED_FLAG) {
-		spec_intensity *= specularTexture.Sample(basicSampler, uv).r;
-	}
-	else if (material.flags & ARM_MAP_ENABLED_FLAG) {
-		spec_intensity *= armTexture.Sample(basicSampler, uv).g;
-	}
+	
 	float3 ToEye = cameraPosition.xyz - position.xyz;
 	ToEye = normalize(ToEye);
 	float3 HalfWay = normalize(ToEye + light.DirToLight);

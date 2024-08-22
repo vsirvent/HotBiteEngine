@@ -430,6 +430,12 @@
     <None Include="Engine\Core\Shaders\Common\Complex.hlsli">
       <Filter>Engine\Core\Shaders\Common</Filter>
     </None>
+    <None Include="Engine\Core\Shaders\Common\RayDefines.hlsli">
+      <Filter>Engine\Core\Shaders\Common</Filter>
+    </None>
+    <None Include="Engine\Core\Shaders\Common\RayFunctions.hlsli">
+      <Filter>Engine\Core\Shaders\Common</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="Engine\Core\Shaders\DepthRender\DepthPS.hlsl">
@@ -578,6 +584,9 @@
     </FxCompile>
     <FxCompile Include="Engine\Core\Shaders\ComputeShaders\MotionCS.hlsl">
       <Filter>Engine\Core\Shaders\ComputeShaders</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\RayTrace\DenoiserCS.hlsl">
+      <Filter>Engine\Core\Shaders\RayTrace</Filter>
     </FxCompile>
   </ItemGroup>
 </Project>

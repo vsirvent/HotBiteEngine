@@ -81,8 +81,8 @@ RenderTargetRT MainRenderPS(GSOutput input)
 		
 		scale = abs(scale);
 		if ((material.flags & PARALLAX_MAP_ENABLED_FLAG || multi_texture_count > 0 ) && scale != 0.0f) {
-			float h = 0;
 			matrix global_to_tbn = inverse(tbn);
+			float h = 0;
 			float3 tbn_cam_pos = mul(float4(cameraPosition, 0.0f), global_to_tbn).xyz;
 			float3 tbn_fragment_pos = mul(input.worldPos, global_to_tbn).xyz;
 			float3 tbn_fragment_displacement;
@@ -143,7 +143,7 @@ RenderTargetRT MainRenderPS(GSOutput input)
 		}
 	}
 #endif
-	finalColor += lumColor;
+	
 #if 1
 	// Apply textures
 	if (material.flags & DIFFUSSE_MAP_ENABLED_FLAG || multi_texture_count > 0) {
@@ -157,18 +157,18 @@ RenderTargetRT MainRenderPS(GSOutput input)
 		}
 		if (material.flags & ALPHA_ENABLED_FLAG) {
 			if (length(material.alphaColor - text_color) > 0.4f) {
-				finalColor.rgb *= text_color;
+				finalColor.rgb = text_color;
 			}
 			else {
 				discard;
 			}
 		}
 		else {
-			finalColor.rgb *= text_color;
+			finalColor.rgb = text_color;
 		}
 	}
 	else {
-		finalColor *= material.diffuseColor;
+		finalColor = material.diffuseColor;
 	}
 #endif
 
@@ -195,9 +195,10 @@ RenderTargetRT MainRenderPS(GSOutput input)
 	emission *= material.emission;
 	finalColor += emission;
 	lightColor += emission;
+	lumColor += emission;
 #if 0
 	//Emission of point lights	
-	matrix worldViewProj = mul(view, projection);
+	
 	float3 p2 = mul(input.worldPos, view).xyz;
 	for (i = 0; i < pointLightsCount; ++i) {
 		float3 p1 = mul(float4(pointLights[i].Position, 1.0f), view).xyz;
@@ -219,7 +220,7 @@ RenderTargetRT MainRenderPS(GSOutput input)
 
 	output.scene = finalColor;
 	output.light_map = lumColor;
-	output.bloom_map = lightColor;
+	output.bloom_map = saturate(lightColor);
 
 	RaySource ray;
 	ray.orig = wpos2.xyz;
@@ -239,7 +240,7 @@ RenderTargetRT MainRenderPS(GSOutput input)
 	output.rt_ray1_map = getColor1(ray);
 
 	float4 prev_world_pos = mul(input.objectPos, prevWorld);
-	output.pos0_map = prev_world_pos;
-	output.pos1_map = input.worldPos;
+	output.pos0_map = prev_world_pos / prev_world_pos.w;
+	output.pos1_map = input.worldPos / input.worldPos.w;
 	return output;
 }

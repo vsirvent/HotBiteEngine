@@ -96,10 +96,10 @@ void main(uint3 DTid : SV_DispatchThreadID)
     viewPos2.x += 0.02f;
 
     float4 projPos = mul(viewPos, projection); // Transform to clip space
-    projPos /= projPos.w;
+    projPos /= abs(projPos.w);
 
     float4 projPos2 = mul(viewPos2, projection);
-    projPos2 /= projPos2.w;
+    projPos2 /= abs(projPos2.w);
 
 
 
@@ -110,7 +110,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
             //loop particle to the other side of the camera
             viewPos.x = -viewPos.x;
             wpos = mul(viewPos, inverse_view);
-            wpos /= wpos.w;
+            wpos /= abs(wpos.w);
             wpos.w = dustTexture[input_pixel].w;
             dustTexture[input_pixel] = wpos;
         }

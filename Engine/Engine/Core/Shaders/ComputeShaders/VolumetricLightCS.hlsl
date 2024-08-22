@@ -84,7 +84,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     float2 input_pixel = output_pixel * input_ratio;
     float4 lightColor = { 0.0f, 0.0f, 0.0f, 1.0f };
     float4 wpos = worldTexture[input_pixel];
-    if (length(wpos) <= Epsilon) {
+    if (wpos.x > 100000.0f) {
         float2 tpos = input_pixel.xy;
         tpos.x /= screenW;
         tpos.y /= screenH;
