@@ -45,20 +45,7 @@ void main(
 	bool process = false;
 
 	float4 p[3];
-	uint i = 0;
-	for (i = 0; i < 3; i++) {
-		p[i] = mul(input[i].worldPos, view);
-	}
-	if (p[0].z < 0 && p[2].z < 0 && p[2].z < 0) {
-		return;
-	}
-	else {
-		process = true;
-	}
-	for (i = 0; i < 3; i++) {
-		p[i] = mul(p[i], projection);
-	}
-	/*
+	
 	uint i = 0;
 	for (i = 0; i < 3; i++) {
 		p[i] = mul(input[i].worldPos, mul(view, projection));
@@ -74,7 +61,7 @@ void main(
 			process = true;
 			break;
 		}
-	}*/	
+	}
 #else
 	bool process = true;
 	float4 p[3];

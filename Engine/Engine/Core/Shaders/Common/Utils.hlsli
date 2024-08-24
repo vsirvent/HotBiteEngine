@@ -23,19 +23,11 @@ SOFTWARE.
 */
 
 #include "Defines.hlsli"
-#include "RayDefines.hlsli"
 
 #ifndef __UTILS_HLSLI__
 #define __UTILS_HLSLI__
 
 float Epsilon = 1e-6;
-
-static const float getSmoothPixelWeights[3] =
-{
-	0.1,
-	0.3,
-	0.1,
-};
 
 float4 GetInterpolatedColor(float2 uv, Texture2D text, float2 dimension) {
 	// Calculate the texture coordinates in the range [0, 1]
@@ -300,6 +292,14 @@ void UnpackColors(float4 packedColors, out float4 color1, out float4 color2) {
 }
 
 float4 getSmoothPixel(SamplerState basicSampler, Texture2D t, float2 pos, float screenW, float screenH) {
+
+	static const float getSmoothPixelWeights[3] =
+	{
+		0.1,
+		0.3,
+		0.1,
+	};
+
 	float4 color = float4(0.f, 0.f, 0.f, 1.f);
 	float2 tpos;
 	float pix_w = 1.0 / screenW;

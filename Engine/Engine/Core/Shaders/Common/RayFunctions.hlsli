@@ -58,42 +58,48 @@ bool IntersectTri(RayObject ray, uint indexOffset, uint vertexOffset, out Inters
     const uint indexByteOffset = indexOffset * 4;
     const uint vertexSize = 96;
 
+    // Load vertex indices and vertices
     uint3 vindex = (vertexOffset + indicesBuffer.Load3(indexByteOffset)) * vertexSize;
     float3 v0 = asfloat(vertexBuffer.Load3(vindex.x));
     float3 v1 = asfloat(vertexBuffer.Load3(vindex.y));
     float3 v2 = asfloat(vertexBuffer.Load3(vindex.z));
 
+    // Calculate edges
     const float3 edge1 = v1 - v0;
     const float3 edge2 = v2 - v0;
+
+    // Calculate determinant
     const float3 h = cross(ray.dir, edge2);
     const float a = dot(edge1, h);
 
-    // Check if the ray is parallel to the triangle
+    // Early return if the ray is parallel to the triangle
     if (abs(a) < Epsilon)
     {
         return false;
     }
 
     const float f = 1.0f / a;
+
+    // Calculate barycentric coordinates and perform early rejection
     const float3 s = ray.orig.xyz - v0;
     const float u = f * dot(s, h);
-
-    if (u < 0 || u > 1) {
+    if (u < 0.0f || u > 1.0f)
+    {
         return false;
     }
 
     const float3 q = cross(s, edge1);
     const float v = f * dot(ray.dir, q);
-
-    if (v < 0 || u + v > 1) {
+    if (v < 0.0f || u + v > 1.0f)
+    {
         return false;
     }
 
+    // Calculate t to find out where the intersection point is on the line
     const float t = f * dot(edge2, q);
-
-    // Check if the intersection is within the valid range along the ray
-    if (t > 0)
+    if (t > 0.0f)
     {
+        // Valid intersection, populate the result
         result.v0 = v0;
         result.v1 = v1;
         result.v2 = v2;
@@ -104,47 +110,45 @@ bool IntersectTri(RayObject ray, uint indexOffset, uint vertexOffset, out Inters
         return true;
     }
 
-    return false;
+    return false; // No intersection
+}
+
+
+bool IntersectAABB(float3 pos, float3 dir, float3 bmin, float3 bmax)
+{
+    float3 invDir = 1.0f / dir; // Calculate the inverse direction vector
+
+    // Calculate intersection times for x, y, and z
+    float tx1 = (bmin.x - pos.x) * invDir.x;
+    float tx2 = (bmax.x - pos.x) * invDir.x;
+    float tmin = min(tx1, tx2);
+    float tmax = max(tx1, tx2);
+
+    float ty1 = (bmin.y - pos.y) * invDir.y;
+    float ty2 = (bmax.y - pos.y) * invDir.y;
+    tmin = max(tmin, min(ty1, ty2));
+    tmax = min(tmax, max(ty1, ty2));
+
+    if (tmax < tmin || tmax < 0.0f)
+        return false;
+
+    float tz1 = (bmin.z - pos.z) * invDir.z;
+    float tz2 = (bmax.z - pos.z) * invDir.z;
+    tmin = max(tmin, min(tz1, tz2));
+    tmax = min(tmax, max(tz1, tz2));
+
+    // Final intersection test
+    return tmax >= tmin && tmax > 0.0f;
 }
 
 bool IntersectAABB(Ray ray, float3 bmin, float3 bmax)
 {
-    float tx1 = (bmin.x - ray.orig.x) / ray.dir.x;
-    float tx2 = (bmax.x - ray.orig.x) / ray.dir.x;
-    float tmin = min(tx1, tx2);
-    float tmax = max(tx1, tx2);
-
-    float ty1 = (bmin.y - ray.orig.y) / ray.dir.y;
-    float ty2 = (bmax.y - ray.orig.y) / ray.dir.y;
-    tmin = max(tmin, min(ty1, ty2));
-    tmax = min(tmax, max(ty1, ty2));
-
-    float tz1 = (bmin.z - ray.orig.z) / ray.dir.z;
-    float tz2 = (bmax.z - ray.orig.z) / ray.dir.z;
-    tmin = max(tmin, min(tz1, tz2));
-    tmax = min(tmax, max(tz1, tz2));
-
-    return tmax >= tmin && tmax > 0.0f;
+    return IntersectAABB(ray.orig, ray.dir, bmin, bmax);
 }
 
 bool IntersectAABB(RayObject ray, float3 bmin, float3 bmax)
 {
-    float tx1 = (bmin.x - ray.orig.x) / ray.dir.x;
-    float tx2 = (bmax.x - ray.orig.x) / ray.dir.x;
-    float tmin = min(tx1, tx2);
-    float tmax = max(tx1, tx2);
-
-    float ty1 = (bmin.y - ray.orig.y) / ray.dir.y;
-    float ty2 = (bmax.y - ray.orig.y) / ray.dir.y;
-    tmin = max(tmin, min(ty1, ty2));
-    tmax = min(tmax, max(ty1, ty2));
-
-    float tz1 = (bmin.z - ray.orig.z) / ray.dir.z;
-    float tz2 = (bmax.z - ray.orig.z) / ray.dir.z;
-    tmin = max(tmin, min(tz1, tz2));
-    tmax = min(tmax, max(tz1, tz2));
-
-    return tmax >= tmin && tmax > 0.0f;
+    return IntersectAABB(ray.orig, ray.dir, bmin, bmax);
 }
 
 bool IntersectAABB(Ray ray, BVHNode node)

@@ -68,9 +68,7 @@ Texture2D renderTexture;
 float3 CalcWaterDirectional(float3 normal, float3 position, float2 uv, DirLight light, int index, const float spec_intensity, inout float4 bloom)
 {
 	float3 color = light.Color.rgb * light.intensity;
-	// Phong diffuse
-	float NDotL = dot(light.DirToLight, normal);
-	float3 finalColor = { 0.f, 0.f, 0.f };// pow(saturate(NDotL), 4.0f) * 0.1f;
+	float3 finalColor = { 0.f, 0.f, 0.f };
 	float3 bloomColor = { 0.f, 0.f, 0.f };
 	// Blinn specular
 	float3 ToEye = cameraPosition.xyz - position.xyz;
@@ -183,8 +181,6 @@ RenderTargetRT main(GSOutput input)
 			lumColor.rgb += CalcWaterPoint(normal, input.worldPos.xyz, input.uv, pointLights[i], i, spec_intensity, lightColor).rgb;
 		}
 	}
-#if 1
-	finalColor.rgb += lumColor.rgb;
 
 	// Apply textures
 	if (material.flags & DIFFUSSE_MAP_ENABLED_FLAG || multi_texture_count > 0) {
@@ -194,7 +190,6 @@ RenderTargetRT main(GSOutput input)
 	else {
 		finalColor *= float4(0.9f, 0.9f, 1.0f, 1.0f) * 0.3f;
 	}
-#endif
 
 	// Apply textures
 	float dist_to_terrain = 0.0f;
@@ -206,19 +201,6 @@ RenderTargetRT main(GSOutput input)
 	float3 terrain_color = 0.7f*(renderTexture.Sample(basicSampler, pos).rgb * dist_to_terrain + float3(0.0f, 0.0f, 0.1f) * (1.0f - dist_to_terrain))* dist_to_terrain2;	
 	finalColor.rgb += terrain_color;
 	
-	//Emission of point lights	
-	float3 p2 = mul(input.worldPos, view).xyz;
-	for (i = 0; i < pointLightsCount; ++i) {
-		float3 p1 = mul(float4(pointLights[i].Position, 1.0f), view).xyz;
-		//if we are in front of camera
-		if (p1.z > 0) {
-			//if pixel is behind light
-			if (p1.z < p2.z) {
-				finalColor.rgb += EmitPoint(input.position.xyz, worldViewProj, pointLights[i]);
-			}
-		}
-	};
-
 	output.light_map = lumColor;
 	output.bloom_map = lightColor;
 	output.scene = finalColor;

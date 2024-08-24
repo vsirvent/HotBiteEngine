@@ -42,13 +42,9 @@ void main(uint3 DTid : SV_DispatchThreadID)
     uint2 input_dimensions;
     uint2 normals_dimensions;
     {
-        uint w, h;
-        if (type == 1 || type == 3) {
-            input.GetDimensions(w, h);
-        }
-        else if (type == 2 || type == 4) {
-            output.GetDimensions(w, h);
-        }
+        uint w = 0;
+        uint h = 0;
+        input.GetDimensions(w, h);
         input_dimensions.x = w;
         input_dimensions.y = h;
 
@@ -56,7 +52,6 @@ void main(uint3 DTid : SV_DispatchThreadID)
         normals_dimensions.x = w;
         normals_dimensions.y = h;
     }
-
     uint2 normalRatio = normals_dimensions / input_dimensions;
 
     float2 info_pixel = pixel * normalRatio;
@@ -65,14 +60,16 @@ void main(uint3 DTid : SV_DispatchThreadID)
     RaySource ray_source = fromColor(positions[info_pixel], normals[info_pixel]);
     float4 c = float4(0.0f, 0.0f, 0.0f, 0.0f);
     
+    #define MAX_KERNEL 40
     float count = 0.0f;
     uint min_dispersion = 0;
     if (light_type == 0) {
         min_dispersion = 0;
     }
     else if (light_type == 1) {
-        min_dispersion = 40;
+        min_dispersion = MAX_KERNEL;
     }
+
     float2 dir = float2(0.0f, 0.0f);
     if (type == 1) {
         dir = float2(1.0f, 0.0f);
@@ -83,27 +80,25 @@ void main(uint3 DTid : SV_DispatchThreadID)
 
     float4 c0 = float4(0.0f, 0.0f, 0.0f, 0.0f);
     float dist_att = 0.0f;
-    int kernel = debug == 1 ? 0:floor(max(16.0f * ray_source.dispersion, min_dispersion));
+    int kernel = debug == 1 ? 0 : clamp(floor(max(MAX_KERNEL * pow(ray_source.dispersion, 2.0f), min_dispersion)), 0, MAX_KERNEL);
     float motion = 0.0f;
+    float weights[2 * MAX_KERNEL + 1];
+
     for (int i = -kernel; i <= kernel; ++i) {
         float2 p = pixel + dir * i;
         p.x = clamp(p.x, 0.0f, input_dimensions.x - 1.0f);
         p.y = clamp(p.y, 0.0f, input_dimensions.y - 1.0f);
         float2 p1_info_pixel = p * normalRatio;
-        float3 p1_normal = normals[p1_info_pixel].xyz;
+
         float3 p1_position = positions[p1_info_pixel].xyz;
-        if (type == 2) {
-            float m = length(motion_texture[p1_info_pixel].xyz);
-            if (m > motion) {
-                motion = m;
-            }
-        }
-        float4 color = input[p];
-        float dist = clamp(dist2(p1_position - p0_position), 0.9f, 1000.0f);
+        float dist = clamp(dist2(p1_position - p0_position), 1.0f, 1000.0f);
+
+        float3 p1_normal = normals[p1_info_pixel].xyz;
         float n = saturate(dot(p1_normal, p0_normal));
-        float w = pow(n, 10.0f);
-         c0 += color * saturate(w / dist);
+        float w = pow(n, 10.0f) / dist;
+
         count += w;
+        c0 += input[p] * w;
     }
 
     if (count > Epsilon) {
@@ -126,6 +121,17 @@ void main(uint3 DTid : SV_DispatchThreadID)
         if (m > motion) {
             motion = m;
         }
+        float3 mvector = motion_texture[info_pixel].xyz;
+        if (mvector.x < 0.0f) {
+            motion = FLT_MAX;
+        }
+        else {
+            m = length(motion_texture[info_pixel].xyz);
+            if (m > motion) {
+                motion = m;
+            }
+        }
+        
         float w = saturate(0.7 - motion * 100.0f);
         float4 prev_color = prev_output[pixel];
         output[pixel] = prev_color* w + c0 * (1.0f - w);

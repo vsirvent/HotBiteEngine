@@ -1,3 +1,4 @@
+Texture2D lightTexture;
 
 RenderTargetRT MainRenderPS(GSOutput input)
 {
@@ -196,30 +197,16 @@ RenderTargetRT MainRenderPS(GSOutput input)
 	finalColor += emission;
 	lightColor += emission;
 	lumColor += emission;
-#if 0
-	//Emission of point lights	
-	
-	float3 p2 = mul(input.worldPos, view).xyz;
-	for (i = 0; i < pointLightsCount; ++i) {
-		float3 p1 = mul(float4(pointLights[i].Position, 1.0f), view).xyz;
-		//if we are in front of camera
-		if (p1.z > 0) {
-			//if pixel is behind light
-			if (p1.z < p2.z) {
-				finalColor.rgb += EmitPoint(input.position.xyz, worldViewProj, pointLights[i]);
-			}
-		}
-	};
-#endif
+
 	float opacity = material.opacity;
 	if (material.flags & OPACITY_MAP_ENABLED_FLAG) {
 		opacity += opacityTexture.Sample(basicSampler, input.uv).r;
 	}
 	opacity = saturate(opacity);
 	finalColor *= opacity;
-
+	
 	output.scene = finalColor;
-	output.light_map = lumColor;
+	output.light_map = lumColor + lightTexture[input.position.xy];
 	output.bloom_map = saturate(lightColor);
 
 	RaySource ray;

@@ -62,7 +62,7 @@ float rgba_tnoise(float3 x)
 #else
 	float3 f = frac(x);
 	float3 p = x - f;
-	float2 uv = ((p.xy + float2(37.0, 17.0) * p.z) + f.xy);
+	float2 uv = ((p.xy + float2(37.0f, 17.0f) * p.z) + f.xy);
 	uv = fmod(uv, 256.0f) / 256.0f;
 	float4 v = rgbaNoise.SampleLevel(basicSampler, uv, 0);
 	return lerp(v.y, v.z, f.z);
@@ -76,8 +76,8 @@ float3 rgba_tnoise3d(float3 x)
 #else
 	float3 f = frac(x);
 	float3 p = x - f;
-	float2 uv = ((p.xy + float2(37.0, 17.0) * p.z) + f.xy);
-	uv /= 256.0;
+	float2 uv = ((p.xy + float2(37.0f, 17.0f) * p.z) + f.xy);
+	uv /= 256.0f;
 	float4 v = rgbaNoise.SampleLevel(basicSampler, uv, 0);
 	return saturate(float3(lerp(v.y, v.z, v.x), lerp(v.x, v.y, v.z), lerp(v.x, v.z, v.y)));
 #endif

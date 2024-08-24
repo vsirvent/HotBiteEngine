@@ -281,7 +281,6 @@ namespace HotBite {
 				uint32_t rt_enabled = RT_INDIRECT_ENABLE | RT_REFLEX_ENABLE | RT_REFRACT_ENABLE;
 				Core::TBVH tbvh{ MAX_OBJECTS };
 				Core::SimpleComputeShader* rt_shader = nullptr;
-				Core::SimpleComputeShader* rt_smooth = nullptr;
 				Core::SimpleComputeShader* rt_denoiser = nullptr;
 
 				//RT texture 1: Reflexed rays
@@ -296,6 +295,15 @@ namespace HotBite {
 				Core::RenderTexture2D rt_ray_sources1;
 				Core::ExtBVHBuffer tbvh_buffer;
 				Core::BVHBuffer* bvh_buffer = nullptr;
+				ObjectInfo objects[MAX_OBJECTS]{};
+				MaterialProps objectMaterials[MAX_OBJECTS]{};
+				int nobjects = 0;
+				ID3D11ShaderResourceView* diffuseTextures[MAX_OBJECTS]{};
+				std::mutex rt_mutex;
+				std::condition_variable rt_signal;
+				bool rt_end = false;
+				bool rt_prepare = false;
+				std::thread rt_thread;
 
 				//Dust shader
 				bool dust_enabled = false;
@@ -357,6 +365,7 @@ namespace HotBite {
 
 				void LoadRTResources();
 				void ProcessMotion();
+				void PrepareRT();
 				void ProcessRT();
 				void ProcessDust();
 				void ProcessLensFlare();
