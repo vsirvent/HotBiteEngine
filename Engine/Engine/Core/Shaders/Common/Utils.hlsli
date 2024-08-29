@@ -160,6 +160,12 @@ float3 GenerateDirection(int i, int N) {
 	return float3(x, y, z);
 }
 
+void GetSpaceVectors(in float3 dir, out float3 tangent, out float3 bitangent) {
+	float3 up = abs(dir.z) < 0.999f ? float3(0.0f, 0.0f, 1.0f) : float3(1.0f, 0.0f, 0.0f);
+	tangent = normalize(cross(up, dir));
+	bitangent = cross(dir, tangent);
+}
+
 // Converts 3D coordinates to a 2D array index
 uint2 Get2DPointFrom3DArray(uint3 index, uint zdim) {
 	return uint2(index.x, index.y * zdim + index.z);

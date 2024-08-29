@@ -247,7 +247,7 @@ Ray GetReflectedRayFromSource(RaySource source)
     ray.dir = normalize(out_dir);
     ray.orig.xyz += ray.dir * 0.01f;
     ray.density = source.density;
-    ray.bounces = 1;
+    ray.bounces = 0;
     ray.ratio = 1.0f;
     ray.t = FLT_MAX;
 

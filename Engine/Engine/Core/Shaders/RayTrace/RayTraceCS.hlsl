@@ -62,6 +62,8 @@ cbuffer objectData : register(b1)
 
 RWTexture2D<float4> output0 : register(u0);
 RWTexture2D<float4> output1 : register(u1);
+RWTexture2D<float4> output2 : register(u2);
+RWTexture2D<float4> dispersion : register(u3);
 
 RWTexture2D<float> props : register(u4);
 RWTexture2D<float4> ray0 : register(u5);
@@ -87,13 +89,77 @@ static float2 lps[MAX_LIGHTS] = (float2[MAX_LIGHTS])LightPerspectiveValues;
 #include "../Common/SimpleLight.hlsli"
 #include "../Common/RayFunctions.hlsli"
 
-static const float max_distance = 100.0f;
-static const float max_distance2 = max_distance * max_distance;
+static const float max_distance = 1000.0f;
 
-float3 GetColor(Ray origRay, out float3 bloom, out float ray_distance)
+float3 GenerateHemisphereRay(float3 dir, float3 tangent, float3 bitangent, float dispersion, float N, float NLevels, float rX)
 {
-    ray_distance = FLT_MAX;
+    float index = rX * 0.5f * N * dispersion;// (frame_count % N);
 
+    // First point at the top (up direction)
+    if (index < 1.0f) {
+        return dir; // The first point is directly at the top
+    }
+
+    float cumulativePoints = 0;
+    float level = 1;
+    while (true) {
+        float c = cumulativePoints + level * 2;
+        if (c < index) {
+            cumulativePoints = c;
+        }
+        else {
+            break;
+        }
+        level++;
+    };
+
+    float pointsAtLevel = level * 2;  // Quadratic growth
+
+    // Calculate local index within the current level
+    float localIndex = index - cumulativePoints;
+
+    float phi = level / NLevels * M_PI;
+
+    // Azimuthal angle (theta) based on number of points at this level
+    float theta = 2.0f * M_PI * localIndex / pointsAtLevel; // Spread points evenly in azimuthal direction
+
+    // Convert spherical coordinates to Cartesian coordinates
+    float sinPhi = sin(phi);
+    float cosPhi = cos(phi);
+    float sinTheta = sin(theta);
+    float cosTheta = cos(theta);
+
+    // Local ray direction in spherical coordinates
+    float3 localRay = float3(sinPhi * cosTheta, sinPhi * sinTheta, cosPhi);
+
+    // Convert local ray to global coordinates (tangent space to world space)
+    float3 globalRay = localRay.x * tangent + localRay.y * bitangent + localRay.z * dir;
+
+
+    return normalize(dir + globalRay);
+}
+
+static float NCOUNT = 32.0f;
+static uint N2 = 32;
+static float N = N2 * NCOUNT;
+
+struct RayTraceColor {
+    float3 color[2];
+    float dispersion[2];
+    float3 bloom;
+    bool hit;
+};
+
+bool GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTraceColor out_color, float dispersion, bool mix, bool refract)
+{
+    out_color.color[0] = float3(0.0f, 0.0f, 0.0f);
+    out_color.color[1] = float3(0.0f, 0.0f, 0.0f);
+    out_color.bloom = float3(0.0f, 0.0f, 0.0f);
+    out_color.dispersion[0] = -1.0f;
+    out_color.dispersion[1] = -1.0f;
+   
+    float last_dispersion = dispersion;
+    float collision_dist = 0.0f;
 #if USE_OBH   
     uint volumeStack[MAX_STACK_SIZE];
 #endif
@@ -103,13 +169,10 @@ float3 GetColor(Ray origRay, out float3 bloom, out float ray_distance)
 
     bool collide = false;
     IntersectionResult result;
-
     Ray ray = origRay;
-    float3 finalColor = float3(0.0f, 0.0f, 0.0f);
-    bloom = float3(0.0f, 0.0f, 0.0f);
-
     bool end = false;
-    while (!end)
+    
+    for (uint bounce = 0; !end; ++bounce)
     {
         result.distance = FLT_MAX;
         end = true;
@@ -135,15 +198,15 @@ float3 GetColor(Ray origRay, out float3 bloom, out float ray_distance)
                 uint objectIndex = index(volumeNode);
                 ObjectInfo o = objectInfos[objectIndex];
 
-                float objectExtent = dist2(o.aabb_max - o.aabb_min);
-                float distanceToObject = dist2(o.position - origRay.orig) - objectExtent;
+                float objectExtent = length(o.aabb_max - o.aabb_min);
+                float distanceToObject = length(o.position - origRay.orig) - objectExtent;
 
                 if (distanceToObject < max_distance && distanceToObject < result.distance && IntersectAABB(ray, o.aabb_min, o.aabb_max))
                 {
 #else
             ObjectInfo o = objectInfos[i];
-            float objectExtent = dist2(o.aabb_max - o.aabb_min);
-            float distanceToObject = dist2(o.position - origRay.orig) - objectExtent;
+            float objectExtent = length(o.aabb_max - o.aabb_min);
+            float distanceToObject = length(o.position - origRay.orig) - objectExtent;
             if (distanceToObject < max_distance && distanceToObject < result.distance && IntersectAABB(ray, o.aabb_min, o.aabb_max))
             {
 #endif
@@ -194,10 +257,11 @@ float3 GetColor(Ray origRay, out float3 bloom, out float ray_distance)
                     if (object_result.distance < FLT_MAX) {
                         float3 opos = (1.0f - object_result.uv.x - object_result.uv.y) * object_result.v0 + object_result.uv.x * object_result.v1 + object_result.uv.y * object_result.v2;
                         float4 pos = mul(float4(opos, 1.0f), o.world);
-                        float distance = dist2(pos - origRay.orig);
+                        float distance = length(pos - origRay.orig);
                         if (distance < result.distance)
                         {
                             collide = true;
+                            collision_dist = length(pos - ray.orig);
                             ray.t = distance;
                             result.v0 = object_result.v0;
                             result.v1 = object_result.v1;
@@ -227,16 +291,13 @@ float3 GetColor(Ray origRay, out float3 bloom, out float ray_distance)
             float3 normal2 = asfloat(vertexBuffer.Load3(result.vindex.z + 12));
             float3 opos = (1.0f - result.uv.x - result.uv.y) * result.v0 + result.uv.x * result.v1 + result.uv.y * result.v2;
             float3 normal = (1.0f - result.uv.x - result.uv.y) * normal0 + result.uv.x * normal1 + result.uv.y * normal2;
-            ray_distance = result.distance;
             normal = normalize(mul(normal, (float3x3)o.world));
             float4 pos = mul(float4(opos, 1.0f), o.world);
             pos /= pos.w;
             MaterialColor material = objectMaterials[result.object];
 
-            float3 color = float3(0.0f, 0.0f, 0.0f);
             float4 emission = material.emission * float4(material.emission_color, 1.0f);
-            bloom += emission;
-
+            float3 color = float3(0.0f, 0.0f, 0.0f);
             if (material.emission > 0.0f) {
                 color = emission;
             }
@@ -268,19 +329,42 @@ float3 GetColor(Ray origRay, out float3 bloom, out float ray_distance)
                     color *= material.diffuseColor.rgb;
                 }
             }
+            float n1 = saturate(dot(-ray.dir, normal));
 
-            finalColor += color * ray.ratio * o.opacity;
-
+            float material_dispersion = saturate(1.0f - material.specIntensity);
+            float att_dist = max(result.distance * result.distance * material_dispersion, 1.0f);
+            if (refract) {
+                att_dist = 1.0f;
+            }
+            if (ray.bounces == 0 || mix) {
+                out_color.color[0] += color * ray.ratio * o.opacity / att_dist;
+                out_color.dispersion[0] = last_dispersion;
+                if (!refract) {
+                    out_color.bloom += emission / att_dist;
+                }
+            }
+            else {
+                out_color.color[1] += color * ray.ratio * n1 * o.opacity / att_dist;
+                out_color.dispersion[1] = last_dispersion;
+            }
+            last_dispersion += material_dispersion;
             ray.orig = pos;
-
+            out_color.hit = true;
             //If not opaque surface, generate a refraction ray
-            if (ray.bounces < 3 && o.opacity < 1.0f) {
-                if (ray.bounces % 2 == 0) {
+            if (ray.bounces < max_bounces && o.opacity < 1.0f) {
+                if (i % 2 == 0) {
                     normal = -normal;
                 }
                 ray = GetRefractedRayFromRay(ray, ray.density,
                     ray.density != 1.0 ? 1.0f : o.density,
                     normal, ray.ratio * (1.0f - o.opacity));
+                end = false;
+            } else if (ray.bounces < max_bounces && o.opacity > 0.0f) {
+                ray = GetReflectedRayFromRay(ray, normal, ray.ratio);
+                float3 tangent;
+                float3 bitangent;
+                GetSpaceVectors(ray.dir, tangent, bitangent);
+                ray.dir = GenerateHemisphereRay(ray.dir, tangent, bitangent, pow(1.0f - material.specIntensity, 3.0f), N, level, rX);
                 end = false;
             }
         }
@@ -289,60 +373,7 @@ float3 GetColor(Ray origRay, out float3 bloom, out float ray_distance)
 
         }
     }
-    if (collide) {
-        ray_distance = sqrt(ray_distance);
-    }
-    return finalColor;
-}
-
-float3 GenerateFibonacciHemisphereRay(float3 dir, float3 tangent, float3 bitangent, float dispersion, float N, float NLevels, float rX)
-{
-    rX *= 0.2f;
-    float index = rX * N * dispersion;
-
-    // First point at the top (up direction)
-    if (index <= 1.0f) {
-        return dir; // The first point is directly at the top
-    }
-    
-    float cumulativePoints = 0;
-    float level = 1;
-    while (true) {
-        float c  = cumulativePoints + level * level;
-        if (c < index) {
-            cumulativePoints = c;
-        }
-        else {
-            break;
-        }
-        level++;
-    };
-
-    float pointsAtLevel = level * level;  // Quadratic growth
-
-    // Calculate local index within the current level
-    float localIndex = index - cumulativePoints;
-
-    rX -= 0.1f;
-    float phi = rX + level / NLevels * M_PI * 0.5f;
-
-    // Azimuthal angle (theta) based on number of points at this level
-    float theta = rX + 2.0f * M_PI * localIndex / pointsAtLevel; // Spread points evenly in azimuthal direction
-
-    // Convert spherical coordinates to Cartesian coordinates
-    float sinPhi = sin(phi);
-    float cosPhi = cos(phi);
-    float sinTheta = sin(theta);
-    float cosTheta = cos(theta);
-
-    // Local ray direction in spherical coordinates
-    float3 localRay = float3(sinPhi * cosTheta, sinPhi * sinTheta, cosPhi);
-
-    // Convert local ray to global coordinates (tangent space to world space)
-    float3 globalRay = localRay.x * tangent + localRay.y * bitangent + localRay.z * dir;
-
-
-    return normalize(dir + globalRay);
+    return out_color.hit;
 }
 
 #define DENSITY 1.0f
@@ -378,8 +409,10 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     float2 rayMapRatio = ray_map_dimensions / dimensions;
     float2 bloomRatio = bloom_dimensions / dimensions;
 
-    float4 color0 = float4(0.0f, 0.0f, 0.0f, 0.0f);
-    float4 color1 = float4(0.0f, 0.0f, 0.0f, 0.0f);
+    float4 color_reflex = float4(0.0f, 0.0f, 0.0f, 1.0f);
+    float4 color_reflex2 = float4(0.0f, 0.0f, 0.0f, 1.0f);
+    float4 color_refrac = float4(0.0f, 0.0f, 0.0f, 1.0f);
+    float4 color_diffuse = float4(0.0f, 0.0f, 0.0f, 1.0f);
     float3 bloomColor = { 0.0f, 0.0f, 0.0f };
 
     float2 pixel = float2(x, y);
@@ -391,25 +424,30 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
 
     //Reflected ray
     float3 orig_pos = ray_source.orig.xyz;
-    bool process = dist2(orig_pos - cameraPosition) < max_distance2;
+    bool process = length(orig_pos - cameraPosition) < max_distance;
 
     if (step == 1)
     {
         if (!process || enabled == 0 || ray_source.dispersion >= 1.0f || ray_source.reflex < Epsilon || dist2(ray_source.normal) < Epsilon)
         {
-            output0[pixel] = color0;
-            output1[pixel] = color1;
+            output0[pixel] = color_reflex;
+            output1[pixel] = color_refrac;
+            output2[pixel] = color_reflex2;
+            dispersion[pixel] = float4(0.0f, 0.0f, 0.0f, 0.0f);
             return;
         }
     }
     else {
         if (!process || enabled == 0 || ray_source.dispersion < Epsilon || ray_source.reflex < Epsilon || dist2(ray_source.normal) < Epsilon)
         {
-            output0[pixel] = color0;
+            output0[pixel] = color_reflex;
             return;
         }
     }
 
+    float3 tangent;
+    float3 bitangent;
+    RayTraceColor rc;
     Ray ray = GetReflectedRayFromSource(ray_source);
     if (dist2(ray.dir) > Epsilon)
     {
@@ -417,14 +455,10 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
         float3 orig_dir = ray.dir;
         int count = 0;
             
-        float NCOUNT = 32.0f;
-        uint N2 = 32;
-        float N = N2 * NCOUNT;
-            
         float cumulativePoints = 0;
         float level = 1;
         while (true) {
-            float c = cumulativePoints + level * level;
+            float c = cumulativePoints + level * 2;
             if (c < N) {
                 cumulativePoints = c;
             }
@@ -434,73 +468,77 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             level++;
         };
 
-        float3 seed = orig_pos * frame_count;
-        float rX = rgba_tnoise(seed);
+        rc.hit = false;
 
         if ((enabled & REFLEX_ENABLED) && step == 1) {
-            float4 color_reflex = float4(0.0f, 0.0f, 0.0f, 0.0f);
-            float3 dummy;
 
-            float3 up = abs(orig_dir.z) < 0.999f ? float3(0.0f, 0.0f, 1.0f) : float3(1.0f, 0.0f, 0.0f);
-            float3 tangent = normalize(cross(up, orig_dir));
-            float3 bitangent = cross(orig_dir, tangent);
+            float3 seed = orig_pos * 100.0f;
+            float rX = rgba_tnoise(seed);
 
-            for (uint i = 0; i < 1; ++i) {
-                ray.dir = GenerateFibonacciHemisphereRay(orig_dir, tangent, bitangent, pow(ray_source.dispersion, 4.0f), N, level, rX);
-                float n1 = saturate(dot(ray.dir, ray_source.normal));
-                float dist = FLT_MAX;
-                float4 c = float4(GetColor(ray, dummy, dist), 1.0f);
-                color_reflex += c * n1 / max(dist, 1.0f);
+            GetSpaceVectors(orig_dir, tangent, bitangent);
+            ray.dir = GenerateHemisphereRay(orig_dir, tangent, bitangent, pow(ray_source.dispersion, 3.0f), N, level, rX);
+            float dist = FLT_MAX;
+            if (GetColor(ray, rX, level, 1, rc, ray_source.dispersion, false, false)) {
+                color_reflex.rgb += rc.color[0] * ray_source.opacity;
+                color_reflex2.rgb += rc.color[1] * ray_source.opacity;
+                bloomColor.rgb += rc.bloom;
                 count++;
             }
-            color_reflex /= count;
-            bloomColor /= count;
-                
+            if (count > 0) {
+                color_reflex /= count;
+                color_reflex2 /= count;
+                bloomColor /= count;
+            }
+            float2 rc_disp = float2(rc.dispersion[0], rc.dispersion[1]);
             //Refracted ray
-            float4 color_refract = float4(0.0f, 0.0f, 0.0f, 0.0f);
-
             if (ray_source.opacity < 1.0f && (enabled & REFRACT_ENABLED)) {
+                float3 seed = orig_pos * 100.0f;
+                float rX = rgba_tnoise(seed);
                 Ray ray = GetRefractedRayFromSource(ray_source);
                 if (dist2(ray.dir) > Epsilon)
                 {
-                    float dummy;
-                    color_refract = float4(GetColor(ray, bloomColor, dummy), 1.0f) * (1.0f - ray_source.opacity);
+                    if (GetColor(ray, rX, level, 2, rc, ray_source.dispersion, true, true)) {
+                        color_refrac.rgb += rc.color[0] * (1.0f - ray_source.opacity);
+                        bloomColor += rc.bloom;
+                    }
                 }
             }
             output0[pixel] = color_reflex;
-            output1[pixel] = color_refract;
-
-            uint2 bpixel = { pixel.x * bloomRatio.x, pixel.y * bloomRatio.y };
+            output1[pixel] = color_refrac;
+            output2[pixel] = color_reflex2;
             float4 bColor = float4(bloomColor * (1.0f - ray_source.dispersion), 1.0f);
-            for (uint bx = 0; bx < bloomRatio.x; ++bx) {
-                for (uint by = 0; by < bloomRatio.y; ++by) {
-                    uint2 bpixel = { pixel.x * bloomRatio.x + bx, pixel.y * bloomRatio.y + by };
-                    bloom[bpixel] = bColor;
-                }
-            }
+            bloom[pixel] = bColor * 0.2f;
 
+            float4 d = dispersion[pixel];
+            if (rc.hit) {
+                rc_disp = float2(max(rc_disp.x, rc.dispersion[0]), max(rc_disp.y, rc.dispersion[1]));
+                dispersion[pixel] = float4(rc_disp.x, rc_disp.y, d.b, d.a);
+            }
+            else {
+                dispersion[pixel] = float4(-1.0f, -1.0f, d.b, d.a);
+            }
+             
         } else if ((enabled & INDIRECT_ENABLED) && step == 2) {
             count = 0;
-            float4 color_diffuse = float4(0.0f, 0.0f, 0.0f, 0.0f);
             float3 dummy;
+            GetSpaceVectors(normal, tangent, bitangent);
 
-
-            float3 up = abs(normal.z) < 0.999f ? float3(0.0f, 0.0f, 1.0f) : float3(1.0f, 0.0f, 0.0f);
-            float3 tangent = normalize(cross(up, normal));
-            float3 bitangent = cross(normal, tangent);
-
-
-
-            for (uint i = 0; i < 1; ++i) {
-                ray.dir = GenerateFibonacciHemisphereRay(normal, tangent, bitangent, 1.0f, N, level, rX);
-                float n1 = saturate(dot(ray.dir, normal));
+            for (uint i = 0; i < 2; ++i) {
+                float rX;
+                float3 seed = float3(50.0f, 50.0f, 50.0f) + orig_pos * 50.0f * (i + 1);
+                rX = rgba_tnoise(seed);
+                ray.dir = ray.dir * 0.3f + 0.7f * GenerateHemisphereRay(normal, tangent, bitangent, 1.0f, N, level, rX);
                 float dist = FLT_MAX;
-                float4 c = float4(GetColor(ray, dummy, dist), 1.0f);
-                color_diffuse += c * n1 / max(dist, 1.0f);
-                count++;
+                if (GetColor(ray, rX, level, 1, rc, ray_source.dispersion, true, false)) {
+                    color_diffuse.rgb += rc.color[0];
+                    count++;
+                }
             }
-            color_diffuse /= count;
-            bloomColor /= count;
+            if (count > 0) {
+                color_diffuse /= count;
+                float4 d = dispersion[pixel];
+                dispersion[pixel] = float4(d.r, d.g, 1.0f, d.a);
+            }
             output0[pixel] = color_diffuse;
         }
     } 
