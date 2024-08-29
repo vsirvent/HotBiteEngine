@@ -39,7 +39,8 @@ Engine features:
 
 ## Screenshots examples
 ### Ray tracing
-[![RAY TRACING](https://img.youtube.com/vi/cnNIR1Cesr0/0.jpg)](https://www.youtube.com/watch?v=cnNIR1Cesr0)
+![](Tests/Images/marbles_rt2.png)
+![](Tests/Images/marbles_rt.png)
 
 ### Material Editor
 ![](Tests/Images/MaterialEditor.png)
