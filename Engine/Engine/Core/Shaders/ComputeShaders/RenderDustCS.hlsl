@@ -144,7 +144,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
                             color += CalcPoint(normal, wpos.xyz, pointLights[i], i);
                         }
                     }
-#define MAX_GLOBAL_ILLUMINATION 1.0f
+#define MAX_GLOBAL_ILLUMINATION 0.8f
                     float global = (float)vol_data[uint2(0, 0)] / (float)(dimensions.x * dimensions.y * 1000);
                     float att = 1.0f;
                     global *= global;

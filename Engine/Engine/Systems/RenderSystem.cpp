@@ -37,6 +37,8 @@ using namespace HotBite::Engine::Core;
 using namespace DirectX;
 
 static const float zero[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+static const float minus_one[4] = { -1.0f, -1.0f, -1.0f, -1.0f };
+
 
 const std::string RenderSystem::WORLD = "world";
 const std::string RenderSystem::PREV_WORLD = "prevWorld";
@@ -251,16 +253,16 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		if (FAILED(light_map.Init(w, h))) {
 			throw std::exception("light_map.Init failed");
 		}
-		if (FAILED(vol_light_map.Init(w / 2, h / 2, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+		if (FAILED(vol_light_map.Init(w / 2, h / 2, DXGI_FORMAT::DXGI_FORMAT_R11G11B10_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("light_map.Init failed");
 		}
-		if (FAILED(lens_flare_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+		if (FAILED(lens_flare_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R11G11B10_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("lens_flare_map.Init failed");
 		}
-		if (FAILED(dust_render_map.Init(w / 2, h / 2, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+		if (FAILED(dust_render_map.Init(w / 2, h / 2, DXGI_FORMAT::DXGI_FORMAT_R11G11B10_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("dust_render_map.Init failed");
 		}
-		if (FAILED(vol_light_map2.Init(w / 2, h / 2, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+		if (FAILED(vol_light_map2.Init(w / 2, h / 2, DXGI_FORMAT::DXGI_FORMAT_R11G11B10_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("light_map.Init failed");
 		}
 		if (FAILED(position_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT))) {
@@ -269,7 +271,7 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		if (FAILED(prev_position_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT))) {
 			throw std::exception("prev_position_map.Init failed");
 		}
-		if (FAILED(bloom_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+		if (FAILED(bloom_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R11G11B10_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("bloom_map.Init failed");
 		}
 		if (FAILED(temp_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
@@ -335,6 +337,10 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		rt_denoiser = ShaderFactory::Get()->GetShader<SimpleComputeShader>("DenoiserCS.cso");
 		if (rt_denoiser == nullptr) {
 			throw std::exception("DenoiserCS shader.Init failed");
+		}
+		rt_disp = ShaderFactory::Get()->GetShader<SimpleComputeShader>("DispersionCS.cso");
+		if (rt_disp == nullptr) {
+			throw std::exception("DispersionCS shader.Init failed");
 		}
 		motion_blur = ShaderFactory::Get()->GetShader<SimpleComputeShader>("MotionBlurCS.cso");
 		if (motion_blur == nullptr) {
@@ -1736,6 +1742,44 @@ void RenderSystem::ProcessRT() {
 		UnprepareLights(rt_shader);
 		rt_shader->CopyAllBufferData();
 
+		rt_disp->SetShaderResourceView("input", rt_dispersion.SRV());
+		rt_disp->SetUnorderedAccessView("output", texture_tmp.UAV());
+		rt_disp->SetInt("type", 1);
+		rt_disp->CopyAllBufferData();
+		rt_disp->SetShader();
+		dxcore->context->Dispatch(groupsX, groupsY, 1);
+		rt_disp->SetShaderResourceView("input", nullptr);
+		rt_disp->SetUnorderedAccessView("output", nullptr);
+		rt_disp->CopyAllBufferData();
+
+		rt_disp->SetShaderResourceView("input", texture_tmp.SRV());
+		rt_disp->SetUnorderedAccessView("output", rt_dispersion.UAV());
+		rt_disp->SetInt("type", 2);
+		rt_disp->CopyAllBufferData();
+		dxcore->context->Dispatch(groupsX, groupsY, 1);
+		rt_disp->SetShaderResourceView("input", nullptr);
+		rt_disp->SetUnorderedAccessView("output", nullptr);
+		rt_disp->CopyAllBufferData();
+
+		rt_disp->SetShaderResourceView("input", rt_dispersion.SRV());
+		rt_disp->SetUnorderedAccessView("output", texture_tmp.UAV());
+		rt_disp->SetInt("type", 3);
+		rt_disp->CopyAllBufferData();
+		rt_disp->SetShader();
+		dxcore->context->Dispatch(groupsX, groupsY, 1);
+		rt_disp->SetShaderResourceView("input", nullptr);
+		rt_disp->SetUnorderedAccessView("output", nullptr);
+		rt_disp->CopyAllBufferData();
+
+		rt_disp->SetShaderResourceView("input", texture_tmp.SRV());
+		rt_disp->SetUnorderedAccessView("output", rt_dispersion.UAV());
+		rt_disp->SetInt("type", 4);
+		rt_disp->CopyAllBufferData();
+		dxcore->context->Dispatch(groupsX, groupsY, 1);
+		rt_disp->SetShaderResourceView("input", nullptr);
+		rt_disp->SetUnorderedAccessView("output", nullptr);
+		rt_disp->CopyAllBufferData();
+
 		//Denoiser
 		rt_denoiser->SetInt("debug", rt_debug);
 		rt_denoiser->SetShaderResourceView("positions", rt_ray_sources0.SRV());
@@ -1744,46 +1788,6 @@ void RenderSystem::ProcessRT() {
 		rt_denoiser->SetShaderResourceView("prev_position_map", prev_position_map.SRV());
 		rt_denoiser->SetMatrix4x4(VIEW, cam_entity.camera->view);
 		rt_denoiser->SetMatrix4x4(PROJECTION, cam_entity.camera->projection);
-		rt_denoiser->SetInt("light_type", 100);
-
-		rt_denoiser->SetShaderResourceView("input", rt_dispersion.SRV());
-		rt_denoiser->SetUnorderedAccessView("output", texture_tmp.UAV());
-		rt_denoiser->SetInt("type", 1);
-		rt_denoiser->CopyAllBufferData();
-		rt_denoiser->SetShader();
-		dxcore->context->Dispatch(groupsX, groupsY, 1);
-		rt_denoiser->SetShaderResourceView("input", nullptr);
-		rt_denoiser->SetUnorderedAccessView("output", nullptr);
-		rt_denoiser->CopyAllBufferData();
-
-		rt_denoiser->SetShaderResourceView("input", texture_tmp.SRV());
-		rt_denoiser->SetUnorderedAccessView("output", rt_dispersion.UAV());
-		rt_denoiser->SetInt("type", 2);
-		rt_denoiser->CopyAllBufferData();
-		dxcore->context->Dispatch(groupsX, groupsY, 1);
-		rt_denoiser->SetShaderResourceView("input", nullptr);
-		rt_denoiser->SetUnorderedAccessView("output", nullptr);
-		rt_denoiser->CopyAllBufferData();
-
-		rt_denoiser->SetShaderResourceView("input", rt_dispersion.SRV());
-		rt_denoiser->SetUnorderedAccessView("output", texture_tmp.UAV());
-		rt_denoiser->SetInt("type", 3);
-		rt_denoiser->CopyAllBufferData();
-		rt_denoiser->SetShader();
-		dxcore->context->Dispatch(groupsX, groupsY, 1);
-		rt_denoiser->SetShaderResourceView("input", nullptr);
-		rt_denoiser->SetUnorderedAccessView("output", nullptr);
-		rt_denoiser->CopyAllBufferData();
-
-		rt_denoiser->SetShaderResourceView("input", texture_tmp.SRV());
-		rt_denoiser->SetUnorderedAccessView("output", rt_dispersion.UAV());
-		rt_denoiser->SetInt("type", 4);
-		rt_denoiser->CopyAllBufferData();
-		dxcore->context->Dispatch(groupsX, groupsY, 1);
-		rt_denoiser->SetShaderResourceView("input", nullptr);
-		rt_denoiser->SetUnorderedAccessView("output", nullptr);
-		rt_denoiser->CopyAllBufferData();
-
 		rt_denoiser->SetShaderResourceView("dispersion", rt_dispersion.SRV());
 
 		static constexpr int textures[] = { RT_TEXTURE_REFLEX, RT_TEXTURE_REFLEX2, RT_TEXTURE_INDIRECT, RT_TEXTURE_EMISSION };

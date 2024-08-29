@@ -281,6 +281,7 @@ namespace HotBite {
 				Core::TBVH tbvh{ MAX_OBJECTS };
 				Core::SimpleComputeShader* rt_shader = nullptr;
 				Core::SimpleComputeShader* rt_denoiser = nullptr;
+				Core::SimpleComputeShader* rt_disp = nullptr;
 
 				//RT texture 1: Reflexed rays
 				//RT texture 2: Refracted rays
