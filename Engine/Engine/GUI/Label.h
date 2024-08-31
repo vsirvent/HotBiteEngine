@@ -270,7 +270,6 @@ namespace HotBite {
 						if (target != nullptr) {
 							Direct2D* d2d = Direct2D::Get();
 							d2d_render_target = d2d->GetD2DRenderTargetView(target);
-							D2D1_SIZE_F s = d2d_render_target->GetSize();
 						}
 						Refresh();
 					}

@@ -55,6 +55,7 @@ uint index(BVHNode node)
 
 bool IntersectTri(RayObject ray, uint indexOffset, uint vertexOffset, out IntersectionResult result)
 {
+
     const uint indexByteOffset = indexOffset * 4;
     const uint vertexSize = 96;
 
@@ -73,7 +74,7 @@ bool IntersectTri(RayObject ray, uint indexOffset, uint vertexOffset, out Inters
     const float a = dot(edge1, h);
 
     // Early return if the ray is parallel to the triangle
-    if (abs(a) < Epsilon)
+    if (abs(a) <= Epsilon)
     {
         return false;
     }

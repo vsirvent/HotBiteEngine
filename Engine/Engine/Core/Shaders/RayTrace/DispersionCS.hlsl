@@ -33,30 +33,32 @@ void main(uint3 DTid : SV_DispatchThreadID)
         dir = float2(0.0f, 1.0f);
     }
 
-    int kernel = type <= 1?0:10; 
-    float max_disp = 0.0f;
+    int kernel = type <= 2?5:10; 
     if (type <= 2) {
+        float3 max_disp = float3(-1.0f, -1.0f, -1.0f);
         for (int i = -kernel; i <= kernel; ++i) {
             float2 p = pixel + dir * i;
             if ((p.x < 0 || p.x >= input_dimensions.x) && (p.y < 0 || p.y >= input_dimensions.y)) {
                 break;
             }
-            float c = input[p].g;
-            if (c > max_disp) {
-                max_disp = c;
-            }
+            float3 c = input[p].rgb;
+            max_disp = max(max_disp, c);
         }
+        float4 c0 = input[pixel];
+        c0.rgb = max_disp;
+        output[pixel] = c0;
     }
     else {
+        float3 max_disp = float3(0.0f, 0.0f, 0.0f);
         for (int i = -kernel; i <= kernel; ++i) {
             float2 p = pixel + dir * i;
             if ((p.x < 0 || p.x >= input_dimensions.x) && (p.y < 0 || p.y >= input_dimensions.y)) {
                 break;
             }
-            max_disp += input[p].g * kw[i + 10];
+            max_disp += input[p].rgb * kw[i + 10];
         }
+        float4 c0 = input[pixel];
+        c0.rgb = max_disp;
+        output[pixel] = c0;
     }
-    float4 c0 = input[pixel];
-    c0.g = max_disp;
-    output[pixel] = c0;
 }

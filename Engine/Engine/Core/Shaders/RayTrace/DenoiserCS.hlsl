@@ -70,11 +70,17 @@ void main(uint3 DTid : SV_DispatchThreadID)
             break;
         }
         case 1: {
-            disp = dispersion[pixel].g;
+            disp = max(dispersion[pixel].g, 0.01f);
+            if (disp < 0.0f) {
+                return;
+            }
             break;
         }
         case 2: {
-            disp = dispersion[pixel].b;
+            disp = ray_source.dispersion;
+            if (dist2(ray_source.orig) <= Epsilon) {
+                return;
+            }
             min_dispersion = MAX_KERNEL;
             break;
         }
@@ -90,7 +96,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     int kernel = debug == 1 ? 0 : clamp(floor(max(MAX_KERNEL * disp, min_dispersion)), 1, MAX_KERNEL);
     float motion = 0.0f;
     float w[HARD_MAX_KERNEL * 2 + 1];
-
+#if 1
     for (int i = -kernel; i <= kernel; ++i) {
         float2 p = pixel + dir * i;
 
@@ -156,4 +162,59 @@ void main(uint3 DTid : SV_DispatchThreadID)
         float w = saturate(0.7 - motion * 100.0f - dist2(prev_color - c0));
         output[pixel] = prev_color * w + c0 * (1.0f - w);
     }
+#else
+    if (type == 2) {
+        kernel /= 2;
+        for (int x = -kernel; x <= kernel; ++x) {
+            for (int y = -kernel; y <= kernel; ++y) {
+                float2 p = pixel + float2(x, y);
+
+                if ((p.x < 0 || p.x >= input_dimensions.x) && (p.y < 0 || p.y >= input_dimensions.y)) {
+                    continue;
+                }
+                float2 p1_info_pixel = p * normalRatio;
+                float3 p1_position = positions[p1_info_pixel].xyz;
+                float dist = clamp(dist2(p1_position - p0_position), 1.0f, 1000.0f);
+                float3 p1_normal = normals[p1_info_pixel].xyz;
+                float n = saturate(dot(p1_normal, p0_normal));
+                float w = pow(n, 20.0f / normalRatio) / dist;
+                count += w;
+                c0 += input[p] * w;
+            }
+        }
+        if (count > Epsilon) {
+            c0 /= count;
+        }
+        else {
+            c0 *= 0.0f;
+        }
+        matrix worldViewProj = mul(view, projection);
+        float4 prev_pos = mul(prev_position_map[info_pixel], worldViewProj);
+        prev_pos.x /= prev_pos.w;
+        prev_pos.y /= -prev_pos.w;
+        prev_pos.x = (prev_pos.x + 1.0f) * normals_dimensions.x / 2.0f;
+        prev_pos.y = (prev_pos.y + 1.0f) * normals_dimensions.y / 2.0f;
+        float m = length(motion_texture[prev_pos.xy].xyz);
+        if (m > motion) {
+            motion = m;
+        }
+        float3 mvector = motion_texture[info_pixel].xyz;
+        if (mvector.x == -FLT_MAX) {
+            motion = FLT_MAX;
+        }
+        else {
+            m = length(motion_texture[info_pixel].xyz);
+            if (m > motion) {
+                motion = m;
+            }
+        }
+
+        float4 prev_color = prev_output[pixel];
+        float w = saturate(0.7 - motion * 100.0f -dist2(prev_color - c0));
+        output[pixel] = prev_color * w + c0 * (1.0f - w);
+    }
+    else {
+        output[pixel] = input[pixel];
+    }
+#endif
 }

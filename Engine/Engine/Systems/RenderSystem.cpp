@@ -425,7 +425,6 @@ void RenderSystem::LoadRTResources() {
 	int h = dxcore->GetHeight();
 	for (int x = 0; x < RT_NTEXTURES; ++x) {
 		int div = RT_TEXTURE_RESOLUTION_DIVIDER;
-		
 		for (int n = 0; n < 2; ++n) {
 			rt_textures[n][x].Release();
 
@@ -1663,7 +1662,7 @@ void RenderSystem::ProcessRT() {
 		std::lock_guard<std::mutex> lock(rt_mutex);
 		CameraEntity& cam_entity = cameras.GetData()[0];
 		
-		rt_dispersion.Clear(zero);
+		rt_dispersion.Clear(minus_one);
 		tbvh_buffer.Refresh(tbvh.Root(), 0, tbvh.Size());
 
 		ID3D11RenderTargetView* nullRenderTargetViews[1] = { nullptr };
@@ -1751,7 +1750,6 @@ void RenderSystem::ProcessRT() {
 		rt_disp->SetShaderResourceView("input", nullptr);
 		rt_disp->SetUnorderedAccessView("output", nullptr);
 		rt_disp->CopyAllBufferData();
-
 		rt_disp->SetShaderResourceView("input", texture_tmp.SRV());
 		rt_disp->SetUnorderedAccessView("output", rt_dispersion.UAV());
 		rt_disp->SetInt("type", 2);
@@ -1760,7 +1758,8 @@ void RenderSystem::ProcessRT() {
 		rt_disp->SetShaderResourceView("input", nullptr);
 		rt_disp->SetUnorderedAccessView("output", nullptr);
 		rt_disp->CopyAllBufferData();
-
+		
+		texture_tmp.Clear(zero);
 		rt_disp->SetShaderResourceView("input", rt_dispersion.SRV());
 		rt_disp->SetUnorderedAccessView("output", texture_tmp.UAV());
 		rt_disp->SetInt("type", 3);

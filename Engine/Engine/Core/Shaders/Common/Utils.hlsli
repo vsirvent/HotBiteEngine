@@ -27,7 +27,7 @@ SOFTWARE.
 #ifndef __UTILS_HLSLI__
 #define __UTILS_HLSLI__
 
-float Epsilon = 1e-6;
+float Epsilon = 1e-4;
 
 float4 GetInterpolatedColor(float2 uv, Texture2D text, float2 dimension) {
 	// Calculate the texture coordinates in the range [0, 1]
@@ -100,7 +100,7 @@ float4 Get3dInterpolatedColor(float2 uv, Texture2D text, float2 dimension, Textu
 	float d10 = dist2(wpxx - wp10);  // Distance to wp10
 
 	// Small epsilon to avoid division by zero
-	float epsilon = 1e-5;
+	float epsilon = 1e-4;
 
 	// Calculate weights based on inverse distance (closer points have higher weight)
 	float w00 = 1.0f / max(d00, epsilon);
@@ -435,7 +435,7 @@ bool line_sphere_intersection(float3 p1, float3 p2, float3 center, float radius,
 		// No intersection
 		return false;
 	}
-	else if (abs(discriminant) < Epsilon) {
+	else if (abs(discriminant) <= Epsilon) {
 		// Tangent case
 		float t = -b / (2.0f * a);
 		intersectionPoint = p1 + t * d;
