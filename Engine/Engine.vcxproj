@@ -279,7 +279,6 @@
     <None Include="Engine\Core\Shaders\Common\ShaderStructs.hlsli" />
     <None Include="Engine\Core\Shaders\Common\SimpleLight.hlsli" />
     <None Include="Engine\Core\Shaders\Common\Utils.hlsli" />
-    <None Include="Engine\Core\Shaders\ComputeShaders\IndirectCS.hlsli" />
     <None Include="Engine\Core\Shaders\GUI\GUICommon.hlsli" />
     <None Include="Engine\Core\Shaders\MainRender\MainRenderPS.hlsli" />
     <None Include="packages.config" />

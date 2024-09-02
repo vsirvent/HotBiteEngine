@@ -33,9 +33,12 @@ void main(uint3 DTid : SV_DispatchThreadID)
     {
         uint w = 0;
         uint h = 0;
+        uint w2 = 0;
+        uint h2 = 0;
         input.GetDimensions(w, h);
-        input_dimensions.x = w;
-        input_dimensions.y = h;
+        output.GetDimensions(w2, h2);
+        input_dimensions.x = min(w, w2);
+        input_dimensions.y = min(h, h2);
 
         normals.GetDimensions(w, h);
         normals_dimensions.x = w;
@@ -85,7 +88,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
             if (dist2(ray_source.orig) <= Epsilon) {
                 return;
             }
-            min_dispersion = MAX_KERNEL;
+            min_dispersion = normals_dimensions.x / 64;
             break;
         }
     }
@@ -93,7 +96,8 @@ void main(uint3 DTid : SV_DispatchThreadID)
     if (disp < Epsilon) {
         return;
     }
-    int kernel = debug == 1 ? 0 : clamp(floor(max(MAX_KERNEL * disp, min_dispersion)), 1, MAX_KERNEL);
+    uint min_k = normalRatio.x > 1 ? 1 : 0;
+    int kernel = debug == 1 ? 0 : clamp(floor(max(MAX_KERNEL * disp, min_dispersion)), min_k, MAX_KERNEL);
     float motion = 0.0f;
     float w[HARD_MAX_KERNEL * 2 + 1];
 

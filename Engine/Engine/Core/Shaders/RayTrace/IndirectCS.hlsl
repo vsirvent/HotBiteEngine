@@ -11,6 +11,7 @@ cbuffer externalData : register(b0)
 	matrix view;
 	matrix projection;
 	uint debug;
+	float RATIO;
 }
 
 RWTexture2D<float4> output : register(u0);
@@ -48,57 +49,27 @@ void main(uint3 DTid : SV_DispatchThreadID)
 	RaySource ray_source = fromColor(positions[info_pixel], normals[info_pixel]);
 	float4 c = float4(0.0f, 0.0f, 0.0f, 0.0f);
 
-#define RATIO 8.0f
-	float2 p00 = floor(pixel / RATIO) * RATIO;
-	float2 p01 = p00 + float2(0.0f, RATIO);
-	float2 p10 = p00 + float2(RATIO, 0.0f);
-	float2 p11 = p00 + float2(RATIO, RATIO);
+	float2 center = round(pixel / RATIO) * RATIO;
 
-	float camDist = dist2(cameraPosition - p0_position);
-	uint2 pos_p00 = p00 * info_ratio;
-	uint2 pos_p11 = p11 * info_ratio;
-	uint2 pos_p01 = p01 * info_ratio;
-	uint2 pos_p10 = p10 * info_ratio;
+	float totalW = 0.0f;
+
+	static const float epsilon = 1e-4;
 	
-	float3 wp00 = positions[pos_p00].xyz;
-	float3 wp11 = positions[pos_p11].xyz;
-	float3 wp01 = positions[pos_p01].xyz;
-	float3 wp10 = positions[pos_p10].xyz;
-	float3 wpxx = p0_position;
+	float camDist = dist2(cameraPosition - p0_position);
+	float4 color = float4(0.0f, 0.0f, 0.0f, 0.0f);
+	for (int x = -5; x <= 5; ++x) {
+		for (int y = -5; y <= 5; ++y) {
+			float2 p = center + float2(x * RATIO, y * RATIO);
+			uint2 pos_p = p * info_ratio;
+			float dist = max(dist2(p0_position - positions[pos_p].xyz) * 0.2f / camDist, epsilon);
+			float n = max(pow(dot(p0_normal, normals[pos_p].xyz), 2.0f), epsilon);
+			float w = 1.0f / dist;
+			color += output[p] * w;
+			totalW += w;
+		}
+	}
 
-	// Calculate distances in 3D space between the sample point and the four surrounding points
-	float d00 = dist2(wpxx - wp00) / camDist;  // Distance to wp00
-	float d11 = dist2(wpxx - wp11) / camDist;  // Distance to wp11
-	float d01 = dist2(wpxx - wp01) / camDist;  // Distance to wp01
-	float d10 = dist2(wpxx - wp10) / camDist;  // Distance to wp10
-
-	// Small epsilon to avoid division by zero
-	float epsilon = 1e-4;
-
-	// Calculate weights based on inverse distance (closer points have higher weight)
-	float w00 = 1.0f / max(d00, epsilon);
-	float w11 = 1.0f / max(d11, epsilon);
-	float w01 = 1.0f / max(d01, epsilon);
-	float w10 = 1.0f / max(d10, epsilon);
-
-	float3 n00 = normals[pos_p00].xyz;
-	float3 n11 = normals[pos_p11].xyz;
-	float3 n01 = normals[pos_p01].xyz;
-	float3 n10 = normals[pos_p10].xyz;
-	float3 nxx = p0_normal;
-
-	//w00 *= pow(dot(nxx, n00), 10.0f);
-	//w11 *= pow(dot(nxx, n00), 10.0f);
-	//w01 *= pow(dot(nxx, n00), 10.0f);
-	//w10 *= pow(dot(nxx, n00), 10.0f);
-
-	// Normalize weights
-	float totalWeight = w00 + w11 + w01 + w10;
-
-	w00 /= totalWeight;
-	w11 /= totalWeight;
-	w01 /= totalWeight;
-	w10 /= totalWeight;
-
-	output[pixel] = prev_output[pixel] * 0.7f + 0.3f * (output[p00] * w00 + output[p11] * w11 + output[p01] * w01 + output[p10] * w10);
+	if (totalW > epsilon) {
+		output[pixel] = color / totalW;
+	}
 }

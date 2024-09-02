@@ -63,6 +63,11 @@ bool IsInteger(float2 value) {
 float dist2(float3 p) {
 	return p.x * p.x + p.y * p.y + p.z * p.z;
 }
+
+float dist2(float2 p) {
+	return p.x * p.x + p.y * p.y;
+}
+
 float4 Get3dInterpolatedColor(float2 uv, Texture2D text, float2 dimension, Texture2D positions, Texture2D normals, float2 pos_dimension) {
 
 

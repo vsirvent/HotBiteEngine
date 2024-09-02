@@ -39,7 +39,7 @@ cbuffer externalData : register(b0)
     float time;
     float3 cameraPosition;
     float3 cameraDirection;
-
+    float RATIO;
     uint enabled;
 
     //Lights
@@ -417,7 +417,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     float2 pixel = float2(x, y);
 
     if (step == 2) {
-        pixel *= 8;
+        pixel *= RATIO;
     }
     float2 ray_pixel = pixel * rayMapRatio;
 
@@ -481,7 +481,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             ray.dir = GenerateHemisphereRay(orig_dir, tangent, bitangent, pow(ray_source.dispersion, 3.0f), N, level, rX);
             ray.orig.xyz = orig_pos.xyz + ray.dir * 0.001f;
             float dist = FLT_MAX;
-            if (GetColor(ray, rX, level, 0, rc, ray_source.dispersion, false, false)) {
+            if (GetColor(ray, rX, level, 1, rc, ray_source.dispersion, false, false)) {
                 color_reflex.rgb += rc.color[0] * ray_source.opacity;
                 color_reflex2.rgb += rc.color[1] * ray_source.opacity;
                 bloomColor.rgb += rc.bloom;
@@ -520,12 +520,12 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             GetSpaceVectors(normal, tangent, bitangent);
             
             bool collision = false;
-            for (uint i = 0; i < 2; ++i) {
+            for (uint i = 0; i < 3; ++i) {
                 float rX;
                 float3 seed = float3(50.0f, 50.0f, 50.0f) + DTid * (i + 1);
                 rX = rgba_tnoise(seed);
-                rX = pow(rX, 3.0f / (((float)i + 2.0f) / 2.0f));
-                rX *= 0.6f;
+                rX = pow(rX, 3.0f / (float)(i + 1));
+                rX *= 0.8f;
                 ray.dir = GenerateHemisphereRay(normal, tangent, bitangent, 1.0f, N, level, rX);
                 ray.orig.xyz = orig_pos.xyz + ray.dir * 0.01f;
                 float dist = FLT_MAX;
@@ -536,7 +536,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
                 count++;
             }
             float4 d = dispersion[pixel];
-            output0[pixel] = color_diffuse;
+            output0[pixel] = color_diffuse / count;
             dispersion[pixel] = float4(d.r, d.g, 1.0f, d.a);
         }
     }

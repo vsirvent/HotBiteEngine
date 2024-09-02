@@ -429,6 +429,9 @@ void RenderSystem::LoadRTResources() {
 	int h = dxcore->GetHeight();
 	for (int x = 0; x < RT_NTEXTURES; ++x) {
 		int div = RT_TEXTURE_RESOLUTION_DIVIDER;
+		if (x == RT_TEXTURE_INDIRECT) {
+			div = 2;
+		}
 		for (int n = 0; n < 2; ++n) {
 			rt_textures[n][x].Release();
 
@@ -1717,16 +1720,17 @@ void RenderSystem::ProcessRT() {
 		int32_t  groupsX = (int32_t)(ceil((float)rt_texture_curr[RT_TEXTURE_REFLEX].Width() / (32.0f)));
 		int32_t  groupsY = (int32_t)(ceil((float)rt_texture_curr[RT_TEXTURE_REFLEX].Height() / (32.0f)));
 		dxcore->context->Dispatch(groupsX, groupsY, 1);
-
+		float RATIO = 2.0f;
 		if (rt_enabled & RT_INDIRECT_ENABLE) {
 			rt_shader->SetInt("step", 2);
+			rt_shader->SetFloat("RATIO", RATIO);
 			rt_shader->CopyAllBufferData();
 
 			rt_shader->SetUnorderedAccessView("output0", rt_texture_curr[RT_TEXTURE_INDIRECT].UAV());
 
 			groupsX = (int32_t)(ceil((float)rt_texture_curr[RT_TEXTURE_INDIRECT].Width() / (32.0f)));
 			groupsY = (int32_t)(ceil((float)rt_texture_curr[RT_TEXTURE_INDIRECT].Height() / (32.0f)));
-			dxcore->context->Dispatch(groupsX / 8, groupsY / 8, 1);
+			dxcore->context->Dispatch((uint32_t)ceil((float)groupsX / RATIO), (uint32_t)ceil((float)groupsY / RATIO), 1);
 		}
 
 		rt_shader->SetUnorderedAccessView("output0", nullptr);
@@ -1749,6 +1753,7 @@ void RenderSystem::ProcessRT() {
 		rt_indirect->SetShaderResourceView("normals", rt_ray_sources1.SRV());
 		rt_indirect->SetShaderResourceView("motion_texture", motion_texture.SRV());
 		rt_indirect->SetShaderResourceView("prev_position_map", prev_position_map.SRV());
+		rt_indirect->SetFloat("RATIO", RATIO);
 		rt_indirect->SetMatrix4x4(VIEW, cam_entity.camera->view);
 		rt_indirect->SetMatrix4x4(PROJECTION, cam_entity.camera->projection);
 		rt_indirect->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
@@ -1767,7 +1772,8 @@ void RenderSystem::ProcessRT() {
 		rt_indirect->SetShaderResourceView("prev_position_map", nullptr);
 		rt_indirect->CopyAllBufferData();
 
-
+		groupsX = (int32_t)(ceil((float)rt_texture_curr[RT_TEXTURE_REFLEX].Width() / (32.0f)));
+		groupsY = (int32_t)(ceil((float)rt_texture_curr[RT_TEXTURE_REFLEX].Height() / (32.0f)));
 		rt_disp->SetShaderResourceView("input", rt_dispersion.SRV());
 		rt_disp->SetUnorderedAccessView("output", texture_tmp.UAV());
 		rt_disp->SetInt("type", 1);
@@ -1820,6 +1826,9 @@ void RenderSystem::ProcessRT() {
 		static constexpr int ntextures = sizeof(textures) / sizeof(int);
 		for (int i = 0; i < ntextures; ++i) {
 			int ntexture = textures[i];
+
+			groupsX = (int32_t)(ceil((float)rt_texture_curr[ntexture].Width() / (32.0f)));
+			groupsY = (int32_t)(ceil((float)rt_texture_curr[ntexture].Height() / (32.0f)));
 
 			rt_denoiser->SetShaderResourceView("input", rt_texture_curr[ntexture].SRV());
 			rt_denoiser->SetUnorderedAccessView("output", texture_tmp.UAV());
