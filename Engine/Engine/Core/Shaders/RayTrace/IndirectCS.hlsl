@@ -57,11 +57,13 @@ void main(uint3 DTid : SV_DispatchThreadID)
 	
 	float camDist = dist2(cameraPosition - p0_position);
 	float4 color = float4(0.0f, 0.0f, 0.0f, 0.0f);
-	for (int x = -5; x <= 5; ++x) {
-		for (int y = -5; y <= 5; ++y) {
+	[unroll]
+	for (int x = -2; x <= 2; ++x) {
+		[unroll]
+		for (int y = -2; y <= 2; ++y) {
 			float2 p = center + float2(x * RATIO, y * RATIO);
 			uint2 pos_p = p * info_ratio;
-			float dist = max(dist2(p0_position - positions[pos_p].xyz) * 0.2f / camDist, epsilon);
+			float dist = max(dist2(p0_position - positions[pos_p].xyz) * 0.1f/ camDist, epsilon);
 			float n = max(pow(dot(p0_normal, normals[pos_p].xyz), 2.0f), epsilon);
 			float w = 1.0f / dist;
 			color += output[p] * w;

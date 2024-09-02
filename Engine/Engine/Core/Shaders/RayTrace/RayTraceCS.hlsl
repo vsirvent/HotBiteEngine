@@ -65,7 +65,6 @@ RWTexture2D<float4> output1 : register(u1);
 RWTexture2D<float4> output2 : register(u2);
 RWTexture2D<float4> dispersion : register(u3);
 
-RWTexture2D<float> props : register(u4);
 RWTexture2D<float4> ray0 : register(u5);
 RWTexture2D<float4> ray1 : register(u6);
 RWTexture2D<float4> bloom : register(u7);
@@ -422,9 +421,10 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     float2 ray_pixel = pixel * rayMapRatio;
 
     RaySource ray_source = fromColor(ray0[ray_pixel], ray1[ray_pixel]);
-
-    props[pixel] = props[pixel] * 0.5f + ray_source.dispersion * 0.5f;
-
+    if (ray_source.dispersion < 0.0f) {
+        return;
+    }
+    
     //Reflected ray
     float3 orig_pos = ray_source.orig.xyz;
     bool process = length(orig_pos - cameraPosition) < max_distance;
@@ -521,14 +521,14 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             
             bool collision = false;
             float distToCamRatio = saturate((20.0f * 20.0f) / dist2(orig_pos - cameraPosition));
-            for (uint i = 0; i < 1; ++i) {
+            for (uint i = 0; i < 2; ++i) {
                 float rX;
                 float3 seed = 100.0f * DTid * (i + 1);
                 rX = rgba_tnoise(seed);
                 rX = pow(rX, 3.0f / (float)(i + 1));
                 rX *= 0.8f * distToCamRatio;
                 ray.dir = GenerateHemisphereRay(normal, tangent, bitangent, 1.0f, N, level, rX);
-                ray.orig.xyz = orig_pos.xyz + ray.dir * 0.01f;
+                ray.orig.xyz = orig_pos.xyz + ray.dir * 1.0f;
                 float dist = FLT_MAX;
                 if (GetColor(ray, rX, level, 1, rc, ray_source.dispersion, true, false)) {
                     color_diffuse.rgb += rc.color[0];

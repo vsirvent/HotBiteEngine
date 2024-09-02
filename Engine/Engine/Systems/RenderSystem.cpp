@@ -1591,7 +1591,7 @@ void RenderSystem::PrepareRT() {
 			for (auto& shaders : tree) {
 				for (auto& mat : shaders.second) {
 					for (auto& de : mat.second.second.GetData()) {
-						if (de.base->visible && de.mesh->GetData()->skeletons.empty()) {
+						if (de.base->visible &&  de.mesh->GetData()->skeletons.empty()) {
 							float distance = LENGHT_F3(de.transform->position - ca->camera->world_position);
 
 

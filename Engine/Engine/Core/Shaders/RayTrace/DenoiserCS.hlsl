@@ -100,7 +100,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
         float2 p = pixel + dir * i;
 
         if ((p.x < 0 || p.x >= input_dimensions.x) && (p.y < 0 || p.y >= input_dimensions.y)) {
-            break;
+            continue;
         }
         float2 p1_info_pixel = p * normalRatio;
         float3 p1_position = positions[p1_info_pixel].xyz;
@@ -113,7 +113,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
         if ((p.x < 0 || p.x >= input_dimensions.x) && (p.y < 0 || p.y >= input_dimensions.y)) {
             c0 = input[p];
             count = 1;
-            break;
+            continue;
         }
         float2 p1_info_pixel = p * normalRatio;
 
