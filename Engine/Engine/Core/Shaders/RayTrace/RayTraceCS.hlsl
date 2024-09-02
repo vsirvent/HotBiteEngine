@@ -118,10 +118,10 @@ float3 GenerateHemisphereRay(float3 dir, float3 tangent, float3 bitangent, float
     // Calculate local index within the current level
     float localIndex = index - cumulativePoints;
 
-    float phi = level / NLevels * M_PI;
+    float phi = level / NLevels * M_PI * (0.4 + rX);
 
     // Azimuthal angle (theta) based on number of points at this level
-    float theta = 2.0f * M_PI * localIndex / pointsAtLevel; // Spread points evenly in azimuthal direction
+    float theta = (2.0f * M_PI + rX) * localIndex / pointsAtLevel; // Spread points evenly in azimuthal direction
 
     // Convert spherical coordinates to Cartesian coordinates
     float sinPhi = sin(phi);
@@ -415,6 +415,10 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     float3 bloomColor = { 0.0f, 0.0f, 0.0f };
 
     float2 pixel = float2(x, y);
+
+    if (step == 2) {
+        pixel *= 8;
+    }
     float2 ray_pixel = pixel * rayMapRatio;
 
     RaySource ray_source = fromColor(ray0[ray_pixel], ray1[ray_pixel]);
@@ -477,16 +481,10 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             ray.dir = GenerateHemisphereRay(orig_dir, tangent, bitangent, pow(ray_source.dispersion, 3.0f), N, level, rX);
             ray.orig.xyz = orig_pos.xyz + ray.dir * 0.001f;
             float dist = FLT_MAX;
-            if (GetColor(ray, rX, level, 2, rc, ray_source.dispersion, false, false)) {
+            if (GetColor(ray, rX, level, 0, rc, ray_source.dispersion, false, false)) {
                 color_reflex.rgb += rc.color[0] * ray_source.opacity;
                 color_reflex2.rgb += rc.color[1] * ray_source.opacity;
                 bloomColor.rgb += rc.bloom;
-                count++;
-            }
-            if (count > 0) {
-                color_reflex /= count;
-                color_reflex2 /= count;
-                bloomColor /= count;
             }
             float2 rc_disp = float2(rc.dispersion[0], rc.dispersion[1]);
             //Refracted ray
@@ -521,29 +519,25 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             count = 0;
             GetSpaceVectors(normal, tangent, bitangent);
             
-            
-            for (uint i = 0; i < 1; ++i) {
+            bool collision = false;
+            for (uint i = 0; i < 2; ++i) {
                 float rX;
                 float3 seed = float3(50.0f, 50.0f, 50.0f) + DTid * (i + 1);
                 rX = rgba_tnoise(seed);
-                rX = pow(rX, 3.0f / (float)(i + 1));
-                rX *= 0.5f;
+                rX = pow(rX, 3.0f / (((float)i + 2.0f) / 2.0f));
+                rX *= 0.6f;
                 ray.dir = GenerateHemisphereRay(normal, tangent, bitangent, 1.0f, N, level, rX);
                 ray.orig.xyz = orig_pos.xyz + ray.dir * 0.01f;
                 float dist = FLT_MAX;
                 if (GetColor(ray, rX, level, 1, rc, ray_source.dispersion, true, false)) {
                     color_diffuse.rgb += rc.color[0];
-                    count++;
+                    collision = true;
                 }
+                count++;
             }
             float4 d = dispersion[pixel];
-            float db = -1.0f;
-            if (count > 0) {
-                color_diffuse.rgb /= count;
-                db = 1.0f;
-            }
-            dispersion[pixel] = float4(d.r, d.g, db, d.a);
             output0[pixel] = color_diffuse;
+            dispersion[pixel] = float4(d.r, d.g, 1.0f, d.a);
         }
     }
     else {

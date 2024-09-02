@@ -342,6 +342,10 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		if (rt_disp == nullptr) {
 			throw std::exception("DispersionCS shader.Init failed");
 		}
+		rt_indirect = ShaderFactory::Get()->GetShader<SimpleComputeShader>("IndirectCS.cso");
+		if (rt_indirect == nullptr) {
+			throw std::exception("DispersionCS shader.Init failed");
+		}
 		motion_blur = ShaderFactory::Get()->GetShader<SimpleComputeShader>("MotionBlurCS.cso");
 		if (motion_blur == nullptr) {
 			throw std::exception("motion blur shader.Init failed");
@@ -1722,7 +1726,7 @@ void RenderSystem::ProcessRT() {
 
 			groupsX = (int32_t)(ceil((float)rt_texture_curr[RT_TEXTURE_INDIRECT].Width() / (32.0f)));
 			groupsY = (int32_t)(ceil((float)rt_texture_curr[RT_TEXTURE_INDIRECT].Height() / (32.0f)));
-			dxcore->context->Dispatch(groupsX, groupsY, 1);
+			dxcore->context->Dispatch(groupsX / 8, groupsY / 8, 1);
 		}
 
 		rt_shader->SetUnorderedAccessView("output0", nullptr);
@@ -1740,6 +1744,29 @@ void RenderSystem::ProcessRT() {
 
 		UnprepareLights(rt_shader);
 		rt_shader->CopyAllBufferData();
+
+		rt_indirect->SetShaderResourceView("positions", rt_ray_sources0.SRV());
+		rt_indirect->SetShaderResourceView("normals", rt_ray_sources1.SRV());
+		rt_indirect->SetShaderResourceView("motion_texture", motion_texture.SRV());
+		rt_indirect->SetShaderResourceView("prev_position_map", prev_position_map.SRV());
+		rt_indirect->SetMatrix4x4(VIEW, cam_entity.camera->view);
+		rt_indirect->SetMatrix4x4(PROJECTION, cam_entity.camera->projection);
+		rt_indirect->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
+		rt_indirect->SetUnorderedAccessView("output", rt_texture_curr[RT_TEXTURE_INDIRECT].UAV());
+		rt_indirect->SetShaderResourceView("prev_output", rt_texture_prev[RT_TEXTURE_INDIRECT].SRV());
+		rt_indirect->CopyAllBufferData();
+		rt_indirect->SetShader();
+		groupsX = (int32_t)(ceil((float)rt_texture_curr[RT_TEXTURE_INDIRECT].Width() / (32.0f)));
+		groupsY = (int32_t)(ceil((float)rt_texture_curr[RT_TEXTURE_INDIRECT].Height() / (32.0f)));
+		dxcore->context->Dispatch(groupsX, groupsY, 1);
+		rt_indirect->SetUnorderedAccessView("output", nullptr);
+		rt_indirect->SetShaderResourceView("prev_output", nullptr);
+		rt_indirect->SetShaderResourceView("normals", nullptr);
+		rt_indirect->SetShaderResourceView("positions", nullptr);
+		rt_indirect->SetShaderResourceView("motion_texture", nullptr);
+		rt_indirect->SetShaderResourceView("prev_position_map", nullptr);
+		rt_indirect->CopyAllBufferData();
+
 
 		rt_disp->SetShaderResourceView("input", rt_dispersion.SRV());
 		rt_disp->SetUnorderedAccessView("output", texture_tmp.UAV());
@@ -1789,7 +1816,7 @@ void RenderSystem::ProcessRT() {
 		rt_denoiser->SetMatrix4x4(PROJECTION, cam_entity.camera->projection);
 		rt_denoiser->SetShaderResourceView("dispersion", rt_dispersion.SRV());
 
-		static constexpr int textures[] = { RT_TEXTURE_REFLEX, RT_TEXTURE_REFLEX2, RT_TEXTURE_INDIRECT, RT_TEXTURE_EMISSION };
+		static constexpr int textures[] = { RT_TEXTURE_REFLEX, RT_TEXTURE_REFLEX2, RT_TEXTURE_EMISSION, RT_TEXTURE_INDIRECT };
 		static constexpr int ntextures = sizeof(textures) / sizeof(int);
 		for (int i = 0; i < ntextures; ++i) {
 			int ntexture = textures[i];

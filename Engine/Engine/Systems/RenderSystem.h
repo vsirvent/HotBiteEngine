@@ -282,6 +282,7 @@ namespace HotBite {
 				Core::SimpleComputeShader* rt_shader = nullptr;
 				Core::SimpleComputeShader* rt_denoiser = nullptr;
 				Core::SimpleComputeShader* rt_disp = nullptr;
+				Core::SimpleComputeShader* rt_indirect = nullptr;
 
 				//RT texture 1: Reflexed rays
 				//RT texture 2: Refracted rays

@@ -59,8 +59,8 @@ float4 readColor(float2 pixel, texture2D text, uint w, uint h) {
         return text.SampleLevel(basicSampler, pixel, 0);
     }
     else {
-        return GetInterpolatedColor(pixel, text, float2(w2, h2));
-        //return Get3dInterpolatedColor(pixel, text, float2(w2, h2), positions, normals, float2(w, h));
+        //return GetInterpolatedColor(pixel, text, float2(w2, h2));
+        return Get3dInterpolatedColor(pixel, text, float2(w2, h2), positions, normals, float2(w, h));
     }
 }
 
@@ -90,10 +90,10 @@ void main(uint3 DTid : SV_DispatchThreadID)
 
     if (rt_enabled) {
         if (debug == 0) {
-            color = color * (l + rt0 + rt3 + rt2 + e) + rt1 + b + dust + lens_flare + vol;
+            color = color * (l + rt0 + rt3 + rt2 * 1.5f + e) + rt1 + b + dust + lens_flare + vol;
         }
         else {
-            color = rt0 + rt1 + rt2 + rt3;
+            color = rt2; //  rt0 + rt1 + rt2 + rt3;
         }
     }
     else {
