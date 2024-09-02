@@ -77,16 +77,8 @@ void main(uint3 DTid : SV_DispatchThreadID)
             break;
         }
         case 2: {
-            disp = ray_source.dispersion;
-            if (dist2(ray_source.orig) <= Epsilon) {
-                return;
-            }
-            min_dispersion = MAX_KERNEL;
-            break;
-        }
-        case 3: {
             disp = sqrt(ray_source.dispersion);
-            break;
+            break; 
         }
     }
 

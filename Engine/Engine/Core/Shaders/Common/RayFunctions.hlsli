@@ -144,12 +144,12 @@ bool IntersectAABB(float3 pos, float3 dir, float3 bmin, float3 bmax)
 
 bool IntersectAABB(Ray ray, float3 bmin, float3 bmax)
 {
-    return IntersectAABB(ray.orig, ray.dir, bmin, bmax);
+    return IntersectAABB(ray.orig.xyz, ray.dir, bmin, bmax);
 }
 
 bool IntersectAABB(RayObject ray, float3 bmin, float3 bmax)
 {
-    return IntersectAABB(ray.orig, ray.dir, bmin, bmax);
+    return IntersectAABB(ray.orig.xyz, ray.dir, bmin, bmax);
 }
 
 bool IntersectAABB(Ray ray, BVHNode node)
@@ -164,6 +164,54 @@ bool IntersectAABB(RayObject ray, BVHNode node)
     float3 bmin = aabb_min(node);
     float3 bmax = aabb_max(node);
     return IntersectAABB(ray, bmin, bmax);
+}
+
+float3 GenerateHemisphereRay(float3 dir, float3 tangent, float3 bitangent, float dispersion, float N, float NLevels, float rX)
+{
+    float index = rX * N * dispersion;
+
+    // First point at the top (up direction)
+    if (index < 1.0f) {
+        return dir; // The first point is directly at the top
+    }
+
+    float cumulativePoints = 1;
+    float level = 1;
+    while (true) {
+        float c = cumulativePoints + level * 2;
+        if (c < index) {
+            cumulativePoints = c;
+        }
+        else {
+            break;
+        }
+        level++;
+    };
+
+    float pointsAtLevel = level * 2;  // Quadratic growth
+
+    // Calculate local index within the current level
+    float localIndex = index - cumulativePoints;
+
+    float phi = level / NLevels * M_PI;
+
+    // Azimuthal angle (theta) based on number of points at this level
+    float theta = 2.0f * M_PI * localIndex / pointsAtLevel; // Spread points evenly in azimuthal direction
+
+    // Convert spherical coordinates to Cartesian coordinates
+    float sinPhi = sin(phi);
+    float cosPhi = cos(phi);
+    float sinTheta = sin(theta);
+    float cosTheta = cos(theta);
+
+    // Local ray direction in spherical coordinates
+    float3 localRay = float3(sinPhi * cosTheta, sinPhi * sinTheta, cosPhi);
+
+    // Convert local ray to global coordinates (tangent space to world space)
+    float3 globalRay = localRay.x * tangent + localRay.y * bitangent + localRay.z * dir;
+
+
+    return normalize(dir + globalRay);
 }
 
 float3 GetDiffuseColor(uint object, float2 uv)

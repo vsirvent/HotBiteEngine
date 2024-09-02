@@ -436,6 +436,9 @@
     <None Include="Engine\Core\Shaders\Common\RayFunctions.hlsli">
       <Filter>Engine\Core\Shaders\Common</Filter>
     </None>
+    <None Include="Engine\Core\Shaders\RayTrace\RTDefines.hlsli">
+      <Filter>Engine\Core\Shaders\RayTrace</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="Engine\Core\Shaders\DepthRender\DepthPS.hlsl">
@@ -580,6 +583,21 @@
       <Filter>Engine\Core\Shaders\RayTrace</Filter>
     </FxCompile>
     <FxCompile Include="Engine\Core\Shaders\RayTrace\DispersionCS.hlsl">
+      <Filter>Engine\Core\Shaders\RayTrace</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\RayTrace\RTRenderDS.hlsl">
+      <Filter>Engine\Core\Shaders\RayTrace</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\RayTrace\RTRenderGS.hlsl">
+      <Filter>Engine\Core\Shaders\RayTrace</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\RayTrace\RTRenderHS.hlsl">
+      <Filter>Engine\Core\Shaders\RayTrace</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\RayTrace\RTRenderPS.hlsl">
+      <Filter>Engine\Core\Shaders\RayTrace</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\RayTrace\RTRenderVS.hlsl">
       <Filter>Engine\Core\Shaders\RayTrace</Filter>
     </FxCompile>
   </ItemGroup>

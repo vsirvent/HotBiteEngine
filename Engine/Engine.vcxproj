@@ -281,6 +281,7 @@
     <None Include="Engine\Core\Shaders\Common\Utils.hlsli" />
     <None Include="Engine\Core\Shaders\GUI\GUICommon.hlsli" />
     <None Include="Engine\Core\Shaders\MainRender\MainRenderPS.hlsli" />
+    <None Include="Engine\Core\Shaders\RayTrace\RTDefines.hlsli" />
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
@@ -552,6 +553,27 @@
       <DisableOptimizations Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</DisableOptimizations>
       <EnableDebuggingInformation Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</EnableDebuggingInformation>
       <AdditionalOptions Condition="'$(Configuration)|$(Platform)'=='Release|x64'">/O2 /Gpp %(AdditionalOptions)</AdditionalOptions>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\RayTrace\RTRenderDS.hlsl">
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Domain</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\RayTrace\RTRenderGS.hlsl">
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Geometry</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\RayTrace\RTRenderHS.hlsl">
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Hull</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\RayTrace\RTRenderPS.hlsl">
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Pixel</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\RayTrace\RTRenderVS.hlsl">
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Vertex</ShaderType>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Vertex</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
     </FxCompile>
     <FxCompile Include="Engine\Core\Shaders\ShadowRender\ShadowCloudPS.hlsl">
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Pixel</ShaderType>

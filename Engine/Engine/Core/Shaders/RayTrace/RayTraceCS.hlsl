@@ -91,54 +91,6 @@ static float2 lps[MAX_LIGHTS] = (float2[MAX_LIGHTS])LightPerspectiveValues;
 
 static const float max_distance = 1000.0f;
 
-float3 GenerateHemisphereRay(float3 dir, float3 tangent, float3 bitangent, float dispersion, float N, float NLevels, float rX)
-{
-    float index = rX * N * dispersion;
-
-    // First point at the top (up direction)
-    if (index < 1.0f) {
-        return dir; // The first point is directly at the top
-    }
-
-    float cumulativePoints = 1;
-    float level = 1;
-    while (true) {
-        float c = cumulativePoints + level * 2;
-        if (c < index) {
-            cumulativePoints = c;
-        }
-        else {
-            break;
-        }
-        level++;
-    };
-
-    float pointsAtLevel = level * 2;  // Quadratic growth
-
-    // Calculate local index within the current level
-    float localIndex = index - cumulativePoints;
-
-    float phi = level / NLevels * M_PI;
-
-    // Azimuthal angle (theta) based on number of points at this level
-    float theta = 2.0f * M_PI * localIndex / pointsAtLevel; // Spread points evenly in azimuthal direction
-
-    // Convert spherical coordinates to Cartesian coordinates
-    float sinPhi = sin(phi);
-    float cosPhi = cos(phi);
-    float sinTheta = sin(theta);
-    float cosTheta = cos(theta);
-
-    // Local ray direction in spherical coordinates
-    float3 localRay = float3(sinPhi * cosTheta, sinPhi * sinTheta, cosPhi);
-
-    // Convert local ray to global coordinates (tangent space to world space)
-    float3 globalRay = localRay.x * tangent + localRay.y * bitangent + localRay.z * dir;
-
-
-    return normalize(dir + globalRay);
-}
-
 static float NCOUNT = 32.0f;
 static uint N2 = 32;
 static float N = N2 * NCOUNT;
@@ -477,7 +429,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             ray.dir = GenerateHemisphereRay(orig_dir, tangent, bitangent, pow(ray_source.dispersion, 3.0f), N, level, rX);
             ray.orig.xyz = orig_pos.xyz + ray.dir * 0.001f;
             float dist = FLT_MAX;
-            if (GetColor(ray, rX, level, 2, rc, ray_source.dispersion, false, false)) {
+            if (GetColor(ray, rX, level, 1, rc, ray_source.dispersion, false, false)) {
                 color_reflex.rgb += rc.color[0] * ray_source.opacity;
                 color_reflex2.rgb += rc.color[1] * ray_source.opacity;
                 bloomColor.rgb += rc.bloom;

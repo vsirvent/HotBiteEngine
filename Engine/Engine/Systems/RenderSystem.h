@@ -366,6 +366,7 @@ namespace HotBite {
 				void DrawSky(int w, int h, const float3& camera_position, const matrix& view, const matrix& projection);
 				void CastShadows(int w, int h, const float3& camera_position, const matrix& view, const matrix& projection, bool static_shadows);
 				void DrawDepth(int w, int h, const float3& camera_position, const matrix& view, const matrix& projection);
+				void DrawIndirectLight(int w, int h, const float3& camera_position, const matrix& view, const matrix& projection);
 				void DrawScene(int w, int h, const float3& camera_position, const matrix& view, const matrix& projection,
 					ID3D11ShaderResourceView* prev_pass_texture,
 					Core::IRenderTarget* target, RenderTree& tree);
@@ -373,7 +374,7 @@ namespace HotBite {
 				void LoadRTResources();
 				void ProcessMotion();
 				void PrepareRT();
-				void ProcessRT();
+				void ProcessRT(int w, int h, const float3& camera_position, const matrix& view, const matrix& projection);
 				void ProcessDust();
 				void ProcessLensFlare();
 				void ProcessMotionBlur();
