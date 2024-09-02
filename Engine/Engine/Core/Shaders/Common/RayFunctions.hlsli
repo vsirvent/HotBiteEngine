@@ -53,6 +53,7 @@ uint index(BVHNode node)
     return asuint(node.reg1.w);
 }
 
+
 bool IntersectTri(RayObject ray, uint indexOffset, uint vertexOffset, out IntersectionResult result)
 {
 
@@ -115,23 +116,27 @@ bool IntersectTri(RayObject ray, uint indexOffset, uint vertexOffset, out Inters
 }
 
 
+#if 0
 bool IntersectAABB(float3 pos, float3 dir, float3 bmin, float3 bmax)
 {
     float3 invDir = 1.0f / dir; // Calculate the inverse direction vector
-
     // Calculate intersection times for x, y, and z
     float tx1 = (bmin.x - pos.x) * invDir.x;
     float tx2 = (bmax.x - pos.x) * invDir.x;
     float tmin = min(tx1, tx2);
     float tmax = max(tx1, tx2);
 
+    if (tmax <= Epsilon) {
+        return false;
+    }
     float ty1 = (bmin.y - pos.y) * invDir.y;
     float ty2 = (bmax.y - pos.y) * invDir.y;
     tmin = max(tmin, min(ty1, ty2));
     tmax = min(tmax, max(ty1, ty2));
 
-    if (tmax < tmin || tmax < 0.0f)
+    if (tmax < tmin || tmax <= Epsilon) {
         return false;
+    }
 
     float tz1 = (bmin.z - pos.z) * invDir.z;
     float tz2 = (bmax.z - pos.z) * invDir.z;
@@ -139,8 +144,22 @@ bool IntersectAABB(float3 pos, float3 dir, float3 bmin, float3 bmax)
     tmax = min(tmax, max(tz1, tz2));
 
     // Final intersection test
-    return tmax >= tmin && tmax > 0.0f;
+    return tmax >= tmin && tmax > Epsilon;
 }
+#else
+bool IntersectAABB(float3 pos, float3 dir, float3 bmin, float3 bmax) {
+    float3 invDir = 1.0f / dir;
+    float3 t0 = (bmin - pos) * invDir;
+    float3 t1 = (bmax - pos) * invDir;
+    float3 tmin = min(t0, t1);
+    float3 tmax = max(t0, t1);
+
+    float enter = max(max(tmin.x, tmin.y), tmin.z);
+    float exit = min(min(tmax.x, tmax.y), tmax.z);
+
+    return (exit > enter) && (exit > Epsilon);
+}
+#endif
 
 bool IntersectAABB(Ray ray, float3 bmin, float3 bmax)
 {

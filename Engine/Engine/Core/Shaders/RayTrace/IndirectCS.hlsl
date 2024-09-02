@@ -70,6 +70,6 @@ void main(uint3 DTid : SV_DispatchThreadID)
 	}
 
 	if (totalW > epsilon) {
-		output[pixel] = color / totalW;
+		output[pixel] = prev_output[pixel] * 0.5f + 0.5f * color / totalW;
 	}
 }

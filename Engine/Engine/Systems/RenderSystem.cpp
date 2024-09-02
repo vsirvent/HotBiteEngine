@@ -1822,7 +1822,7 @@ void RenderSystem::ProcessRT() {
 		rt_denoiser->SetMatrix4x4(PROJECTION, cam_entity.camera->projection);
 		rt_denoiser->SetShaderResourceView("dispersion", rt_dispersion.SRV());
 
-		static constexpr int textures[] = { RT_TEXTURE_REFLEX, RT_TEXTURE_REFLEX2, RT_TEXTURE_EMISSION, RT_TEXTURE_INDIRECT };
+		static constexpr int textures[] = { RT_TEXTURE_REFLEX, RT_TEXTURE_REFLEX2, RT_TEXTURE_INDIRECT };
 		static constexpr int ntextures = sizeof(textures) / sizeof(int);
 		for (int i = 0; i < ntextures; ++i) {
 			int ntexture = textures[i];

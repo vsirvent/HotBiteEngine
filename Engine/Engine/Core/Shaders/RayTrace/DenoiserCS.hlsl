@@ -67,27 +67,22 @@ void main(uint3 DTid : SV_DispatchThreadID)
     float dist_att = 0.0f;
     float disp = -1.0f;
     uint min_dispersion = 0;
+
+    if (dist2(ray_source.orig) <= Epsilon) {
+        return;
+    }
+
     switch (light_type) {
         case 0: {
             disp = sqrt(ray_source.dispersion);
             break;
         }
         case 1: {
-            disp = max(dispersion[pixel].g, 0.01f);
-            if (disp < 0.0f) {
-                return;
-            }
+            disp = max(dispersion[pixel].g, 0.0f);
             break;
         }
         case 2: {
-            disp = sqrt(ray_source.dispersion);
-            break;
-        }
-        case 3: {
             disp = ray_source.dispersion;
-            if (dist2(ray_source.orig) <= Epsilon) {
-                return;
-            }
             min_dispersion = normals_dimensions.x / 64;
             break;
         }

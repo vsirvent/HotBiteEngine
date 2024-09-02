@@ -504,7 +504,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             output1[pixel] = color_refrac;
             output2[pixel] = color_reflex2;
             float4 bColor = float4(bloomColor * (1.0f - ray_source.dispersion), 1.0f);
-            bloom[pixel] = bColor;
+            //bloom[pixel] = climit4(bColor);
 
             float4 d = dispersion[pixel];
             if (rc.hit) {
@@ -520,12 +520,13 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             GetSpaceVectors(normal, tangent, bitangent);
             
             bool collision = false;
-            for (uint i = 0; i < 3; ++i) {
+            float distToCamRatio = saturate((20.0f * 20.0f) / dist2(orig_pos - cameraPosition));
+            for (uint i = 0; i < 1; ++i) {
                 float rX;
-                float3 seed = float3(50.0f, 50.0f, 50.0f) + DTid * (i + 1);
+                float3 seed = 100.0f * DTid * (i + 1);
                 rX = rgba_tnoise(seed);
                 rX = pow(rX, 3.0f / (float)(i + 1));
-                rX *= 0.8f;
+                rX *= 0.8f * distToCamRatio;
                 ray.dir = GenerateHemisphereRay(normal, tangent, bitangent, 1.0f, N, level, rX);
                 ray.orig.xyz = orig_pos.xyz + ray.dir * 0.01f;
                 float dist = FLT_MAX;
