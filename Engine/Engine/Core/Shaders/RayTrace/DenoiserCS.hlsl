@@ -95,7 +95,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     int kernel = debug == 1 ? 0 : clamp(floor(max(MAX_KERNEL * disp, min_dispersion)), min_k, MAX_KERNEL);
     float motion = 0.0f;
     float w[HARD_MAX_KERNEL * 2 + 1];
-
+    float camDist = dist2(cameraPosition - p0_position);
     for (int i = -kernel; i <= kernel; ++i) {
         float2 p = pixel + dir * i;
 
@@ -104,7 +104,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
         }
         float2 p1_info_pixel = p * normalRatio;
         float3 p1_position = positions[p1_info_pixel].xyz;
-        float dist = max(dist2(p1_position - p0_position), 1.0f);
+        float dist = max(dist2(p1_position - p0_position) / camDist, 0.1f);
         w[i + kernel] = 1 / dist;
     }
     for (int i = -kernel; i <= kernel; ++i) {
