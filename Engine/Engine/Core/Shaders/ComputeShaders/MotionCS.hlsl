@@ -27,7 +27,7 @@ float2 GetPixelDir(float2 pixel) {
         return p1.xy - p0.xy;
     }
     else {
-        return float2(-1.0f, -1.0f);
+        return float2(-FLT_MAX, -FLT_MAX);
     }
 }
 
