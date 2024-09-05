@@ -40,6 +40,7 @@ cbuffer externalData : register(b0)
     float3 cameraPosition;
     float3 cameraDirection;
     float RATIO;
+    float NUM_RAYS;
     uint enabled;
 
     //Lights
@@ -353,7 +354,7 @@ bool GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
             ray.orig = pos;
             out_color.hit = true;
             //If not opaque surface, generate a refraction ray
-            if (ray.bounces < max_bounces && o.opacity < 1.0f) {
+            if (o.opacity < 1.0f) {
                 if (i % 2 == 0) {
                     normal = -normal;
                 }
@@ -481,7 +482,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             ray.dir = GenerateHemisphereRay(orig_dir, tangent, bitangent, pow(ray_source.dispersion, 3.0f), N, level, rX);
             ray.orig.xyz = orig_pos.xyz + ray.dir * 0.001f;
             float dist = FLT_MAX;
-            if (GetColor(ray, rX, level, 1, rc, ray_source.dispersion, false, false)) {
+            if (GetColor(ray, rX, level, 1, rc, ray_source.dispersion, true, false)) {
                 color_reflex.rgb += rc.color[0] * ray_source.opacity;
                 color_reflex2.rgb += rc.color[1] * ray_source.opacity;
                 bloomColor.rgb += rc.bloom;
@@ -494,7 +495,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
                 Ray ray = GetRefractedRayFromSource(ray_source);
                 if (dist2(ray.dir) > Epsilon)
                 {
-                    if (GetColor(ray, rX, level, 2, rc, ray_source.dispersion, true, true)) {
+                    if (GetColor(ray, rX, level, 0, rc, ray_source.dispersion, true, true)) {
                         color_refrac.rgb += rc.color[0] * (1.0f - ray_source.opacity);
                         bloomColor += rc.bloom;
                     }
@@ -521,23 +522,24 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             
             bool collision = false;
             float distToCamRatio = saturate((20.0f * 20.0f) / dist2(orig_pos - cameraPosition));
-            for (uint i = 0; i < 2; ++i) {
-                float rX;
-                float3 seed = 100.0f * DTid * (i + 1);
-                rX = rgba_tnoise(seed);
-                rX = pow(rX, 3.0f / (float)(i + 1));
-                rX *= 0.8f * distToCamRatio;
-                ray.dir = GenerateHemisphereRay(normal, tangent, bitangent, 1.0f, N, level, rX);
-                ray.orig.xyz = orig_pos.xyz + ray.dir * 1.0f;
-                float dist = FLT_MAX;
-                if (GetColor(ray, rX, level, 1, rc, ray_source.dispersion, true, false)) {
-                    color_diffuse.rgb += rc.color[0];
-                    collision = true;
-                }
-                count++;
+            float3 seed = 100.0f * DTid * (DTid.z + 1);
+            float rX = rgba_tnoise(seed);
+            rX = pow(rX, 4.0f / (((float)DTid.z + 2.0f) / 2.0f));
+            rX *= 0.8f * distToCamRatio;
+            ray.dir = GenerateHemisphereRay(normal, tangent, bitangent, 1.0f, N, level, rX);
+            ray.orig.xyz = orig_pos.xyz + ray.dir * 1.0f;
+            float dist = FLT_MAX;
+            if (GetColor(ray, rX, level, 1, rc, ray_source.dispersion, true, false)) {
+                color_diffuse.rgb += rc.color[0];
+                collision = true;
             }
             float4 d = dispersion[pixel];
-            output0[pixel] = color_diffuse / count;
+            if (DTid.z == 0) {
+                output0[pixel] = color_diffuse / NUM_RAYS;
+            }
+            else {
+                output0[pixel] += color_diffuse / NUM_RAYS;
+            }
             dispersion[pixel] = float4(d.r, d.g, 1.0f, d.a);
         }
     }

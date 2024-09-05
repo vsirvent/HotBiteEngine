@@ -26,8 +26,8 @@ Texture2D<float4> prev_position_map: register(t5);
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main(uint3 DTid : SV_DispatchThreadID)
 {
+	return;
 	float2 pixel = float2(DTid.x, DTid.y);
-
 	uint2 output_dimensions;
 	uint2 normals_dimensions;
 	{
@@ -63,7 +63,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
 		for (int y = -2; y <= 2; ++y) {
 			float2 p = center + float2(x * RATIO, y * RATIO);
 			uint2 pos_p = p * info_ratio;
-			float dist = max(dist2(p0_position - positions[pos_p].xyz) * 0.1f/ camDist, epsilon);
+			float dist = max(dist2(p0_position - positions[pos_p].xyz) / camDist, epsilon);
 			float n = max(pow(dot(p0_normal, normals[pos_p].xyz), 2.0f), epsilon);
 			float w = 1.0f / dist;
 			color += output[p] * w;

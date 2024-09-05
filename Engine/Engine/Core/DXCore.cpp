@@ -208,6 +208,11 @@ HRESULT DXCore::InitWindow(HWND parent)
 			ShowWindow(wnd, SW_MAXIMIZE);
 		}
 	}
+
+	RECT rect;
+	GetClientRect(wnd, &rect);
+	screen_dimensions.x = (float)(rect.right - rect.left);
+	screen_dimensions.y = (float)(rect.bottom - rect.top);
 	
 	return S_OK;
 }

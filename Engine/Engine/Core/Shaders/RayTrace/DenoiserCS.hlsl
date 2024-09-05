@@ -69,6 +69,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     uint min_dispersion = 0;
 
     if (dist2(ray_source.orig) <= Epsilon) {
+        output[pixel] = float4(0.0f, 0.0f, 0.0f, 0.0f);
         return;
     }
 
@@ -78,17 +79,14 @@ void main(uint3 DTid : SV_DispatchThreadID)
             break;
         }
         case 1: {
-            disp = max(dispersion[pixel].g, 0.0f);
-            break;
-        }
-        case 2: {
             disp = ray_source.dispersion;
-            min_dispersion = normals_dimensions.x / 64;
+            min_dispersion = normals_dimensions.x / 128;
             break;
         }
     }
 
     if (disp < Epsilon) {
+        output[pixel] = float4(0.0f, 0.0f, 0.0f, 0.0f);
         return;
     }
     uint min_k = normalRatio.x > 1 ? 1 : 0;
@@ -157,7 +155,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
         }
 
         float4 prev_color = prev_output[pixel];
-        float w = saturate(0.7 - motion * 100.0f);
+        float w = saturate(0.7f - motion * 100.0f);
         output[pixel] = prev_color * w + c0 * (1.0f - w);
     }
 }

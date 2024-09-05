@@ -1721,16 +1721,18 @@ void RenderSystem::ProcessRT() {
 		int32_t  groupsY = (int32_t)(ceil((float)rt_texture_curr[RT_TEXTURE_REFLEX].Height() / (32.0f)));
 		dxcore->context->Dispatch(groupsX, groupsY, 1);
 		float RATIO = 2.0f;
+		float NUM_RAYS = 2.0f;
 		if (rt_enabled & RT_INDIRECT_ENABLE) {
 			rt_shader->SetInt("step", 2);
 			rt_shader->SetFloat("RATIO", RATIO);
+			rt_shader->SetFloat("NUM_RAYS", NUM_RAYS);
 			rt_shader->CopyAllBufferData();
 
 			rt_shader->SetUnorderedAccessView("output0", rt_texture_curr[RT_TEXTURE_INDIRECT].UAV());
 
 			groupsX = (int32_t)(ceil((float)rt_texture_curr[RT_TEXTURE_INDIRECT].Width() / (32.0f)));
 			groupsY = (int32_t)(ceil((float)rt_texture_curr[RT_TEXTURE_INDIRECT].Height() / (32.0f)));
-			dxcore->context->Dispatch((uint32_t)ceil((float)groupsX / RATIO), (uint32_t)ceil((float)groupsY / RATIO), 1);
+			dxcore->context->Dispatch((uint32_t)ceil((float)groupsX / RATIO), (uint32_t)ceil((float)groupsY / RATIO), (uint32_t)NUM_RAYS);
 		}
 
 		rt_shader->SetUnorderedAccessView("output0", nullptr);
@@ -1748,7 +1750,7 @@ void RenderSystem::ProcessRT() {
 
 		UnprepareLights(rt_shader);
 		rt_shader->CopyAllBufferData();
-
+#if 0
 		rt_indirect->SetShaderResourceView("positions", rt_ray_sources0.SRV());
 		rt_indirect->SetShaderResourceView("normals", rt_ray_sources1.SRV());
 		rt_indirect->SetShaderResourceView("motion_texture", motion_texture.SRV());
@@ -1771,7 +1773,7 @@ void RenderSystem::ProcessRT() {
 		rt_indirect->SetShaderResourceView("motion_texture", nullptr);
 		rt_indirect->SetShaderResourceView("prev_position_map", nullptr);
 		rt_indirect->CopyAllBufferData();
-
+#endif
 		groupsX = (int32_t)(ceil((float)rt_texture_curr[RT_TEXTURE_REFLEX].Width() / (32.0f)));
 		groupsY = (int32_t)(ceil((float)rt_texture_curr[RT_TEXTURE_REFLEX].Height() / (32.0f)));
 		rt_disp->SetShaderResourceView("input", rt_dispersion.SRV());
@@ -1822,7 +1824,7 @@ void RenderSystem::ProcessRT() {
 		rt_denoiser->SetMatrix4x4(PROJECTION, cam_entity.camera->projection);
 		rt_denoiser->SetShaderResourceView("dispersion", rt_dispersion.SRV());
 
-		static constexpr int textures[] = { RT_TEXTURE_REFLEX, RT_TEXTURE_REFLEX2, RT_TEXTURE_INDIRECT };
+		static constexpr int textures[] = { RT_TEXTURE_REFLEX, RT_TEXTURE_INDIRECT };
 		static constexpr int ntextures = sizeof(textures) / sizeof(int);
 		for (int i = 0; i < ntextures; ++i) {
 			int ntexture = textures[i];

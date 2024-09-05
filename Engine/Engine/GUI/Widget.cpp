@@ -32,9 +32,9 @@ namespace HotBite {
 			//resolution and the desired font size in screen percetnage
 			float CalculateFontSize(float font_size_percentage) {
 				float font_size = 0.0f;
-				float screen_width = (float)DXCore::Get()->GetWidth();
-				float screen_height = (float)DXCore::Get()->GetHeight();
-				font_size_percentage *= 0.001f;
+				float screen_width = (float)DXCore::Get()->GetScreenWidth();
+				float screen_height = (float)DXCore::Get()->GetScreenWidth();
+				font_size_percentage *= 0.0005f;
 
 				if (screen_width > screen_height) {
 					font_size = screen_height * font_size_percentage;
