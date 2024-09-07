@@ -355,7 +355,7 @@ bool GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
             out_color.hit = true;
             //If not opaque surface, generate a refraction ray
             if (ray.bounces < 5 && o.opacity < 1.0f) {
-                if (i % 2 == 0) {
+                if (ray.bounces % 2 == 0) {
                     normal = -normal;
                 }
                 ray = GetRefractedRayFromRay(ray, ray.density,
@@ -479,7 +479,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             float rX = rgba_tnoise(seed);
 
             GetSpaceVectors(orig_dir, tangent, bitangent);
-            //ray.dir = GenerateHemisphereRay(orig_dir, tangent, bitangent, pow(ray_source.dispersion, 3.0f), N, level, rX);
+            ray.dir = GenerateHemisphereRay(orig_dir, tangent, bitangent, pow(ray_source.dispersion, 3.0f), N, level, rX);
             ray.orig.xyz = orig_pos.xyz + ray.dir * 0.001f;
             float dist = FLT_MAX;
             if (GetColor(ray, rX, level, 1, rc, ray_source.dispersion, true, false)) {
@@ -501,10 +501,11 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
                     }
                 }
             }
-            output0[pixel] = color_reflex;
+            float reflex_ratio = (1.0f - ray_source.dispersion);
+            output0[pixel] = color_reflex * reflex_ratio;
             output1[pixel] = color_refrac;
-            output2[pixel] = color_reflex2;
-            float4 bColor = float4(bloomColor * (1.0f - ray_source.dispersion), 1.0f);
+            output2[pixel] = color_reflex2 * reflex_ratio;
+            float4 bColor = float4(bloomColor * reflex_ratio, 1.0f);
             //bloom[pixel] = climit4(bColor);
 
             float4 d = dispersion[pixel];

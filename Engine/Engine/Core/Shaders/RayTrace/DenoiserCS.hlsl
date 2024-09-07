@@ -105,13 +105,13 @@ void main(uint3 DTid : SV_DispatchThreadID)
         float dist = max(dist2(p1_position - p0_position) / camDist, 0.1f);
         w[i + kernel] = 1 / dist;
     }
-    for (int i = -kernel; i <= kernel; ++i) {
+    for (i = -kernel; i <= kernel; ++i) {
         float2 p = pixel + dir * i;
         
         if ((p.x < 0 || p.x >= input_dimensions.x) && (p.y < 0 || p.y >= input_dimensions.y)) {
             c0 = input[p];
             count = 1;
-            continue;
+            break;
         }
         float2 p1_info_pixel = p * normalRatio;
 

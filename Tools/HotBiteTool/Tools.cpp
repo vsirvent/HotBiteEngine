@@ -31,7 +31,7 @@ namespace HotBiteTool {
 			//the coordinator manages the events
 			EventListener::Init(c);
 			auto rs = world.GetCoordinator()->GetSystem<Systems::RenderSystem>();
-			rs->SetRayTracing(true, true, false);
+			rs->SetRayTracing(true, true, true);
 			rs->SetRayTracingQuality(Systems::RenderSystem::eRtQuality::LOW);
 			world.Init();
 			world.Run(fps);
