@@ -93,7 +93,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
             color = color * (l + rt0 + rt2 + rt3) + rt1 + b + dust + lens_flare + vol;
         }
         else {
-            color = sqrt(rt2);// +rt1 + rt2 + rt3;
+            color = rt0;// +rt1 + rt2 + rt3;
         }
     }
     else {

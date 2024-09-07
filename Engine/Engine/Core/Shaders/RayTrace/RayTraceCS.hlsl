@@ -89,7 +89,7 @@ static float2 lps[MAX_LIGHTS] = (float2[MAX_LIGHTS])LightPerspectiveValues;
 #include "../Common/SimpleLight.hlsli"
 #include "../Common/RayFunctions.hlsli"
 
-static const float max_distance = 1000.0f;
+static const float max_distance = 100.0f;
 
 float3 GenerateHemisphereRay(float3 dir, float3 tangent, float3 bitangent, float dispersion, float N, float NLevels, float rX)
 {
@@ -354,7 +354,7 @@ bool GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
             ray.orig = pos;
             out_color.hit = true;
             //If not opaque surface, generate a refraction ray
-            if (o.opacity < 1.0f) {
+            if (ray.bounces < 5 && o.opacity < 1.0f) {
                 if (i % 2 == 0) {
                     normal = -normal;
                 }
@@ -479,7 +479,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             float rX = rgba_tnoise(seed);
 
             GetSpaceVectors(orig_dir, tangent, bitangent);
-            ray.dir = GenerateHemisphereRay(orig_dir, tangent, bitangent, pow(ray_source.dispersion, 3.0f), N, level, rX);
+            //ray.dir = GenerateHemisphereRay(orig_dir, tangent, bitangent, pow(ray_source.dispersion, 3.0f), N, level, rX);
             ray.orig.xyz = orig_pos.xyz + ray.dir * 0.001f;
             float dist = FLT_MAX;
             if (GetColor(ray, rX, level, 1, rc, ray_source.dispersion, true, false)) {
@@ -527,7 +527,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             rX = pow(rX, 4.0f / (((float)DTid.z + 2.0f) / 2.0f));
             rX *= 0.8f * distToCamRatio;
             ray.dir = GenerateHemisphereRay(normal, tangent, bitangent, 1.0f, N, level, rX);
-            ray.orig.xyz = orig_pos.xyz + ray.dir * 1.0f;
+            ray.orig.xyz = orig_pos.xyz + ray.dir * 0.1f;
             float dist = FLT_MAX;
             if (GetColor(ray, rX, level, 1, rc, ray_source.dispersion, true, false)) {
                 color_diffuse.rgb += rc.color[0];

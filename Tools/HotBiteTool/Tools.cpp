@@ -30,6 +30,9 @@ namespace HotBiteTool {
 			//Event listeners needs to be initialized once a coordinator is available as 
 			//the coordinator manages the events
 			EventListener::Init(c);
+			auto rs = world.GetCoordinator()->GetSystem<Systems::RenderSystem>();
+			rs->SetRayTracing(true, true, false);
+			rs->SetRayTracingQuality(Systems::RenderSystem::eRtQuality::LOW);
 			world.Init();
 			world.Run(fps);
 			timer0 = Scheduler::Get(MAIN_THREAD)->RegisterTimer(1000000000 / 60, [this](const Scheduler::TimerData&) {

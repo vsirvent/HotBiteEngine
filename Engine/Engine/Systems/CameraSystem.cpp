@@ -47,9 +47,11 @@ void CameraSystem::OnEntityDestroyed(Entity entity) {
 void CameraSystem::OnEntitySignatureChanged(Entity entity, const Signature& entity_signature) {
 	if ((entity_signature & signature) == signature)
 	{
-		CameraData cam{ coordinator, entity };
-		cameras.Insert(entity, cam);
-		Init(cam);
+		if (cameras.Get(entity) == nullptr) {
+			CameraData cam{ coordinator, entity };
+			cameras.Insert(entity, cam);
+			Init(cam);
+		}
 	}
 	else
 	{

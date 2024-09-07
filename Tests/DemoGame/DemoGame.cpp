@@ -582,7 +582,7 @@ public:
 		ECS::Coordinator* c = world.GetCoordinator();
 		//NOTE: Always lock first renderer mutex before physics mutex to avoid interlock
 		shared_ptr<RenderSystem> rs = c->GetSystem<RenderSystem>();
-		rs->mutex.lock();
+		rs->mutSpawnFireBallex.lock();
 		physics_mutex.lock();
 		if (id > 5) {
 			//Maximum 5 fireballs in the scene to avoid avorload of particles

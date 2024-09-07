@@ -1592,7 +1592,7 @@ void RenderSystem::PrepareRT() {
 				for (auto& mat : shaders.second) {
 					for (auto& de : mat.second.second.GetData()) {
 						if (de.base->visible &&  de.mesh->GetData()->skeletons.empty()) {
-							float distance = LENGHT_F3(de.transform->position - ca->camera->world_position);
+							float distance = LENGHT_F3(de.transform->position - (ADD_F3_F3(ca->camera->world_position, ca->camera->direction)));
 
 
 							MaterialProps mo = de.mat->data->props;
