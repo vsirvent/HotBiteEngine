@@ -258,7 +258,7 @@ namespace HotBite {
 				Core::RenderTexture2D first_pass_texture;				
 				Core::DepthTexture2D depth_view;
 
-				Core::RenderTexture2D texture_tmp;
+				Core::RenderTexture2D texture_tmp[2];
 
 				Core::RenderTexture2D motion_blur_map;
 				

@@ -412,8 +412,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     float4 color_reflex2 = float4(0.0f, 0.0f, 0.0f, 1.0f);
     float4 color_refrac = float4(0.0f, 0.0f, 0.0f, 1.0f);
     float4 color_diffuse = float4(0.0f, 0.0f, 0.0f, 1.0f);
-    float3 bloomColor = { 0.0f, 0.0f, 0.0f };
-
+    
     float2 pixel = float2(x, y);
 
     if (step == 2) {
@@ -475,48 +474,47 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
 
         if ((enabled & REFLEX_ENABLED) && step == 1) {
 
-            float3 seed = orig_pos * 100.0f;
-            float rX = rgba_tnoise(seed);
-
-            GetSpaceVectors(orig_dir, tangent, bitangent);
-            ray.dir = GenerateHemisphereRay(orig_dir, tangent, bitangent, pow(ray_source.dispersion, 3.0f), N, level, rX);
-            ray.orig.xyz = orig_pos.xyz + ray.dir * 0.001f;
-            float dist = FLT_MAX;
-            if (GetColor(ray, rX, level, 1, rc, ray_source.dispersion, true, false)) {
-                color_reflex.rgb += rc.color[0] * ray_source.opacity;
-                color_reflex2.rgb += rc.color[1] * ray_source.opacity;
-                bloomColor.rgb += rc.bloom;
-            }
-            float2 rc_disp = float2(rc.dispersion[0], rc.dispersion[1]);
-            //Refracted ray
-            if (ray_source.opacity < 1.0f && (enabled & REFRACT_ENABLED)) {
+            if (DTid.z == 0) {
                 float3 seed = orig_pos * 100.0f;
                 float rX = rgba_tnoise(seed);
-                Ray ray = GetRefractedRayFromSource(ray_source);
-                if (dist2(ray.dir) > Epsilon)
-                {
-                    if (GetColor(ray, rX, level, 0, rc, ray_source.dispersion, true, true)) {
-                        color_refrac.rgb += rc.color[0] * (1.0f - ray_source.opacity);
-                        bloomColor += rc.bloom;
-                    }
+
+                GetSpaceVectors(orig_dir, tangent, bitangent);
+                ray.dir = GenerateHemisphereRay(orig_dir, tangent, bitangent, pow(ray_source.dispersion, 3.0f), N, level, rX);
+                ray.orig.xyz = orig_pos.xyz + ray.dir * 0.001f;
+                float dist = FLT_MAX;
+                if (GetColor(ray, rX, level, 1, rc, ray_source.dispersion, true, false)) {
+                    color_reflex.rgb += rc.color[0] * ray_source.opacity;
+                    color_reflex2.rgb += rc.color[1] * ray_source.opacity;
+                }
+                float2 rc_disp = float2(rc.dispersion[0], rc.dispersion[1]);
+                float reflex_ratio = (1.0f - ray_source.dispersion);
+                output0[pixel] = color_reflex * reflex_ratio;
+                output2[pixel] = color_reflex2 * reflex_ratio;
+                float4 d = dispersion[pixel];
+                if (rc.hit) {
+                    rc_disp = float2(max(rc_disp.x, rc.dispersion[0]), max(rc_disp.y, rc.dispersion[1]));
+                    dispersion[pixel] = float4(rc_disp.x, rc_disp.y, d.b, d.a);
+                }
+                else {
+                    dispersion[pixel] = float4(-1.0f, -1.0f, d.b, d.a);
                 }
             }
-            float reflex_ratio = (1.0f - ray_source.dispersion);
-            output0[pixel] = color_reflex * reflex_ratio;
-            output1[pixel] = color_refrac;
-            output2[pixel] = color_reflex2 * reflex_ratio;
-            float4 bColor = float4(bloomColor * reflex_ratio, 1.0f);
-            //bloom[pixel] = climit4(bColor);
-
-            float4 d = dispersion[pixel];
-            if (rc.hit) {
-                rc_disp = float2(max(rc_disp.x, rc.dispersion[0]), max(rc_disp.y, rc.dispersion[1]));
-                dispersion[pixel] = float4(rc_disp.x, rc_disp.y, d.b, d.a);
-            }
             else {
-                dispersion[pixel] = float4(-1.0f, -1.0f, d.b, d.a);
+                //Refracted ray
+                if (ray_source.opacity < 1.0f && (enabled & REFRACT_ENABLED)) {
+                    float3 seed = orig_pos * 100.0f;
+                    float rX = rgba_tnoise(seed);
+                    Ray ray = GetRefractedRayFromSource(ray_source);
+                    if (dist2(ray.dir) > Epsilon)
+                    {
+                        if (GetColor(ray, rX, level, 0, rc, ray_source.dispersion, true, true)) {
+                            color_refrac.rgb += rc.color[0] * (1.0f - ray_source.opacity);
+                        }
+                    }
+                }
+                float reflex_ratio = (1.0f - ray_source.dispersion);
+                output1[pixel] = color_refrac;
             }
-             
         } else if ((enabled & INDIRECT_ENABLED) && step == 2) {
             count = 0;
             GetSpaceVectors(normal, tangent, bitangent);
