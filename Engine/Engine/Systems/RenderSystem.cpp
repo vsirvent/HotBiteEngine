@@ -2446,6 +2446,7 @@ bool RenderSystem::GetCloudTest() const {
 }
 
 void RenderSystem::SetRayTracing(bool reflex_enabled, bool refract_enabled, bool indirect_enabled) {
+	std::lock_guard l(mutex);
 	rt_enabled = (reflex_enabled?RT_REFLEX_ENABLE:0) | (refract_enabled?RT_REFRACT_ENABLE:0) | (indirect_enabled ? RT_INDIRECT_ENABLE : 0);
 	for (int i = 0; i < RT_NTEXTURES; ++i) {
 		for (int x = 0; x < 2; ++x) {
@@ -2462,6 +2463,7 @@ void RenderSystem::GetRayTracing(bool& reflex_enabled, bool& refract_enabled, bo
 }
 
 void RenderSystem::SetRayTracingQuality(eRtQuality quality) {
+	std::lock_guard l(mutex);
 	if (rt_quality != quality) {
 		rt_quality = quality;
 		switch (rt_quality) {
@@ -2487,6 +2489,7 @@ bool RenderSystem::GetDustEnabled() const {
 }
 
 void RenderSystem::SetDustEffectArea(int32_t num_particles, const float3& area, const float3& offset) {
+	std::lock_guard l(mutex);
 	dust_area = area;
 	dust_offset = offset;
 	int particles_texture_size = ((((int32_t)sqrt((float)num_particles) + 31) / 32) * 32); //Make it multiple of 32 to perfect fit computer shaders

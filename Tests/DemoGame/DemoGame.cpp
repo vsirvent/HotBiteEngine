@@ -367,10 +367,11 @@ public:
 						}
 					}
 					else if (GetAsyncKeyState('R') & 0x8000) {
-						world.GetCoordinator()->GetSystem<RenderSystem>()->SetRayTracing(true);
+						world.GetCoordinator()->GetSystem<RenderSystem>()->SetRayTracingQuality(RenderSystem::eRtQuality::LOW);
+						world.GetCoordinator()->GetSystem<RenderSystem>()->SetRayTracing(true, true, true);
 					}
 					else if (GetAsyncKeyState('T') & 0x8000) {
-						world.GetCoordinator()->GetSystem<RenderSystem>()->SetRayTracing(false);
+						world.GetCoordinator()->GetSystem<RenderSystem>()->SetRayTracing(false, false, false);
 					}
 					else if (GetAsyncKeyState('1') & 0x8000) {
 						std::lock_guard<std::recursive_mutex> l(world.GetCoordinator()->GetSystem<RenderSystem>()->mutex);
@@ -582,7 +583,7 @@ public:
 		ECS::Coordinator* c = world.GetCoordinator();
 		//NOTE: Always lock first renderer mutex before physics mutex to avoid interlock
 		shared_ptr<RenderSystem> rs = c->GetSystem<RenderSystem>();
-		rs->mutSpawnFireBallex.lock();
+		rs->mutex.lock();
 		physics_mutex.lock();
 		if (id > 5) {
 			//Maximum 5 fireballs in the scene to avoid avorload of particles
