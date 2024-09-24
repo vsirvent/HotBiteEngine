@@ -217,7 +217,7 @@ RenderTargetRT MainRenderPS(GSOutput input)
 		ray.reflex = material.rt_reflex;
 	}
 	else {
-		ray.dispersion = -1.0f;
+		ray.dispersion = 2.0f;
 		ray.reflex = 0.0f;
 	}
 	ray.normal = normal;

@@ -362,12 +362,13 @@ bool GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
                     ray.density != 1.0 ? 1.0f : o.density,
                     normal, ray.ratio * (1.0f - o.opacity));
                 end = false;
-            } else if (ray.bounces < max_bounces && o.opacity > 0.0f) {
+            }
+            else if (material.emission <= Epsilon && ray.bounces < max_bounces && o.opacity > 0.0f) {
                 ray = GetReflectedRayFromRay(ray, normal, ray.ratio);
                 float3 tangent;
                 float3 bitangent;
                 GetSpaceVectors(ray.dir, tangent, bitangent);
-                ray.dir = GenerateHemisphereRay(ray.dir, tangent, bitangent, pow(1.0f - material.specIntensity, 3.0f), N, level, rX);
+                ray.dir = GenerateHemisphereRay(ray.dir, tangent, bitangent, (1.0f - material.specIntensity), N, level, rX);
                 end = false;
             }
         }
@@ -440,7 +441,8 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
         }
     }
     else {
-        if (!process || enabled == 0 || ray_source.dispersion < Epsilon || ray_source.reflex < Epsilon || dist2(ray_source.normal) <= Epsilon)
+        //dispersion out of bounds => exit
+        if (!process || enabled == 0 || ray_source.dispersion > 1.0f || ray_source.reflex < Epsilon || dist2(ray_source.normal) <= Epsilon)
         {
             output0[pixel] = color_reflex;
             return;
@@ -477,12 +479,12 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             if (DTid.z == 0) {
                 float3 seed = orig_pos * 100.0f;
                 float rX = rgba_tnoise(seed);
-
+                rX = pow(rX, 3.0f);
                 GetSpaceVectors(orig_dir, tangent, bitangent);
-                ray.dir = GenerateHemisphereRay(orig_dir, tangent, bitangent, pow(ray_source.dispersion, 3.0f), N, level, rX);
+                ray.dir = GenerateHemisphereRay(orig_dir, tangent, bitangent, ray_source.dispersion, N, level, rX);
                 ray.orig.xyz = orig_pos.xyz + ray.dir * 0.001f;
                 float dist = FLT_MAX;
-                if (GetColor(ray, rX, level, 1, rc, ray_source.dispersion, true, false)) {
+                if (GetColor(ray, rX, level, 0, rc, ray_source.dispersion, true, false)) {
                     color_reflex.rgb += rc.color[0] * ray_source.opacity;
                     color_reflex2.rgb += rc.color[1] * ray_source.opacity;
                 }
@@ -515,7 +517,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
                 float reflex_ratio = (1.0f - ray_source.dispersion);
                 output1[pixel] = color_refrac;
             }
-        } else if ((enabled & INDIRECT_ENABLED) && step == 2) {
+        } else if ((enabled & INDIRECT_ENABLED) && step >= 2) {
             count = 0;
             GetSpaceVectors(normal, tangent, bitangent);
             

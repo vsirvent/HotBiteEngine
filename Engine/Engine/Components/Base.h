@@ -30,6 +30,7 @@ SOFTWARE.
 #include <Core/Mesh.h>
 #include <Core/Utils.h>
 #include <Core/SpinLock.h>
+#include <Core/Scheduler.h>
 #include <d3d11.h>
 
 namespace HotBite {
@@ -73,6 +74,8 @@ namespace HotBite {
 				bool cast_shadow = true;
 				//Entity is static
 				bool is_static = false;
+				//Creation time
+				int64_t creation_time = Core::Scheduler::GetNanoSeconds();
 			};
 
 			/**

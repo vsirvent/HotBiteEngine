@@ -433,7 +433,7 @@ void RenderSystem::LoadRTResources() {
 	for (int x = 0; x < RT_NTEXTURES; ++x) {
 		int div = RT_TEXTURE_RESOLUTION_DIVIDER;
 		if (x == RT_TEXTURE_INDIRECT) {
-			div = 2;
+			div = max(div, 2);
 		}
 		for (int n = 0; n < 2; ++n) {
 			rt_textures[n][x].Release();
@@ -1208,6 +1208,7 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 				ds->SetFloat(TIME, time);
 				ds->SetSamplerState(BASIC_SAMPLER, dxcore->basic_sampler);
 				ds->SetMatrix4x4(VIEW, cam_entity.camera->view);
+				ds->SetMatrix4x4(VIEW, cam_entity.camera->view);
 				ds->SetMatrix4x4(PROJECTION, cam_entity.camera->projection);
 				ds->SetShader();
 			}
@@ -1313,6 +1314,7 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 		ps->SetShaderResourceView(DEPTH_TEXTURE, nullptr);
 		if (prev_pass_texture != nullptr) {
 			ps->SetShaderResourceView("renderTexture", nullptr);
+			ps->SetShaderResourceView("lightTexture", nullptr);
 			ps->SetShaderResourceView("lightTexture", nullptr);
 		}
 	}
@@ -2135,6 +2137,10 @@ void RenderSystem::PrepareEntity(DrawableEntity& entity, SimpleVertexShader* vs,
 		}		
 		vs->CopyAllBufferData();
 	}
+	if (ds != nullptr) {
+		ds->SetMatrix4x4(WORLD, world);
+		ds->CopyAllBufferData();
+	}
 	if (gs != nullptr) {
 		gs->SetMatrix4x4(WORLD, world);
 		gs->CopyAllBufferData();		
@@ -2274,6 +2280,7 @@ void RenderSystem::PostProcessLight() {
 		vol_data.Clear(zero);
 		CameraEntity& cam_entity = cameras.GetData()[0];
 		PrepareVolumetricShader(vol_shader);
+		vol_shader->SetShaderResourceView("rgbaNoise", rgba_noise_texture.SRV());
 		vol_shader->SetMatrix4x4("view_inverse", cam_entity.camera->inverse_view);
 		vol_shader->SetMatrix4x4("projection_inverse", cam_entity.camera->inverse_projection);
 		vol_shader->SetUnorderedAccessView("output", vol_light_map.UAV());
@@ -2285,13 +2292,13 @@ void RenderSystem::PostProcessLight() {
 		dxcore->context->Dispatch(groupsX, groupsY, 1);
 		vol_shader->SetUnorderedAccessView("output", nullptr);
 		vol_shader->SetUnorderedAccessView("vol_data", nullptr);
+		vol_shader->SetShaderResourceView("rgbaNoise", nullptr);
 		UnprepareVolumetricShader(vol_shader);
 
 		//Smooth frame
 		blur_shader->SetUnorderedAccessView("input", vol_light_map.UAV());
 		blur_shader->SetUnorderedAccessView("output", vol_light_map2.UAV());
 		blur_shader->SetShaderResourceView("vol_data", vol_data.SRV());
-
 		groupsX = (int32_t)(ceil((float)vol_light_map.Width() / 32.0f));
 		groupsY = (int32_t)(ceil((float)vol_light_map.Height() / 32.0f));
 		blur_shader->SetFloat("variance", 5.0f);

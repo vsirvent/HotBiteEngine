@@ -115,8 +115,6 @@ bool IntersectTri(RayObject ray, uint indexOffset, uint vertexOffset, out Inters
     return false; // No intersection
 }
 
-
-#if 0
 bool IntersectAABB(float3 pos, float3 dir, float3 bmin, float3 bmax)
 {
     float3 invDir = 1.0f / dir; // Calculate the inverse direction vector
@@ -146,20 +144,6 @@ bool IntersectAABB(float3 pos, float3 dir, float3 bmin, float3 bmax)
     // Final intersection test
     return tmax >= tmin && tmax > Epsilon;
 }
-#else
-bool IntersectAABB(float3 pos, float3 dir, float3 bmin, float3 bmax) {
-    float3 invDir = 1.0f / dir;
-    float3 t0 = (bmin - pos) * invDir;
-    float3 t1 = (bmax - pos) * invDir;
-    float3 tmin = min(t0, t1);
-    float3 tmax = max(t0, t1);
-
-    float enter = max(max(tmin.x, tmin.y), tmin.z);
-    float exit = min(min(tmax.x, tmax.y), tmax.z);
-
-    return (exit > enter) && (exit > Epsilon);
-}
-#endif
 
 bool IntersectAABB(Ray ray, float3 bmin, float3 bmax)
 {

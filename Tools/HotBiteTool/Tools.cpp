@@ -30,11 +30,12 @@ namespace HotBiteTool {
 			//Event listeners needs to be initialized once a coordinator is available as 
 			//the coordinator manages the events
 			EventListener::Init(c);
+			world.Init();
+			world.Run(fps);
 			auto rs = world.GetCoordinator()->GetSystem<Systems::RenderSystem>();
 			rs->SetRayTracing(true, true, true);
 			rs->SetRayTracingQuality(Systems::RenderSystem::eRtQuality::LOW);
-			world.Init();
-			world.Run(fps);
+
 			timer0 = Scheduler::Get(MAIN_THREAD)->RegisterTimer(1000000000 / 60, [this](const Scheduler::TimerData&) {
 				std::scoped_lock l(world.GetCoordinator()->GetSystem<RenderSystem>()->mutex);
 				static float rot_val = 0.0f;
@@ -117,6 +118,10 @@ namespace HotBiteTool {
 			world.Load(world_file);
 			world.Init();
 			world.Run(fps);
+
+			auto rs = world.GetCoordinator()->GetSystem<Systems::RenderSystem>();
+			rs->SetRayTracing(true, true, true);
+			rs->SetRayTracingQuality(Systems::RenderSystem::eRtQuality::LOW);
 
 			post->SetNext(gui);
 #if 0

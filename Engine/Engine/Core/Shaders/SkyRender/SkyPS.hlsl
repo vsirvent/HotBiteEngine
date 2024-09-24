@@ -93,7 +93,7 @@ RenderTarget main(VertexToPixel input)
 	matrix worldViewProj = mul(view, projection);
 
 	float4 finalColor = { 0.0f, 0.0f, 0.0f, dirLights[0].intensity };
-	float4 lightColor = { 0.0f, 0.0f, 0.0f, 1.0f };
+	float4 lightColor = { 1.0f, 1.0f, 1.0f, 1.0f };
 
 	RenderTarget output;
 

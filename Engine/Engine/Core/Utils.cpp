@@ -42,7 +42,9 @@ namespace HotBite {
 
 			float4 parseColorStringF4(const std::string& colorString) {
 				// Check if the string has the correct format
-				if (colorString.size() != 9 || colorString[0] != '#') {
+				if (colorString[0] != '#') {
+					return ColorFromStr(colorString);
+				} else if (colorString.size() != 9) {
 					printf("Invalid color string format %s\n", colorString.c_str());
 					return {};
 				}
