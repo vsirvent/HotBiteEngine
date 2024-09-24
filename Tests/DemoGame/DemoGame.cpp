@@ -232,7 +232,7 @@ public:
 			post_game->SetNext(gui);
 
 			dof->SetAmplitude(2.0f);
-			dof->SetEnabled(true);
+			dof->SetEnabled(false);
 
 			//Set the post-chain begin to the renderer
 			world.SetPostProcessPipeline(main_fx);
@@ -376,6 +376,11 @@ public:
 					else if (GetAsyncKeyState('T') & 0x8000) {
 						world.GetCoordinator()->GetSystem<RenderSystem>()->SetRayTracing(false, false, false);
 					}
+					else if (GetAsyncKeyState('2') & 0x8000) {
+						auto render = world.GetCoordinator()->GetSystem<RenderSystem>();
+						std::lock_guard l(render->mutex);
+						render->SetDOF(!render->GetDOF());
+					}
 					else if (GetAsyncKeyState('1') & 0x8000) {
 						std::lock_guard<std::recursive_mutex> l(world.GetCoordinator()->GetSystem<RenderSystem>()->mutex);
 						ShaderFactory::Get()->Reload();
@@ -480,7 +485,7 @@ public:
 			AddEventListener(RenderSystem::EVENT_ID_PREPARE_SHADER, std::bind(&GameDemoApplication::OnPrepare, this, std::placeholders::_1));
 			
 			auto game_render = c->GetSystem<Systems::RenderSystem>();
-			game_render->SetDustEffectArea(1024 * 1024, { 200.0f, 20.0f, 200.0f }, { -100.0f, 0.0f, -100.0f });
+			game_render->SetDustEffectArea(2048 * 2048, { 200.0f, 20.0f, 200.0f }, { -100.0f, 0.0f, -100.0f });
 			game_render->SetDustEnabled(true);
 
 			return false;
