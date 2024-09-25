@@ -46,7 +46,6 @@ bool Physics::Init(PhysicsWorld* w,
 	if (body != nullptr) {
 		body->setType(body_type);
 		mBodyRefs[body]++;
-		//body->setAngularLockAxisFactor(rp3d::Vector3(0, 0, 0));
 		CollisionShape* cshape = NULL;
 		if (shape_data == NULL) {
 			float3 e = MULT_F3_F3(extends, s);
