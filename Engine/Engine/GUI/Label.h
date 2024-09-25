@@ -107,7 +107,7 @@ namespace HotBite {
 					for (int i = 0; i < parameters.size(); ++i) {
 						last_parameters.push_back(get_value(parameters[i]));
 					}
-					text_layout = d2d->GetText(final_text, text_format, (width - 2.0f* margin) * 0.5f * DXCore::Get()->GetWidth(), height * 0.5f * DXCore::Get()->GetHeight());
+					text_layout = d2d->GetText(final_text, text_format, (width - 2.0f* margin) * 0.5f * DXCore::Get()->GetScreenWidth(), height * 0.5f * DXCore::Get()->GetScreenHeight());
 				}
 
 			public:
@@ -200,8 +200,8 @@ namespace HotBite {
 						d2d_render_target->CreateSolidColorBrush(text_color, &brush);
 						RefreshTextLayout();
 						if (text_layout != nullptr) {
-							origin.x = ((1.0f + position.x + margin) * 0.5f) * DXCore::Get()->GetWidth();
-							origin.y = DXCore::Get()->GetHeight() * (1.0f - (1.0f + position.y) * 0.5f) - text_layout->GetMaxHeight();
+							origin.x = ((1.0f + position.x + margin) * 0.5f) * DXCore::Get()->GetScreenWidth();
+							origin.y = DXCore::Get()->GetScreenHeight() * (1.0f - (1.0f + position.y) * 0.5f) - text_layout->GetMaxHeight();
 						}
 					}
 				}
@@ -270,7 +270,6 @@ namespace HotBite {
 						if (target != nullptr) {
 							Direct2D* d2d = Direct2D::Get();
 							d2d_render_target = d2d->GetD2DRenderTargetView(target);
-							D2D1_SIZE_F s = d2d_render_target->GetSize();
 						}
 						Refresh();
 					}

@@ -144,7 +144,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
                             color += CalcPoint(normal, wpos.xyz, pointLights[i], i);
                         }
                     }
-#define MAX_GLOBAL_ILLUMINATION 0.5f
+#define MAX_GLOBAL_ILLUMINATION 1.0f
                     float global = (float)vol_data[uint2(0, 0)] / (float)(dimensions.x * dimensions.y * 1000);
                     float att = 1.0f;
                     global *= global;
@@ -154,12 +154,13 @@ void main(uint3 DTid : SV_DispatchThreadID)
                     float2 distanceScreen = abs(screenPos - screenPos2);
                     float halfDistance = floor(distanceScreen.x);
 #if 1
+                    depthTextureUAV[screenPos / 2] = max(depth,dist_to_cam);
                     for (int x = -halfDistance; x <= halfDistance; ++x) {
                         for (int y = -halfDistance; y <= halfDistance; ++y) {
                             float dist_att = saturate(distanceScreen.x);
                             float w0 = saturate(1.0f - abs(x) / halfDistance);
                             float w1 = saturate(1.0f - abs(y) / halfDistance);
-                            float total_att = att * illumination * w0 * w1;
+                            float total_att =  att * illumination * w0 * w1;
 
                             //Only write if we have a visible particle and attenuation is not too high that it will not be visible
                             if (total_att > 0.0001f)

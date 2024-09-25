@@ -41,7 +41,7 @@ void main(
 	inout TriangleStream< GSOutput > output
 )
 {
-#if 0
+#if 1
 	bool process = false;
 
 	float4 p[3];

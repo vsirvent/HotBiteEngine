@@ -30,7 +30,7 @@ SOFTWARE.
 #include <ECS/Coordinator.h>
 
 #define MAX_LIGHTS 8
-#define MAX_OBJECTS 64
+#define MAX_OBJECTS 100
 #define MAX_INTENSITY 1000.0f
 
 namespace HotBite {

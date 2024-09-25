@@ -27,7 +27,7 @@ SOFTWARE.
 #ifndef __UTILS_HLSLI__
 #define __UTILS_HLSLI__
 
-float Epsilon = 1e-6;
+float Epsilon = 1e-4;
 
 float4 GetInterpolatedColor(float2 uv, Texture2D text, float2 dimension) {
 	// Calculate the texture coordinates in the range [0, 1]
@@ -63,6 +63,11 @@ bool IsInteger(float2 value) {
 float dist2(float3 p) {
 	return p.x * p.x + p.y * p.y + p.z * p.z;
 }
+
+float dist2(float2 p) {
+	return p.x * p.x + p.y * p.y;
+}
+
 float4 Get3dInterpolatedColor(float2 uv, Texture2D text, float2 dimension, Texture2D positions, Texture2D normals, float2 pos_dimension) {
 
 
@@ -100,7 +105,7 @@ float4 Get3dInterpolatedColor(float2 uv, Texture2D text, float2 dimension, Textu
 	float d10 = dist2(wpxx - wp10);  // Distance to wp10
 
 	// Small epsilon to avoid division by zero
-	float epsilon = 1e-5;
+	float epsilon = 1e-4;
 
 	// Calculate weights based on inverse distance (closer points have higher weight)
 	float w00 = 1.0f / max(d00, epsilon);
@@ -158,6 +163,12 @@ float3 GenerateDirection(int i, int N) {
 	float y = radius * sin(theta);
 
 	return float3(x, y, z);
+}
+
+void GetSpaceVectors(in float3 dir, out float3 tangent, out float3 bitangent) {
+	float3 up = abs(dir.z) < 0.999f ? float3(0.0f, 0.0f, 1.0f) : float3(1.0f, 0.0f, 0.0f);
+	tangent = normalize(cross(up, dir));
+	bitangent = cross(dir, tangent);
 }
 
 // Converts 3D coordinates to a 2D array index
@@ -429,7 +440,7 @@ bool line_sphere_intersection(float3 p1, float3 p2, float3 center, float radius,
 		// No intersection
 		return false;
 	}
-	else if (abs(discriminant) < Epsilon) {
+	else if (abs(discriminant) <= Epsilon) {
 		// Tangent case
 		float t = -b / (2.0f * a);
 		intersectionPoint = p1 + t * d;

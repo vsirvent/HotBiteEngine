@@ -54,16 +54,16 @@ RaySource fromColor(float4 color0, float4 color1)
 
 float4 getColor0(RaySource ray)
 {
-	uint d = (ray.dispersion * 1000.0f);
-	uint r = (ray.reflex * 1000.0f);
+	int d = (ray.dispersion * 1000.0f);
+	int r = (ray.reflex * 1000.0f);
 	float w = asfloat(d << 16 | (r & 0xFFFF));
 	return float4(ray.orig, w);
 }
 
 float4 getColor1(RaySource ray)
 {
-	uint d = (ray.density * 1000.0f);
-	uint o = (ray.opacity * 1000.0f);
+	int d = (ray.density * 1000.0f);
+	int o = (ray.opacity * 1000.0f);
 	float w = asfloat(d << 16 | (o & 0xFFFF));
 	return float4(ray.normal, w);
 }

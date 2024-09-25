@@ -91,195 +91,18 @@
           "triangulate": false
         }
       ],
+    "material_files": [ "demo_game_scene.mat", "\\assets\\archer\\archer.mat", "\\assets\\troll\\troll.mat", "\\assets\\zombie\\zombie.mat" ],
     "materials": [
-      {
-        "name": "Ball",
-        "spec_intensity": 1.0,
-        "parallax_scale": 0.0,
-        "normal_map_enabled": true,
-        "tess_type": 0,
-        "tess_factor": 0,
-        "displacement_scale": 0.0,
-        "ambient_color": "090030000",
-        "diffuse_color": "030030030",
-        "textures": {
-          "diffuse_textname": ".\\Assets\\textures\\lava\\ground_0027_color_1k.jpg",
-          "normal_textname": ".\\Assets\\textures\\lava\\ground_0027_normal_1k.png",
-          "high_textname": ".\\Assets\\textures\\lava\\ground_0027_disp_1k.png",
-          "emission_textname": ".\\Assets\\textures\\lava\\ground_0027_emissive_1k.jpg",
-          "ao_textname": ".\\Assets\\textures\\lava\\ground_0027_ao_1k.jpg"
-        }
-      },
-      {
-        "name": "Wall",
-        "spec_intensity": 1.0,
-        "parallax_scale": 0.1,
-        "textures": {
-          "diffuse_textname": ".\\Assets\\textures\\Rock10_MR_2K\\Rock10_2K_BaseColor.png",
-          "normal_textname": ".\\Assets\\textures\\Rock10_MR_2K\\Rock10_2K_Normal.png",
-          "high_textname": ".\\Assets\\textures\\Rock10_MR_2K\\Rock10_2K_Height.png",
-          "spec_textname": ".\\Assets\\textures\\Rock10_MR_2K\\Rock10_2K_Roughness.png",
-          "ao_textname": ".\\Assets\\textures\\Rock10_MR_2K\\Rock10_2K_AO.png"
-        }
-      },
-      {
-        "name": "Wall.001",
-        "spec_intensity": 1.0,
-        "parallax_scale": 0.1,
-        "textures": {
-          "diffuse_textname": ".\\Assets\\textures\\Rock10_MR_2K\\Rock10_2K_BaseColor.png",
-          "normal_textname": ".\\Assets\\textures\\Rock10_MR_2K\\Rock10_2K_Normal.png",
-          "high_textname": ".\\Assets\\textures\\Rock10_MR_2K\\Rock10_2K_Height.png",
-          "spec_textname": ".\\Assets\\textures\\Rock10_MR_2K\\Rock10_2K_Roughness.png",
-          "ao_textname": ".\\Assets\\textures\\Rock10_MR_2K\\Rock10_2K_AO.png"
-        }
-      },
-      {
-        "name": "Test",
-        "blend_enabled": false,
-        "spec_intensity": 1.0,
-        "parallax_scale": 0.0,
-        "normal_map_enabled": false,
-        "tess_type": 0,
-        "tess_factor": 0,
-        "displacement_scale": 0.0,
-        "ambient_color": "090030000",
-        "diffuse_color": "030030030",
-        "textures": {
-          "diffuse_textname": ".\\Assets\\textures\\Marble\\Marble_Color.jpg",
-          "normal_textname": ".\\Assets\\textures\\Marble\\Marble_Normal.jpg",
-          "high_textname": ".\\Assets\\textures\\Marble\\Marble_Displacement.jpg"
-        }
-      },
-        {
-          "name": "Water",
-          "blend_enabled": false,
-          "opacity": 1,
-          "density": 1,
-          "spec_intensity": 1.0,
-          "shaders": {
-            "gs": "WaterGS.cso",
-            "ps": "WaterPS.cso"
-          }
-        },
-        {
-          "name": "Lava",
-          "blend_enabled": false,
-          "spec_intensity": 0.0,
-          "shaders": {
-            "gs": "LavaGS.cso",
-            "ps": "LavaPS.cso"
-          }
-        },
-        {
-          "name": "Rocks",
-          "spec_intensity": 0.5,
-          "textures": {
-            "diffuse_textname": ".\\Assets\\textures\\Rock10_MR_2K\\Rock10_2K_BaseColor.png",
-            "normal_textname": ".\\Assets\\textures\\Rock10_MR_2K\\Rock10_2K_Normal.png",
-            "high_textname": ".\\Assets\\textures\\Rock10_MR_2K\\Rock10_2K_Height.png",
-            "spec_textname": ".\\Assets\\textures\\Rock10_MR_2K\\Rock10_2K_Roughness.png",
-            "ao_textname": ".\\Assets\\textures\\Rock10_MR_2K\\Rock10_2K_AO.png"
-          }
-        },
-        {
-          "name": "Dirt",
-          "spec_intensity": 0.7,
-          "parallax_scale": 0.1,
-          "textures": {
-            "diffuse_textname": ".\\Assets\\textures\\Dirt02_MR_2K\\Dirt02_2K_BaseColor.png",
-            "normal_textname": ".\\Assets\\textures\\Dirt02_MR_2K\\Dirt02_2K_Normal.png",
-            "high_textname": ".\\Assets\\textures\\Dirt02_MR_2K\\Dirt02_2K_Height.png",
-            "spec_textname": ".\\Assets\\textures\\Dirt02_MR_2K\\Dirt02_2K_Roughness.png",
-            "ao_textname": ".\\Assets\\textures\\Dirt02_MR_2K\\Dirt02_2K_AO.png"
-          }
-        },
-        {
-          "name": "Grass",
-          "spec_intensity": 0.1,
-          "textures": {
-            "diffuse_textname": ".\\Assets\\textures\\Grass01_MR_2K\\Grass01_2K_BaseColor.png",
-            "normal_textname": ".\\Assets\\textures\\Grass01_MR_2K\\Grass01_2K_Normal.png",
-            "high_textname": ".\\Assets\\textures\\Grass01_MR_2K\\Grass01_2K_Height.png",
-            "spec_textname": ".\\Assets\\textures\\Grass01_MR_2K\\Grass01_2K_Roughness.png",
-            "ao_textname": ".\\Assets\\textures\\Grass01_MR_2K\\Grass01_2K_AO.png"
-          }
-        },
-        {
-          "name": "Grass2",
-          "spec_intensity": 0.1,
-          "textures": {
-            "diffuse_textname": ".\\Assets\\textures\\whispy-grass-meadow-ue\\wispy-grass-meadow_albedo.png",
-            "normal_textname": ".\\assets\\textures\\whispy-grass-meadow-ue\\wispy-grass-meadow_normal-dx.png",
-            "high_textname": ".\\assets\\textures\\whispy-grass-meadow-ue\\wispy-grass-meadow_height.png",
-            "spec_textname": ".\\assets\\textures\\whispy-grass-meadow-ue\\wispy-grass-meadow_roughness.png",
-            "ao_textname": ".\\assets\\textures\\whispy-grass-meadow-ue\\wispy-grass-meadow_ao.png"
-          }
-        },
-        {
-          "name": "Gravel",
-          "spec_intensity": 1.0,
-          "textures": {
-            "diffuse_textname": ".\\Assets\\textures\\Gravel04_MR_2K\\Gravel04_2K_BaseColor.png",
-            "normal_textname": ".\\Assets\\textures\\Gravel04_MR_2K\\Gravel04_2K_Normal.png",
-            "high_textname": ".\\Assets\\textures\\Gravel04_MR_2K\\Gravel04_2K_Height.png",
-            "spec_textname": ".\\Assets\\textures\\Gravel04_MR_2K\\Gravel04_2K_Roughness.png",
-            "ao_textname": ".\\Assets\\textures\\Gravel04_MR_2K\\Gravel04_2K_AO.png"
-          }
-        },
-
-        {
-          "name": "Floor",
-          "spec_intensity": 1.0,
-          "parallax_scale": 0.1,
-          "textures": {
-            "diffuse_textname": ".\\Assets\\textures\\Bricks076C_1K\\Bricks076C_1K_Color.jpg",
-            "normal_textname": ".\\Assets\\textures\\Bricks076C_1K\\Bricks076C_1K_NormalDX.jpg",
-            "high_textname": ".\\Assets\\textures\\Bricks076C_1K\\Bricks076C_1K_Displacement.jpg",
-            "spec_textname": ".\\Assets\\textures\\Bricks076C_1K\\Bricks076C_1K_Roughness.jpg",
-            "ao_textname": ".\\Assets\\textures\\Bricks076C_1K\\Bricks076C_1K_AmbientOcclusion.jpg"
-          }
-        },
-        {
-          "name": "ZombieMaterial",
-          "spec_intensity": 1.0,
-          "normal_map_enabled": true,
-          "textures": {
-            "diffuse_textname": ".\\Assets\\zombie\\parasitezombie_diffuse.png",
-            "normal_textname": ".\\Assets\\zombie\\parasitezombie_normal.png",
-            "spec_textname": ".\\Assets\\zombie\\parasitezombie_specular.png"
-          }
-        },
-        {
-          "name": "ArcherMaterial",
-          "spec_intensity": 1.0,
-          "normal_map_enabled": true,
-          "textures": {
-            "diffuse_textname": ".\\Assets\\archer\\archer_diff.png"
-          }
-        },
-        {
-          "name": "TrollMaterial",
-          "spec_intensity": 1.0,
-          "normal_map_enabled": true,
-          "textures": {
-            "diffuse_textname": ".\\Assets\\troll\\troll_diff.png",
-            "normal_textname": ".\\Assets\\troll\\troll_normal.png",
-            "arm_textname": ".\\Assets\\troll\\troll_arm.png"
-          }
-        },
         {
           "name": "SmokeParticles",
           "blend_enabled": true,
           "ambient_color": "090030000",
           "diffuse_color": "030030030",
-          "shaders": {
-            "gs": "ParticleGS.cso",
-            "ps": "SmokeParticlePS.cso",
-            "vs": "ParticleVS.cso",
-            "hs": "",
-            "ds": ""
-          }
+          "draw_gs": "ParticleGS.cso",
+          "draw_ps": "SmokeParticlePS.cso",
+          "draw_vs": "ParticleVS.cso",
+          "draw_hs": "",
+          "draw_ds": ""
         },
         {
           "name": "FireCoreParticles",
@@ -288,13 +111,11 @@
           "alhpa_color": "000000000",
           "ambient_color": "090090050",
           "diffuse_color": "090030030",
-          "shaders": {
-            "gs": "ParticleGS.cso",
-            "ps": "FireParticlePS.cso",
-            "vs": "ParticleVS.cso",
-            "hs": "",
-            "ds": ""
-          }
+          "draw_gs": "ParticleGS.cso",
+          "draw_ps": "FireParticlePS.cso",
+          "draw_vs": "ParticleVS.cso",
+          "draw_hs": "",
+          "draw_ds": ""
         },
         {
           "name": "FireParticles",
@@ -303,39 +124,31 @@
           "alhpa_color": "000000000",
           "ambient_color": "090090030",
           "diffuse_color": "090030030",
-          "shaders": {
-            "gs": "ParticleGS.cso",
-            "ps": "FireParticlePS.cso",
-            "vs": "ParticleVS.cso",
-            "hs": "",
-            "ds": ""
-          }
+          "draw_gs": "ParticleGS.cso",
+          "draw_ps": "FireParticlePS.cso",
+          "draw_vs": "ParticleVS.cso",
+          "draw_hs": "",
+          "draw_ds": ""
         },
         {
           "name": "SparksParticles",
           "blend_enabled": true,
           "diffuse_color": "090060000",
-          "shaders": {
-            "gs": "ParticleGS.cso",
-            "ps": "ParticlePS.cso",
-            "vs": "ParticleVS.cso",
-            "hs": "",
-            "ds": ""
-          }
+          "draw_gs": "ParticleGS.cso",
+          "draw_ps": "ParticlePS.cso",
+          "draw_vs": "ParticleVS.cso",
+          "draw_hs": "",
+          "draw_ds": ""
         },
         {
           "name": "Sky",
-          "shaders": {
-            "vs": "SkyVS.cso",
-            "ps": "SkyPS.cso"
-          }
+          "draw_vs": "SkyVS.cso",
+          "draw_ps": "SkyPS.cso"
         },
         {
           "name": "Space",
-          "shaders": {
-            "vs": "SkyVS.cso",
-            "ps": "SkyPS.cso"
-          }
+          "draw_vs": "SkyVS.cso",
+          "draw_ps": "SkyPS.cso"
         }
       ],
       "sky": {
@@ -354,8 +167,8 @@
         "sun": {
           "type": "directional",
           "name": "Sun",
-          "color": "040040040",
-          "density": 10.0,
+          "color": "100100100",
+          "density": 15.0,
           "fog": true,
           "cast_shadow": true,
           "resolution": 1
@@ -363,8 +176,8 @@
         "ambient": {
           "type": "ambient",
           "name": "ambient",
-          "color_down": "025025025",
-          "color_up": "025025025"
+          "color_down": "008008008",
+          "color_up": "008008008"
         }
       },
       "lights": [
@@ -414,9 +227,24 @@
           }
         },
         {
-          "name": "Terrain",
-          "pass": 1,
-          "material": "Test"
+          "name": "Terrain*",
+          "material": "Floor"
+        },
+        {
+          "name": "Bricks*",
+          "material": "Bricks"
+        },
+        {
+          "name": "Cube*",
+          "material": "Marble"
+        },
+        {
+          "name": "Cristal*",
+          "material": "Cristal",
+          "physics": {
+            "type": "DYNAMIC",
+            "shape": "SPHERE"
+          }
         }
       ]
     }

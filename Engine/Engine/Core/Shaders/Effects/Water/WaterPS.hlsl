@@ -195,10 +195,10 @@ RenderTargetRT main(GSOutput input)
 	float dist_to_terrain = 0.0f;
 	float dist_to_terrain2 = 0.0f;
 	if (dz > depth) {
-		dist_to_terrain = saturate(1.0f - (dz - depth) / 15.0f);
+		dist_to_terrain = saturate(1.0f - (dz - depth) / 60.0f);
 		dist_to_terrain2 = saturate( 1.0f - (dz - depth) / 30.0f);
 	}
-	float3 terrain_color = 0.7f*(renderTexture.Sample(basicSampler, pos).rgb * dist_to_terrain + float3(0.0f, 0.0f, 0.1f) * (1.0f - dist_to_terrain))* dist_to_terrain2;	
+	float3 terrain_color = (renderTexture.Sample(basicSampler, pos).rgb + float3(0.0f, 0.0f, 0.3f) * (1.0f - dist_to_terrain))* dist_to_terrain2;	
 	finalColor.rgb += terrain_color;
 	
 	output.light_map = lumColor;

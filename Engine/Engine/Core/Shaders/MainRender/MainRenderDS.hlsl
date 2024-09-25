@@ -27,6 +27,7 @@ SOFTWARE.
 
 cbuffer externalData : register(b0)
 {
+	matrix world;
 	int highTextureEnable;
 	float displacementScale;
 
@@ -60,24 +61,11 @@ DomainOutput main(
 	output.uv = vertexUV;
 	output.normal = normalize(vertexNormal);
 
-	if (!(domain.x == 0.0f || domain.y == 0.0f || domain.z == 0.0f)) {
-#if 0
-		// Calculate deltas to project onto three tangent planes
-		float4 vecProj0 = dot(patch[0].worldPos - output.worldPos, float4(patch[0].normal, 0.0f)) * float4(patch[0].normal, 0.0f);
-		float4 vecProj1 = dot(patch[1].worldPos - output.worldPos, float4(patch[1].normal, 0.0f)) * float4(patch[1].normal, 0.0f);
-		float4 vecProj2 = dot(patch[2].worldPos - output.worldPos, float4(patch[2].normal, 0.0f)) * float4(patch[2].normal, 0.0f);
-
-		// Lerp between projection vectors
-		float4 vecOffset = domain.x * vecProj0 + domain.y * vecProj1 + domain.z * vecProj2;
-		vecOffset = 0.5*vecOffset;
-
-		// Add a fraction of the offset vector to the lerped position
-		output.worldPos += vecOffset;
-#endif
-	}
 	//
 	// REMINDER: We need to update the depth tests to use updated vertex 
 	//
+
+	float disp = 0.0f;
 	if (input.InsideTessFactor > 1.0f && displacementScale > 0.0f) {
 		float h = 0.0f;
 		if (multi_texture_count > 0) {
@@ -89,8 +77,12 @@ DomainOutput main(
 		else if (highTextureEnable) {
 			h = highTexture.SampleLevel(basicSampler, output.uv, 1).r;
 		}
-		//h = 2.0f * h - 1.0f;		
-		output.worldPos += float4((displacementScale * h * output.normal), 0.0f);
+		disp = displacementScale * h;
 	}
+
+	output.position.xyz += disp * output.normal;
+	output.normal = normalize(mul(output.normal, (float3x3)world));
+	output.worldPos.xyz += disp * output.normal;
+
 	return output;
 }

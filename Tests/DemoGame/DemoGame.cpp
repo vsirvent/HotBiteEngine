@@ -138,8 +138,6 @@ public:
 
 			//Look for "EventId" in the engine to look for all the available events, no documentation available yet.
 			//You can add your own events very easy, just check how it works in the engine.       
-			AddEventListener(World::EVENT_ID_MATERIALS_LOADED, std::bind(&GameDemoApplication::OnMaterialsLoaded, this, std::placeholders::_1));
-			AddEventListener(World::EVENT_ID_TEMPLATES_LOADED, std::bind(&GameDemoApplication::OnMaterialsLoaded, this, std::placeholders::_1));
 			AddEventListener(GamePlayerSystem::EVENT_ID_PLAYER_DAMAGED, std::bind(&GameDemoApplication::OnPlayerDamaged, this, std::placeholders::_1));
 			AddEventListener(GamePlayerSystem::EVENT_ID_PLAYER_DEAD, std::bind(&GameDemoApplication::OnPlayerDead, this, std::placeholders::_1));
 			progress += 5.0f;
@@ -234,7 +232,7 @@ public:
 			post_game->SetNext(gui);
 
 			dof->SetAmplitude(2.0f);
-			dof->SetEnabled(true);
+			dof->SetEnabled(false);
 
 			//Set the post-chain begin to the renderer
 			world.SetPostProcessPipeline(main_fx);
@@ -269,14 +267,19 @@ public:
 			progress += 5.0f;
 			render->Update();
 
-			//Add the terrain component to all instances with name Terrain*
-			//NOTE: "Terrain" is the name we give the terrain in the FBX file set in particle_test_scene.json,
+			//Add the terrain component to all instances with name Terrain* and Bricks*
+			//NOTE: "Terrain" and "Bricks" is the name we give the terrain in the FBX file set in particle_test_scene.json,
 			//same with any other entity name in the example, names are set in the FBX files 
-			auto terrains = c->GetEntitiesByName("Terrain*");
-			for (auto& terrain : terrains) {
-				c->AddComponent<TerrainComponent>(terrain);
-				c->NotifySignatureChange(terrain);
-			}
+			auto set_terrain = [c](const char* entities) {
+				auto terrains = c->GetEntitiesByName(entities);
+				for (auto& terrain : terrains) {
+					c->AddComponent<TerrainComponent>(terrain);
+					c->NotifySignatureChange(terrain);
+				}
+			};
+			set_terrain("Terrain*");
+			set_terrain("Bricks*");
+
 			progress += 5.0f;
 			render->Update();
 
@@ -323,7 +326,7 @@ public:
 
 			Components::Sky* sky = c->GetComponentPtr<Components::Sky>(c->GetEntityByName("Sky"));
 			//We create a periodic timer to check keyboard input keys
-			Scheduler::Get(DXCore::BACKGROUND_THREAD)->RegisterTimer(1000000000 / 60, [this, sky](const Scheduler::TimerData& t) {
+			Scheduler::Get(DXCore::MAIN_THREAD)->RegisterTimer(1000000000 / 60, [this, sky](const Scheduler::TimerData& t) {
 				if (!game_over) {
 					//Add some keys to change component parameters and see how the scene changes
 					if (GetAsyncKeyState('O') & 0x8000) {
@@ -367,10 +370,16 @@ public:
 						}
 					}
 					else if (GetAsyncKeyState('R') & 0x8000) {
-						world.GetCoordinator()->GetSystem<RenderSystem>()->SetRayTracing(true);
+						world.GetCoordinator()->GetSystem<RenderSystem>()->SetRayTracingQuality(RenderSystem::eRtQuality::LOW);
+						world.GetCoordinator()->GetSystem<RenderSystem>()->SetRayTracing(true, true, true);
 					}
 					else if (GetAsyncKeyState('T') & 0x8000) {
-						world.GetCoordinator()->GetSystem<RenderSystem>()->SetRayTracing(false);
+						world.GetCoordinator()->GetSystem<RenderSystem>()->SetRayTracing(false, false, false);
+					}
+					else if (GetAsyncKeyState('2') & 0x8000) {
+						auto render = world.GetCoordinator()->GetSystem<RenderSystem>();
+						std::lock_guard l(render->mutex);
+						render->SetDOF(!render->GetDOF());
 					}
 					else if (GetAsyncKeyState('1') & 0x8000) {
 						std::lock_guard<std::recursive_mutex> l(world.GetCoordinator()->GetSystem<RenderSystem>()->mutex);
@@ -475,6 +484,10 @@ public:
 			AddEventListener(World::EVENT_ID_UPDATE_BACKGROUND, std::bind(&GameDemoApplication::UpdateSystems, this, std::placeholders::_1));
 			AddEventListener(RenderSystem::EVENT_ID_PREPARE_SHADER, std::bind(&GameDemoApplication::OnPrepare, this, std::placeholders::_1));
 			
+			auto game_render = c->GetSystem<Systems::RenderSystem>();
+			game_render->SetDustEffectArea(2048 * 2048, { 200.0f, 20.0f, 200.0f }, { -100.0f, 0.0f, -100.0f });
+			game_render->SetDustEnabled(true);
+
 			return false;
 		});
 	}
@@ -689,20 +702,6 @@ public:
 		c->AddComponent<FireComponent>(ball, FireComponent{ .duration = SEC_TO_NSEC(5), .dps = 10.0f });
 	}
 
-	void OnMaterialsLoaded(ECS::Event& e) {
-		for (MaterialData& m : world.GetMaterials().GetData()) {
-			if (m.name == "Rocks") {
-				//We use our own shaders for the terrain, to render plants, this way you can set your own
-				//shaders to any material. Shaders needs to be based on the engine shaders, so take
-				//the engine default shader, copy it to your folder, modify it and set it to the material
-				m.shaders.ps = ShaderFactory::Get()->GetShader<SimplePixelShader>("TerrainPS.cso");
-				m.shaders.vs = ShaderFactory::Get()->GetShader<SimpleVertexShader>("TerrainVS.cso");
-				m.shaders.gs = ShaderFactory::Get()->GetShader<SimpleGeometryShader>("TerrainGS.cso");
-				m.shaders.ds = ShaderFactory::Get()->GetShader<SimpleDomainShader>("TerrainDS.cso");
-			}
-		}
-	}
-
 	//This event is triggered during rendering every time a shader is prepared to render the entity as we subsribed to RenderSystem::EVENT_ID_PREPARE_SHADER
 	//we set the grass textures to be available in our own TerrainPS shader, if it's another shader SetShaderResourceViewArray does nothing
 	void OnPrepare(ECS::Event& ev) {
@@ -775,6 +774,13 @@ public:
 
 		mat.data = world.GetMaterials().Get("ArcherMaterial");
 		transform.scale = { 0.02f, 0.02f, 0.02f };
+
+		//Avoid player to rotate X,Y
+		Physics& p = c->GetComponent<Physics>(player);
+		reactphysics3d::Material* m = p.GetMaterial();
+		if (m != nullptr) {
+			p.body->setAngularLockAxisFactor(rp3d::Vector3(0.0f, 1.0f, 0.0f));
+		}
 		//After the components have been changed we notify a change in the coordinator
 		//as some systems can need to refresh their internal data structures (like the renderer, 
 		//that uses the material and shaders of the entity to generate a tree).
@@ -802,6 +808,7 @@ public:
 							.attack_range = 10.0f,
 							.attack_frame = 5,
 							.attack_period = MSEC_TO_NSEC(2666) };
+
 		SetUpEnemies("Zombie*", cr, en);
 	}
 
@@ -849,6 +856,14 @@ public:
 			mesh.SetAnimation(creature.animations[CreatureAnimations::ANIM_IDLE]);
 			mat.data = world.GetMaterials().Get(creature.material_name);
 			transform.scale = creature.scale;
+
+			//Avoid player to rotate X,Y
+			Physics& p = world.GetCoordinator()->GetComponent<Physics>(e);
+			reactphysics3d::Material* m = p.GetMaterial();
+			if (m != nullptr) {
+				p.body->setAngularLockAxisFactor(rp3d::Vector3(0.0f, 1.0f, 0.0f));
+			}
+
 			c->NotifySignatureChange(e);
 		}
 	}

@@ -47,9 +47,11 @@ void CameraSystem::OnEntityDestroyed(Entity entity) {
 void CameraSystem::OnEntitySignatureChanged(Entity entity, const Signature& entity_signature) {
 	if ((entity_signature & signature) == signature)
 	{
-		CameraData cam{ coordinator, entity };
-		cameras.Insert(entity, cam);
-		Init(cam);
+		if (cameras.Get(entity) == nullptr) {
+			CameraData cam{ coordinator, entity };
+			cameras.Insert(entity, cam);
+			Init(cam);
+		}
 	}
 	else
 	{
@@ -177,6 +179,9 @@ void CameraSystem::Update(CameraData& entity, int64_t elapsed_nsec, int64_t tota
 		Event ev(this, EVENT_ID_CAMERA_MOVED);
 		ev.SetParam<CameraData*>(EVENT_PARAM_CAMERA_DATA, &entity);
 		coordinator->SendEvent(ev);
+	}
+	else {
+		entity.camera->prev_view_projection = entity.camera->view_projection;
 	}
 }
 

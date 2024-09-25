@@ -192,7 +192,7 @@ namespace HotBite {
 				tessellation_type = j.value("tess_type", 0);
 				tessellation_factor = j.value("tess_factor", 0.0f);
 				displacement_scale = j.value("displacement_scale", 0.0f);
-				if (j.value("raytrace", true)) {
+				if (j.value("raytrace", false)) {
 					props.flags |= RAY_TRACING_ENABLED_FLAG;
 				}
 				if (j.value("alpha_enabled", false)) {

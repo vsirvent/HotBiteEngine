@@ -53,8 +53,10 @@ uint index(BVHNode node)
     return asuint(node.reg1.w);
 }
 
+
 bool IntersectTri(RayObject ray, uint indexOffset, uint vertexOffset, out IntersectionResult result)
 {
+
     const uint indexByteOffset = indexOffset * 4;
     const uint vertexSize = 96;
 
@@ -73,7 +75,7 @@ bool IntersectTri(RayObject ray, uint indexOffset, uint vertexOffset, out Inters
     const float a = dot(edge1, h);
 
     // Early return if the ray is parallel to the triangle
-    if (abs(a) < Epsilon)
+    if (abs(a) <= Epsilon)
     {
         return false;
     }
@@ -113,24 +115,26 @@ bool IntersectTri(RayObject ray, uint indexOffset, uint vertexOffset, out Inters
     return false; // No intersection
 }
 
-
 bool IntersectAABB(float3 pos, float3 dir, float3 bmin, float3 bmax)
 {
     float3 invDir = 1.0f / dir; // Calculate the inverse direction vector
-
     // Calculate intersection times for x, y, and z
     float tx1 = (bmin.x - pos.x) * invDir.x;
     float tx2 = (bmax.x - pos.x) * invDir.x;
     float tmin = min(tx1, tx2);
     float tmax = max(tx1, tx2);
 
+    if (tmax <= Epsilon) {
+        return false;
+    }
     float ty1 = (bmin.y - pos.y) * invDir.y;
     float ty2 = (bmax.y - pos.y) * invDir.y;
     tmin = max(tmin, min(ty1, ty2));
     tmax = min(tmax, max(ty1, ty2));
 
-    if (tmax < tmin || tmax < 0.0f)
+    if (tmax < tmin || tmax <= Epsilon) {
         return false;
+    }
 
     float tz1 = (bmin.z - pos.z) * invDir.z;
     float tz2 = (bmax.z - pos.z) * invDir.z;
@@ -138,7 +142,7 @@ bool IntersectAABB(float3 pos, float3 dir, float3 bmin, float3 bmax)
     tmax = min(tmax, max(tz1, tz2));
 
     // Final intersection test
-    return tmax >= tmin && tmax > 0.0f;
+    return tmax >= tmin && tmax > Epsilon;
 }
 
 bool IntersectAABB(Ray ray, float3 bmin, float3 bmax)
@@ -233,6 +237,42 @@ float3 GetDiffuseColor(uint object, float2 uv)
     case 61: return DiffuseTextures[61].SampleLevel(basicSampler, uv, 0).xyz;
     case 62: return DiffuseTextures[62].SampleLevel(basicSampler, uv, 0).xyz;
     case 63: return DiffuseTextures[63].SampleLevel(basicSampler, uv, 0).xyz;
+    case 64: return DiffuseTextures[64].SampleLevel(basicSampler, uv, 0).xyz;
+    case 65: return DiffuseTextures[65].SampleLevel(basicSampler, uv, 0).xyz;
+    case 66: return DiffuseTextures[66].SampleLevel(basicSampler, uv, 0).xyz;
+    case 67: return DiffuseTextures[67].SampleLevel(basicSampler, uv, 0).xyz;
+    case 68: return DiffuseTextures[68].SampleLevel(basicSampler, uv, 0).xyz;
+    case 69: return DiffuseTextures[69].SampleLevel(basicSampler, uv, 0).xyz;
+    case 70: return DiffuseTextures[70].SampleLevel(basicSampler, uv, 0).xyz;
+    case 71: return DiffuseTextures[71].SampleLevel(basicSampler, uv, 0).xyz;
+    case 72: return DiffuseTextures[72].SampleLevel(basicSampler, uv, 0).xyz;
+    case 73: return DiffuseTextures[73].SampleLevel(basicSampler, uv, 0).xyz;
+    case 74: return DiffuseTextures[74].SampleLevel(basicSampler, uv, 0).xyz;
+    case 75: return DiffuseTextures[75].SampleLevel(basicSampler, uv, 0).xyz;
+    case 76: return DiffuseTextures[76].SampleLevel(basicSampler, uv, 0).xyz;
+    case 77: return DiffuseTextures[77].SampleLevel(basicSampler, uv, 0).xyz;
+    case 78: return DiffuseTextures[78].SampleLevel(basicSampler, uv, 0).xyz;
+    case 79: return DiffuseTextures[79].SampleLevel(basicSampler, uv, 0).xyz;
+    case 80: return DiffuseTextures[80].SampleLevel(basicSampler, uv, 0).xyz;
+    case 81: return DiffuseTextures[81].SampleLevel(basicSampler, uv, 0).xyz;
+    case 82: return DiffuseTextures[82].SampleLevel(basicSampler, uv, 0).xyz;
+    case 83: return DiffuseTextures[83].SampleLevel(basicSampler, uv, 0).xyz;
+    case 84: return DiffuseTextures[84].SampleLevel(basicSampler, uv, 0).xyz;
+    case 85: return DiffuseTextures[85].SampleLevel(basicSampler, uv, 0).xyz;
+    case 86: return DiffuseTextures[86].SampleLevel(basicSampler, uv, 0).xyz;
+    case 87: return DiffuseTextures[87].SampleLevel(basicSampler, uv, 0).xyz;
+    case 88: return DiffuseTextures[88].SampleLevel(basicSampler, uv, 0).xyz;
+    case 89: return DiffuseTextures[89].SampleLevel(basicSampler, uv, 0).xyz;
+    case 90: return DiffuseTextures[90].SampleLevel(basicSampler, uv, 0).xyz;
+    case 91: return DiffuseTextures[91].SampleLevel(basicSampler, uv, 0).xyz;
+    case 92: return DiffuseTextures[92].SampleLevel(basicSampler, uv, 0).xyz;
+    case 93: return DiffuseTextures[93].SampleLevel(basicSampler, uv, 0).xyz;
+    case 94: return DiffuseTextures[94].SampleLevel(basicSampler, uv, 0).xyz;
+    case 95: return DiffuseTextures[95].SampleLevel(basicSampler, uv, 0).xyz;
+    case 96: return DiffuseTextures[96].SampleLevel(basicSampler, uv, 0).xyz;
+    case 97: return DiffuseTextures[97].SampleLevel(basicSampler, uv, 0).xyz;
+    case 98: return DiffuseTextures[98].SampleLevel(basicSampler, uv, 0).xyz;
+    case 99: return DiffuseTextures[99].SampleLevel(basicSampler, uv, 0).xyz;
     default:
         return float3(0.0f, 0.0f, 0.0f);
     }
@@ -247,7 +287,7 @@ Ray GetReflectedRayFromSource(RaySource source)
     ray.dir = normalize(out_dir);
     ray.orig.xyz += ray.dir * 0.01f;
     ray.density = source.density;
-    ray.bounces = 1;
+    ray.bounces = 0;
     ray.ratio = 1.0f;
     ray.t = FLT_MAX;
 

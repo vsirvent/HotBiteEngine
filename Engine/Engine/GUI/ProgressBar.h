@@ -113,7 +113,11 @@ namespace HotBite {
 				virtual void SetBarImage(const std::string& filename) {
 					if (!filename.empty())
 					{
-						std::string file = root + "\\" + filename;
+						std::string file;
+						if (!root.empty()) {
+							file += root + "\\";
+						}
+						file += filename;
 						bar->SetBackGroundImage(file);
 					}
 				}

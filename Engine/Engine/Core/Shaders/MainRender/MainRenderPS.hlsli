@@ -194,6 +194,7 @@ RenderTargetRT MainRenderPS(GSOutput input)
 		emission = float4(material.emission_color, 1.0f);
 	}
 	emission *= material.emission;
+	emission = climit4(emission);
 	finalColor += emission;
 	lightColor += emission;
 	lumColor += emission;
@@ -216,7 +217,7 @@ RenderTargetRT MainRenderPS(GSOutput input)
 		ray.reflex = material.rt_reflex;
 	}
 	else {
-		ray.dispersion = -1.0f;
+		ray.dispersion = 2.0f;
 		ray.reflex = 0.0f;
 	}
 	ray.normal = normal;

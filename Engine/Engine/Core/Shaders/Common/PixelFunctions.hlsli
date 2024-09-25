@@ -502,12 +502,12 @@ float2 CalculateDepthUVBinary(float scale, float base_steps, float angle_steps, 
 	float3 curr_uvw = float3(uv, 0.0f) + ToCam2;
 	int steps = 0;
 	bool binary_enabled = false;
-	float step_delta = 0.1f;
-	int max_linear_steps = 10;
+	float step_delta = 0.03f;
+	int max_linear_steps = 20;
 	int linear_steps = 0;
 	while (steps <= insteps) {		
 		h = GetHeight(curr_uvw.xy, calculated_values).r;
-		if (h < (curr_uvw.z + 0.01f) && h >(curr_uvw.z - 0.01f))
+		if (abs(h - curr_uvw.z) < 0.005f)
 		{
 			break;
 		}

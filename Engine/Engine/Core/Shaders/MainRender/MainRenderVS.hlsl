@@ -60,7 +60,7 @@ VertexOutput main(VertexShaderInput input)
 	}
 	output.position = pos;
 	output.worldPos = mul(pos, world);
-	output.normal = normalize(mul(normal, (float3x3)world));
+	output.normal = normal;
 	output.uv = input.uv;
 	output.mesh_uv = input.mesh_uv;
 

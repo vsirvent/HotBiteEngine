@@ -62,17 +62,11 @@ VertexOutput main(VertexShaderInput input)
 		//culling hidden normals
 		factor = 0.0f;
 	}
-	if (tessEnabled && tessType > 0) {
-			switch (tessType) {
-			case 3: {
-				const float n = pow(snoise(output.worldPos * 0.05f), 2.0f);
-				factor = lerp(1.0f, tessFactor, n);
-				if (factor < 2.0f) {
-					factor = 1.0f;
-				}
-				break;
-			}
-			}		
+	
+	const float n = pow(snoise(output.worldPos * 0.05f), 2.0f);
+	factor = lerp(1.0f, tessFactor, n);
+	if (factor < 2.0f) {
+		factor = 1.0f;
 	}
 	output.tessFactor = factor;
 	return output;

@@ -208,6 +208,11 @@ HRESULT DXCore::InitWindow(HWND parent)
 			ShowWindow(wnd, SW_MAXIMIZE);
 		}
 	}
+
+	RECT rect;
+	GetClientRect(wnd, &rect);
+	screen_dimensions.x = (float)(rect.right - rect.left);
+	screen_dimensions.y = (float)(rect.bottom - rect.top);
 	
 	return S_OK;
 }
@@ -378,7 +383,7 @@ HRESULT DXCore::InitDirectX()
 	}
 	shadowRenderStateDesc.CullMode = D3D11_CULL_BACK;
 	shadowRenderStateDesc.SlopeScaledDepthBias = 2.0f;
-	//shadowRenderStateDesc.DepthBias = 1000;
+	shadowRenderStateDesc.DepthBias = 1000;
 	if (FAILED(hr = device->CreateRasterizerState(&shadowRenderStateDesc, &dir_shadow_rasterizer))) {
 		return hr;
 	}
@@ -401,9 +406,11 @@ HRESULT DXCore::InitDirectX()
 	comparisonSamplerDesc.MaxLOD = D3D11_FLOAT32_MAX;
 	comparisonSamplerDesc.MipLODBias = 0.f;
 	comparisonSamplerDesc.MaxAnisotropy = 0;
-	comparisonSamplerDesc.ComparisonFunc = D3D11_COMPARISON_LESS_EQUAL;
+	comparisonSamplerDesc.ComparisonFunc = D3D11_COMPARISON_LESS;
 	comparisonSamplerDesc.Filter = D3D11_FILTER_COMPARISON_MIN_MAG_MIP_LINEAR;
-
+	if (FAILED(hr = device->CreateSamplerState(&comparisonSamplerDesc, &shadow_sampler))) {
+		return hr;
+	}
 
 	D3D11_BLEND_DESC BlendState;
 	ZeroMemory(&BlendState, sizeof(D3D11_BLEND_DESC));
@@ -423,9 +430,7 @@ HRESULT DXCore::InitDirectX()
 	BlendState.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
 	device->CreateBlendState(&BlendState, &blend);
 
-	if (FAILED(hr = device->CreateSamplerState(&comparisonSamplerDesc, &shadow_sampler))) {
-		return hr;
-	}
+
 #if 1
 	ID3D11DepthStencilState* pDepthStencilState = nullptr;
 	D3D11_DEPTH_STENCIL_DESC  DepthState;
