@@ -536,10 +536,10 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             }
             float4 d = dispersion[pixel];
             if (DTid.z == 0) {
-                output0[pixel] = color_diffuse / NUM_RAYS;
+                output0[pixel] = color_diffuse;
             }
             else {
-                output0[pixel] += color_diffuse / NUM_RAYS;
+                output0[pixel] += color_diffuse;
             }
             dispersion[pixel] = float4(d.r, d.g, 1.0f, d.a);
         }

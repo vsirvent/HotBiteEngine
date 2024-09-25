@@ -59,8 +59,8 @@ float4 readColor(float2 pixel, texture2D text, uint w, uint h) {
         return text.SampleLevel(basicSampler, pixel, 0);
     }
     else {
-        //return GetInterpolatedColor(pixel, text, float2(w2, h2));
-        return Get3dInterpolatedColor(pixel, text, float2(w2, h2), positions, normals, float2(w, h));
+        return GetInterpolatedColor(pixel, text, float2(w2, h2));
+        //return Get3dInterpolatedColor(pixel, text, float2(w2, h2), positions, normals, float2(w, h));
     }
 }
 
@@ -89,11 +89,11 @@ void main(uint3 DTid : SV_DispatchThreadID)
     float4 lens_flare = readColor(tpos, lensFlareTexture, w, h);
 
     if (rt_enabled) {
-        if (debug == 0) {
+        if (1) { //debug == 0) {
             color = color * (l  + rt0 + sqrt(rt2) + rt3) + rt1 + b + dust + lens_flare + vol;
         }
         else {
-            color = rt0;// rt0 + rt1 + rt2 + rt3;
+            color = rt0 + rt1 + sqrt(rt2) + rt3;
         }
     }
     else {

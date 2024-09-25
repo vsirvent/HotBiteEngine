@@ -180,6 +180,9 @@ void CameraSystem::Update(CameraData& entity, int64_t elapsed_nsec, int64_t tota
 		ev.SetParam<CameraData*>(EVENT_PARAM_CAMERA_DATA, &entity);
 		coordinator->SendEvent(ev);
 	}
+	else {
+		entity.camera->prev_view_projection = entity.camera->view_projection;
+	}
 }
 
 void CameraSystem::Update(int64_t elapsed_nsec, int64_t total_nsec) {

@@ -167,8 +167,8 @@
         "sun": {
           "type": "directional",
           "name": "Sun",
-          "color": "070070070",
-          "density": 20.0,
+          "color": "100100100",
+          "density": 15.0,
           "fog": true,
           "cast_shadow": true,
           "resolution": 1
@@ -176,8 +176,8 @@
         "ambient": {
           "type": "ambient",
           "name": "ambient",
-          "color_down": "010010010",
-          "color_up": "010010010"
+          "color_down": "008008008",
+          "color_up": "008008008"
         }
       },
       "lights": [
@@ -233,6 +233,18 @@
         {
           "name": "Bricks*",
           "material": "Bricks"
+        },
+        {
+          "name": "Cube*",
+          "material": "Marble"
+        },
+        {
+          "name": "Cristal*",
+          "material": "Cristal",
+          "physics": {
+            "type": "DYNAMIC",
+            "shape": "SPHERE"
+          }
         }
       ]
     }
