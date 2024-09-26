@@ -33,9 +33,9 @@ SamplerState basicSampler : register(s0);
 #define MAX_KERNEL_SIZE 128
 #define MIN_DISPERSION 0.1f
 #define GHOST
-static const uint VERTICAL = 1;
-static const uint HORIZONTAL = 2;
-static const int MAX_DISTANCE = 500;
+#define VERTICAL 1
+#define HORIZONTAL 2
+#define MAX_DISTANCE 500
 
 cbuffer externalData : register(b0)
 {

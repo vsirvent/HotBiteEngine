@@ -342,10 +342,6 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		if (rt_disp == nullptr) {
 			throw std::exception("DispersionCS shader.Init failed");
 		}
-		rt_indirect = ShaderFactory::Get()->GetShader<SimpleComputeShader>("IndirectCS.cso");
-		if (rt_indirect == nullptr) {
-			throw std::exception("DispersionCS shader.Init failed");
-		}
 		motion_blur = ShaderFactory::Get()->GetShader<SimpleComputeShader>("MotionBlurCS.cso");
 		if (motion_blur == nullptr) {
 			throw std::exception("motion blur shader.Init failed");
@@ -1795,7 +1791,7 @@ void RenderSystem::ProcessRT() {
 		rt_disp->CopyAllBufferData();
 
 		//Denoiser
-		rt_denoiser->SetInt("debug", rt_debug);
+		rt_denoiser->SetInt("debug", rt_debug);		
 		rt_denoiser->SetShaderResourceView("positions", rt_ray_sources0.SRV());
 		rt_denoiser->SetShaderResourceView("normals", rt_ray_sources1.SRV());
 		rt_denoiser->SetShaderResourceView("motion_texture", motion_texture.SRV());
@@ -1817,6 +1813,12 @@ void RenderSystem::ProcessRT() {
 			rt_denoiser->SetShaderResourceView("prev_output", rt_texture_prev[ntexture].SRV());
 			rt_denoiser->SetInt("type", 1);
 			rt_denoiser->SetInt("light_type", i);
+			if (textures[i] == RT_TEXTURE_INDIRECT) {
+				rt_denoiser->SetFloat("RATIO", RATIO);
+			}
+			else {
+				rt_denoiser->SetFloat("RATIO", 1.0f);
+			}
 			rt_denoiser->CopyAllBufferData();
 			rt_denoiser->SetShader();
 			groupsX = (int32_t)(ceil((float)rt_texture_curr[ntexture].Width() / (32.0f)));

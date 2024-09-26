@@ -57,7 +57,7 @@ void main(
 		pos.y /= -p[i].w;
 		pos.x = (pos.x + 1.0f) * 0.5f;
 		pos.y = (pos.y + 1.0f) * 0.5f;
-		if (pos.x > -screenW * 2.0f && pos.x < screenW * 2.0f && pos.y > -screenH * 2.0f && pos.y < screenH * 2.0f) {
+		if (pos.x > -screenW && pos.x < screenW && pos.y > -screenH && pos.y < screenH) {
 			process = true;
 			break;
 		}

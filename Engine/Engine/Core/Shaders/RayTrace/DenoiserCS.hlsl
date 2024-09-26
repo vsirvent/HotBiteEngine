@@ -51,7 +51,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     RaySource ray_source = fromColor(positions[info_pixel], normals[info_pixel]);
     float4 c = float4(0.0f, 0.0f, 0.0f, 0.0f);
 
-#define HARD_MAX_KERNEL 32
+#define HARD_MAX_KERNEL 20
     uint MAX_KERNEL = min(normals_dimensions.x / 32, HARD_MAX_KERNEL);
     float count = 0.0f;
     float2 dir = float2(0.0f, 0.0f);
@@ -116,6 +116,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     else {
         c0 *= 0.0f;
     }
+#if 0
     if (type == 1) {
         output[pixel] = c0;
     }
@@ -144,4 +145,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
         float w = saturate(0.7f - motion * 100.0f);
         output[pixel] = prev_color * w + c0 * (1.0f - w);
     }
+#else
+    output[pixel] = c0;
+#endif
 }

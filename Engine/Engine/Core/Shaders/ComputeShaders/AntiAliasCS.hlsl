@@ -38,8 +38,8 @@ Texture2D input: register(t0);
 Texture2D depthTexture: register(t1);
 Texture2D normalTexture: register(t2);
 
-static const float BORDER_DIFF = 1.0f;
-static const float NORMAL_DIFF = 0.5f;
+#define BORDER_DIFF 1.0f
+#define NORMAL_DIFF 0.5f
 
 float BorderValue(float2 pixel) {
     float2 dp = pixel / 2;

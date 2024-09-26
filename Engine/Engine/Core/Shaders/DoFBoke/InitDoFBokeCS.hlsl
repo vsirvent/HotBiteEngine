@@ -26,7 +26,7 @@ RWTexture2D<float4> kernels : register(u0);
 
 #include "../Common/Complex.hlsli"
 
-static const float MIN_KERNEL_VALUE = 0.005f;
+#define MIN_KERNEL_VALUE 0.005f
 
 cbuffer externalData : register(b0)
 {

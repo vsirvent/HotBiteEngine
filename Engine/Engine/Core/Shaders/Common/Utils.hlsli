@@ -29,6 +29,24 @@ SOFTWARE.
 
 float Epsilon = 1e-4;
 
+float3 climit3(float3 color) {
+	float m = max(color.r, max(color.g, color.b));
+	if (m > 1.0f) {
+		//Apply saturation to avoid color bleeding
+		color /= m;
+	}
+	return color;
+}
+
+float4 climit4(float4 color) {
+	float m = max(color.r, max(color.g, color.b));
+	if (m > 1.0f) {
+		//Apply saturation to avoid color bleeding
+		color.rgb /= m;
+	}
+	return color;
+}
+
 float4 GetInterpolatedColor(float2 uv, Texture2D text, float2 dimension) {
 	// Calculate the texture coordinates in the range [0, 1]
 	float2 texCoords = uv * dimension;
@@ -55,11 +73,6 @@ float4 GetInterpolatedColor(float2 uv, Texture2D text, float2 dimension) {
 		text[p10] * w10);
 }
 
-
-bool IsInteger(float2 value) {
-	return all(value == floor(value));
-}
-
 float dist2(float3 p) {
 	return p.x * p.x + p.y * p.y + p.z * p.z;
 }
@@ -67,6 +80,7 @@ float dist2(float3 p) {
 float dist2(float2 p) {
 	return p.x * p.x + p.y * p.y;
 }
+
 
 float4 Get3dInterpolatedColor(float2 uv, Texture2D text, float2 dimension, Texture2D positions, Texture2D normals, float2 pos_dimension) {
 
@@ -123,7 +137,7 @@ float4 Get3dInterpolatedColor(float2 uv, Texture2D text, float2 dimension, Textu
 	w11 *= saturate(dot(nxx, n11));  // Distance to wp11
 	w01 *= saturate(dot(nxx, n01));  // Distance to wp01
 	w10 *= saturate(dot(nxx, n10));  // Distance to wp10
-		
+
 	// Normalize weights
 	float totalWeight = w00 + w11 + w01 + w10;
 
@@ -137,6 +151,12 @@ float4 Get3dInterpolatedColor(float2 uv, Texture2D text, float2 dimension, Textu
 
 	return (text[p00] * w00 + text[p11] * w11 + text[p01] * w01 + text[p10] * w10);
 }
+
+
+bool IsInteger(float2 value) {
+	return all(value == floor(value));
+}
+
 
 // Converts a 2D array index back to 3D coordinates
 uint3 Get3DPointFrom2DArray(uint2 index, uint zdim) {
@@ -164,6 +184,7 @@ float3 GenerateDirection(int i, int N) {
 
 	return float3(x, y, z);
 }
+
 
 void GetSpaceVectors(in float3 dir, out float3 tangent, out float3 bitangent) {
 	float3 up = abs(dir.z) < 0.999f ? float3(0.0f, 0.0f, 1.0f) : float3(1.0f, 0.0f, 0.0f);
@@ -326,24 +347,6 @@ float4 getSmoothPixel(SamplerState basicSampler, Texture2D t, float2 pos, float 
 	return color;
 }
 
-float3 climit3(float3 color) {
-	float m = max(color.r, max(color.g, color.b));
-	if (m > 1.0f) {
-		//Apply saturation to avoid color bleeding
-		color /= m;
-	}
-	return color;
-}
-
-float4 climit4(float4 color) {
-	float m = max(color.r, max(color.g, color.b));
-	if (m > 1.0f) {
-		//Apply saturation to avoid color bleeding
-		color.rgb /= m;
-	}
-	return color;
-}
-
 bool is_clockwise(float3 v0, float3 v1, float3 v2) {
 	// Determine the triangle order using the right hand rule
 	float3 edge1 = v1 - v0;
@@ -421,6 +424,7 @@ float ditance_point_line(float2 p0, float2 line_endpoint1, float2 line_endpoint0
 
 }
 
+
 // Function to calculate intersection between line segment and sphere, returning the closer intersection point to P1
 bool line_sphere_intersection(float3 p1, float3 p2, float3 center, float radius, out float3 intersectionPoint) {
 	float3 d = p2 - p1;
@@ -468,6 +472,8 @@ bool line_sphere_intersection(float3 p1, float3 p2, float3 center, float radius,
 	}
 }
 
+
+#if 0
 float3 HUEtoRGB(in float H)
 {
 	float R = abs(H * 6 - 3) - 1;
@@ -639,5 +645,5 @@ float3 RGBtoHCL(in float3 RGB)
 	HCL.z = lerp(-U, V, Q) / (HCLmaxL * 2);
 	return HCL;
 }
-
+#endif
 #endif
