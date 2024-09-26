@@ -41,7 +41,7 @@ Engine features:
 ### Ray tracing
 ![](Tests/Images/marbles_rt2.png)
 ![](Tests/Images/marbles_rt.png)
-![](Tests/Images/DemoGameRT.png)
+![](Tests/Images/DemoGameRT.jpg)
 
 ### Material Editor
 ![](Tests/Images/MaterialEditor.png)
@@ -50,7 +50,7 @@ Engine features:
 ![](Tests/Images/motion_blur.png)
 
 ### Parallax texture with projected shadow (Parallax Occlusion)
-![](Tests/Images/LumParallaxOcclusion.jpg)
+![](Tests/Images/LumParallaxOcclusion.png)
 ![](Tests/Images/parallax_shadow.png)
 Note how the projected shadow follows the parallax texture 3d effect.
 
