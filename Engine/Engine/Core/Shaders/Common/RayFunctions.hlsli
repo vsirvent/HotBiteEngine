@@ -147,12 +147,12 @@ bool IntersectAABB(float3 pos, float3 dir, float3 bmin, float3 bmax)
 
 bool IntersectAABB(Ray ray, float3 bmin, float3 bmax)
 {
-    return IntersectAABB(ray.orig, ray.dir, bmin, bmax);
+    return IntersectAABB(ray.orig.xyz, ray.dir, bmin, bmax);
 }
 
 bool IntersectAABB(RayObject ray, float3 bmin, float3 bmax)
 {
-    return IntersectAABB(ray.orig, ray.dir, bmin, bmax);
+    return IntersectAABB(ray.orig.xyz, ray.dir, bmin, bmax);
 }
 
 bool IntersectAABB(Ray ray, BVHNode node)

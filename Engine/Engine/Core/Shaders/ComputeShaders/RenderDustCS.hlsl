@@ -52,8 +52,8 @@ cbuffer externalData : register(b0)
     float4 LightPerspectiveValues[MAX_LIGHTS / 2];
     matrix DirPerspectiveMatrix[MAX_LIGHTS];
 
-    int dirLightsCount;
-    int pointLightsCount;
+    uint dirLightsCount;
+    uint pointLightsCount;
 
 }
 
@@ -125,7 +125,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
             if (screenPos.x >= 0 && screenPos.x < dimensions.x && screenPos.y >= 0 && screenPos.y < dimensions.y)
             {
                 float depth = depthTextureUAV[screenPos / 2];
-                float dist_to_cam = length(wpos - cameraPosition);
+                float dist_to_cam = length(wpos.xyz - cameraPosition);
                 if (depth > dist_to_cam)
                 {
 
@@ -134,11 +134,13 @@ void main(uint3 DTid : SV_DispatchThreadID)
                     float3 color = float3(0.0f, 0.0f, 0.0f);
 
                     // Calculate the directional lights
+                    [unroll]
                     for (i = 0; i < dirLightsCount; ++i) {
                         color += CalcDirectional(normal, wpos.xyz, dirLights[i], i);
                     }
 
                     // Calculate the point lights
+                    [unroll]
                     for (i = 0; i < pointLightsCount; ++i) {
                         if (length(wpos.xyz - pointLights[i].Position) < pointLights[i].Range) {
                             color += CalcPoint(normal, wpos.xyz, pointLights[i], i);

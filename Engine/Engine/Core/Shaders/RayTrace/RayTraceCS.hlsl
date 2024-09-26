@@ -201,14 +201,14 @@ bool GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
                 ObjectInfo o = objectInfos[objectIndex];
 
                 float objectExtent = length(o.aabb_max - o.aabb_min);
-                float distanceToObject = length(o.position - origRay.orig) - objectExtent;
+                float distanceToObject = length(o.position - origRay.orig.xyz) - objectExtent;
 
                 if (distanceToObject < max_distance && distanceToObject < result.distance && IntersectAABB(ray, o.aabb_min, o.aabb_max))
                 {
 #else
             ObjectInfo o = objectInfos[i];
             float objectExtent = length(o.aabb_max - o.aabb_min);
-            float distanceToObject = length(o.position - origRay.orig) - objectExtent;
+            float distanceToObject = length(o.position - origRay.orig.xyz) - objectExtent;
             if (distanceToObject < max_distance && distanceToObject < result.distance && IntersectAABB(ray, o.aabb_min, o.aabb_max))
             {
 #endif
@@ -299,7 +299,7 @@ bool GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
             pos /= pos.w;
             MaterialColor material = objectMaterials[result.object];
 
-            float4 emission = material.emission * float4(material.emission_color, 1.0f);
+            float3 emission = material.emission * material.emission_color;
             float3 color = float3(0.0f, 0.0f, 0.0f);
             if (material.emission > 0.0f) {
                 color = emission;
@@ -307,7 +307,7 @@ bool GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
             else {
                 color += CalcAmbient(normal) * 0.5f;
 
-                int i = 0;
+                uint i = 0;
                 for (i = 0; i < dirLightsCount; ++i) {
                     color += CalcDirectional(normal, pos.xyz, dirLights[i], i);
                 }
@@ -525,7 +525,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             float distToCamRatio = saturate((20.0f * 20.0f) / dist2(orig_pos - cameraPosition));
             float3 seed = 100.0f * DTid * (DTid.z + 1);
             float rX = rgba_tnoise(seed);
-            rX = pow(rX, 4.0f / (((float)DTid.z + 2.0f) / 2.0f));
+            rX = pow(abs(rX), 4.0f / (((float)DTid.z + 2.0f) / 2.0f));
             rX *= 0.8f * distToCamRatio;
             ray.dir = GenerateHemisphereRay(normal, tangent, bitangent, 1.0f, N, level, rX);
             ray.orig.xyz = orig_pos.xyz + ray.dir * 0.1f;

@@ -51,7 +51,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     RaySource ray_source = fromColor(positions[info_pixel], normals[info_pixel]);
     float4 c = float4(0.0f, 0.0f, 0.0f, 0.0f);
 
-#define HARD_MAX_KERNEL 20
+#define HARD_MAX_KERNEL 32
     uint MAX_KERNEL = min(normals_dimensions.x / 32, HARD_MAX_KERNEL);
     float count = 0.0f;
     float2 dir = float2(0.0f, 0.0f);
@@ -76,20 +76,19 @@ void main(uint3 DTid : SV_DispatchThreadID)
 
     switch (light_type) {
     case 0: {
-        //disp = sqrt(ray_source.dispersion);
-        disp = dispersion[pixel].r;
+        disp = sqrt(ray_source.dispersion);
+        //disp = sqrt(dispersion[pixel].r);
         break;
     }
     case 1: {
         //disp = ray_source.dispersion;
         disp = dispersion[pixel].b;
+        if (disp <= Epsilon) {
+            output[pixel] = float4(0.0f, 0.0f, 0.0f, 0.0f);
+            return;
+        }
         break;
     }
-    }
-
-    if (disp <= Epsilon) {
-        output[pixel] = float4(0.0f, 0.0f, 0.0f, 0.0f);
-        return;
     }
     uint min_k = normalRatio.x > 1 ? 1 : 0;
     int kernel = debug == 1 ? 0 : clamp(floor(max(MAX_KERNEL * disp, min_dispersion)), min_k, MAX_KERNEL);

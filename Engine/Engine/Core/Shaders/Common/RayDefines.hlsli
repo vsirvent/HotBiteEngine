@@ -26,7 +26,7 @@ SOFTWARE.
 #define RAY_DEFINES_
 
 #define MAX_OBJECTS 100
-#define MAX_STACK_SIZE 100
+#define MAX_STACK_SIZE 50
 
 struct BVHNode
 {
