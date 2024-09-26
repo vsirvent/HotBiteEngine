@@ -1586,10 +1586,10 @@ void RenderSystem::PrepareRT() {
 		bool enabled_layer[RT_NTEXTURES]{ false };
 		enabled_layer[2] = rt_enabled & RT_INDIRECT_ENABLE;
 
-		auto fill = [op = &enabled_layer[0], tr = &enabled_layer[1], ca = &cam_entity](RenderTree& tree, std::map<float, Node>& distance_map) {
-			for (auto& shaders : tree) {
-				for (auto& mat : shaders.second) {
-					for (auto& de : mat.second.second.GetData()) {
+		auto fill = [op = &enabled_layer[0], tr = &enabled_layer[1], ca = &cam_entity](const RenderTree& tree, std::map<float, Node>& distance_map) {
+			for (const auto& shaders : tree) {
+				for (const auto& mat : shaders.second) {
+					for (const auto& de : mat.second.second.GetConstData()) {
 						if (de.base->visible &&  de.mesh->GetData()->skeletons.empty()) {
 							float distance = LENGHT_F3(de.transform->position - (ADD_F3_F3(ca->camera->world_position, ca->camera->direction)));
 
@@ -1629,7 +1629,15 @@ void RenderSystem::PrepareRT() {
 							if (o.opacity < 1.0f) {
 								*tr = true;
 							}
-							distance_map[distance] = { o, mo, diffuse_text };
+							while (true) {
+								if (!distance_map.contains(distance)) {
+									distance_map[distance] = { o, mo, diffuse_text };
+									break;
+								}
+								else {
+									distance += 0.001f;
+								}
+							}
 						}
 					}
 				}
