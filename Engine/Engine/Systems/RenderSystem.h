@@ -119,6 +119,7 @@ namespace HotBite {
 				enum class eRtQuality {
 					OFF,
 					LOW,
+					MID,
 					HIGH
 				};
 
@@ -271,7 +272,7 @@ namespace HotBite {
 				Core::SimpleComputeShader* motion_blur = nullptr;
 
 				//Ray tracing
-				eRtQuality rt_quality = eRtQuality::HIGH;
+				eRtQuality rt_quality = eRtQuality::MID;
 				uint32_t RT_TEXTURE_RESOLUTION_DIVIDER = 1;
 				static constexpr uint32_t RT_REFLEX_ENABLE = 1;
 				static constexpr uint32_t RT_REFRACT_ENABLE = 2;

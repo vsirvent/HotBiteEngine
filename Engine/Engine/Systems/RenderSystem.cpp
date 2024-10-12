@@ -2476,7 +2476,8 @@ void RenderSystem::SetRayTracingQuality(eRtQuality quality) {
 	if (rt_quality != quality) {
 		rt_quality = quality;
 		switch (rt_quality) {
-		case eRtQuality::LOW: RT_TEXTURE_RESOLUTION_DIVIDER = 2; break;
+		case eRtQuality::LOW: RT_TEXTURE_RESOLUTION_DIVIDER = 3; break;
+		case eRtQuality::MID: RT_TEXTURE_RESOLUTION_DIVIDER = 2; break;
 		case eRtQuality::HIGH: RT_TEXTURE_RESOLUTION_DIVIDER = 1; break;
 		}
 		if (rt_quality != eRtQuality::OFF) {

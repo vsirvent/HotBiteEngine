@@ -31,6 +31,7 @@ SOFTWARE.
 #include <Core/Utils.h>
 #include <Core/SpinLock.h>
 #include <Core/Scheduler.h>
+#include <DirectXMath.h>
 #include <d3d11.h>
 
 namespace HotBite {
@@ -104,6 +105,18 @@ namespace HotBite {
 				matrix world_xmmatrix = {};
 				//True if the world matrix is dirty and needs to be recalculated
 				bool dirty = true;
+
+				static void Rotate(struct Transform& t, const float3& axis, float value) {
+					static float rot_val = 0.0f;
+					auto rot = DirectX::XMMatrixRotationAxis({ axis.x, axis.y, axis.z }, rot_val);
+					vector3d move_q = DirectX::XMQuaternionRotationMatrix(rot);
+					rot_val += 0.005f;
+					if (rot_val > DirectX::XM_PI) rot_val = -DirectX::XM_PI;
+					vector3d rot_q = DirectX::XMVectorSet(t.initial_rotation.x, t.initial_rotation.y, t.initial_rotation.z, t.initial_rotation.w);
+					auto r = DirectX::XMQuaternionMultiply(rot_q, move_q);
+					DirectX::XMStoreFloat4(&t.rotation, r);
+					t.dirty = true;
+				}
 			};
 
 			/**

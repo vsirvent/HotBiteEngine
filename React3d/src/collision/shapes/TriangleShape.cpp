@@ -88,6 +88,11 @@ void TriangleShape::computeSmoothMeshContact(Vector3 localContactPointTriangle, 
                                              const Transform& worldToOtherShapeTransform, decimal penetrationDepth, bool isTriangleShape1,
                                              Vector3& outNewLocalContactPointOtherShape, Vector3& outSmoothWorldContactTriangleNormal) const {
 
+    if (mNormal.length() <= decimal(0.0))
+    {
+        return;
+    }
+
     // Get the smooth contact normal of the mesh at the contact point on the triangle
     Vector3 triangleLocalNormal = computeSmoothLocalContactNormalForTriangle(localContactPointTriangle);
 
