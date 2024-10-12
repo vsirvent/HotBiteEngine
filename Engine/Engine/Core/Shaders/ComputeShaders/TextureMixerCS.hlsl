@@ -59,8 +59,8 @@ float4 readColor(float2 pixel, texture2D text, uint w, uint h) {
         return text.SampleLevel(basicSampler, pixel, 0);
     }
     else {
-        return GetInterpolatedColor(pixel, text, float2(w2, h2));
-        //return Get3dInterpolatedColor(pixel, text, float2(w2, h2), positions, normals, float2(w, h));
+        //return GetInterpolatedColor(pixel, text, float2(w2, h2));
+        return Get3dInterpolatedColor(pixel, text, float2(w2, h2), positions, normals, float2(w, h));
     }
 }
 

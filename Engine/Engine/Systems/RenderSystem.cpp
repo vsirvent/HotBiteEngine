@@ -2216,6 +2216,9 @@ void RenderSystem::Clear(const float color[4]) {
 	first_pass_texture.Clear(color);
 	texture_tmp.Clear(zero);
 
+	rt_ray_sources0.Clear(zero);
+	rt_ray_sources1.Clear(zero);
+
 	if (post_process_pipeline != nullptr) {
 		post_process_pipeline->Clear(color);
 	}
@@ -2360,7 +2363,7 @@ void RenderSystem::Draw() {
 	int w = dxcore->GetWidth();
 	int h = dxcore->GetHeight();
 	
-	if (!cameras.GetData().empty()) {
+	if (!cameras.GetData().empty() && scene_enabled) {
 		
 		rt_mutex.lock();
 		rt_prepare = true;
@@ -2381,9 +2384,6 @@ void RenderSystem::Draw() {
 		//	CastShadows(w, h, camera_position, view, projection, true);
 		//}		
 		if (dof_effect) dof_effect->SetEnabled(dof_enabled);
-
-		rt_ray_sources0.Clear(zero);
-		rt_ray_sources1.Clear(zero);
 
 		CastShadows(w, h, camera_position, view, projection, false);
 		DrawDepth(w, h, camera_position, view, projection);
@@ -2550,6 +2550,15 @@ void RenderSystem::SetRTDebug(uint32_t debug) {
 uint32_t RenderSystem::GetRTDebug() const {
 	return rt_debug;
 }
+
+void RenderSystem::SetSceneEnabled(bool enabled) {
+	scene_enabled = enabled;
+}
+
+bool RenderSystem::GetSceneEnabled() const {
+	return scene_enabled;
+}
+
 
 
 
