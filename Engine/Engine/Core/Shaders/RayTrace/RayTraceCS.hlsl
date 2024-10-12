@@ -299,39 +299,38 @@ bool GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
             pos /= pos.w;
             MaterialColor material = objectMaterials[result.object];
 
-            float3 emission = material.emission * material.emission_color;
             float3 color = float3(0.0f, 0.0f, 0.0f);
-            if (material.emission > 0.0f) {
-                color = emission;
+
+            color += CalcAmbient(normal) * 0.5f;
+            color *= o.opacity;
+
+            uint i = 0;
+            for (i = 0; i < dirLightsCount; ++i) {
+                color += CalcDirectional(normal, pos.xyz, dirLights[i], i);
+            }
+
+            // Calculate the point lights
+            for (i = 0; i < pointLightsCount; ++i) {
+                if (length(pos.xyz - pointLights[i].Position) < pointLights[i].Range) {
+                    color += CalcPoint(normal, pos.xyz, pointLights[i], i);
+                }
+            }
+
+            //Calculate material color
+            if (material.flags & DIFFUSSE_MAP_ENABLED_FLAG) {
+                float2 uv0 = asfloat(vertexBuffer.Load2(result.vindex.x + 24));
+                float2 uv1 = asfloat(vertexBuffer.Load2(result.vindex.y + 24));
+                float2 uv2 = asfloat(vertexBuffer.Load2(result.vindex.z + 24));
+                float2 uv = uv0 * (1.0f - result.uv.x - result.uv.y) + uv1 * result.uv.x + uv2 * result.uv.y;
+                color *= GetDiffuseColor(result.object, uv);
             }
             else {
-                color += CalcAmbient(normal) * 0.5f;
-
-                uint i = 0;
-                for (i = 0; i < dirLightsCount; ++i) {
-                    color += CalcDirectional(normal, pos.xyz, dirLights[i], i);
-                }
-
-                // Calculate the point lights
-                for (i = 0; i < pointLightsCount; ++i) {
-                    if (length(pos.xyz - pointLights[i].Position) < pointLights[i].Range) {
-                        color += CalcPoint(normal, pos.xyz, pointLights[i], i);
-                    }
-                }
-
-
-                //Calculate material color
-                if (material.flags & DIFFUSSE_MAP_ENABLED_FLAG) {
-                    float2 uv0 = asfloat(vertexBuffer.Load2(result.vindex.x + 24));
-                    float2 uv1 = asfloat(vertexBuffer.Load2(result.vindex.y + 24));
-                    float2 uv2 = asfloat(vertexBuffer.Load2(result.vindex.z + 24));
-                    float2 uv = uv0 * (1.0f - result.uv.x - result.uv.y) + uv1 * result.uv.x + uv2 * result.uv.y;
-                    color *= GetDiffuseColor(result.object, uv);
-                }
-                else {
-                    color *= material.diffuseColor.rgb;
-                }
+                color *= material.diffuseColor.rgb;
             }
+            
+            float3 emission = material.emission * material.emission_color;
+            color += emission;
+
             float material_dispersion = saturate(1.0f - material.specIntensity);
             att_dist += collision_dist * material_dispersion;
             if (refract) {
@@ -339,14 +338,14 @@ bool GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
             }
             float curr_att_dist = max(att_dist, 1.0f);
             if (ray.bounces == 0 || mix) {
-                out_color.color[0] += color * ray.ratio * o.opacity / curr_att_dist;
+                out_color.color[0] += color * ray.ratio / curr_att_dist;
                 out_color.dispersion[0] = acc_dispersion;
                 if (!refract) {
                     out_color.bloom += emission / curr_att_dist;
                 }
             }
             else {
-                out_color.color[1] += color * ray.ratio * o.opacity / curr_att_dist;
+                out_color.color[1] += color * ray.ratio / curr_att_dist;
                 out_color.dispersion[1] = acc_dispersion;
             }
             acc_dispersion += material_dispersion;

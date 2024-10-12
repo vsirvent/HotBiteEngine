@@ -850,6 +850,10 @@ void PhysicsWorld::createIslands() {
             for (uint32 p=0; p < nbBodyContactPairs; p++) {
 
                 const uint32 contactPairIndex = mRigidBodyComponents.mContactPairs[bodyToVisitIndex][p];
+
+                if (contactPairIndex >= mCollisionDetection.mCurrentContactPairs->size()) {
+                    continue;
+                }
                 ContactPair& pair = (*mCollisionDetection.mCurrentContactPairs)[contactPairIndex];
 
                 // Check if the current contact pair has already been added into an island
