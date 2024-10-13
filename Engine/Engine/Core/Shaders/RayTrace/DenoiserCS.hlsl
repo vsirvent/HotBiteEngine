@@ -46,7 +46,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     }
     uint2 normalRatio = normals_dimensions / input_dimensions;
 
-    float2 info_pixel = pixel * normalRatio;
+    float2 info_pixel = round((pixel + float2(0.6f, 0.6f)) * normalRatio);
     float3 p0_normal = normals[info_pixel].xyz;
     float3 p0_position = positions[info_pixel].xyz;
     RaySource ray_source = fromColor(positions[info_pixel], normals[info_pixel]);
@@ -91,7 +91,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
         break;
     }
     }
-    uint min_k = normalRatio.x > 1 ? 1 : 0;
+    uint min_k = max(normalRatio.x, 0);
     int kernel = debug == 1 ? 0 : clamp(floor(max(MAX_KERNEL * disp, min_dispersion)), min_k, MAX_KERNEL);
     float motion = 0.0f;
     float camDist = dist2(cameraPosition - p0_position);
@@ -102,7 +102,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
         if ((p.x < 0 || p.x >= input_dimensions.x) && (p.y < 0 || p.y >= input_dimensions.y)) {
             continue;
         }
-        float2 p1_info_pixel = p * normalRatio;
+        float2 p1_info_pixel = round((p + float2(0.6f, 0.6f)) * normalRatio);
         float3 p1_position = positions[p1_info_pixel].xyz;
         float3 p1_normal = normals[p1_info_pixel].xyz;
         float n = saturate(dot(p1_normal, p0_normal));

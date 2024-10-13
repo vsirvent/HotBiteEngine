@@ -33,25 +33,29 @@ float PointShadowPCF(float3 ToPixel, PointLight light, int index)
 float DirShadowPCF(float4 position, DirLight light, int index)
 {
     float4 p = mul(position, DirPerspectiveMatrix[index]);
-    p /= p.w;
     p.x = (p.x + 1.0f) / 2.0f;
     p.y = 1.0f - ((p.y + 1.0f) / 2.0f);
     if (p.x < 0.0f || p.x > 1.0f || p.y < 0.0f || p.y > 1.0f) {
         return 0.5f;
     }
+    float w;
+    float h;
+    DirShadowMapTexture[index].GetDimensions(w, h);
+    float2 delta = 1.0f / float2(w, h);
+    float2 kernel = delta * 3.0f;
     float step = 0.0001f;
     float att1 = 0.0f;
-    float count = 0.00001f;
-    for (float x = -0.0003f; x < 0.0003f; x += step) {
-        for (float y = -0.0003f; y < 0.0003f; y += step) {
-            att1 += DirShadowMapTexture[index].SampleCmpLevelZero(PCFSampler, float2(p.x + x, p.y + y), p.z).r;
+    float count = 0.0f;
+
+    for (float x = -kernel.x; x <= kernel.x; x += delta.x) {
+        for (float y = -kernel.y; y <= kernel.y; y += delta.y) {
+            att1 += round(DirShadowMapTexture[index].SampleCmpLevelZero(PCFSampler, float2(p.x + x, p.y + y), p.z).r);
             count += 0.8f;
         }
     }
     att1 /= count;
     return saturate(att1);
 }
-
 
 float DirShadowPCFFAST(float4 position, DirLight light, int index)
 {

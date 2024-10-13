@@ -77,7 +77,6 @@ ByteAddressBuffer vertexBuffer : register(t4);
 ByteAddressBuffer indicesBuffer : register(t5);
 Texture2D<float4> position_map : register(t6);
 Texture2D<float4> motionTexture : register(t8);
-Texture2D<float4> depth_map : register(t9);
 
 Texture2D<float4> DiffuseTextures[MAX_OBJECTS];
 Texture2D<float> DirShadowMapTexture[MAX_LIGHTS];
@@ -418,7 +417,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     if (step == 2) {
         pixel *= RATIO;
     }
-    float2 ray_pixel = pixel * rayMapRatio;
+    float2 ray_pixel = round((pixel + float2(0.5f, 0.5f)) * rayMapRatio);
 
     RaySource ray_source = fromColor(ray0[ray_pixel], ray1[ray_pixel]);
     if (ray_source.dispersion < 0.0f) {
@@ -478,7 +477,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             if (DTid.z == 0) {
                 float3 seed = orig_pos * 100.0f;
                 float rX = rgba_tnoise(seed);
-                rX = pow(rX, 3.0f);
+                rX = pow(rX, 4.0f);
                 GetSpaceVectors(orig_dir, tangent, bitangent);
                 ray.dir = GenerateHemisphereRay(orig_dir, tangent, bitangent, ray_source.dispersion, N, level, rX);
                 ray.orig.xyz = orig_pos.xyz + ray.dir * 0.001f;

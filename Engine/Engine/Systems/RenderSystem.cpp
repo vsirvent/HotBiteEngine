@@ -277,10 +277,10 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		if (FAILED(temp_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("temp_map.Init failed");
 		}
-		if (FAILED(depth_map.Init(w / 2, h / 2, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+		if (FAILED(depth_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("depth_map.Init failed");
 		}
-		if (FAILED(depth_view.Init(w / 2, h / 2))) {
+		if (FAILED(depth_view.Init(w, h))) {
 			throw std::exception("depth_view.Init failed");
 		}
 		if (FAILED(first_pass_texture.Init(w, h))) {
@@ -521,7 +521,7 @@ void RenderSystem::DrawDepth(int w, int h, const float3& camera_position, const 
 	context->GSSetShader(nullptr, nullptr, 0);
 	ID3D11RenderTargetView* rv[1] = { depth_map.RenderTarget() };
 	context->OMSetRenderTargets(1, rv, depth_view.Depth());
-	context->RSSetViewports(1, &dxcore->half_viewport);
+	context->RSSetViewports(1, &dxcore->viewport);
 	context->RSSetState(dxcore->drawing_rasterizer);
 
 	SkyEntity* sky = nullptr;
@@ -1348,6 +1348,7 @@ void RenderSystem::ProcessAntiAlias() {
 	aa_shader->SetShaderResourceView("depthTexture", depth_map.SRV());
 	aa_shader->SetShaderResourceView("normalTexture", rt_ray_sources1.SRV());
 	aa_shader->SetShaderResourceView("input", temp_map.SRV());
+	aa_shader->SetInt("size", 1);
 	aa_shader->SetInt("enabled", aa_enabled);
 	aa_shader->SetUnorderedAccessView("output", image);
 	aa_shader->CopyAllBufferData();
@@ -1808,7 +1809,7 @@ void RenderSystem::ProcessRT() {
 		rt_denoiser->SetMatrix4x4(PROJECTION, cam_entity.camera->projection);
 		rt_denoiser->SetShaderResourceView("dispersion", rt_dispersion.SRV());
 
-		static constexpr int textures[] = { RT_TEXTURE_REFLEX, RT_TEXTURE_INDIRECT };
+		static constexpr int textures[] = { RT_TEXTURE_REFLEX, RT_TEXTURE_INDIRECT, RT_TEXTURE_REFRACT };
 		static constexpr int ntextures = sizeof(textures) / sizeof(int);
 		for (int i = 0; i < ntextures; ++i) {
 			int ntexture = textures[i];
@@ -1855,6 +1856,37 @@ void RenderSystem::ProcessRT() {
 		rt_denoiser->SetShaderResourceView("prev_position_map", nullptr);
 		rt_denoiser->SetShaderResourceView("dispersion", nullptr);
 		rt_denoiser->CopyAllBufferData();
+#if 1
+		//Apply antialias
+		for (int i = 0; i < ntextures; ++i) {
+			int ntexture = textures[i];
+			groupsX = (int32_t)(ceil((float)rt_texture_curr[ntexture].Width() / (32.0f)));
+			groupsY = (int32_t)(ceil((float)rt_texture_curr[ntexture].Height() / (32.0f)));
+
+			aa_shader->SetShaderResourceView("depthTexture", depth_map.SRV());
+			aa_shader->SetShaderResourceView("normalTexture", rt_ray_sources1.SRV());
+			aa_shader->SetShaderResourceView("input", rt_texture_curr[ntexture].SRV());
+			aa_shader->SetInt("enabled", true);
+			aa_shader->SetInt("size", 3);
+			aa_shader->SetUnorderedAccessView("output", texture_tmp.UAV());
+			aa_shader->CopyAllBufferData();
+			aa_shader->SetShader();
+			dxcore->context->Dispatch(groupsX, groupsY, 1);
+			aa_shader->SetUnorderedAccessView("output", nullptr);
+			aa_shader->SetShaderResourceView("input", nullptr);
+			aa_shader->CopyAllBufferData();
+			aa_shader->SetShaderResourceView("input", texture_tmp.SRV());
+			aa_shader->SetUnorderedAccessView("output", rt_texture_curr[ntexture].UAV());
+			aa_shader->CopyAllBufferData();
+			aa_shader->SetShader();
+			dxcore->context->Dispatch(groupsX, groupsY, 1);
+		}
+		aa_shader->SetUnorderedAccessView("output", nullptr);
+		aa_shader->SetShaderResourceView("input", nullptr);
+		aa_shader->SetShaderResourceView("depthTexture", nullptr);
+		aa_shader->SetShaderResourceView("normalTexture", nullptr);
+		aa_shader->CopyAllBufferData();
+#endif
 	}
 }
 

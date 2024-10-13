@@ -30,6 +30,7 @@ SOFTWARE.
 cbuffer externalData : register(b0)
 {
     int enabled;
+    int size;
 }
 
 
@@ -41,20 +42,21 @@ Texture2D normalTexture: register(t2);
 #define BORDER_DIFF 1.0f
 #define NORMAL_DIFF 0.5f
 
-float BorderValue(float2 pixel) {
-    float2 dp = pixel / 2;
+float BorderValue(float2 pixel, float2 ratio) {
+    float2 dp = round((pixel + float2(0.9f, 0.9f)) * ratio);
+    
     float z0 = depthTexture[dp].r;
-    float3 n0 = normalTexture[pixel].xyz;
+    float3 n0 = normalTexture[dp].xyz;
+
     float border = 0.0f;
-    int l = 1;
+    int l = size;
     for (int x = -l; x < l; ++x) {
         for (int y = -l; y < l; ++y) {
             float2 delta = float2(x, y);
             float z = depthTexture[dp + delta].r;
             float diff = abs(z - z0);
             border = max(border, saturate(diff / BORDER_DIFF - BORDER_DIFF) / length(delta));
-            
-            float3 n = normalTexture[pixel + delta].xyz;
+            float3 n = normalTexture[dp + delta].xyz;
             float angle = acos(dot(n0, n));
             if (length(n) > 0.0f && angle > NORMAL_DIFF) {
                 border = max(border, saturate(angle / NORMAL_DIFF - 1.0f));
@@ -89,13 +91,16 @@ void main(uint3 DTid : SV_DispatchThreadID)
     uint w, h;
     output.GetDimensions(w, h);
     float2 imageRes = { w, h };
+
+    depthTexture.GetDimensions(w, h);
+    float2 ratio = float2(w, h) / imageRes;
    
     float2 pixel = float2(DTid.x, DTid.y);
     
     float4 color = input[pixel];
 
     if (enabled != 0) {
-        float border = BorderValue(pixel);
+        float border = BorderValue(pixel, ratio);
         if (border > 0.0f) {
             color = color * (1.0f - border) + SmoothColor(pixel) * border;
         }

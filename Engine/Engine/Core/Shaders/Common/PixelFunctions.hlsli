@@ -91,23 +91,23 @@ float DirShadowPCF(float4 position, DirLight light, int index)
 	if (p.x < 0.0f || p.x > 1.0f || p.y < 0.0f || p.y > 1.0f) {
 		return 0.5f;
 	}
-	//This code is commented as static shadows are disabled
-	//float4 sp = mul(float4(position, 1.0f), DirStaticPerspectiveMatrix[index]);
-	//sp.x = (sp.x + 1.0f) / 2.0f;
-	//sp.y = 1.0f - ((sp.y + 1.0f) / 2.0f);
+	float w;
+	float h;
+	DirShadowMapTexture[index].GetDimensions(w, h);
+	float2 delta = 1.0f / float2(w, h);
+	float2 kernel = delta * 3.0f;
 	float step = 0.0001f;
 	float att1 = 0.0f;
-	float count = 0.00001f;
-	for (float x = -0.0003f; x < 0.0003f; x += step) {
-		for (float y = -0.0003f; y < 0.0003f; y += step) {
-			att1 += DirShadowMapTexture[index].SampleCmpLevelZero(PCFSampler, float2(p.x + x, p.y + y), p.z).r;
+	float count = 0.0f;
+
+	for (float x = -kernel.x; x <= kernel.x; x += delta.x) {
+		for (float y = -kernel.y; y <= kernel.y; y += delta.y) {
+			att1 += round(DirShadowMapTexture[index].SampleCmpLevelZero(PCFSampler, float2(p.x + x, p.y + y), p.z).r);
 			count += 0.8f;
 		}
 	}
 	att1 /= count;
 	return saturate(att1);
-	//float att2 = DirStaticShadowMapTexture[index].SampleCmpLevelZero(PCFSampler, sp.xy, p.z);
-	//return saturate(att1*att2);
 }
 
 float DirShadowPCFFAST(float4 position, DirLight light, int index)
@@ -118,7 +118,7 @@ float DirShadowPCFFAST(float4 position, DirLight light, int index)
 	if (p.x < 0.0f || p.x > 1.0f || p.y < 0.0f || p.y > 1.0f) {
 		return 0.5f;
 	}
-	float att1 = DirShadowMapTexture[index].SampleCmpLevelZero(PCFSampler, float2(p.x, p.y), p.z).r;
+	float att1 = round(DirShadowMapTexture[index].SampleCmpLevelZero(PCFSampler, float2(p.x, p.y), p.z).r);
 	return saturate(att1);
 }
 
@@ -134,7 +134,7 @@ float PointShadowPCF(float3 ToPixel, PointLight light, int index)
 	d -= 0.0001f;
 	for (float x = -0.06f; x < 0.06f; x += step) {
 		for (float y = -0.06f; y < 0.06f; y += step) {
-			att1 += PointShadowMapTexture[index].SampleCmpLevelZero(PCFSampler, float3(ToPixel.x + x, ToPixel.y + y, ToPixel.z), d).r;
+			att1 += round(PointShadowMapTexture[index].SampleCmpLevelZero(PCFSampler, float3(ToPixel.x + x, ToPixel.y + y, ToPixel.z), d).r);
 			count += 1.0f;
 		}
 	}
@@ -149,7 +149,7 @@ float PointShadowPCFFast(float3 ToPixel, PointLight light, int index)
 	float d = (lps[index].x * Z + lps[index].y) / Z;
 	//This offset allows to avoid self shadow
 	d -= 0.0001f;
-	float att1 = PointShadowMapTexture[index].SampleCmpLevelZero(PCFSampler, float3(ToPixel.x, ToPixel.y, ToPixel.z), d).r;
+	float att1 = round(PointShadowMapTexture[index].SampleCmpLevelZero(PCFSampler, float3(ToPixel.x, ToPixel.y, ToPixel.z), d).r);
 	return saturate(att1);
 }
 
