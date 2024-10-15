@@ -1877,6 +1877,7 @@ void RenderSystem::ProcessRT() {
 			aa_shader->CopyAllBufferData();
 			aa_shader->SetShaderResourceView("input", texture_tmp.SRV());
 			aa_shader->SetUnorderedAccessView("output", rt_texture_curr[ntexture].UAV());
+			aa_shader->SetInt("size", 1);
 			aa_shader->CopyAllBufferData();
 			aa_shader->SetShader();
 			dxcore->context->Dispatch(groupsX, groupsY, 1);
