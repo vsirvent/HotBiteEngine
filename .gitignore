@@ -897,3 +897,4 @@ Solution/x64/Release/AccumulatorCS.cso
 *.cso
 Solution/x64/Release/GameServer.exe
 Solution/x64/Debug/GameServer.exe
+*.exe

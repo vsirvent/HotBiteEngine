@@ -81,8 +81,10 @@ namespace HotBite {
             }
         };
 
+        bool operator==(const float4& a, const float4& b);
         bool operator==(const float3& a, const float3& b);
         bool operator==(const float2& a, const float2& b);
+        bool operator!=(const float4& a, const float4& b);
         bool operator!=(const float3& a, const float3& b);
         bool operator!=(const float2& a, const float2& b);
      

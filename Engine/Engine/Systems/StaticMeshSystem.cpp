@@ -79,13 +79,17 @@ void StaticMeshSystem::Update(StaticMeshEntity& entity, int64_t elapsed_nsec, in
 
 	//We only update view if invalid
 	float3 parent_position = {};
+	float4 parent_rotation = {};
 	if (entity.base->parent != ECS::INVALID_ENTITY_ID) {
 		Components::Transform& t = coordinator->GetComponent<Components::Transform>(entity.base->parent);
 		parent_position = t.position;
+		parent_rotation = t.rotation;
+
 	}
 
 	if ((entity.transform->dirty ||
-		(entity.base->parent != ECS::INVALID_ENTITY_ID && entity.transform->last_parent_position != parent_position))) {
+		(entity.base->parent != ECS::INVALID_ENTITY_ID && 
+		(entity.transform->last_parent_position != parent_position || entity.transform->last_parent_rotation != parent_rotation)))) {
 		auto minV = mesh->GetData()->minDimensions;
 		auto maxV = mesh->GetData()->maxDimensions;
 		
@@ -126,6 +130,7 @@ void StaticMeshSystem::Update(StaticMeshEntity& entity, int64_t elapsed_nsec, in
 
 		coordinator->SendEvent(this, base->id, Transform::EVENT_ID_TRANSFORM_CHANGED);
 		entity.transform->last_parent_position = parent_position;
+		entity.transform->last_parent_rotation = parent_rotation;
 		transform->dirty = false;
 	}
 }

@@ -87,6 +87,7 @@ namespace HotBite {
 				static inline ECS::EventId EVENT_ID_TRANSFORM_CHANGED = ECS::GetEventId<Transform>(0x00);
 				//The cached last parent position to check if parent has changed
 				float3 last_parent_position = {};
+				float4 last_parent_rotation = {};
 				//The entity position
 				float3 position = { 0.0f, 0.0f, 0.0f };
 				//The entity scale
