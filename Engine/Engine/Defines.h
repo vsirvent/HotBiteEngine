@@ -39,9 +39,9 @@ namespace HotBite {
         typedef DirectX::XMFLOAT4X4 float4x4;
         typedef DirectX::XMFLOAT3X3 float3x3;
         typedef DirectX::XMFLOAT3X4 float3x4;
-        typedef DirectX::XMFLOAT4   float4;
-        typedef DirectX::XMFLOAT3   float3;
-        typedef DirectX::XMFLOAT2   float2;
+        typedef XM_ALIGNED_STRUCT(16) DirectX::XMFLOAT4 float4;
+        typedef XM_ALIGNED_STRUCT(16) DirectX::XMFLOAT3 float3;
+        typedef XM_ALIGNED_STRUCT(16) DirectX::XMFLOAT2 float2;
         typedef DirectX::XMVECTOR   vector4d;
         typedef DirectX::XMVECTOR   vector3d;
         typedef DirectX::XMMATRIX   matrix;
@@ -163,7 +163,8 @@ namespace HotBite {
         }
 
         inline float4 SUB_F4_F4(const float4& a, const float4& b) {
-            return { a.x - b.x , a.y - b.y , a.z - b.z, a.w - b.w };
+            __m128 r = _mm_sub_ps(*(__m128*)&a, *(__m128*)&b);
+            return *(float4*)&r;
         }
 
         inline float2 ADD_F2_F2(const float2& a, const float2& b) {
@@ -183,22 +184,19 @@ namespace HotBite {
         }
 
         inline float4 MULT_F4_F(const float4& a, const float& b) {
-            __m128 a_vec = _mm_loadu_ps(&a.x);
-            __m128 b_vec = _mm_set1_ps(b);
-            __m128 result_vec = _mm_mul_ps(a_vec, b_vec);
-            float4 result;
-            _mm_storeu_ps(&result.x, result_vec);
-            return result;
+            __m128 vb = _mm_set1_ps(b);
+            __m128 r = _mm_mul_ps(*(__m128*)&a, vb);
+            return *(float4*)&r;
         }
 
         inline float3 MULT_F3_F(const float3& a, const float& b) {
             float4 r = MULT_F4_F({ a.x, a.y, a.z, 0.0f }, b);
-            return { r.x, r.y, r.z };
+            return *(float3*)&r;
         }
 
         inline float2 MULT_F2_F(const float2& a, const float& b) {
             float4 r = MULT_F4_F({ a.x, a.y, 0.0f, 0.0f }, b);
-            return { r.x, r.y };
+            return *(float2*)&r;
         }
 
         inline bool EQ_INT2(const float2& a, const float2& b);
