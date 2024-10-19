@@ -64,6 +64,7 @@ cbuffer externalData : register(b0)
 
 #include "../../Common/PixelFunctions.hlsli"
 Texture2D renderTexture;
+Texture2D prevLightTexture;
 
 float3 CalcWaterDirectional(float3 normal, float3 position, float2 uv, DirLight light, int index, const float spec_intensity, inout float4 bloom)
 {
@@ -166,7 +167,7 @@ RenderTargetRT main(GSOutput input)
 	}
 	float dz = depthTexture.Sample(basicSampler, pos);
 
-	float4 lumColor = float4(0.0f, 0.0f, 0.0f, 0.0f);
+	float4 lumColor = float4(0.0f, 0.0f, 0.0f, 1.0f);
 	// Calculate the ambient light
 	lumColor.rgb += CalcAmbient(normal);
 
@@ -199,8 +200,10 @@ RenderTargetRT main(GSOutput input)
 		dist_to_terrain2 = saturate( 1.0f - (dz - depth) / 30.0f);
 	}
 	float3 terrain_color = (renderTexture.Sample(basicSampler, pos).rgb + float3(0.0f, 0.0f, 0.3f) * (1.0f - dist_to_terrain))* dist_to_terrain2;	
+	float3 prev_light = (prevLightTexture.Sample(basicSampler, pos).rgb + float3(0.0f, 0.0f, 0.3f) * (1.0f - dist_to_terrain)) * dist_to_terrain2;
 	finalColor.rgb += terrain_color;
-	
+	lumColor.rgb += prev_light;
+
 	output.light_map = lumColor;
 	output.bloom_map = lightColor;
 	output.scene = finalColor;

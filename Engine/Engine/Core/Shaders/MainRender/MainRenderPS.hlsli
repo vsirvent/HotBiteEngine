@@ -1,4 +1,4 @@
-Texture2D lightTexture;
+Texture2D prevLightTexture;
 
 RenderTargetRT MainRenderPS(GSOutput input)
 {
@@ -207,7 +207,7 @@ RenderTargetRT MainRenderPS(GSOutput input)
 	finalColor *= opacity;
 	
 	output.scene = finalColor;
-	output.light_map = lumColor + lightTexture[input.position.xy];
+	output.light_map = lumColor + prevLightTexture[input.position.xy];
 	output.bloom_map = saturate(lightColor);
 
 	RaySource ray;

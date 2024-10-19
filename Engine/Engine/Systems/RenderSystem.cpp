@@ -250,11 +250,14 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		int w = dxcore->GetWidth();
 		int h = dxcore->GetHeight();
 		
-		if (FAILED(light_map.Init(w, h))) {
-			throw std::exception("light_map.Init failed");
+		for (int i = 0; i < 2; ++i)
+		{
+			if (FAILED(light_map[i].Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R11G11B10_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+				throw std::exception("light_map.Init failed");
+			}
 		}
 		if (FAILED(vol_light_map.Init(w / 2, h / 2, DXGI_FORMAT::DXGI_FORMAT_R11G11B10_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
-			throw std::exception("light_map.Init failed");
+			throw std::exception("vol_light_map.Init failed");
 		}
 		if (FAILED(lens_flare_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R11G11B10_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("lens_flare_map.Init failed");
@@ -263,7 +266,7 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 			throw std::exception("dust_render_map.Init failed");
 		}
 		if (FAILED(vol_light_map2.Init(w / 2, h / 2, DXGI_FORMAT::DXGI_FORMAT_R11G11B10_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
-			throw std::exception("light_map.Init failed");
+			throw std::exception("vol_light_map2.Init failed");
 		}
 		if (FAILED(position_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT))) {
 			throw std::exception("position_map.Init failed");
@@ -358,6 +361,10 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		if (motion_shader == nullptr) {
 			throw std::exception("Motion shader.Init failed");
 		}
+		copy_texture = ShaderFactory::Get()->GetShader<SimpleComputeShader>("CopyTexturesCS.cso");
+		if (copy_texture == nullptr) {
+			throw std::exception("Copy textures shader.Init failed");
+		}
 
 		LoadRTResources();
 
@@ -390,7 +397,10 @@ RenderSystem::~RenderSystem() {
 	rt_thread.join();
 
 	depth_view.Release();
-	light_map.Release();
+	for (int i = 0; i < 2; ++i)
+	{
+		light_map[i].Release();
+	}	
 	vol_light_map.Release();
 	vol_light_map2.Release();
 	dust_render_map.Release();
@@ -854,7 +864,7 @@ void RenderSystem::DrawSky(int w, int h, const float3& camera_position, const ma
 	float time = ((float)Scheduler::Get()->GetElapsedNanoSeconds() * sky.sky->second_speed) / 1000000000.0f;
 	//Render sky background
 	{
-		ID3D11RenderTargetView* rv[2] = { first_pass_target->RenderTarget(), light_map.RenderTarget() };
+		ID3D11RenderTargetView* rv[2] = { first_pass_target->RenderTarget(), current_light_map->RenderTarget() };
 		context->OMSetRenderTargets(2, rv, nullptr);
 		context->OMSetBlendState(dxcore->blend, NULL, ~0U);
 		context->RSSetViewports(1, &dxcore->viewport);
@@ -1100,7 +1110,7 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 	ID3D11DeviceContext* context = dxcore->context;
 	//Render scene to target texture, can be the final backbuffer render
 	//or a post process texture pipeline
-	ID3D11RenderTargetView* light_target = light_map.RenderTarget();
+	ID3D11RenderTargetView* light_target = current_light_map->RenderTarget();
 	ID3D11RenderTargetView* bloom_target = bloom_map.RenderTarget();
 	ID3D11DepthStencilView* depth_target_view = depth_target->DepthView();
 	context->GSSetShader(nullptr, nullptr, 0);
@@ -1112,6 +1122,7 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 		//Render the previous texture in the new target
 		//after copying, we render the entities that belongs
 		//to the second pass over that texture
+
 		ID3D11RenderTargetView* rv[1] = { target->RenderTarget() };
 		context->OMSetRenderTargets(1, rv, nullptr);
 		context->RSSetViewports(1, &dxcore->viewport);
@@ -1124,7 +1135,7 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 		ps->SetInt(SCREEN_H, h);
 		ps->SetSamplerState(BASIC_SAMPLER, dxcore->basic_sampler);
 		ps->SetShaderResourceView("renderTexture", prev_pass_texture);
-		ps->SetShaderResourceView("lightTexture", light_map.SRV());
+		ps->SetShaderResourceView("lightTexture", current_light_map->SRV());
 		ps->CopyAllBufferData();
 		ScreenDraw::Get()->Draw();
 		ps->SetShaderResourceView("renderTexture", nullptr);
@@ -1254,6 +1265,9 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 				ps->SetSamplerState(PCF_SAMPLER, dxcore->shadow_sampler);
 				ps->SetSamplerState(BASIC_SAMPLER, dxcore->basic_sampler);
 				ps->SetShaderResourceView(DEPTH_TEXTURE, depth_map.SRV());
+				if (prev_light_map != nullptr) {
+					ps->SetShaderResourceView("prevLightTexture", prev_light_map->SRV());
+				}				
 				if (prev_pass_texture != nullptr) {
 					ps->SetShaderResourceView("renderTexture", prev_pass_texture);					
 				}
@@ -1304,10 +1318,9 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 	}
 	if (ps != nullptr) {
 		ps->SetShaderResourceView(DEPTH_TEXTURE, nullptr);
+		ps->SetShaderResourceView("prevLightTexture", nullptr);
 		if (prev_pass_texture != nullptr) {
 			ps->SetShaderResourceView("renderTexture", nullptr);
-			ps->SetShaderResourceView("lightTexture", nullptr);
-			ps->SetShaderResourceView("lightTexture", nullptr);
 		}
 	}
 	if (gs != nullptr) {
@@ -1376,7 +1389,7 @@ void RenderSystem::ProcessMix() {
 	mixer_shader->SetInt("debug", rt_debug);
 	mixer_shader->SetInt("rt_enabled", rt_enabled & (rt_quality != eRtQuality::OFF? 0xFF:0x00));
 	mixer_shader->SetShaderResourceView("depthTexture", depth_map.SRV());
-	mixer_shader->SetShaderResourceView("lightTexture", light_map.SRV());
+	mixer_shader->SetShaderResourceView("lightTexture", current_light_map->SRV());
 	mixer_shader->SetShaderResourceView("volLightTexture", vol_light_map.SRV());
 	mixer_shader->SetShaderResourceView("bloomTexture", bloom_map.SRV());
 	mixer_shader->SetShaderResourceView("emissionTexture", rt_texture_curr[RT_TEXTURE_EMISSION].SRV());
@@ -1549,6 +1562,20 @@ void RenderSystem::ProcessLensFlare() {
 		lens_flare->SetShaderResourceView("vol_data", nullptr);
 		UnprepareLights(lens_flare);
 	}
+}
+
+void RenderSystem::CopyTexture(const Core::RenderTexture2D& input, Core::RenderTexture2D& output)
+{
+	int32_t  groupsX = (int32_t)(ceil((float)output.Width() / 32.0f));
+	int32_t  groupsY = (int32_t)(ceil((float)output.Height() / 32.0f));
+	copy_texture->SetShaderResourceView("input", input.SRV());
+	copy_texture->SetUnorderedAccessView("output", output.UAV());
+	copy_texture->CopyAllBufferData();
+	copy_texture->SetShader();
+	dxcore->context->Dispatch(groupsX, groupsY, 1);
+	copy_texture->SetShaderResourceView("input", nullptr);
+	copy_texture->SetUnorderedAccessView("output", nullptr);
+	copy_texture->CopyAllBufferData();
 }
 
 void RenderSystem::ProcessMotion() {
@@ -2242,7 +2269,10 @@ void RenderSystem::Clear(const float color[4]) {
 	depth_view.Clear();
 	position_map.Clear(max_depth);
 	prev_position_map.Clear(max_depth);
-	light_map.Clear(color);
+	for (int i = 0; i < 2; ++i)
+	{
+		light_map[i].Clear(color);
+	}
 	bloom_map.Clear(color);
 	temp_map.Clear(color);
 	first_pass_texture.Clear(color);
@@ -2274,7 +2304,6 @@ void RenderSystem::SetPostProcessPipeline(Core::PostProcess* pipeline) {
 		}
 		post_process_pipeline = pipeline;
 		PostProcess* last = pipeline;
-		pipeline->SetShaderResourceView(LIGHT_TEXTURE, light_map.SRV());
 		pipeline->SetShaderResourceView("volLightTexture", vol_light_map.SRV());
 		pipeline->SetShaderResourceView("bloomTexture", bloom_map.SRV());
 		pipeline->SetShaderResourceView("dustTexture", dust_render_map.SRV());
@@ -2417,12 +2446,18 @@ void RenderSystem::Draw() {
 		//}		
 		if (dof_effect) dof_effect->SetEnabled(dof_enabled);
 
+		current_light_map = &light_map[0];
+		prev_light_map = nullptr;
+
 		CastShadows(w, h, camera_position, view, projection, false);
 		DrawDepth(w, h, camera_position, view, projection);
 		DrawSky(w, h, camera_position, view, projection);
 		DrawScene(w, h, camera_position, view, projection, nullptr, first_pass_target, render_tree);
-		if (second_pass_target != nullptr) {
+		if (second_pass_target != nullptr && !render_pass2_tree.empty()) {
 			CheckSceneVisibility(render_pass2_tree);
+			current_light_map = &light_map[1];
+			prev_light_map = &light_map[0];
+			CopyTexture(*prev_light_map, *current_light_map);
 			DrawScene(w, h, camera_position, view, projection, first_pass_texture.SRV(), second_pass_target, render_pass2_tree);
 		}
 		ProcessMotion();
@@ -2494,7 +2529,10 @@ void RenderSystem::SetRayTracing(bool reflex_enabled, bool refract_enabled, bool
 			rt_textures[x][i].Clear(zero);
 		}
 	}
-	light_map.Clear(zero);
+	for (int i = 0; i < 2; ++i)
+	{
+		light_map[i].Clear(zero);
+	}
 }
 
 void RenderSystem::GetRayTracing(bool& reflex_enabled, bool& refract_enabled, bool& indirect_enabled) const {

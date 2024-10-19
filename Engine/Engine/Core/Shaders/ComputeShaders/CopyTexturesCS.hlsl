@@ -22,22 +22,13 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-#include "../Common/Utils.hlsli"
-#include "../Common/QuickNoise.hlsli"
+Texture2D input;
+RWTexture2D<float4> output;
 
-Texture2D renderTexture : register(t0);
-SamplerState basicSampler : register(s0);
-
-cbuffer externalData : register(b0)
+#define NTHREADS 32
+[numthreads(NTHREADS, NTHREADS, 1)]
+void main(uint3 DTid : SV_DispatchThreadID)
 {
-	int screenW;
-	int screenH;
-}
-
-float4 main(float4 pos: SV_POSITION) : SV_TARGET
-{
-    float2 tpos = pos.xy;
-    tpos.x /= screenW;
-    tpos.y /= screenH;
-    return renderTexture.Sample(basicSampler, tpos);
+    float2 pixel = float2(DTid.x, DTid.y);
+    output[pixel] = input[pixel];
 }

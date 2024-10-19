@@ -248,7 +248,10 @@ namespace HotBite {
 				Core::DXCore* dxcore = nullptr;
 				Core::RenderTexture2D depth_map;
 				
-				Core::RenderTexture2D light_map;
+				Core::RenderTexture2D* current_light_map = nullptr;
+				Core::RenderTexture2D* prev_light_map = nullptr;
+				Core::RenderTexture2D light_map[2];
+
 				Core::RenderTexture2D vol_light_map;
 				Core::RenderTexture2D vol_light_map2;
 				Core::RenderTexture2D position_map;
@@ -313,6 +316,9 @@ namespace HotBite {
 				bool rt_prepare = false;
 				std::thread rt_thread;
 
+				//Copy texture shader
+				Core::SimpleComputeShader* copy_texture = nullptr;
+
 				//Dust shader
 				bool dust_enabled = false;
 				bool is_dust_init = false;
@@ -373,6 +379,7 @@ namespace HotBite {
 					Core::IRenderTarget* target, RenderTree& tree);
 
 				void LoadRTResources();
+				void CopyTexture(const Core::RenderTexture2D& input, Core::RenderTexture2D& output);
 				void ProcessMotion();
 				void PrepareRT();
 				void ProcessRT();
