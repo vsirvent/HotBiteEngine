@@ -652,10 +652,6 @@ FBXLoader::ProcessEntity(Core::FlatMap<std::string, Core::MeshData>& meshes,
 		if (parent != INVALID_ENTITY_ID) {
 			base.parent_position = true;
 			base.parent_rotation = false;
-
-			//const auto& ptransform = coordinator->GetComponent<Components::Transform>(parent);
-			//transform.position = SUB_F3_F3(transform.position, ptransform.position);
-			//transform.rotation = express_rotation_with_respect_to(transform.rotation, ptransform.rotation);
 		}
 		matrix trans = XMMatrixTranslation(transform.position.x, transform.position.y, transform.position.z);
 		matrix rot = XMMatrixRotationQuaternion(XMLoadFloat4(&transform.rotation));

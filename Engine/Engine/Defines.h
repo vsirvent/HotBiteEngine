@@ -81,8 +81,10 @@ namespace HotBite {
             }
         };
 
+        bool operator==(const float4& a, const float4& b);
         bool operator==(const float3& a, const float3& b);
         bool operator==(const float2& a, const float2& b);
+        bool operator!=(const float4& a, const float4& b);
         bool operator!=(const float3& a, const float3& b);
         bool operator!=(const float2& a, const float2& b);
      
@@ -91,11 +93,40 @@ namespace HotBite {
         
         // Function to multiply two quaternions (float4)
         inline float4 quaternion_multiply(const float4& q1, const float4& q2) {
+            __m128 q1_vec = _mm_set_ps(q1.w, q1.z, q1.y, q1.x);
+            __m128 q2_vec = _mm_set_ps(q2.w, q2.z, q2.y, q2.x);
+
+            // Compute intermediate results
+            __m128 q2_shuf1 = _mm_shuffle_ps(q2_vec, q2_vec, _MM_SHUFFLE(3, 0, 2, 1));
+            __m128 q1_mul1 = _mm_mul_ps(q1_vec, q2_shuf1);
+
+            __m128 q2_shuf2 = _mm_shuffle_ps(q2_vec, q2_vec, _MM_SHUFFLE(2, 1, 3, 0));
+            __m128 q1_mul2 = _mm_mul_ps(q1_vec, q2_shuf2);
+
+            __m128 q2_shuf3 = _mm_shuffle_ps(q2_vec, q2_vec, _MM_SHUFFLE(1, 3, 0, 2));
+            __m128 q1_mul3 = _mm_mul_ps(q1_vec, q2_shuf3);
+
+            __m128 result_x = _mm_sub_ps(_mm_add_ps(q1_mul1, q1_mul2), q1_mul3);
+
+            // Compute result.w
+            __m128 q2_shuf4 = _mm_shuffle_ps(q2_vec, q2_vec, _MM_SHUFFLE(0, 1, 2, 3));
+            __m128 result_w = _mm_mul_ps(q1_vec, q2_shuf4);
+
+            // Sum the elements for result.x
+            __m128 sum_x = _mm_hadd_ps(result_x, result_x);
+            sum_x = _mm_hadd_ps(sum_x, sum_x);
+
+            // Prepare to compute result.y, result.z, result.w
+            __m128 temp_yzw = _mm_shuffle_ps(result_x, result_w, _MM_SHUFFLE(2, 1, 0, 3));
+            __m128 yzw = _mm_addsub_ps(temp_yzw, _mm_shuffle_ps(result_w, result_w, _MM_SHUFFLE(3, 3, 3, 3)));
+
+            // Extract results
             float4 result;
-            result.x = q1.w * q2.x + q1.x * q2.w + q1.y * q2.z - q1.z * q2.y;
-            result.y = q1.w * q2.y - q1.x * q2.z + q1.y * q2.w + q1.z * q2.x;
-            result.z = q1.w * q2.z + q1.x * q2.y - q1.y * q2.x + q1.z * q2.w;
-            result.w = q1.w * q2.w - q1.x * q2.x - q1.y * q2.y - q1.z * q2.z;
+            result.x = _mm_cvtss_f32(sum_x);
+            result.y = _mm_cvtss_f32(_mm_shuffle_ps(yzw, yzw, _MM_SHUFFLE(0, 0, 0, 0)));
+            result.z = _mm_cvtss_f32(_mm_shuffle_ps(yzw, yzw, _MM_SHUFFLE(1, 1, 1, 1)));
+            result.w = _mm_cvtss_f32(_mm_shuffle_ps(yzw, yzw, _MM_SHUFFLE(2, 2, 2, 2)));
+
             return result;
         }
 
@@ -151,12 +182,23 @@ namespace HotBite {
             return { a.x / b.x , a.y / b.y , a.z / b.z };
         }
 
+        inline float4 MULT_F4_F(const float4& a, const float& b) {
+            __m128 a_vec = _mm_loadu_ps(&a.x);
+            __m128 b_vec = _mm_set1_ps(b);
+            __m128 result_vec = _mm_mul_ps(a_vec, b_vec);
+            float4 result;
+            _mm_storeu_ps(&result.x, result_vec);
+            return result;
+        }
+
         inline float3 MULT_F3_F(const float3& a, const float& b) {
-            return { a.x * b , a.y * b , a.z * b };
+            float4 r = MULT_F4_F({ a.x, a.y, a.z, 0.0f }, b);
+            return { r.x, r.y, r.z };
         }
 
         inline float2 MULT_F2_F(const float2& a, const float& b) {
-            return { a.x * b , a.y * b };
+            float4 r = MULT_F4_F({ a.x, a.y, 0.0f, 0.0f }, b);
+            return { r.x, r.y };
         }
 
         inline bool EQ_INT2(const float2& a, const float2& b);

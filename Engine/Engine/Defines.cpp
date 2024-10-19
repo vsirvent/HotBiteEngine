@@ -26,12 +26,21 @@ SOFTWARE.
 
 namespace HotBite {
     namespace Engine {
+
+        bool operator==(const float4& a, const float4& b) {
+            return (a.x == b.x && a.y == b.y && a.z == b.z && a.w == b.w);
+        }
+
         bool operator==(const float3& a, const float3& b) {
             return (a.x == b.x && a.y == b.y && a.z == b.z);
         }
 
         bool operator==(const float2& a, const float2& b) {
             return (a.x == b.x && a.y == b.y);
+        }
+
+        bool operator!=(const float4& a, const float4& b) {
+            return !(a == b);
         }
 
         bool operator!=(const float3& a, const float3& b) {

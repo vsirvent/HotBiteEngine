@@ -15,8 +15,6 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "MaterialDesigner", "..\Tool
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Marbles", "..\..\Marbles\Marbles\Marbles.vcxproj", "{FC5BD9EC-705D-4E57-932B-D1A24916E4EA}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "WorldTest", "..\..\HotBite\Tests\WorldTest\WorldTest.vcxproj", "{19F3544C-6C75-42C9-BC43-7B2A2BAAB7D1}"
-EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "GameServer", "..\..\HotBite\Tests\GameServer\GameServer.vcxproj", "{8E403B35-E983-498C-833C-7BB39E91D9DA}"
 EndProject
 Global
@@ -101,18 +99,6 @@ Global
 		{FC5BD9EC-705D-4E57-932B-D1A24916E4EA}.Release|x64.Build.0 = Release|x64
 		{FC5BD9EC-705D-4E57-932B-D1A24916E4EA}.Release|x86.ActiveCfg = Release|Win32
 		{FC5BD9EC-705D-4E57-932B-D1A24916E4EA}.Release|x86.Build.0 = Release|Win32
-		{19F3544C-6C75-42C9-BC43-7B2A2BAAB7D1}.Debug|x64.ActiveCfg = Debug|x64
-		{19F3544C-6C75-42C9-BC43-7B2A2BAAB7D1}.Debug|x64.Build.0 = Debug|x64
-		{19F3544C-6C75-42C9-BC43-7B2A2BAAB7D1}.Debug|x86.ActiveCfg = Debug|Win32
-		{19F3544C-6C75-42C9-BC43-7B2A2BAAB7D1}.Debug|x86.Build.0 = Debug|Win32
-		{19F3544C-6C75-42C9-BC43-7B2A2BAAB7D1}.Release_Production|x64.ActiveCfg = Release_Production|x64
-		{19F3544C-6C75-42C9-BC43-7B2A2BAAB7D1}.Release_Production|x64.Build.0 = Release_Production|x64
-		{19F3544C-6C75-42C9-BC43-7B2A2BAAB7D1}.Release_Production|x86.ActiveCfg = Release_Production|Win32
-		{19F3544C-6C75-42C9-BC43-7B2A2BAAB7D1}.Release_Production|x86.Build.0 = Release_Production|Win32
-		{19F3544C-6C75-42C9-BC43-7B2A2BAAB7D1}.Release|x64.ActiveCfg = Release|x64
-		{19F3544C-6C75-42C9-BC43-7B2A2BAAB7D1}.Release|x64.Build.0 = Release|x64
-		{19F3544C-6C75-42C9-BC43-7B2A2BAAB7D1}.Release|x86.ActiveCfg = Release|Win32
-		{19F3544C-6C75-42C9-BC43-7B2A2BAAB7D1}.Release|x86.Build.0 = Release|Win32
 		{8E403B35-E983-498C-833C-7BB39E91D9DA}.Debug|x64.ActiveCfg = Debug|x64
 		{8E403B35-E983-498C-833C-7BB39E91D9DA}.Debug|x64.Build.0 = Debug|x64
 		{8E403B35-E983-498C-833C-7BB39E91D9DA}.Debug|x86.ActiveCfg = Debug|Win32

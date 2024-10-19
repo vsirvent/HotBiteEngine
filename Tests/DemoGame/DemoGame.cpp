@@ -87,7 +87,7 @@ private:
 	AudioSystem::PlayId tone = AudioSystem::INVALID_PLAY_ID;
 
 public:
-	GameDemoApplication(HINSTANCE hInstance) :DXCore(hInstance, "HotBiteDemoGame", 1920, 1080, true, false) {
+	GameDemoApplication(HINSTANCE hInstance) :DXCore(hInstance, "HotBiteDemoGame", 1280, 720, true, false) {
 		root = "..\\..\\..\\Tests\\DemoGame\\";
 		//Initialize core DirectX
 		InitWindow();
