@@ -68,7 +68,7 @@ private:
 	PostGame* post_game = nullptr;
 	UI::GUI* gui = nullptr;
 	
-	int target_fps = 60;
+	int target_fps = 120;
 	std::shared_ptr<GamePlayerSystem> player_system;
 	std::shared_ptr<EnemySystem> enemy_system;
 	std::shared_ptr<GameCameraSystem> camera_system;
