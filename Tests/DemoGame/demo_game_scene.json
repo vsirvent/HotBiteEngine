@@ -216,6 +216,7 @@
         {
           "name": "Lava*",
           "cast_shadow": false,
+          "material": "Lava",
           "pass": 2
         },
         {

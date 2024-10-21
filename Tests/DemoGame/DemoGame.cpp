@@ -290,10 +290,14 @@ public:
 			render->Update();
 
 			//Remove physics from water so it doesn't collide with objects
-			auto water = c->GetEntityByName("Water");
-			c->GetSystem<AudioSystem>()->Play(13, 0, true, 1.0f, 3.0f, false, water);
-			c->RemoveComponent<Physics>(water);
-			c->NotifySignatureChange(water);
+			auto water = c->GetEntitiesByName("Water*");
+			for (auto e : water)
+			{
+				c->GetSystem<AudioSystem>()->Play(13, 0, true, 1.0f, 3.0f, false, e);
+				c->RemoveComponent<Physics>(e);
+				c->NotifySignatureChange(e);
+			}
+
 			progress += 5.0f;
 			render->Update();
 
