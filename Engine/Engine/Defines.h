@@ -148,44 +148,61 @@ namespace HotBite {
 
         }
 
-
-
         inline  bool EQ_INT2(const float2& a, const float2& b) {
             return (int)a.x == (int)b.x && (int)a.y == (int)b.y;
         }
 
-        inline float3 ADD_F3_F3(const float3& a, const float3& b) {
-            return { a.x + b.x , a.y + b.y , a.z + b.z };
-        }
-
-        inline float3 SUB_F3_F3(const float3& a, const float3& b) {
-            return { a.x - b.x , a.y - b.y , a.z - b.z };
-        }
-
-        inline float4 SUB_F4_F4(const float4& a, const float4& b) {
-            __m128 r = _mm_sub_ps(*(__m128*)&a, *(__m128*)&b);
+        // ADD
+        inline float4 ADD_F4_F4(const float4& a, const float4& b) {
+            __m128 r = _mm_add_ps(*(__m128*)&a, *(__m128*)&b);
             return *(float4*)&r;
         }
 
+        inline float3 ADD_F3_F3(const float3& a, const float3& b) {
+            float4 r = ADD_F4_F4({a.x, a.y, a.z, 0.0f}, { b.x, b.y, b.z, 0.0f });
+            return { r.x, r.y, r.z };
+        }
+
         inline float2 ADD_F2_F2(const float2& a, const float2& b) {
-            return { a.x + b.x , a.y + b.y };
+            float4 r = ADD_F4_F4({ a.x, a.y, 0.0f, 0.0f }, { b.x, b.y, 0.0f, 0.0f });
+            return { r.x, r.y };
+        }
+
+        // SUB
+        inline float4 SUB_F4_F4(const float4& a, const float4& b) {
+            __m128 r = _mm_sub_ps(*(__m128*) & a, *(__m128*) & b);
+            return *(float4*)&r;
+        }
+
+        inline float3 SUB_F3_F3(const float3& a, const float3& b) {
+            float4 r = SUB_F4_F4({ a.x, a.y, a.z, 0.0f }, { b.x, b.y, b.z, 0.0f });
+            return { r.x, r.y, r.z };
+        }
+
+        inline float2 SUB_F2_F2(const float2& a, const float2& b) {
+            float4 r = SUB_F4_F4({ a.x, a.y, 0.0f, 0.0f }, { b.x, b.y, 0.0f, 0.0f });
+            return { r.x, r.y };
+        }
+
+        //MULT
+        inline float4 MULT_F4_F4(const float4& a, const float4& b) {
+            __m128 r = _mm_mul_ps(*(__m128*)&a, *(__m128*)&b);
+            return *(float4*)&r;
         }
 
         inline float3 MULT_F3_F3(const float3& a, const float3& b) {
-            return { a.x * b.x , a.y * b.y , a.z * b.z };
+            float4 r = MULT_F4_F4({ a.x, a.y, a.z, 0.0f }, { b.x, b.y, b.z, 0.0f });
+            return { r.x, r.y, r.z };
         }
 
-        inline float DOT_F3_F3(const float3& a, const float3& b) {
-            return { a.x * b.x + a.y * b.y + a.z * b.z };
-        }
-
-        inline float3 DIV_F3_F3(const float3& a, const float3& b) {
-            return { a.x / b.x , a.y / b.y , a.z / b.z };
+        inline float2 MULT_F2_F2(const float2& a, const float2& b) {
+            float4 r = MULT_F4_F4({ a.x, a.y, 0.0f, 0.0f }, { b.x, b.y, 0.0f, 0.0f });
+            return { r.x, r.y };
         }
 
         inline float4 MULT_F4_F(const float4& a, const float& b) {
             __m128 vb = _mm_set1_ps(b);
-            __m128 r = _mm_mul_ps(*(__m128*)&a, vb);
+            __m128 r = _mm_mul_ps(*(__m128*) & a, vb);
             return *(float4*)&r;
         }
 
@@ -199,24 +216,66 @@ namespace HotBite {
             return *(float2*)&r;
         }
 
-        inline bool EQ_INT2(const float2& a, const float2& b);
+        //DIV
+        inline float4 DIV_F4_F4(const float4& a, const float4& b) {
+            __m128 r = _mm_div_ps(*(__m128*) & a, *(__m128*) & b);
+            return  *(float4*)&r;
+        }
 
+        inline float3 DIV_F3_F3(const float3& a, const float3& b) {
+            float4 r = DIV_F4_F4({ a.x, a.y, a.z, 0.0f }, { b.x, b.y, b.z, 0.0f });
+            return { r.x, r.y, r.z };
+        }
+
+        inline float2 DIV_F2_F2(const float2& a, const float2& b) {
+            float4 r = DIV_F4_F4({ a.x, a.y, 0.0f, 0.0f }, { b.x, b.y, 0.0f, 0.0f });
+            return { r.x, r.y };
+        }
+
+        inline float4 DIV_F4_F(const float4& a, const float& b) {
+            __m128 vb = _mm_set1_ps(b);
+            __m128 r = _mm_div_ps(*(__m128*) & a, vb);
+            return *(float4*)&r;
+        }
+
+        inline float3 DIV_F3(const float3& a, const float d) {
+            float4 r = DIV_F4_F({ a.x, a.y, a.z, 0.0f }, d);
+            return { r.x, r.y, r.z };
+        }
+
+        inline float2 DIV_F2(const float2& a, const float d) {
+            float4 r = DIV_F4_F({ a.x, a.y, 0.0f, 0.0f }, d);
+            return { r.x, r.y };
+        }
+
+        //DOT 
+        inline float DOT_F3_F3(const float3& a, const float3& b) {
+            __m128 r = _mm_mul_ps(*(__m128*)&a, *(__m128*)&b);
+            r = _mm_hadd_ps(r, r);
+            r = _mm_hadd_ps(r, r);
+            return _mm_cvtss_f32(r);
+        }
+
+        //LENGTHS
         inline float LENGHT_SQUARE_F2(const float2& a) {
-            return (a.x * a.x + a.y * a.y);
+            float2 r = MULT_F2_F2(a, a);
+            return { r.x + r.y };
         }
 
         inline float LENGHT_F2(const float2& a) {
-            return sqrt(a.x*a.x + a.y*a.y);
+            return sqrt(LENGHT_SQUARE_F2(a));
         }
 
         inline float LENGHT_SQUARE_F3(const float3& a) {
-            return (a.x * a.x + a.y * a.y + a.z * a.z);
+            float3 r = MULT_F3_F3(a, a);
+            return (r.x + r.y + r.z);
         }
 
         inline float LENGHT_F3(const float3& a) {
-            return sqrt(a.x * a.x + a.y * a.y + a.z * a.z);
+            return sqrt(LENGHT_SQUARE_F3(a));
         }
 
+        //UNIT
         inline float3 UNIT_F3(const float3& a) {
             float length = LENGHT_F3(a);
             return { a.x / length, a.y / length, a.z / length };
@@ -224,13 +283,10 @@ namespace HotBite {
 
         inline float2 UNIT_F2(const float2& a) {
             float length = LENGHT_F2(a);
-            return { a.x / length, a.y / length };
+            return DIV_F2(a, length);
         }
 
-        inline float2 DIV_F2(const float2& a, const float d) {
-            return { a.x / d, a.y / d };
-        }
-
+        //DISTANCE LINE TO POINT
         inline float distance_point_line(float3 p0, float3 line_endpoint1, float3 line_endpoint0) {
             float3 line_direction = line_endpoint1 - line_endpoint0;
             float3 point_direction = p0 - line_endpoint0;
@@ -246,9 +302,7 @@ namespace HotBite {
             else
                 distance_vector = SUB_F3_F3(point_direction, MULT_F3_F(line_direction, t));
 
-            return std::sqrt(distance_vector.x * distance_vector.x +
-                distance_vector.y * distance_vector.y +
-                distance_vector.z * distance_vector.z);
+            return LENGHT_F3(distance_vector);
         }
 	}
 }
