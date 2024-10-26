@@ -83,13 +83,17 @@ void main(uint3 DTid : SV_DispatchThreadID)
     }
     case 1: {
         //disp = ray_source.dispersion;
-        disp = dispersion[pixel].b;
-        if (disp <= Epsilon) {
-            output[pixel] = float4(0.0f, 0.0f, 0.0f, 0.0f);
-            return;
-        }
+        disp = dispersion[pixel].b;       
         break;
     }
+    case 2: {
+        disp = dispersion[pixel].a;
+        break;
+    }
+    }
+    if (disp < Epsilon) {
+        output[pixel] = float4(0.0f, 0.0f, 0.0f, 0.0f);
+        return;
     }
     uint min_k = max(normalRatio.x, 0);
     int kernel = debug == 1 ? 0 : clamp(floor(max(MAX_KERNEL * disp, min_dispersion)), min_k, MAX_KERNEL);
