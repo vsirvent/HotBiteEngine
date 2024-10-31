@@ -44,6 +44,7 @@ namespace HotBite {
                 DSCBUFFERDESC               dscbd;
                 DSBUFFERDESC                dsbdesc;
 
+                bool init = false;
                 //sound device 
                 static SoundDevice* sound_device;
 

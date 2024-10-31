@@ -32,43 +32,54 @@ using namespace HotBite::Engine::Core;
 SoundDevice* SoundDevice::sound_device = nullptr;
 
 SoundDevice::SoundDevice() {
-    HRESULT hr;
-    HWND hWnd = GetDesktopWindow();
 
-    // wFormatTag, nChannels, nSamplesPerSec, mAvgBytesPerSec,
-    // nBlockAlign, wBitsPerSample, cbSize
-    WAVEFORMATEX wfx = { WAVE_FORMAT_PCM, 2, FREQ, FREQ * 2 * 2 , 4, 16, 0 };
+    try {
+        HRESULT hr;
+        HWND hWnd = GetDesktopWindow();
 
-    dscbd.dwSize = sizeof(DSCBUFFERDESC);
-    dscbd.dwFlags = 0;
-    dscbd.dwBufferBytes = FREQ;
-    dscbd.dwReserved = 0;
-    dscbd.lpwfxFormat = &wfx;
-    dscbd.dwFXCount = 0;
-    dscbd.lpDSCFXDesc = nullptr;
+        // wFormatTag, nChannels, nSamplesPerSec, mAvgBytesPerSec,
+        // nBlockAlign, wBitsPerSample, cbSize
+        WAVEFORMATEX wfx = { WAVE_FORMAT_PCM, 2, FREQ, FREQ * 2 * 2 , 4, 16, 0 };
 
-    // Set up DSBUFFERDESC structure. 
-    memset(&dsbdesc, 0, sizeof(DSBUFFERDESC));
-    dsbdesc.dwSize = sizeof(DSBUFFERDESC);
-    dsbdesc.dwFlags = 0;
-    dsbdesc.dwBufferBytes = FREQ;
-    dsbdesc.lpwfxFormat = &wfx;
+        dscbd.dwSize = sizeof(DSCBUFFERDESC);
+        dscbd.dwFlags = 0;
+        dscbd.dwBufferBytes = FREQ;
+        dscbd.dwReserved = 0;
+        dscbd.lpwfxFormat = &wfx;
+        dscbd.dwFXCount = 0;
+        dscbd.lpDSCFXDesc = nullptr;
 
-    LPDIRECTSOUNDBUFFER8 DSBuffer8;
+        // Set up DSBUFFERDESC structure. 
+        memset(&dsbdesc, 0, sizeof(DSBUFFERDESC));
+        dsbdesc.dwSize = sizeof(DSBUFFERDESC);
+        dsbdesc.dwFlags = 0;
+        dsbdesc.dwBufferBytes = FREQ;
+        dsbdesc.lpwfxFormat = &wfx;
 
-    hr = DirectSoundFullDuplexCreate8(nullptr,//pcGuidCaptureDevice, 
-        nullptr,//pcGuidRenderDevice,
-        &dscbd,
-        &dsbdesc,
-        hWnd,
-        DSSCL_PRIORITY,
-        &DSFD,
-        &DSCB8,
-        &DSBuffer8,
-        nullptr);
+        LPDIRECTSOUNDBUFFER8 DSBuffer8;
 
-    if (FAILED(hr))
-    {
+        hr = DirectSoundFullDuplexCreate8(nullptr,//pcGuidCaptureDevice, 
+            nullptr,//pcGuidRenderDevice,
+            &dscbd,
+            &dsbdesc,
+            hWnd,
+            DSSCL_PRIORITY,
+            &DSFD,
+            &DSCB8,
+            &DSBuffer8,
+            nullptr);
+
+        if (FAILED(hr))
+        {
+            throw "Error";
+        }
+        DSBuffer8->Release(); //don't need this one
+        hr = DSFD->QueryInterface(IID_IDirectSound8, (void**)&DS8);
+        DSCB8->Start(DSCBSTART_LOOPING);
+        DSFD->Release();
+        init = true;
+    }
+    catch (...) {
         char error[256];
         sprintf(error, "FATAL ERROR!!!\n"
             "Can't access sound device. Check"
@@ -76,16 +87,17 @@ SoundDevice::SoundDevice() {
             "your sound card\n");
 
         MessageBox(nullptr, error, MB_OK, 0);
-        ExitProcess(0);
+        DSFD = nullptr;
+        DSCB8 = nullptr;
+        DS8 = nullptr;
+        init = false;
     }
-    DSBuffer8->Release(); //don't need this one
-    hr = DSFD->QueryInterface(IID_IDirectSound8, (void**)&DS8);
-    DSCB8->Start(DSCBSTART_LOOPING);
-    DSFD->Release();
 }
 
 SoundDevice::~SoundDevice() {
-    DS8->Release();
+    if (DS8 != nullptr) {
+        DS8->Release();
+    }
 }
 
 SoundDevice* SoundDevice::Get() {
@@ -140,18 +152,26 @@ HRESULT SoundDeviceGrabber::CreateSecondaryBuffer(WAVEFORMATEX* fmt) {
     dsbdesc.lpwfxFormat = &out_wave_type;
 
     // Create buffer. 
-    int hr = SoundDevice::Get()->GetDevice()->CreateSoundBuffer(&dsbdesc, &pBuffer, nullptr);
-    hr = pBuffer->QueryInterface(IID_IDirectSoundBuffer8, (void**)&buffer);
-    hr = buffer->SetCurrentPosition(0);
-    offset = SoundDevice::BUFFER_OFFSET;
-    buffer->Restore();
-    pBuffer->Release();
+    int hr = E_FAIL;
+    auto device = SoundDevice::Get()->GetDevice();
+    if (device != nullptr) {
+        hr |= device->CreateSoundBuffer(&dsbdesc, &pBuffer, nullptr);
+        hr |= pBuffer->QueryInterface(IID_IDirectSoundBuffer8, (void**)&buffer);
+        hr |= buffer->SetCurrentPosition(0);
+        offset = SoundDevice::BUFFER_OFFSET;
+        buffer->Restore();
+        pBuffer->Release();
+    }
     return hr;
 }
 
 int
 SoundDeviceGrabber::write(BYTE* pBufferData, long BufferLen)
 {
+    if (buffer == nullptr) {
+        return 0;
+    }
+
     void* lpvPtr1 = nullptr;
     DWORD   dwBytes1 = 0;
     void* lpvPtr2 = nullptr;
@@ -199,6 +219,9 @@ SoundDeviceGrabber::write(BYTE* pBufferData, long BufferLen)
 }
 
 void SoundDeviceGrabber::Run() {
+    if (buffer == nullptr) {
+        return;
+    }
     unsigned long status;
     buffer->GetStatus(&status);
 
@@ -209,6 +232,9 @@ void SoundDeviceGrabber::Run() {
 }
 
 void SoundDeviceGrabber::Stop() {
+    if (buffer == nullptr) {
+        return;
+    }
     void* lpvPtr1 = nullptr;
     DWORD   dwBytes1 = 0;
     void* lpvPtr2 = nullptr;
