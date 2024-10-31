@@ -130,6 +130,24 @@ namespace HotBite {
             return result;
         }
 
+        inline float4 float3_to_quaternion(const float3& rotation_degrees) {
+
+            // Convert degrees to radians
+            float3 rotationRadians;
+            rotationRadians.x = DirectX::XMConvertToRadians(rotation_degrees.x);
+            rotationRadians.y = DirectX::XMConvertToRadians(rotation_degrees.y);
+            rotationRadians.z = DirectX::XMConvertToRadians(rotation_degrees.z);
+
+            // Create the quaternion from the pitch (x), yaw (y), and roll (z) rotations
+            DirectX::XMVECTOR quaternion = DirectX::XMQuaternionRotationRollPitchYaw(rotationRadians.x, rotationRadians.y, rotationRadians.z);
+
+            // If you need to store or use the quaternion as XMFLOAT4
+            float4 quaternion_f4;
+            DirectX::XMStoreFloat4(&quaternion_f4, quaternion);
+
+            return quaternion_f4;
+        }
+
         // Function to compute the conjugate of a quaternion (float4)
         inline float4 quaternion_conjugate(const float4& q) {
             float4 conjugate;
