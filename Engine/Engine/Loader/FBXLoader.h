@@ -83,7 +83,7 @@ namespace HotBite {
 				int LoadMaterials(Core::FlatMap<std::string, Core::MaterialData>& materials, FbxNode* node);
 				int LoadShapes(Core::FlatMap<std::string, Core::ShapeData>& shapes, FbxNode* node);
 
-				ECS::Entity ProcessEntity(Core::FlatMap<std::string, Core::MeshData>& meshes,
+				std::unordered_set<ECS::Entity> ProcessEntity(Core::FlatMap<std::string, Core::MeshData>& meshes,
 					Core::FlatMap<std::string, Core::MaterialData>& materials,
 					Core::FlatMap<std::string, Core::ShapeData>& shapes,
 					ECS::Coordinator* coordinator, FbxNode* node, ECS::Entity parent = ECS::INVALID_ENTITY_ID);

@@ -189,12 +189,13 @@ void World::SetPostProcessPipeline(Core::PostProcess* pipeline) {
 	render_system->SetPostProcessPipeline(pipeline);
 }
 
-void World::LoadFBX(const std::string& file, bool triangulate, bool relative,
+std::set<Entity> World::LoadFBX(const std::string& file, bool triangulate, bool relative,
 	                Core::FlatMap<std::string, Core::MaterialData>& materials,
 	                Core::FlatMap<std::string, Core::MeshData>& meshes,
 	                Core::FlatMap<std::string, Core::ShapeData>& shapes,
 	                ECS::Coordinator* c, Core::VertexBuffer<Core::Vertex>* vb, bool use_animation_names) {
 	std::string full_path_file;
+	std::set<Entity> entities;
 	if (!relative || file.find(":") != std::string::npos) {
 		full_path_file = file;
 	}
@@ -234,9 +235,13 @@ void World::LoadFBX(const std::string& file, bool triangulate, bool relative,
 		//Load scene entities
 		for (int i = 0; i < scene->GetRootNode()->GetChildCount(); ++i) {
 			fbxsdk::FbxNode* n = scene->GetRootNode()->GetChild(i);
-			loader.ProcessEntity(meshes, materials, shapes, c, n);
+			for (const auto& e : loader.ProcessEntity(meshes, materials, shapes, c, n))
+			{
+				entities.insert(e);
+			}
 		}
 	}
+	return entities;
 }
 
 void World::LoadSky(const json& sky_info) {	
@@ -352,8 +357,12 @@ void World::LoadMaterialsNode(const nlohmann::json& materials_info,
 	}
 }
 
+const std::set<ECS::Entity>& World::GetTemplateEntities(const std::string& template_name) {
+	return template_entities[template_name];
+}
+
 void World::LoadTemplate(const std::string& template_file, bool triangulate, bool relative, bool use_animation_names) {
-	LoadFBX(template_file, triangulate, relative, materials, meshes, shapes, templates_coordinator, vertex_buffer, use_animation_names);
+	template_entities[std::filesystem::path(template_file).filename().replace_extension().string()] = LoadFBX(template_file, triangulate, relative, materials, meshes, shapes, templates_coordinator, vertex_buffer, use_animation_names);
 }
 
 bool World::Load(const std::string& scene_file, float* progress, std::function<void(float)> OnLoadProgress, float progress_unit) {

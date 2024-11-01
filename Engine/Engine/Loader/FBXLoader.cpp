@@ -608,19 +608,22 @@ bool FBXLoader::LoadScene(const std::string& filename, bool triangulate)
 	return status;
 }
 
-Entity 
+std::unordered_set<Entity> 
 FBXLoader::ProcessEntity(Core::FlatMap<std::string, Core::MeshData>& meshes,
 						 Core::FlatMap<std::string, Core::MaterialData>& materials,
 						 Core::FlatMap<std::string, Core::ShapeData>& shapes,
 						 Coordinator* coordinator, FbxNode* node, Entity parent) {
 
+	std::unordered_set<Entity> ret;
 	if (node->GetNodeAttribute()->GetAttributeType() == FbxNodeAttribute::eSkeleton) {
-		return INVALID_ENTITY_ID;
+		return ret;
 	}
 	std::string name = node->GetName();
 	Entity e = coordinator->GetEntityByName(name);
 	if (e == INVALID_ENTITY_ID) {
 		e = coordinator->CreateEntity(name);	
+		ret.insert(e);
+
 		coordinator->AddComponent<Components::Base>(e);
 		coordinator->AddComponent<Components::Transform>(e);
 		coordinator->AddComponent<Components::Bounds>(e);
@@ -679,6 +682,33 @@ FBXLoader::ProcessEntity(Core::FlatMap<std::string, Core::MeshData>& meshes,
 				assert(mesh.GetData() != nullptr && "Mesh not found.");
 				coordinator->AddComponent(e, std::move(mesh));
 				coordinator->AddComponent(e, Components::Lighted{});
+
+				Bounds& bounds = coordinator->GetComponent<Bounds>(e);
+				Mesh& m = coordinator->GetComponent<Mesh>(e);
+
+				auto minV = m.GetData()->minDimensions;
+				auto maxV = m.GetData()->maxDimensions;
+
+				float3 center = float3((maxV.x + minV.x) / 2.0f, (maxV.y + minV.y) / 2.0f, (maxV.z + minV.z) / 2.0f);
+				float3 extends = float3(abs(maxV.x - minV.x) / 2.0f, abs(maxV.y - minV.y) / 2.0f, abs(maxV.z - minV.z) / 2.0f);
+				bounds.local_box.Extents = extends;
+				bounds.local_box.Center = center;
+				bounds.final_box = bounds.local_box;
+
+				matrix trans = XMMatrixTranslation(transform.position.x, transform.position.y, transform.position.z);
+				matrix rot = XMMatrixRotationQuaternion(XMLoadFloat4(&transform.rotation));
+				matrix scle = XMMatrixScaling(transform.scale.x, transform.scale.y, transform.scale.z);
+				transform.world_xmmatrix = scle * rot * trans;
+
+				vector4d extents = XMLoadFloat3(&bounds.final_box.Extents);
+				extents = XMVector4Transform(extents, transform.world_xmmatrix);
+				bounds.local_box.Transform(bounds.final_box, transform.world_xmmatrix);
+
+				BoundingOrientedBox local_oriented;
+				local_oriented.Center = bounds.local_box.Center;
+				local_oriented.Extents = bounds.local_box.Extents;
+				local_oriented.Transform(bounds.bounding_box, transform.world_xmmatrix);
+				
 			}break;
 			case FbxNodeAttribute::eSkeleton: {
 				//Skeletons are loaded as part of the mesh
@@ -708,13 +738,15 @@ FBXLoader::ProcessEntity(Core::FlatMap<std::string, Core::MeshData>& meshes,
 		//Load node childs
 		for (int i = 0; i < node->GetChildCount(); ++i) {
 			FbxNode* child_node = node->GetChild(i);
-			ProcessEntity(meshes, materials, shapes, coordinator, child_node, e);
+			for (const auto& ec : ProcessEntity(meshes, materials, shapes, coordinator, child_node, e)) {
+				ret.insert(ec);
+			}
 		}
 	}
 	else {
 		printf("Entity %s already exists.", name.c_str());
 	}	
-	return e;
+	return ret;
 }
 
 bool FBXLoader::ProcessCamera(ECS::Coordinator* coordinator, ECS::Entity e, FbxNode* node) {

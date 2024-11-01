@@ -93,6 +93,7 @@ namespace HotBite {
         
         // Function to multiply two quaternions (float4)
         inline float4 quaternion_multiply(const float4& q1, const float4& q2) {
+#if 0
             __m128 q1_vec = _mm_set_ps(q1.w, q1.z, q1.y, q1.x);
             __m128 q2_vec = _mm_set_ps(q2.w, q2.z, q2.y, q2.x);
 
@@ -126,7 +127,14 @@ namespace HotBite {
             result.y = _mm_cvtss_f32(_mm_shuffle_ps(yzw, yzw, _MM_SHUFFLE(0, 0, 0, 0)));
             result.z = _mm_cvtss_f32(_mm_shuffle_ps(yzw, yzw, _MM_SHUFFLE(1, 1, 1, 1)));
             result.w = _mm_cvtss_f32(_mm_shuffle_ps(yzw, yzw, _MM_SHUFFLE(2, 2, 2, 2)));
+#else
+            float4 result;
+            result.x = q1.w * q2.x + q1.x * q2.w + q1.y * q2.z - q1.z * q2.y;
+            result.y = q1.w * q2.y - q1.x * q2.z + q1.y * q2.w + q1.z * q2.x;
+            result.z = q1.w * q2.z + q1.x * q2.y - q1.y * q2.x + q1.z * q2.w;
+            result.w = q1.w * q2.w - q1.x * q2.x - q1.y * q2.y - q1.z * q2.z;
 
+#endif
             return result;
         }
 
@@ -172,7 +180,10 @@ namespace HotBite {
 
         // ADD
         inline float4 ADD_F4_F4(const float4& a, const float4& b) {
-            __m128 r = _mm_add_ps(*(__m128*)&a, *(__m128*)&b);
+            __m128 va = _mm_load_ps(&a.x);
+            __m128 vb = _mm_load_ps(&b.x);
+
+            __m128 r = _mm_add_ps(*(__m128*)&va, *(__m128*)&vb);
             return *(float4*)&r;
         }
 
@@ -188,7 +199,9 @@ namespace HotBite {
 
         // SUB
         inline float4 SUB_F4_F4(const float4& a, const float4& b) {
-            __m128 r = _mm_sub_ps(*(__m128*) & a, *(__m128*) & b);
+            __m128 va = _mm_load_ps(&a.x);
+            __m128 vb = _mm_load_ps(&b.x);
+            __m128 r = _mm_sub_ps(*(__m128*)&va, *(__m128*)&vb);
             return *(float4*)&r;
         }
 
@@ -204,7 +217,10 @@ namespace HotBite {
 
         //MULT
         inline float4 MULT_F4_F4(const float4& a, const float4& b) {
-            __m128 r = _mm_mul_ps(*(__m128*)&a, *(__m128*)&b);
+            __m128 va = _mm_load_ps(&a.x);
+            __m128 vb = _mm_load_ps(&b.x);
+
+            __m128 r = _mm_mul_ps(*(__m128*)&va, *(__m128*)&vb);
             return *(float4*)&r;
         }
 
@@ -220,7 +236,8 @@ namespace HotBite {
 
         inline float4 MULT_F4_F(const float4& a, const float& b) {
             __m128 vb = _mm_set1_ps(b);
-            __m128 r = _mm_mul_ps(*(__m128*) & a, vb);
+            __m128 va = _mm_load_ps(&a.x);
+            __m128 r = _mm_mul_ps(*(__m128*) &va, vb);
             return *(float4*)&r;
         }
 
@@ -236,7 +253,9 @@ namespace HotBite {
 
         //DIV
         inline float4 DIV_F4_F4(const float4& a, const float4& b) {
-            __m128 r = _mm_div_ps(*(__m128*) & a, *(__m128*) & b);
+            __m128 va = _mm_load_ps(&a.x);
+            __m128 vb = _mm_load_ps(&b.x);
+            __m128 r = _mm_div_ps(*(__m128*)&va, *(__m128*)&vb);
             return  *(float4*)&r;
         }
 
@@ -252,7 +271,8 @@ namespace HotBite {
 
         inline float4 DIV_F4_F(const float4& a, const float& b) {
             __m128 vb = _mm_set1_ps(b);
-            __m128 r = _mm_div_ps(*(__m128*) & a, vb);
+            __m128 va = _mm_load_ps(&a.x);
+            __m128 r = _mm_div_ps(*(__m128*)&va, vb);
             return *(float4*)&r;
         }
 
@@ -268,7 +288,9 @@ namespace HotBite {
 
         //DOT 
         inline float DOT_F3_F3(const float3& a, const float3& b) {
-            __m128 r = _mm_mul_ps(*(__m128*)&a, *(__m128*)&b);
+            __m128 va = _mm_load_ps(&a.x);
+            __m128 vb = _mm_load_ps(&b.x);
+            __m128 r = _mm_mul_ps(*(__m128*)&va, *(__m128*)&vb);
             r = _mm_hadd_ps(r, r);
             r = _mm_hadd_ps(r, r);
             return _mm_cvtss_f32(r);
