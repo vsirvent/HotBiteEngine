@@ -47,7 +47,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 Gid: SV_GroupID, uint3 Tid: SV
     float speed = length(dir);
 
     if (speed > max_speed) {
-         dir = normalize(dir) * max_speed;
+        dir = normalize(dir) * max_speed;
     }
 
     float fsteps = length(dir);
