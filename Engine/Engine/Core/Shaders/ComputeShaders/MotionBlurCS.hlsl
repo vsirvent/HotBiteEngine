@@ -43,11 +43,10 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 Gid: SV_GroupID, uint3 Tid: SV
     float2 norm_dir = normalize(dir);
     dir *= in_dimension.x;
 
-    float2 max_speed_f2 = in_dimension * 0.05f;
-    float max_speed = min(max_speed_f2.x, max_speed_f2.y);
+    float max_speed = in_dimension.x * 0.05f;
     float speed = length(dir);
 
-    if (speed > length(max_speed)) {
+    if (speed > max_speed) {
          dir = normalize(dir) * max_speed;
     }
 
