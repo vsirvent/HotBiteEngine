@@ -87,6 +87,8 @@ void StaticMeshSystem::Update(StaticMeshEntity& entity, int64_t elapsed_nsec, in
 
 	}
 
+	transform->prev_world_matrix = transform->world_matrix;
+
 	if ((entity.transform->dirty ||
 		(entity.base->parent != ECS::INVALID_ENTITY_ID && 
 		(entity.transform->last_parent_position != parent_position || entity.transform->last_parent_rotation != parent_rotation)))) {
@@ -117,7 +119,6 @@ void StaticMeshSystem::Update(StaticMeshEntity& entity, int64_t elapsed_nsec, in
 				transform->world_xmmatrix = transform->world_xmmatrix * t;
 			}
 		}
-		transform->prev_world_matrix = transform->world_matrix;
 		XMStoreFloat4x4(&transform->world_matrix, XMMatrixTranspose(transform->world_xmmatrix));
 		XMStoreFloat4x4(&transform->world_inv_matrix, XMMatrixTranspose(XMMatrixInverse(nullptr, transform->world_xmmatrix)));
 

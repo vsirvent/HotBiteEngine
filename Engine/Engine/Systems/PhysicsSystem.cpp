@@ -254,6 +254,8 @@ void PhysicsSystem::Update(PhysicsEntity& pe, int64_t elapsed_nsec, int64_t tota
 
 	const reactphysics3d::Transform& bt = physics->body->getTransform();
 
+	transform->prev_world_matrix = transform->world_matrix;
+
 	if (physics->type != reactphysics3d::BodyType::STATIC && (force || physics->last_body_transform != bt)) {
 		const reactphysics3d::Vector3& p = bt.getPosition();
 		const reactphysics3d::Quaternion& q = bt.getOrientation();
@@ -269,7 +271,7 @@ void PhysicsSystem::Update(PhysicsEntity& pe, int64_t elapsed_nsec, int64_t tota
 		transform->rotation.w = q.w;
 
 		transform->world_xmmatrix = s * r * t;
-		transform->prev_world_matrix = transform->world_matrix;
+
 		XMStoreFloat4x4(&transform->world_matrix, XMMatrixTranspose(transform->world_xmmatrix));
 		XMStoreFloat4x4(&transform->world_inv_matrix, XMMatrixTranspose(XMMatrixInverse(nullptr, transform->world_xmmatrix)));
 

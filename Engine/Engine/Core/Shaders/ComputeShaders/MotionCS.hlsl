@@ -1,6 +1,6 @@
 #include "../Common/ShaderStructs.hlsli"
 
-RWTexture2D<float4> output : register(u1);
+RWTexture2D<float2> output : register(u1);
 Texture2D<float4> positionTexture : register(t1);
 Texture2D<float4> prevPositionTexture : register(t2);
 
@@ -36,5 +36,5 @@ float2 GetPixelDir(float2 pixel) {
 void main(uint3 DTid : SV_DispatchThreadID, uint3 Gid: SV_GroupID, uint3 Tid: SV_GroupThreadID)
 {
     float2 pixel = float2(DTid.x, DTid.y);
-    output[pixel] = float4(GetPixelDir(pixel), 0.0f, 1.0f);
+    output[pixel] = GetPixelDir(pixel);
 }

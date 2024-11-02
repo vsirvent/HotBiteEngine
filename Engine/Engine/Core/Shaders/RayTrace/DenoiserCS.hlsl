@@ -18,7 +18,7 @@ RWTexture2D<float4> output : register(u0);
 Texture2D<float4> normals : register(t1);
 Texture2D<float4> positions : register(t2);
 Texture2D<float4> prev_output : register(t3);
-Texture2D<float4> motion_texture : register(t4);
+Texture2D<float2> motion_texture : register(t4);
 Texture2D<float4> prev_position_map: register(t5);
 Texture2D<float4> dispersion: register(t6);
 
@@ -132,16 +132,16 @@ void main(uint3 DTid : SV_DispatchThreadID)
         prev_pos.x /= prev_pos.w;
         prev_pos.y /= -prev_pos.w;
         prev_pos.xy = (prev_pos.xy + 1.0f) * normals_dimensions.xy / 2.0f;
-        float m = length(motion_texture[prev_pos.xy].xyz);
+        float m = length(motion_texture[prev_pos.xy].xy);
         if (m > motion) {
             motion = m;
         }
-        float3 mvector = motion_texture[info_pixel].xyz;
+        float2 mvector = motion_texture[info_pixel].xy;
         if (mvector.x == -FLT_MAX) {
             motion = FLT_MAX;
         }
         else {
-            m = length(motion_texture[info_pixel].xyz);
+            m = length(motion_texture[info_pixel].xy);
             if (m > motion) {
                 motion = m;
             }

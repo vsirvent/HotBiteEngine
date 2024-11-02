@@ -4,7 +4,7 @@ globallycoherent RWTexture2D<float4> output : register(u1);
 globallycoherent RWByteAddressBuffer outputLock : register(u2);
 
 Texture2D<float4> input : register(t0);
-Texture2D<float4> motionTexture : register(t1);
+Texture2D<float2> motionTexture : register(t1);
 
 cbuffer externalData : register(b0)
 {
@@ -41,13 +41,14 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 Gid: SV_GroupID, uint3 Tid: SV
     float2 dir = GetPixelDir(input_pixel);
     float orig_speed = length(dir);
     float2 norm_dir = normalize(dir);
-    dir *= in_dimension;
+    dir *= in_dimension.x;
 
-    float2 max_speed = in_dimension * 0.02f;
+    float2 max_speed_f2 = in_dimension * 0.05f;
+    float max_speed = min(max_speed_f2.x, max_speed_f2.y);
     float speed = length(dir);
 
     if (speed > length(max_speed)) {
-        dir = normalize(dir) * max_speed;
+         dir = normalize(dir) * max_speed;
     }
 
     float fsteps = length(dir);
