@@ -252,7 +252,7 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		
 		for (int i = 0; i < 2; ++i)
 		{
-			if (FAILED(light_map[i].Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R11G11B10_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+			if (FAILED(light_map[i].Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 				throw std::exception("light_map.Init failed");
 			}
 		}
