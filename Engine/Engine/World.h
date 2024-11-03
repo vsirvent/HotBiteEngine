@@ -141,6 +141,7 @@ namespace HotBite {
 										  const std::string& texture_path);
 			virtual void LoadMultiMaterial(const std::string& name, const nlohmann::json& multi_material_info);
 			virtual const std::set<ECS::Entity>& GetTemplateEntities(const std::string& template_name);
+			virtual bool IsTemplateLoaded(const std::string& template_name);
 
 			template<typename T>
 			void RegisterComponent()

@@ -361,6 +361,10 @@ const std::set<ECS::Entity>& World::GetTemplateEntities(const std::string& templ
 	return template_entities[template_name];
 }
 
+bool World::IsTemplateLoaded(const std::string& template_name) {
+	return template_entities.find(template_name) != template_entities.end();
+}
+
 void World::LoadTemplate(const std::string& template_file, bool triangulate, bool relative, bool use_animation_names) {
 	template_entities[std::filesystem::path(template_file).filename().replace_extension().string()] = LoadFBX(template_file, triangulate, relative, materials, meshes, shapes, templates_coordinator, vertex_buffer, use_animation_names);
 }
