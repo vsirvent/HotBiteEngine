@@ -102,7 +102,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     uint2 ipixel = pixel;
     ipixel += round(pixel) % RATIO;
     for (int i = -kernel; i <= kernel; ++i) {
-        float2 p = ipixel + dir * i * RATIO;
+        float2 p = ipixel + dir * i;// *RATIO;
         if ((p.x < 0 || p.x >= input_dimensions.x) && (p.y < 0 || p.y >= input_dimensions.y)) {
             continue;
         }

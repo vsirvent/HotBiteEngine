@@ -206,12 +206,10 @@ int FBXLoader::LoadMeshes(Core::FlatMap<std::string, Core::MeshData>& meshes, Fb
 	{
 		std::string name = node->GetName();
 		std::vector<unsigned int> indices;
-		std::unordered_map<int, bool> used_vertices;
 		std::unordered_map<int, std::vector<int>> cloned_vertices;
 
 		FbxMesh* fbxMesh = (FbxMesh*)node->GetNodeAttribute();
 		FbxVector4* controlPoints = fbxMesh->GetControlPoints();
-		int vertexCount = fbxMesh->GetControlPointsCount();
 		std::vector<Vertex> vertices;
 
 		bool smooth = true;
@@ -224,53 +222,42 @@ int FBXLoader::LoadMeshes(Core::FlatMap<std::string, Core::MeshData>& meshes, Fb
 			smooth = false;
 		}
 
-		Vertex v = {};
-		for (int i = 0; i < vertexCount; i++)
-		{
-			//Blender
-			v.Position.x = (float)controlPoints[i].mData[0];
-			v.Position.y = (float)controlPoints[i].mData[1];
-			v.Position.z = (float)controlPoints[i].mData[2];
-			v.Normal = {};
-			vertices.push_back(v);
-		}
-
+		int vertex = 0;
 		int polygonCount = fbxMesh->GetPolygonCount();
 		for (int i = 0; i < polygonCount; i++)
 		{
 			int polygonSize = fbxMesh->GetPolygonSize(i);
 			for (int j = 0; j < polygonSize; j++)
 			{
-				int ind = fbxMesh->GetPolygonVertex(i, j);
-				if (used_vertices[ind] == true) {
-					vertices.push_back(vertices[ind]);
-					int new_index = (int)vertices.size() - 1;
-					cloned_vertices[ind].push_back(new_index);
-					ind = new_index;
-				}
-				indices.push_back(ind);
+				vertices.push_back({});
+				int index = vertex++;
+				int fbx_id = fbxMesh->GetPolygonVertex(i, j);
+				cloned_vertices[fbx_id].push_back(index);
+				indices.push_back(index);
+				
+				vertices[index].Position.x = (float)controlPoints[fbx_id].mData[0];
+				vertices[index].Position.y = (float)controlPoints[fbx_id].mData[1];
+				vertices[index].Position.z = (float)controlPoints[fbx_id].mData[2];
 
 				FbxVector4 norm(0, 0, 0, 0);
 				fbxMesh->GetPolygonVertexNormal(i, j, norm);
-				vertices[ind].Normal.x = (float)norm.mData[0];
-				vertices[ind].Normal.y = (float)norm.mData[1];
-				vertices[ind].Normal.z = (float)norm.mData[2];
+				vertices[index].Normal.x = (float)norm.mData[0];
+				vertices[index].Normal.y = (float)norm.mData[1];
+				vertices[index].Normal.z = (float)norm.mData[2];
 
 				FbxVector2 uvCoord(0, 0);
 				bool uvFlag = false;
 				if (fbxMesh->GetPolygonVertexUV(i, j, "UVMap", uvCoord, uvFlag)) {
-					vertices[ind].UV.x = (float)uvCoord.mData[0];
-					vertices[ind].UV.y = 1.0f - (float)uvCoord.mData[1];
+					vertices[index].UV.x = (float)uvCoord.mData[0];
+					vertices[index].UV.y = 1.0f - (float)uvCoord.mData[1];
 				}
 				if (fbxMesh->GetPolygonVertexUV(i, j, "MeshUVMap", uvCoord, uvFlag)) {
-					vertices[ind].MeshUV.x = (float)uvCoord.mData[0];
-					vertices[ind].MeshUV.y = 1.0f - (float)uvCoord.mData[1];
+					vertices[index].MeshUV.x = (float)uvCoord.mData[0];
+					vertices[index].MeshUV.y = 1.0f - (float)uvCoord.mData[1];
 				}
-				used_vertices[ind] = true;
 			}
 		}
-		used_vertices.clear();
-
+		
 		CalculateTangents(vertices, indices);
 
 		shared_ptr<Core::Skeleton> skeleton = nullptr;
@@ -420,17 +407,7 @@ int FBXLoader::LoadMeshes(Core::FlatMap<std::string, Core::MeshData>& meshes, Fb
 
 		
 		if (smooth) {
-			for (auto cv : cloned_vertices) {
-				vector<int> ids;
-				Vertex mixed_vertex = MixSimilarVertices(vertices, cloned_vertices, cv.first, cv.second, used_vertices, ids);
-				for (auto id : ids) {
-					vertices[id].Normal = mixed_vertex.Normal;
-					vertices[id].Tangent = mixed_vertex.Tangent;
-					vertices[id].Bitangent = mixed_vertex.Bitangent;
-					memcpy(vertices[id].Boneids, mixed_vertex.Boneids, sizeof(mixed_vertex.Boneids));
-					vertices[id].Weights = mixed_vertex.Weights;
-				}
-			}
+			MixSimilarVertices(vertices, cloned_vertices);
 		}
 
 		printf("Loaded mesh %s\n", name.c_str());
@@ -854,50 +831,31 @@ void FBXLoader::CalculateTangents(std::vector<Vertex>& vertices, const std::vect
 	}
 }
 
-Vertex FBXLoader::MixSimilarVertices(const std::vector<Vertex>& vertices, const std::unordered_map<int, std::vector<int>>& cloned_vertices,
-	int id, const std::vector<int> child_ids, std::unordered_map<int, bool>& used_vertices, std::vector<int>& ids) {
-	Vertex mixed_vertex = {};
-	if (used_vertices.find(id) == used_vertices.end()) {
-		used_vertices[id] = true;
-		ids.push_back(id);
-		mixed_vertex.Normal.x += vertices[id].Normal.x;
-		mixed_vertex.Normal.y += vertices[id].Normal.y;
-		mixed_vertex.Normal.z += vertices[id].Normal.z;
-		mixed_vertex.Tangent.x += vertices[id].Tangent.x;
-		mixed_vertex.Tangent.y += vertices[id].Tangent.y;
-		mixed_vertex.Tangent.z += vertices[id].Tangent.z;
-		mixed_vertex.Bitangent.x += vertices[id].Bitangent.x;
-		mixed_vertex.Bitangent.y += vertices[id].Bitangent.y;
-		mixed_vertex.Bitangent.z += vertices[id].Bitangent.z;
-		memcpy(mixed_vertex.Boneids, vertices[id].Boneids, sizeof(mixed_vertex.Boneids));
-		mixed_vertex.Weights = vertices[id].Weights;
-		for (auto chid : child_ids) {
-			ids.push_back(chid);
-			auto chid_childs = cloned_vertices.find(chid);
-			mixed_vertex.Normal.x += vertices[chid].Normal.x;
-			mixed_vertex.Normal.y += vertices[chid].Normal.y;
-			mixed_vertex.Normal.z += vertices[chid].Normal.z;
-			mixed_vertex.Tangent.x += vertices[chid].Tangent.x;
-			mixed_vertex.Tangent.y += vertices[chid].Tangent.y;
-			mixed_vertex.Tangent.z += vertices[chid].Tangent.z;
-			mixed_vertex.Bitangent.x += vertices[chid].Bitangent.x;
-			mixed_vertex.Bitangent.y += vertices[chid].Bitangent.y;
-			mixed_vertex.Bitangent.z += vertices[chid].Bitangent.z;
-			if (chid_childs != cloned_vertices.end()) {
-				Vertex ch_mixed_vertex = MixSimilarVertices(vertices, cloned_vertices, chid, chid_childs->second, used_vertices, ids);
-				mixed_vertex.Normal.x += ch_mixed_vertex.Normal.x;
-				mixed_vertex.Normal.y += ch_mixed_vertex.Normal.y;
-				mixed_vertex.Normal.z += ch_mixed_vertex.Normal.z;
-				mixed_vertex.Tangent.x += ch_mixed_vertex.Tangent.x;
-				mixed_vertex.Tangent.y += ch_mixed_vertex.Tangent.y;
-				mixed_vertex.Tangent.z += ch_mixed_vertex.Tangent.z;
-				mixed_vertex.Bitangent.x += ch_mixed_vertex.Bitangent.x;
-				mixed_vertex.Bitangent.y += ch_mixed_vertex.Bitangent.y;
-				mixed_vertex.Bitangent.z += ch_mixed_vertex.Bitangent.z;
-			}
+void FBXLoader::MixSimilarVertices(std::vector<Vertex>& vertices, const std::unordered_map<int, std::vector<int>>& cloned_vertices) {
+
+	for (const auto& cv : cloned_vertices) {
+		Vertex mixed_vertex = {};
+		for (const auto& id : cv.second) {
+			mixed_vertex.Normal.x += vertices[id].Normal.x;
+			mixed_vertex.Normal.y += vertices[id].Normal.y;
+			mixed_vertex.Normal.z += vertices[id].Normal.z;
+			mixed_vertex.Tangent.x += vertices[id].Tangent.x;
+			mixed_vertex.Tangent.y += vertices[id].Tangent.y;
+			mixed_vertex.Tangent.z += vertices[id].Tangent.z;
+			mixed_vertex.Bitangent.x += vertices[id].Bitangent.x;
+			mixed_vertex.Bitangent.y += vertices[id].Bitangent.y;
+			mixed_vertex.Bitangent.z += vertices[id].Bitangent.z;
+		}
+		mixed_vertex.Normal = UNIT_F3(mixed_vertex.Normal);
+		mixed_vertex.Tangent = UNIT_F3(mixed_vertex.Tangent);
+		mixed_vertex.Bitangent = UNIT_F3(mixed_vertex.Bitangent);
+
+		for (const auto& id : cv.second) {
+			vertices[id].Normal = mixed_vertex.Normal;
+			vertices[id].Tangent = mixed_vertex.Tangent;
+			vertices[id].Bitangent = mixed_vertex.Bitangent;
 		}
 	}
-	return mixed_vertex;
 }
 
 

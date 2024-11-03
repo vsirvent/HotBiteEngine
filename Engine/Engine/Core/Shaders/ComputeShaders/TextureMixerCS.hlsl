@@ -103,8 +103,8 @@ void main(uint3 DTid : SV_DispatchThreadID)
 #if 1
     output[pixel] = climit4(color);
 #else
-    uint2 p = pixel * 0.5f;
-    float r = 1.0f + (0.05f - 0.1f * rgba_tnoise(p * frame_count));
+    float2 p = pixel * 0.3f + frac(time) * 1000.0f;
+    float r = 1.0f + (0.1f * rgba_tnoise(p));
     output[pixel] = climit4(color * r);
 #endif
 }
