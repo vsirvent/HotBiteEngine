@@ -91,6 +91,22 @@ bool PhysicsSystem::IsContact(ECS::Entity entity1, ECS::Entity entity2) const {
 	return ret;
 }
 
+std::unordered_set<ECS::Entity> PhysicsSystem::GetContacts(ECS::Entity entity) const {
+	std::unordered_set<ECS::Entity> ret;
+	const PhysicsEntity* e1 = physics.Get(entity);
+	if (e1 == nullptr) { return ret; }
+	auto it1 = contacts_by_body.find(e1->physics->body);
+	if (it1 != contacts_by_body.end()) {
+		for (const auto& c : it1->second) {
+			auto e2 = entity_by_body.find(c.first);
+			if (e2 != entity_by_body.end()) {
+				ret.insert(e2->second->base->id);
+			}
+		}
+	}
+	return ret;
+}
+
 void PhysicsSystem::ClearContact(ECS::Entity entity) {
 	const PhysicsEntity* e = physics.Get(entity);
 	if (e != nullptr) {

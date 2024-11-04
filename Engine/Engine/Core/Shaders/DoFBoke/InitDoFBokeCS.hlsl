@@ -70,7 +70,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     float fkernel_size = kernel_size;
     int half_kernel = kernel_size / 2;
     float dispersion = (float)kernel_unit / 100.0f;
-    float max_variance = fkernel_size / 2.0f;
+    float max_variance = fkernel_size / 5.0f;
     float variance = clamp(dispersion, 0.1f, max_variance);
 
     float freq = max_variance / (variance * M_PI);

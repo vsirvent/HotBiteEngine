@@ -85,6 +85,7 @@ namespace HotBite {
 				void Init(reactphysics3d::PhysicsWorld* w);
 				void Update(int64_t elapsed_nsec, int64_t total_nsec, bool force);
 				reactphysics3d::PhysicsWorld* GetWorld();
+				std::unordered_set<ECS::Entity> GetContacts(ECS::Entity entity) const;
 				bool IsContact(ECS::Entity entity1, ECS::Entity entity2) const;
 				void ClearContact(ECS::Entity entity);
 				const CollisionData&

@@ -55,13 +55,12 @@ float4 readColor(float2 pixel, texture2D text, uint w, uint h) {
     return text.SampleLevel(basicSampler, pixel, 0);
     uint w2, h2;
     text.GetDimensions(w2, h2);
-    return text.SampleLevel(basicSampler, pixel, 0);
     if (w2 == w && h2 == h) {
         return text.SampleLevel(basicSampler, pixel, 0);
     }
     else {
-        //return GetInterpolatedColor(pixel, text, float2(w2, h2));
-        return Get3dInterpolatedColor(pixel, text, float2(w2, h2), positions, normals, float2(w, h));
+        return GetInterpolatedColor(pixel, text, float2(w2, h2));
+        //return Get3dInterpolatedColor(pixel, text, float2(w2, h2), positions, normals, float2(w, h));
     }
 }
 
@@ -83,8 +82,8 @@ void main(uint3 DTid : SV_DispatchThreadID)
     float4 e = readColor(tpos, emissionTexture, w, h);
     float4 rt0 = readColor(tpos, rtTexture0, w, h);
     float4 rt1 = readColor(tpos, rtTexture1, w, h);
-    float4 rt2 = saturate(readColor(tpos, rtTexture2, w, h));
-    float4 rt3 = saturate(readColor(tpos, rtTexture3, w, h));
+    float4 rt2 = readColor(tpos, rtTexture2, w, h);
+    float4 rt3 = readColor(tpos, rtTexture3, w, h);
     float4 vol = readColor(tpos, volLightTexture, w, h);
     float4 dust = readColor(tpos, dustTexture, w, h);
     float4 lens_flare = readColor(tpos, lensFlareTexture, w, h);

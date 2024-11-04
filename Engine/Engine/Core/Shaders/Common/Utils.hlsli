@@ -121,7 +121,7 @@ float4 Get3dInterpolatedColor(float2 uv, Texture2D text, float2 dimension, Textu
 	// Small epsilon to avoid division by zero
 	float epsilon = 1e-4;
 
-	// Calculate weights based on inverse distance (closer points have higher weight)
+	// Calculate weights based on inverse distance (closer points has higher weight)
 	float w00 = 1.0f / max(d00, epsilon);
 	float w11 = 1.0f / max(d11, epsilon);
 	float w01 = 1.0f / max(d01, epsilon);
@@ -133,10 +133,10 @@ float4 Get3dInterpolatedColor(float2 uv, Texture2D text, float2 dimension, Textu
 	float3 n10 = normals[pos_p10].xyz;
 	float3 nxx = normals[in_pos].xyz;
 
-	w00 *= saturate(dot(nxx, n00));  // Distance to wp00
-	w11 *= saturate(dot(nxx, n11));  // Distance to wp11
-	w01 *= saturate(dot(nxx, n01));  // Distance to wp01
-	w10 *= saturate(dot(nxx, n10));  // Distance to wp10
+	w00 *= saturate(dot(nxx, n00));  
+	w11 *= saturate(dot(nxx, n11));  
+	w01 *= saturate(dot(nxx, n01));  
+	w10 *= saturate(dot(nxx, n10));
 
 	// Normalize weights
 	float totalWeight = w00 + w11 + w01 + w10;
