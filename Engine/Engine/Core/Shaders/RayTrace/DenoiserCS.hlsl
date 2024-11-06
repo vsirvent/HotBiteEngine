@@ -46,7 +46,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     }
     uint2 normalRatio = normals_dimensions / input_dimensions;
 
-    float2 info_pixel = round((pixel + float2(0.6f, 0.6f)) * normalRatio);
+    float2 info_pixel = round(pixel * normalRatio);
     float3 p0_normal = normals[info_pixel].xyz;
     float3 p0_position = positions[info_pixel].xyz;
     RaySource ray_source = fromColor(positions[info_pixel], normals[info_pixel]);
@@ -77,8 +77,8 @@ void main(uint3 DTid : SV_DispatchThreadID)
 
     switch (light_type) {
     case 0: {
-        //disp = sqrt(ray_source.dispersion);
-        disp = sqrt(dispersion[pixel].r);
+        disp = sqrt(ray_source.dispersion);
+        //disp = sqrt(dispersion[pixel].r);
         break;
     }
     case 1: {
@@ -102,11 +102,11 @@ void main(uint3 DTid : SV_DispatchThreadID)
     uint2 ipixel = pixel;
     ipixel += round(pixel) % RATIO;
     for (int i = -kernel; i <= kernel; ++i) {
-        float2 p = ipixel + dir * i;// *RATIO;
+        float2 p = ipixel + dir * i * RATIO;
         if ((p.x < 0 || p.x >= input_dimensions.x) && (p.y < 0 || p.y >= input_dimensions.y)) {
             continue;
         }
-        float2 p1_info_pixel = round((p + float2(0.6f, 0.6f)) * normalRatio);
+        float2 p1_info_pixel = round(p * normalRatio);
         float3 p1_position = positions[p1_info_pixel].xyz;
         float3 p1_normal = normals[p1_info_pixel].xyz;
         float n = saturate(dot(p1_normal, p0_normal));
@@ -147,7 +147,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
             }
         }
 
-        float4 prev_color = prev_output[prev_pos.xy / normalRatio];
+        float4 prev_color = prev_output[floor(prev_pos.xy / normalRatio)];
         float w = saturate(0.8f - motion * 50.0f);
         output[pixel] = prev_color * w + c0 * (1.0f - w);
     }
