@@ -95,7 +95,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
         output[pixel] = float4(0.0f, 0.0f, 0.0f, 0.0f);
         return;
     }
-    uint min_k = max(normalRatio.x, 0);
+    uint min_k = 0;// max(normalRatio.x, 0);
     int kernel = debug == 1 ? 0 : clamp(floor(max(MAX_KERNEL * disp, min_dispersion)), min_k, MAX_KERNEL);
     float motion = 0.0f;
     float camDist = dist2(cameraPosition - p0_position);

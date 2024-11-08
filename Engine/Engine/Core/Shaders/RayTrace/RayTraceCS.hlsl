@@ -477,7 +477,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             if (DTid.z == 0) {
                 float3 seed = orig_pos * 100.0f;
                 float rX = rgba_tnoise(seed);
-                rX = pow(rX, 3.0f);
+                rX = pow(rX, 5.0f);
                 GetSpaceVectors(orig_dir, tangent, bitangent);
                 ray.dir = GenerateHemisphereRay(orig_dir, tangent, bitangent, ray_source.dispersion, N, level, rX);
                 ray.orig.xyz = orig_pos.xyz + ray.dir * 0.001f;
