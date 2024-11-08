@@ -55,7 +55,8 @@ namespace HotBite {
 				float  GetMaterialProperty(const FbxSurfaceMaterial* pMaterial, const char* pPropertyName);
 				float4  GetMaterialProperty(const FbxSurfaceMaterial* pMaterial, const char* pPropertyName, const char* pFactorPropertyName, std::string* pTextureName);
 
-				void MixSimilarVertices(std::vector<Core::Vertex>& vertices, const std::unordered_map<int, std::vector<int>>& cloned_vertices);
+				Core::Vertex MixSimilarVertices(const std::vector<Core::Vertex>& vertices, const std::unordered_map<int, std::vector<int>>& cloned_vertices,
+					int id, const std::vector<int> child_ids, std::unordered_map<int, bool>& used_vertices, std::vector<int>& ids);
 
 				void CalculateTangents(std::vector<Core::Vertex>& vertices, const std::vector<unsigned int>& indices);
 

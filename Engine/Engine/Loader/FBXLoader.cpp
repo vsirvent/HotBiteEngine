@@ -62,7 +62,7 @@ void FBXLoader::InitializeSdkObjects()
 	assert(fbx_manager && "Error: Unable to create FBX Manager!\n");
 
 	printf("Autodesk FBX SDK version %s\n", fbx_manager->GetVersion());
-	
+
 	FbxIOSettings* ios = FbxIOSettings::Create(fbx_manager, IOSROOT);
 	fbx_manager->SetIOSettings(ios);
 
@@ -103,13 +103,13 @@ void FBXLoader::LoadAnimations(std::shared_ptr<Core::Skeleton> skeleton, FbxNode
 		//}
 		joint.cpu_data.name = node->GetName();
 		joint.cpu_data.joint_id = (int)node->GetUniqueID();
-		
+
 		FbxNode* oparent = dynamic_cast<FbxNode*>(node->GetParent());
 		int parent_id = -1;
 		if (oparent != nullptr && oparent->GetNodeAttribute() && oparent->GetNodeAttribute()->GetAttributeType() == FbxNodeAttribute::eSkeleton) {
 			parent_id = (int)oparent->GetUniqueID();
 		}
-		
+
 		if (anim_stack_count > 0) {
 			for (int stack = 0; stack < anim_stack_count; ++stack) {
 				Core::JointAnim animation;
@@ -137,7 +137,7 @@ void FBXLoader::LoadAnimations(std::shared_ptr<Core::Skeleton> skeleton, FbxNode
 						animation.name = animation.name.substr(pos + 1);
 					}
 				}
-				
+
 				float step = 1000.0f / animation.fps;
 
 				int kid = 0;
@@ -185,7 +185,7 @@ int FBXLoader::LoadSkeletons(const std::string& filename, Core::FlatMap<std::str
 			name = name.substr(0, ext);
 		}
 		std::shared_ptr<Skeleton> skl = make_shared<Skeleton>();
-		LoadAnimations(skl, node, node->GetParent(), use_animation_names?"":name);
+		LoadAnimations(skl, node, node->GetParent(), use_animation_names ? "" : name);
 		skl->Flush();
 		printf("Skeleton with %llu bones loaded\n", skl->CpuData().size());
 		skeletons.Insert(name, skl);
@@ -206,10 +206,12 @@ int FBXLoader::LoadMeshes(Core::FlatMap<std::string, Core::MeshData>& meshes, Fb
 	{
 		std::string name = node->GetName();
 		std::vector<unsigned int> indices;
+		std::unordered_map<int, bool> used_vertices;
 		std::unordered_map<int, std::vector<int>> cloned_vertices;
 
 		FbxMesh* fbxMesh = (FbxMesh*)node->GetNodeAttribute();
 		FbxVector4* controlPoints = fbxMesh->GetControlPoints();
+		int vertexCount = fbxMesh->GetControlPointsCount();
 		std::vector<Vertex> vertices;
 
 		bool smooth = true;
@@ -222,42 +224,53 @@ int FBXLoader::LoadMeshes(Core::FlatMap<std::string, Core::MeshData>& meshes, Fb
 			smooth = false;
 		}
 
-		int vertex = 0;
+		Vertex v = {};
+		for (int i = 0; i < vertexCount; i++)
+		{
+			//Blender
+			v.Position.x = (float)controlPoints[i].mData[0];
+			v.Position.y = (float)controlPoints[i].mData[1];
+			v.Position.z = (float)controlPoints[i].mData[2];
+			v.Normal = {};
+			vertices.push_back(v);
+		}
+
 		int polygonCount = fbxMesh->GetPolygonCount();
 		for (int i = 0; i < polygonCount; i++)
 		{
 			int polygonSize = fbxMesh->GetPolygonSize(i);
 			for (int j = 0; j < polygonSize; j++)
 			{
-				vertices.push_back({});
-				int index = vertex++;
-				int fbx_id = fbxMesh->GetPolygonVertex(i, j);
-				cloned_vertices[fbx_id].push_back(index);
-				indices.push_back(index);
-				
-				vertices[index].Position.x = (float)controlPoints[fbx_id].mData[0];
-				vertices[index].Position.y = (float)controlPoints[fbx_id].mData[1];
-				vertices[index].Position.z = (float)controlPoints[fbx_id].mData[2];
+				int ind = fbxMesh->GetPolygonVertex(i, j);
+				if (used_vertices[ind] == true) {
+					vertices.push_back(vertices[ind]);
+					int new_index = (int)vertices.size() - 1;
+					cloned_vertices[ind].push_back(new_index);
+					ind = new_index;
+				}
+				indices.push_back(ind);
 
 				FbxVector4 norm(0, 0, 0, 0);
 				fbxMesh->GetPolygonVertexNormal(i, j, norm);
-				vertices[index].Normal.x = (float)norm.mData[0];
-				vertices[index].Normal.y = (float)norm.mData[1];
-				vertices[index].Normal.z = (float)norm.mData[2];
+				vertices[ind].Normal.x = (float)norm.mData[0];
+				vertices[ind].Normal.y = (float)norm.mData[1];
+				vertices[ind].Normal.z = (float)norm.mData[2];
 
 				FbxVector2 uvCoord(0, 0);
 				bool uvFlag = false;
 				if (fbxMesh->GetPolygonVertexUV(i, j, "UVMap", uvCoord, uvFlag)) {
-					vertices[index].UV.x = (float)uvCoord.mData[0];
-					vertices[index].UV.y = 1.0f - (float)uvCoord.mData[1];
+					vertices[ind].UV.x = (float)uvCoord.mData[0];
+					vertices[ind].UV.y = 1.0f - (float)uvCoord.mData[1];
 				}
 				if (fbxMesh->GetPolygonVertexUV(i, j, "MeshUVMap", uvCoord, uvFlag)) {
-					vertices[index].MeshUV.x = (float)uvCoord.mData[0];
-					vertices[index].MeshUV.y = 1.0f - (float)uvCoord.mData[1];
+					vertices[ind].MeshUV.x = (float)uvCoord.mData[0];
+					vertices[ind].MeshUV.y = 1.0f - (float)uvCoord.mData[1];
 				}
+				used_vertices[ind] = true;
 			}
 		}
-		
+		used_vertices.clear();
+
 		CalculateTangents(vertices, indices);
 
 		shared_ptr<Core::Skeleton> skeleton = nullptr;
@@ -274,7 +287,7 @@ int FBXLoader::LoadMeshes(Core::FlatMap<std::string, Core::MeshData>& meshes, Fb
 				FbxCluster* currCluster = skin->GetCluster(clusterIndex);
 
 				joint.cpu_data.name = currCluster->GetLink()->GetName();
-				
+
 				joint.cpu_data.joint_id = (int)currCluster->GetLink()->GetUniqueID();
 
 				FbxNode* oparent = dynamic_cast<FbxNode*>(currCluster->GetLink()->GetParent());
@@ -312,13 +325,13 @@ int FBXLoader::LoadMeshes(Core::FlatMap<std::string, Core::MeshData>& meshes, Fb
 						animation.start = (float)start_msec;
 						animation.end = (float)stop_msec;
 						animation.duration = animation.end - animation.start;
-						
+
 						animation.name = currAnimStack->GetName();
 						size_t pos = animation.name.find_last_of("|");
 						if (pos != std::string::npos) {
 							animation.name = animation.name.substr(pos + 1);
 						}
-						
+
 						float step = 1000.0f / animation.fps;
 
 						int kid = 0;
@@ -340,7 +353,7 @@ int FBXLoader::LoadMeshes(Core::FlatMap<std::string, Core::MeshData>& meshes, Fb
 				scene->SetCurrentAnimationStack(scene->GetSrcObject<FbxAnimStack>(0));
 				skeleton->AddJoint(joint, parent_id);
 			}
-			
+
 			skeleton->Flush();
 			printf("Skeleton with %llu bones created\n", skeleton->CpuData().size());
 			for (unsigned int clusterIndex = 0; clusterIndex < numOfClusters; ++clusterIndex)
@@ -357,7 +370,7 @@ int FBXLoader::LoadMeshes(Core::FlatMap<std::string, Core::MeshData>& meshes, Fb
 				{
 					int index = currCluster->GetControlPointIndices()[i];
 					int vertexid = indices[currCluster->GetControlPointIndices()[i]];
-					
+
 					if (vertices[index].Boneids[0] == -1 && vertices[index].Weights.x == -1)
 					{
 						vertices[index].Boneids[0] = (uint8_t)joint->cpu_data.id;
@@ -399,15 +412,25 @@ int FBXLoader::LoadMeshes(Core::FlatMap<std::string, Core::MeshData>& meshes, Fb
 							case 2: vertices[index].Weights.z += currentWeight; break;
 							case 3: vertices[index].Weights.w += currentWeight; break;
 							}
-						}					
+						}
 					}
 				}
 			}
 		}
 
-		
+
 		if (smooth) {
-			MixSimilarVertices(vertices, cloned_vertices);
+			for (auto cv : cloned_vertices) {
+				vector<int> ids;
+				Vertex mixed_vertex = MixSimilarVertices(vertices, cloned_vertices, cv.first, cv.second, used_vertices, ids);
+				for (auto id : ids) {
+					vertices[id].Normal = mixed_vertex.Normal;
+					vertices[id].Tangent = mixed_vertex.Tangent;
+					vertices[id].Bitangent = mixed_vertex.Bitangent;
+					memcpy(vertices[id].Boneids, mixed_vertex.Boneids, sizeof(mixed_vertex.Boneids));
+					vertices[id].Weights = mixed_vertex.Weights;
+				}
+			}
 		}
 
 		printf("Loaded mesh %s\n", name.c_str());
@@ -428,7 +451,7 @@ int FBXLoader::LoadMaterials(Core::FlatMap<std::string, Core::MaterialData>& mat
 	for (int i = 0; i < node->GetMaterialCount(); ++i) {
 		FbxSurfaceMaterial* sm = node->GetMaterial(i);
 		std::string name = sm->GetName();
-		if (sm != nullptr && materials.Get(name) == nullptr) {			
+		if (sm != nullptr && materials.Get(name) == nullptr) {
 			MaterialData* m = materials.Create(name);
 			m->name = name;
 			m->props.ambientColor = GetMaterialProperty(sm, FbxSurfaceMaterial::sAmbient, FbxSurfaceMaterial::sAmbientFactor, nullptr);
@@ -446,7 +469,7 @@ int FBXLoader::LoadMaterials(Core::FlatMap<std::string, Core::MaterialData>& mat
 	return ret;
 }
 
-int FBXLoader::LoadShapes(Core::FlatMap<std::string, Core::ShapeData>& shapes, FbxNode* node) {	
+int FBXLoader::LoadShapes(Core::FlatMap<std::string, Core::ShapeData>& shapes, FbxNode* node) {
 	int ret = 0;
 	if (node->GetNodeAttribute()->GetAttributeType() == FbxNodeAttribute::eMesh)
 	{
@@ -500,8 +523,8 @@ int FBXLoader::LoadShapes(Core::FlatMap<std::string, Core::ShapeData>& shapes, F
 			triangleMesh->addSubpart(triangleVertexArray);
 			shape->shape = Core::physics_common.createConcaveMeshShape(triangleMesh);
 		}
-		printf("Loaded shape %s\n", name.c_str());			
-		++ret;		
+		printf("Loaded shape %s\n", name.c_str());
+		++ret;
 	}
 	//Load node childs
 	for (int i = 0; i < node->GetChildCount(); ++i) {
@@ -535,7 +558,7 @@ bool FBXLoader::LoadScene(const std::string& filename, bool triangulate)
 
 	// Initialize the importer by providing a filename.
 	const bool import_status = importer->Initialize(file_name.c_str(), -1, fbx_manager->GetIOSettings());
-	
+
 	assert(import_status && "Call to FbxImporter::Initialize() failed.");
 	if (importer->IsFBX())
 	{
@@ -585,11 +608,11 @@ bool FBXLoader::LoadScene(const std::string& filename, bool triangulate)
 	return status;
 }
 
-std::unordered_set<Entity> 
+std::unordered_set<Entity>
 FBXLoader::ProcessEntity(Core::FlatMap<std::string, Core::MeshData>& meshes,
-						 Core::FlatMap<std::string, Core::MaterialData>& materials,
-						 Core::FlatMap<std::string, Core::ShapeData>& shapes,
-						 Coordinator* coordinator, FbxNode* node, Entity parent) {
+	Core::FlatMap<std::string, Core::MaterialData>& materials,
+	Core::FlatMap<std::string, Core::ShapeData>& shapes,
+	Coordinator* coordinator, FbxNode* node, Entity parent) {
 
 	std::unordered_set<Entity> ret;
 	if (node->GetNodeAttribute()->GetAttributeType() == FbxNodeAttribute::eSkeleton) {
@@ -598,13 +621,13 @@ FBXLoader::ProcessEntity(Core::FlatMap<std::string, Core::MeshData>& meshes,
 	std::string name = node->GetName();
 	Entity e = coordinator->GetEntityByName(name);
 	if (e == INVALID_ENTITY_ID) {
-		e = coordinator->CreateEntity(name);	
+		e = coordinator->CreateEntity(name);
 		ret.insert(e);
 
 		coordinator->AddComponent<Components::Base>(e);
 		coordinator->AddComponent<Components::Transform>(e);
 		coordinator->AddComponent<Components::Bounds>(e);
-		
+
 		Components::Base& base = coordinator->GetComponent<Components::Base>(e);
 		Components::Transform& transform = coordinator->GetComponent<Components::Transform>(e);
 		base.name = name;
@@ -628,7 +651,7 @@ FBXLoader::ProcessEntity(Core::FlatMap<std::string, Core::MeshData>& meshes,
 		transform.rotation.z = (float)r.mData[2];
 		transform.rotation.w = (float)r.mData[3];
 		transform.initial_rotation = transform.rotation;
-				
+
 		if (parent != INVALID_ENTITY_ID) {
 			base.parent_position = true;
 			base.parent_rotation = false;
@@ -685,7 +708,7 @@ FBXLoader::ProcessEntity(Core::FlatMap<std::string, Core::MeshData>& meshes,
 				local_oriented.Center = bounds.local_box.Center;
 				local_oriented.Extents = bounds.local_box.Extents;
 				local_oriented.Transform(bounds.bounding_box, transform.world_xmmatrix);
-				
+
 			}break;
 			case FbxNodeAttribute::eSkeleton: {
 				//Skeletons are loaded as part of the mesh
@@ -722,7 +745,7 @@ FBXLoader::ProcessEntity(Core::FlatMap<std::string, Core::MeshData>& meshes,
 	}
 	else {
 		printf("Entity %s already exists.", name.c_str());
-	}	
+	}
 	return ret;
 }
 
@@ -743,7 +766,7 @@ bool FBXLoader::ProcessMesh(ECS::Coordinator* coordinator, ECS::Entity e, FbxNod
 }
 
 
-bool FBXLoader::ProcessLight(Coordinator * coordinator, Entity entity, FbxNode * node) {
+bool FBXLoader::ProcessLight(Coordinator* coordinator, Entity entity, FbxNode* node) {
 	bool ret = false;
 	if (node->GetNodeAttribute()->GetAttributeType() == FbxNodeAttribute::eLight)
 	{
@@ -754,7 +777,7 @@ bool FBXLoader::ProcessLight(Coordinator * coordinator, Entity entity, FbxNode *
 
 		switch (type) {
 		case FbxLight::EType::eDirectional: {
-			
+
 			coordinator->AddComponent(entity, Components::DirectionalLight{});
 			Components::DirectionalLight& dl = coordinator->GetComponent<Components::DirectionalLight>(entity);
 			dl.GetData().color = { (float)fl->Color.Get()[0],
@@ -777,7 +800,7 @@ bool FBXLoader::ProcessLight(Coordinator * coordinator, Entity entity, FbxNode *
 			al.GetData().colorDown = { (float)fl->Color.Get()[0],
 							   (float)fl->Color.Get()[1],
 							   (float)fl->Color.Get()[2] };
-			
+
 			ret = true;
 		} break;
 		case FbxLight::EType::ePoint: {
@@ -785,7 +808,7 @@ bool FBXLoader::ProcessLight(Coordinator * coordinator, Entity entity, FbxNode *
 			Components::PointLight& pl = coordinator->GetComponent<Components::PointLight>(entity);
 			pl.Init({ (float)fl->Color.Get()[0],
 					  (float)fl->Color.Get()[1],
-					  (float)fl->Color.Get()[2] },				
+					  (float)fl->Color.Get()[2] },
 				(float)intensity,
 				true, 1, 0.0f);
 			ret = true;
@@ -831,31 +854,50 @@ void FBXLoader::CalculateTangents(std::vector<Vertex>& vertices, const std::vect
 	}
 }
 
-void FBXLoader::MixSimilarVertices(std::vector<Vertex>& vertices, const std::unordered_map<int, std::vector<int>>& cloned_vertices) {
-
-	for (const auto& cv : cloned_vertices) {
-		Vertex mixed_vertex = {};
-		for (const auto& id : cv.second) {
-			mixed_vertex.Normal.x += vertices[id].Normal.x;
-			mixed_vertex.Normal.y += vertices[id].Normal.y;
-			mixed_vertex.Normal.z += vertices[id].Normal.z;
-			mixed_vertex.Tangent.x += vertices[id].Tangent.x;
-			mixed_vertex.Tangent.y += vertices[id].Tangent.y;
-			mixed_vertex.Tangent.z += vertices[id].Tangent.z;
-			mixed_vertex.Bitangent.x += vertices[id].Bitangent.x;
-			mixed_vertex.Bitangent.y += vertices[id].Bitangent.y;
-			mixed_vertex.Bitangent.z += vertices[id].Bitangent.z;
-		}
-		mixed_vertex.Normal = UNIT_F3(mixed_vertex.Normal);
-		mixed_vertex.Tangent = UNIT_F3(mixed_vertex.Tangent);
-		mixed_vertex.Bitangent = UNIT_F3(mixed_vertex.Bitangent);
-
-		for (const auto& id : cv.second) {
-			vertices[id].Normal = mixed_vertex.Normal;
-			vertices[id].Tangent = mixed_vertex.Tangent;
-			vertices[id].Bitangent = mixed_vertex.Bitangent;
+Vertex FBXLoader::MixSimilarVertices(const std::vector<Vertex>& vertices, const std::unordered_map<int, std::vector<int>>& cloned_vertices,
+	int id, const std::vector<int> child_ids, std::unordered_map<int, bool>& used_vertices, std::vector<int>& ids) {
+	Vertex mixed_vertex = {};
+	if (used_vertices.find(id) == used_vertices.end()) {
+		used_vertices[id] = true;
+		ids.push_back(id);
+		mixed_vertex.Normal.x += vertices[id].Normal.x;
+		mixed_vertex.Normal.y += vertices[id].Normal.y;
+		mixed_vertex.Normal.z += vertices[id].Normal.z;
+		mixed_vertex.Tangent.x += vertices[id].Tangent.x;
+		mixed_vertex.Tangent.y += vertices[id].Tangent.y;
+		mixed_vertex.Tangent.z += vertices[id].Tangent.z;
+		mixed_vertex.Bitangent.x += vertices[id].Bitangent.x;
+		mixed_vertex.Bitangent.y += vertices[id].Bitangent.y;
+		mixed_vertex.Bitangent.z += vertices[id].Bitangent.z;
+		memcpy(mixed_vertex.Boneids, vertices[id].Boneids, sizeof(mixed_vertex.Boneids));
+		mixed_vertex.Weights = vertices[id].Weights;
+		for (auto chid : child_ids) {
+			ids.push_back(chid);
+			auto chid_childs = cloned_vertices.find(chid);
+			mixed_vertex.Normal.x += vertices[chid].Normal.x;
+			mixed_vertex.Normal.y += vertices[chid].Normal.y;
+			mixed_vertex.Normal.z += vertices[chid].Normal.z;
+			mixed_vertex.Tangent.x += vertices[chid].Tangent.x;
+			mixed_vertex.Tangent.y += vertices[chid].Tangent.y;
+			mixed_vertex.Tangent.z += vertices[chid].Tangent.z;
+			mixed_vertex.Bitangent.x += vertices[chid].Bitangent.x;
+			mixed_vertex.Bitangent.y += vertices[chid].Bitangent.y;
+			mixed_vertex.Bitangent.z += vertices[chid].Bitangent.z;
+			if (chid_childs != cloned_vertices.end()) {
+				Vertex ch_mixed_vertex = MixSimilarVertices(vertices, cloned_vertices, chid, chid_childs->second, used_vertices, ids);
+				mixed_vertex.Normal.x += ch_mixed_vertex.Normal.x;
+				mixed_vertex.Normal.y += ch_mixed_vertex.Normal.y;
+				mixed_vertex.Normal.z += ch_mixed_vertex.Normal.z;
+				mixed_vertex.Tangent.x += ch_mixed_vertex.Tangent.x;
+				mixed_vertex.Tangent.y += ch_mixed_vertex.Tangent.y;
+				mixed_vertex.Tangent.z += ch_mixed_vertex.Tangent.z;
+				mixed_vertex.Bitangent.x += ch_mixed_vertex.Bitangent.x;
+				mixed_vertex.Bitangent.y += ch_mixed_vertex.Bitangent.y;
+				mixed_vertex.Bitangent.z += ch_mixed_vertex.Bitangent.z;
+			}
 		}
 	}
+	return mixed_vertex;
 }
 
 
