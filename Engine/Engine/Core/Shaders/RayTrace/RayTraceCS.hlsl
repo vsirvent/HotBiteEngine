@@ -525,7 +525,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             float distToCamRatio = saturate((20.0f * 20.0f) / dist2(orig_pos - cameraPosition));
             float3 seed = 100.0f * DTid * (DTid.z + 1);
             float rX = rgba_tnoise(seed);
-            rX = pow(abs(rX), 4.0f / (((float)DTid.z + 2.0f) / 2.0f));
+            rX = pow(abs(rX), 2.0f / (((float)DTid.z + 2.0f) / 2.0f));
             rX *= 0.8f * distToCamRatio;
             ray.dir = GenerateHemisphereRay(normal, tangent, bitangent, 1.0f, N, level, rX);
             ray.orig.xyz = orig_pos.xyz + ray.dir * 0.1f;
