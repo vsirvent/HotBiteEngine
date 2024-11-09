@@ -17,7 +17,7 @@ Texture2D<float4> prev_output : register(t3);
 Texture2D<float2> motion_texture : register(t4);
 Texture2D<float4> prev_position_map: register(t5);
 
-#define KERNEL_SIZE 6
+#define KERNEL_SIZE 10
 
 #define NTHREADS 32
 [numthreads(NTHREADS, NTHREADS, 1)]
@@ -85,7 +85,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
         }
     }
     c /= total_w;
-    c *= 3.0f;
+    c *= 4.0f;
 #if 1
     float4 prev_color = prev_output[pixel];
     float w = 0.8f; // saturate(0.8f - motion * 50.0f);

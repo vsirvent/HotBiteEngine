@@ -51,7 +51,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
         return;
     }
 
-#define KERNEL_SIZE 3
+#define KERNEL_SIZE 2
     float4 c0 = float4(0.0f, 0.0f, 0.0f, 0.0f);
     float total_w = 0.0f;
     float w = 0.0f;
@@ -86,7 +86,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
             
             float3 p1_position = positions[p1_info_pixel].xyz;
             float world_dist = dist2(p1_position - p0_position);
-            float ww = 1.0f;// pow(n, 20.0f / infoRatio)* (1.0f - world_dist / worldMaxDist);
+            float ww = pow(n, 20.0f / infoRatio)* (1.0f - world_dist / worldMaxDist);
             w *= ww;
 
             c0 += input[input_p] * w;
