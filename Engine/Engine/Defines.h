@@ -30,6 +30,7 @@ SOFTWARE.
 #include <vector>
 #include <unordered_map>
 #include <algorithm>
+#include <string>
 namespace HotBite {
 	namespace Engine {
 
@@ -176,6 +177,10 @@ namespace HotBite {
 
         inline  bool EQ_INT2(const float2& a, const float2& b) {
             return (int)a.x == (int)b.x && (int)a.y == (int)b.y;
+        }
+
+        inline bool EQ_F2(const float2& a, const float2& b) {
+            return (a.x == b.x && a.y == b.y);
         }
 
         // ADD
@@ -344,5 +349,9 @@ namespace HotBite {
 
             return LENGHT_F3(distance_vector);
         }
+
+        // Function to parse a string and get a float3
+        float3 parseFloat3orDefault(const std::string& input, const float3& default_value = {});
+
 	}
 }

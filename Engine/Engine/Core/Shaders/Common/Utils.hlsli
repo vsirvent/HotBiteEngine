@@ -47,6 +47,9 @@ float4 climit4(float4 color) {
 	return color;
 }
 
+float2 GetCloserPixel(float2 pixel, float ratio) {
+	return round(round(pixel / ratio) * ratio);
+}
 float4 GetInterpolatedColor(float2 uv, Texture2D text, float2 dimension) {
 	// Calculate the texture coordinates in the range [0, 1]
 	float2 texCoords = uv * dimension;

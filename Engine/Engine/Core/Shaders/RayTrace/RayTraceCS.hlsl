@@ -89,6 +89,7 @@ static float2 lps[MAX_LIGHTS] = (float2[MAX_LIGHTS])LightPerspectiveValues;
 #include "../Common/RayFunctions.hlsli"
 
 #define max_distance 100.0f
+static const float N = 32.0f;
 
 float3 GenerateHemisphereRay(float3 dir, float3 tangent, float3 bitangent, float dispersion, float N, float NLevels, float rX)
 {
@@ -137,10 +138,6 @@ float3 GenerateHemisphereRay(float3 dir, float3 tangent, float3 bitangent, float
 
     return normalize(dir + globalRay);
 }
-
-static float NCOUNT = 32.0f;
-static uint N2 = 32;
-static float N = N2 * NCOUNT;
 
 struct RayTraceColor {
     float3 color[2];
@@ -472,8 +469,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
 
         rc.hit = false;
 
-        if ((enabled & REFLEX_ENABLED) && step == 1) {
-
+        if (false) { //(enabled & REFLEX_ENABLED) && step == 1) {
             if (DTid.z == 0) {
                 float3 seed = orig_pos * 100.0f;
                 float rX = rgba_tnoise(seed);
@@ -512,36 +508,29 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
                         }
                     }
                 }
-                float reflex_ratio = (1.0f - ray_source.dispersion);
                 output1[pixel] = color_refrac;
                 float4 d = dispersion[pixel];
-                dispersion[pixel] = float4(d.r, d.g, d.b, 0.0f);
+                dispersion[pixel] = float4(d.r, d.g, d.b, ray_source.dispersion);
             }
         } else if ((enabled & INDIRECT_ENABLED) && step >= 2) {
             count = 0;
             GetSpaceVectors(normal, tangent, bitangent);
-            
-            bool collision = false;
             float distToCamRatio = saturate((20.0f * 20.0f) / dist2(orig_pos - cameraPosition));
-            float3 seed = 100.0f * DTid * (DTid.z + 1);
-            float rX = rgba_tnoise(seed);
-            rX = pow(abs(rX), 2.0f / (((float)DTid.z + 2.0f) / 2.0f));
-            rX *= 0.8f * distToCamRatio;
-            ray.dir = GenerateHemisphereRay(normal, tangent, bitangent, 1.0f, N, level, rX);
-            ray.orig.xyz = orig_pos.xyz + ray.dir * 0.1f;
-            float dist = FLT_MAX;
-            if (GetColor(ray, rX, level, 1, rc, ray_source.dispersion, true, false)) {
-                color_diffuse.rgb += rc.color[0];
-                collision = true;
+
+            for (int i = 0; i < N/4; ++i) {
+                float3 seed = 100.0f * DTid * (DTid.z + 1 + i);
+                float rX = rgba_tnoise(seed);
+                rX = pow(abs(rX), 2.0f / (((float)i + 2.0f) / 2.0f));
+                rX *= 0.8f * distToCamRatio;
+                ray.dir = GenerateHemisphereRay(normal, tangent, bitangent, 1.0f, N, level, rX);
+                ray.orig.xyz = orig_pos.xyz + ray.dir * 0.1f;
+                float dist = FLT_MAX;
+                if (GetColor(ray, rX, level, 2, rc, ray_source.dispersion, true, false)) {
+                    color_diffuse.rgb += rc.color[0];
+                }
+                count++;
             }
-            if (DTid.z == 0) {
-                output0[pixel] = color_diffuse;
-            }
-            else {
-                output0[pixel] += color_diffuse;
-            }
-            float4 d = dispersion[pixel];
-            dispersion[pixel] = float4(d.r, d.g, 1.0f, d.a);
+            output0[pixel] = color_diffuse / count;
         }
     }
     else {

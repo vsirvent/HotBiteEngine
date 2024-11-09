@@ -5,7 +5,6 @@ cbuffer externalData : register(b0)
 {
     uint type;
     uint count;
-    float RATIO;
     float3 cameraPosition;
     uint light_type;
     matrix view;
@@ -83,10 +82,6 @@ void main(uint3 DTid : SV_DispatchThreadID)
     }
     case 1: {
         //disp = ray_source.dispersion;
-        disp = dispersion[pixel].b;       
-        break;
-    }
-    case 2: {
         disp = dispersion[pixel].a;
         break;
     }
@@ -96,13 +91,12 @@ void main(uint3 DTid : SV_DispatchThreadID)
         return;
     }
     uint min_k = max(normalRatio.x * 0.25f, 0);
-    int kernel = debug == 1 ? 0 : clamp(floor(max(MAX_KERNEL * disp, min_dispersion)), min_k, MAX_KERNEL);
+    int kernel = clamp(floor(max(MAX_KERNEL * disp, min_dispersion)), min_k, MAX_KERNEL);
     float motion = 0.0f;
     float camDist = dist2(cameraPosition - p0_position);
     uint2 ipixel = pixel;
-    ipixel += round(pixel) % RATIO;
     for (int i = -kernel; i <= kernel; ++i) {
-        float2 p = ipixel + dir * i * RATIO;
+        float2 p = ipixel + dir * i;
         if ((p.x < 0 || p.x >= input_dimensions.x) && (p.y < 0 || p.y >= input_dimensions.y)) {
             continue;
         }
