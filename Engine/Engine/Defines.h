@@ -30,6 +30,7 @@ SOFTWARE.
 #include <vector>
 #include <unordered_map>
 #include <algorithm>
+#include <string>
 namespace HotBite {
 	namespace Engine {
 
@@ -344,5 +345,9 @@ namespace HotBite {
 
             return LENGHT_F3(distance_vector);
         }
+
+        // Function to parse a string and get a float3
+        float3 parseFloat3orDefault(const std::string& input, const float3& default_value = {});
+
 	}
 }

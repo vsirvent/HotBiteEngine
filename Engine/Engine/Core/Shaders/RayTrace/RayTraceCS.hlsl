@@ -512,10 +512,9 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
                         }
                     }
                 }
-                float reflex_ratio = (1.0f - ray_source.dispersion);
                 output1[pixel] = color_refrac;
                 float4 d = dispersion[pixel];
-                dispersion[pixel] = float4(d.r, d.g, d.b, 0.0f);
+                dispersion[pixel] = float4(d.r, d.g, d.b, ray_source.dispersion);
             }
         } else if ((enabled & INDIRECT_ENABLED) && step >= 2) {
             count = 0;

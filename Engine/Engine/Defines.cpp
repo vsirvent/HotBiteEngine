@@ -23,6 +23,7 @@ SOFTWARE.
 */
 
 #include "Defines.h"
+#include <sstream>
 
 namespace HotBite {
     namespace Engine {
@@ -46,7 +47,7 @@ namespace HotBite {
         bool operator!=(const float3& a, const float3& b) {
             return !(a == b);
         }
-        
+
         bool operator!=(const float2& a, const float2& b) {
             return !(a == b);
         }
@@ -63,8 +64,30 @@ namespace HotBite {
             return { a.x - b.x, a.y - b.y };
         }
 
-        bool EQ_F2(const float2& a, const float2& b) {
-            return (a.x == b.x && a.y == b.y);
+        float3 parseFloat3orDefault(const std::string& input, const float3& default_value) {
+            std::string cleanedInput = input;
+            cleanedInput.erase(std::remove(cleanedInput.begin(), cleanedInput.end(), '{'), cleanedInput.end());
+            cleanedInput.erase(std::remove(cleanedInput.begin(), cleanedInput.end(), '}'), cleanedInput.end());
+
+            // Split the cleaned string by commas and parse the float values
+            std::stringstream ss(cleanedInput);
+            std::string item;
+            float values[3];
+            int index = 0;
+
+            while (std::getline(ss, item, ',')) {
+                if (index < 3) {
+                    values[index++] = std::stof(item);
+                }
+                else {
+                    return default_value;
+                }
+            }
+
+            if (index != 3) {
+                return default_value;
+            }
+            return { values[0], values[1], values[2] };
         }
     }
 }
