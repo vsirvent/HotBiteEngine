@@ -141,9 +141,10 @@ float4 Get3dInterpolatedColor(float2 uv, Texture2D text, float2 dimension, Textu
 	// Normalize weights
 	float totalWeight = w00 + w11 + w01 + w10;
 
-	if (totalWeight < Epsilon) {
+	if (totalWeight < epsilon) {
 		return GetInterpolatedColor(uv, text, dimension);
 	}
+
 	w00 /= totalWeight;
 	w11 /= totalWeight;
 	w01 /= totalWeight;

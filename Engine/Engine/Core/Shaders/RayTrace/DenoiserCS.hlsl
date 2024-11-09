@@ -112,6 +112,9 @@ void main(uint3 DTid : SV_DispatchThreadID)
         float n = saturate(dot(p1_normal, p0_normal));
         float dist = max(dist2(p1_position - p0_position) / camDist, 0.1f);
         float w = pow(n, 20.0f / normalRatio) / dist;
+        if (kernel > 1) {
+            w *= cos((M_PI * abs((float)i)) / (2.0 * (float)kernel));
+        }
         count += w;
         c0 += input[p] * w;
     }
