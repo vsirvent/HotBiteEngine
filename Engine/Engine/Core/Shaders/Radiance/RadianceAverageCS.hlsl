@@ -17,9 +17,7 @@ Texture2D<float4> prev_output : register(t3);
 Texture2D<float2> motion_texture : register(t4);
 Texture2D<float4> prev_position_map: register(t5);
 
-#define KERNEL_SIZE 5
-
-//static const float kw[2 * KERNEL_SIZE + 1] = { 0.1f, 0.3f, 0.3f, 0.3f, 0.1f };
+#define KERNEL_SIZE 6
 
 #define NTHREADS 32
 [numthreads(NTHREADS, NTHREADS, 1)]
@@ -50,16 +48,44 @@ void main(uint3 DTid : SV_DispatchThreadID)
     }
     float2 infoRatio = info_dimensions / input_dimensions;
     float2 info_pixel = round(pixel * infoRatio);
+    float3 p0_position = positions[info_pixel].xyz;
 
+    float worldMaxDist = 0.0f;
 
+    int x;
+    int y;
+    for (x = -KERNEL_SIZE; x <= KERNEL_SIZE; ++x) {
+        for (y = -KERNEL_SIZE; y <= KERNEL_SIZE; ++y) {
+            int2 p = pixel + int2(x, y) * RATIO;
+            float2 p1_info_pixel = round(p * infoRatio);
+            float3 p1_position = positions[p1_info_pixel].xyz;
+            float world_dist = dist2(p1_position - p0_position);
+            worldMaxDist = max(worldMaxDist, world_dist);
+        }
+    }
+    float total_w = 0.0f;
     float4 c = float4(0.0f, 0.0f, 0.0f, 0.0f);
     for (int x = -KERNEL_SIZE; x <= KERNEL_SIZE; ++x) {
         for (int y = -KERNEL_SIZE; y <= KERNEL_SIZE; ++y) {
             int2 p = pixel + int2(x, y) * RATIO;
-            c += input[p];// *kw[x + KERNEL_SIZE] * kw[y + KERNEL_SIZE];
+            float2 p1_info_pixel = round(p * infoRatio);
+            float3 p1_position = positions[p1_info_pixel].xyz;
+            float world_dist = dist2(p1_position - p0_position);
+            float ww = 1.0f;
+            if (worldMaxDist > 0.0f) {
+                ww = (1.0f - world_dist / worldMaxDist);
+            }
+            else {
+                total_w = 1.0f;
+                break;
+            }
+
+            c += input[p] * ww;
+            total_w += ww;
         }
     }
-    c /= 2 * KERNEL_SIZE * KERNEL_SIZE;
+    c /= total_w;
+    c *= 3.0f;
 #if 1
     float4 prev_color = prev_output[pixel];
     float w = 0.8f; // saturate(0.8f - motion * 50.0f);

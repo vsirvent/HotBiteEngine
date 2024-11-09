@@ -469,7 +469,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
 
         rc.hit = false;
 
-        if (false) { //(enabled & REFLEX_ENABLED) && step == 1) {
+        if ((enabled & REFLEX_ENABLED) && step == 1) {
             if (DTid.z == 0) {
                 float3 seed = orig_pos * 100.0f;
                 float rX = rgba_tnoise(seed);
@@ -517,7 +517,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             GetSpaceVectors(normal, tangent, bitangent);
             float distToCamRatio = saturate((20.0f * 20.0f) / dist2(orig_pos - cameraPosition));
 
-            for (int i = 0; i < N/4; ++i) {
+            for (int i = 0; i < 4; ++i) {
                 float3 seed = 100.0f * DTid * (DTid.z + 1 + i);
                 float rX = rgba_tnoise(seed);
                 rX = pow(abs(rX), 2.0f / (((float)i + 2.0f) / 2.0f));
@@ -525,7 +525,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
                 ray.dir = GenerateHemisphereRay(normal, tangent, bitangent, 1.0f, N, level, rX);
                 ray.orig.xyz = orig_pos.xyz + ray.dir * 0.1f;
                 float dist = FLT_MAX;
-                if (GetColor(ray, rX, level, 2, rc, ray_source.dispersion, true, false)) {
+                if (GetColor(ray, rX, level, 1, rc, ray_source.dispersion, true, false)) {
                     color_diffuse.rgb += rc.color[0];
                 }
                 count++;

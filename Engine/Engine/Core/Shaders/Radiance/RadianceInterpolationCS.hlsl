@@ -44,6 +44,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
 
     float2 info_pixel = round(pixel * infoRatio);
     float3 p0_position = positions[info_pixel].xyz;
+    float3 p0_normal = normals[info_pixel].xyz;
 
     if (false) {
         output[pixel] = input[pixel];
@@ -80,9 +81,12 @@ void main(uint3 DTid : SV_DispatchThreadID)
             w = (1.0f - dist / pixelMaxDist);
 
             float2 p1_info_pixel = round(input_p * infoRatio);
+            float3 p1_normal = normals[p1_info_pixel].xyz;
+            float n = saturate(dot(p1_normal, p0_normal));
+            
             float3 p1_position = positions[p1_info_pixel].xyz;
             float world_dist = dist2(p1_position - p0_position);
-            float ww = (1.0f - world_dist / worldMaxDist);
+            float ww = 1.0f;// pow(n, 20.0f / infoRatio)* (1.0f - world_dist / worldMaxDist);
             w *= ww;
 
             c0 += input[input_p] * w;
