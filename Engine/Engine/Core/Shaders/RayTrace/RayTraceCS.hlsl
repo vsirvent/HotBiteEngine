@@ -417,7 +417,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     if (step == 2) {
         pixel *= RATIO;
     }
-    float2 ray_pixel = round((pixel + float2(0.5f, 0.5f)) * rayMapRatio);
+    float2 ray_pixel = round(pixel * rayMapRatio);
 
     RaySource ray_source = fromColor(ray0[ray_pixel], ray1[ray_pixel]);
     if (ray_source.dispersion < 0.0f) {

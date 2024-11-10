@@ -53,8 +53,10 @@ namespace HotBite {
 				eShapeForm shape = eShapeForm::SHAPE_CAPSULE;
 				Physics() = default;
 				Physics(const Physics& other);
+				Physics(Physics&& other);
 				virtual ~Physics();
 				Physics& operator=(const Physics& other);
+				Physics& operator=(Physics&& other);
 				void SetEnabled(bool enabled);
 				bool Init(reactphysics3d::PhysicsWorld* w, reactphysics3d::BodyType body_type,
 					Core::ShapeData* shape_data, const float3& extends,
