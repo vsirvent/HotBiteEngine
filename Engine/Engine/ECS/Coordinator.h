@@ -154,11 +154,17 @@ namespace HotBite {
 				template<typename T>
 				void RemoveComponent(Entity entity)
 				{
-					component_manager->RemoveComponent<T>(entity);
+					Entity e = component_manager->RemoveComponent<T>(entity);
+					//We need to refresh all the entities that 
+					//are internally moved from one index to another
+					//so the systems can refresh cached references to the components
+					system_manager->EntitySignatureChanged(e, entity_manager->GetSignature(e));
+
 					auto signature = entity_manager->GetSignature(entity);
 					signature.set(component_manager->GetComponentType<T>(), false);
 					entity_manager->SetSignature(entity, signature);
 					system_manager->EntitySignatureChanged(entity, signature);
+
 				}
 
 				template<typename T>

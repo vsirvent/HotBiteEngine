@@ -118,7 +118,9 @@ Physics::Physics(const Physics& other) {
 	physics_mutex.lock();
 	Physics::~Physics();
 	memcpy(this, &other, sizeof(Physics));
-	mBodyRefs[body]++;
+	if (body != nullptr) {
+		mBodyRefs[body]++;
+	}
 	physics_mutex.unlock();
 }
 
@@ -134,7 +136,9 @@ Physics& Physics::operator=(const Physics& other) {
 	physics_mutex.lock();
 	Physics::~Physics();
 	memcpy(this, &other, sizeof(Physics));
-	mBodyRefs[body]++;
+	if (body != nullptr) {
+		mBodyRefs[body]++;
+	}
 	physics_mutex.unlock();
 	return *this;
 }
