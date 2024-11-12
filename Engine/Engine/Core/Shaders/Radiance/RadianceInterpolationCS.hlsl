@@ -24,6 +24,11 @@ void main(uint3 DTid : SV_DispatchThreadID)
 {
     float2 pixel = float2(DTid.x, DTid.y);
 
+    if (false) {
+        output[pixel] = input[pixel];
+        return;
+    }
+
     uint2 input_dimensions;
     uint2 info_dimensions;
     {
@@ -46,12 +51,8 @@ void main(uint3 DTid : SV_DispatchThreadID)
     float3 p0_position = positions[info_pixel].xyz;
     float3 p0_normal = normals[info_pixel].xyz;
 
-    if (false) {
-        output[pixel] = input[pixel];
-        return;
-    }
 
-#define KERNEL_SIZE 2
+#define KERNEL_SIZE 1
     float4 c0 = float4(0.0f, 0.0f, 0.0f, 0.0f);
     float total_w = 0.0f;
     float w = 0.0f;
@@ -77,9 +78,9 @@ void main(uint3 DTid : SV_DispatchThreadID)
     for (x = -KERNEL_SIZE; x <= KERNEL_SIZE; ++x) {
         for (y = -KERNEL_SIZE; y <= KERNEL_SIZE; ++y) {
             float2 input_p = GetCloserPixel(middle_pixel + float2(x, y) * RATIO, RATIO);
+            
             float dist = dist2(input_p - pixel);
             w = (1.0f - dist / pixelMaxDist);
-
             float2 p1_info_pixel = round(input_p * infoRatio);
             float3 p1_normal = normals[p1_info_pixel].xyz;
             float n = saturate(dot(p1_normal, p0_normal));
@@ -88,6 +89,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
             float world_dist = dist2(p1_position - p0_position);
             float ww = pow(n, 20.0f / infoRatio)* (1.0f - world_dist / worldMaxDist);
             w *= ww;
+
 
             c0 += input[input_p] * w;
             total_w += w;
@@ -101,7 +103,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
         c0 *= 0.0f;
     }
 
-#if 0
+#if 1
     float motion = 0.0f;
     matrix worldViewProj = mul(view, projection);
     float4 prev_pos = mul(prev_position_map[info_pixel], worldViewProj);
@@ -124,7 +126,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     }
 
     float4 prev_color = prev_output[pixel];
-    w = saturate(0.8f - motion * 50.0f);
+    w = saturate(0.5f - motion * 10.0f);
     output[pixel] = prev_color * w + c0 * (1.0f - w);
 #else
     output[pixel] = c0;

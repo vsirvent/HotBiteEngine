@@ -89,11 +89,11 @@ static float2 lps[MAX_LIGHTS] = (float2[MAX_LIGHTS])LightPerspectiveValues;
 #include "../Common/RayFunctions.hlsli"
 
 #define max_distance 100.0f
-static const float N = 32.0f;
+static const float N = 128.0f;
 
 float3 GenerateHemisphereRay(float3 dir, float3 tangent, float3 bitangent, float dispersion, float N, float NLevels, float rX)
 {
-    float index = rX * N * dispersion;
+    float index = (rX * N * dispersion) % N;
 
     // First point at the top (up direction)
     if (index < 1.0f) {
@@ -517,20 +517,27 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             GetSpaceVectors(normal, tangent, bitangent);
             float distToCamRatio = saturate((20.0f * 20.0f) / dist2(orig_pos - cameraPosition));
 
-            for (int i = 0; i < 4; ++i) {
-                float3 seed = 100.0f * DTid * (DTid.z + 1 + i);
-                float rX = rgba_tnoise(seed);
-                rX = pow(abs(rX), 2.0f / (((float)i + 2.0f) / 2.0f));
-                rX *= 0.8f * distToCamRatio;
-                ray.dir = GenerateHemisphereRay(normal, tangent, bitangent, 1.0f, N, level, rX);
+#define NRAYS 16.0f
+#define TIME_DIVIDER 2.0f
+#define DIFFUSE_ENERY_UNIT 8.0f
+
+            static const float ray_count = NRAYS;
+            static const float space_size = N / NRAYS;
+            static const float time_size = space_size / TIME_DIVIDER;
+            float offset = (frame_count % TIME_DIVIDER);
+            for (int i = 0; i < ray_count; ++i) {                
+                float n = (i * space_size) + ((((pixel.x + pixel.y) % time_size) * TIME_DIVIDER) + offset) % space_size;
+                float index = n / (float)N;
+                index = pow(index, 2.0f);
+                ray.dir = GenerateHemisphereRay(normal, tangent, bitangent, 1.0f, N, level, index);
                 ray.orig.xyz = orig_pos.xyz + ray.dir * 0.1f;
                 float dist = FLT_MAX;
-                if (GetColor(ray, rX, level, 1, rc, ray_source.dispersion, true, false)) {
+                if (GetColor(ray, index, level, 0, rc, ray_source.dispersion, true, false)) {
                     color_diffuse.rgb += rc.color[0];
                 }
                 count++;
             }
-            output0[pixel] = color_diffuse / count;
+            output0[pixel] = color_diffuse * DIFFUSE_ENERY_UNIT / ray_count;
         }
     }
     else {
