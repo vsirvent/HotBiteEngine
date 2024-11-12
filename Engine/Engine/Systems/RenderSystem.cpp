@@ -445,7 +445,7 @@ void RenderSystem::LoadRTResources() {
 	for (int x = 0; x < RT_NTEXTURES; ++x) {
 		int div = RT_TEXTURE_RESOLUTION_DIVIDER;
 		if (x == RT_TEXTURE_INDIRECT) {
-			div = 4;
+			div = 8;
 		}
 		for (int n = 0; n < 2; ++n) {
 			rt_textures[n][x].Release();
