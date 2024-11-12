@@ -51,6 +51,87 @@ SamplerState basicSampler : register(s0);
 
 #include "../Common/RGBANoise.hlsli"
 
+float4 Get3dInterpolatedColor(float2 uv, Texture2D text, float2 dimension, Texture2D positions, Texture2D normals, float2 pos_dimension) {
+
+
+	// Calculate the texture coordinates in the range [0, 1]
+	float2 texCoords = uv * dimension;
+	float2 pos_ratio = pos_dimension / dimension;
+
+	// Calculate the integer coordinates of the four surrounding pixels
+	int2 p00 = (int2)floor(texCoords);
+	int2 p11 = int2(p00.x + 1, p00.y + 1);
+	int2 p01 = int2(p00.x, p00.y + 1);
+	int2 p10 = int2(p00.x + 1, p00.y);
+
+	float epsilon = 10e-4;
+
+	//Get 3d positions
+	uint2 pos_p00 = p00 * pos_ratio;
+	uint2 pos_p11 = p11 * pos_ratio;
+	uint2 pos_p01 = p01 * pos_ratio;
+	uint2 pos_p10 = p10 * pos_ratio;
+	uint2 in_pos = texCoords * pos_ratio;
+
+	float3 wp00 = positions[pos_p00].xyz;
+	float3 wp11 = positions[pos_p11].xyz;
+	float3 wp01 = positions[pos_p01].xyz;
+	float3 wp10 = positions[pos_p10].xyz;
+	float3 wpxx = positions[in_pos].xyz;
+
+	if (wp00.x >= FLT_MAX || wp11.x >= FLT_MAX || wp01.x >= FLT_MAX || wp10.x >= FLT_MAX || wpxx.x >= FLT_MAX) {
+		return GetInterpolatedColor(uv, text, dimension);
+	}
+	
+	float d00 = dist2(wpxx - wp00);  // Distance to wp00
+	float d11 = dist2(wpxx - wp11);  // Distance to wp11
+	float d01 = dist2(wpxx - wp01);  // Distance to wp01
+	float d10 = dist2(wpxx - wp10);  // Distance to wp10
+
+	float all_dist = d00 + d11 + d01 + d10;
+
+	if (all_dist < epsilon) {
+		return GetInterpolatedColor(uv, text, dimension);
+	}
+
+	float w00 = 1.0f - d00 / all_dist;
+	float w11 = 1.0f - d11 / all_dist;
+	float w01 = 1.0f - d01 / all_dist;
+	float w10 = 1.0f - d10 / all_dist;
+
+	static const float DIST_K = 1.0f;
+	w00 = pow(w00, DIST_K);
+	w11 = pow(w11, DIST_K);
+	w01 = pow(w01, DIST_K);
+	w10 = pow(w10, DIST_K);
+
+	float3 n00 = normals[pos_p00].xyz;
+	float3 n11 = normals[pos_p11].xyz;
+	float3 n01 = normals[pos_p01].xyz;
+	float3 n10 = normals[pos_p10].xyz;
+	float3 nxx = normals[in_pos].xyz;
+
+	static const float DOT_K = 100.0f;
+	w00 *= pow(saturate(dot(nxx, n00)), DOT_K);
+	w11 *= pow(saturate(dot(nxx, n11)), DOT_K);
+	w01 *= pow(saturate(dot(nxx, n01)), DOT_K);
+	w10 *= pow(saturate(dot(nxx, n10)), DOT_K);
+
+	// Normalize weights
+	float totalWeight = w00 + w11 + w01 + w10;
+
+	if (totalWeight < epsilon) {
+		return GetInterpolatedColor(uv, text, dimension);
+	}
+	w00 /= totalWeight;
+	w11 /= totalWeight;
+	w01 /= totalWeight;
+	w10 /= totalWeight;
+
+	return (text[p00] * w00 + text[p11] * w11 + text[p01] * w01 + text[p10] * w10);
+}
+
+
 float4 readColor(float2 pixel, texture2D text, uint w, uint h) {
     //return text.SampleLevel(basicSampler, pixel, 0);
     uint w2, h2;
@@ -88,6 +169,9 @@ void main(uint3 DTid : SV_DispatchThreadID)
     float4 dust = readColor(tpos, dustTexture, w, h);
     float4 lens_flare = readColor(tpos, lensFlareTexture, w, h);
 
+    if (all(rt2) > Epsilon) {
+        rt2 = sqrt(rt2);
+    }
     if (rt_enabled) {
         if (debug == 0) {
             color = color * (l + rt0 + rt2 + rt3) + rt1 + b + dust + lens_flare + vol;

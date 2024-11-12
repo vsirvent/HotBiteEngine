@@ -5,6 +5,7 @@ cbuffer externalData : register(b0)
 {
     uint debug;
     float RATIO;
+    uint type;
     matrix view;
     matrix projection;
     float3 cameraPosition;
@@ -18,7 +19,6 @@ Texture2D<float4> prev_output : register(t4);
 Texture2D<float2> motion_texture : register(t5);
 Texture2D<float4> prev_position_map: register(t6);
 
-#define KERNEL_SIZE 8
 #define NTHREADS 32
 
 [numthreads(NTHREADS, NTHREADS, 1)]
@@ -26,7 +26,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
 {
     float2 pixel = round(float2(DTid.x, DTid.y) * RATIO);
 
-    if (false) {
+    if (false) { 
         output[pixel] = input[pixel];
         return;
     }
@@ -52,60 +52,70 @@ void main(uint3 DTid : SV_DispatchThreadID)
     float3 p0_position = positions[info_pixel].xyz;
     float3 p0_normal = normals[info_pixel].xyz;
 
+    float KERNEL_SIZE;
+    float2 dir;
     float pixelMaxDist = 0.0f;
     float worldMaxDist = 0.0f;
 
+    if (type == 1) {
+        KERNEL_SIZE = input_dimensions.x / 16;
+        dir = float2(0.0f, RATIO);
+    }
+    else {
+        KERNEL_SIZE = input_dimensions.y / 16;
+        dir = float2(RATIO, 0.0f);
+    }
+
     int x;
     int y;
-    float2 middle_pixel = GetCloserPixel(pixel, RATIO);
     for (x = -KERNEL_SIZE; x <= KERNEL_SIZE; ++x) {
-        for (y = -KERNEL_SIZE; y <= KERNEL_SIZE; ++y) {
-            float2 input_p = GetCloserPixel(middle_pixel + float2(x, y) * RATIO, RATIO);
-            float dist = dist2(input_p - pixel);
-            pixelMaxDist = max(pixelMaxDist, dist);
+        int2 p = pixel + x * dir;
+        float dist = dist2(p - pixel);
+        pixelMaxDist = max(pixelMaxDist, dist);
 
-            float2 p1_info_pixel = round(input_p * infoRatio);
-            float3 p1_position = positions[p1_info_pixel].xyz;
-            float world_dist = dist2(p1_position - p0_position);
-            worldMaxDist = max(worldMaxDist, world_dist);
-        }
+        float2 p1_info_pixel = round(p * infoRatio);
+        float3 p1_position = positions[p1_info_pixel].xyz;
+
+        float world_dist = dist2(p1_position - p0_position);
+        worldMaxDist = max(worldMaxDist, world_dist);
     }
 
     float total_w = 0.0f;
     float ww;
     float4 c = float4(0.0f, 0.0f, 0.0f, 0.0f);
     for (x = -KERNEL_SIZE; x <= KERNEL_SIZE; ++x) {
-        for (y = -KERNEL_SIZE; y <= KERNEL_SIZE; ++y) {
-            int2 p = pixel + int2(x, y) * RATIO;
-            float2 p1_info_pixel = round(p * infoRatio);
-            float3 p1_position = positions[p1_info_pixel].xyz;
-            float world_dist = dist2(p1_position - p0_position);
-            ww = 1.0f;
-            if (worldMaxDist > 0.0f) {
-                ww = (1.0f - world_dist / worldMaxDist);
-            }
-            else {
-                total_w = 1.0f;
-                break;
-            }
+        int2 p = pixel + x * dir;
+        float2 p1_info_pixel = round(p * infoRatio);
+        float3 p1_position = positions[p1_info_pixel].xyz;
+        if (p1_position.x == FLT_MAX) continue;
 
-            float3 p1_normal = normals[p1_info_pixel].xyz;
-            float n = saturate(dot(p1_normal, p0_normal));
-            ww *= pow(n, 20.0f / infoRatio);
-            c += input[p] * ww;
-            total_w += ww;
+        float world_dist = dist2(p1_position - p0_position);
+        ww = 1.0f;
+        if (worldMaxDist > Epsilon) {
+            ww = (1.0f - world_dist / worldMaxDist);
         }
+        else {
+            total_w = 1.0f;
+            break;
+        }
+
+        float3 p1_normal = normals[p1_info_pixel].xyz;
+        float n = saturate(dot(p1_normal, p0_normal));
+        ww *= pow(n, 20.0f / infoRatio.x);
+        c += input[p] * ww;
+        total_w += ww;
     }
 
     if (total_w > Epsilon) {
         c /= total_w;
     }
-#if 1
-    float m = length(motion_texture[info_pixel].xy);
-    float4 prev_color = prev_output[pixel];
-    float w = 0.8f;// saturate(0.8f - m * 50.0f);
+
+    matrix worldViewProj = mul(view, projection);
+    float4 prev_pos = mul(prev_position_map[info_pixel], worldViewProj);
+    prev_pos.x /= prev_pos.w;
+    prev_pos.y /= -prev_pos.w;
+    prev_pos.xy = (prev_pos.xy + 1.0f) * input_dimensions.xy / 2.0f;
+    float4 prev_color = prev_output[floor(prev_pos.xy)];
+    float w = 0.5f;
     output[pixel] = prev_color * w + c * (1.0f - w);
-#else
-    output[pixel] = c;;
-#endif
 }
