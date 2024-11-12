@@ -65,7 +65,6 @@ void main(uint3 DTid : SV_DispatchThreadID)
         KERNEL_SIZE = input_dimensions.y / 16;
         dir = float2(RATIO, 0.0f);
     }
-
     int x;
     int y;
     for (x = -KERNEL_SIZE; x <= KERNEL_SIZE; ++x) {
@@ -81,7 +80,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     }
 
     float total_w = 0.0f;
-    float ww;
+    float ww = 1.0f;
     float4 c = float4(0.0f, 0.0f, 0.0f, 0.0f);
     for (x = -KERNEL_SIZE; x <= KERNEL_SIZE; ++x) {
         int2 p = pixel + x * dir;
@@ -98,7 +97,6 @@ void main(uint3 DTid : SV_DispatchThreadID)
             total_w = 1.0f;
             break;
         }
-
         float3 p1_normal = normals[p1_info_pixel].xyz;
         float n = saturate(dot(p1_normal, p0_normal));
         ww *= pow(n, 20.0f / infoRatio.x);
@@ -115,7 +113,23 @@ void main(uint3 DTid : SV_DispatchThreadID)
     prev_pos.x /= prev_pos.w;
     prev_pos.y /= -prev_pos.w;
     prev_pos.xy = (prev_pos.xy + 1.0f) * input_dimensions.xy / 2.0f;
-    float4 prev_color = prev_output[floor(prev_pos.xy)];
-    float w = 0.5f;
+
+    float motion = length(motion_texture[prev_pos.xy].xy);
+    float2 mvector = motion_texture[info_pixel].xy;
+    if (mvector.x == -FLT_MAX) {
+        motion = FLT_MAX;
+    }
+    else {
+        float m = length(motion_texture[info_pixel].xy);
+        if (m > motion) {
+            motion = m;
+        }
+    }
+    if (motion < 0.1f) {
+        prev_pos.xy = pixel.xy;
+    }
+    
+    float4 prev_color = prev_output[round(prev_pos.xy)];
+    float w = 0.6f;
     output[pixel] = prev_color * w + c * (1.0f - w);
 }

@@ -518,20 +518,20 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             GetSpaceVectors(normal, tangent, bitangent);
 
             
-            static const float DIFFUSE_ENERY_UNIT = 1.0f;
+            static const float DIFFUSE_ENERY_UNIT = 3.0f;
 
-            static const float time_divider = 2.0f;
-            static const float ray_count = 8.0f;
-            static const float space_size = N / ray_count;
-            static const float time_size = space_size / time_divider;
-            float offset = (frame_count % time_divider);
-            for (float i = 0; i < ray_count; ++i) {                
+            static const uint time_divider = 2;
+            static const uint ray_count = 8;
+            static const float space_size = N / (float)ray_count;
+            static const float time_size = space_size / (float)time_divider;
+            uint offset = (frame_count % time_divider);
+            for (uint i = 0; i < ray_count; ++i) {                
                 float n = (i * space_size) + ((pixel.x + pixel.y) * time_divider + offset) % space_size;
                 float index = n / (float)N;
                 ray.dir = GenerateHemisphereRay(normal, tangent, bitangent, 1.0f, N, level, index);
                 ray.orig.xyz = orig_pos.xyz + ray.dir * 0.1f;
                 float dist = FLT_MAX;
-                if (GetColor(ray, index, level, 1, rc, ray_source.dispersion, true, false)) {
+                if (GetColor(ray, index, level, 0, rc, ray_source.dispersion, true, false)) {
                     color_diffuse.rgb += rc.color[0];
                 }
                 count++;

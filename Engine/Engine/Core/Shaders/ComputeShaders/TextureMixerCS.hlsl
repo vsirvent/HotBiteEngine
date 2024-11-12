@@ -99,6 +99,16 @@ float4 Get3dInterpolatedColor(float2 uv, Texture2D text, float2 dimension, Textu
 	float w01 = 1.0f - d01 / all_dist;
 	float w10 = 1.0f - d10 / all_dist;
 
+#if 0
+	// Calculate the fractional part of the coordinates
+	float2 f = frac(texCoords);
+
+	// Calculate the weights for bilinear interpolation
+	w00 *= (1.0f - f.x) * (1.0f - f.y);
+	w11 *= f.x * f.y;
+	w01 *= (1.0f - f.x) * f.y;
+	w10 *= f.x * (1.0f - f.y);
+#endif
 	static const float DIST_K = 1.0f;
 	w00 = pow(w00, DIST_K);
 	w11 = pow(w11, DIST_K);
@@ -169,8 +179,8 @@ void main(uint3 DTid : SV_DispatchThreadID)
     float4 dust = readColor(tpos, dustTexture, w, h);
     float4 lens_flare = readColor(tpos, lensFlareTexture, w, h);
 
-    if (all(rt2) > Epsilon) {
-        rt2 = sqrt(rt2);
+    if (all(rt2) > 0.01f) {
+        rt2 = saturate(sqrt(rt2));
     }
     if (rt_enabled) {
         if (debug == 0) {
