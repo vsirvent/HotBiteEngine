@@ -67,11 +67,11 @@ float4 Get3dInterpolatedColor(float2 uv, Texture2D text, float2 dimension, Textu
 	float epsilon = 10e-4;
 
 	//Get 3d positions
-	uint2 pos_p00 = p00 * pos_ratio;
-	uint2 pos_p11 = p11 * pos_ratio;
-	uint2 pos_p01 = p01 * pos_ratio;
-	uint2 pos_p10 = p10 * pos_ratio;
-	uint2 in_pos = texCoords * pos_ratio;
+	uint2 pos_p00 = round(p00 * pos_ratio);
+	uint2 pos_p11 = round(p11 * pos_ratio);
+	uint2 pos_p01 = round(p01 * pos_ratio);
+	uint2 pos_p10 = round(p10 * pos_ratio);
+	uint2 in_pos = round(texCoords * pos_ratio);
 
 	float3 wp00 = positions[pos_p00].xyz;
 	float3 wp11 = positions[pos_p11].xyz;
@@ -99,7 +99,7 @@ float4 Get3dInterpolatedColor(float2 uv, Texture2D text, float2 dimension, Textu
 	float w01 = 1.0f - d01 / all_dist;
 	float w10 = 1.0f - d10 / all_dist;
 
-#if 0
+#if 1
 	// Calculate the fractional part of the coordinates
 	float2 f = frac(texCoords);
 
@@ -109,24 +109,25 @@ float4 Get3dInterpolatedColor(float2 uv, Texture2D text, float2 dimension, Textu
 	w01 *= (1.0f - f.x) * f.y;
 	w10 *= f.x * (1.0f - f.y);
 #endif
-	static const float DIST_K = 1.0f;
+#if 0
+	static const float DIST_K = 2.0f;
 	w00 = pow(w00, DIST_K);
 	w11 = pow(w11, DIST_K);
 	w01 = pow(w01, DIST_K);
 	w10 = pow(w10, DIST_K);
-
+#endif
 	float3 n00 = normals[pos_p00].xyz;
 	float3 n11 = normals[pos_p11].xyz;
 	float3 n01 = normals[pos_p01].xyz;
 	float3 n10 = normals[pos_p10].xyz;
 	float3 nxx = normals[in_pos].xyz;
-
-	static const float DOT_K = 100.0f;
+#if 1
+	static const float DOT_K = 2.0f;
 	w00 *= pow(saturate(dot(nxx, n00)), DOT_K);
 	w11 *= pow(saturate(dot(nxx, n11)), DOT_K);
 	w01 *= pow(saturate(dot(nxx, n01)), DOT_K);
 	w10 *= pow(saturate(dot(nxx, n10)), DOT_K);
-
+#endif
 	// Normalize weights
 	float totalWeight = w00 + w11 + w01 + w10;
 
@@ -150,8 +151,26 @@ float4 readColor(float2 pixel, texture2D text, uint w, uint h) {
         return text.SampleLevel(basicSampler, pixel, 0);
     }
     else {
+#if 1
         //return GetInterpolatedColor(pixel, text, float2(w2, h2));
-        return Get3dInterpolatedColor(pixel, text, float2(w2, h2), positions, normals, float2(w, h));
+		float ratioW = ((float)w * 0.5f) / w2;
+		float ratioH = ((float)h * 0.5f) / h2;
+		uint n = 2;
+		float x = 0;
+		float y = 0;
+		float4 c = 2 * Get3dInterpolatedColor(pixel, text, float2(w2, h2), positions, normals, float2(w, h));
+		for (x = -ratioW; x < ratioW; x++) {
+			for (y = -ratioH; y < ratioH; y++) {
+				c += text.SampleLevel(basicSampler, pixel + float2(x * 0.5f / w2, y * 0.5f / h2), 0);
+				//c += Get3dInterpolatedColor(pixel + float2(x / w, y / h), text, float2(w2, h2), positions, normals, float2(w, h));
+				n++;
+			}
+		}
+		c /= n;
+		return c;
+#else
+		return Get3dInterpolatedColor(pixel, text, float2(w2, h2), positions, normals, float2(w, h));
+#endif
     }
 }
 

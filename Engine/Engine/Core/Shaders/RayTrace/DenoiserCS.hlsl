@@ -51,7 +51,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     RaySource ray_source = fromColor(positions[info_pixel], normals[info_pixel]);
     float4 c = float4(0.0f, 0.0f, 0.0f, 0.0f);
 
-#define HARD_MAX_KERNEL 20
+#define HARD_MAX_KERNEL 40
     uint MAX_KERNEL = min(normals_dimensions.x / 32, HARD_MAX_KERNEL);
     float count = 0.0f;
     float2 dir = float2(0.0f, 0.0f);

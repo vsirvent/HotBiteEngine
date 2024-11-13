@@ -20,13 +20,12 @@ Texture2D<float2> motion_texture : register(t5);
 Texture2D<float4> prev_position_map: register(t6);
 
 #define NTHREADS 32
-
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main(uint3 DTid : SV_DispatchThreadID)
 {
     float2 pixel = round(float2(DTid.x, DTid.y) * RATIO);
 
-    if (false) { 
+    if (debug == 1) { 
         output[pixel] = input[pixel];
         return;
     }
@@ -48,7 +47,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
         info_dimensions.y = h;
     }
     float2 infoRatio = info_dimensions / input_dimensions;
-    float2 info_pixel = round(pixel * infoRatio);
+    float2 info_pixel = round(pixel * infoRatio) + float2(1.0f, 1.0f);
     float3 p0_position = positions[info_pixel].xyz;
     float3 p0_normal = normals[info_pixel].xyz;
 
@@ -58,27 +57,18 @@ void main(uint3 DTid : SV_DispatchThreadID)
     float worldMaxDist = 0.0f;
 
     if (type == 1) {
-        KERNEL_SIZE = input_dimensions.x / 16;
+        KERNEL_SIZE = input_dimensions.x / 20;
         dir = float2(0.0f, RATIO);
     }
     else {
-        KERNEL_SIZE = input_dimensions.y / 16;
+        KERNEL_SIZE = input_dimensions.y / 20;
         dir = float2(RATIO, 0.0f);
     }
+
     int x;
     int y;
-    for (x = -KERNEL_SIZE; x <= KERNEL_SIZE; ++x) {
-        int2 p = pixel + x * dir;
-        float dist = dist2(p - pixel);
-        pixelMaxDist = max(pixelMaxDist, dist);
 
-        float2 p1_info_pixel = round(p * infoRatio);
-        float3 p1_position = positions[p1_info_pixel].xyz;
-
-        float world_dist = dist2(p1_position - p0_position);
-        worldMaxDist = max(worldMaxDist, world_dist);
-    }
-
+    float sigma = 2.0f;
     float total_w = 0.0f;
     float ww = 1.0f;
     float4 c = float4(0.0f, 0.0f, 0.0f, 0.0f);
@@ -89,14 +79,8 @@ void main(uint3 DTid : SV_DispatchThreadID)
         if (p1_position.x == FLT_MAX) continue;
 
         float world_dist = dist2(p1_position - p0_position);
-        ww = 1.0f;
-        if (worldMaxDist > Epsilon) {
-            ww = (1.0f - world_dist / worldMaxDist);
-        }
-        else {
-            total_w = 1.0f;
-            break;
-        }
+        ww = exp(-world_dist / (2.0f * sigma * sigma));
+    
         float3 p1_normal = normals[p1_info_pixel].xyz;
         float n = saturate(dot(p1_normal, p0_normal));
         ww *= pow(n, 20.0f / infoRatio.x);

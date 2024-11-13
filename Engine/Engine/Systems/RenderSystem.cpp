@@ -1921,6 +1921,8 @@ void RenderSystem::ProcessRT() {
 		rad_avg->CopyAllBufferData();
 		dxcore->context->Dispatch(groupsX, groupsY, 1);
 
+		rad_avg->SetShaderResourceView("input", nullptr);
+		rad_avg->SetUnorderedAccessView("output", nullptr);
 		rad_avg->SetShaderResourceView("positions", nullptr);
 		rad_avg->SetShaderResourceView("normals", nullptr);
 		rad_avg->SetShaderResourceView("prev_output", nullptr);
@@ -1976,30 +1978,28 @@ void RenderSystem::ProcessRT() {
 #endif
 #if 0
 		//Apply antialias
-		for (int i = 0; i < ntextures; ++i) {
-			int ntexture = textures[i];
-			groupsX = (int32_t)(ceil((float)rt_texture_curr[ntexture].Width() / (32.0f)));
-			groupsY = (int32_t)(ceil((float)rt_texture_curr[ntexture].Height() / (32.0f)));
+		int ntexture = RT_TEXTURE_INDIRECT;
+		groupsX = (int32_t)(ceil((float)rt_texture_curr[ntexture].Width() / (32.0f)));
+		groupsY = (int32_t)(ceil((float)rt_texture_curr[ntexture].Height() / (32.0f)));
 
-			aa_shader->SetShaderResourceView("depthTexture", depth_map.SRV());
-			aa_shader->SetShaderResourceView("normalTexture", rt_ray_sources1.SRV());
-			aa_shader->SetShaderResourceView("input", rt_texture_curr[ntexture].SRV());
-			aa_shader->SetInt("enabled", true);
-			aa_shader->SetInt("size", 3);
-			aa_shader->SetUnorderedAccessView("output", texture_tmp.UAV());
-			aa_shader->CopyAllBufferData();
-			aa_shader->SetShader();
-			dxcore->context->Dispatch(groupsX, groupsY, 1);
-			aa_shader->SetUnorderedAccessView("output", nullptr);
-			aa_shader->SetShaderResourceView("input", nullptr);
-			aa_shader->CopyAllBufferData();
-			aa_shader->SetShaderResourceView("input", texture_tmp.SRV());
-			aa_shader->SetUnorderedAccessView("output", rt_texture_curr[ntexture].UAV());
-			aa_shader->SetInt("size", 1);
-			aa_shader->CopyAllBufferData();
-			aa_shader->SetShader();
-			dxcore->context->Dispatch(groupsX, groupsY, 1);
-		}
+		aa_shader->SetShaderResourceView("depthTexture", depth_map.SRV());
+		aa_shader->SetShaderResourceView("normalTexture", rt_ray_sources1.SRV());
+		aa_shader->SetShaderResourceView("input", rt_texture_curr[ntexture].SRV());
+		aa_shader->SetInt("enabled", true);
+		aa_shader->SetInt("size", 4);
+		aa_shader->SetUnorderedAccessView("output", texture_tmp.UAV());
+		aa_shader->CopyAllBufferData();
+		aa_shader->SetShader();
+		dxcore->context->Dispatch(groupsX, groupsY, 1);
+		aa_shader->SetUnorderedAccessView("output", nullptr);
+		aa_shader->SetShaderResourceView("input", nullptr);
+		aa_shader->CopyAllBufferData();
+		aa_shader->SetShaderResourceView("input", texture_tmp.SRV());
+		aa_shader->SetUnorderedAccessView("output", rt_texture_curr[ntexture].UAV());
+		aa_shader->SetInt("size", 4);
+		aa_shader->CopyAllBufferData();
+		aa_shader->SetShader();
+		dxcore->context->Dispatch(groupsX, groupsY, 1);
 		aa_shader->SetUnorderedAccessView("output", nullptr);
 		aa_shader->SetShaderResourceView("input", nullptr);
 		aa_shader->SetShaderResourceView("depthTexture", nullptr);
