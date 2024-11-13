@@ -72,18 +72,21 @@ void main(uint3 DTid : SV_DispatchThreadID)
     float total_w = 0.0f;
     float ww = 1.0f;
     float4 c = float4(0.0f, 0.0f, 0.0f, 0.0f);
+
     for (x = -KERNEL_SIZE; x <= KERNEL_SIZE; ++x) {
         int2 p = pixel + x * dir;
+#if 1
         float2 p1_info_pixel = round(p * infoRatio);
         float3 p1_position = positions[p1_info_pixel].xyz;
         if (p1_position.x == FLT_MAX) continue;
-
+    
         float world_dist = dist2(p1_position - p0_position);
         ww = exp(-world_dist / (2.0f * sigma * sigma));
     
         float3 p1_normal = normals[p1_info_pixel].xyz;
         float n = saturate(dot(p1_normal, p0_normal));
-        ww *= pow(n, 20.0f / infoRatio.x);
+        ww *= pow(n, 5.0f / infoRatio.x);
+#endif        
         c += input[p] * ww;
         total_w += ww;
     }
@@ -92,12 +95,12 @@ void main(uint3 DTid : SV_DispatchThreadID)
         c /= total_w;
     }
 
+#if 1
     matrix worldViewProj = mul(view, projection);
     float4 prev_pos = mul(prev_position_map[info_pixel], worldViewProj);
     prev_pos.x /= prev_pos.w;
     prev_pos.y /= -prev_pos.w;
-    prev_pos.xy = (prev_pos.xy + 1.0f) * input_dimensions.xy / 2.0f;
-
+    prev_pos.xy = (prev_pos.xy + 1.0f) * info_dimensions.xy / 2.0f;
     float motion = length(motion_texture[prev_pos.xy].xy);
     float2 mvector = motion_texture[info_pixel].xy;
     if (mvector.x == -FLT_MAX) {
@@ -109,11 +112,17 @@ void main(uint3 DTid : SV_DispatchThreadID)
             motion = m;
         }
     }
-    if (motion < 0.1f) {
+    if (false) { //motion < 0.01f) {
         prev_pos.xy = pixel.xy;
+    }
+    else {
+        prev_pos.xy /= infoRatio;
     }
     
     float4 prev_color = prev_output[round(prev_pos.xy)];
-    float w = 0.6f;
+    float w = 0.5f;
     output[pixel] = prev_color * w + c * (1.0f - w);
+#else
+    output[pixel] = c;
+#endif
 }

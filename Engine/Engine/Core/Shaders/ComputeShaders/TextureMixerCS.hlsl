@@ -144,7 +144,6 @@ float4 Get3dInterpolatedColor(float2 uv, Texture2D text, float2 dimension, Textu
 
 
 float4 readColor(float2 pixel, texture2D text, uint w, uint h) {
-    //return text.SampleLevel(basicSampler, pixel, 0);
     uint w2, h2;
     text.GetDimensions(w2, h2);
     if (w2 == w && h2 == h) {
@@ -152,8 +151,7 @@ float4 readColor(float2 pixel, texture2D text, uint w, uint h) {
     }
     else {
 #if 1
-        //return GetInterpolatedColor(pixel, text, float2(w2, h2));
-		float ratioW = ((float)w * 0.5f) / w2;
+        float ratioW = ((float)w * 0.5f) / w2;
 		float ratioH = ((float)h * 0.5f) / h2;
 		uint n = 2;
 		float x = 0;
@@ -198,11 +196,10 @@ void main(uint3 DTid : SV_DispatchThreadID)
     float4 dust = readColor(tpos, dustTexture, w, h);
     float4 lens_flare = readColor(tpos, lensFlareTexture, w, h);
 
-    if (all(rt2) > 0.01f) {
-        rt2 = saturate(sqrt(rt2));
-    }
-    if (rt_enabled) {
-        if (debug == 0) {
+    rt2 = saturate(sqrt(rt2));
+    
+	if (rt_enabled) {
+        if (true) { //debug == 0) {
             color = color * (l + rt0 + rt2 + rt3) + rt1 + b + dust + lens_flare + vol;
         }
         else {
