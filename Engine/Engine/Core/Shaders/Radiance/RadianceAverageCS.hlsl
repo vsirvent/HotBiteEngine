@@ -57,11 +57,11 @@ void main(uint3 DTid : SV_DispatchThreadID)
     float worldMaxDist = 0.0f;
 
     if (type == 1) {
-        KERNEL_SIZE = input_dimensions.x / 20;
+        KERNEL_SIZE = input_dimensions.x / 16;
         dir = float2(0.0f, RATIO);
     }
     else {
-        KERNEL_SIZE = input_dimensions.y / 20;
+        KERNEL_SIZE = input_dimensions.y / 16;
         dir = float2(RATIO, 0.0f);
     }
 
@@ -112,13 +112,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
             motion = m;
         }
     }
-    if (false) { //motion < 0.01f) {
-        prev_pos.xy = pixel.xy;
-    }
-    else {
-        prev_pos.xy /= infoRatio;
-    }
-    
+    prev_pos.xy /= infoRatio;
     float4 prev_color = prev_output[round(prev_pos.xy)];
     float w = 0.5f;
     output[pixel] = prev_color * w + c * (1.0f - w);

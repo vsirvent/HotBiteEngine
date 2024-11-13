@@ -523,7 +523,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             static const float space_size = N / (float)ray_count;
             static const float time_size = space_size / (float)time_divider;            
             for (uint i = 0; i < ray_count; ++i) {                
-                uint offset = (i + frame_count) % time_divider;
+                uint offset = (frame_count) % time_divider;
                 float n = (i * space_size) + ((pixel.x + pixel.y) * time_divider + offset) % space_size;
                 float index = n / (float)N;
                 ray.dir = GenerateHemisphereRay(normal, tangent, bitangent, 1.0f, N, level, index);
