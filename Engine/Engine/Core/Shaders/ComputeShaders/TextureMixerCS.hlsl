@@ -196,7 +196,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     float4 dust = readColor(tpos, dustTexture, w, h);
     float4 lens_flare = readColor(tpos, lensFlareTexture, w, h);
 
-    rt2 = pow(rt2, 0.5f);
+    rt2 = pow(rt2, 0.8f);
     
 	if (rt_enabled) {
         if (true) { //debug == 0) {

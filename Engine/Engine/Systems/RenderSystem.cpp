@@ -1759,7 +1759,7 @@ void RenderSystem::ProcessRT() {
 		dxcore->context->CSSetShaderResources(4, 1, vertex_buffer->VertexSRV());
 		dxcore->context->CSSetShaderResources(5, 1, vertex_buffer->IndexSRV());
 
-		//Raytrace reflex, refact and indirect light
+		//Raytrace indirect light
 		rt_shader->SetShader();
 		int32_t  groupsX = (int32_t)(ceil((float)rt_texture_curr[RT_TEXTURE_REFLEX].Width() / (32.0f)));
 		int32_t  groupsY = (int32_t)(ceil((float)rt_texture_curr[RT_TEXTURE_REFLEX].Height() / (32.0f)));

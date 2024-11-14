@@ -412,7 +412,14 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     
     float2 pixel = float2(x, y);
 
-    float2 ray_pixel = round((pixel + float2(0.5f, 0.5f)) * rayMapRatio);
+    float2 rpixel = pixel * rayMapRatio;
+
+    if (rayMapRatio.x >= 2.0f) {
+        rpixel.x += frame_count % (rayMapRatio.x * 0.5f);
+        rpixel.y += frame_count % (rayMapRatio.y * 0.5f) / 2.0f;
+    }
+
+    float2 ray_pixel = round(rpixel);
   
 
     RaySource ray_source = fromColor(ray0[ray_pixel], ray1[ray_pixel]);
@@ -478,14 +485,13 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
                 ray.dir = GenerateHemisphereRay(orig_dir, tangent, bitangent, ray_source.dispersion, N, level, rX);
                 ray.orig.xyz = orig_pos.xyz + ray.dir * 0.001f;
                 float dist = FLT_MAX;
-                if (GetColor(ray, rX, level, 0, rc, ray_source.dispersion, true, false)) {
-                    color_reflex.rgb += rc.color[0] * ray_source.opacity;
-                    color_reflex2.rgb += rc.color[1] * ray_source.opacity;
-                }
+                GetColor(ray, rX, level, 0, rc, ray_source.dispersion, true, false);
+                color_reflex.rgb += rc.color[0] * ray_source.opacity;
+                color_reflex2.rgb += rc.color[1] * ray_source.opacity;
+                
                 float2 rc_disp = float2(rc.dispersion[0], rc.dispersion[1]);
                 float reflex_ratio = (1.0f - ray_source.dispersion);
                 output0[pixel] = color_reflex * reflex_ratio;
-                output2[pixel] = color_reflex2 * reflex_ratio;
                 float4 d = dispersion[pixel];
                 if (rc.hit) {
                     rc_disp = float2(max(rc_disp.x, rc.dispersion[0]), max(rc_disp.y, rc.dispersion[1]));
@@ -519,12 +525,15 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             static const float DIFFUSE_ENERY_UNIT = 3.0f;
 
             static const uint time_divider = 2;
-            static const uint ray_count = 8;
+            static const uint ray_count = 4;
             static const float space_size = N / (float)ray_count;
             static const float time_size = space_size / (float)time_divider;            
-            for (uint i = 0; i < ray_count; ++i) {                
-                uint offset = (frame_count) % time_divider;
+
+            uint offset = (frame_count) % time_divider;
+
+            for (uint i = 0; i < ray_count; ++i) {
                 float n = (i * space_size) + ((pixel.x + pixel.y) * time_divider + offset) % space_size;
+
                 float index = n / (float)N;
                 ray.dir = GenerateHemisphereRay(normal, tangent, bitangent, 1.0f, N, level, index);
                 ray.orig.xyz = orig_pos.xyz + ray.dir * 0.1f;
