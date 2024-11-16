@@ -54,13 +54,9 @@ void main(uint3 DTid : SV_DispatchThreadID)
 #define HARD_MAX_KERNEL 40
     uint MAX_KERNEL = min(normals_dimensions.x / 32, HARD_MAX_KERNEL);
     float count = 0.0f;
-    float2 dir = float2(0.0f, 0.0f);
-    if (type == 1 || type == 3) {
-        dir = float2(1.0f, 0.0f);
-    }
-    else if (type == 2 || type == 4) {
-        dir = float2(0.0f, 1.0f);
-    }
+
+    float2 dir = lerp(float2(1.0f, 0.0f), float2(0.0f, 1.0f), step(1.5, type));
+
 
     float4 c0 = float4(0.0f, 0.0f, 0.0f, 0.0f);
     float dist_att = 0.0f;
@@ -126,28 +122,8 @@ void main(uint3 DTid : SV_DispatchThreadID)
         prev_pos.x /= prev_pos.w;
         prev_pos.y /= -prev_pos.w;
         prev_pos.xy = (prev_pos.xy + 1.0f) * normals_dimensions.xy / 2.0f;
-        float m = length(motion_texture[prev_pos.xy].xy);
-        if (m > motion) {
-            motion = m;
-        }
-        float2 mvector = motion_texture[info_pixel].xy;
-        if (mvector.x == -FLT_MAX) {
-            motion = FLT_MAX;
-        }
-        else {
-            m = length(motion_texture[info_pixel].xy);
-            if (m > motion) {
-                motion = m;
-            }
-        }
-        if (m < 0.005f) {
-            prev_pos.xy = pixel.xy;
-        }
-        else {
-            prev_pos.xy /= normalRatio;
-        }
-
-        float4 prev_color = prev_output[floor(prev_pos.xy)];
+        float motion = length(motion_texture[info_pixel].xy);
+        float4 prev_color = prev_output[floor(prev_pos.xy / normalRatio)];
         float w = saturate(0.8f - motion * 50.0f);
         output[pixel] = prev_color * w + c0 * (1.0f - w);
     }

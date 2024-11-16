@@ -49,26 +49,20 @@ void main(uint3 DTid : SV_DispatchThreadID)
     }
     float2 infoRatio = info_dimensions / input_dimensions;
     float2 rpixel = pixel * infoRatio;
-    if (infoRatio.x >= 2.0f) {
-        rpixel.x += frame_count % (infoRatio.x * 0.5f);
-        rpixel.y += frame_count % (infoRatio.y * 0.5f) / 2.0f;
-    }
+    rpixel.x += frame_count % (infoRatio.x * 0.5f);
+    rpixel.y += frame_count % (infoRatio.y * 0.5f) / 2.0f;
+    
 
     float2 info_pixel = round(rpixel);
     float3 p0_position = positions[info_pixel].xyz;
     float3 p0_normal = normals[info_pixel].xyz;
 
     float KERNEL_SIZE = 16;
-    float2 dir;
     float pixelMaxDist = 0.0f;
     float worldMaxDist = 0.0f;
 
-    if (type == 1) {
-        dir = float2(0.0f, RATIO);
-    }
-    else {
-        dir = float2(RATIO, 0.0f);
-    }
+    float2 dir = lerp(float2(RATIO, 0.0f), float2(0.0f, RATIO), step(1.5, type));
+
 
     int x;
     int y;
@@ -90,15 +84,14 @@ void main(uint3 DTid : SV_DispatchThreadID)
     
         float3 p1_normal = normals[p1_info_pixel].xyz;
         float n = saturate(dot(p1_normal, p0_normal));
-        ww *= pow(n, 5.0f / infoRatio.x);
+        ww *= pow(n, 4.0f / infoRatio.x);
 #endif        
         c += input[p] * ww;
         total_w += ww;
     }
-
-    if (total_w > Epsilon) {
-        c /= total_w;
-    }
+    static const float epsilon = 10e-4;
+    c = c * step(epsilon, total_w);
+    c = c / max(total_w, epsilon);
 
 #if 1
     matrix worldViewProj = mul(view, projection);
@@ -106,17 +99,6 @@ void main(uint3 DTid : SV_DispatchThreadID)
     prev_pos.x /= prev_pos.w;
     prev_pos.y /= -prev_pos.w;
     prev_pos.xy = (prev_pos.xy + 1.0f) * info_dimensions.xy / 2.0f;
-    float motion = length(motion_texture[prev_pos.xy].xy);
-    float2 mvector = motion_texture[info_pixel].xy;
-    if (mvector.x == -FLT_MAX) {
-        motion = FLT_MAX;
-    }
-    else {
-        float m = length(motion_texture[info_pixel].xy);
-        if (m > motion) {
-            motion = m;
-        }
-    }
     prev_pos.xy /= infoRatio;
     float4 prev_color = prev_output[round(prev_pos.xy)];
     float w = 0.5f;

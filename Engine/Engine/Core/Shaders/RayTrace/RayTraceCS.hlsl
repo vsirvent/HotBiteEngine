@@ -95,34 +95,26 @@ float3 GenerateHemisphereRay(float3 dir, float3 tangent, float3 bitangent, float
 {
     float index = (rX * N * dispersion) % N;
 
-    // First point at the top (up direction)
-    if (index < Epsilon) {
-        return dir; // The first point is directly at the top
-    }
-
     float cumulativePoints = 1;
     float level = 1;
-    while (true) {
-        float c = cumulativePoints + level * 2;
-        if (c < index) {
-            cumulativePoints = c;
-        }
-        else {
-            break;
-        }
+    float c = 0.0f;
+    while (c < index) {
+        c = cumulativePoints + level * 2;
+        cumulativePoints = c;
         level++;
     };
+    level--;
 
     float pointsAtLevel = level * 2;  // Quadratic growth
 
     // Calculate local index within the current level
     float localIndex = index - cumulativePoints;
 
-    level = level % NLevels;
+    level = level % (NLevels + 1);
     float phi = level / NLevels * M_PI;
 
     // Azimuthal angle (theta) based on number of points at this level
-    float theta = (2.0f * M_PI + rX) * localIndex / pointsAtLevel; // Spread points evenly in azimuthal direction
+    float theta = (2.0f * M_PI) * localIndex / pointsAtLevel; // Spread points evenly in azimuthal direction
 
     // Convert spherical coordinates to Cartesian coordinates
     float sinPhi = sin(phi);
@@ -413,24 +405,22 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     float2 pixel = float2(x, y);
 
     float2 rpixel = pixel * rayMapRatio;
-
-    if (rayMapRatio.x >= 2.0f) {
-        rpixel.x += frame_count % (rayMapRatio.x * 0.5f);
-        rpixel.y += frame_count % (rayMapRatio.y * 0.5f) / 2.0f;
-    }
-
+    rpixel.x += frame_count % (rayMapRatio.x * 0.5f);
+    rpixel.y += frame_count % (rayMapRatio.y * 0.5f) / 2.0f;
+    
     float2 ray_pixel = round(rpixel);
   
 
     RaySource ray_source = fromColor(ray0[ray_pixel], ray1[ray_pixel]);
-    if (ray_source.dispersion < 0.0f) {
-        return;
-    }
+
     
     //Reflected ray
     float3 orig_pos = ray_source.orig.xyz;
     bool process = length(orig_pos - cameraPosition) < max_distance;
-
+#if 0
+    if (ray_source.dispersion < 0.0f) {
+        return;
+    }
     if (step == 1)
     {
         if (!process || enabled == 0 || ray_source.dispersion >= 1.0f || ray_source.reflex < Epsilon || dist2(ray_source.normal) <= Epsilon)
@@ -449,7 +439,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             return;
         }
     }
-
+#endif
     float3 tangent;
     float3 bitangent;
     RayTraceColor rc;
@@ -462,18 +452,13 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             
         float cumulativePoints = 1;
         float level = 1;
-        while (true) {
-            float c = cumulativePoints + level * 2;
+        float c = 0;
+        while (c < N) {
+            c = cumulativePoints + level * 2;
             level++;
-            if (c < N) {
-                cumulativePoints = c;
-            }
-            else {
-                break;
-            }            
+            cumulativePoints = c;
         };
-
-        //level = 10.0f;
+        level--;
         rc.hit = false;
 
         if ((enabled & REFLEX_ENABLED) && step == 1) {
@@ -509,9 +494,8 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
                     Ray ray = GetRefractedRayFromSource(ray_source);
                     if (dist2(ray.dir) > Epsilon)
                     {
-                        if (GetColor(ray, rX, level, 0, rc, ray_source.dispersion, true, true)) {
-                            color_refrac.rgb += rc.color[0] * (1.0f - ray_source.opacity);
-                        }
+                        GetColor(ray, rX, level, 0, rc, ray_source.dispersion, true, true);
+                        color_refrac.rgb += rc.color[0] * (1.0f - ray_source.opacity);
                     }
                 }
                 output1[pixel] = color_refrac;
@@ -529,19 +513,22 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             static const float space_size = N / (float)ray_count;
             static const float time_size = space_size / (float)time_divider;            
 
+#if 1
+            uint offset = (frame_count) % time_divider;
+            for (uint i = 0; i < ray_count; ++i) {
+                float n = (i * space_size) + ((pixel.x + pixel.y) * time_divider + offset) % space_size;
+#else
             uint offset = (frame_count) % time_divider;
 
             for (uint i = 0; i < ray_count; ++i) {
-                float n = (i * space_size) + ((pixel.x + pixel.y) * time_divider + offset) % space_size;
-
+                float n = (pixel.x + pixel.y) * time_divider * ray_count + (i + offset) % ray_count;
+#endif
                 float index = n / (float)N;
-                ray.dir = GenerateHemisphereRay(normal, tangent, bitangent, 1.0f, N, level, index);
+                ray.dir = GenerateHemisphereRay(normal, tangent, bitangent, 1.0f, N, level + 1, index);
                 ray.orig.xyz = orig_pos.xyz + ray.dir * 0.1f;
                 float dist = FLT_MAX;
-                if (GetColor(ray, index, level, 0, rc, ray_source.dispersion, true, false)) {
-                    color_diffuse.rgb += rc.color[0];
-                }
-                count++;
+                GetColor(ray, index, level, 0, rc, ray_source.dispersion, true, false);
+                color_diffuse.rgb += rc.color[0];                
             }
             output0[pixel] = color_diffuse * DIFFUSE_ENERY_UNIT / ray_count;
         }
