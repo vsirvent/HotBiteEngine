@@ -508,8 +508,8 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             
             static const float DIFFUSE_ENERY_UNIT = 3.0f;
 
-            static const uint time_divider = 2;
-            static const uint ray_count = 4;
+            static const uint time_divider = 1;
+            static const uint ray_count = 32;
             static const float space_size = N / (float)ray_count;
             static const float time_size = space_size / (float)time_divider;            
 

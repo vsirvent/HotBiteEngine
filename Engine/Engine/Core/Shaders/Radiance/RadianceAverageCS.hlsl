@@ -57,7 +57,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     float3 p0_position = positions[info_pixel].xyz;
     float3 p0_normal = normals[info_pixel].xyz;
 
-    float KERNEL_SIZE = 16;
+    float KERNEL_SIZE = 4;
     float pixelMaxDist = 0.0f;
     float worldMaxDist = 0.0f;
 
@@ -93,7 +93,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     c = c * step(epsilon, total_w);
     c = c / max(total_w, epsilon);
 
-#if 1
+#if 0
     matrix worldViewProj = mul(view, projection);
     float4 prev_pos = mul(prev_position_map[info_pixel], worldViewProj);
     prev_pos.x /= prev_pos.w;
