@@ -147,7 +147,7 @@ namespace HotBite {
 					D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
 					D3D11_UNORDERED_ACCESS_VIEW_DESC uav_desc;
 
-					int32_t data_size = size * sizeof(T) * 4;
+					int32_t data_size = size * sizeof(T);
 
 					bd.Usage = D3D11_USAGE_DEFAULT;
 					bd.ByteWidth = data_size;
@@ -169,7 +169,7 @@ namespace HotBite {
 					srvDesc.Format = DXGI_FORMAT_R32_FLOAT;
 					srvDesc.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
 					srvDesc.Buffer.FirstElement = 0;
-					srvDesc.Buffer.NumElements = data_size/4;
+					srvDesc.Buffer.NumElements = data_size;
 					hr = device->CreateShaderResourceView(buffer, &srvDesc, &srv);
 					if (FAILED(hr)) { goto end; }
 
@@ -178,7 +178,7 @@ namespace HotBite {
 					uav_desc.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
 					uav_desc.Format = DXGI_FORMAT_R32_TYPELESS;
 					uav_desc.Buffer.FirstElement = 0;
-					uav_desc.Buffer.NumElements = data_size/4;
+					uav_desc.Buffer.NumElements = data_size;
 					uav_desc.Buffer.Flags = D3D11_BUFFER_UAV_FLAG_RAW;
 					hr = device->CreateUnorderedAccessView(resource, &uav_desc, &uav);
 					if (FAILED(hr)) { goto end; }
@@ -188,7 +188,7 @@ namespace HotBite {
 					return hr;
 				}
 
-				void Clear(uint32_t start = 0, uint32_t len = 0) {
+				void Clear(T val, uint32_t start = 0, uint32_t len = 0) {
 					if (len == 0) {
 						len = (uint32_t)size;
 					}
@@ -196,7 +196,10 @@ namespace HotBite {
 						ID3D11DeviceContext* context = Core::DXCore::Get()->context;
 						D3D11_MAPPED_SUBRESOURCE resource;
 						context->Map(buffer, 0, D3D11_MAP_WRITE, 0, &resource);
-						memset(resource.pData, 0, (UINT)(sizeof(T) * len));
+						T* data = (T*)resource.pData;
+						for (uint32_t i = start; i < len; ++i) {
+							data[i] = val;
+						}
 						context->Unmap(buffer, 0);
 					}
 				}

@@ -429,6 +429,10 @@ RenderSystem::~RenderSystem() {
 		}
 	}
 
+	for (int x = 0; x < 2; ++x) {
+		restir_pdf[x].Unprepare();
+		restir_w[x].Release();
+	}
 	texture_tmp.Release();
 
 	rt_texture_props.Release();
@@ -451,6 +455,20 @@ void RenderSystem::LoadRTResources() {
 			rt_textures[n][x].Release();
 			if (FAILED(rt_textures[n][x].Init(w / div, h / div, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 				throw std::exception("rt_texture.Init failed");
+			}
+		}
+	}
+
+	{
+		int div = max(RT_TEXTURE_RESOLUTION_DIVIDER, 2);
+		for (int n = 0; n < 2; ++n) {
+			restir_pdf[n].Unprepare();
+			if (FAILED(restir_pdf[n].Prepare(w * h * RESTIR_PIXEL_RAYS / div))) {
+				throw std::exception("restir_pdf.Init failed");
+			}
+			restir_w[n].Release();
+			if (FAILED(restir_w[n].Init(w / div, h / div, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+				throw std::exception("restir_w.Init failed");
 			}
 		}
 	}
@@ -1707,6 +1725,12 @@ void RenderSystem::ProcessRT() {
 	rt_texture_curr = rt_textures[current];
 	rt_texture_prev = rt_textures[prev];
 
+	restir_pdf_curr = &restir_pdf[current];
+	restir_pdf_prev = &restir_pdf[prev];
+
+	restir_w_curr = &restir_w[current];
+	restir_w_prev = &restir_w[prev];
+
 	if (rt_quality != eRtQuality::OFF && rt_enabled && bvh_buffer != nullptr && nobjects > 0) {
 		
 		std::lock_guard<std::mutex> lock(rt_mutex);
@@ -2622,9 +2646,15 @@ void RenderSystem::SetRayTracing(bool reflex_enabled, bool refract_enabled, bool
 			rt_textures[x][i].Clear(zero);
 		}
 	}
+
+	static const float one[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+	static const float nrays[4] = { RESTIR_PIXEL_RAYS, RESTIR_PIXEL_RAYS, RESTIR_PIXEL_RAYS, RESTIR_PIXEL_RAYS };
+
 	for (int i = 0; i < 2; ++i)
 	{
 		light_map[i].Clear(zero);
+		restir_pdf[i].Clear(1.0f);
+		restir_w[i].Clear(nrays);
 	}
 }
 
