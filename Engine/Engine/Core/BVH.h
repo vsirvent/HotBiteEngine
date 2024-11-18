@@ -171,8 +171,7 @@ namespace HotBite {
 					srvDesc.Buffer.FirstElement = 0;
 					srvDesc.Buffer.NumElements = data_size;
 					hr = device->CreateShaderResourceView(buffer, &srvDesc, &srv);
-					if (FAILED(hr)) { goto end; }
-
+					
 					srv->GetResource(&resource);
 
 					uav_desc.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
@@ -181,7 +180,6 @@ namespace HotBite {
 					uav_desc.Buffer.NumElements = data_size;
 					uav_desc.Buffer.Flags = D3D11_BUFFER_UAV_FLAG_RAW;
 					hr = device->CreateUnorderedAccessView(resource, &uav_desc, &uav);
-					if (FAILED(hr)) { goto end; }
 					this->size = size;
 
 				end:
@@ -211,10 +209,14 @@ namespace HotBite {
 					if (buffer != nullptr) {
 						int count = buffer->Release();
 						hr |= (count == 0) ? S_OK : E_FAIL;
-						srv->Release();
-						srv = nullptr;
-						uav->Release();
-						uav = nullptr;
+						if (srv != nullptr) {
+							srv->Release();
+							srv = nullptr;
+						}
+						if (uav != nullptr) {
+							uav->Release();
+							uav = nullptr;
+						}
 					}
 					size = 0;
 					return hr;

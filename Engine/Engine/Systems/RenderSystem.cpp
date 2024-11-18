@@ -349,10 +349,6 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		if (rad_avg == nullptr) {
 			throw std::exception("RadianceAverageCS shader.Init failed");
 		}
-		rad_interpol = ShaderFactory::Get()->GetShader<SimpleComputeShader>("RadianceInterpolationCS.cso");
-		if (rad_interpol == nullptr) {
-			throw std::exception("RadianceInterpolationCS shader.Init failed");
-		}
 		motion_blur = ShaderFactory::Get()->GetShader<SimpleComputeShader>("MotionBlurCS.cso");
 		if (motion_blur == nullptr) {
 			throw std::exception("motion blur shader.Init failed");
