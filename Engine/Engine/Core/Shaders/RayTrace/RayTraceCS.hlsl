@@ -82,6 +82,11 @@ Texture2D<float4> DiffuseTextures[MAX_OBJECTS];
 Texture2D<float> DirShadowMapTexture[MAX_LIGHTS];
 TextureCube<float> PointShadowMapTexture[MAX_LIGHTS];
 
+RWTexture2D<float> restir_pdf_0;
+RWTexture2D<float> restir_pdf_1;
+RWTexture2D<float> restir_w_0;
+RWTexture2D<float> restir_w_1;
+
 //Packed array
 static float2 lps[MAX_LIGHTS] = (float2[MAX_LIGHTS])LightPerspectiveValues;
 
@@ -89,24 +94,34 @@ static float2 lps[MAX_LIGHTS] = (float2[MAX_LIGHTS])LightPerspectiveValues;
 #include "../Common/RayFunctions.hlsli"
 
 #define max_distance 100.0f
-static const float N = 300.0f;
+
+static const float DIFFUSE_ENERY_UNIT = 5.0f;
+
+static const uint ray_count = 30;
+static const float kernel_size = 7;
+static const uint stride = kernel_size * ray_count;
+
+static const uint max_x = ray_count * (kernel_size);
+static const uint max_y = stride * (kernel_size);
+
+static const float N = ray_count * kernel_size * kernel_size;
+static const float space_size = N / ray_count;
 
 float3 GenerateHemisphereRay(float3 dir, float3 tangent, float3 bitangent, float dispersion, float N, float NLevels, float rX)
 {
     float3 seed = (50 + frame_count % 50) * dir;
-    float rng = 1.0f; // 1.0f + rgba_tnoise(seed) * 0.05f;
+    float rng = 1.0f + rgba_tnoise(seed) * 0.05f;
 
     float index = (rX * N * dispersion) % N;
 
     float cumulativePoints = 1;
     float level = 1;
-    float c = 0.0f;
+    float c = 1.0f;
     while (c < index) {
         c = cumulativePoints + level * 2;
         cumulativePoints = c;
         level++;
     };
-    level--;
 
     float pointsAtLevel = level * 2;  // Quadratic growth
 
@@ -408,8 +423,8 @@ return out_color.hit;
             float2 pixel = float2(x, y);
 
             float2 rpixel = pixel * rayMapRatio;
-            rpixel.x += frame_count % (rayMapRatio.x * 0.5f);
-            rpixel.y += frame_count % (rayMapRatio.y * 0.5f) / 2.0f;
+            //rpixel.x += frame_count % (rayMapRatio.x * 0.5f);
+            //rpixel.y += frame_count % (rayMapRatio.y * 0.5f) / 2.0f;
 
             float2 ray_pixel = round(rpixel);
 
@@ -458,13 +473,13 @@ return out_color.hit;
                 float c = 0;
                 while (c < N) {
                     c = cumulativePoints + level * 2;
-                    level++;
                     cumulativePoints = c;
+                    level++;
                 };
-                level--;
+ 
                 rc.hit = false;
 
-                if ((enabled & REFLEX_ENABLED) && step == 1) {
+                if (false) { //(enabled & REFLEX_ENABLED) && step == 1) {
                     if (DTid.z == 0) {
                         float3 seed = orig_pos * 100.0f;
                         float rX = rgba_tnoise(seed);
@@ -509,29 +524,23 @@ return out_color.hit;
                 else if ((enabled & INDIRECT_ENABLED) && step >= 2) {
                     GetSpaceVectors(normal, tangent, bitangent);
 
-
-                    static const float DIFFUSE_ENERY_UNIT = 3.0f;
-
-                    static const uint ray_count = 12;
-                    static const float space_size = N / (float)ray_count;
-                    static const float kernel_size = 5;
-                    static const uint stride = kernel_size * ray_count;
-
-                    static const uint max_x = ray_count * (kernel_size);
-                    static const uint max_y = stride * (kernel_size);
-
-
                     for (uint i = 0; i < ray_count; ++i) {
-                        float n = (pixel.x * ray_count) + (pixel.y * stride) + i;
+                        float n = (pixel.x % kernel_size) * ray_count + (pixel.y % kernel_size) * stride + i * space_size;
 
-                        float index = n / (float)N;
-                        ray.dir = GenerateHemisphereRay(normal, tangent, bitangent, 1.0f, N, level + 1, index);
+                        float index = n / N;
+                        ray.dir = GenerateHemisphereRay(normal, tangent, bitangent, 1.0f, N, level, index);
                         ray.orig.xyz = orig_pos.xyz + ray.dir * 0.1f;
                         float dist = FLT_MAX;
                         GetColor(ray, index, level, 0, rc, ray_source.dispersion, true, false);
                         color_diffuse.rgb += rc.color[0];
+
                     }
                     output0[pixel] = color_diffuse * DIFFUSE_ENERY_UNIT / ray_count;
+
+
+                    if (pixel.x % kernel_size == 0 || pixel.y % kernel_size == 0) {
+                        //output0[pixel] = float4(1.0f, 0.0f, 0.0f, 1.0f);
+                    }
                 }
             }
             else {

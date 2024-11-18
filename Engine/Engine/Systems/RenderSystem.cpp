@@ -1791,12 +1791,23 @@ void RenderSystem::ProcessRT() {
 			rt_shader->SetFloat("RATIO", RATIO);
 			rt_shader->SetFloat("NUM_RAYS", NUM_RAYS);
 			rt_shader->CopyAllBufferData();
-
+			
+			rt_shader->SetUnorderedAccessView("restir_pdf_0", *restir_pdf_prev->UAV());
+			rt_shader->SetUnorderedAccessView("restir_pdf_1", *restir_pdf_curr->UAV());
+			rt_shader->SetUnorderedAccessView("restir_w_0", restir_w_prev->UAV());
+			rt_shader->SetUnorderedAccessView("restir_w_1", restir_w_prev->UAV());
+			
 			rt_shader->SetUnorderedAccessView("output0", rt_texture_curr[RT_TEXTURE_INDIRECT].UAV());
 
 			groupsX = (int32_t)(ceil((float)rt_texture_curr[RT_TEXTURE_INDIRECT].Width() / (32.0f)));
 			groupsY = (int32_t)(ceil((float)rt_texture_curr[RT_TEXTURE_INDIRECT].Height() / (32.0f)));
 			dxcore->context->Dispatch((uint32_t)ceil((float)groupsX / RATIO), (uint32_t)ceil((float)groupsY / RATIO), 1);
+
+			rt_shader->SetUnorderedAccessView("restir_pdf_0", nullptr);
+			rt_shader->SetUnorderedAccessView("restir_pdf_1", nullptr);
+			rt_shader->SetUnorderedAccessView("restir_w_0", nullptr);
+			rt_shader->SetUnorderedAccessView("restir_w_1", nullptr);
+
 		}
 
 		rt_shader->SetUnorderedAccessView("output0", nullptr);
@@ -1928,19 +1939,10 @@ void RenderSystem::ProcessRT() {
 
 			rad_avg->SetShaderResourceView("input", rt_texture_curr[RT_TEXTURE_INDIRECT].SRV());
 			rad_avg->SetUnorderedAccessView("output", texture_tmp.UAV());
-			rad_avg->SetInt("type", 1);
 			rad_avg->CopyAllBufferData();
 			rad_avg->SetShader();
 			dxcore->context->Dispatch(groupsX, groupsY, 1);
-			rad_avg->SetShaderResourceView("input", nullptr);
-			rad_avg->SetUnorderedAccessView("output", nullptr);
-			rad_avg->CopyAllBufferData();
-			rad_avg->SetShaderResourceView("input", texture_tmp.SRV());
-			rad_avg->SetUnorderedAccessView("output", rt_texture_curr[RT_TEXTURE_INDIRECT].UAV());
-			rad_avg->SetInt("type", 2);
-			rad_avg->CopyAllBufferData();
-			dxcore->context->Dispatch(groupsX, groupsY, 1);
-
+		
 			rad_avg->SetShaderResourceView("input", nullptr);
 			rad_avg->SetUnorderedAccessView("output", nullptr);
 			rad_avg->SetShaderResourceView("positions", nullptr);
@@ -1950,36 +1952,6 @@ void RenderSystem::ProcessRT() {
 			rad_avg->SetShaderResourceView("prev_position_map", nullptr);
 			rad_avg->CopyAllBufferData();
 		}
-#if 0
-#if 0
-		// Interpolate radiance
-		rad_interpol->SetInt("debug", rt_debug);
-		rad_interpol->SetShaderResourceView("input", texture_tmp.SRV());
-		rad_interpol->SetUnorderedAccessView("output", rt_texture_curr[RT_TEXTURE_INDIRECT].UAV());
-		rad_interpol->SetShaderResourceView("positions", rt_ray_sources0.SRV());
-		rad_interpol->SetShaderResourceView("normals", rt_ray_sources1.SRV());
-		rad_interpol->SetShaderResourceView("prev_output", rt_texture_prev[RT_TEXTURE_INDIRECT].SRV());
-		rad_interpol->SetShaderResourceView("motion_texture", motion_texture.SRV());
-		rad_interpol->SetShaderResourceView("prev_position_map", prev_position_map.SRV());
-		rad_interpol->SetMatrix4x4(VIEW, cam_entity.camera->view);
-		rad_interpol->SetMatrix4x4(PROJECTION, cam_entity.camera->projection);
-		rad_interpol->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
-
-		rad_interpol->SetFloat("RATIO", RATIO);
-		rad_interpol->CopyAllBufferData();
-		rad_interpol->SetShader();
-		groupsX = (int32_t)(ceil((float)rt_texture_curr[RT_TEXTURE_INDIRECT].Width() / 32.0f));
-		groupsY = (int32_t)(ceil((float)rt_texture_curr[RT_TEXTURE_INDIRECT].Height() / 32.0f));
-		dxcore->context->Dispatch(groupsX, groupsY, 1);
-		rad_interpol->SetShaderResourceView("input", nullptr);
-		rad_interpol->SetUnorderedAccessView("output", nullptr);
-		rad_interpol->SetShaderResourceView("positions", nullptr);
-		rad_interpol->SetShaderResourceView("normals", nullptr);
-		rad_interpol->SetShaderResourceView("prev_output", nullptr);
-		rad_interpol->SetShaderResourceView("motion_texture", nullptr);
-		rad_interpol->SetShaderResourceView("prev_position_map", nullptr);
-		rad_interpol->CopyAllBufferData();
-#else
 		groupsX = (int32_t)(ceil((float)rt_texture_curr[RT_TEXTURE_INDIRECT].Width() / (32.0f)));
 		groupsY = (int32_t)(ceil((float)rt_texture_curr[RT_TEXTURE_INDIRECT].Height() / (32.0f)));
 
@@ -1995,8 +1967,6 @@ void RenderSystem::ProcessRT() {
 		aa_shader->SetUnorderedAccessView("output", nullptr);
 		aa_shader->SetShaderResourceView("input", nullptr);
 		aa_shader->CopyAllBufferData();
-#endif
-#endif
 #if 0
 		//Apply antialias
 		int ntexture = RT_TEXTURE_INDIRECT;

@@ -49,45 +49,44 @@ void main(uint3 DTid : SV_DispatchThreadID)
     }
     float2 infoRatio = info_dimensions / input_dimensions;
     float2 rpixel = pixel * infoRatio;
-    rpixel.x += frame_count % (infoRatio.x * 0.5f);
-    rpixel.y += frame_count % (infoRatio.y * 0.5f) / 2.0f;
+    //rpixel.x += frame_count % (infoRatio.x * 0.5f);
+    //rpixel.y += frame_count % (infoRatio.y * 0.5f) / 2.0f;
     
 
     float2 info_pixel = round(rpixel);
     float3 p0_position = positions[info_pixel].xyz;
     float3 p0_normal = normals[info_pixel].xyz;
 
-    float KERNEL_SIZE = 2;
+    float KERNEL_SIZE = 3;
     float pixelMaxDist = 0.0f;
     float worldMaxDist = 0.0f;
-
-    float2 dir = lerp(float2(RATIO, 0.0f), float2(0.0f, RATIO), step(1.5, type));
-
 
     int x;
     int y;
 
     float sigma = 2.0f;
     float total_w = 0.0f;
-    float ww = 1.0f;
+    float ww;
     float4 c = float4(0.0f, 0.0f, 0.0f, 0.0f);
 
     for (x = -KERNEL_SIZE; x <= KERNEL_SIZE; ++x) {
-        int2 p = pixel + x * dir;
+        for (y = -KERNEL_SIZE; y <= KERNEL_SIZE; ++y) {
+            int2 p = pixel + int2(x, y);
 #if 1
-        float2 p1_info_pixel = round(p * infoRatio);
-        float3 p1_position = positions[p1_info_pixel].xyz;
-        if (p1_position.x == FLT_MAX) continue;
-    
-        float world_dist = dist2(p1_position - p0_position);
-        ww = exp(-world_dist / (2.0f * sigma * sigma));
-    
-        float3 p1_normal = normals[p1_info_pixel].xyz;
-        float n = saturate(dot(p1_normal, p0_normal));
-        ww *= pow(n, 4.0f / infoRatio.x);
+            float2 p1_info_pixel = round(p * infoRatio);
+            float3 p1_position = positions[p1_info_pixel].xyz;
+            if (p1_position.x == FLT_MAX) continue;
+
+            float world_dist = dist2(p1_position - p0_position);
+            ww = exp(-world_dist / (2.0f * sigma * sigma));
+
+            float3 p1_normal = normals[p1_info_pixel].xyz;
+            float n = saturate(dot(p1_normal, p0_normal));
+            ww *= pow(n, 10.0f / infoRatio.x);
 #endif        
-        c += input[p] * ww;
-        total_w += ww;
+            c += input[p] * ww;
+            total_w += ww;
+        }
     }
     static const float epsilon = 10e-4;
     c = c * step(epsilon, total_w);
