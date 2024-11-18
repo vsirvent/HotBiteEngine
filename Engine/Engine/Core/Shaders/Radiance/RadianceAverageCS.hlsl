@@ -57,7 +57,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     float3 p0_position = positions[info_pixel].xyz;
     float3 p0_normal = normals[info_pixel].xyz;
 
-    float KERNEL_SIZE = 16;
+    float KERNEL_SIZE = 2;
     float pixelMaxDist = 0.0f;
     float worldMaxDist = 0.0f;
 

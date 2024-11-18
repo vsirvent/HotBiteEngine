@@ -89,10 +89,13 @@ static float2 lps[MAX_LIGHTS] = (float2[MAX_LIGHTS])LightPerspectiveValues;
 #include "../Common/RayFunctions.hlsli"
 
 #define max_distance 100.0f
-static const float N = 256.0f;
+static const float N = 400.0f;
 
 float3 GenerateHemisphereRay(float3 dir, float3 tangent, float3 bitangent, float dispersion, float N, float NLevels, float rX)
 {
+    float3 seed = (50 + frame_count % 50) * dir;
+    float rng = 1.0f + rgba_tnoise(seed) * 0.05f;
+    
     float index = (rX * N * dispersion) % N;
 
     float cumulativePoints = 1;
@@ -111,10 +114,10 @@ float3 GenerateHemisphereRay(float3 dir, float3 tangent, float3 bitangent, float
     float localIndex = index - cumulativePoints;
 
     level = level % (NLevels + 1);
-    float phi = level / NLevels * M_PI;
+    float phi = level / NLevels * M_PI * rng;
 
     // Azimuthal angle (theta) based on number of points at this level
-    float theta = (2.0f * M_PI) * localIndex / pointsAtLevel; // Spread points evenly in azimuthal direction
+    float theta = (2.0f * M_PI * rng) * localIndex / pointsAtLevel; // Spread points evenly in azimuthal direction
 
     // Convert spherical coordinates to Cartesian coordinates
     float sinPhi = sin(phi);
@@ -508,15 +511,16 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             
             static const float DIFFUSE_ENERY_UNIT = 3.0f;
 
-            static const uint time_divider = 2;
-            static const uint ray_count = 4;
+            static const uint time_divider = 1;
+            static const uint ray_count = 16;
             static const float space_size = N / (float)ray_count;
-            static const float time_size = space_size / (float)time_divider;            
-
+            static const float time_size = space_size / (float)time_divider;
+            static const float kernel_size = 5;
+            static const uint stride = kernel_size * ray_count;
 #if 1
             uint offset = (frame_count) % time_divider;
             for (uint i = 0; i < ray_count; ++i) {
-                float n = (i * space_size) + ((pixel.x + pixel.y) * time_divider + offset) % space_size;
+                float n = (i * space_size) + ((pixel.x + pixel.y * stride) * time_divider + offset) % space_size;
 #else
             uint offset = (frame_count) % time_divider;
 
