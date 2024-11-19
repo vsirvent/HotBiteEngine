@@ -143,11 +143,13 @@ namespace HotBite {
 				HRESULT Prepare(int size) {
 					HRESULT hr = S_OK;
 					ID3D11Device* device = Core::DXCore::Get()->device;
-					D3D11_BUFFER_DESC bd;
-					D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
-					D3D11_UNORDERED_ACCESS_VIEW_DESC uav_desc;
 
 					int32_t data_size = size * sizeof(T);
+
+					D3D11_BUFFER_DESC bd{};
+					D3D11_SUBRESOURCE_DATA initialData{};
+					D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc{};
+					D3D11_UNORDERED_ACCESS_VIEW_DESC uav_desc{};
 
 					bd.Usage = D3D11_USAGE_DEFAULT;
 					bd.ByteWidth = data_size;
@@ -156,15 +158,12 @@ namespace HotBite {
 					bd.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS;
 					bd.StructureByteStride = sizeof(T);
 					
-					
-					D3D11_SUBRESOURCE_DATA initialData{};
 					uint8_t* nullData = new uint8_t[data_size];
 					memset(nullData, 0, data_size);
 					initialData.pSysMem = nullData;
 					hr = device->CreateBuffer(&bd, &initialData, &buffer);
 					delete[] nullData;
 					if (FAILED(hr)) { goto end; }
-
 
 					srvDesc.Format = DXGI_FORMAT_R32_FLOAT;
 					srvDesc.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
@@ -175,10 +174,9 @@ namespace HotBite {
 					srv->GetResource(&resource);
 
 					uav_desc.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
-					uav_desc.Format = DXGI_FORMAT_R32_TYPELESS;
+					uav_desc.Format = DXGI_FORMAT_R32_FLOAT;
 					uav_desc.Buffer.FirstElement = 0;
 					uav_desc.Buffer.NumElements = size;
-					uav_desc.Buffer.Flags = D3D11_BUFFER_UAV_FLAG_RAW;
 					hr = device->CreateUnorderedAccessView(resource, &uav_desc, &uav);
 					this->size = size;
 

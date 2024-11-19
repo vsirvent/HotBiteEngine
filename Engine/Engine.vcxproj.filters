@@ -588,5 +588,8 @@
     <FxCompile Include="Engine\Core\Shaders\Radiance\RadianceAverageCS.hlsl">
       <Filter>Engine\Core\Shaders\RayTrace</Filter>
     </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\RayTrace\RestirCalcWeightsCS.hlsl">
+      <Filter>Engine\Core\Shaders\RayTrace</Filter>
+    </FxCompile>
   </ItemGroup>
 </Project>

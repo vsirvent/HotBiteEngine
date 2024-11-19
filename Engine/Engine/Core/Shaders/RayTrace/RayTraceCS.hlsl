@@ -64,14 +64,9 @@ cbuffer objectData : register(b1)
     MaterialColor objectMaterials[MAX_OBJECTS];
 }
 
-RWTexture2D<float4> output0 : register(u0);
-RWTexture2D<float4> output1 : register(u1);
-RWTexture2D<float4> output2 : register(u2);
-RWTexture2D<float4> dispersion : register(u3);
-
-RWTexture2D<float4> ray0 : register(u5);
-RWTexture2D<float4> ray1 : register(u6);
-RWTexture2D<float4> bloom : register(u7);
+RWTexture2D<float4> output;
+RWTexture2D<float4> ray0;
+RWTexture2D<float4> ray1;
 
 StructuredBuffer<BVHNode> objects: register(t2);
 StructuredBuffer<BVHNode> objectBVH: register(t3);
@@ -87,8 +82,7 @@ TextureCube<float> PointShadowMapTexture[MAX_LIGHTS];
 
 Buffer<float> restir_pdf_0;
 Texture2D<float> restir_w_0;
-//RWTexture2D<float> restir_pdf_1;
-//RWTexture2D<float> restir_w_1;
+RWBuffer<float> restir_pdf_1;
 
 //Packed array
 static float2 lps[MAX_LIGHTS] = (float2[MAX_LIGHTS])LightPerspectiveValues;
@@ -110,26 +104,28 @@ static const uint N = ray_count * kernel_size * kernel_size;
 static const float space_size = (float)N / (float)ray_count;
 
 
-float GetRayIndex(float2 pixel, float width, Buffer<float> pdf_data, Texture2D<float> w_data, float index) {
+uint GetRayIndex(float2 pixel, float pdf_offset, Buffer<float> pdf_data, Texture2D<float> w_data, float index) {
     float w = w_data[pixel];
-
-    float stride = width * ray_count;
-    float pdf_offset = pixel.x * ray_count + pixel.y * stride;
-
-    //normalize index
-    index = index * w * inv_ray_count;
-
     float tmp_w = 0.0f;
-    for (float pos = 0; pos < index && pos < ray_count; ++pos) {
-        tmp_w += pdf_data[pdf_offset + pos];
+
+    index = index * w * inv_ray_count;
+    float step = w * inv_ray_count;
+    float pos = 0;
+    uint i = 0;
+    for (; i < ray_count; i++) {
+        tmp_w += pdf_data[pdf_offset + i];
+        if (tmp_w >= index) {
+            break;
+        }
+        pos += step;
     }
-    return tmp_w;
+    return i;
 }
 
 float3 GenerateHemisphereRay(float3 dir, float3 tangent, float3 bitangent, float dispersion, float N, float NLevels, float rX)
 {
     float3 seed = (50 + frame_count % 50) * dir;
-    float rng = 1.0f + rgba_tnoise(seed) * 0.05f;
+    float rng = 1.0f; // 1.0f + rgba_tnoise(seed) * 0.05f;
 
     float index = (rX * N * dispersion) % N;
 
@@ -302,108 +298,107 @@ bool GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
                 }
             }
 #if USE_OBH
-                }
-            else if (IntersectAABB(ray, volumeNode)) {
-                    volumeStack[volumeStackSize++] = left_child(volumeNode);
-                    volumeStack[volumeStackSize++] = right_child(volumeNode);
-                    }
-                    ++i;
+        } else if (IntersectAABB(ray, volumeNode)) {
+            volumeStack[volumeStackSize++] = left_child(volumeNode);
+            volumeStack[volumeStackSize++] = right_child(volumeNode);
+        }
+                ++i;
 #endif
-            }
-
-    //At this point we have the ray collision distance and a collision result
-    if (collide) {
-        // Calculate space position
-        ObjectInfo o = objectInfos[result.object];
-        float3 normal0 = asfloat(vertexBuffer.Load3(result.vindex.x + 12));
-        float3 normal1 = asfloat(vertexBuffer.Load3(result.vindex.y + 12));
-        float3 normal2 = asfloat(vertexBuffer.Load3(result.vindex.z + 12));
-        float3 opos = (1.0f - result.uv.x - result.uv.y) * result.v0 + result.uv.x * result.v1 + result.uv.y * result.v2;
-        float3 normal = (1.0f - result.uv.x - result.uv.y) * normal0 + result.uv.x * normal1 + result.uv.y * normal2;
-        normal = normalize(mul(normal, (float3x3)o.world));
-        float4 pos = mul(float4(opos, 1.0f), o.world);
-        pos /= pos.w;
-        MaterialColor material = objectMaterials[result.object];
-
-        float3 color = float3(0.0f, 0.0f, 0.0f);
-
-        color += CalcAmbient(normal) * 0.5f;
-        color *= o.opacity;
-
-        uint i = 0;
-        for (i = 0; i < dirLightsCount; ++i) {
-            color += CalcDirectional(normal, pos.xyz, dirLights[i], i);
         }
 
-        // Calculate the point lights
-        for (i = 0; i < pointLightsCount; ++i) {
-            if (length(pos.xyz - pointLights[i].Position) < pointLights[i].Range) {
-                color += CalcPoint(normal, pos.xyz, pointLights[i], i);
-            }
-        }
+        //At this point we have the ray collision distance and a collision result
+        if (collide) {
+            // Calculate space position
+            ObjectInfo o = objectInfos[result.object];
+            float3 normal0 = asfloat(vertexBuffer.Load3(result.vindex.x + 12));
+            float3 normal1 = asfloat(vertexBuffer.Load3(result.vindex.y + 12));
+            float3 normal2 = asfloat(vertexBuffer.Load3(result.vindex.z + 12));
+            float3 opos = (1.0f - result.uv.x - result.uv.y) * result.v0 + result.uv.x * result.v1 + result.uv.y * result.v2;
+            float3 normal = (1.0f - result.uv.x - result.uv.y) * normal0 + result.uv.x * normal1 + result.uv.y * normal2;
+            normal = normalize(mul(normal, (float3x3)o.world));
+            float4 pos = mul(float4(opos, 1.0f), o.world);
+            pos /= pos.w;
+            MaterialColor material = objectMaterials[result.object];
 
-        //Calculate material color
-        if (material.flags & DIFFUSSE_MAP_ENABLED_FLAG) {
-            float2 uv0 = asfloat(vertexBuffer.Load2(result.vindex.x + 24));
-            float2 uv1 = asfloat(vertexBuffer.Load2(result.vindex.y + 24));
-            float2 uv2 = asfloat(vertexBuffer.Load2(result.vindex.z + 24));
-            float2 uv = uv0 * (1.0f - result.uv.x - result.uv.y) + uv1 * result.uv.x + uv2 * result.uv.y;
-            color *= GetDiffuseColor(result.object, uv);
+            float3 color = float3(0.0f, 0.0f, 0.0f);
+
+            color += CalcAmbient(normal) * 0.5f;
+            color *= o.opacity;
+
+            uint i = 0;
+            for (i = 0; i < dirLightsCount; ++i) {
+                color += CalcDirectional(normal, pos.xyz, dirLights[i], i);
+            }
+
+            // Calculate the point lights
+            for (i = 0; i < pointLightsCount; ++i) {
+                if (length(pos.xyz - pointLights[i].Position) < pointLights[i].Range) {
+                    color += CalcPoint(normal, pos.xyz, pointLights[i], i);
+                }
+            }
+
+            //Calculate material color
+            if (material.flags & DIFFUSSE_MAP_ENABLED_FLAG) {
+                float2 uv0 = asfloat(vertexBuffer.Load2(result.vindex.x + 24));
+                float2 uv1 = asfloat(vertexBuffer.Load2(result.vindex.y + 24));
+                float2 uv2 = asfloat(vertexBuffer.Load2(result.vindex.z + 24));
+                float2 uv = uv0 * (1.0f - result.uv.x - result.uv.y) + uv1 * result.uv.x + uv2 * result.uv.y;
+                color *= GetDiffuseColor(result.object, uv);
+            }
+            else {
+                color *= material.diffuseColor.rgb;
+            }
+
+            float3 emission = material.emission * material.emission_color;
+            color += emission;
+
+            float material_dispersion = saturate(1.0f - material.specIntensity);
+            att_dist += collision_dist * material_dispersion;
+            if (refract) {
+                att_dist = 1.0f;
+            }
+            float curr_att_dist = max(att_dist, 1.0f);
+            if (ray.bounces == 0 || mix) {
+                out_color.color[0] += color * ray.ratio / curr_att_dist;
+                out_color.dispersion[0] = acc_dispersion;
+                if (!refract) {
+                    out_color.bloom += emission / curr_att_dist;
+                }
+            }
+            else {
+                out_color.color[1] += color * ray.ratio / curr_att_dist;
+                out_color.dispersion[1] = acc_dispersion;
+            }
+            acc_dispersion += material_dispersion;
+            last_dispersion = material_dispersion;
+            ray.orig = pos;
+            out_color.hit = true;
+            //If not opaque surface, generate a refraction ray
+            if (ray.bounces < 5 && o.opacity < 1.0f) {
+                if (ray.bounces % 2 == 0) {
+                    normal = -normal;
+                }
+                ray = GetRefractedRayFromRay(ray, ray.density,
+                    ray.density != 1.0 ? 1.0f : o.density,
+                    normal, ray.ratio * (1.0f - o.opacity));
+                end = false;
+            }
+            else if (material.emission <= Epsilon && ray.bounces < max_bounces && o.opacity > 0.0f) {
+                ray = GetReflectedRayFromRay(ray, normal, ray.ratio);
+                float3 tangent;
+                float3 bitangent;
+                GetSpaceVectors(ray.dir, tangent, bitangent);
+                ray.dir = GenerateHemisphereRay(ray.dir, tangent, bitangent, (1.0f - material.specIntensity), N, level, rX);
+                end = false;
+            }
         }
         else {
-            color *= material.diffuseColor.rgb;
-        }
+            //Color background
 
-        float3 emission = material.emission * material.emission_color;
-        color += emission;
-
-        float material_dispersion = saturate(1.0f - material.specIntensity);
-        att_dist += collision_dist * material_dispersion;
-        if (refract) {
-            att_dist = 1.0f;
-        }
-        float curr_att_dist = max(att_dist, 1.0f);
-        if (ray.bounces == 0 || mix) {
-            out_color.color[0] += color * ray.ratio / curr_att_dist;
-            out_color.dispersion[0] = acc_dispersion;
-            if (!refract) {
-                out_color.bloom += emission / curr_att_dist;
-            }
-        }
-        else {
-            out_color.color[1] += color * ray.ratio / curr_att_dist;
-            out_color.dispersion[1] = acc_dispersion;
-        }
-        acc_dispersion += material_dispersion;
-        last_dispersion = material_dispersion;
-        ray.orig = pos;
-        out_color.hit = true;
-        //If not opaque surface, generate a refraction ray
-        if (ray.bounces < 5 && o.opacity < 1.0f) {
-            if (ray.bounces % 2 == 0) {
-                normal = -normal;
-            }
-            ray = GetRefractedRayFromRay(ray, ray.density,
-                ray.density != 1.0 ? 1.0f : o.density,
-                normal, ray.ratio * (1.0f - o.opacity));
-            end = false;
-        }
-        else if (material.emission <= Epsilon && ray.bounces < max_bounces && o.opacity > 0.0f) {
-            ray = GetReflectedRayFromRay(ray, normal, ray.ratio);
-            float3 tangent;
-            float3 bitangent;
-            GetSpaceVectors(ray.dir, tangent, bitangent);
-            ray.dir = GenerateHemisphereRay(ray.dir, tangent, bitangent, (1.0f - material.specIntensity), N, level, rX);
-            end = false;
         }
     }
-    else {
-        //Color background
-
-    }
-        }
-return out_color.hit;
-        }
+    return out_color.hit;
+}
 
 #define DENSITY 1.0f
 #define NTHREADS 32
@@ -413,30 +408,20 @@ return out_color.hit;
         {
             float2 dimensions;
             float2 ray_map_dimensions;
-            float2 bloom_dimensions;
             {
                 uint w, h;
-                output0.GetDimensions(w, h);
+                output.GetDimensions(w, h);
                 dimensions.x = w;
                 dimensions.y = h;
 
                 ray0.GetDimensions(w, h);
                 ray_map_dimensions.x = w;
                 ray_map_dimensions.y = h;
-
-                bloom.GetDimensions(w, h);
-                bloom_dimensions.x = w;
-                bloom_dimensions.y = h;
             }
             float x = (float)DTid.x;
             float y = (float)DTid.y;
 
             float2 rayMapRatio = ray_map_dimensions / dimensions;
-            float2 bloomRatio = bloom_dimensions / dimensions;
-
-            float4 color_reflex = float4(0.0f, 0.0f, 0.0f, 1.0f);
-            float4 color_reflex2 = float4(0.0f, 0.0f, 0.0f, 1.0f);
-            float4 color_refrac = float4(0.0f, 0.0f, 0.0f, 1.0f);
             float4 color_diffuse = float4(0.0f, 0.0f, 0.0f, 1.0f);
 
             float2 pixel = float2(x, y);
@@ -444,39 +429,13 @@ return out_color.hit;
             float2 rpixel = pixel * rayMapRatio;
             //rpixel.x += frame_count % (rayMapRatio.x * 0.5f);
             //rpixel.y += frame_count % (rayMapRatio.y * 0.5f) / 2.0f;
-
             float2 ray_pixel = round(rpixel);
-
 
             RaySource ray_source = fromColor(ray0[ray_pixel], ray1[ray_pixel]);
 
-
-            //Reflected ray
             float3 orig_pos = ray_source.orig.xyz;
             bool process = length(orig_pos - cameraPosition) < max_distance;
-#if 0
-            if (ray_source.dispersion < 0.0f) {
-                return;
-            }
-            if (step == 1)
-            {
-                if (!process || enabled == 0 || ray_source.dispersion >= 1.0f || ray_source.reflex < Epsilon || dist2(ray_source.normal) <= Epsilon)
-                {
-                    output0[pixel] = color_reflex;
-                    output1[pixel] = color_refrac;
-                    output2[pixel] = color_reflex2;
-                    return;
-                }
-            }
-            else {
-                //dispersion out of bounds => exit
-                if (!process || enabled == 0 || ray_source.dispersion > 1.0f || ray_source.reflex < Epsilon || dist2(ray_source.normal) <= Epsilon)
-                {
-                    output0[pixel] = color_reflex;
-                    return;
-                }
-            }
-#endif
+
             float3 tangent;
             float3 bitangent;
             RayTraceColor rc;
@@ -485,7 +444,6 @@ return out_color.hit;
             {
                 float3 normal = ray_source.normal;
                 float3 orig_dir = ray.dir;
-                int count = 0;
 
                 float cumulativePoints = 1;
                 float level = 1;
@@ -498,73 +456,36 @@ return out_color.hit;
  
                 rc.hit = false;
 
-                if (false) { //(enabled & REFLEX_ENABLED) && step == 1) {
-                    if (DTid.z == 0) {
-                        float3 seed = orig_pos * 100.0f;
-                        float rX = rgba_tnoise(seed);
-                        rX = pow(rX, 5.0f);
-                        GetSpaceVectors(orig_dir, tangent, bitangent);
-                        ray.dir = GenerateHemisphereRay(orig_dir, tangent, bitangent, ray_source.dispersion, N, level, rX);
-                        ray.orig.xyz = orig_pos.xyz + ray.dir * 0.001f;
-                        float dist = FLT_MAX;
-                        GetColor(ray, rX, level, 0, rc, ray_source.dispersion, true, false);
-                        color_reflex.rgb += rc.color[0] * ray_source.opacity;
-                        color_reflex2.rgb += rc.color[1] * ray_source.opacity;
-
-                        float2 rc_disp = float2(rc.dispersion[0], rc.dispersion[1]);
-                        float reflex_ratio = (1.0f - ray_source.dispersion);
-                        output0[pixel] = color_reflex * reflex_ratio;
-                        float4 d = dispersion[pixel];
-                        if (rc.hit) {
-                            rc_disp = float2(max(rc_disp.x, rc.dispersion[0]), max(rc_disp.y, rc.dispersion[1]));
-                            dispersion[pixel] = float4(rc_disp.x, rc_disp.y, d.b, d.a);
-                        }
-                        else {
-                            dispersion[pixel] = float4(-1.0f, -1.0f, d.b, d.a);
-                        }
-                    }
-                    else {
-                        //Refracted ray
-                        if (ray_source.opacity < 1.0f && (enabled & REFRACT_ENABLED)) {
-                            float3 seed = orig_pos * 100.0f;
-                            float rX = rgba_tnoise(seed);
-                            Ray ray = GetRefractedRayFromSource(ray_source);
-                            if (dist2(ray.dir) > Epsilon)
-                            {
-                                GetColor(ray, rX, level, 0, rc, ray_source.dispersion, true, true);
-                                color_refrac.rgb += rc.color[0] * (1.0f - ray_source.opacity);
-                            }
-                        }
-                        output1[pixel] = color_refrac;
-                        float4 d = dispersion[pixel];
-                        dispersion[pixel] = float4(d.r, d.g, d.b, ray_source.dispersion);
-                    }
-                }
-                else if ((enabled & INDIRECT_ENABLED) && step >= 2) {
+                if ((enabled & INDIRECT_ENABLED) && step >= 2) {
                     GetSpaceVectors(normal, tangent, bitangent);
 
+                    int last_wi = -1;
+                    float pdf_offset = (pixel.x + pixel.y * dimensions.x) * ray_count;
+
                     for (uint i = 0; i < ray_count; ++i) {
-                        
-                        float wi = GetRayIndex(pixel, dimensions.x, restir_pdf_0, restir_w_0, i);
-                        float n = (pixel.x % kernel_size) * ray_count + (pixel.y % kernel_size) * stride + wi * space_size;
-
-                        float index = n / N;
-                        ray.dir = GenerateHemisphereRay(normal, tangent, bitangent, 1.0f, N, level, index);
-                        ray.orig.xyz = orig_pos.xyz + ray.dir * 0.1f;
-                        float dist = FLT_MAX;
-                        GetColor(ray, index, level, 0, rc, ray_source.dispersion, true, false);
-                        color_diffuse.rgb += rc.color[0];
-
+                        restir_pdf_1[pdf_offset + i] = 0.0f;
                     }
-                    output0[pixel] = color_diffuse * DIFFUSE_ENERY_UNIT / ray_count;
 
+                    for (uint i = 0; i < ray_count; ++i) {
+                        uint wi = GetRayIndex(pixel, pdf_offset, restir_pdf_0, restir_w_0, i);
 
-                    if (pixel.x % kernel_size == 0 || pixel.y % kernel_size == 0) {
-                        //output0[pixel] = float4(1.0f, 0.0f, 0.0f, 1.0f);
+                        if (last_wi != wi) {
+                            
+                            float n = (pixel.x % kernel_size) * ray_count + (pixel.y % kernel_size) * stride + (float)wi;
+
+                            float index = n / N;
+                            ray.dir = GenerateHemisphereRay(normal, tangent, bitangent, 1.0f, N, level, index);
+                            ray.orig.xyz = orig_pos.xyz + ray.dir * 0.1f;
+                            float dist = FLT_MAX;
+                            GetColor(ray, index, level, 0, rc, ray_source.dispersion, true, false);
+                            color_diffuse.rgb += rc.color[0];
+                            last_wi = wi;
+
+                            float w = dist2(rc.color[0]); // (rc.color[0].r + rc.color[0].g + rc.color[0].b) / 3.0f;
+                            restir_pdf_1[pdf_offset + wi] = 1.0f;// max(restir_pdf_1[pdf_offset + wi], w);
+                        }
                     }
+                    output[pixel] = color_diffuse * DIFFUSE_ENERY_UNIT / ray_count;
                 }
-            }
-            else {
-                dispersion[pixel] = float4(-1.0f, -1.0f, -1.0f, -1.0f);
             }
         }
