@@ -483,6 +483,7 @@ void RenderSystem::LoadRTResources() {
 	if (FAILED(rt_dispersion.Init(w / RT_TEXTURE_RESOLUTION_DIVIDER, h / RT_TEXTURE_RESOLUTION_DIVIDER, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 		throw std::exception("rt_dispersion.Init failed");
 	}
+	ResetRTBBuffers();
 }
 
 void RenderSystem::AddDrawable(ECS::Entity entity, const Core::ShaderKey& key, Components::Material* mat, RenderTree& tree, const RenderSystem::DrawableEntity& drawable) {
@@ -1738,6 +1739,9 @@ void RenderSystem::ProcessRT() {
 		ID3D11RenderTargetView* nullRenderTargetViews[1] = { nullptr };
 		dxcore->context->OMSetRenderTargets(1, nullRenderTargetViews, nullptr);
 
+		rt_shader->SetInt("kernel_size", RESTIR_KERNEL);
+		rt_shader->SetInt("ray_count", RESTIR_PIXEL_RAYS);
+
 		rt_shader->SetInt("nobjects", nobjects);
 		rt_shader->SetInt("enabled", rt_enabled & (rt_quality != eRtQuality::OFF ? 0xFF : 0x00));
 		rt_shader->SetMatrix4x4("view_proj", cam_entity.camera->view_projection);
@@ -1792,9 +1796,9 @@ void RenderSystem::ProcessRT() {
 			rt_shader->SetFloat("NUM_RAYS", NUM_RAYS);
 			rt_shader->CopyAllBufferData();
 			
-			rt_shader->SetUnorderedAccessView("restir_pdf_0", *restir_pdf_prev->UAV());
+			rt_shader->SetShaderResourceView("restir_pdf_0", restir_pdf_prev->SRV());
+			rt_shader->SetShaderResourceView("restir_w_0", restir_w_prev->SRV());
 			rt_shader->SetUnorderedAccessView("restir_pdf_1", *restir_pdf_curr->UAV());
-			rt_shader->SetUnorderedAccessView("restir_w_0", restir_w_prev->UAV());
 			rt_shader->SetUnorderedAccessView("restir_w_1", restir_w_prev->UAV());
 			
 			rt_shader->SetUnorderedAccessView("output0", rt_texture_curr[RT_TEXTURE_INDIRECT].UAV());
@@ -1803,9 +1807,9 @@ void RenderSystem::ProcessRT() {
 			groupsY = (int32_t)(ceil((float)rt_texture_curr[RT_TEXTURE_INDIRECT].Height() / (32.0f)));
 			dxcore->context->Dispatch((uint32_t)ceil((float)groupsX / RATIO), (uint32_t)ceil((float)groupsY / RATIO), 1);
 
-			rt_shader->SetUnorderedAccessView("restir_pdf_0", nullptr);
+			rt_shader->SetShaderResourceView("restir_pdf_0", nullptr);
+			rt_shader->SetShaderResourceView("restir_w_0", nullptr);
 			rt_shader->SetUnorderedAccessView("restir_pdf_1", nullptr);
-			rt_shader->SetUnorderedAccessView("restir_w_0", nullptr);
 			rt_shader->SetUnorderedAccessView("restir_w_1", nullptr);
 
 		}
@@ -1932,6 +1936,7 @@ void RenderSystem::ProcessRT() {
 			rad_avg->SetShaderResourceView("prev_position_map", prev_position_map.SRV());
 			rad_avg->SetFloat("NUM_RAYS", NUM_RAYS);
 			rad_avg->SetFloat("RATIO", RATIO);
+			rad_avg->SetInt("kernel_size", RESTIR_KERNEL);
 			rad_avg->SetInt("frame_count", frame_count);
 			groupsX = (int32_t)(ceil((float)rt_texture_curr[RT_TEXTURE_INDIRECT].Width() / (RATIO * 32.0f)));
 			groupsY = (int32_t)(ceil((float)rt_texture_curr[RT_TEXTURE_INDIRECT].Height() / (RATIO * 32.0f)));
@@ -2607,21 +2612,7 @@ bool RenderSystem::GetCloudTest() const {
 void RenderSystem::SetRayTracing(bool reflex_enabled, bool refract_enabled, bool indirect_enabled) {
 	std::lock_guard l(mutex);
 	rt_enabled = (reflex_enabled?RT_REFLEX_ENABLE:0) | (refract_enabled?RT_REFRACT_ENABLE:0) | (indirect_enabled ? RT_INDIRECT_ENABLE : 0);
-	for (int i = 0; i < RT_NTEXTURES; ++i) {
-		for (int x = 0; x < 2; ++x) {
-			rt_textures[x][i].Clear(zero);
-		}
-	}
-
-	static const float one[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
-	static const float nrays[4] = { RESTIR_PIXEL_RAYS, RESTIR_PIXEL_RAYS, RESTIR_PIXEL_RAYS, RESTIR_PIXEL_RAYS };
-
-	for (int i = 0; i < 2; ++i)
-	{
-		light_map[i].Clear(zero);
-		restir_pdf[i].Clear(1.0f);
-		restir_w[i].Clear(nrays);
-	}
+	ResetRTBBuffers();
 }
 
 void RenderSystem::GetRayTracing(bool& reflex_enabled, bool& refract_enabled, bool& indirect_enabled) const {
@@ -2642,6 +2633,24 @@ void RenderSystem::SetRayTracingQuality(eRtQuality quality) {
 		if (rt_quality != eRtQuality::OFF) {
 			LoadRTResources();
 		}
+	}
+}
+
+void RenderSystem::ResetRTBBuffers() {
+	for (int i = 0; i < RT_NTEXTURES; ++i) {
+		for (int x = 0; x < 2; ++x) {
+			rt_textures[x][i].Clear(zero);
+		}
+	}
+
+	static const float one[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+	static const float nrays[4] = { RESTIR_PIXEL_RAYS, RESTIR_PIXEL_RAYS, RESTIR_PIXEL_RAYS, RESTIR_PIXEL_RAYS };
+
+	for (int i = 0; i < 2; ++i)
+	{
+		light_map[i].Clear(zero);
+		restir_pdf[i].Clear(1.0f);
+		restir_w[i].Clear(nrays);
 	}
 }
 

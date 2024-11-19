@@ -10,6 +10,7 @@ cbuffer externalData : register(b0)
     matrix projection;
     float3 cameraPosition;
     uint frame_count;
+    int kernel_size;
 }
 
 Texture2D<float4> input : register(t0);
@@ -57,7 +58,6 @@ void main(uint3 DTid : SV_DispatchThreadID)
     float3 p0_position = positions[info_pixel].xyz;
     float3 p0_normal = normals[info_pixel].xyz;
 
-    float KERNEL_SIZE = 3;
     float pixelMaxDist = 0.0f;
     float worldMaxDist = 0.0f;
 
@@ -69,8 +69,8 @@ void main(uint3 DTid : SV_DispatchThreadID)
     float ww;
     float4 c = float4(0.0f, 0.0f, 0.0f, 0.0f);
 
-    for (x = -KERNEL_SIZE; x <= KERNEL_SIZE; ++x) {
-        for (y = -KERNEL_SIZE; y <= KERNEL_SIZE; ++y) {
+    for (x = -kernel_size; x <= kernel_size; ++x) {
+        for (y = -kernel_size; y <= kernel_size; ++y) {
             int2 p = pixel + int2(x, y);
 #if 1
             float2 p1_info_pixel = round(p * infoRatio);

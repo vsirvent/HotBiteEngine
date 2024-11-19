@@ -43,6 +43,9 @@ cbuffer externalData : register(b0)
     float NUM_RAYS;
     uint enabled;
 
+    uint ray_count;
+    int kernel_size;
+
     //Lights
     AmbientLight ambientLight;
     DirLight dirLights[MAX_LIGHTS];
@@ -82,10 +85,10 @@ Texture2D<float4> DiffuseTextures[MAX_OBJECTS];
 Texture2D<float> DirShadowMapTexture[MAX_LIGHTS];
 TextureCube<float> PointShadowMapTexture[MAX_LIGHTS];
 
-RWTexture2D<float> restir_pdf_0;
-RWTexture2D<float> restir_pdf_1;
-RWTexture2D<float> restir_w_0;
-RWTexture2D<float> restir_w_1;
+Buffer<float> restir_pdf_0;
+Texture2D<float> restir_w_0;
+//RWTexture2D<float> restir_pdf_1;
+//RWTexture2D<float> restir_w_1;
 
 //Packed array
 static float2 lps[MAX_LIGHTS] = (float2[MAX_LIGHTS])LightPerspectiveValues;
@@ -97,15 +100,31 @@ static float2 lps[MAX_LIGHTS] = (float2[MAX_LIGHTS])LightPerspectiveValues;
 
 static const float DIFFUSE_ENERY_UNIT = 5.0f;
 
-static const uint ray_count = 30;
-static const float kernel_size = 7;
+static const float inv_ray_count = 1.0f / (float)ray_count;
 static const uint stride = kernel_size * ray_count;
 
-static const uint max_x = ray_count * (kernel_size);
-static const uint max_y = stride * (kernel_size);
+static const uint max_x = ray_count * kernel_size;
+static const uint max_y = stride * kernel_size;
 
-static const float N = ray_count * kernel_size * kernel_size;
-static const float space_size = N / ray_count;
+static const uint N = ray_count * kernel_size * kernel_size;
+static const float space_size = (float)N / (float)ray_count;
+
+
+float GetRayIndex(float2 pixel, float width, Buffer<float> pdf_data, Texture2D<float> w_data, float index) {
+    float w = w_data[pixel];
+
+    float stride = width * ray_count;
+    float pdf_offset = pixel.x * ray_count + pixel.y * stride;
+
+    //normalize index
+    index = index * w * inv_ray_count;
+
+    float tmp_w = 0.0f;
+    for (float pos = 0; pos < index && pos < ray_count; ++pos) {
+        tmp_w += pdf_data[pdf_offset + pos];
+    }
+    return tmp_w;
+}
 
 float3 GenerateHemisphereRay(float3 dir, float3 tangent, float3 bitangent, float dispersion, float N, float NLevels, float rX)
 {
@@ -470,7 +489,7 @@ return out_color.hit;
 
                 float cumulativePoints = 1;
                 float level = 1;
-                float c = 0;
+                uint c = 0;
                 while (c < N) {
                     c = cumulativePoints + level * 2;
                     cumulativePoints = c;
@@ -525,7 +544,9 @@ return out_color.hit;
                     GetSpaceVectors(normal, tangent, bitangent);
 
                     for (uint i = 0; i < ray_count; ++i) {
-                        float n = (pixel.x % kernel_size) * ray_count + (pixel.y % kernel_size) * stride + i * space_size;
+                        
+                        float wi = GetRayIndex(pixel, dimensions.x, restir_pdf_0, restir_w_0, i);
+                        float n = (pixel.x % kernel_size) * ray_count + (pixel.y % kernel_size) * stride + wi * space_size;
 
                         float index = n / N;
                         ray.dir = GenerateHemisphereRay(normal, tangent, bitangent, 1.0f, N, level, index);

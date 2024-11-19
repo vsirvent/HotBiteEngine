@@ -306,7 +306,7 @@ namespace HotBite {
 
 				static constexpr uint32_t RESTIR_HALF_KERNEL = 2;
 				static constexpr uint32_t RESTIR_KERNEL = 2 * RESTIR_HALF_KERNEL + 1;
-				static constexpr uint32_t RESTIR_PIXEL_RAYS = 30;
+				static constexpr uint32_t RESTIR_PIXEL_RAYS = 12;
 				static constexpr uint32_t RESTIR_TOTAL_RAYS = RESTIR_PIXEL_RAYS * RESTIR_KERNEL * RESTIR_KERNEL;
 
 				Core::DataBuffer<float>* restir_pdf_curr = nullptr;
@@ -395,6 +395,7 @@ namespace HotBite {
 					Core::IRenderTarget* target, RenderTree& tree);
 
 				void LoadRTResources();
+				void ResetRTBBuffers();
 				void CopyTexture(const Core::RenderTexture2D& input, Core::RenderTexture2D& output);
 				void ProcessMotion();
 				void PrepareRT();
