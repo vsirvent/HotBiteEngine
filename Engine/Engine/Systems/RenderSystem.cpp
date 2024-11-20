@@ -37,6 +37,7 @@ using namespace HotBite::Engine::Core;
 using namespace DirectX;
 
 static const float zero[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+static const float ones[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
 static const float minus_one[4] = { -1.0f, -1.0f, -1.0f, -1.0f };
 
 
@@ -430,9 +431,9 @@ RenderSystem::~RenderSystem() {
 	}
 
 	for (int x = 0; x < 2; ++x) {
-		restir_pdf[x].Unprepare();
-		restir_w[x].Release();
+		restir_pdf[x].Release();
 	}
+	restir_w.Release();
 	texture_tmp.Release();
 
 	rt_texture_props.Release();
@@ -462,15 +463,16 @@ void RenderSystem::LoadRTResources() {
 	{
 		int div = max(RT_TEXTURE_RESOLUTION_DIVIDER, 2);
 		for (int n = 0; n < 2; ++n) {
-			restir_pdf[n].Unprepare();
-			if (FAILED(restir_pdf[n].Prepare(w * h * RESTIR_PIXEL_RAYS / (div * 4), DXGI_FORMAT_R32G32B32A32_FLOAT))) {
+			restir_pdf[n].Release();
+			if (FAILED(restir_pdf[n].Init(w / div, h / div, DXGI_FORMAT_R32G32B32A32_UINT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 				throw std::exception("restir_pdf.Init failed");
 			}
-			restir_w[n].Release();
-			if (FAILED(restir_w[n].Init(w / div, h / div, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
-				throw std::exception("restir_w.Init failed");
-			}
 		}
+		restir_w.Release();
+		if (FAILED(restir_w.Init(w / div, h / div, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+			throw std::exception("restir_w.Init failed");
+		}
+
 	}
 
 	texture_tmp.Release();
@@ -1729,9 +1731,6 @@ void RenderSystem::ProcessRT() {
 	restir_pdf_curr = &restir_pdf[0];
 	restir_pdf_prev = &restir_pdf[1];
 
-	restir_w_curr = &restir_w[0];
-	restir_w_prev = &restir_w[1];
-
 	if (rt_quality != eRtQuality::OFF && rt_enabled && bvh_buffer != nullptr && nobjects > 0) {
 		
 		std::lock_guard<std::mutex> lock(rt_mutex);
@@ -1802,8 +1801,8 @@ void RenderSystem::ProcessRT() {
 			rt_shader->CopyAllBufferData();
 			
 			rt_shader->SetShaderResourceView("restir_pdf_0", restir_pdf_prev->SRV());
-			rt_shader->SetShaderResourceView("restir_w_0", restir_w_curr->SRV());
-			rt_shader->SetUnorderedAccessView("restir_pdf_1", *restir_pdf_curr->UAV());
+			rt_shader->SetShaderResourceView("restir_w_0", restir_w.SRV());
+			rt_shader->SetUnorderedAccessView("restir_pdf_1", restir_pdf_curr->UAV());
 			
 			rt_shader->SetUnorderedAccessView("output", rt_texture_curr[RT_TEXTURE_INDIRECT].UAV());
 
@@ -1814,7 +1813,6 @@ void RenderSystem::ProcessRT() {
 			rt_shader->SetShaderResourceView("restir_pdf_0", nullptr);
 			rt_shader->SetShaderResourceView("restir_w_0", nullptr);
 			rt_shader->SetUnorderedAccessView("restir_pdf_1", nullptr);
-			rt_shader->SetUnorderedAccessView("restir_w_1", nullptr);
 
 			rt_shader->SetUnorderedAccessView("output", nullptr);
 			rt_shader->SetShaderResourceView("position_map", nullptr);
@@ -1833,8 +1831,8 @@ void RenderSystem::ProcessRT() {
 			restir_weights->SetShader();
 			restir_weights->SetInt("ray_count", RESTIR_PIXEL_RAYS);
 			restir_weights->SetShaderResourceView("restir_pdf_0", restir_pdf_curr->SRV());
-			restir_weights->SetUnorderedAccessView("restir_pdf_1", *restir_pdf_prev->UAV());
-			restir_weights->SetUnorderedAccessView("restir_w_1", restir_w_curr->UAV());
+			restir_weights->SetUnorderedAccessView("restir_pdf_1", restir_pdf_prev->UAV());
+			restir_weights->SetUnorderedAccessView("restir_w_1", restir_w.UAV());
 			restir_weights->CopyAllBufferData();
 			
 			groupsX = (int32_t)(ceil((float)rt_texture_curr[RT_TEXTURE_INDIRECT].Width() / (32.0f)));
@@ -1845,6 +1843,7 @@ void RenderSystem::ProcessRT() {
 			restir_weights->SetUnorderedAccessView("restir_pdf_1", nullptr);
 			restir_weights->SetUnorderedAccessView("restir_w_1", nullptr);
 
+#if 0
 			// Average radiance
 			rad_avg->SetInt("debug", rt_debug);
 			rad_avg->SetMatrix4x4(VIEW, cam_entity.camera->view);
@@ -1855,14 +1854,10 @@ void RenderSystem::ProcessRT() {
 			rad_avg->SetShaderResourceView("prev_output", rt_texture_prev[RT_TEXTURE_INDIRECT].SRV());
 			rad_avg->SetShaderResourceView("motion_texture", motion_texture.SRV());
 			rad_avg->SetShaderResourceView("prev_position_map", prev_position_map.SRV());
-			rad_avg->SetFloat("NUM_RAYS", NUM_RAYS);
-			rad_avg->SetFloat("RATIO", RATIO);
 			rad_avg->SetInt("kernel_size", RESTIR_HALF_KERNEL);
 			rad_avg->SetInt("frame_count", frame_count);
 			groupsX = (int32_t)(ceil((float)rt_texture_curr[RT_TEXTURE_INDIRECT].Width() / (RATIO * 32.0f)));
 			groupsY = (int32_t)(ceil((float)rt_texture_curr[RT_TEXTURE_INDIRECT].Height() / (RATIO * 32.0f)));
-
-
 			rad_avg->SetShaderResourceView("input", rt_texture_curr[RT_TEXTURE_INDIRECT].SRV());
 			rad_avg->SetUnorderedAccessView("output", texture_tmp.UAV());
 			rad_avg->CopyAllBufferData();
@@ -1879,6 +1874,48 @@ void RenderSystem::ProcessRT() {
 			rad_avg->CopyAllBufferData();
 
 			CopyTexture(texture_tmp, rt_texture_curr[RT_TEXTURE_INDIRECT]);
+#else
+			// Average radiance
+			groupsX = (int32_t)(ceil((float)rt_texture_curr[RT_TEXTURE_INDIRECT].Width() / (RATIO * 32.0f)));
+			groupsY = (int32_t)(ceil((float)rt_texture_curr[RT_TEXTURE_INDIRECT].Height() / (RATIO * 32.0f)));
+
+			rad_avg->SetInt("debug", rt_debug);
+			rad_avg->SetMatrix4x4(VIEW, cam_entity.camera->view);
+			rad_avg->SetMatrix4x4(PROJECTION, cam_entity.camera->projection);
+			rad_avg->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
+			rad_avg->SetShaderResourceView("positions", rt_ray_sources0.SRV());
+			rad_avg->SetShaderResourceView("normals", rt_ray_sources1.SRV());
+			rad_avg->SetShaderResourceView("prev_output", rt_texture_prev[RT_TEXTURE_INDIRECT].SRV());
+			rad_avg->SetShaderResourceView("motion_texture", motion_texture.SRV());
+			rad_avg->SetShaderResourceView("prev_position_map", prev_position_map.SRV());
+			rad_avg->SetInt("kernel_size", RESTIR_HALF_KERNEL);
+			rad_avg->SetInt("frame_count", frame_count);
+			rad_avg->SetInt("type", 1);
+			rad_avg->SetShaderResourceView("input", rt_texture_curr[RT_TEXTURE_INDIRECT].SRV());
+			rad_avg->SetUnorderedAccessView("output", texture_tmp.UAV());
+			rad_avg->CopyAllBufferData();
+			rad_avg->SetShader();
+			dxcore->context->Dispatch(groupsX, groupsY, 1);
+
+			rad_avg->SetShaderResourceView("input", nullptr);
+			rad_avg->SetUnorderedAccessView("output", nullptr);
+			rad_avg->CopyAllBufferData();
+			rad_avg->SetInt("type", 2);
+			rad_avg->SetShaderResourceView("input", texture_tmp.SRV());
+			rad_avg->SetUnorderedAccessView("output", rt_texture_curr[RT_TEXTURE_INDIRECT].UAV());
+			rad_avg->CopyAllBufferData();
+			rad_avg->SetShader();
+			dxcore->context->Dispatch(groupsX, groupsY, 1);
+
+			rad_avg->SetShaderResourceView("input", nullptr);
+			rad_avg->SetUnorderedAccessView("output", nullptr);
+			rad_avg->SetShaderResourceView("positions", nullptr);
+			rad_avg->SetShaderResourceView("normals", nullptr);
+			rad_avg->SetShaderResourceView("prev_output", nullptr);
+			rad_avg->SetShaderResourceView("motion_texture", nullptr);
+			rad_avg->SetShaderResourceView("prev_position_map", nullptr);
+			rad_avg->CopyAllBufferData();
+#endif
 		}
 
 		
@@ -2656,8 +2693,8 @@ void RenderSystem::ResetRTBBuffers() {
 	for (int i = 0; i < 2; ++i)
 	{
 		light_map[i].Clear(zero);
-		restir_pdf[i].Clear({ 1.0f, 1.0f, 1.0f, 1.0f });
-		restir_w[i].Clear(nrays);
+		restir_pdf[i].Clear(ones);
+		restir_w.Clear(nrays);
 	}
 }
 

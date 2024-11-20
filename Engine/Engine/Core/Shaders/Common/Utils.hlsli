@@ -85,8 +85,6 @@ float dist2(float2 p) {
 }
 
 
-
-
 bool IsInteger(float2 value) {
 	return all(value == floor(value));
 }
@@ -139,6 +137,54 @@ void GetPerpendicularPlane(in float3 dir, out float3 v0, out float3 v1) {
 		v0 = float3(1.0f, 0.0f, 0.0f);
 	}
 	v1 = normalize(cross(dir, v0));
+}
+
+uint ToByte(float val, float range)
+{
+	val = 255.0f * clamp(val, 0.0f, range) / range;
+	return (uint)val;
+}
+
+uint4 Pack16Bytes(float values[16], float max_value)
+{
+	uint4 data;
+	data.r = ToByte(values[0], max_value) << 24 | ToByte(values[1], max_value) << 16 | ToByte(values[2], max_value) << 8 | ToByte(values[3], max_value);
+	data.g = ToByte(values[4], max_value) << 24 | ToByte(values[5], max_value) << 16 | ToByte(values[6], max_value) << 8 | ToByte(values[7], max_value);
+	data.b = ToByte(values[8], max_value) << 24 | ToByte(values[9], max_value) << 16 | ToByte(values[10], max_value) << 8 | ToByte(values[11], max_value);
+	data.a = ToByte(values[12], max_value) << 24 | ToByte(values[13], max_value) << 16 | ToByte(values[14], max_value) << 8 | ToByte(values[15], max_value);
+	return data;
+}
+
+float FromByte(uint val, float range)
+{
+	float fval = (float)val;
+	fval = range * clamp(fval, 0.0f, 255.0f) / 255.0f;
+	return fval;
+}
+
+void Unpack16Bytes(uint4 data, float max_value, out float values[16])
+{
+	uint d0 = data.r;
+	uint d1 = data.g;
+	uint d2 = data.b;
+	uint d3 = data.a;
+
+	values[0]  = FromByte((d0 >> 24) & 0xFF, max_value);
+	values[1]  = FromByte((d0 >> 16) & 0xFF, max_value);
+	values[2]  = FromByte((d0 >> 8)  & 0xFF, max_value);
+	values[3]  = FromByte( d0        & 0xFF, max_value);
+	values[4]  = FromByte((d1 >> 24) & 0xFF, max_value);
+	values[5]  = FromByte((d1 >> 16) & 0xFF, max_value);
+	values[6]  = FromByte((d1 >> 8)  & 0xFF, max_value);
+	values[7]  = FromByte( d1        & 0xFF, max_value);
+	values[8]  = FromByte((d2 >> 24) & 0xFF, max_value);
+	values[9]  = FromByte((d2 >> 16) & 0xFF, max_value);
+	values[10] = FromByte((d2 >> 8)  & 0xFF, max_value);
+	values[11] = FromByte( d2        & 0xFF, max_value);
+	values[12] = FromByte((d3 >> 24) & 0xFF, max_value);
+	values[13] = FromByte((d3 >> 16) & 0xFF, max_value);
+	values[14] = FromByte((d3 >> 8)  & 0xFF, max_value);
+	values[15] = FromByte( d3        & 0xFF, max_value);
 }
 
 float4 Pack4Colors(float4 color1, float4 color2, float4 color3, float4 color4) {

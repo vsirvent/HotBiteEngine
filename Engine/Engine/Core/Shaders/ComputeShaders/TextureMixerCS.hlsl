@@ -195,9 +195,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     float4 vol = readColor(tpos, volLightTexture, w, h);
     float4 dust = readColor(tpos, dustTexture, w, h);
     float4 lens_flare = readColor(tpos, lensFlareTexture, w, h);
-
-    rt2 = pow(rt2, 0.5f);
-    
+	    
 	if (rt_enabled) {
         if (true) { //debug == 0) {
             color = color * (l + rt0 + rt2 + rt3) + rt1 + b + dust + lens_flare + vol;
