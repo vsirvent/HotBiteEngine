@@ -84,7 +84,6 @@ float dist2(float2 p) {
 	return p.x * p.x + p.y * p.y;
 }
 
-
 bool IsInteger(float2 value) {
 	return all(value == floor(value));
 }

@@ -47,7 +47,7 @@ namespace HotBite {
         bool operator!=(const float3& a, const float3& b) {
             return !(a == b);
         }
-        
+
         bool operator!=(const float2& a, const float2& b) {
             return !(a == b);
         }

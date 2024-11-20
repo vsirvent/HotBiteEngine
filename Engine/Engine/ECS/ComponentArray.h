@@ -75,7 +75,7 @@ namespace HotBite {
 					size_t size = component_array.size();
 					size_t index_of_removed_entity = entity_to_index_map[entity];
 					size_t index_of_last_element = size - 1;
-					component_array[index_of_removed_entity] = std::move(component_array[index_of_last_element]);
+					component_array[index_of_removed_entity] = component_array[index_of_last_element];
 
 					// Update map to point to moved spot
 					Entity entity_of_last_element = index_to_entity_map[index_of_last_element];
@@ -84,7 +84,7 @@ namespace HotBite {
 
 					entity_to_index_map.erase(entity);
 					index_to_entity_map.erase(index_of_last_element);
-
+					component_array.pop_back();
 					//return modified entity so
 					//references to the component stored in the game can be updated
 					return entity_of_last_element;

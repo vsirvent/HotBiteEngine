@@ -102,6 +102,9 @@ void main(uint3 DTid : SV_DispatchThreadID)
         float n = saturate(dot(p1_normal, p0_normal));
         float dist = max(dist2(p1_position - p0_position) / camDist, 0.1f);
         float w = pow(n, 20.0f / normalRatio) / dist;
+        if (kernel > 1) {
+            w *= cos((M_PI * abs((float)i)) / (2.0 * (float)kernel));
+        }
         count += w;
         c0 += input[p] * w;
     }
@@ -122,9 +125,29 @@ void main(uint3 DTid : SV_DispatchThreadID)
         prev_pos.x /= prev_pos.w;
         prev_pos.y /= -prev_pos.w;
         prev_pos.xy = (prev_pos.xy + 1.0f) * normals_dimensions.xy / 2.0f;
-        float motion = length(motion_texture[info_pixel].xy);
-        float4 prev_color = prev_output[floor(prev_pos.xy / normalRatio)];
-        float w = saturate(0.8f - motion * 50.0f);
+        float m = length(motion_texture[prev_pos.xy].xy);
+        if (m > motion) {
+            motion = m;
+        }
+        float2 mvector = motion_texture[info_pixel].xy;
+        if (mvector.x == -FLT_MAX) {
+            motion = FLT_MAX;
+        }
+        else {
+            m = length(motion_texture[info_pixel].xy);
+            if (m > motion) {
+                motion = m;
+            }
+        }
+        if (m < 0.005f) {
+            prev_pos.xy = pixel.xy;
+        }
+        else {
+            prev_pos.xy /= normalRatio;
+        }
+
+        float4 prev_color = prev_output[floor(prev_pos.xy)];
+        float w = saturate(0.7f - motion * 50.0f);
         output[pixel] = prev_color * w + c0 * (1.0f - w);
     }
 #else

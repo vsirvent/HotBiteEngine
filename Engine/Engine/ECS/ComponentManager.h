@@ -68,9 +68,9 @@ namespace HotBite {
 				}
 
 				template<typename T>
-				void RemoveComponent(Entity entity)
+				Entity RemoveComponent(Entity entity)
 				{
-					GetComponentArray<T>()->RemoveData(entity);
+					return GetComponentArray<T>()->RemoveData(entity);
 				}
 
 				template<typename T>

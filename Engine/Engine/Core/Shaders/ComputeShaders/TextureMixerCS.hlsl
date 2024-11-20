@@ -143,7 +143,6 @@ float4 Get3dInterpolatedColor(float2 uv, Texture2D text, float2 dimension, Textu
 
 
 float4 readColor(float2 pixel, texture2D text, uint w, uint h) {
-	//return text.SampleLevel(basicSampler, pixel, 0);
     uint w2, h2;
     text.GetDimensions(w2, h2);
     if (w2 == w && h2 == h) {
