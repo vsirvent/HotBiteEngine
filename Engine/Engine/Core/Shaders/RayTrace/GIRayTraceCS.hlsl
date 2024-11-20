@@ -337,7 +337,7 @@ void GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
             }
 
             float3 emission = material.emission * material.emission_color;
-            color += emission;
+            color += pow(emission, 0.2f);
 
             att_dist *= max(collision_dist * 0.5f, 1.0f);
 
