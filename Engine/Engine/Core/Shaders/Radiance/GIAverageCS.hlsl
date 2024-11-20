@@ -71,6 +71,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     int k = kernel_size * 3 + 1;
 
 #if 1
+    //Convolution type
     float2 dir = lerp(float2(1.0f, 0.0f), float2(0.0f, 1.0f), step(1.5, type));
     for (x = -k; x <= k; ++x) {
         int2 p = pixel + x * dir;
@@ -83,7 +84,8 @@ void main(uint3 DTid : SV_DispatchThreadID)
 
         float3 p1_normal = normals[p1_info_pixel].xyz;
         float n = saturate(dot(p1_normal, p0_normal));
-        ww *= pow(n, 20.0f / infoRatio.x);
+        ww *= pow(n, 5.0f / infoRatio.x);
+
         c += input[p] * ww;
         total_w += ww;
     }
@@ -116,10 +118,10 @@ void main(uint3 DTid : SV_DispatchThreadID)
         else {
             prev_pos.xy /= infoRatio;
         }
-        float w = saturate(0.5f - motion * 100.0f);
+        float w = saturate(0.8f - motion * 100.0f);
 #else
         prev_pos.xy /= infoRatio;
-        float w = 0.2f;
+        float w = 0.5f;
 #endif
         float4 prev_color = prev_output[round(prev_pos.xy)];
         output[pixel] = prev_color * w + c * (1.0f - w);
@@ -127,7 +129,9 @@ void main(uint3 DTid : SV_DispatchThreadID)
 #else
     output[pixel] = c;
 #endif
+
 #else
+    //Single pass type
     for (x = -k; x <= k; ++x) {
         for (y = -k; y <= k; ++y) {
             int2 p = pixel + int2(x, y);
@@ -163,4 +167,5 @@ void main(uint3 DTid : SV_DispatchThreadID)
     output[pixel] = c;
 #endif
 #endif
+
 }

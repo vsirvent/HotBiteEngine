@@ -283,12 +283,13 @@ namespace HotBite {
 
 				uint32_t rt_enabled = RT_INDIRECT_ENABLE | RT_REFLEX_ENABLE | RT_REFRACT_ENABLE;
 				Core::TBVH tbvh{ MAX_OBJECTS };
-				Core::SimpleComputeShader* rt_shader = nullptr;
-				Core::SimpleComputeShader* rt_denoiser = nullptr;
+				Core::SimpleComputeShader* rt_di_shader = nullptr;
+				Core::SimpleComputeShader* rt_di_denoiser = nullptr;
 				Core::SimpleComputeShader* rt_disp = nullptr;
 
-				Core::SimpleComputeShader* rad_avg = nullptr;
-				Core::SimpleComputeShader* restir_weights = nullptr;
+				Core::SimpleComputeShader* gi_shader = nullptr;
+				Core::SimpleComputeShader* gi_average = nullptr;
+				Core::SimpleComputeShader* gi_weights = nullptr;
 
 				//RT texture 1: Reflexed rays
 				//RT texture 2: Refracted rays
@@ -296,10 +297,9 @@ namespace HotBite {
 				static constexpr int RT_TEXTURE_REFLEX = 0;
 				static constexpr int RT_TEXTURE_REFRACT = 1;
 				static constexpr int RT_TEXTURE_INDIRECT = 2;
-				static constexpr int RT_TEXTURE_REFLEX2 = 3;
-				static constexpr int RT_TEXTURE_EMISSION = 4;
+				static constexpr int RT_TEXTURE_EMISSION = 3;
 
-				static constexpr int RT_NTEXTURES = 5;
+				static constexpr int RT_NTEXTURES = 4;
 				Core::RenderTexture2D rt_textures[2][RT_NTEXTURES];
 				Core::RenderTexture2D restir_pdf[2];
 				Core::RenderTexture2D restir_w;
@@ -398,6 +398,7 @@ namespace HotBite {
 				void ProcessMotion();
 				void PrepareRT();
 				void ProcessRT();
+				void ProcessGI();
 				void ProcessDust();
 				void ProcessLensFlare();
 				void ProcessMotionBlur();

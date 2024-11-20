@@ -40,7 +40,6 @@ Texture2D bloomTexture: register(t5);
 Texture2D rtTexture0 : register(t6);
 Texture2D rtTexture1 : register(t7);
 Texture2D rtTexture2 : register(t8);
-Texture2D rtTexture3 : register(t9);
 Texture2D volLightTexture: register(t10);
 Texture2D dustTexture: register(t11);
 Texture2D lensFlareTexture: register(t12);
@@ -144,6 +143,7 @@ float4 Get3dInterpolatedColor(float2 uv, Texture2D text, float2 dimension, Textu
 
 
 float4 readColor(float2 pixel, texture2D text, uint w, uint h) {
+	//return text.SampleLevel(basicSampler, pixel, 0);
     uint w2, h2;
     text.GetDimensions(w2, h2);
     if (w2 == w && h2 == h) {
@@ -191,17 +191,16 @@ void main(uint3 DTid : SV_DispatchThreadID)
     float4 rt0 = readColor(tpos, rtTexture0, w, h);
     float4 rt1 = readColor(tpos, rtTexture1, w, h);
     float4 rt2 = readColor(tpos, rtTexture2, w, h);
-    float4 rt3 = readColor(tpos, rtTexture3, w, h);
     float4 vol = readColor(tpos, volLightTexture, w, h);
     float4 dust = readColor(tpos, dustTexture, w, h);
     float4 lens_flare = readColor(tpos, lensFlareTexture, w, h);
 	    
 	if (rt_enabled) {
         if (true) { //debug == 0) {
-            color = color * (l + rt0 + rt2 + rt3) + rt1 + b + dust + lens_flare + vol;
+            color = color * (l + rt0 + rt2) + rt1 + b + dust + lens_flare + vol;
         }
         else {
-            color = rt0 + rt1 + rt2 + rt3;
+            color = rt0 + rt1 + rt2;
         }
     }
     else {
