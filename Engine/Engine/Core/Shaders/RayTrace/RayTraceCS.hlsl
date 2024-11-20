@@ -80,9 +80,9 @@ Texture2D<float4> DiffuseTextures[MAX_OBJECTS];
 Texture2D<float> DirShadowMapTexture[MAX_LIGHTS];
 TextureCube<float> PointShadowMapTexture[MAX_LIGHTS];
 
-Buffer<float> restir_pdf_0;
+Buffer<float4> restir_pdf_0;
 Texture2D<float> restir_w_0;
-RWBuffer<float> restir_pdf_1;
+RWBuffer<float4> restir_pdf_1;
 
 //Packed array
 static float2 lps[MAX_LIGHTS] = (float2[MAX_LIGHTS])LightPerspectiveValues;
@@ -91,6 +91,8 @@ static float2 lps[MAX_LIGHTS] = (float2[MAX_LIGHTS])LightPerspectiveValues;
 #include "../Common/RayFunctions.hlsli"
 
 #define max_distance 100.0f
+
+#define MAX_RAYS 16
 
 static const float DIFFUSE_ENERY_UNIT = 5.0f;
 
@@ -104,20 +106,15 @@ static const uint N = ray_count * kernel_size * kernel_size;
 static const float space_size = (float)N / (float)ray_count;
 
 
-uint GetRayIndex(float2 pixel, float pdf_offset, Buffer<float> pdf_data, Texture2D<float> w_data, float index) {
+uint GetRayIndex(float2 pixel, float pdf_cache[MAX_RAYS], Texture2D<float> w_data, float index) {
     float w = w_data[pixel];
     float tmp_w = 0.0f;
 
     index = index * w * inv_ray_count;
-    float step = w * inv_ray_count;
-    float pos = 0;
-    uint i = 0;
-    for (; i < ray_count; i++) {
-        tmp_w += pdf_data[pdf_offset + i];
-        if (tmp_w >= index) {
-            break;
-        }
-        pos += step;
+    
+    for (uint i = 0; i < ray_count && (tmp_w <= index || (pdf_cache[i] < 1.03f && (pixel.x + pixel.y + frame_count + i) % 5)); i++) {
+    //for (uint i = 0; i < ray_count && tmp_w <= index; i++) {
+        tmp_w += pdf_cache[i];
     }
     return i;
 }
@@ -125,7 +122,7 @@ uint GetRayIndex(float2 pixel, float pdf_offset, Buffer<float> pdf_data, Texture
 float3 GenerateHemisphereRay(float3 dir, float3 tangent, float3 bitangent, float dispersion, float N, float NLevels, float rX)
 {
     float3 seed = (50 + frame_count % 50) * dir;
-    float rng = 1.0f; // 1.0f + rgba_tnoise(seed) * 0.05f;
+    float rng = 1.0f + rgba_tnoise(seed) * 0.05f;
 
     float index = (rX * N * dispersion) % N;
 
@@ -137,6 +134,7 @@ float3 GenerateHemisphereRay(float3 dir, float3 tangent, float3 bitangent, float
         cumulativePoints = c;
         level++;
     };
+    level--;
 
     float pointsAtLevel = level * 2;  // Quadratic growth
 
@@ -406,6 +404,7 @@ bool GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
         [numthreads(NTHREADS, NTHREADS, 1)]
         void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thread : SV_GroupThreadID)
         {
+
             float2 dimensions;
             float2 ray_map_dimensions;
             {
@@ -427,8 +426,8 @@ bool GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
             float2 pixel = float2(x, y);
 
             float2 rpixel = pixel * rayMapRatio;
-            //rpixel.x += frame_count % (rayMapRatio.x * 0.5f);
-            //rpixel.y += frame_count % (rayMapRatio.y * 0.5f) / 2.0f;
+            rpixel.x += frame_count % (rayMapRatio.x * 0.5f);
+            rpixel.y += frame_count % (rayMapRatio.y * 0.5f) / 2.0f;
             float2 ray_pixel = round(rpixel);
 
             RaySource ray_source = fromColor(ray0[ray_pixel], ray1[ray_pixel]);
@@ -453,6 +452,7 @@ bool GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
                     cumulativePoints = c;
                     level++;
                 };
+
  
                 rc.hit = false;
 
@@ -460,32 +460,63 @@ bool GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
                     GetSpaceVectors(normal, tangent, bitangent);
 
                     int last_wi = -1;
-                    float pdf_offset = (pixel.x + pixel.y * dimensions.x) * ray_count;
+                    float pdf_offset = (pixel.x + pixel.y * dimensions.x) * ray_count / 4;
 
+                    float color_w = 0.0f;
+                    
+                    float pdf_out[MAX_RAYS];
                     for (uint i = 0; i < ray_count; ++i) {
-                        restir_pdf_1[pdf_offset + i] = 0.0f;
+                        pdf_out[i] = 0.0f;
                     }
 
-                    for (uint i = 0; i < ray_count; ++i) {
-                        uint wi = GetRayIndex(pixel, pdf_offset, restir_pdf_0, restir_w_0, i);
+                    float wis[MAX_RAYS];
+                    uint wis_size = 0;
 
-                        if (last_wi != wi) {
-                            
-                            float n = (pixel.x % kernel_size) * ray_count + (pixel.y % kernel_size) * stride + (float)wi;
+                    float pdf_cache[MAX_RAYS];
 
-                            float index = n / N;
-                            ray.dir = GenerateHemisphereRay(normal, tangent, bitangent, 1.0f, N, level, index);
-                            ray.orig.xyz = orig_pos.xyz + ray.dir * 0.1f;
-                            float dist = FLT_MAX;
-                            GetColor(ray, index, level, 0, rc, ray_source.dispersion, true, false);
-                            color_diffuse.rgb += rc.color[0];
-                            last_wi = wi;
-
-                            float w = dist2(rc.color[0]); // (rc.color[0].r + rc.color[0].g + rc.color[0].b) / 3.0f;
-                            restir_pdf_1[pdf_offset + wi] = 1.0f;// max(restir_pdf_1[pdf_offset + wi], w);
-                        }
+                    for (i = 0; i < ray_count / 4; i++) {
+                        float4 val = restir_pdf_0[pdf_offset + i];
+                        uint offset = i * 4;
+                        pdf_cache[offset] = val.x;
+                        pdf_cache[offset + 1] = val.y;
+                        pdf_cache[offset + 2] = val.z;
+                        pdf_cache[offset + 3] = val.w;
                     }
-                    output[pixel] = color_diffuse * DIFFUSE_ENERY_UNIT / ray_count;
+
+                    wis_size = -1;
+                    for (i = 0; i < ray_count; ++i) {
+                        uint wi = GetRayIndex(pixel, pdf_cache, restir_w_0, i);
+                        wis_size += (last_wi != wi);
+                        wis[wis_size] = wi;
+                        last_wi = wi;
+                    }
+                  
+                    for (i = 0; i < wis_size; ++i) {
+                      
+                        uint wi = wis[i];
+    
+                        float n = (pixel.x % kernel_size) * ray_count + (pixel.y % kernel_size) * stride + (float)wi * space_size;
+
+                        float index = n / N;
+                        ray.dir = GenerateHemisphereRay(normal, tangent, bitangent, 1.0f, N, level + 2, index);
+                        ray.orig.xyz = orig_pos.xyz + ray.dir * 0.1f;
+                        float dist = FLT_MAX;
+                        GetColor(ray, index, level, 0, rc, ray_source.dispersion, true, false);
+                        color_diffuse.rgb += rc.color[0];
+                        //color_w += pdf_cache[wi] / restir_w_0[pixel];
+                        //color_w++;
+                        last_wi = wi;
+
+                        float w = dist2(rc.color[0]);
+                        pdf_out[wi] = w;
+
+                    }
+                  
+                    for (i = 0; i < ray_count / 4; ++i) {
+                        restir_pdf_1[pdf_offset + i] = float4(pdf_out[i*4], pdf_out[i*4 + 1], pdf_out[i*4 + 2], pdf_out[i*4 + 3]);
+                    }
+
+                    output[pixel] = color_diffuse * DIFFUSE_ENERY_UNIT / restir_w_0[pixel];
                 }
             }
         }

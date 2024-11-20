@@ -301,7 +301,7 @@ namespace HotBite {
 
 				static constexpr int RT_NTEXTURES = 5;
 				Core::RenderTexture2D rt_textures[2][RT_NTEXTURES];
-				Core::DataBuffer<float> restir_pdf[2];
+				Core::DataBuffer<float4> restir_pdf[2];
 				Core::RenderTexture2D restir_w[2];
 
 				static constexpr uint32_t RESTIR_HALF_KERNEL = 2;
@@ -309,8 +309,8 @@ namespace HotBite {
 				static constexpr uint32_t RESTIR_PIXEL_RAYS = 12;
 				static constexpr uint32_t RESTIR_TOTAL_RAYS = RESTIR_PIXEL_RAYS * RESTIR_KERNEL * RESTIR_KERNEL;
 
-				Core::DataBuffer<float>* restir_pdf_curr = nullptr;
-				Core::DataBuffer<float>* restir_pdf_prev = nullptr;
+				Core::DataBuffer<float4>* restir_pdf_curr = nullptr;
+				Core::DataBuffer<float4>* restir_pdf_prev = nullptr;
 				Core::RenderTexture2D* restir_w_curr = nullptr;
 				Core::RenderTexture2D* restir_w_prev = nullptr;
 

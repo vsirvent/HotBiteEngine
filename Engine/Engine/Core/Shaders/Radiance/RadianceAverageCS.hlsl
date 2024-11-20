@@ -64,13 +64,14 @@ void main(uint3 DTid : SV_DispatchThreadID)
     int x;
     int y;
 
-    float sigma = 2.0f;
+    float sigma = 1.0f;
     float total_w = 0.0f;
     float ww;
     float4 c = float4(0.0f, 0.0f, 0.0f, 0.0f);
 
-    for (x = -kernel_size; x <= kernel_size; ++x) {
-        for (y = -kernel_size; y <= kernel_size; ++y) {
+    int k = kernel_size * 2;
+    for (x = -k; x <= k; ++x) {
+        for (y = -k; y <= k; ++y) {
             int2 p = pixel + int2(x, y);
 #if 1
             float2 p1_info_pixel = round(p * infoRatio);
@@ -92,14 +93,14 @@ void main(uint3 DTid : SV_DispatchThreadID)
     c = c * step(epsilon, total_w);
     c = c / max(total_w, epsilon);
 
-#if 0
+#if 1
     matrix worldViewProj = mul(view, projection);
     float4 prev_pos = mul(prev_position_map[info_pixel], worldViewProj);
     prev_pos.x /= prev_pos.w;
     prev_pos.y /= -prev_pos.w;
     prev_pos.xy = (prev_pos.xy + 1.0f) * info_dimensions.xy / 2.0f;
     prev_pos.xy /= infoRatio;
-    float4 prev_color = prev_output[round(prev_pos.xy)];
+    float4 prev_color = prev_output[floor(prev_pos.xy)];
     float w = 0.5f;
     output[pixel] = prev_color * w + c * (1.0f - w);
 #else

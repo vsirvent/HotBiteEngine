@@ -463,7 +463,7 @@ void RenderSystem::LoadRTResources() {
 		int div = max(RT_TEXTURE_RESOLUTION_DIVIDER, 2);
 		for (int n = 0; n < 2; ++n) {
 			restir_pdf[n].Unprepare();
-			if (FAILED(restir_pdf[n].Prepare(w * h * RESTIR_PIXEL_RAYS / div))) {
+			if (FAILED(restir_pdf[n].Prepare(w * h * RESTIR_PIXEL_RAYS / (div * 4), DXGI_FORMAT_R32G32B32A32_FLOAT))) {
 				throw std::exception("restir_pdf.Init failed");
 			}
 			restir_w[n].Release();
@@ -1839,7 +1839,7 @@ void RenderSystem::ProcessRT() {
 			
 			groupsX = (int32_t)(ceil((float)rt_texture_curr[RT_TEXTURE_INDIRECT].Width() / (32.0f)));
 			groupsY = (int32_t)(ceil((float)rt_texture_curr[RT_TEXTURE_INDIRECT].Height() / (32.0f)));
-			dxcore->context->Dispatch((uint32_t)ceil((float)groupsX / RATIO), (uint32_t)ceil((float)groupsY / RATIO), 1);
+			dxcore->context->Dispatch(groupsX, groupsY, 1);
 
 			restir_weights->SetShaderResourceView("restir_pdf_0", nullptr);
 			restir_weights->SetUnorderedAccessView("restir_pdf_1", nullptr);
@@ -1857,7 +1857,7 @@ void RenderSystem::ProcessRT() {
 			rad_avg->SetShaderResourceView("prev_position_map", prev_position_map.SRV());
 			rad_avg->SetFloat("NUM_RAYS", NUM_RAYS);
 			rad_avg->SetFloat("RATIO", RATIO);
-			rad_avg->SetInt("kernel_size", RESTIR_KERNEL);
+			rad_avg->SetInt("kernel_size", RESTIR_HALF_KERNEL);
 			rad_avg->SetInt("frame_count", frame_count);
 			groupsX = (int32_t)(ceil((float)rt_texture_curr[RT_TEXTURE_INDIRECT].Width() / (RATIO * 32.0f)));
 			groupsY = (int32_t)(ceil((float)rt_texture_curr[RT_TEXTURE_INDIRECT].Height() / (RATIO * 32.0f)));
@@ -2656,7 +2656,7 @@ void RenderSystem::ResetRTBBuffers() {
 	for (int i = 0; i < 2; ++i)
 	{
 		light_map[i].Clear(zero);
-		restir_pdf[i].Clear(1.0f);
+		restir_pdf[i].Clear({ 1.0f, 1.0f, 1.0f, 1.0f });
 		restir_w[i].Clear(nrays);
 	}
 }
