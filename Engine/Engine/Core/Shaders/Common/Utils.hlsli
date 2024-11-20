@@ -47,6 +47,9 @@ float4 climit4(float4 color) {
 	return color;
 }
 
+float2 GetCloserPixel(float2 pixel, float ratio) {
+	return round(round(pixel / ratio) * ratio);
+}
 float4 GetInterpolatedColor(float2 uv, Texture2D text, float2 dimension) {
 	// Calculate the texture coordinates in the range [0, 1]
 	float2 texCoords = uv * dimension;
@@ -80,79 +83,6 @@ float dist2(float3 p) {
 float dist2(float2 p) {
 	return p.x * p.x + p.y * p.y;
 }
-
-
-float4 Get3dInterpolatedColor(float2 uv, Texture2D text, float2 dimension, Texture2D positions, Texture2D normals, float2 pos_dimension) {
-
-
-	// Calculate the texture coordinates in the range [0, 1]
-	float2 texCoords = uv * dimension;
-	float2 pos_ratio = pos_dimension / dimension;
-
-	// Calculate the integer coordinates of the four surrounding pixels
-	int2 p00 = (int2)floor(texCoords);
-	int2 p11 = int2(p00.x + 1, p00.y + 1);
-	int2 p01 = int2(p00.x, p00.y + 1);
-	int2 p10 = int2(p00.x + 1, p00.y);
-
-	//Get 3d positions
-	uint2 pos_p00 = p00 * pos_ratio;
-	uint2 pos_p11 = p11 * pos_ratio;
-	uint2 pos_p01 = p01 * pos_ratio;
-	uint2 pos_p10 = p10 * pos_ratio;
-	uint2 in_pos = texCoords * pos_ratio;
-
-	float3 wp00 = positions[pos_p00].xyz;
-	float3 wp11 = positions[pos_p11].xyz;
-	float3 wp01 = positions[pos_p01].xyz;
-	float3 wp10 = positions[pos_p10].xyz;
-	float3 wpxx = positions[in_pos].xyz;
-
-	if (wp00.x >= FLT_MAX || wp11.x >= FLT_MAX || wp01.x >= FLT_MAX || wp10.x >= FLT_MAX || wpxx.x >= FLT_MAX) {
-		return GetInterpolatedColor(uv, text, dimension);
-	}
-
-	// Calculate distances in 3D space between the sample point and the four surrounding points
-	float d00 = dist2(wpxx - wp00);  // Distance to wp00
-	float d11 = dist2(wpxx - wp11);  // Distance to wp11
-	float d01 = dist2(wpxx - wp01);  // Distance to wp01
-	float d10 = dist2(wpxx - wp10);  // Distance to wp10
-
-	// Small epsilon to avoid division by zero
-	float epsilon = 1e-4;
-
-	// Calculate weights based on inverse distance (closer points has higher weight)
-	float w00 = 1.0f / max(d00, epsilon);
-	float w11 = 1.0f / max(d11, epsilon);
-	float w01 = 1.0f / max(d01, epsilon);
-	float w10 = 1.0f / max(d10, epsilon);
-
-	float3 n00 = normals[pos_p00].xyz;
-	float3 n11 = normals[pos_p11].xyz;
-	float3 n01 = normals[pos_p01].xyz;
-	float3 n10 = normals[pos_p10].xyz;
-	float3 nxx = normals[in_pos].xyz;
-
-	w00 *= saturate(dot(nxx, n00));  
-	w11 *= saturate(dot(nxx, n11));  
-	w01 *= saturate(dot(nxx, n01));  
-	w10 *= saturate(dot(nxx, n10));
-
-	// Normalize weights
-	float totalWeight = w00 + w11 + w01 + w10;
-
-	if (totalWeight < epsilon) {
-		return GetInterpolatedColor(uv, text, dimension);
-	}
-
-	w00 /= totalWeight;
-	w11 /= totalWeight;
-	w01 /= totalWeight;
-	w10 /= totalWeight;
-
-	return (text[p00] * w00 + text[p11] * w11 + text[p01] * w01 + text[p10] * w10);
-}
-
 
 bool IsInteger(float2 value) {
 	return all(value == floor(value));
@@ -206,6 +136,54 @@ void GetPerpendicularPlane(in float3 dir, out float3 v0, out float3 v1) {
 		v0 = float3(1.0f, 0.0f, 0.0f);
 	}
 	v1 = normalize(cross(dir, v0));
+}
+
+uint ToByte(float val, float range)
+{
+	val = 255.0f * clamp(val, 0.0f, range) / range;
+	return (uint)val;
+}
+
+uint4 Pack16Bytes(float values[16], float max_value)
+{
+	uint4 data;
+	data.r = ToByte(values[0], max_value) << 24 | ToByte(values[1], max_value) << 16 | ToByte(values[2], max_value) << 8 | ToByte(values[3], max_value);
+	data.g = ToByte(values[4], max_value) << 24 | ToByte(values[5], max_value) << 16 | ToByte(values[6], max_value) << 8 | ToByte(values[7], max_value);
+	data.b = ToByte(values[8], max_value) << 24 | ToByte(values[9], max_value) << 16 | ToByte(values[10], max_value) << 8 | ToByte(values[11], max_value);
+	data.a = ToByte(values[12], max_value) << 24 | ToByte(values[13], max_value) << 16 | ToByte(values[14], max_value) << 8 | ToByte(values[15], max_value);
+	return data;
+}
+
+float FromByte(uint val, float range)
+{
+	float fval = (float)val;
+	fval = range * clamp(fval, 0.0f, 255.0f) / 255.0f;
+	return fval;
+}
+
+void Unpack16Bytes(uint4 data, float max_value, out float values[16])
+{
+	uint d0 = data.r;
+	uint d1 = data.g;
+	uint d2 = data.b;
+	uint d3 = data.a;
+
+	values[0]  = FromByte((d0 >> 24) & 0xFF, max_value);
+	values[1]  = FromByte((d0 >> 16) & 0xFF, max_value);
+	values[2]  = FromByte((d0 >> 8)  & 0xFF, max_value);
+	values[3]  = FromByte( d0        & 0xFF, max_value);
+	values[4]  = FromByte((d1 >> 24) & 0xFF, max_value);
+	values[5]  = FromByte((d1 >> 16) & 0xFF, max_value);
+	values[6]  = FromByte((d1 >> 8)  & 0xFF, max_value);
+	values[7]  = FromByte( d1        & 0xFF, max_value);
+	values[8]  = FromByte((d2 >> 24) & 0xFF, max_value);
+	values[9]  = FromByte((d2 >> 16) & 0xFF, max_value);
+	values[10] = FromByte((d2 >> 8)  & 0xFF, max_value);
+	values[11] = FromByte( d2        & 0xFF, max_value);
+	values[12] = FromByte((d3 >> 24) & 0xFF, max_value);
+	values[13] = FromByte((d3 >> 16) & 0xFF, max_value);
+	values[14] = FromByte((d3 >> 8)  & 0xFF, max_value);
+	values[15] = FromByte( d3        & 0xFF, max_value);
 }
 
 float4 Pack4Colors(float4 color1, float4 color2, float4 color3, float4 color4) {

@@ -179,6 +179,10 @@ namespace HotBite {
             return (int)a.x == (int)b.x && (int)a.y == (int)b.y;
         }
 
+        inline bool EQ_F2(const float2& a, const float2& b) {
+            return (a.x == b.x && a.y == b.y);
+        }
+
         // ADD
         inline float4 ADD_F4_F4(const float4& a, const float4& b) {
             __m128 va = _mm_load_ps(&a.x);

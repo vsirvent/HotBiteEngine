@@ -25,13 +25,8 @@ void main(uint3 DTid : SV_DispatchThreadID)
 
     float2 pixel = float2(DTid.x, DTid.y);
 
-    float2 dir = float2(0.0f, 0.0f);
-    if (type == 1 || type == 3) {
-        dir = float2(1.0f, 0.0f);
-    }
-    else if (type == 2 || type == 4) {
-        dir = float2(0.0f, 1.0f);
-    }
+    float2 dir = lerp(float2(1.0f, 0.0f), float2(0.0f, 1.0f), step(1.5, type));
+
 
     int kernel = type <= 2?5:10; 
     if (type <= 2) {

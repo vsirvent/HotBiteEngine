@@ -283,9 +283,13 @@ namespace HotBite {
 
 				uint32_t rt_enabled = RT_INDIRECT_ENABLE | RT_REFLEX_ENABLE | RT_REFRACT_ENABLE;
 				Core::TBVH tbvh{ MAX_OBJECTS };
-				Core::SimpleComputeShader* rt_shader = nullptr;
-				Core::SimpleComputeShader* rt_denoiser = nullptr;
+				Core::SimpleComputeShader* rt_di_shader = nullptr;
+				Core::SimpleComputeShader* rt_di_denoiser = nullptr;
 				Core::SimpleComputeShader* rt_disp = nullptr;
+
+				Core::SimpleComputeShader* gi_shader = nullptr;
+				Core::SimpleComputeShader* gi_average = nullptr;
+				Core::SimpleComputeShader* gi_weights = nullptr;
 
 				//RT texture 1: Reflexed rays
 				//RT texture 2: Refracted rays
@@ -293,11 +297,21 @@ namespace HotBite {
 				static constexpr int RT_TEXTURE_REFLEX = 0;
 				static constexpr int RT_TEXTURE_REFRACT = 1;
 				static constexpr int RT_TEXTURE_INDIRECT = 2;
-				static constexpr int RT_TEXTURE_REFLEX2 = 3;
-				static constexpr int RT_TEXTURE_EMISSION = 4;
+				static constexpr int RT_TEXTURE_EMISSION = 3;
 
-				static constexpr int RT_NTEXTURES = 5;
+				static constexpr int RT_NTEXTURES = 4;
 				Core::RenderTexture2D rt_textures[2][RT_NTEXTURES];
+				Core::RenderTexture2D restir_pdf[2];
+				Core::RenderTexture2D restir_w;
+				Core::RenderTexture2D* restir_pdf_curr = nullptr;
+				Core::RenderTexture2D* restir_pdf_prev = nullptr;
+
+				static constexpr uint32_t RESTIR_HALF_KERNEL = 2;
+				static constexpr uint32_t RESTIR_KERNEL = 2 * RESTIR_HALF_KERNEL + 1;
+				static constexpr uint32_t RESTIR_PIXEL_RAYS = 16;
+				static constexpr uint32_t RESTIR_TOTAL_RAYS = RESTIR_PIXEL_RAYS * RESTIR_KERNEL * RESTIR_KERNEL;
+
+
 				Core::RenderTexture2D* rt_texture_prev;
 				Core::RenderTexture2D* rt_texture_curr;
 				Core::RenderTexture2D rt_texture_props;
@@ -379,10 +393,12 @@ namespace HotBite {
 					Core::IRenderTarget* target, RenderTree& tree);
 
 				void LoadRTResources();
+				void ResetRTBBuffers();
 				void CopyTexture(const Core::RenderTexture2D& input, Core::RenderTexture2D& output);
 				void ProcessMotion();
 				void PrepareRT();
 				void ProcessRT();
+				void ProcessGI();
 				void ProcessDust();
 				void ProcessLensFlare();
 				void ProcessMotionBlur();
