@@ -73,7 +73,7 @@ StructuredBuffer<BVHNode> objectBVH: register(t3);
 ByteAddressBuffer vertexBuffer : register(t4);
 ByteAddressBuffer indicesBuffer : register(t5);
 Texture2D<float4> position_map : register(t6);
-Texture2D<float4> motionTexture : register(t8);
+Texture2D<float4> motion_texture : register(t8);
 
 Texture2D<float4> DiffuseTextures[MAX_OBJECTS];
 Texture2D<float> DirShadowMapTexture[MAX_LIGHTS];
@@ -105,14 +105,15 @@ static const uint N = ray_count * kernel_size * kernel_size;
 static const float space_size = (float)N / (float)ray_count;
 
 
-uint GetRayIndex(float2 pixel, float pdf_cache[MAX_RAYS], Texture2D<float> w_data, float index) {
+uint GetRayIndex(float2 pixel, float pdf_cache[MAX_RAYS], Texture2D<float> w_data, uint mod, float index) {
     //return index;
     float w = w_data[pixel];
     float tmp_w = 0.0f;
 
     index = index * w * inv_ray_count;
     
-    for (uint i = 0; i < ray_count && (tmp_w <= index || (pdf_cache[i] < 1.02f && (pixel.x + pixel.y + frame_count + i) % 5)); i++) {
+    for (uint i = 0; i < ray_count && (tmp_w <= index || (pdf_cache[i] < 1.1f && ((pixel.x + pixel.y + frame_count + i) % mod)) ); i++) {
+    //for (uint i = 0; i < ray_count && (tmp_w <= index); i++) {
             tmp_w += pdf_cache[i];
     }
     return i;
@@ -121,20 +122,20 @@ uint GetRayIndex(float2 pixel, float pdf_cache[MAX_RAYS], Texture2D<float> w_dat
 float3 GenerateHemisphereRay(float3 dir, float3 tangent, float3 bitangent, float dispersion, float N, float NLevels, float rX)
 {
     float index = (rX * dispersion) % N;
-    
+
     //index = 0;// (frame_count / 10) % N;
     float cumulativePoints = 1.0f;
     float level = 1.0f;
     float c = 1.0f;
     while (c < index) {
-        c = cumulativePoints + level * level;
+        c = cumulativePoints + level * 3;
         cumulativePoints = c;
         level++;
     };
     level--;
 
     level = fmod(level, NLevels);
-    float pointsAtLevel = level * level;  // Quadratic growth
+    float pointsAtLevel = level * 3;  // Quadratic growth
 
     // Calculate local index within the current level
     float localIndex = index - cumulativePoints;
@@ -337,9 +338,9 @@ void GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
             }
 
             float3 emission = material.emission * material.emission_color;
-            color += pow(emission, 0.2f);
+            color += pow(emission, 0.8f);
 
-            att_dist *= max(collision_dist * 0.5f, 1.0f);
+            att_dist *= max(collision_dist, 1.0f);
 
             out_color.color += color * ray.ratio / att_dist;
             
@@ -401,7 +402,7 @@ void GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
         float level = 1;
         uint c = 0;
         while (c < N) {
-            c = cumulativePoints + level * level;
+            c = cumulativePoints + level * 3;
             cumulativePoints = c;
             level++;
         };
@@ -421,9 +422,17 @@ void GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
 
         float wis[MAX_RAYS];
         int wis_size = -1;
-   
+        float motion = 0.0f;
+        float2 mvector = motion_texture[ray_pixel].xy;
+        if (mvector.x == -FLT_MAX) {
+            motion = 0.0f;
+        }
+        else {
+            motion = length(mvector);
+        }
+        uint mod = (int)max(1, 10 - (int)(20000.0f * motion));
         for (uint i = 0; i < ray_count; ++i) {
-            uint wi = GetRayIndex(pixel, pdf_cache, restir_w_0, i);
+            uint wi = GetRayIndex(pixel, pdf_cache, restir_w_0, mod, i);
             wis_size += (last_wi != wi);
             wis[wis_size] = wi;
             last_wi = wi;
@@ -451,6 +460,6 @@ void GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
         }
                   
         restir_pdf_1[pixel] = Pack16Bytes(pdf_out, 5.0f);
-
         output[pixel] = color_diffuse * DIFFUSE_ENERY_UNIT / restir_w_0[pixel];
+        
     }

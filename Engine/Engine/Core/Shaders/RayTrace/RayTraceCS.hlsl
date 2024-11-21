@@ -71,7 +71,7 @@ StructuredBuffer<BVHNode> objectBVH: register(t3);
 ByteAddressBuffer vertexBuffer : register(t4);
 ByteAddressBuffer indicesBuffer : register(t5);
 Texture2D<float4> position_map : register(t6);
-Texture2D<float4> motionTexture : register(t8);
+Texture2D<float4> motion_texture : register(t8);
 
 Texture2D<float4> DiffuseTextures[MAX_OBJECTS];
 Texture2D<float> DirShadowMapTexture[MAX_LIGHTS];

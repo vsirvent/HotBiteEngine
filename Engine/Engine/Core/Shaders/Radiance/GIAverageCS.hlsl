@@ -161,7 +161,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     prev_pos.xy = (prev_pos.xy + 1.0f) * info_dimensions.xy / 2.0f;
     prev_pos.xy /= infoRatio;
     float4 prev_color = prev_output[floor(prev_pos.xy)];
-    float w = 0.3f;
+    float w = 0.5f;
     output[pixel] = prev_color * w + c * (1.0f - w);
 #else
     output[pixel] = c;
