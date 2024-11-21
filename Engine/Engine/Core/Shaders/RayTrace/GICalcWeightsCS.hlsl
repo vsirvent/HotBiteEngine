@@ -1,4 +1,5 @@
 #include "../Common/ShaderStructs.hlsli"
+#include "../Common/RayDefines.hlsli"
 #include "../Common/Utils.hlsli"
 
 cbuffer externalData : register(b0)

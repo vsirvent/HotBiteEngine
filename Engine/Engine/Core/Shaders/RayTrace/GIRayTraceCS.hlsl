@@ -357,7 +357,7 @@ void GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
             total_enery += pdf[i];
         }
 
-        return (total_enery < len * 1.05f);
+        return (total_enery < len * 1.03f);
     }
 
 #define NTHREADS 32
@@ -448,23 +448,26 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
 
     //Check if this is a low enery pixel
     bool low_energy = IsLowEnergy(pdf_cache, wis_size);
-    bool process_low_enery = (((pixel.x + pixel.y + frame_count) % 10) == 0);
+    bool process_low_enery = true;// (((group.x + group.y + frame_count) % 3) == 0);
 
     float4 color_diffuse = float4(0.0f, 0.0f, 0.0f, 1.0f);
     
+
     if (!low_energy || process_low_enery) {
 
         float offset = (pixel.x % kernel_size) * ray_count + (pixel.y % kernel_size) * stride;
+        uint start = (pixel.x + pixel.y + frame_count) % wis_size * low_energy;
+        uint step = 1 + (wis_size - 1) * low_energy;
 
-        for (i = 0; i < wis_size; ++i) {
+        for (i = 0; i < wis_size; i += step) {
 
             uint wi = wis[i];
 
             float n = offset + (float)wi * space_size;
 
             ray.dir = GenerateHemisphereRay(normal, tangent, bitangent, 1.0f, N, level * 1.5f, n);
-
             ray.orig.xyz = orig_pos.xyz + ray.dir * 0.1f;
+
             float dist = FLT_MAX;
             GetColor(ray, n, level, 0, rc, ray_source.dispersion, true, false);
             color_diffuse.rgb += rc.color.rgb;
