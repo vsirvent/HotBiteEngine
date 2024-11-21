@@ -112,7 +112,7 @@ uint GetRayIndex(float2 pixel, float pdf_cache[MAX_RAYS], Texture2D<float> w_dat
 
     index = index * w * inv_ray_count;
     
-    for (uint i = 0; i < ray_count && (tmp_w <= index || (pdf_cache[i] < 1.1f && ((pixel.x + pixel.y + frame_count + i) % mod)) ); i++) {
+    for (uint i = 0; i < ray_count && (tmp_w <= index || (pdf_cache[i] < 1.02f && ((pixel.x + pixel.y + frame_count + i) % mod)) ); i++) {
     //for (uint i = 0; i < ray_count && (tmp_w <= index); i++) {
             tmp_w += pdf_cache[i];
     }
@@ -430,7 +430,7 @@ void GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
         else {
             motion = length(mvector);
         }
-        uint mod = (int)max(1, 10 - (int)(20000.0f * motion));
+        uint mod = (int)max(2, 10 - (int)(10000.0f * motion));
         for (uint i = 0; i < ray_count; ++i) {
             uint wi = GetRayIndex(pixel, pdf_cache, restir_w_0, mod, i);
             wis_size += (last_wi != wi);
