@@ -1745,10 +1745,12 @@ void RenderSystem::ProcessGI() {
 		gi_shader->SetInt("frame_count", frame_count);
 		gi_shader->SetData("objectMaterials", objectMaterials, nobjects * sizeof(MaterialProps));
 		gi_shader->SetData("objectInfos", objects, nobjects * sizeof(ObjectInfo));
-
+		gi_shader->SetMatrix4x4(VIEW, cam_entity.camera->view);
+		gi_shader->SetMatrix4x4(PROJECTION, cam_entity.camera->projection);
 		gi_shader->SetShaderResourceView("position_map", position_map.SRV());
 		gi_shader->SetShaderResourceView("depth_map", depth_map.SRV());
 		gi_shader->SetShaderResourceView("motion_texture", motion_texture.SRV());
+		gi_shader->SetShaderResourceView("prev_position_map", prev_position_map.SRV());
 		gi_shader->SetUnorderedAccessView("props", rt_texture_props.UAV());
 		gi_shader->SetUnorderedAccessView("ray0", rt_ray_sources0.UAV());
 		gi_shader->SetUnorderedAccessView("ray1", rt_ray_sources1.UAV());
@@ -1792,7 +1794,7 @@ void RenderSystem::ProcessGI() {
 		gi_shader->SetUnorderedAccessView("props", nullptr);
 		gi_shader->SetUnorderedAccessView("ray0", nullptr);
 		gi_shader->SetUnorderedAccessView("ray1", nullptr);
-
+		gi_shader->SetShaderResourceView("prev_position_map", nullptr);
 
 		UnprepareLights(gi_shader);
 		gi_shader->CopyAllBufferData();
@@ -1802,6 +1804,7 @@ void RenderSystem::ProcessGI() {
 		gi_weights->SetShaderResourceView("restir_pdf_0", restir_pdf_curr->SRV());
 		gi_weights->SetUnorderedAccessView("restir_pdf_1", restir_pdf_prev->UAV());
 		gi_weights->SetUnorderedAccessView("restir_w_1", restir_w.UAV());
+		gi_weights->SetInt("frame_count", frame_count);
 		gi_weights->CopyAllBufferData();
 
 		dxcore->context->Dispatch(groupsX, groupsY, 1);

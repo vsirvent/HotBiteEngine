@@ -147,7 +147,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
         }
 
         float4 prev_color = prev_output[floor(prev_pos.xy)];
-        float w = saturate(0.7f - motion * 50.0f);
+        float w = saturate(0.5f - motion * 50.0f);
         output[pixel] = prev_color * w + c0 * (1.0f - w);
     }
 #else

@@ -65,16 +65,18 @@ void main(uint3 DTid : SV_DispatchThreadID)
 
     float sigma = 1.0f;
     float total_w = 0.0f;
-    float ww;
+    float ww = 1.0f;
     float4 c = float4(0.0f, 0.0f, 0.0f, 0.0f);
 
-    int k = kernel_size * 3 + 1;
+    int full_kernel = 2 * kernel_size + 1;
+    int k = kernel_size + full_kernel;
 
 #if 1
     //Convolution type
     float2 dir = lerp(float2(1.0f, 0.0f), float2(0.0f, 1.0f), step(1.5, type));
     for (x = -k; x <= k; ++x) {
         int2 p = pixel + x * dir;
+#if 1
         float2 p1_info_pixel = round(p * infoRatio);
         float3 p1_position = positions[p1_info_pixel].xyz;
         if (p1_position.x == FLT_MAX) continue;
@@ -84,8 +86,8 @@ void main(uint3 DTid : SV_DispatchThreadID)
 
         float3 p1_normal = normals[p1_info_pixel].xyz;
         float n = saturate(dot(p1_normal, p0_normal));
-        ww *= pow(n, 5.0f / infoRatio.x);
-
+        ww *= pow(n, 1.0f / infoRatio.x);
+#endif
         c += input[p] * ww;
         total_w += ww;
     }
@@ -121,7 +123,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
         float w = saturate(0.8f - motion * 100.0f);
 #else
         prev_pos.xy /= infoRatio;
-        float w = 0.5f;
+        float w = 0.2f;
 #endif
         float4 prev_color = prev_output[round(prev_pos.xy)];
         output[pixel] = prev_color * w + c * (1.0f - w);

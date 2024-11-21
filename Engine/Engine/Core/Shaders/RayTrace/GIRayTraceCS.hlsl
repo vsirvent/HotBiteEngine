@@ -52,6 +52,9 @@ cbuffer externalData : register(b0)
     uint dirLightsCount;
     uint pointLightsCount;
 
+    matrix view;
+    matrix projection;
+
     float4 LightPerspectiveValues[MAX_LIGHTS / 2];
     matrix DirPerspectiveMatrix[MAX_LIGHTS];
 }
@@ -74,6 +77,7 @@ ByteAddressBuffer vertexBuffer : register(t4);
 ByteAddressBuffer indicesBuffer : register(t5);
 Texture2D<float4> position_map : register(t6);
 Texture2D<float4> motion_texture : register(t8);
+Texture2D<float4> prev_position_map: register(t9);
 
 Texture2D<float4> DiffuseTextures[MAX_OBJECTS];
 Texture2D<float> DirShadowMapTexture[MAX_LIGHTS];
@@ -91,10 +95,6 @@ static float2 lps[MAX_LIGHTS] = (float2[MAX_LIGHTS])LightPerspectiveValues;
 
 #define max_distance 100.0f
 
-#define MAX_RAYS 16
-
-static const float DIFFUSE_ENERY_UNIT = 5.0f;
-
 static const float inv_ray_count = 1.0f / (float)ray_count;
 static const uint stride = kernel_size * ray_count;
 
@@ -103,17 +103,18 @@ static const uint max_y = stride * kernel_size;
 
 static const uint N = ray_count * kernel_size * kernel_size;
 static const float space_size = (float)N / (float)ray_count;
+static const float ray_enery_unit = inv_ray_count;
 
+#define LEVEL_RATIO level
 
-uint GetRayIndex(float2 pixel, float pdf_cache[MAX_RAYS], Texture2D<float> w_data, uint mod, float index) {
+uint GetRayIndex(float2 pixel, float pdf_cache[MAX_RAYS], Texture2D<float> w_data, float index) {
     //return index;
     float w = w_data[pixel];
     float tmp_w = 0.0f;
 
     index = index * w * inv_ray_count;
     
-    for (uint i = 0; i < ray_count && (tmp_w <= index || (pdf_cache[i] < 1.02f && ((pixel.x + pixel.y + frame_count + i) % mod)) ); i++) {
-    //for (uint i = 0; i < ray_count && (tmp_w <= index); i++) {
+    for (uint i = 0; i < ray_count && (tmp_w < index); i++) {
             tmp_w += pdf_cache[i];
     }
     return i;
@@ -128,7 +129,7 @@ float3 GenerateHemisphereRay(float3 dir, float3 tangent, float3 bitangent, float
     float level = 1.0f;
     float c = 1.0f;
     while (c < index) {
-        c = cumulativePoints + level * 3;
+        c = cumulativePoints + level * LEVEL_RATIO;
         cumulativePoints = c;
         level++;
     };
@@ -338,7 +339,7 @@ void GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
             }
 
             float3 emission = material.emission * material.emission_color;
-            color += pow(emission, 0.8f);
+            color += emission;
 
             att_dist *= max(collision_dist, 1.0f);
 
@@ -349,117 +350,130 @@ void GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
         }
     }
 
+    bool IsLowEnergy(float pdf[MAX_RAYS], uint len) {
+        float total_enery = 0.0f;
 
-#define DENSITY 1.0f
+        for (int i = 0; i < len; ++i) {
+            total_enery += pdf[i];
+        }
+
+        return (total_enery < len * 1.05f);
+    }
+
 #define NTHREADS 32
 
-    [numthreads(NTHREADS, NTHREADS, 1)]
-    void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thread : SV_GroupThreadID)
+[numthreads(NTHREADS, NTHREADS, 1)]
+void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thread : SV_GroupThreadID)
+{
+
+    float2 dimensions;
+    float2 ray_map_dimensions;
     {
+        uint w, h;
+        output.GetDimensions(w, h);
+        dimensions.x = w;
+        dimensions.y = h;
 
-        float2 dimensions;
-        float2 ray_map_dimensions;
-        {
-            uint w, h;
-            output.GetDimensions(w, h);
-            dimensions.x = w;
-            dimensions.y = h;
+        ray0.GetDimensions(w, h);
+        ray_map_dimensions.x = w;
+        ray_map_dimensions.y = h;
+    }
+    float x = (float)DTid.x;
+    float y = (float)DTid.y;
 
-            ray0.GetDimensions(w, h);
-            ray_map_dimensions.x = w;
-            ray_map_dimensions.y = h;
-        }
-        float x = (float)DTid.x;
-        float y = (float)DTid.y;
-
-        float2 rayMapRatio = ray_map_dimensions / dimensions;
+    float2 rayMapRatio = ray_map_dimensions / dimensions;
         
-        float2 pixel = float2(x, y);
+    float2 pixel = float2(x, y);
 
-        float2 rpixel = pixel * rayMapRatio;
-        //rpixel.x += frame_count % (rayMapRatio.x * 0.5f);
-        //rpixel.y += frame_count % (rayMapRatio.y * 0.5f) / 2.0f;
-        float2 ray_pixel = round(rpixel);
+    float2 rpixel = pixel * rayMapRatio;
+    //rpixel.x += frame_count % (rayMapRatio.x * 0.5f);
+    //rpixel.y += frame_count % (rayMapRatio.y * 0.5f) / 2.0f;
+    float2 ray_pixel = round(rpixel);
 
-        RaySource ray_source = fromColor(ray0[ray_pixel], ray1[ray_pixel]);
+    matrix worldViewProj = mul(view, projection);
+    float4 prev_pos = mul(prev_position_map[ray_pixel], worldViewProj);
+    prev_pos.x /= prev_pos.w;
+    prev_pos.y /= -prev_pos.w;
+    prev_pos.xy = round((prev_pos.xy + 1.0f) * dimensions.xy / 2.0f);
 
-        float3 orig_pos = ray_source.orig.xyz;
-        bool process = length(orig_pos - cameraPosition) < max_distance;
 
-        float3 tangent;
-        float3 bitangent;
-        RayTraceColor rc;
-        Ray ray = GetReflectedRayFromSource(ray_source);
-        if (dist2(ray.dir) <= Epsilon)
-        {
-            return;
-        }
+    RaySource ray_source = fromColor(ray0[ray_pixel], ray1[ray_pixel]);
+
+    float3 orig_pos = ray_source.orig.xyz;
+    bool process = length(orig_pos - cameraPosition) < max_distance;
+
+    float3 tangent;
+    float3 bitangent;
+    RayTraceColor rc;
+    Ray ray = GetReflectedRayFromSource(ray_source);
+    if (dist2(ray.dir) <= Epsilon)
+    {
+        return;
+    }
             
-        float3 normal = ray_source.normal;
-        float3 orig_dir = ray.dir;
+    float3 normal = ray_source.normal;
+    float3 orig_dir = ray.dir;
 
-        float cumulativePoints = 1;
-        float level = 1;
-        uint c = 0;
-        while (c < N) {
-            c = cumulativePoints + level * 3;
-            cumulativePoints = c;
-            level++;
-        };
-        level--;
+    float cumulativePoints = 1;
+    float level = 1;
+    uint c = 0;
+    while (c < N) {
+        c = cumulativePoints + level * LEVEL_RATIO;
+        cumulativePoints = c;
+        level++;
+    };
+                      
+    GetSpaceVectors(normal, tangent, bitangent);
 
-              
-        GetSpaceVectors(normal, tangent, bitangent);
+    float color_w = 0.0f;
 
-        int last_wi = -1;
+#ifdef PACK_RAYS_8
+    float pdf_out[MAX_RAYS] = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
+#else
+    float pdf_out[MAX_RAYS] = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
+#endif
+    float pdf_cache[MAX_RAYS];
+    UnpackRays(restir_pdf_0[pixel], 5.0f, pdf_cache);
 
-        float color_w = 0.0f;
-                    
-        float pdf_out[MAX_RAYS] = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
-            
-        float pdf_cache[MAX_RAYS];
-        Unpack16Bytes(restir_pdf_0[pixel], 5.0f, pdf_cache);
+    float wis[MAX_RAYS];
+    int wis_size = -1;
+    uint last_wi = MAX_RAYS + 1;
+        
+    for (uint i = 0; i < ray_count; ++i) {
+        uint wi = GetRayIndex(prev_pos.xy, pdf_cache, restir_w_0, i);
+        wis_size += (last_wi != wi);
+        wis[wis_size] = wi;
+        last_wi = wi;
+    }
 
-        float wis[MAX_RAYS];
-        int wis_size = -1;
-        float motion = 0.0f;
-        float2 mvector = motion_texture[ray_pixel].xy;
-        if (mvector.x == -FLT_MAX) {
-            motion = 0.0f;
-        }
-        else {
-            motion = length(mvector);
-        }
-        uint mod = (int)max(2, 10 - (int)(10000.0f * motion));
-        for (uint i = 0; i < ray_count; ++i) {
-            uint wi = GetRayIndex(pixel, pdf_cache, restir_w_0, mod, i);
-            wis_size += (last_wi != wi);
-            wis[wis_size] = wi;
-            last_wi = wi;
-        }
+    //Check if this is a low enery pixel
+    bool low_energy = IsLowEnergy(pdf_cache, wis_size);
+    bool process_low_enery = (((pixel.x + pixel.y + frame_count) % 10) == 0);
+
+    float4 color_diffuse = float4(0.0f, 0.0f, 0.0f, 1.0f);
+    
+    if (!low_energy || process_low_enery) {
 
         float offset = (pixel.x % kernel_size) * ray_count + (pixel.y % kernel_size) * stride;
-        float4 color_diffuse = float4(0.0f, 0.0f, 0.0f, 1.0f);
 
         for (i = 0; i < wis_size; ++i) {
-                      
+
             uint wi = wis[i];
-    
+
             float n = offset + (float)wi * space_size;
 
-            ray.dir = GenerateHemisphereRay(normal, tangent, bitangent, 1.0f, N, level, n);
+            ray.dir = GenerateHemisphereRay(normal, tangent, bitangent, 1.0f, N, level * 1.5f, n);
+
             ray.orig.xyz = orig_pos.xyz + ray.dir * 0.1f;
             float dist = FLT_MAX;
             GetColor(ray, n, level, 0, rc, ray_source.dispersion, true, false);
-            color_diffuse.rgb += rc.color;
-            last_wi = wi;
-
-            float w = (rc.color.r + rc.color.g + rc.color.b) * 0.33f;
+            color_diffuse.rgb += rc.color.rgb;
+            float w = length(rc.color.rgb);
             pdf_out[wi] = w;
-
         }
-                  
-        restir_pdf_1[pixel] = Pack16Bytes(pdf_out, 5.0f);
-        output[pixel] = color_diffuse * DIFFUSE_ENERY_UNIT / restir_w_0[pixel];
-        
+        restir_pdf_1[pixel] = PackRays(pdf_out, 5.0f);
+        wis_size = max(wis_size, 1);
+        color_diffuse /= (float)wis_size;
     }
+    output[pixel] = color_diffuse * !low_energy;
+}
