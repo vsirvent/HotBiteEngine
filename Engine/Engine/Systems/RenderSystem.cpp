@@ -1812,6 +1812,7 @@ void RenderSystem::ProcessGI() {
 		gi_weights->SetShaderResourceView("restir_pdf_0", nullptr);
 		gi_weights->SetUnorderedAccessView("restir_pdf_1", nullptr);
 		gi_weights->SetUnorderedAccessView("restir_w_1", nullptr);
+		gi_weights->CopyAllBufferData();
 
 		gi_average->SetInt("debug", rt_debug);
 		gi_average->SetMatrix4x4(VIEW, cam_entity.camera->view);
@@ -2698,8 +2699,7 @@ void RenderSystem::ResetRTBBuffers() {
 		}
 	}
 
-	static const float one[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
-	static const float nrays[4] = { RESTIR_PIXEL_RAYS, RESTIR_PIXEL_RAYS, RESTIR_PIXEL_RAYS, RESTIR_PIXEL_RAYS };
+	static const float nrays[4] = { RESTIR_PIXEL_RAYS * 2, RESTIR_PIXEL_RAYS * 2, RESTIR_PIXEL_RAYS * 2, RESTIR_PIXEL_RAYS * 2 };
 
 	for (int i = 0; i < 2; ++i)
 	{

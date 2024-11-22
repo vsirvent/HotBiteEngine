@@ -1,4 +1,5 @@
 #include "../Common/ShaderStructs.hlsli"
+#include "../Common/RayDefines.hlsli"
 #include "../Common/Utils.hlsli"
 
 cbuffer externalData : register(b0)
@@ -19,17 +20,11 @@ void main(uint3 DTid : SV_DispatchThreadID)
     float bias = 1.0f;
     
     float values[MAX_RAYS];
-    float pre_values[MAX_RAYS];
-    UnpackRays(restir_pdf_0[pixel], 5.0f, values);
-    //UnpackRays(restir_pdf_1[pixel], 5.0f, pre_values);
+    UnpackRays(restir_pdf_0[pixel], RAY_W_SCALE, values);
 
-    for (uint i = 0; i < MAX_RAYS; ++i) {
-        values[i] = bias + values[i]; // lerp(bias + values[i], pre_values[i], 0.9f);
-    }
-
-    restir_pdf_1[pixel] = PackRays(values, 5.0f);
+    restir_pdf_1[pixel] = restir_pdf_0[pixel];
     float total_w = 0.0f;
-    for (i = 0; i < MAX_RAYS; ++i) {
+    for (uint i = 0; i < MAX_RAYS; ++i) {
         total_w += values[i];
     }
     restir_w_1[pixel] = total_w;

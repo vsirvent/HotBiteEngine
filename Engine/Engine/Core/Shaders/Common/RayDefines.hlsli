@@ -28,6 +28,20 @@ SOFTWARE.
 #define MAX_OBJECTS 100
 #define MAX_STACK_SIZE 50
 
+//#define PACK_RAYS_8
+#define RAY_W_SCALE 2.0f
+#define RAY_W_BIAS 0.0001f
+
+#ifdef PACK_RAYS_8
+#define MAX_RAYS 8
+#define PackRays Pack8Bytes
+#define UnpackRays Unpack8Bytes
+#else 
+#define MAX_RAYS 16
+#define PackRays Pack16Bytes
+#define UnpackRays Unpack16Bytes
+#endif
+
 struct BVHNode
 {
     //--

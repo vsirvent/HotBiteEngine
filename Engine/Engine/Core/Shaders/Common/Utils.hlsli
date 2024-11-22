@@ -138,25 +138,13 @@ void GetPerpendicularPlane(in float3 dir, out float3 v0, out float3 v1) {
 	v1 = normalize(cross(dir, v0));
 }
 
-//#define PACK_RAYS_8
-
-#ifdef PACK_RAYS_8
-#define MAX_RAYS 8
-#define PackRays Pack8Bytes
-#define UnpackRays Unpack8Bytes
-#else 
-#define MAX_RAYS 16
-#define PackRays Pack16Bytes
-#define UnpackRays Unpack16Bytes
-#endif
-
 uint ToByte(float val, float range)
 {
 	val = 255.0f * clamp(val, 0.0f, range) / range;
 	return (uint)val;
 }
 
-uint4 Pack8Bytes(float values[MAX_RAYS], float max_value)
+uint4 Pack8Bytes(float values[8], float max_value)
 {
 	uint4 data;
 	data.r = ToByte(values[0], max_value) << 24 | ToByte(values[1], max_value) << 16 | ToByte(values[2], max_value) << 8 | ToByte(values[3], max_value);
@@ -166,7 +154,7 @@ uint4 Pack8Bytes(float values[MAX_RAYS], float max_value)
 	return data;
 }
 
-uint4 Pack16Bytes(float values[MAX_RAYS], float max_value)
+uint4 Pack16Bytes(float values[16], float max_value)
 {
 	uint4 data;
 	data.r = ToByte(values[0], max_value) << 24 | ToByte(values[1], max_value) << 16 | ToByte(values[2], max_value) << 8 | ToByte(values[3], max_value);
@@ -183,7 +171,7 @@ float FromByte(uint val, float range)
 	return fval;
 }
 
-void Unpack8Bytes(uint4 data, float max_value, out float values[MAX_RAYS])
+void Unpack8Bytes(uint4 data, float max_value, out float values[8])
 {
 	uint d0 = data.r;
 	uint d1 = data.g;
@@ -198,7 +186,7 @@ void Unpack8Bytes(uint4 data, float max_value, out float values[MAX_RAYS])
 	values[7] = FromByte(d1 & 0xFF, max_value);
 }
 
-void Unpack16Bytes(uint4 data, float max_value, out float values[MAX_RAYS])
+void Unpack16Bytes(uint4 data, float max_value, out float values[16])
 {
 	uint d0 = data.r;
 	uint d1 = data.g;
