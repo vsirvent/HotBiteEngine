@@ -69,7 +69,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     float4 c = float4(0.0f, 0.0f, 0.0f, 0.0f);
 
     int full_kernel = 2 * kernel_size + 1;
-    int k = kernel_size + full_kernel;
+    int k = kernel_size + full_kernel * 2;
 
 #if 1
     //Convolution type
@@ -82,7 +82,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
         if (p1_position.x == FLT_MAX) continue;
 
         float world_dist = dist2(p1_position - p0_position);
-        ww = exp(-world_dist / (2.0f * sigma * sigma));
+        ww = 1.0f;// exp(-world_dist / (2.0f * sigma * sigma));
 
         float3 p1_normal = normals[p1_info_pixel].xyz;
         float n = saturate(dot(p1_normal, p0_normal));
@@ -123,7 +123,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
         float w = saturate(0.8f - motion * 100.0f);
 #else
         prev_pos.xy /= infoRatio;
-        float w = 0.2f;
+        float w = 0.5f;
 #endif
         float4 prev_color = prev_output[round(prev_pos.xy)];
         output[pixel] = prev_color * w + c * (1.0f - w);
