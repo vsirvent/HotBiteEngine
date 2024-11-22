@@ -444,7 +444,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     uint low_energy = IsLowEnergy(pdf_cache, ray_count);
 
     uint start = ((pixel.x + pixel.y + frame_count) % ray_count) * low_energy;
-    uint step = 1 + (ray_count) * low_energy;
+    uint step = 1 + (ray_count/3) * low_energy;
 
     for (uint i = start; i < ray_count; i += step) {
         uint wi = GetRayIndex(prev_pos.xy, pdf_cache, restir_w_0, i);
@@ -477,7 +477,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     restir_pdf_1[pixel] = PackRays(pdf_cache, RAY_W_SCALE);
     color_diffuse  = sqrt(color_diffuse / wis_size);
     
-    output[pixel] = color_diffuse * !low_energy;
+    output[pixel] = color_diffuse;// *!low_energy;
     //float r = wis_size;
     //output[pixel] = float4(r, r, r, 1.0f);
 }
