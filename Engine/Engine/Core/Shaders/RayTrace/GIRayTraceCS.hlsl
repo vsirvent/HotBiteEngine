@@ -450,7 +450,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
 
     float motion_ratio = 1.0f / max(pow(motion, 0.5f) * toCamDistance, 0.01f);
     uint start = (((pixel.x + pixel.y + frame_count)) % ray_count) * low_energy * motion_ratio;
-    uint step = 1 + (ray_count * motion_ratio) * low_energy;
+    uint step = ray_count / 4 + (ray_count * motion_ratio) * low_energy;
     
     for (i = start; i < ray_count; i += step) {
         uint wi = GetRayIndex(prev_pos.xy, pdf_cache, restir_w_0, i);
@@ -485,5 +485,5 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     
     output[pixel] = sqrt(color_diffuse) * !low_energy;
     //float r = wis_size / ray_count;
-    output[pixel] = float4(wis_size, 0.0f, 0.0f, 1.0f);
+    //output[pixel] = float4(wis_size, 0.0f, 0.0f, 1.0f);
 }
