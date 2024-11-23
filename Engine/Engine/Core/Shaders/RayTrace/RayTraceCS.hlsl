@@ -60,10 +60,10 @@ cbuffer objectData : register(b1)
 RWTexture2D<float4> output0 : register(u0);
 RWTexture2D<float4> output1 : register(u1);
 RWTexture2D<float4> dispersion : register(u3);
-
-RWTexture2D<float4> ray0 : register(u5);
-RWTexture2D<float4> ray1 : register(u6);
 RWTexture2D<float4> bloom : register(u7);
+
+Texture2D<float4> ray0;
+Texture2D<float4> ray1;
 
 StructuredBuffer<BVHNode> objects: register(t2);
 StructuredBuffer<BVHNode> objectBVH: register(t3);
@@ -403,7 +403,8 @@ return out_color.hit;
             float2 ray_pixel = round(pixel * rayMapRatio);
 
             RaySource ray_source = fromColor(ray0[ray_pixel], ray1[ray_pixel]);
-            if (ray_source.dispersion < 0.0f) {
+            if (ray_source.reflex <= Epsilon || dist2(ray_source.normal) <= Epsilon || ray_source.dispersion < 0.0f)
+            {
                 return;
             }
 

@@ -80,6 +80,15 @@ float3 CalcAmbient(float3 normal)
     return Ambient;
 }
 
+float3 CalcDirectionalNoShadow(float3 normal, float3 position, DirLight light, int index)
+{
+    float3 color = light.Color.rgb * light.intensity;
+    // Phong diffuse
+    float NDotL = dot(light.DirToLight, normal);
+    float3 finalColor = color * saturate(NDotL);
+    return finalColor;
+}
+
 float3 CalcDirectional(float3 normal, float3 position, DirLight light, int index)
 {
     float3 color = light.Color.rgb * light.intensity;

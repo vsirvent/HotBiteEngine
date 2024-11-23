@@ -464,14 +464,15 @@ void RenderSystem::LoadRTResources() {
 		}
 	}
 
+	int restir_div = max(RT_TEXTURE_RESOLUTION_DIVIDER, 2);
 	for (int n = 0; n < 2; ++n) {
 		restir_pdf[n].Release();
-		if (FAILED(restir_pdf[n].Init(w / RT_TEXTURE_RESOLUTION_DIVIDER, h / RT_TEXTURE_RESOLUTION_DIVIDER, DXGI_FORMAT_R32G32B32A32_UINT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+		if (FAILED(restir_pdf[n].Init(w / restir_div, h / restir_div, DXGI_FORMAT_R32G32B32A32_UINT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("restir_pdf.Init failed");
 		}
 	}
 	restir_w.Release();
-	if (FAILED(restir_w.Init(w / RT_TEXTURE_RESOLUTION_DIVIDER, h / RT_TEXTURE_RESOLUTION_DIVIDER, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+	if (FAILED(restir_w.Init(w / restir_div, h / restir_div, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 		throw std::exception("restir_w.Init failed");
 	}
 
@@ -1751,9 +1752,9 @@ void RenderSystem::ProcessGI() {
 		gi_shader->SetShaderResourceView("depth_map", depth_map.SRV());
 		gi_shader->SetShaderResourceView("motion_texture", motion_texture.SRV());
 		gi_shader->SetShaderResourceView("prev_position_map", prev_position_map.SRV());
+		gi_shader->SetShaderResourceView("ray0", rt_ray_sources0.SRV());
+		gi_shader->SetShaderResourceView("ray1", rt_ray_sources1.SRV());
 		gi_shader->SetUnorderedAccessView("props", rt_texture_props.UAV());
-		gi_shader->SetUnorderedAccessView("ray0", rt_ray_sources0.UAV());
-		gi_shader->SetUnorderedAccessView("ray1", rt_ray_sources1.UAV());
 
 		float3 dir;
 		XMStoreFloat3(&dir, cam_entity.camera->xm_direction);
@@ -1791,9 +1792,9 @@ void RenderSystem::ProcessGI() {
 		gi_shader->SetUnorderedAccessView("output", nullptr);
 		gi_shader->SetShaderResourceView("position_map", nullptr);
 		gi_shader->SetShaderResourceView("motion_texture", nullptr);
+		gi_shader->SetShaderResourceView("ray0", nullptr);
+		gi_shader->SetShaderResourceView("ray1", nullptr);
 		gi_shader->SetUnorderedAccessView("props", nullptr);
-		gi_shader->SetUnorderedAccessView("ray0", nullptr);
-		gi_shader->SetUnorderedAccessView("ray1", nullptr);
 		gi_shader->SetShaderResourceView("prev_position_map", nullptr);
 
 		UnprepareLights(gi_shader);
@@ -1891,8 +1892,8 @@ void RenderSystem::ProcessRT() {
 			rt_di_shader->SetShaderResourceView("motion_texture", motion_texture.SRV());
 			rt_di_shader->SetUnorderedAccessView("bloom", rt_texture_curr[RT_TEXTURE_EMISSION].UAV());
 			rt_di_shader->SetUnorderedAccessView("props", rt_texture_props.UAV());
-			rt_di_shader->SetUnorderedAccessView("ray0", rt_ray_sources0.UAV());
-			rt_di_shader->SetUnorderedAccessView("ray1", rt_ray_sources1.UAV());
+			rt_di_shader->SetShaderResourceView("ray0", rt_ray_sources0.SRV());
+			rt_di_shader->SetShaderResourceView("ray1", rt_ray_sources1.SRV());
 			rt_di_shader->SetShaderResourceView("rgbaNoise", rgba_noise_texture.SRV());
 
 			float3 dir;
@@ -1921,10 +1922,10 @@ void RenderSystem::ProcessRT() {
 			rt_di_shader->SetUnorderedAccessView("output1", nullptr);
 			rt_di_shader->SetShaderResourceView("position_map", nullptr);
 			rt_di_shader->SetShaderResourceView("motion_texture", nullptr);
+			rt_di_shader->SetShaderResourceView("ray0", nullptr);
+			rt_di_shader->SetShaderResourceView("ray1", nullptr);
 			rt_di_shader->SetUnorderedAccessView("bloom", nullptr);
 			rt_di_shader->SetUnorderedAccessView("props", nullptr);
-			rt_di_shader->SetUnorderedAccessView("ray0", nullptr);
-			rt_di_shader->SetUnorderedAccessView("ray1", nullptr);
 			rt_di_shader->SetShaderResourceView("rgbaNoise", nullptr);
 			rt_di_shader->SetUnorderedAccessView("dispersion", nullptr);
 
@@ -2699,12 +2700,12 @@ void RenderSystem::ResetRTBBuffers() {
 		}
 	}
 
-	static const float nrays[4] = { RESTIR_PIXEL_RAYS * 2, RESTIR_PIXEL_RAYS * 2, RESTIR_PIXEL_RAYS * 2, RESTIR_PIXEL_RAYS * 2 };
+	static const float nrays[4] = { RESTIR_PIXEL_RAYS, RESTIR_PIXEL_RAYS, RESTIR_PIXEL_RAYS, RESTIR_PIXEL_RAYS };
 
 	for (int i = 0; i < 2; ++i)
 	{
 		light_map[i].Clear(zero);
-		restir_pdf[i].Clear(ones);
+		restir_pdf[i].Clear(zero);
 		restir_w.Clear(nrays);
 	}
 }
