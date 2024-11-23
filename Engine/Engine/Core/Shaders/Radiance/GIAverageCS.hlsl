@@ -69,7 +69,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     float4 c = float4(0.0f, 0.0f, 0.0f, 0.0f);
 
     int full_kernel = 2 * kernel_size + 1;
-    int k = kernel_size + full_kernel * 2;
+    int k = kernel_size + full_kernel;
 
 #if 1
     //Convolution type

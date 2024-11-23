@@ -31,7 +31,7 @@ SOFTWARE.
 #define INDIRECT_ENABLED 4
 #define USE_OBH 0
 
-#define DISABLE_RESTIR
+//#define DISABLE_RESTIR
 
 cbuffer externalData : register(b0)
 {
