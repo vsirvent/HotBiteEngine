@@ -69,14 +69,17 @@ void main(uint3 DTid : SV_DispatchThreadID)
     float4 c = float4(0.0f, 0.0f, 0.0f, 0.0f);
 
     int full_kernel = 2 * kernel_size + 1;
-    int k = kernel_size + full_kernel;
+    int k = kernel_size + full_kernel * 2;
 
 #if 1
     //Convolution type
     float2 dir = lerp(float2(1.0f, 0.0f), float2(0.0f, 1.0f), step(1.5, type));
     for (x = -k; x <= k; ++x) {
         int2 p = pixel + x * dir;
-
+        if (p.x < 0) { p.x += k; }
+        if (p.y < 0) { p.y += k; }
+        if (p.x > input_dimensions.x) { p.x -= k; }
+        if (p.y > input_dimensions.y) { p.y -= k; }
         float2 p1_info_pixel = round(p * infoRatio);
         ww = 1.0f;
         if (abs(x) > k) {
@@ -88,8 +91,8 @@ void main(uint3 DTid : SV_DispatchThreadID)
 
         float3 p1_normal = normals[p1_info_pixel].xyz;
         float n = saturate(dot(p1_normal, p0_normal));
-        ww *= pow(n, max(5.0f / infoRatio.x, 1.0f));
-
+        ww *= pow(n, max(2.0f / infoRatio.x, 1.0f));
+        ww *= cos((M_PI * abs((float)x)) / (2.0 * (float)k));
         c += input[p] * ww;
         total_w += ww;
     }

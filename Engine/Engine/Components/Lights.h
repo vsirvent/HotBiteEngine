@@ -122,11 +122,14 @@ namespace HotBite {
 				D3D11_VIEWPORT shadow_vp = {};
 
 			public:
+
 				DirectionalLight();
 				DirectionalLight(const DirectionalLight& other) :DirectionalLight() {
 					assert(!other.init && "Non copyable after init.");
 					*this = other;
 				}
+
+				void SetDirty() { dirty = true; }
 				void SetPosition(const float3& pos) { data.position = pos; }
 				const float3& GetPosition() const { return data.position; }
 				void SetFog(bool enable) {

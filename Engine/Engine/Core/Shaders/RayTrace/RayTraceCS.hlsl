@@ -403,7 +403,7 @@ return out_color.hit;
             float2 ray_pixel = round(pixel * rayMapRatio);
 
             RaySource ray_source = fromColor(ray0[ray_pixel], ray1[ray_pixel]);
-            if (ray_source.reflex <= Epsilon || dist2(ray_source.normal) <= Epsilon || ray_source.dispersion < 0.0f)
+            if (ray_source.reflex <= Epsilon || dist2(ray_source.normal) <= Epsilon || ray_source.dispersion < 0.0f || ray_source.dispersion >= 1.0f)
             {
                 return;
             }
