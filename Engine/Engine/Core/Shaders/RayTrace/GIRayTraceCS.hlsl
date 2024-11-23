@@ -31,6 +31,8 @@ SOFTWARE.
 #define INDIRECT_ENABLED 4
 #define USE_OBH 0
 
+#define DISABLE_RESTIR
+
 cbuffer externalData : register(b0)
 {
     uint frame_count;
@@ -63,8 +65,8 @@ cbuffer objectData : register(b1)
 }
 
 RWTexture2D<float4> output;
-RWTexture2D<float4> ray0;
-RWTexture2D<float4> ray1;
+Texture2D<float4> ray0;
+Texture2D<float4> ray1;
 
 StructuredBuffer<BVHNode> objects: register(t2);
 StructuredBuffer<BVHNode> objectBVH: register(t3);
@@ -104,7 +106,9 @@ static const float ray_enery_unit = inv_ray_count;
 #define LEVEL_RATIO level
 
 uint GetRayIndex(float2 pixel, float pdf_cache[MAX_RAYS], Texture2D<float> w_data, float index) {
-
+#ifdef DISABLE_RESTIR
+    return index;
+#endif
     float w = max(w_data[pixel], RAY_W_BIAS * ray_count);
     float tmp_w = 0.0f;
     index = index * w * inv_ray_count;
@@ -390,6 +394,10 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     float2 ray_pixel = round(rpixel);
 
     RaySource ray_source = fromColor(ray0[ray_pixel], ray1[ray_pixel]);
+    if (ray_source.reflex <= Epsilon || dist2(ray_source.normal) <= Epsilon)
+    {
+        return;
+    }
 
     float3 orig_pos = ray_source.orig.xyz;
     float toCamDistance = dist2(orig_pos - cameraPosition);
@@ -448,10 +456,15 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
         motion = dist2(mvector);
     }
 
-    float motion_ratio = 1.0f / max(pow(motion, 0.5f) * toCamDistance, 0.01f);
+#ifdef DISABLE_RESTIR
+    uint start = 0;
+    uint step = 1;
+#else
+    float motion_ratio = 1.0f / max(sqrt(motion) * toCamDistance, 0.01f);
     uint start = (((pixel.x + pixel.y + frame_count)) % ray_count) * low_energy * motion_ratio;
     uint step = ray_count / 4 + (ray_count * motion_ratio) * low_energy;
-    
+#endif
+
     for (i = start; i < ray_count; i += step) {
         uint wi = GetRayIndex(prev_pos.xy, pdf_cache, restir_w_0, i);
         wis[wis_size] = wi;
@@ -469,14 +482,19 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
         float n = fmod(offset + (float)wi * offset2, N);
 
         ray.dir = GenerateHemisphereRay(normal, tangent, bitangent, 1.0f, N, level * 1.2f, n);
-        
+        ray.orig.xyz = orig_pos.xyz + ray.dir * 0.001f;
         float dist = FLT_MAX;
         GetColor(ray, n, level, 0, rc, ray_source.dispersion, true, false);
         color_diffuse.rgb += rc.color;
         last_wi = wi;
 
         float w = length(rc.color.rgb);
+
+#ifdef DISABLE_RESTIR
+        pdf_cache[wi] = 1.0f;
+#else
         pdf_cache[wi] = RAY_W_BIAS + w;
+#endif
     }
 
     wis_size = max(wis_size, 1);
