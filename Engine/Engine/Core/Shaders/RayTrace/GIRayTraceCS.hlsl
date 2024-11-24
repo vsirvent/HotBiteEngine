@@ -30,7 +30,7 @@ SOFTWARE.
 #define REFRACT_ENABLED 2
 #define INDIRECT_ENABLED 4
 #define USE_OBH 0
-#define LEVEL_RATIO level
+#define LEVEL_RATIO 3
 //#define BOUNCES
 //#define DISABLE_RESTIR
 

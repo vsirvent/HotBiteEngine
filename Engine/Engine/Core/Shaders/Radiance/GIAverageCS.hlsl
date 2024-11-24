@@ -60,14 +60,11 @@ void main(uint3 DTid : SV_DispatchThreadID)
     float3 p0_position = positions[info_pixel].xyz;
     float3 p0_normal = normals[info_pixel].xyz;
 
-    float pixelMaxDist = 0.0f;
-    float worldMaxDist = 0.0f;
-
+    float dist_to_cam = dist2(p0_position - cameraPosition);
     int x;
     int y;
 
     static const float NORMAL_RATIO = 5.0f;
-    static const float K_RATIO = 1.0f;
     static const float sigma = 1.0f;
     
     float total_w = 0.0f;
@@ -125,7 +122,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
 
 #else
 
-    int k = kernel_size + full_kernel;
+    int k = kernel_size + full_kernel * 2;
     float prev_w = input[pixel].a;
 
     [branch]
@@ -143,19 +140,12 @@ void main(uint3 DTid : SV_DispatchThreadID)
         //Pass 1 horizontal convolution
         float2 dir = float2(1.0f, 0.0f);
         for (x = -k; x <= k; ++x) {
-            int2 p = pixel + x * dir;
+            int2 p = (pixel + x * dir);
             if (p.x < 0) { p.x += k; }
-            if (p.y < 0) { p.y += k; }
             if (p.x > input_dimensions.x) { p.x -= k; }
-            if (p.y > input_dimensions.y) { p.y -= k; }
+
             float2 p1_info_pixel = round(p * infoRatio);
             ww = 1.0f;
-            if (abs(x) > k) {
-                float3 p1_position = positions[p1_info_pixel].xyz;
-                if (p1_position.x == FLT_MAX) continue;
-                float world_dist = dist2(p1_position - p0_position);
-                ww = exp(-world_dist / (2.0f * sigma * sigma));
-            }
 
             float3 p1_normal = normals[p1_info_pixel].xyz;
             float n = saturate(dot(p1_normal, p0_normal));
@@ -170,34 +160,23 @@ void main(uint3 DTid : SV_DispatchThreadID)
     case 2: {
         float2 dir = float2(0.0f, 1.0f);
         for (x = -k; x <= k; ++x) {
-            int2 p = pixel + x * dir;
-            if (p.x < 0) { p.x += k; }
+            int2 p = (pixel + x * dir);
             if (p.y < 0) { p.y += k; }
-            if (p.x > input_dimensions.x) { p.x -= k; }
             if (p.y > input_dimensions.y) { p.y -= k; }
+
             float2 p1_info_pixel = round(p * infoRatio);
             ww = 1.0f;
-            if (abs(x) > k) {
-                float3 p1_position = positions[p1_info_pixel].xyz;
-                if (p1_position.x == FLT_MAX) continue;
-                float world_dist = dist2(p1_position - p0_position);
-                ww = exp(-world_dist / (2.0f * sigma * sigma));
-            }
 
+            float3 p1_position = positions[p1_info_pixel].xyz;
+            float world_dist = dist2(p1_position - p0_position) / (dist_to_cam);
+            ww = exp(-world_dist / (2.0f * sigma * sigma));
+            
             float3 p1_normal = normals[p1_info_pixel].xyz;
             float n = saturate(dot(p1_normal, p0_normal));
             ww *= pow(n, max(NORMAL_RATIO / infoRatio.x, 1.0f));
             ww *= cos((M_PI * abs((float)x)) / (2.0 * (float)k));
 
-            [branch]
-            if (prev_w < 1.0f) {
-                //Pass 1 convolution failed, pass vertical with original image and need step 3
-                c.rgb += orig_input[p].rgb * ww;
-            }
-            else {
-                //Pass 1 convolution ok, pass vertical and END
-                c.rgb += input[p].rgb * ww;
-            }
+            c.rgb += input[p].rgb * ww;
             total_w += ww;
         }
     } break;
@@ -206,7 +185,9 @@ void main(uint3 DTid : SV_DispatchThreadID)
     //Execute pass 3 
     case 3: {
         //Pass 2 convolution failed again, make a minimal 2D pass
-        if (prev_w < 0.0f) {
+        [branch]
+        if (prev_w < 2.2f && dist_to_cam < 1000.0f) {
+            k = kernel_size + full_kernel;
             for (x = -k; x <= k; ++x) {
                 for (y = -k; y <= k; ++y) {
                     int2 p = pixel + int2(x,y);
@@ -216,13 +197,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
                     if (p.y > input_dimensions.y) { p.y -= k; }
                     float2 p1_info_pixel = round(p * infoRatio);
                     ww = 1.0f;
-                    if (abs(x) > k) {
-                        float3 p1_position = positions[p1_info_pixel].xyz;
-                        if (p1_position.x == FLT_MAX) continue;
-                        float world_dist = dist2(p1_position - p0_position);
-                        ww = exp(-world_dist / (2.0f * sigma * sigma));
-                    }
-
+                    
                     float3 p1_normal = normals[p1_info_pixel].xyz;
                     float n = saturate(dot(p1_normal, p0_normal));
                     ww *= pow(n, max(NORMAL_RATIO / infoRatio.x, 1.0f));
@@ -231,43 +206,13 @@ void main(uint3 DTid : SV_DispatchThreadID)
                     total_w += ww;
                 }
             }
+            input_mix = saturate(prev_w - 1.2f);
         }
         else {
-            // Pass 2 convolution ok, now repeat horizontal pass
-            [branch]
-            if (prev_w < 2.0f) {
-                float2 dir = float2(1.0f, 0.0f);
-                for (x = -k; x <= k; ++x) {
-                    int2 p = pixel + x * dir;
-                    if (p.x < 0) { p.x += k; }
-                    if (p.y < 0) { p.y += k; }
-                    if (p.x > input_dimensions.x) { p.x -= k; }
-                    if (p.y > input_dimensions.y) { p.y -= k; }
-                    float2 p1_info_pixel = round(p * infoRatio);
-                    ww = 1.0f;
-                    if (abs(x) > k) {
-                        float3 p1_position = positions[p1_info_pixel].xyz;
-                        if (p1_position.x == FLT_MAX) continue;
-                        float world_dist = dist2(p1_position - p0_position);
-                        ww = exp(-world_dist / (2.0f * sigma * sigma));
-                    }
-
-                    float3 p1_normal = normals[p1_info_pixel].xyz;
-                    float n = saturate(dot(p1_normal, p0_normal));
-                    ww *= pow(n, max(NORMAL_RATIO / infoRatio.x, 1.0f));
-                    ww *= cos((M_PI * abs((float)x)) / (2.0 * (float)k));
-                    c.rgb += input[p].rgb * ww;
-                    total_w += ww;
-                    input_mix = 1.0f - prev_w * 0.5f;
-                }
-            }
-            else {
-                // Pass2 convolution finished already, nothing to do in this pixel, just copy it
-                c = input[pixel];
-                total_w = 1.0f;
-                c.a = 0.0f;                
-            }
-
+            // Pass2 convolution finished already, nothing to do in this pixel, just copy it
+            c = input[pixel];
+            total_w = 1.0f;
+            c.a = 0.0f;
         }
     } break;
     }
@@ -276,15 +221,17 @@ void main(uint3 DTid : SV_DispatchThreadID)
     c = c * step(epsilon, total_w);
     c = c / max(total_w, epsilon);
 
-    uint w_ok = (total_w > k * K_RATIO);
+    total_w /= k;
     if (type == 1) {
-        c.a = w_ok;
+        c.a = total_w;
     }
     else {
-        c.a = prev_w + w_ok;
+        c.a = prev_w + total_w;
     }
     
-#if 0
+    c = lerp(c, input[pixel], input_mix);
+
+#if 1
     if (type < 3) {
         output[pixel] = c;
     }
@@ -294,7 +241,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
         prev_pos.x /= prev_pos.w;
         prev_pos.y /= -prev_pos.w;
         prev_pos.xy = (prev_pos.xy + 1.0f) * info_dimensions.xy / 2.0f;
-#if 1
+#if 0
         float motion = length(motion_texture[prev_pos.xy].xy);
         float2 mvector = motion_texture[info_pixel].xy;
         if (mvector.x == -FLT_MAX) {
@@ -309,7 +256,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
         else {
             prev_pos.xy /= infoRatio;
         }
-        float w = saturate(0.8f - motion * 100.0f);
+        float w = saturate(0.5f - motion * 100.0f);
 #else
         prev_pos.xy /= infoRatio;
         float w = 0.3f;

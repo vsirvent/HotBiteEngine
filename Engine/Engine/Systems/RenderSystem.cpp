@@ -465,7 +465,7 @@ void RenderSystem::LoadRTResources() {
 		}
 	}
 
-	int restir_div = max(RT_TEXTURE_RESOLUTION_DIVIDER, 2);
+	int restir_div = 3;// max(RT_TEXTURE_RESOLUTION_DIVIDER, 2);
 
 	for (int n = 0; n < RT_GI_NTEXTURES; ++n) {
 		rt_textures_gi[n].Release();
@@ -1849,7 +1849,7 @@ void RenderSystem::ProcessGI() {
 		gi_average->SetShaderResourceView("input", nullptr);
 		gi_average->SetUnorderedAccessView("output", nullptr);
 		gi_average->CopyAllBufferData();
-
+#if 1
 		//Pass 2 
 		gi_average->SetInt("type", 2);
 		gi_average->SetShaderResourceView("orig_input", rt_texture_gi_trace->SRV());
@@ -1869,7 +1869,19 @@ void RenderSystem::ProcessGI() {
 		gi_average->CopyAllBufferData();
 		gi_average->SetShader();
 		dxcore->context->Dispatch(groupsX, groupsY, 1);
-
+#else
+		//Pass 2 
+		gi_average->SetInt("type", 2);
+		gi_average->SetShaderResourceView("orig_input", rt_texture_gi_trace->SRV());
+		gi_average->SetShaderResourceView("input", rt_texture_gi_tmp[0]->SRV());
+		gi_average->SetUnorderedAccessView("output", rt_texture_gi_curr->UAV());
+		gi_average->CopyAllBufferData();
+		gi_average->SetShader();
+		dxcore->context->Dispatch(groupsX, groupsY, 1);
+		gi_average->SetShaderResourceView("input", nullptr);
+		gi_average->SetUnorderedAccessView("output", nullptr);
+		gi_average->CopyAllBufferData();
+#endif
 		gi_average->SetShaderResourceView("input", nullptr);
 		gi_average->SetUnorderedAccessView("output", nullptr);
 		gi_average->SetShaderResourceView("orig_input", nullptr);
