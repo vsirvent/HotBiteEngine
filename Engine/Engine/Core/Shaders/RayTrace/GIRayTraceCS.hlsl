@@ -30,7 +30,8 @@ SOFTWARE.
 #define REFRACT_ENABLED 2
 #define INDIRECT_ENABLED 4
 #define USE_OBH 0
-
+#define LEVEL_RATIO level
+//#define BOUNCES
 //#define DISABLE_RESTIR
 
 cbuffer externalData : register(b0)
@@ -76,14 +77,15 @@ ByteAddressBuffer indicesBuffer : register(t5);
 Texture2D<float4> position_map : register(t6);
 Texture2D<float4> motion_texture : register(t8);
 Texture2D<float4> prev_position_map: register(t9);
+Texture2D<uint4> restir_pdf_0: register(t10);
+Texture2D<float> restir_w_0: register(t11);
+RWTexture2D<uint4> restir_pdf_1: register(u0);
 
 Texture2D<float4> DiffuseTextures[MAX_OBJECTS];
 Texture2D<float> DirShadowMapTexture[MAX_LIGHTS];
 TextureCube<float> PointShadowMapTexture[MAX_LIGHTS];
 
-Texture2D<uint4> restir_pdf_0;
-Texture2D<float> restir_w_0;
-RWTexture2D<uint4> restir_pdf_1;
+
 
 //Packed array
 static float2 lps[MAX_LIGHTS] = (float2[MAX_LIGHTS])LightPerspectiveValues;
@@ -103,8 +105,7 @@ static const uint N = ray_count * kernel_size * kernel_size;
 static const float space_size = (float)N / (float)ray_count;
 static const float ray_enery_unit = inv_ray_count;
 
-#define LEVEL_RATIO level
-//#define BOUNCES
+
 
 uint GetRayIndex(float2 pixel, float pdf_cache[MAX_RAYS], Texture2D<float> w_data, float index) {
 #ifdef DISABLE_RESTIR
@@ -210,6 +211,7 @@ void GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
             uint currentVolume = volumeStack[--volumeStackSize];
 
             BVHNode volumeNode = objectBVH[currentVolume];
+            [branch]
             if (is_leaf(volumeNode))
             {
                 uint objectIndex = index(volumeNode);
@@ -217,7 +219,7 @@ void GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
 
                 float objectExtent = length(o.aabb_max - o.aabb_min);
                 float distanceToObject = length(o.position - origRay.orig.xyz) - objectExtent;
-
+                [branch]
                 if (distanceToObject < max_distance && distanceToObject < result.distance && IntersectAABB(ray, o.aabb_min, o.aabb_max))
                 {
 #else
@@ -243,6 +245,7 @@ void GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
                     uint current = stack[--stackSize];
 
                     BVHNode node = objects[o.objectOffset + current];
+                    [branch]
                     if (is_leaf(node))
                     {
                         float t;
@@ -264,7 +267,8 @@ void GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
                             }
                         }
                     }
-                    else if (IntersectAABB(oray, node))
+                    else 
+                    if (IntersectAABB(oray, node))
                     {
                         stack[stackSize++] = left_child(node);
                         stack[stackSize++] = right_child(node);
@@ -292,7 +296,9 @@ void GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
             }
 #if USE_OBH
                 }
- else if (IntersectAABB(ray, volumeNode)) {
+ else 
+     [branch]
+     if (IntersectAABB(ray, volumeNode)) {
      volumeStack[volumeStackSize++] = left_child(volumeNode);
      volumeStack[volumeStackSize++] = right_child(volumeNode);
         }
@@ -326,9 +332,9 @@ void GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
 
         // Calculate the point lights
         for (i = 0; i < pointLightsCount; ++i) {
-            if (length(pos.xyz - pointLights[i].Position) < pointLights[i].Range) {
+            //if (length(pos.xyz - pointLights[i].Position) < pointLights[i].Range) {
                 color += CalcPoint(normal, pos.xyz, pointLights[i], i);
-            }
+            //}
         }
 
         //Calculate material color
@@ -409,8 +415,10 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     float2 ray_pixel = round(rpixel);
 
     RaySource ray_source = fromColor(ray0[ray_pixel], ray1[ray_pixel]);
+    [branch]
     if (ray_source.reflex <= Epsilon || dist2(ray_source.normal) <= Epsilon)
     {
+        output[pixel] = float4(0.0f, 0.0f, 0.0f, -1.0f);
         return;
     }
 
@@ -421,9 +429,10 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     float3 bitangent;
     RayTraceColor rc;
     Ray ray = GetReflectedRayFromSource(ray_source);
-    
+    [branch]
     if (dist2(ray.dir) <= Epsilon)
     {
+        output[pixel] = float4(0.0f, 0.0f, 0.0f, -1.0f);
         return;
     }
 
@@ -464,17 +473,15 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     
     //Check if this is a low enery pixel
     uint low_energy = IsLowEnergy(pdf_cache, ray_count);
-
+#ifdef DISABLE_RESTIR
+    uint start = 0;
+    uint step = 1;
+#else
     float2 mvector = motion_texture[ray_pixel].xy;
     float motion = 0.0f;
     if (mvector.x > -FLT_MAX) {
         motion = dist2(mvector);
     }
-
-#ifdef DISABLE_RESTIR
-    uint start = 0;
-    uint step = 1;
-#else
     float motion_ratio = 1.0f / max(sqrt(motion) * toCamDistance, 0.01f);
     uint start = (((pixel.x + pixel.y + frame_count)) % ray_count) * low_energy * motion_ratio;
     uint step = frame_count % 4 + ray_count/4 + (ray_count * motion_ratio) * low_energy;
@@ -500,7 +507,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
         ray.dir = GenerateHemisphereRay(normal, tangent, bitangent, 1.0f, N, level * 1.2f, n);
         ray.orig.xyz = orig_pos.xyz + ray.dir * 0.001f;
         float dist = FLT_MAX;
-        GetColor(ray, n, level, 0, rc, ray_source.dispersion, true, false);
+        GetColor(ray, n, level, 1, rc, ray_source.dispersion, true, false);
         color_diffuse.rgb += rc.color;
         last_wi = wi;
 
