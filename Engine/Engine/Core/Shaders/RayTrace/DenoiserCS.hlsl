@@ -51,7 +51,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     RaySource ray_source = fromColor(positions[info_pixel], normals[info_pixel]);
     float4 c = float4(0.0f, 0.0f, 0.0f, 0.0f);
 
-#define HARD_MAX_KERNEL 40
+#define HARD_MAX_KERNEL 30
     uint MAX_KERNEL = min(normals_dimensions.x / 32, HARD_MAX_KERNEL);
     float count = 0.0f;
 
@@ -63,6 +63,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     float disp = -1.0f;
     uint min_dispersion = 0;
 
+    [branch]
     if (dist2(ray_source.orig) <= Epsilon) {
         output[pixel] = float4(0.0f, 0.0f, 0.0f, 0.0f);
         return;
@@ -82,6 +83,8 @@ void main(uint3 DTid : SV_DispatchThreadID)
         break;
     }
     }
+
+    [branch]
     if (disp < Epsilon) {
         output[pixel] = float4(0.0f, 0.0f, 0.0f, 0.0f);
         return;
@@ -91,6 +94,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     float motion = 0.0f;
     float camDist = dist2(cameraPosition - p0_position);
     uint2 ipixel = pixel;
+
     for (int i = -kernel; i <= kernel; ++i) {
         float2 p = ipixel + dir * i;
         if ((p.x < 0 || p.x >= input_dimensions.x) && (p.y < 0 || p.y >= input_dimensions.y)) {
@@ -101,7 +105,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
         float3 p1_normal = normals[p1_info_pixel].xyz;
         float n = saturate(dot(p1_normal, p0_normal));
         float dist = max(dist2(p1_position - p0_position) / camDist, 0.1f);
-        float w = pow(n, 20.0f / normalRatio) / dist;
+        float w = pow(n, 5.0f / normalRatio) / dist;
         if (kernel > 1) {
             w *= cos((M_PI * abs((float)i)) / (2.0 * (float)kernel));
         }
@@ -147,7 +151,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
         }
 
         float4 prev_color = prev_output[floor(prev_pos.xy)];
-        float w = saturate(0.5f - motion * 50.0f);
+        float w = saturate(0.8f - motion * 50.0f);
         output[pixel] = prev_color * w + c0 * (1.0f - w);
     }
 #else

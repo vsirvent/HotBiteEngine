@@ -168,7 +168,7 @@ bool GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
     Ray ray = origRay;
     bool end = false;
 
-    for (uint bounce = 0; !end; ++bounce)
+    while (!end)
     {
         result.distance = FLT_MAX;
         end = true;
@@ -189,6 +189,7 @@ bool GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
             uint currentVolume = volumeStack[--volumeStackSize];
 
             BVHNode volumeNode = objectBVH[currentVolume];
+            [branch]
             if (is_leaf(volumeNode))
             {
                 uint objectIndex = index(volumeNode);
@@ -203,6 +204,7 @@ bool GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
             ObjectInfo o = objectInfos[i];
             float objectExtent = length(o.aabb_max - o.aabb_min);
             float distanceToObject = length(o.position - origRay.orig.xyz) - objectExtent;
+            [branch]
             if (distanceToObject < max_distance && distanceToObject < result.distance && IntersectAABB(ray, o.aabb_min, o.aabb_max))
             {
 #endif
@@ -271,7 +273,9 @@ bool GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
             }
 #if USE_OBH
                 }
-            else if (IntersectAABB(ray, volumeNode)) {
+            else 
+                [branch]
+                if (IntersectAABB(ray, volumeNode)) {
                 volumeStack[volumeStackSize++] = left_child(volumeNode);
                 volumeStack[volumeStackSize++] = right_child(volumeNode);
             }
@@ -403,6 +407,7 @@ return out_color.hit;
             float2 ray_pixel = round(pixel * rayMapRatio);
 
             RaySource ray_source = fromColor(ray0[ray_pixel], ray1[ray_pixel]);
+            [branch]
             if (ray_source.reflex <= Epsilon || dist2(ray_source.normal) <= Epsilon || ray_source.dispersion < 0.0f || ray_source.dispersion >= 1.0f)
             {
                 return;
@@ -416,6 +421,7 @@ return out_color.hit;
             float3 bitangent;
             RayTraceColor rc;
             Ray ray = GetReflectedRayFromSource(ray_source);
+            [branch]
             if (dist2(ray.dir) > Epsilon)
             {
                 float3 normal = ray_source.normal;
@@ -436,7 +442,7 @@ return out_color.hit;
                 };
 
                 rc.hit = false;
-
+                [branch]
                 if (DTid.z == 0) {
                     float3 seed = orig_pos * 100.0f;
                     float rX = rgba_tnoise(seed);
@@ -445,10 +451,10 @@ return out_color.hit;
                     ray.dir = GenerateHemisphereRay(orig_dir, tangent, bitangent, ray_source.dispersion, N, level, rX);
                     ray.orig.xyz = orig_pos.xyz + ray.dir * 0.001f;
                     float dist = FLT_MAX;
-                    if (GetColor(ray, rX, level, 0, rc, ray_source.dispersion, true, false)) {
-                        color_reflex.rgb += rc.color[0] * ray_source.opacity;
-                        color_reflex2.rgb += rc.color[1] * ray_source.opacity;
-                    }
+                    GetColor(ray, rX, level, 0, rc, ray_source.dispersion, true, false);
+                    color_reflex.rgb += rc.color[0] * ray_source.opacity;
+                    color_reflex2.rgb += rc.color[1] * ray_source.opacity;
+                    
                     float2 rc_disp = float2(rc.dispersion[0], rc.dispersion[1]);
                     float reflex_ratio = (1.0f - ray_source.dispersion);
                     output0[pixel] = color_reflex * reflex_ratio;
@@ -469,9 +475,8 @@ return out_color.hit;
                         Ray ray = GetRefractedRayFromSource(ray_source);
                         if (dist2(ray.dir) > Epsilon)
                         {
-                            if (GetColor(ray, rX, level, 0, rc, ray_source.dispersion, true, true)) {
-                                color_refrac.rgb += rc.color[0] * (1.0f - ray_source.opacity);
-                            }
+                            GetColor(ray, rX, level, 0, rc, ray_source.dispersion, true, true);
+                            color_refrac.rgb += rc.color[0] * (1.0f - ray_source.opacity);
                         }
                     }
                     output1[pixel] = color_refrac;

@@ -78,6 +78,7 @@ float4 Get3dInterpolatedColor(float2 uv, Texture2D text, float2 dimension, Textu
 	float3 wp10 = positions[pos_p10].xyz;
 	float3 wpxx = positions[in_pos].xyz;
 
+	[branch]
 	if (wp00.x >= FLT_MAX || wp11.x >= FLT_MAX || wp01.x >= FLT_MAX || wp10.x >= FLT_MAX || wpxx.x >= FLT_MAX) {
 		return GetInterpolatedColor(uv, text, dimension);
 	}
@@ -89,6 +90,7 @@ float4 Get3dInterpolatedColor(float2 uv, Texture2D text, float2 dimension, Textu
 
 	float all_dist = d00 + d11 + d01 + d10;
 
+	[branch]
 	if (all_dist < epsilon) {
 		return GetInterpolatedColor(uv, text, dimension);
 	}
@@ -130,6 +132,7 @@ float4 Get3dInterpolatedColor(float2 uv, Texture2D text, float2 dimension, Textu
 	// Normalize weights
 	float totalWeight = w00 + w11 + w01 + w10;
 
+	[branch]
 	if (totalWeight < epsilon) {
 		return GetInterpolatedColor(uv, text, dimension);
 	}
@@ -146,7 +149,7 @@ float4 readColor(float2 pixel, texture2D text, uint w, uint h) {
     uint w2, h2;
     text.GetDimensions(w2, h2);
     if (w2 == w && h2 == h) {
-        return text.SampleLevel(basicSampler, pixel, 0);
+		return text[round(pixel * float2(w2, h2))];
     }
     else {
 #if 0

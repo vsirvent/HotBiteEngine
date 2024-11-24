@@ -291,29 +291,34 @@ namespace HotBite {
 				Core::SimpleComputeShader* gi_average = nullptr;
 				Core::SimpleComputeShader* gi_weights = nullptr;
 
-				//RT texture 1: Reflexed rays
-				//RT texture 2: Refracted rays
-				//RT texture 3: Indirect rays
 				static constexpr int RT_TEXTURE_REFLEX = 0;
 				static constexpr int RT_TEXTURE_REFRACT = 1;
-				static constexpr int RT_TEXTURE_INDIRECT = 2;
-				static constexpr int RT_TEXTURE_EMISSION = 3;
+				static constexpr int RT_TEXTURE_EMISSION = 2;
 
-				static constexpr int RT_NTEXTURES = 4;
-				Core::RenderTexture2D rt_textures[2][RT_NTEXTURES];
+				static constexpr int RT_NTEXTURES = 3;
+				Core::RenderTexture2D rt_textures_di[2][RT_NTEXTURES];
+
+				static constexpr int RT_GI_NTEXTURES = 5;
+				Core::RenderTexture2D rt_textures_gi[RT_GI_NTEXTURES];
+
 				Core::RenderTexture2D restir_pdf[2];
 				Core::RenderTexture2D restir_w;
 				Core::RenderTexture2D* restir_pdf_curr = nullptr;
 				Core::RenderTexture2D* restir_pdf_prev = nullptr;
 
-				static constexpr uint32_t RESTIR_HALF_KERNEL = 5;
+				static constexpr uint32_t RESTIR_HALF_KERNEL = 4;
 				static constexpr uint32_t RESTIR_KERNEL = 2 * RESTIR_HALF_KERNEL + 1;
 				static constexpr uint32_t RESTIR_PIXEL_RAYS = 16;
 				static constexpr uint32_t RESTIR_TOTAL_RAYS = RESTIR_PIXEL_RAYS * RESTIR_KERNEL * RESTIR_KERNEL;
 
 
-				Core::RenderTexture2D* rt_texture_prev;
-				Core::RenderTexture2D* rt_texture_curr;
+				Core::RenderTexture2D* rt_texture_di_prev;
+				Core::RenderTexture2D* rt_texture_di_curr;
+				Core::RenderTexture2D* rt_texture_gi_prev;
+				Core::RenderTexture2D* rt_texture_gi_curr;
+				Core::RenderTexture2D* rt_texture_gi_tmp[2];
+				Core::RenderTexture2D* rt_texture_gi_trace = nullptr;
+
 				Core::RenderTexture2D rt_texture_props;
 				Core::RenderTexture2D rt_ray_sources0;
 				Core::RenderTexture2D rt_ray_sources1;
