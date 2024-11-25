@@ -415,12 +415,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     float2 ray_pixel = round(rpixel);
 
     RaySource ray_source = fromColor(ray0[ray_pixel], ray1[ray_pixel]);
-    [branch]
-    if (ray_source.reflex <= Epsilon || dist2(ray_source.normal) <= Epsilon)
-    {
-        output[pixel] = float4(0.0f, 0.0f, 0.0f, -1.0f);
-        return;
-    }
+    bool end = (ray_source.reflex <= Epsilon || dist2(ray_source.normal) <= Epsilon);
 
     float3 orig_pos = ray_source.orig.xyz;
     float toCamDistance = dist2(orig_pos - cameraPosition);
@@ -429,9 +424,19 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     float3 bitangent;
     RayTraceColor rc;
     Ray ray = GetReflectedRayFromSource(ray_source);
+
+    float pdf_cache[MAX_RAYS];
+    UnpackRays(restir_pdf_0[pixel], RAY_W_SCALE, pdf_cache);
+    uint i = 0;
+
+    end = end || (dist2(ray.dir) <= Epsilon);
     [branch]
-    if (dist2(ray.dir) <= Epsilon)
+    if (end)
     {
+        for (i = 0; i < ray_count; i++) {
+            pdf_cache[i] = max(pdf_cache[i] - 0.01f, RAY_W_BIAS);
+            restir_pdf_1[pixel] = PackRays(pdf_cache, RAY_W_SCALE);
+        }
         output[pixel] = float4(0.0f, 0.0f, 0.0f, -1.0f);
         return;
     }
@@ -458,11 +463,6 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
 
     float color_w = 0.0f;
 
-    float pdf_cache[MAX_RAYS];
-    UnpackRays(restir_pdf_0[pixel], RAY_W_SCALE, pdf_cache);
-
-    uint i;
-    
     for (i = 0; i < ray_count; i++) {
         pdf_cache[i] = max(pdf_cache[i], RAY_W_BIAS);
     }
@@ -482,7 +482,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     if (mvector.x > -FLT_MAX) {
         motion = dist2(mvector);
     }
-    float motion_ratio = 1.0f / max(sqrt(motion) * toCamDistance, 0.01f);
+    float motion_ratio = 1.0f / max(10.0f * sqrt(motion) * toCamDistance, 0.01f);
     uint start = (((pixel.x + pixel.y + frame_count)) % ray_count) * low_energy * motion_ratio;
     uint step = frame_count % 4 + ray_count/4 + (ray_count * motion_ratio) * low_energy;
 #endif

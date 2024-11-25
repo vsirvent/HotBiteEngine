@@ -109,6 +109,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
         if (kernel > 1) {
             w *= cos((M_PI * abs((float)i)) / (2.0 * (float)kernel));
         }
+        w = max(w, 0.1f);
         count += w;
         c0 += input[p] * w;
     }
