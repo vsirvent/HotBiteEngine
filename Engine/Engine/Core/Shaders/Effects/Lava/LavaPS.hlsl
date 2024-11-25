@@ -120,7 +120,7 @@ float3 CalcLavaPoint(float3 normal, float3 position, float2 uv, PointLight light
 	return finalColor;
 }
 
-RenderTarget main(GSOutput input)
+RenderTargetRT main(GSOutput input)
 {
 	int i = 0;
 	matrix worldViewProj = mul(view, projection);
@@ -135,7 +135,7 @@ RenderTarget main(GSOutput input)
 	float dz_pcf = depthTexture.SampleCmpLevelZero(PCFSampler, pos, depth_test);
 	if (dz_pcf == 0.0f) { discard; }
 
-	RenderTarget output;
+	RenderTargetRT output;
 
 	float depth = length(input.worldPos.xyz - cameraPosition);
 	float dz = depthTexture.Sample(basicSampler, pos);
@@ -209,6 +209,17 @@ RenderTarget main(GSOutput input)
 	output.scene = finalColor * 0.6f * dz_pcf;
 	lightColor += output.scene;
 	output.light_map = saturate(lightColor);
+
+	RaySource ray;
+	ray.orig = input.worldPos.xyz;
+	ray.dispersion = 0.0f;
+	ray.reflex = 1.0f;
+	ray.normal = normalize(float3(0.0f, 1.0f, 0.0f) + 0.1f * normal);
+	ray.density = material.density;
+	ray.opacity = 1.0f;
+
+	output.rt_ray0_map = getColor0(ray);
+	output.rt_ray1_map = getColor1(ray);
 	return output;
 }
 
