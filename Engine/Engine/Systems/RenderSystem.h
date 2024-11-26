@@ -300,6 +300,7 @@ namespace HotBite {
 
 				static constexpr int RT_GI_NTEXTURES = 5;
 				Core::RenderTexture2D rt_textures_gi[RT_GI_NTEXTURES];
+				Core::RenderTexture2D rt_textures_gi_tiles;
 
 				Core::RenderTexture2D restir_pdf[2];
 				Core::RenderTexture2D restir_w;

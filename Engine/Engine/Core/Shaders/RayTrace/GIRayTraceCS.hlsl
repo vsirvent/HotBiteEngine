@@ -80,6 +80,7 @@ Texture2D<float4> prev_position_map: register(t9);
 Texture2D<uint4> restir_pdf_0: register(t10);
 Texture2D<float> restir_w_0: register(t11);
 RWTexture2D<uint4> restir_pdf_1: register(u0);
+RWTexture2D<uint> tiles_output: register(u1);
 
 Texture2D<float4> DiffuseTextures[MAX_OBJECTS];
 Texture2D<float> DirShadowMapTexture[MAX_LIGHTS];
@@ -93,7 +94,7 @@ static float2 lps[MAX_LIGHTS] = (float2[MAX_LIGHTS])LightPerspectiveValues;
 #include "../Common/SimpleLight.hlsli"
 #include "../Common/RayFunctions.hlsli"
 
-#define max_distance 100.0f
+#define max_distance 10.0f
 
 static const float inv_ray_count = 1.0f / (float)ray_count;
 static const uint stride = kernel_size * ray_count;
@@ -482,7 +483,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     if (mvector.x > -FLT_MAX) {
         motion = dist2(mvector);
     }
-    float motion_ratio = 1.0f / max(10.0f * sqrt(motion) * toCamDistance, 0.01f);
+    float motion_ratio = 1.0f / max(100.0f * sqrt(motion) * toCamDistance, 0.01f);
     uint start = (((pixel.x + pixel.y + frame_count)) % ray_count) * low_energy * motion_ratio;
     uint step = frame_count % 4 + ray_count/4 + (ray_count * motion_ratio) * low_energy;
 #endif
@@ -499,6 +500,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     float offset = (pixel.x % kernel_size) * ray_count + (pixel.y % kernel_size) * stride;
     float offset2 = space_size;
    
+    bool hit = false;
     for (i = 0; i < wis_size; ++i) {
 
         uint wi = wis[i];
@@ -510,6 +512,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
         GetColor(ray, n, level, 1, rc, ray_source.dispersion, true, false);
         color_diffuse.rgb += rc.color;
         last_wi = wi;
+        hit = hit || rc.hit;
 
         float w = length(rc.color.rgb);
 
@@ -524,7 +527,13 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     restir_pdf_1[pixel] = PackRays(pdf_cache, RAY_W_SCALE);
     color_diffuse  = color_diffuse / wis_size;
     
-    output[pixel] = sqrt(color_diffuse) * !low_energy;
+    color_diffuse = sqrt(color_diffuse);
+    //color_diffuse.a = 1.0f - 2.0f * !low_energy;
+    output[pixel] = color_diffuse;
+
+    if (!low_energy) {
+        tiles_output[floor((float2)pixel / (float)(kernel_size * 4))] = 1;
+    }
     //float r = wis_size / ray_count;
     //output[pixel] = float4(wis_size, 0.0f, 0.0f, 1.0f);
 }

@@ -38,6 +38,7 @@ cbuffer externalData : register(b0)
     float3 cameraPosition;
     float3 cameraDirection;
     uint enabled;
+    int kernel_size;
 
     //Lights
     AmbientLight ambientLight;
@@ -59,8 +60,8 @@ cbuffer objectData : register(b1)
 
 RWTexture2D<float4> output0 : register(u0);
 RWTexture2D<float4> output1 : register(u1);
-RWTexture2D<float4> dispersion : register(u3);
 RWTexture2D<float4> bloom : register(u7);
+RWTexture2D<float4> tiles_output : register(u4);
 
 Texture2D<float4> ray0;
 Texture2D<float4> ray1;
@@ -458,13 +459,9 @@ return out_color.hit;
                     float2 rc_disp = float2(rc.dispersion[0], rc.dispersion[1]);
                     float reflex_ratio = (1.0f - ray_source.dispersion);
                     output0[pixel] = color_reflex * reflex_ratio;
-                    float4 d = dispersion[pixel];
                     if (rc.hit) {
+                        tiles_output[floor((float2)pixel / (float)(kernel_size * 4))] = 1;
                         rc_disp = float2(max(rc_disp.x, rc.dispersion[0]), max(rc_disp.y, rc.dispersion[1]));
-                        dispersion[pixel] = float4(rc_disp.x, rc_disp.y, d.b, d.a);
-                    }
-                    else {
-                        dispersion[pixel] = float4(-1.0f, -1.0f, d.b, d.a);
                     }
                 }
                 else {
@@ -480,11 +477,10 @@ return out_color.hit;
                         }
                     }
                     output1[pixel] = color_refrac;
-                    float4 d = dispersion[pixel];
-                    dispersion[pixel] = float4(d.r, d.g, d.b, ray_source.dispersion);
+            
+                    if (rc.hit) {
+                        tiles_output[floor((float2)pixel / (float)(kernel_size * 4))] = 1;
+                    }
                 }
-            }
-            else {
-                dispersion[pixel] = float4(-1.0f, -1.0f, -1.0f, -1.0f);
             }
         }
