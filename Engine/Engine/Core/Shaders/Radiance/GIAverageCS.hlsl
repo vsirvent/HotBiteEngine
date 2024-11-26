@@ -28,7 +28,6 @@ float GetPosW(int pos, uint kernel) {
 }
 
 //#define DEBUG
-//#define SINGLE_PASS
 #define MIN_W 0.1f
 
 #define NTHREADS 32
@@ -73,7 +72,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     int x;
     int y;
 
-    static const float NORMAL_RATIO = 5.0f;
+    static const float NORMAL_RATIO = 20.0f;
     static const float sigma = 1.0f;
     
     float total_w = 0.0f;
@@ -83,7 +82,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     int full_kernel = 2 * kernel_size + 1;
 
     [branch]
-    if (tiles_output[floor((float2)pixel / (float)(full_kernel * 4))] == 0) {
+    if (tiles_output[pixel / full_kernel] == 0) {
         output[pixel] = orig_input[pixel];
         return;
     }

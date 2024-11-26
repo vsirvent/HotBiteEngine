@@ -460,8 +460,14 @@ return out_color.hit;
                     float reflex_ratio = (1.0f - ray_source.dispersion);
                     output0[pixel] = color_reflex * reflex_ratio;
                     if (rc.hit) {
-                        tiles_output[floor((float2)pixel / (float)(kernel_size * 4))] = 1;
-                        rc_disp = float2(max(rc_disp.x, rc.dispersion[0]), max(rc_disp.y, rc.dispersion[1]));
+                        [unroll]
+                        for (int x = -1; x <= 1; ++x) {
+                            [unroll]
+                            for (int y = -1; y <= 1; ++y) {
+                                int2 p = pixel / kernel_size + int2(x, y);
+                                tiles_output[p] = 1;
+                            }
+                        }
                     }
                 }
                 else {
@@ -479,7 +485,14 @@ return out_color.hit;
                     output1[pixel] = color_refrac;
             
                     if (rc.hit) {
-                        tiles_output[floor((float2)pixel / (float)(kernel_size * 4))] = 1;
+                        [unroll]
+                        for (int x = -1; x <= 1; ++x) {
+                            [unroll]
+                            for (int y = -1; y <= 1; ++y) {
+                                int2 p = pixel / kernel_size + int2(x, y);
+                                tiles_output[p] = 1;
+                            }
+                        }
                     }
                 }
             }

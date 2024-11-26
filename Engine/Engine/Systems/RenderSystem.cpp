@@ -475,7 +475,7 @@ void RenderSystem::LoadRTResources() {
 		}
 	}
 		
-	uint32_t tile_div = min(restir_div, RT_TEXTURE_RESOLUTION_DIVIDER) * RESTIR_KERNEL * 4;
+	uint32_t tile_div = min(restir_div, RT_TEXTURE_RESOLUTION_DIVIDER) * RESTIR_KERNEL;
 	rt_textures_gi_tiles.Release();
 	if (FAILED(rt_textures_gi_tiles.Init(w / tile_div + 1, h/ tile_div + 1, DXGI_FORMAT::DXGI_FORMAT_R8_UINT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 		throw std::exception("rt_texture.Init failed");
@@ -1821,6 +1821,9 @@ void RenderSystem::ProcessGI() {
 
 		UnprepareLights(gi_shader);
 		gi_shader->CopyAllBufferData();
+
+		groupsX = (int32_t)(ceil((float)rt_texture_gi_curr->Width() / (32.0f)));
+		groupsY = (int32_t)(ceil((float)rt_texture_gi_curr->Height() / (32.0f)));
 
 		gi_weights->SetShader();
 		gi_weights->SetInt("ray_count", RESTIR_PIXEL_RAYS);
