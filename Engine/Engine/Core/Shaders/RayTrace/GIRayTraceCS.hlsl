@@ -29,7 +29,7 @@ SOFTWARE.
 #define REFLEX_ENABLED 1
 #define REFRACT_ENABLED 2
 #define INDIRECT_ENABLED 4
-#define USE_OBH 0
+#define USE_OBH 1
 #define LEVEL_RATIO 3
 //#define BOUNCES
 //#define DISABLE_RESTIR
@@ -94,7 +94,7 @@ static float2 lps[MAX_LIGHTS] = (float2[MAX_LIGHTS])LightPerspectiveValues;
 #include "../Common/SimpleLight.hlsli"
 #include "../Common/RayFunctions.hlsli"
 
-#define max_distance 10.0f
+#define max_distance 5.0f
 
 static const float inv_ray_count = 1.0f / (float)ray_count;
 static const uint stride = kernel_size * ray_count;
@@ -527,8 +527,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     restir_pdf_1[pixel] = PackRays(pdf_cache, RAY_W_SCALE);
     color_diffuse  = color_diffuse / wis_size;
     
-    color_diffuse = sqrt(color_diffuse);
-    //color_diffuse.a = 1.0f - 2.0f * !low_energy;
+    color_diffuse = sqrt(color_diffuse) * !low_energy;
     output[pixel] = color_diffuse;
 
     if (!low_energy) {

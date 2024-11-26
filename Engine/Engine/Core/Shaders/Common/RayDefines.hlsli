@@ -26,7 +26,7 @@ SOFTWARE.
 #define RAY_DEFINES_
 
 #define MAX_OBJECTS 100
-#define MAX_STACK_SIZE 50
+#define MAX_STACK_SIZE 20
 
 //#define PACK_RAYS_8
 #define RAY_W_SCALE 2.0f

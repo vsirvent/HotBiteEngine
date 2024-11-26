@@ -84,7 +84,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
 
     [branch]
     if (tiles_output[floor((float2)pixel / (float)(full_kernel * 4))] == 0) {
-        output[pixel] = input[pixel];
+        output[pixel] = orig_input[pixel];
         return;
     }
 
@@ -124,11 +124,10 @@ void main(uint3 DTid : SV_DispatchThreadID)
             float n = saturate(dot(p1_normal, p0_normal));
             ww *= pow(n, max(NORMAL_RATIO / infoRatio.x, 1.0f));
             ww *= GetPosW(x, k);
+            //ww = max(ww, MIN_W);
 
             c += input[p] * ww;
             total_w += ww;
-            ww = max(ww, MIN_W);
-
             count++;
         }
     } break;
@@ -152,10 +151,9 @@ void main(uint3 DTid : SV_DispatchThreadID)
             float n = saturate(dot(p1_normal, p0_normal));
             ww *= pow(n, max(NORMAL_RATIO / infoRatio.x, 1.0f));
             ww *= GetPosW(x, k);
-            
+            //ww = max(ww, MIN_W);
             c.rgb += input[p].rgb * ww;
-            ww = max(ww, MIN_W);
-           
+       
             total_w += ww;
             count++;
         }

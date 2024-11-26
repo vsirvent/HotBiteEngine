@@ -29,7 +29,7 @@ SOFTWARE.
 
 #define REFLEX_ENABLED 1
 #define REFRACT_ENABLED 2
-#define USE_OBH 0
+#define USE_OBH 1
 
 cbuffer externalData : register(b0)
 {
@@ -84,7 +84,7 @@ static float2 lps[MAX_LIGHTS] = (float2[MAX_LIGHTS])LightPerspectiveValues;
 #include "../Common/SimpleLight.hlsli"
 #include "../Common/RayFunctions.hlsli"
 
-#define max_distance 10.0f
+#define max_distance 50.0f
 
 float3 GenerateHemisphereRay(float3 dir, float3 tangent, float3 bitangent, float dispersion, float N, float NLevels, float rX)
 {
