@@ -438,6 +438,7 @@ RenderSystem::~RenderSystem() {
 		rt_textures_gi[x].Release();
 	}
 
+	rt_textures_gi_tiles.Release();
 	for (int x = 0; x < 2; ++x) {
 		restir_pdf[x].Release();
 	}
@@ -465,7 +466,7 @@ void RenderSystem::LoadRTResources() {
 		}
 	}
 
-	int restir_div = 3;// max(RT_TEXTURE_RESOLUTION_DIVIDER, 2);
+	uint32_t restir_div = 3;// max(RT_TEXTURE_RESOLUTION_DIVIDER, 2);
 
 	for (int n = 0; n < RT_GI_NTEXTURES; ++n) {
 		rt_textures_gi[n].Release();
@@ -474,6 +475,12 @@ void RenderSystem::LoadRTResources() {
 		}
 	}
 		
+	uint32_t tile_div = min(restir_div, RT_TEXTURE_RESOLUTION_DIVIDER) * RESTIR_KERNEL;
+	rt_textures_gi_tiles.Release();
+	if (FAILED(rt_textures_gi_tiles.Init(w / tile_div + 1, h/ tile_div + 1, DXGI_FORMAT::DXGI_FORMAT_R8_UINT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+		throw std::exception("rt_texture.Init failed");
+	}
+
 	for (int n = 0; n < 2; ++n) {
 		restir_pdf[n].Release();
 		if (FAILED(restir_pdf[n].Init(w / restir_div, h / restir_div, DXGI_FORMAT_R32G32B32A32_UINT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
@@ -1743,6 +1750,7 @@ void RenderSystem::ProcessGI() {
 		rt_texture_gi_tmp[0] = &rt_textures_gi[2];
 		rt_texture_gi_tmp[1] = &rt_textures_gi[3];
 		rt_texture_gi_trace = &rt_textures_gi[4];
+		rt_textures_gi_tiles.Clear(zero);
 
 		std::lock_guard<std::mutex> lock(rt_mutex);
 		CameraEntity& cam_entity = cameras.GetData()[0];
@@ -1792,6 +1800,7 @@ void RenderSystem::ProcessGI() {
 		gi_shader->SetUnorderedAccessView("restir_pdf_1", restir_pdf_curr->UAV());
 
 		gi_shader->SetUnorderedAccessView("output", rt_texture_gi_trace->UAV());
+		gi_shader->SetUnorderedAccessView("tiles_output", rt_textures_gi_tiles.UAV());
 
 		int groupsX = (int32_t)(ceil((float)rt_texture_gi_curr->Width() / (32.0f)));
 		int groupsY = (int32_t)(ceil((float)rt_texture_gi_curr->Height() / (32.0f)));
@@ -1802,6 +1811,7 @@ void RenderSystem::ProcessGI() {
 		gi_shader->SetUnorderedAccessView("restir_pdf_1", nullptr);
 
 		gi_shader->SetUnorderedAccessView("output", nullptr);
+		gi_shader->SetUnorderedAccessView("tiles_output", nullptr);
 		gi_shader->SetShaderResourceView("position_map", nullptr);
 		gi_shader->SetShaderResourceView("motion_texture", nullptr);
 		gi_shader->SetShaderResourceView("ray0", nullptr);
@@ -1811,6 +1821,9 @@ void RenderSystem::ProcessGI() {
 
 		UnprepareLights(gi_shader);
 		gi_shader->CopyAllBufferData();
+
+		groupsX = (int32_t)(ceil((float)rt_texture_gi_curr->Width() / (32.0f)));
+		groupsY = (int32_t)(ceil((float)rt_texture_gi_curr->Height() / (32.0f)));
 
 		gi_weights->SetShader();
 		gi_weights->SetInt("ray_count", RESTIR_PIXEL_RAYS);
@@ -1836,6 +1849,7 @@ void RenderSystem::ProcessGI() {
 		gi_average->SetShaderResourceView("prev_output", rt_texture_gi_prev->SRV());
 		gi_average->SetShaderResourceView("motion_texture", motion_texture.SRV());
 		gi_average->SetShaderResourceView("prev_position_map", prev_position_map.SRV());
+		gi_average->SetShaderResourceView("tiles_output", rt_textures_gi_tiles.SRV());
 		gi_average->SetInt("kernel_size", RESTIR_HALF_KERNEL);
 		gi_average->SetInt("frame_count", frame_count);
 
@@ -1884,6 +1898,7 @@ void RenderSystem::ProcessGI() {
 #endif
 		gi_average->SetShaderResourceView("input", nullptr);
 		gi_average->SetUnorderedAccessView("output", nullptr);
+		gi_average->SetShaderResourceView("tiles_output", nullptr);
 		gi_average->SetShaderResourceView("orig_input", nullptr);
 		gi_average->SetShaderResourceView("positions", nullptr);
 		gi_average->SetShaderResourceView("normals", nullptr);
@@ -1903,6 +1918,8 @@ void RenderSystem::ProcessRT() {
 
 		if (rt_quality != eRtQuality::OFF && rt_enabled && bvh_buffer != nullptr && nobjects > 0) {
 
+			rt_textures_gi_tiles.Clear(zero);
+
 			std::lock_guard<std::mutex> lock(rt_mutex);
 			CameraEntity& cam_entity = cameras.GetData()[0];
 
@@ -1915,6 +1932,7 @@ void RenderSystem::ProcessRT() {
 			rt_di_shader->SetInt("kernel_size", RESTIR_KERNEL);
 			rt_di_shader->SetInt("ray_count", RESTIR_PIXEL_RAYS);
 
+			rt_di_shader->SetInt("kernel_size", RESTIR_KERNEL);
 			rt_di_shader->SetInt("nobjects", nobjects);
 			rt_di_shader->SetInt("enabled", rt_enabled & (rt_quality != eRtQuality::OFF ? 0xFF : 0x00));
 			rt_di_shader->SetMatrix4x4("view_proj", cam_entity.camera->view_projection);
@@ -1926,6 +1944,8 @@ void RenderSystem::ProcessRT() {
 			rt_di_shader->SetUnorderedAccessView("output0", rt_texture_di_curr[RT_TEXTURE_REFLEX].UAV());
 			rt_di_shader->SetUnorderedAccessView("output1", rt_texture_di_curr[RT_TEXTURE_REFRACT].UAV());
 			rt_di_shader->SetUnorderedAccessView("dispersion", rt_dispersion.UAV());
+			rt_di_shader->SetUnorderedAccessView("tiles_output", rt_textures_gi_tiles.UAV());
+
 
 			rt_di_shader->SetShaderResourceView("position_map", position_map.SRV());
 			rt_di_shader->SetShaderResourceView("depth_map", depth_map.SRV());
@@ -1968,53 +1988,13 @@ void RenderSystem::ProcessRT() {
 			rt_di_shader->SetUnorderedAccessView("props", nullptr);
 			rt_di_shader->SetShaderResourceView("rgbaNoise", nullptr);
 			rt_di_shader->SetUnorderedAccessView("dispersion", nullptr);
+			rt_di_shader->SetUnorderedAccessView("tiles_output", nullptr);
 
 			UnprepareLights(rt_di_shader);
 			rt_di_shader->CopyAllBufferData();
 
-#if 0
-			//Smooth the dispersion textures
-			groupsX = (int32_t)(ceil((float)rt_texture_di_curr[RT_TEXTURE_REFLEX].Width() / (32.0f)));
-			groupsY = (int32_t)(ceil((float)rt_texture_di_curr[RT_TEXTURE_REFLEX].Height() / (32.0f)));
-			rt_disp->SetShaderResourceView("input", rt_dispersion.SRV());
-			rt_disp->SetUnorderedAccessView("output", texture_tmp.UAV());
-			rt_disp->SetInt("type", 1);
-			rt_disp->CopyAllBufferData();
-			rt_disp->SetShader();
-			dxcore->context->Dispatch(groupsX, groupsY, 1);
-			rt_disp->SetShaderResourceView("input", nullptr);
-			rt_disp->SetUnorderedAccessView("output", nullptr);
-			rt_disp->CopyAllBufferData();
-			rt_disp->SetShaderResourceView("input", texture_tmp.SRV());
-			rt_disp->SetUnorderedAccessView("output", rt_dispersion.UAV());
-			rt_disp->SetInt("type", 2);
-			rt_disp->CopyAllBufferData();
-			dxcore->context->Dispatch(groupsX, groupsY, 1);
-			rt_disp->SetShaderResourceView("input", nullptr);
-			rt_disp->SetUnorderedAccessView("output", nullptr);
-			rt_disp->CopyAllBufferData();
-
-			texture_tmp.Clear(zero);
-			rt_disp->SetShaderResourceView("input", rt_dispersion.SRV());
-			rt_disp->SetUnorderedAccessView("output", texture_tmp.UAV());
-			rt_disp->SetInt("type", 3);
-			rt_disp->CopyAllBufferData();
-			rt_disp->SetShader();
-			dxcore->context->Dispatch(groupsX, groupsY, 1);
-			rt_disp->SetShaderResourceView("input", nullptr);
-			rt_disp->SetUnorderedAccessView("output", nullptr);
-			rt_disp->CopyAllBufferData();
-
-			rt_disp->SetShaderResourceView("input", texture_tmp.SRV());
-			rt_disp->SetUnorderedAccessView("output", rt_dispersion.UAV());
-			rt_disp->SetInt("type", 4);
-			rt_disp->CopyAllBufferData();
-			dxcore->context->Dispatch(groupsX, groupsY, 1);
-			rt_disp->SetShaderResourceView("input", nullptr);
-			rt_disp->SetUnorderedAccessView("output", nullptr);
-			rt_disp->CopyAllBufferData();
-#endif
 			//Denoiser
+			rt_di_denoiser->SetInt("kernel_size", RESTIR_KERNEL);
 			rt_di_denoiser->SetInt("debug", rt_debug);
 			rt_di_denoiser->SetShaderResourceView("positions", rt_ray_sources0.SRV());
 			rt_di_denoiser->SetShaderResourceView("normals", rt_ray_sources1.SRV());
@@ -2024,6 +2004,7 @@ void RenderSystem::ProcessRT() {
 			rt_di_denoiser->SetMatrix4x4(PROJECTION, cam_entity.camera->projection);
 			rt_di_denoiser->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
 			rt_di_denoiser->SetShaderResourceView("dispersion", rt_dispersion.SRV());
+			rt_di_denoiser->SetShaderResourceView("tiles_output", rt_textures_gi_tiles.SRV());
 
 			static constexpr int textures[] = { RT_TEXTURE_REFLEX, RT_TEXTURE_REFRACT };
 			static constexpr int ntextures = sizeof(textures) / sizeof(int);
@@ -2065,6 +2046,8 @@ void RenderSystem::ProcessRT() {
 			rt_di_denoiser->SetShaderResourceView("motion_texture", nullptr);
 			rt_di_denoiser->SetShaderResourceView("prev_position_map", nullptr);
 			rt_di_denoiser->SetShaderResourceView("dispersion", nullptr);
+			rt_di_denoiser->SetShaderResourceView("tiles_output", nullptr);
+
 			rt_di_denoiser->CopyAllBufferData();
 
 #if 0
@@ -2743,6 +2726,8 @@ void RenderSystem::ResetRTBBuffers() {
 	for (int x = 0; x < RT_GI_NTEXTURES; ++x) {
 		rt_textures_gi[x].Clear(zero);
 	}
+
+	rt_textures_gi_tiles.Clear(zero);
 
 	static const float nrays[4] = { RESTIR_PIXEL_RAYS, RESTIR_PIXEL_RAYS, RESTIR_PIXEL_RAYS, RESTIR_PIXEL_RAYS };
 

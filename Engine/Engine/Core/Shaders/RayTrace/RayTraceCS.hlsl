@@ -29,7 +29,7 @@ SOFTWARE.
 
 #define REFLEX_ENABLED 1
 #define REFRACT_ENABLED 2
-#define USE_OBH 0
+#define USE_OBH 1
 
 cbuffer externalData : register(b0)
 {
@@ -38,6 +38,7 @@ cbuffer externalData : register(b0)
     float3 cameraPosition;
     float3 cameraDirection;
     uint enabled;
+    int kernel_size;
 
     //Lights
     AmbientLight ambientLight;
@@ -59,8 +60,8 @@ cbuffer objectData : register(b1)
 
 RWTexture2D<float4> output0 : register(u0);
 RWTexture2D<float4> output1 : register(u1);
-RWTexture2D<float4> dispersion : register(u3);
 RWTexture2D<float4> bloom : register(u7);
+RWTexture2D<float4> tiles_output : register(u4);
 
 Texture2D<float4> ray0;
 Texture2D<float4> ray1;
@@ -83,7 +84,7 @@ static float2 lps[MAX_LIGHTS] = (float2[MAX_LIGHTS])LightPerspectiveValues;
 #include "../Common/SimpleLight.hlsli"
 #include "../Common/RayFunctions.hlsli"
 
-#define max_distance 100.0f
+#define max_distance 50.0f
 
 float3 GenerateHemisphereRay(float3 dir, float3 tangent, float3 bitangent, float dispersion, float N, float NLevels, float rX)
 {
@@ -365,9 +366,9 @@ bool GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
         //Color background
 
     }
-        }
+}
 return out_color.hit;
-        }
+}
 
 #define DENSITY 1.0f
 #define NTHREADS 32
@@ -458,13 +459,15 @@ return out_color.hit;
                     float2 rc_disp = float2(rc.dispersion[0], rc.dispersion[1]);
                     float reflex_ratio = (1.0f - ray_source.dispersion);
                     output0[pixel] = color_reflex * reflex_ratio;
-                    float4 d = dispersion[pixel];
                     if (rc.hit) {
-                        rc_disp = float2(max(rc_disp.x, rc.dispersion[0]), max(rc_disp.y, rc.dispersion[1]));
-                        dispersion[pixel] = float4(rc_disp.x, rc_disp.y, d.b, d.a);
-                    }
-                    else {
-                        dispersion[pixel] = float4(-1.0f, -1.0f, d.b, d.a);
+                        [unroll]
+                        for (int x = -1; x <= 1; ++x) {
+                            [unroll]
+                            for (int y = -1; y <= 1; ++y) {
+                                int2 p = pixel / kernel_size + int2(x, y);
+                                tiles_output[p] = 1;
+                            }
+                        }
                     }
                 }
                 else {
@@ -480,11 +483,17 @@ return out_color.hit;
                         }
                     }
                     output1[pixel] = color_refrac;
-                    float4 d = dispersion[pixel];
-                    dispersion[pixel] = float4(d.r, d.g, d.b, ray_source.dispersion);
+            
+                    if (rc.hit) {
+                        [unroll]
+                        for (int x = -2; x <= 2; ++x) {
+                            [unroll]
+                            for (int y = -2; y <= 2; ++y) {
+                                int2 p = pixel / kernel_size + int2(x, y);
+                                tiles_output[p] = 1;
+                            }
+                        }
+                    }
                 }
-            }
-            else {
-                dispersion[pixel] = float4(-1.0f, -1.0f, -1.0f, -1.0f);
             }
         }

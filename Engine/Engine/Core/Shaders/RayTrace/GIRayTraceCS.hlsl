@@ -29,7 +29,7 @@ SOFTWARE.
 #define REFLEX_ENABLED 1
 #define REFRACT_ENABLED 2
 #define INDIRECT_ENABLED 4
-#define USE_OBH 0
+#define USE_OBH 1
 #define LEVEL_RATIO 3
 //#define BOUNCES
 //#define DISABLE_RESTIR
@@ -80,6 +80,7 @@ Texture2D<float4> prev_position_map: register(t9);
 Texture2D<uint4> restir_pdf_0: register(t10);
 Texture2D<float> restir_w_0: register(t11);
 RWTexture2D<uint4> restir_pdf_1: register(u0);
+RWTexture2D<uint> tiles_output: register(u1);
 
 Texture2D<float4> DiffuseTextures[MAX_OBJECTS];
 Texture2D<float> DirShadowMapTexture[MAX_LIGHTS];
@@ -93,7 +94,7 @@ static float2 lps[MAX_LIGHTS] = (float2[MAX_LIGHTS])LightPerspectiveValues;
 #include "../Common/SimpleLight.hlsli"
 #include "../Common/RayFunctions.hlsli"
 
-#define max_distance 100.0f
+#define max_distance 10.0f
 
 static const float inv_ray_count = 1.0f / (float)ray_count;
 static const uint stride = kernel_size * ray_count;
@@ -107,11 +108,10 @@ static const float ray_enery_unit = inv_ray_count;
 
 
 
-uint GetRayIndex(float2 pixel, float pdf_cache[MAX_RAYS], Texture2D<float> w_data, float index) {
+uint GetRayIndex(float2 pixel, float pdf_cache[MAX_RAYS], float w, float index) {
 #ifdef DISABLE_RESTIR
     return index;
 #endif
-    float w = max(w_data[pixel], RAY_W_BIAS * ray_count);
     float tmp_w = 0.0f;
     index = index * w * inv_ray_count;
     
@@ -304,7 +304,7 @@ void GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
         }
         ++i;
 #endif
-            }
+    }
 
     //At this point we have the ray collision distance and a collision result
     if (collide) {
@@ -369,27 +369,26 @@ void GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
         }
     }
 #endif
-        }
     }
+}
 
-    bool IsLowEnergy(float pdf[MAX_RAYS], uint len) {
+bool IsLowEnergy(float pdf[MAX_RAYS], uint len) {
         
-        float total_enery = 0.0f;
+    float total_enery = 0.0f;
 
-        for (int i = 0; i < len; ++i) {
-            total_enery += pdf[i];
-        }
-        float threshold = len * RAY_W_BIAS;
-
-        return (total_enery <= threshold);
+    for (int i = 0; i < len; ++i) {
+        total_enery += pdf[i];
     }
+    float threshold = len * RAY_W_BIAS;
+
+    return (total_enery < threshold);
+}
 
 #define NTHREADS 32
 
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thread : SV_GroupThreadID)
 {
-
     float2 dimensions;
     float2 ray_map_dimensions;
     {
@@ -409,18 +408,18 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
         
     float2 pixel = float2(x, y);
 
+    uint offsetn = frame_count % 4;
+    uint offsetx = (offsetn) % 2;
+    uint offsety = (offsetn) / 2;
+    //pixel.x += offsetx;
+   // pixel.y += offsety;
     float2 rpixel = pixel * rayMapRatio;
     //rpixel.x += frame_count % (rayMapRatio.x * 0.5f);
     //rpixel.y += frame_count % (rayMapRatio.y * 0.5f) / 2.0f;
     float2 ray_pixel = round(rpixel);
 
     RaySource ray_source = fromColor(ray0[ray_pixel], ray1[ray_pixel]);
-    [branch]
-    if (ray_source.reflex <= Epsilon || dist2(ray_source.normal) <= Epsilon)
-    {
-        output[pixel] = float4(0.0f, 0.0f, 0.0f, -1.0f);
-        return;
-    }
+    bool end = (ray_source.reflex <= Epsilon || dist2(ray_source.normal) <= Epsilon);
 
     float3 orig_pos = ray_source.orig.xyz;
     float toCamDistance = dist2(orig_pos - cameraPosition);
@@ -429,13 +428,23 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     float3 bitangent;
     RayTraceColor rc;
     Ray ray = GetReflectedRayFromSource(ray_source);
+
+    float pdf_cache[MAX_RAYS];
+    UnpackRays(restir_pdf_0[pixel], RAY_W_SCALE, pdf_cache);
+    uint i = 0;
+
+    end = end || (dist2(ray.dir) <= Epsilon);
     [branch]
-    if (dist2(ray.dir) <= Epsilon)
+    if (end)
     {
+        for (i = 0; i < ray_count; i++) {
+            pdf_cache[i] = max(pdf_cache[i] - 0.01f, RAY_W_BIAS);
+            restir_pdf_1[pixel] = PackRays(pdf_cache, RAY_W_SCALE);
+        }
         output[pixel] = float4(0.0f, 0.0f, 0.0f, -1.0f);
         return;
     }
-
+    
     matrix worldViewProj = mul(view, projection);
     float4 prev_pos = mul(prev_position_map[ray_pixel], worldViewProj);
     prev_pos.x /= prev_pos.w;
@@ -458,11 +467,6 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
 
     float color_w = 0.0f;
 
-    float pdf_cache[MAX_RAYS];
-    UnpackRays(restir_pdf_0[pixel], RAY_W_SCALE, pdf_cache);
-
-    uint i;
-    
     for (i = 0; i < ray_count; i++) {
         pdf_cache[i] = max(pdf_cache[i], RAY_W_BIAS);
     }
@@ -482,14 +486,15 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     if (mvector.x > -FLT_MAX) {
         motion = dist2(mvector);
     }
-    float motion_ratio = 1.0f / max(sqrt(motion) * toCamDistance, 0.01f);
+    float motion_ratio = 1.0f / max(100.0f * sqrt(motion) * toCamDistance, 0.01f);
     uint start = (((pixel.x + pixel.y + frame_count)) % ray_count) * low_energy * motion_ratio;
-    uint step = frame_count % 4 + ray_count/4 + (ray_count * motion_ratio) * low_energy;
+    uint step = frame_count % 4 + ray_count / 4 + (ray_count * motion_ratio) * low_energy;
 #endif
 
+    float w_pixel = max(restir_w_0[pixel], RAY_W_BIAS * ray_count);
     for (i = 0; i < ray_count; i += step) {
         uint index = (i + start) % ray_count;
-        uint wi = GetRayIndex(prev_pos.xy, pdf_cache, restir_w_0, index);
+        uint wi = GetRayIndex(prev_pos.xy, pdf_cache, w_pixel, index);
         wis[wis_size] = wi;
         wis_size += (last_wi != wi);
         last_wi = wi;
@@ -499,6 +504,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     float offset = (pixel.x % kernel_size) * ray_count + (pixel.y % kernel_size) * stride;
     float offset2 = space_size;
    
+    bool hit = false;
     for (i = 0; i < wis_size; ++i) {
 
         uint wi = wis[i];
@@ -508,8 +514,8 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
         ray.orig.xyz = orig_pos.xyz + ray.dir * 0.001f;
         float dist = FLT_MAX;
         GetColor(ray, n, level, 1, rc, ray_source.dispersion, true, false);
-        color_diffuse.rgb += rc.color;
         last_wi = wi;
+        hit = hit || rc.hit;
 
         float w = length(rc.color.rgb);
 
@@ -518,13 +524,28 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
 #else
         pdf_cache[wi] = RAY_W_BIAS + w;
 #endif
+        color_diffuse.rgb += rc.color / (pdf_cache[wi] / w_pixel);
+
     }
 
     wis_size = max(wis_size, 1);
     restir_pdf_1[pixel] = PackRays(pdf_cache, RAY_W_SCALE);
     color_diffuse  = color_diffuse / wis_size;
     
-    output[pixel] = sqrt(color_diffuse) * !low_energy;
+    color_diffuse = sqrt(color_diffuse) * !low_energy;
+    output[pixel] = color_diffuse;
+
+    if (!low_energy) {        
+        [unroll]
+        for (int x = -2; x <= 2; ++x) {
+            [unroll]
+            for (int y = -2; y <= 2; ++y) {
+                int2 p = (pixel / kernel_size) + int2(x, y);
+                tiles_output[p] = 1;
+            }
+        }
+    }
+ 
     //float r = wis_size / ray_count;
     //output[pixel] = float4(wis_size, 0.0f, 0.0f, 1.0f);
 }

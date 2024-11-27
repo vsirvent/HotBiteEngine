@@ -10,6 +10,7 @@ cbuffer externalData : register(b0)
     matrix view;
     matrix projection;
     uint debug;
+    int kernel_size;
 }
 
 Texture2D<float4> input : register(t0);
@@ -19,7 +20,7 @@ Texture2D<float4> positions : register(t2);
 Texture2D<float4> prev_output : register(t3);
 Texture2D<float2> motion_texture : register(t4);
 Texture2D<float4> prev_position_map: register(t5);
-Texture2D<float4> dispersion: register(t6);
+Texture2D<uint> tiles_output : register(t7);
 
 #define NTHREADS 32
 [numthreads(NTHREADS, NTHREADS, 1)]
@@ -62,24 +63,20 @@ void main(uint3 DTid : SV_DispatchThreadID)
     float dist_att = 0.0f;
     float disp = -1.0f;
     uint min_dispersion = 0;
-
+    bool skip = tiles_output[pixel / kernel_size] == 0;
     [branch]
-    if (dist2(ray_source.orig) <= Epsilon) {
+    if (dist2(ray_source.orig) <= Epsilon || skip) {
         output[pixel] = float4(0.0f, 0.0f, 0.0f, 0.0f);
         return;
-    }
-
-    
+    }  
 
     switch (light_type) {
     case 0: {
         disp = sqrt(ray_source.dispersion);
-        //disp = sqrt(dispersion[pixel].r);
         break;
     }
     case 1: {
-        //disp = ray_source.dispersion;
-        disp = dispersion[pixel].a;
+        disp = ray_source.dispersion;
         break;
     }
     }
@@ -109,6 +106,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
         if (kernel > 1) {
             w *= cos((M_PI * abs((float)i)) / (2.0 * (float)kernel));
         }
+        w = max(w, 0.1f);
         count += w;
         c0 += input[p] * w;
     }

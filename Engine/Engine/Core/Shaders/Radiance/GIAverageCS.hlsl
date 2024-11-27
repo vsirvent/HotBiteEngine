@@ -20,14 +20,22 @@ Texture2D<float4> normals : register(t3);
 Texture2D<float4> prev_output : register(t4);
 Texture2D<float2> motion_texture : register(t5);
 Texture2D<float4> prev_position_map: register(t6);
+Texture2D<uint> tiles_output: register(t7);
+
+
+float GetPosW(int pos, uint kernel) {
+    return cos((M_PI * abs((float)pos)) / (2.0f * (float)kernel));
+}
 
 //#define DEBUG
-//#define SINGLE_PASS
+#define MIN_W 0.1f
+
 #define NTHREADS 32
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main(uint3 DTid : SV_DispatchThreadID)
 {
     float2 pixel = float2(DTid.x, DTid.y);
+
 #ifdef DEBUG
     if (debug == 1) { 
         output[pixel] = input[pixel];
@@ -64,7 +72,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     int x;
     int y;
 
-    static const float NORMAL_RATIO = 5.0f;
+    static const float NORMAL_RATIO = 20.0f;
     static const float sigma = 1.0f;
     
     float total_w = 0.0f;
@@ -72,57 +80,16 @@ void main(uint3 DTid : SV_DispatchThreadID)
     float4 c = float4(0.0f, 0.0f, 0.0f, 0.0f);
 
     int full_kernel = 2 * kernel_size + 1;
+
+    [branch]
+    if (tiles_output[pixel / full_kernel] == 0) {
+        output[pixel] = orig_input[pixel];
+        return;
+    }
+
     float input_mix = 0.0f;
 
-//---------------------------------------------------------------------------------------
-//---------------------------------------------------------------------------------------
-//---------------------------------------------------------------------------------------
-
-#ifdef SINGLE_PASS
-    int k = kernel_size + full_kernel;
-    //Single pass type
-    for (x = -k; x <= k; ++x) {
-        for (y = -k; y <= k; ++y) {
-            int2 p = pixel + int2(x, y);
-            float2 p1_info_pixel = round(p * infoRatio);
-            float3 p1_position = positions[p1_info_pixel].xyz;
-            if (p1_position.x == FLT_MAX) continue;
-
-            float world_dist = dist2(p1_position - p0_position);
-            ww = exp(-world_dist / (2.0f * sigma * sigma));
-
-            float3 p1_normal = normals[p1_info_pixel].xyz;
-            float n = saturate(dot(p1_normal, p0_normal));
-            ww *= pow(n, 20.0f / infoRatio.x);
-            c += input[p] * ww;
-            total_w += ww;
-        }
-    }
-    static const float epsilon = 10e-4;
-    c = c * step(epsilon, total_w);
-    c = c / max(total_w, epsilon);
-
-#if 1
-    matrix worldViewProj = mul(view, projection);
-    float4 prev_pos = mul(prev_position_map[info_pixel], worldViewProj);
-    prev_pos.x /= prev_pos.w;
-    prev_pos.y /= -prev_pos.w;
-    prev_pos.xy = (prev_pos.xy + 1.0f) * info_dimensions.xy / 2.0f;
-    prev_pos.xy /= infoRatio;
-    float4 prev_color = prev_output[floor(prev_pos.xy)];
-    float w = 0.5f;
-    output[pixel] = prev_color * w + c * (1.0f - w);
-#else
-    output[pixel] = c;
-#endif
-
-//---------------------------------------------------------------------------------------
-//---------------------------------------------------------------------------------------
-//---------------------------------------------------------------------------------------
-
-#else
-
-    int k = kernel_size + full_kernel * 2;
+    int k = kernel_size + kernel_size + full_kernel;
     float prev_w = input[pixel].a;
 
     [branch]
@@ -130,6 +97,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
         return;
     }
 
+    uint count = 0;
 
     [branch]
     switch (type)
@@ -148,12 +116,19 @@ void main(uint3 DTid : SV_DispatchThreadID)
             float2 p1_info_pixel = round(p * infoRatio);
             ww = 1.0f;
 
+            float3 p1_position = positions[p1_info_pixel].xyz;
+            float world_dist = dist2(p1_position - p0_position) / (dist_to_cam);
+            ww = exp(-world_dist / (2.0f * sigma * sigma));
+
             float3 p1_normal = normals[p1_info_pixel].xyz;
             float n = saturate(dot(p1_normal, p0_normal));
             ww *= pow(n, max(NORMAL_RATIO / infoRatio.x, 1.0f));
-            ww *= cos((M_PI * abs((float)x)) / (2.0 * (float)k));
+            ww *= GetPosW(x, k);
+            //ww = max(ww, MIN_W);
+
             c += input[p] * ww;
             total_w += ww;
+            count++;
         }
     } break;
 
@@ -175,13 +150,14 @@ void main(uint3 DTid : SV_DispatchThreadID)
             float3 p1_normal = normals[p1_info_pixel].xyz;
             float n = saturate(dot(p1_normal, p0_normal));
             ww *= pow(n, max(NORMAL_RATIO / infoRatio.x, 1.0f));
-            ww *= cos((M_PI * abs((float)x)) / (2.0 * (float)k));
-
+            ww *= GetPosW(x, k);
+            //ww = max(ww, MIN_W);
             c.rgb += input[p].rgb * ww;
+       
             total_w += ww;
+            count++;
         }
     } break;
-
 
     //Execute pass 3 
     case 3: {
@@ -199,15 +175,21 @@ void main(uint3 DTid : SV_DispatchThreadID)
                     float2 p1_info_pixel = round(p * infoRatio);
                     ww = 1.0f;
                     
+                    float3 p1_position = positions[p1_info_pixel].xyz;
+                    float world_dist = dist2(p1_position - p0_position) / (dist_to_cam);
+                    ww = exp(-world_dist / (2.0f * sigma * sigma));
+
                     float3 p1_normal = normals[p1_info_pixel].xyz;
                     float n = saturate(dot(p1_normal, p0_normal));
                     ww *= pow(n, max(NORMAL_RATIO / infoRatio.x, 1.0f));
-                    ww *= cos((M_PI * abs((float)x)) / (2.0 * (float)k));
+                    ww *= GetPosW(x, k) * GetPosW(y, k);;
+
                     c.rgb += orig_input[p].rgb * ww;
                     total_w += ww;
+                    count++;
                 }
             }
-            input_mix = saturate(prev_w - 1.2f);
+            input_mix = saturate(prev_w - 1.5f);
         }
         else {
             // Pass2 convolution finished already, nothing to do in this pixel, just copy it
@@ -218,10 +200,12 @@ void main(uint3 DTid : SV_DispatchThreadID)
     } break;
     }
 
-    static const float epsilon = 10e-4;
-    c = c * step(epsilon, total_w);
-    c = c / max(total_w, epsilon);
-
+#if 1
+    c = c / max(total_w, 1.0f);
+#else
+    count = max(count, 1);
+    c = c / count;
+#endif
     total_w /= k;
     if (type == 1) {
         c.a = total_w;
@@ -260,7 +244,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
         float w = saturate(0.5f - motion * 100.0f);
 #else
         prev_pos.xy /= infoRatio;
-        float w = 0.3f;
+        float w = 0.7f;
 #endif
         float4 prev_color = prev_output[round(prev_pos.xy)];
        
@@ -268,8 +252,6 @@ void main(uint3 DTid : SV_DispatchThreadID)
     }
 #else
     output[pixel] = c;
-#endif
-
 #endif
 
 }
