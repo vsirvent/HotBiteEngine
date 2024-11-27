@@ -199,7 +199,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
 	    
 	if (rt_enabled) {
         if (true) { //debug == 0) {
-            color = color * (rt2) + rt1 + b + dust + lens_flare + vol;
+            color = color*(l + rt0 + rt1 + rt2) + rt1 + b + dust + lens_flare + vol;
         }
         else {
             color = rt0 + rt1 + rt2;

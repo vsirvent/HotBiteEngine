@@ -73,7 +73,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     int x;
     int y;
 
-    static const float NORMAL_RATIO = 5.0f;
+    static const float NORMAL_RATIO = 20.0f;
     static const float sigma = 1.0f;
     
     float total_w = 0.0f;

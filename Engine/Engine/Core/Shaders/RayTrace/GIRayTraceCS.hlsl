@@ -108,11 +108,10 @@ static const float ray_enery_unit = inv_ray_count;
 
 
 
-uint GetRayIndex(float2 pixel, float pdf_cache[MAX_RAYS], Texture2D<float> w_data, float index) {
+uint GetRayIndex(float2 pixel, float pdf_cache[MAX_RAYS], float w, float index) {
 #ifdef DISABLE_RESTIR
     return index;
 #endif
-    float w = max(w_data[pixel], RAY_W_BIAS * ray_count);
     float tmp_w = 0.0f;
     index = index * w * inv_ray_count;
     
@@ -488,9 +487,10 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     uint step = frame_count % 4 + ray_count/4 + (ray_count * motion_ratio) * low_energy;
 #endif
 
+    float w_pixel = max(restir_w_0[pixel], RAY_W_BIAS * ray_count);
     for (i = 0; i < ray_count; i += step) {
         uint index = (i + start) % ray_count;
-        uint wi = GetRayIndex(prev_pos.xy, pdf_cache, restir_w_0, index);
+        uint wi = GetRayIndex(prev_pos.xy, pdf_cache, w_pixel, index);
         wis[wis_size] = wi;
         wis_size += (last_wi != wi);
         last_wi = wi;
@@ -510,7 +510,6 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
         ray.orig.xyz = orig_pos.xyz + ray.dir * 0.001f;
         float dist = FLT_MAX;
         GetColor(ray, n, level, 1, rc, ray_source.dispersion, true, false);
-        color_diffuse.rgb += rc.color;
         last_wi = wi;
         hit = hit || rc.hit;
 
@@ -521,6 +520,8 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
 #else
         pdf_cache[wi] = RAY_W_BIAS + w;
 #endif
+        color_diffuse.rgb += rc.color / (pdf_cache[wi] / w_pixel);
+
     }
 
     wis_size = max(wis_size, 1);
