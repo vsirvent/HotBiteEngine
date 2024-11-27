@@ -94,7 +94,7 @@ static float2 lps[MAX_LIGHTS] = (float2[MAX_LIGHTS])LightPerspectiveValues;
 #include "../Common/SimpleLight.hlsli"
 #include "../Common/RayFunctions.hlsli"
 
-#define max_distance 5.0f
+#define max_distance 10.0f
 
 static const float inv_ray_count = 1.0f / (float)ray_count;
 static const uint stride = kernel_size * ray_count;
@@ -381,7 +381,7 @@ void GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
         }
         float threshold = len * RAY_W_BIAS;
 
-        return (total_enery <= threshold);
+        return (total_enery < threshold);
     }
 
 #define NTHREADS 32
@@ -389,7 +389,6 @@ void GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thread : SV_GroupThreadID)
 {
-
     float2 dimensions;
     float2 ray_map_dimensions;
     {
@@ -409,6 +408,11 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
         
     float2 pixel = float2(x, y);
 
+    uint offsetn = frame_count % 4;
+    uint offsetx = (offsetn) % 2;
+    uint offsety = (offsetn) / 2;
+    //pixel.x += offsetx;
+   // pixel.y += offsety;
     float2 rpixel = pixel * rayMapRatio;
     //rpixel.x += frame_count % (rayMapRatio.x * 0.5f);
     //rpixel.y += frame_count % (rayMapRatio.y * 0.5f) / 2.0f;
@@ -440,7 +444,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
         output[pixel] = float4(0.0f, 0.0f, 0.0f, -1.0f);
         return;
     }
-
+    
     matrix worldViewProj = mul(view, projection);
     float4 prev_pos = mul(prev_position_map[ray_pixel], worldViewProj);
     prev_pos.x /= prev_pos.w;
@@ -483,8 +487,8 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
         motion = dist2(mvector);
     }
     float motion_ratio = 1.0f / max(100.0f * sqrt(motion) * toCamDistance, 0.01f);
-    uint start = (((pixel.x + pixel.y + frame_count)) % ray_count) * low_energy * motion_ratio;
-    uint step = frame_count % 4 + ray_count/4 + (ray_count * motion_ratio) * low_energy;
+    uint start = (((pixel.x + pixel.y + frame_count)) % ray_count)* low_energy* motion_ratio;
+    uint step = frame_count % 4 + ray_count / 4 + (ray_count * motion_ratio) * low_energy;
 #endif
 
     float w_pixel = max(restir_w_0[pixel], RAY_W_BIAS * ray_count);
@@ -532,7 +536,14 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     output[pixel] = color_diffuse;
 
     if (!low_energy) {
-        tiles_output[floor((float2)pixel / (float)(kernel_size * 4))] = 1;
+        [unroll]
+        for (int x = -1; x <= 1; ++x) {
+            [unroll]
+            for (int y = -1; y <= 1; ++y) {
+                int2 p = (pixel / kernel_size) + int2(x, y);
+                tiles_output[p] = 1;
+            }
+        }
     }
     //float r = wis_size / ray_count;
     //output[pixel] = float4(wis_size, 0.0f, 0.0f, 1.0f);

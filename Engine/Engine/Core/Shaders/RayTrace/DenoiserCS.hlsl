@@ -63,7 +63,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     float dist_att = 0.0f;
     float disp = -1.0f;
     uint min_dispersion = 0;
-    bool skip = tiles_output[floor((float2)pixel / (float)(kernel_size * 4))] == 0;
+    bool skip = tiles_output[pixel / kernel_size] == 0;
     [branch]
     if (dist2(ray_source.orig) <= Epsilon || skip) {
         output[pixel] = float4(0.0f, 0.0f, 0.0f, 0.0f);
