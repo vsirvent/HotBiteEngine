@@ -304,7 +304,7 @@ void GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
         }
         ++i;
 #endif
-            }
+    }
 
     //At this point we have the ray collision distance and a collision result
     if (collide) {
@@ -369,20 +369,20 @@ void GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
         }
     }
 #endif
-        }
     }
+}
 
-    bool IsLowEnergy(float pdf[MAX_RAYS], uint len) {
+bool IsLowEnergy(float pdf[MAX_RAYS], uint len) {
         
-        float total_enery = 0.0f;
+    float total_enery = 0.0f;
 
-        for (int i = 0; i < len; ++i) {
-            total_enery += pdf[i];
-        }
-        float threshold = len * RAY_W_BIAS;
-
-        return (total_enery < threshold);
+    for (int i = 0; i < len; ++i) {
+        total_enery += pdf[i];
     }
+    float threshold = len * RAY_W_BIAS;
+
+    return (total_enery < threshold);
+}
 
 #define NTHREADS 32
 
@@ -487,7 +487,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
         motion = dist2(mvector);
     }
     float motion_ratio = 1.0f / max(100.0f * sqrt(motion) * toCamDistance, 0.01f);
-    uint start = (((pixel.x + pixel.y + frame_count)) % ray_count)* low_energy* motion_ratio;
+    uint start = (((pixel.x + pixel.y + frame_count)) % ray_count) * low_energy * motion_ratio;
     uint step = frame_count % 4 + ray_count / 4 + (ray_count * motion_ratio) * low_energy;
 #endif
 
@@ -535,16 +535,17 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     color_diffuse = sqrt(color_diffuse) * !low_energy;
     output[pixel] = color_diffuse;
 
-    if (!low_energy) {
+    if (!low_energy) {        
         [unroll]
-        for (int x = -1; x <= 1; ++x) {
+        for (int x = -2; x <= 2; ++x) {
             [unroll]
-            for (int y = -1; y <= 1; ++y) {
+            for (int y = -2; y <= 2; ++y) {
                 int2 p = (pixel / kernel_size) + int2(x, y);
                 tiles_output[p] = 1;
             }
         }
     }
+ 
     //float r = wis_size / ray_count;
     //output[pixel] = float4(wis_size, 0.0f, 0.0f, 1.0f);
 }

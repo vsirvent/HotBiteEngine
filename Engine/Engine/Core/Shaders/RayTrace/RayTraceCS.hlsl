@@ -366,9 +366,9 @@ bool GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
         //Color background
 
     }
-        }
+}
 return out_color.hit;
-        }
+}
 
 #define DENSITY 1.0f
 #define NTHREADS 32
@@ -486,9 +486,9 @@ return out_color.hit;
             
                     if (rc.hit) {
                         [unroll]
-                        for (int x = -1; x <= 1; ++x) {
+                        for (int x = -2; x <= 2; ++x) {
                             [unroll]
-                            for (int y = -1; y <= 1; ++y) {
+                            for (int y = -2; y <= 2; ++y) {
                                 int2 p = pixel / kernel_size + int2(x, y);
                                 tiles_output[p] = 1;
                             }
