@@ -68,14 +68,16 @@ struct RayObject {
 struct IntersectionResult
 {
     float3 v0;
-    float3 v1;
-    float3 v2;
-
     float distance;
-    float2 uv;
+    
+    float3 v1;
+    uint object; 
+    
+    float3 v2;
+    float  u;
 
     uint3 vindex;
-    uint object;
+    float  v;    
 };
 
 struct ObjectInfo

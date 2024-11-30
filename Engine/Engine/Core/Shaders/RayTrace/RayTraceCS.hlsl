@@ -241,7 +241,8 @@ bool GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
                                 object_result.v2 = tmp_result.v2;
                                 object_result.vindex = tmp_result.vindex;
                                 object_result.distance = tmp_result.distance;
-                                object_result.uv = tmp_result.uv;
+                                object_result.u = tmp_result.u;
+                                object_result.v = tmp_result.v;
                                 object_result.object = objectIndex;
                             }
                         }
@@ -254,7 +255,7 @@ bool GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
                 }
 
                 if (object_result.distance < FLT_MAX) {
-                    float3 opos = (1.0f - object_result.uv.x - object_result.uv.y) * object_result.v0 + object_result.uv.x * object_result.v1 + object_result.uv.y * object_result.v2;
+                    float3 opos = (1.0f - object_result.u - object_result.v) * object_result.v0 + object_result.u * object_result.v1 + object_result.v * object_result.v2;
                     float4 pos = mul(float4(opos, 1.0f), o.world);
                     float distance = length(pos - ray.orig);
                     if (distance < result.distance)
@@ -267,7 +268,8 @@ bool GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
                         result.v2 = object_result.v2;
                         result.vindex = object_result.vindex;
                         result.distance = distance;
-                        result.uv = object_result.uv;
+                        result.u = object_result.u;
+                        result.v = object_result.v;
                         result.object = objectIndex;
                     }
                 }
@@ -291,8 +293,8 @@ bool GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
         float3 normal0 = asfloat(vertexBuffer.Load3(result.vindex.x + 12));
         float3 normal1 = asfloat(vertexBuffer.Load3(result.vindex.y + 12));
         float3 normal2 = asfloat(vertexBuffer.Load3(result.vindex.z + 12));
-        float3 opos = (1.0f - result.uv.x - result.uv.y) * result.v0 + result.uv.x * result.v1 + result.uv.y * result.v2;
-        float3 normal = (1.0f - result.uv.x - result.uv.y) * normal0 + result.uv.x * normal1 + result.uv.y * normal2;
+        float3 opos = (1.0f - result.u - result.v) * result.v0 + result.u * result.v1 + result.v * result.v2;
+        float3 normal = (1.0f - result.u - result.v) * normal0 + result.u * normal1 + result.v * normal2;
         normal = normalize(mul(normal, (float3x3)o.world));
         float4 pos = mul(float4(opos, 1.0f), o.world);
         pos /= pos.w;
@@ -315,17 +317,17 @@ bool GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
             }
         }
 
-        //Calculate material color
-        if (material.flags & DIFFUSSE_MAP_ENABLED_FLAG) {
-            float2 uv0 = asfloat(vertexBuffer.Load2(result.vindex.x + 24));
-            float2 uv1 = asfloat(vertexBuffer.Load2(result.vindex.y + 24));
-            float2 uv2 = asfloat(vertexBuffer.Load2(result.vindex.z + 24));
-            float2 uv = uv0 * (1.0f - result.uv.x - result.uv.y) + uv1 * result.uv.x + uv2 * result.uv.y;
-            color *= GetDiffuseColor(result.object, uv);
-        }
-        else {
-            color *= material.diffuseColor.rgb;
-        }
+        bool use_mat_texture = material.flags & DIFFUSSE_MAP_ENABLED_FLAG;
+        float3 mat_color = material.diffuseColor.rgb * !use_mat_texture;
+
+        float2 uv0 = asfloat(vertexBuffer.Load2(result.vindex.x + 24));
+        float2 uv1 = asfloat(vertexBuffer.Load2(result.vindex.y + 24));
+        float2 uv2 = asfloat(vertexBuffer.Load2(result.vindex.z + 24));
+        float2 uv = uv0 * (1.0f - result.u - result.v) + uv1 * result.u + uv2 * result.v;
+        
+        mat_color += GetDiffuseColor(result.object, uv) * use_mat_texture;
+
+        color.rgb *= mat_color;
 
         float3 emission = material.emission * material.emission_color;
         color += emission;

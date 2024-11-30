@@ -446,7 +446,6 @@ RenderSystem::~RenderSystem() {
 	texture_tmp.Release();
 
 	rt_texture_props.Release();
-	rt_dispersion.Release();
 	rt_ray_sources0.Release();
 	rt_ray_sources1.Release();
 	vol_data.Release();
@@ -502,10 +501,6 @@ void RenderSystem::LoadRTResources() {
 		throw std::exception("rt_texture_props.Init failed");
 	}
 
-	rt_dispersion.Release();
-	if (FAILED(rt_dispersion.Init(w / RT_TEXTURE_RESOLUTION_DIVIDER, h / RT_TEXTURE_RESOLUTION_DIVIDER, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
-		throw std::exception("rt_dispersion.Init failed");
-	}
 	ResetRTBBuffers();
 }
 
@@ -1923,7 +1918,6 @@ void RenderSystem::ProcessRT() {
 			std::lock_guard<std::mutex> lock(rt_mutex);
 			CameraEntity& cam_entity = cameras.GetData()[0];
 
-			rt_dispersion.Clear(minus_one);
 			tbvh_buffer.Refresh(tbvh.Root(), 0, tbvh.Size());
 
 			ID3D11RenderTargetView* nullRenderTargetViews[1] = { nullptr };
@@ -1943,7 +1937,6 @@ void RenderSystem::ProcessRT() {
 
 			rt_di_shader->SetUnorderedAccessView("output0", rt_texture_di_curr[RT_TEXTURE_REFLEX].UAV());
 			rt_di_shader->SetUnorderedAccessView("output1", rt_texture_di_curr[RT_TEXTURE_REFRACT].UAV());
-			rt_di_shader->SetUnorderedAccessView("dispersion", rt_dispersion.UAV());
 			rt_di_shader->SetUnorderedAccessView("tiles_output", rt_textures_gi_tiles.UAV());
 
 
@@ -2003,7 +1996,6 @@ void RenderSystem::ProcessRT() {
 			rt_di_denoiser->SetMatrix4x4(VIEW, cam_entity.camera->view);
 			rt_di_denoiser->SetMatrix4x4(PROJECTION, cam_entity.camera->projection);
 			rt_di_denoiser->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
-			rt_di_denoiser->SetShaderResourceView("dispersion", rt_dispersion.SRV());
 			rt_di_denoiser->SetShaderResourceView("tiles_output", rt_textures_gi_tiles.SRV());
 
 			static constexpr int textures[] = { RT_TEXTURE_REFLEX, RT_TEXTURE_REFRACT };

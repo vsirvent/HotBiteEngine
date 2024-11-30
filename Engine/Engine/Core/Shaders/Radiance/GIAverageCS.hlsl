@@ -124,7 +124,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
             float n = saturate(dot(p1_normal, p0_normal));
             ww *= pow(n, max(NORMAL_RATIO / infoRatio.x, 1.0f));
             ww *= GetPosW(x, k);
-            //ww = max(ww, MIN_W);
+            ww = max(ww, MIN_W);
 
             c += input[p] * ww;
             total_w += ww;
@@ -151,7 +151,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
             float n = saturate(dot(p1_normal, p0_normal));
             ww *= pow(n, max(NORMAL_RATIO / infoRatio.x, 1.0f));
             ww *= GetPosW(x, k);
-            //ww = max(ww, MIN_W);
+            ww = max(ww, MIN_W);
             c.rgb += input[p].rgb * ww;
        
             total_w += ww;
@@ -244,7 +244,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
         float w = saturate(0.5f - motion * 100.0f);
 #else
         prev_pos.xy /= infoRatio;
-        float w = 0.7f;
+        float w = 0.3f;
 #endif
         float4 prev_color = prev_output[round(prev_pos.xy)];
        
