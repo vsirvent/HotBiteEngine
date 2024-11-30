@@ -124,7 +124,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
             float n = saturate(dot(p1_normal, p0_normal));
             ww *= pow(n, max(NORMAL_RATIO / infoRatio.x, 1.0f));
             ww *= GetPosW(x, k);
-            //ww = max(ww, MIN_W);
+            ww = max(ww, MIN_W);
 
             c += input[p] * ww;
             total_w += ww;
@@ -151,7 +151,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
             float n = saturate(dot(p1_normal, p0_normal));
             ww *= pow(n, max(NORMAL_RATIO / infoRatio.x, 1.0f));
             ww *= GetPosW(x, k);
-            //ww = max(ww, MIN_W);
+            ww = max(ww, MIN_W);
             c.rgb += input[p].rgb * ww;
        
             total_w += ww;
