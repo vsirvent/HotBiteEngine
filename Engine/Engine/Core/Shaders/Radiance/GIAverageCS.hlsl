@@ -243,7 +243,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
         float w = saturate(0.5f - motion * 100.0f);
 #else
         prev_pos.xy /= infoRatio;
-        float w = 0.7f;
+        float w = 0.3f;
 #endif
         float4 prev_color = prev_output[round(prev_pos.xy)];
        

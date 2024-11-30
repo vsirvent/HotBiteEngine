@@ -307,7 +307,7 @@ namespace HotBite {
 				Core::RenderTexture2D* restir_pdf_curr = nullptr;
 				Core::RenderTexture2D* restir_pdf_prev = nullptr;
 
-				static constexpr uint32_t RESTIR_HALF_KERNEL = 3;
+				static constexpr uint32_t RESTIR_HALF_KERNEL = 4;
 				static constexpr uint32_t RESTIR_KERNEL = 2 * RESTIR_HALF_KERNEL + 1;
 				static constexpr uint32_t RESTIR_PIXEL_RAYS = 16;
 				static constexpr uint32_t RESTIR_TOTAL_RAYS = RESTIR_PIXEL_RAYS * RESTIR_KERNEL * RESTIR_KERNEL;
@@ -323,7 +323,6 @@ namespace HotBite {
 				Core::RenderTexture2D rt_texture_props;
 				Core::RenderTexture2D rt_ray_sources0;
 				Core::RenderTexture2D rt_ray_sources1;
-				Core::RenderTexture2D rt_dispersion;
 				Core::ExtBVHBuffer tbvh_buffer;
 				Core::BVHBuffer* bvh_buffer = nullptr;
 				ObjectInfo objects[MAX_OBJECTS]{};

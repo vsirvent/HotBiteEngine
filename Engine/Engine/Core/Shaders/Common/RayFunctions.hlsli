@@ -108,7 +108,8 @@ bool IntersectTri(RayObject ray, uint indexOffset, uint vertexOffset, out Inters
         result.vindex = vindex;
         result.object = 0;
         result.distance = t;
-        result.uv = float2(u, v);
+        result.u = u;
+        result.v = v;
         return true;
     }
 
