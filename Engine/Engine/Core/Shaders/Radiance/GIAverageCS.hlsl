@@ -107,10 +107,11 @@ void main(uint3 DTid : SV_DispatchThreadID)
     case 1: {
         //Pass 1 horizontal convolution
         float2 dir = float2(1.0f, 0.0f);
+
         for (x = -k; x <= k; ++x) {
             int2 p = (pixel + x * dir);
-            if (p.x < 0) { p.x += k; }
-            if (p.x > input_dimensions.x) { p.x -= k; }
+            p.x += step(Epsilon, -p.x) * k;
+            p.x += step(Epsilon, p.x - input_dimensions.x) * -k;
 
             float2 p1_info_pixel = round(p * infoRatio);
             ww = 1.0f;
@@ -136,8 +137,8 @@ void main(uint3 DTid : SV_DispatchThreadID)
         float2 dir = float2(0.0f, 1.0f);
         for (x = -k; x <= k; ++x) {
             int2 p = (pixel + x * dir);
-            if (p.y < 0) { p.y += k; }
-            if (p.y > input_dimensions.y) { p.y -= k; }
+            p.y += step(Epsilon, -p.y) * k;
+            p.x += step(Epsilon, p.y - input_dimensions.y) * -k;
 
             float2 p1_info_pixel = round(p * infoRatio);
             ww = 1.0f;
@@ -162,7 +163,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     case 3: {
         //Pass 2 convolution failed again, make a minimal 2D pass
         [branch]
-        if (prev_w < 2.2f && dist_to_cam < 1000.0f) {
+        if (prev_w < 2.0f && dist_to_cam < 1000.0f) {
             k = kernel_size + full_kernel;
             for (x = -k; x <= k; ++x) {
                 for (y = -k; y <= k; ++y) {
