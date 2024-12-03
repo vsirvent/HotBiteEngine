@@ -78,7 +78,6 @@ Texture2D<float4> position_map : register(t6);
 Texture2D<float4> motion_texture : register(t8);
 Texture2D<float4> prev_position_map: register(t9);
 Texture2D<uint4> restir_pdf_0: register(t10);
-Texture2D<float> restir_w_0: register(t11);
 RWTexture2D<uint4> restir_pdf_1: register(u0);
 RWTexture2D<uint> tiles_output: register(u1);
 
@@ -108,12 +107,12 @@ static const float ray_enery_unit = inv_ray_count;
 
 
 
-uint GetRayIndex(float2 pixel, float pdf_cache[MAX_RAYS], float w, float index) {
+uint GetRayIndex(float2 pixel, float pdf_cache[MAX_RAYS], float index) {
 #ifdef DISABLE_RESTIR
     return index;
 #endif
     float tmp_w = 0.0f;
-    index = index * w * inv_ray_count;
+    index = index * inv_ray_count;
     
     for (uint i = 0; i < ray_count; i++) {
             tmp_w += pdf_cache[i];
@@ -245,6 +244,17 @@ void GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
                     uint current = stack[--stackSize];
 
                     BVHNode node = objects[o.objectOffset + current];
+                    float3 bmin = aabb_min(node);
+                    float3 bmax = aabb_max(node);
+                    float nodeExtent = length(o.aabb_max - o.aabb_min);
+                    float3 position = (o.aabb_max + o.aabb_min) * 0.5f;
+                    float distanceToNode = length(position - oray.orig.xyz) - objectExtent;
+
+                    [branch]
+                    if (distanceToObject >= max_distance && distanceToObject >= result.distance) {
+                        break;
+                    }
+
                     [branch]
                     if (is_leaf(node))
                     {
@@ -354,7 +364,7 @@ void GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
         float3 emission = material.emission * material.emission_color;
         color += emission;
 
-        att_dist *= max(collision_dist, 1.0f);
+        att_dist *= max(collision_dist, 1.0f) ;
 
         out_color.color += color * ray.ratio / att_dist;
 
@@ -493,10 +503,9 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     uint step = frame_count % 4 + ray_count / 4 + (ray_count * motion_ratio) * low_energy;
 #endif
 
-    float w_pixel = max(restir_w_0[pixel], RAY_W_BIAS * ray_count);
     for (i = 0; i < ray_count; i += step) {
         uint index = (i + start) % ray_count;
-        uint wi = GetRayIndex(prev_pos.xy, pdf_cache, w_pixel, index);
+        uint wi = GetRayIndex(prev_pos.xy, pdf_cache, index);
         wis[wis_size] = wi;
         wis_size += (last_wi != wi);
         last_wi = wi;
@@ -515,7 +524,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
         ray.dir = GenerateHemisphereRay(normal, tangent, bitangent, 1.0f, N, level * 1.2f, n);
         ray.orig.xyz = orig_pos.xyz + ray.dir * 0.001f;
         float dist = FLT_MAX;
-        GetColor(ray, n, level, 1, rc, ray_source.dispersion, true, false);
+        GetColor(ray, n, level, 5, rc, ray_source.dispersion, true, false);
         last_wi = wi;
         hit = hit || rc.hit;
 
@@ -526,18 +535,18 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
 #else
         pdf_cache[wi] = RAY_W_BIAS + w;
 #endif
-        color_diffuse.rgb += rc.color / (pdf_cache[wi] / w_pixel);
+        color_diffuse.rgb += rc.color / pdf_cache[wi];
 
     }
 
     wis_size = max(wis_size, 1);
     restir_pdf_1[pixel] = PackRays(pdf_cache, RAY_W_SCALE);
-    color_diffuse  = color_diffuse / wis_size;
+    color_diffuse = color_diffuse * wis_size / ray_count;
     
-    color_diffuse = sqrt(color_diffuse) * !low_energy;
+    color_diffuse = sqrt(color_diffuse);
     output[pixel] = color_diffuse;
 
-    if (!low_energy) {        
+    if (rc.hit) {        
         [unroll]
         for (int x = -2; x <= 2; ++x) {
             [unroll]

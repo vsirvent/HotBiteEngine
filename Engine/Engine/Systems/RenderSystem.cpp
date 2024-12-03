@@ -442,7 +442,6 @@ RenderSystem::~RenderSystem() {
 	for (int x = 0; x < 2; ++x) {
 		restir_pdf[x].Release();
 	}
-	restir_w.Release();
 	texture_tmp.Release();
 
 	rt_texture_props.Release();
@@ -485,10 +484,6 @@ void RenderSystem::LoadRTResources() {
 		if (FAILED(restir_pdf[n].Init(w / restir_div, h / restir_div, DXGI_FORMAT_R32G32B32A32_UINT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("restir_pdf.Init failed");
 		}
-	}
-	restir_w.Release();
-	if (FAILED(restir_w.Init(w / restir_div, h / restir_div, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
-		throw std::exception("restir_w.Init failed");
 	}
 
 	texture_tmp.Release();
@@ -1791,7 +1786,6 @@ void RenderSystem::ProcessGI() {
 		dxcore->context->CSSetShaderResources(5, 1, vertex_buffer->IndexSRV());
 
 		gi_shader->SetShaderResourceView("restir_pdf_0", restir_pdf_prev->SRV());
-		gi_shader->SetShaderResourceView("restir_w_0", restir_w.SRV());
 		gi_shader->SetUnorderedAccessView("restir_pdf_1", restir_pdf_curr->UAV());
 
 		gi_shader->SetUnorderedAccessView("output", rt_texture_gi_trace->UAV());
@@ -1802,7 +1796,6 @@ void RenderSystem::ProcessGI() {
 		dxcore->context->Dispatch((uint32_t)ceil((float)groupsX), (uint32_t)ceil((float)groupsY), 1);
 
 		gi_shader->SetShaderResourceView("restir_pdf_0", nullptr);
-		gi_shader->SetShaderResourceView("restir_w_0", nullptr);
 		gi_shader->SetUnorderedAccessView("restir_pdf_1", nullptr);
 
 		gi_shader->SetUnorderedAccessView("output", nullptr);
@@ -1824,7 +1817,6 @@ void RenderSystem::ProcessGI() {
 		gi_weights->SetInt("ray_count", RESTIR_PIXEL_RAYS);
 		gi_weights->SetShaderResourceView("restir_pdf_0", restir_pdf_curr->SRV());
 		gi_weights->SetUnorderedAccessView("restir_pdf_1", restir_pdf_prev->UAV());
-		gi_weights->SetUnorderedAccessView("restir_w_1", restir_w.UAV());
 		gi_weights->SetInt("frame_count", frame_count);
 		gi_weights->CopyAllBufferData();
 
@@ -1832,7 +1824,6 @@ void RenderSystem::ProcessGI() {
 
 		gi_weights->SetShaderResourceView("restir_pdf_0", nullptr);
 		gi_weights->SetUnorderedAccessView("restir_pdf_1", nullptr);
-		gi_weights->SetUnorderedAccessView("restir_w_1", nullptr);
 		gi_weights->CopyAllBufferData();
 
 		gi_average->SetInt("debug", rt_debug);
@@ -2727,7 +2718,6 @@ void RenderSystem::ResetRTBBuffers() {
 	{
 		light_map[i].Clear(zero);
 		restir_pdf[i].Clear(zero);
-		restir_w.Clear(nrays);
 	}
 }
 
