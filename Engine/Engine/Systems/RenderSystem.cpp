@@ -1836,8 +1836,7 @@ void RenderSystem::ProcessGI() {
 		gi_weights->CopyAllBufferData();
 
 		gi_average->SetInt("debug", rt_debug);
-		gi_average->SetMatrix4x4(VIEW, cam_entity.camera->view);
-		gi_average->SetMatrix4x4(PROJECTION, cam_entity.camera->projection);
+		gi_average->SetMatrix4x4("prev_view_proj", cam_entity.camera->prev_view_projection);
 		gi_average->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
 		gi_average->SetShaderResourceView("positions", rt_ray_sources0.SRV());
 		gi_average->SetShaderResourceView("normals", rt_ray_sources1.SRV());

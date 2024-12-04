@@ -29,7 +29,7 @@ SOFTWARE.
 #define REFLEX_ENABLED 1
 #define REFRACT_ENABLED 2
 #define INDIRECT_ENABLED 4
-#define USE_OBH 1
+#define USE_OBH 0
 #define LEVEL_RATIO 3
 //#define BOUNCES
 //#define DISABLE_RESTIR
@@ -335,20 +335,23 @@ void GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
          float left_dist = node_distance(left_node, ray.orig.xyz);
          float right_dist = node_distance(right_node, ray.orig.xyz);
 
-         if (left_dist < right_dist) {
-             if (right_dist < result.distance && right_dist < max_distance) {
-                 volumeStack[volumeStackSize++] = right_node_index;
-             }
-             if (left_dist < result.distance && left_dist < max_distance) {
-                 volumeStack[volumeStackSize++] = left_node_index;
-             }
+         float dists[2] = { left_dist, right_dist };
+         uint node_indices[2] = { left_node_index, right_node_index };
+
+         if (dists[0] > dists[1]) {
+             float temp_dist = dists[0];
+             dists[0] = dists[1];
+             dists[1] = temp_dist;
+
+             uint temp_index = node_indices[0];
+             node_indices[0] = node_indices[1];
+             node_indices[1] = temp_index;
          }
-         else {
-             if (left_dist < result.distance && left_dist < max_distance) {
-                 volumeStack[volumeStackSize++] = left_node_index;
-             }
-             if (right_dist < result.distance && right_dist < max_distance) {
-                 volumeStack[volumeStackSize++] = right_node_index;
+
+         [unroll]
+         for (int i = 0; i < 2; ++i) {
+             if (dists[i] < result.distance && dists[i] < max_distance) {
+                 volumeStack[volumeStackSize++] = node_indices[i];
              }
          }
         }
@@ -538,7 +541,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     }
     float motion_ratio = 1.0f / max(100.0f * sqrt(motion) * toCamDistance, 0.01f);
     uint start = (((pixel.x + pixel.y + frame_count)) % ray_count) * low_energy * motion_ratio;
-    uint step = frame_count % 4 + ray_count / 4 + (ray_count * motion_ratio) * low_energy;
+    uint step = frame_count % 8 + ray_count / 2 + (ray_count * motion_ratio) * low_energy;
 #endif
 
     float w_pixel = max(restir_w_0[pixel], RAY_W_BIAS * ray_count);
@@ -563,7 +566,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
         ray.dir = GenerateHemisphereRay(normal, tangent, bitangent, 1.0f, N, level * 1.2f, n);
         ray.orig.xyz = orig_pos.xyz + ray.dir * 0.001f;
         float dist = FLT_MAX;
-        GetColor(ray, n, level, 1, rc, ray_source.dispersion, true, false);
+        GetColor(ray, n, level, 2, rc, ray_source.dispersion, true, false);
         last_wi = wi;
         hit = hit || rc.hit;
 
@@ -582,10 +585,10 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     restir_pdf_1[pixel] = PackRays(pdf_cache, RAY_W_SCALE);
     color_diffuse  = color_diffuse / wis_size;
     
-    color_diffuse = sqrt(color_diffuse) * !low_energy;
+    color_diffuse = sqrt(color_diffuse);
     output[pixel] = color_diffuse;
 
-    if (!low_energy) {        
+    if (rc.hit) {        
         [unroll]
         for (int x = -2; x <= 2; ++x) {
             [unroll]

@@ -5,8 +5,7 @@ cbuffer externalData : register(b0)
 {
     uint debug;
     uint type;
-    matrix view;
-    matrix projection;
+    matrix prev_view_proj;
     float3 cameraPosition;
     uint frame_count;
     int kernel_size;
@@ -163,7 +162,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     case 3: {
         //Pass 2 convolution failed again, make a minimal 2D pass
         [branch]
-        if (prev_w < 2.0f && dist_to_cam < 1000.0f) {
+        if (prev_w < 2.0f && dist_to_cam < 100.0f) {
             k = kernel_size + full_kernel;
             for (x = -k; x <= k; ++x) {
                 for (y = -k; y <= k; ++y) {
@@ -221,34 +220,13 @@ void main(uint3 DTid : SV_DispatchThreadID)
         output[pixel] = c;
     }
     else {
-        matrix worldViewProj = mul(view, projection);
-        float4 prev_pos = mul(prev_position_map[info_pixel], worldViewProj);
+        float4 prev_pos = mul(prev_position_map[info_pixel], prev_view_proj);
         prev_pos.x /= prev_pos.w;
         prev_pos.y /= -prev_pos.w;
-        prev_pos.xy = (prev_pos.xy + 1.0f) * info_dimensions.xy / 2.0f;
-#if 0
-        float motion = length(motion_texture[prev_pos.xy].xy);
-        float2 mvector = motion_texture[info_pixel].xy;
-        if (mvector.x == -FLT_MAX) {
-            motion = 0.0f;
-        }
-        else {
-            motion = length(mvector);
-        }
-        if (motion < 0.005f) {
-            prev_pos.xy = pixel.xy;
-        }
-        else {
-            prev_pos.xy /= infoRatio;
-        }
-        float w = saturate(0.5f - motion * 100.0f);
-#else
-        prev_pos.xy /= infoRatio;
-        float w = 0.3f;
-#endif
-        float4 prev_color = prev_output[round(prev_pos.xy)];
-       
-        output[pixel] = prev_color * w + c * (1.0f - w);
+        prev_pos.xy = (prev_pos.xy + 1.0f) * input_dimensions.xy / 2.0f;
+        float w = 0.5f;
+        float4 prev_color = prev_output[floor(prev_pos.xy)];
+        output[pixel] = lerp(prev_color, c, w);
     }
 #else
     output[pixel] = c;

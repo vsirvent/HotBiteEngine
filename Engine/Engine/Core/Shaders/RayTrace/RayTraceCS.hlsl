@@ -29,7 +29,7 @@ SOFTWARE.
 
 #define REFLEX_ENABLED 1
 #define REFRACT_ENABLED 2
-#define USE_OBH 1
+#define USE_OBH 0
 
 cbuffer externalData : register(b0)
 {

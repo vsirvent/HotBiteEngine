@@ -29,7 +29,7 @@ SOFTWARE.
 #define MAX_STACK_SIZE 20
 
 //#define PACK_RAYS_8
-#define RAY_W_SCALE 2.0f
+#define RAY_W_SCALE 1.0f
 #define RAY_W_BIAS 0.0001f
 
 #ifdef PACK_RAYS_8
