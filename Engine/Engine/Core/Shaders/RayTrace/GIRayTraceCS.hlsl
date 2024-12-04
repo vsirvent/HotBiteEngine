@@ -29,7 +29,7 @@ SOFTWARE.
 #define REFLEX_ENABLED 1
 #define REFRACT_ENABLED 2
 #define INDIRECT_ENABLED 4
-#define USE_OBH 0
+#define USE_OBH 1
 #define LEVEL_RATIO 3
 //#define BOUNCES
 //#define DISABLE_RESTIR
@@ -271,8 +271,31 @@ void GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
                     else 
                     if (IntersectAABB(oray, node))
                     {
-                        stack[stackSize++] = left_child(node);
-                        stack[stackSize++] = right_child(node);
+                        uint left_node_index = left_child(node);
+                        uint right_node_index = right_child(node);
+
+                        BVHNode left_node = objects[o.objectOffset + left_node_index];
+                        BVHNode right_node = objects[o.objectOffset + right_node_index];
+
+                        float left_dist = node_distance(left_node, oray.orig.xyz);
+                        float right_dist = node_distance(right_node, oray.orig.xyz);
+
+                        if (left_dist < right_dist) {
+                            if (right_dist < object_result.distance && right_dist < max_distance) {
+                                stack[stackSize++] = right_node_index;
+                            }
+                            if (left_dist < object_result.distance && left_dist < max_distance) {
+                                stack[stackSize++] = left_node_index;
+                            }
+                        }
+                        else {
+                            if (left_dist < object_result.distance && left_dist < max_distance) {
+                                stack[stackSize++] = left_node_index;
+                            }
+                            if (right_dist < object_result.distance && right_dist < max_distance) {
+                                stack[stackSize++] = right_node_index;
+                            }
+                        }
                     }
                 }
 
@@ -301,8 +324,33 @@ void GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
  else 
      [branch]
      if (IntersectAABB(ray, volumeNode)) {
-     volumeStack[volumeStackSize++] = left_child(volumeNode);
-     volumeStack[volumeStackSize++] = right_child(volumeNode);
+
+
+         uint left_node_index = left_child(volumeNode);
+         uint right_node_index = right_child(volumeNode);
+
+         BVHNode left_node = objectBVH[left_node_index];
+         BVHNode right_node = objectBVH[right_node_index];
+
+         float left_dist = node_distance(left_node, ray.orig.xyz);
+         float right_dist = node_distance(right_node, ray.orig.xyz);
+
+         if (left_dist < right_dist) {
+             if (right_dist < result.distance && right_dist < max_distance) {
+                 volumeStack[volumeStackSize++] = right_node_index;
+             }
+             if (left_dist < result.distance && left_dist < max_distance) {
+                 volumeStack[volumeStackSize++] = left_node_index;
+             }
+         }
+         else {
+             if (left_dist < result.distance && left_dist < max_distance) {
+                 volumeStack[volumeStackSize++] = left_node_index;
+             }
+             if (right_dist < result.distance && right_dist < max_distance) {
+                 volumeStack[volumeStackSize++] = right_node_index;
+             }
+         }
         }
         ++i;
 #endif

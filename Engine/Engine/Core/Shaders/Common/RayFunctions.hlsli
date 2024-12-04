@@ -53,6 +53,16 @@ uint index(BVHNode node)
     return asuint(node.reg1.w);
 }
 
+float node_distance(BVHNode node, float3 pos)
+{
+    float3 aabb0 = aabb_min(node);
+    float3 aabb1 = aabb_max(node);
+    float extent = length(aabb0 - aabb1) * 0.5f;
+    float3 center = (aabb0 + aabb1) * 0.5f;
+    float dist = max(length(center - pos) - extent, 0.0f);
+    return dist;
+}
+
 
 bool IntersectTri(RayObject ray, uint indexOffset, uint vertexOffset, out IntersectionResult result)
 {
