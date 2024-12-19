@@ -29,7 +29,7 @@ SOFTWARE.
 #define REFLEX_ENABLED 1
 #define REFRACT_ENABLED 2
 #define INDIRECT_ENABLED 4
-#define USE_OBH 0
+#define USE_OBH 1
 #define LEVEL_RATIO 3
 //#define BOUNCES
 //#define DISABLE_RESTIR
@@ -94,7 +94,7 @@ static float2 lps[MAX_LIGHTS] = (float2[MAX_LIGHTS])LightPerspectiveValues;
 #include "../Common/SimpleLight.hlsli"
 #include "../Common/RayFunctions.hlsli"
 
-#define max_distance 10.0f
+#define max_distance 100.0f
 
 static const float inv_ray_count = 1.0f / (float)ray_count;
 static const uint stride = kernel_size * ray_count;
@@ -216,7 +216,6 @@ void GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
             {
                 uint objectIndex = index(volumeNode);
                 ObjectInfo o = objectInfos[objectIndex];
-
                 float objectExtent = length(o.aabb_max - o.aabb_min);
                 float distanceToObject = length(o.position - origRay.orig.xyz) - objectExtent;
                 [branch]
@@ -281,18 +280,18 @@ void GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
                         float right_dist = node_distance(right_node, oray.orig.xyz);
 
                         if (left_dist < right_dist) {
-                            if (right_dist < object_result.distance && right_dist < max_distance) {
+                            if (right_dist < object_result.distance) {
                                 stack[stackSize++] = right_node_index;
                             }
-                            if (left_dist < object_result.distance && left_dist < max_distance) {
+                            if (left_dist < object_result.distance) {
                                 stack[stackSize++] = left_node_index;
                             }
                         }
                         else {
-                            if (left_dist < object_result.distance && left_dist < max_distance) {
+                            if (left_dist < object_result.distance) {
                                 stack[stackSize++] = left_node_index;
                             }
-                            if (right_dist < object_result.distance && right_dist < max_distance) {
+                            if (right_dist < object_result.distance) {
                                 stack[stackSize++] = right_node_index;
                             }
                         }
@@ -586,16 +585,14 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     color_diffuse  = color_diffuse / wis_size;
     
     color_diffuse = sqrt(color_diffuse);
-    output[pixel] = color_diffuse;
+    output[pixel] = color_diffuse * !low_energy;
 
-    if (rc.hit) {        
+   [unroll]
+    for (int x = -2; x <= 2; ++x) {
         [unroll]
-        for (int x = -2; x <= 2; ++x) {
-            [unroll]
-            for (int y = -2; y <= 2; ++y) {
-                int2 p = (pixel / kernel_size) + int2(x, y);
-                tiles_output[p] = 1;
-            }
+        for (int y = -2; y <= 2; ++y) {
+            int2 p = (pixel / kernel_size) + int2(x, y);
+            tiles_output[p] = !low_energy;
         }
     }
  

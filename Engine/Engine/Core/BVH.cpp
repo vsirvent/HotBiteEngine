@@ -339,72 +339,80 @@ namespace HotBite {
 				int right_count = 0;
 				int left_offset = 0;
 				int right_offset = 0;
-				if (LENGHT_F3(extent) > FLT_EPSILON)
-				{
-#if 1
-					// in-place partition
-					int i = nidx.index_offset;
-					int j = i + nidx.index_count - 1;
-
-					while (i <= j)
-					{
-						const auto& centroid = centroids[i];
-						if (component(centroid, axis) < split_pos) {
-							i++;
-						}
-						else {
-							uint32_t tmp = triangle_indices[i];
-							triangle_indices[i] = triangle_indices[j];
-							triangle_indices[j] = tmp;
-							float3 tmp2 = centroids[i];
-							centroids[i] = centroids[j];
-							centroids[j] = tmp2;
-							--j;
-						}
-					}
-
-					// abort split if one of the sides is empty
-					left_count = i - nidx.index_offset;
+				if (nidx.index_count == 2) {
 					left_offset = nidx.index_offset;
-
-					right_count = nidx.index_count - left_count;
-					right_offset = left_offset + left_count;
-#else
-
-					std::list<uint32_t> split_triangle_indices;
-					std::list<float3> split_centroids;
-
-					for (size_t i = nidx.index_offset; i < nidx.index_offset + nidx.index_count; ++i) {
-						const auto& idx = triangle_indices[i];
-						const auto& centroid = centroids[i];
-						if (component(centroid, axis) < split_pos) {
-							split_triangle_indices.push_front(idx);
-							split_centroids.push_front(centroid);
-							left_count++;
-						}
-						else {
-							split_triangle_indices.push_back(idx);
-							split_centroids.push_back(centroid);
-							right_count++;
-						}
-					}
-					int n = nidx.index_offset;
-					for (const auto& idx : split_triangle_indices) {
-						triangle_indices[n++] = idx;
-					}
-					n = nidx.index_offset;
-					for (const auto& idx : split_centroids) {
-						centroids[n++] = idx;
-					}
-					right_offset = left_count;
-					left_offset = nidx.index_offset;
-#endif				
+					left_count = 1;
+					right_offset = left_offset + 1;
+					right_count = 1;
 				}
 				else {
-					left_offset = nidx.index_offset;
-					left_count = nidx.index_count / 2;
-					right_offset = left_offset + left_count;
-					right_count = nidx.index_count / 2;
+					if (LENGHT_F3(extent) > FLT_EPSILON)
+					{
+#if 1
+						// in-place partition
+						int i = nidx.index_offset;
+						int j = i + nidx.index_count - 1;
+
+						while (i <= j)
+						{
+							const auto& centroid = centroids[i];
+							if (component(centroid, axis) < split_pos) {
+								i++;
+							}
+							else {
+								uint32_t tmp = triangle_indices[i];
+								triangle_indices[i] = triangle_indices[j];
+								triangle_indices[j] = tmp;
+								float3 tmp2 = centroids[i];
+								centroids[i] = centroids[j];
+								centroids[j] = tmp2;
+								--j;
+							}
+						}
+
+						// abort split if one of the sides is empty
+						left_count = i - nidx.index_offset;
+						left_offset = nidx.index_offset;
+
+						right_count = nidx.index_count - left_count;
+						right_offset = left_offset + left_count;
+#else
+
+						std::list<uint32_t> split_triangle_indices;
+						std::list<float3> split_centroids;
+
+						for (size_t i = nidx.index_offset; i < nidx.index_offset + nidx.index_count; ++i) {
+							const auto& idx = triangle_indices[i];
+							const auto& centroid = centroids[i];
+							if (component(centroid, axis) < split_pos) {
+								split_triangle_indices.push_front(idx);
+								split_centroids.push_front(centroid);
+								left_count++;
+							}
+							else {
+								split_triangle_indices.push_back(idx);
+								split_centroids.push_back(centroid);
+								right_count++;
+							}
+						}
+						int n = nidx.index_offset;
+						for (const auto& idx : split_triangle_indices) {
+							triangle_indices[n++] = idx;
+						}
+						n = nidx.index_offset;
+						for (const auto& idx : split_centroids) {
+							centroids[n++] = idx;
+						}
+						right_offset = left_count;
+						left_offset = nidx.index_offset;
+#endif				
+					}
+					else {
+						left_offset = nidx.index_offset;
+						left_count = nidx.index_count / 2;
+						right_offset = left_offset + left_count;
+						right_count = nidx.index_count / 2;
+					}
 				}
 				assert(left_count != 0 && right_count != 0);
 				assert(left_count + right_count >= 2);

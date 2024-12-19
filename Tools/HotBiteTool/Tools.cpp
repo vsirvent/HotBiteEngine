@@ -120,7 +120,7 @@ namespace HotBiteTool {
 			world.Run(fps);
 
 			auto rs = world.GetCoordinator()->GetSystem<Systems::RenderSystem>();
-			rs->SetRayTracing(true, true, true);
+			rs->SetRayTracing(true, true, false);
 			rs->SetRayTracingQuality(Systems::RenderSystem::eRtQuality::LOW);
 
 			post->SetNext(gui);
