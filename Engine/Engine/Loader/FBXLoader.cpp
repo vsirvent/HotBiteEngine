@@ -423,6 +423,11 @@ int FBXLoader::LoadMeshes(Core::FlatMap<std::string, Core::MeshData>& meshes, Fb
 			for (auto cv : cloned_vertices) {
 				vector<int> ids;
 				Vertex mixed_vertex = MixSimilarVertices(vertices, cloned_vertices, cv.first, cv.second, used_vertices, ids);
+				if (DIST2(mixed_vertex.Normal) < FLT_EPSILON) {
+					mixed_vertex.Normal = { 0.0f, 1.0f, 0.0f };
+					mixed_vertex.Tangent = { 1.0f, 0.0f, 0.0f };
+					mixed_vertex.Bitangent = { 0.0f, 0.0f, 1.0f };
+				}
 				for (auto id : ids) {
 					vertices[id].Normal = mixed_vertex.Normal;
 					vertices[id].Tangent = mixed_vertex.Tangent;
@@ -490,7 +495,7 @@ int FBXLoader::LoadShapes(Core::FlatMap<std::string, Core::ShapeData>& shapes, F
 			v.y = (float)controlPoints[i].mData[1] * scale.y;
 			v.z = (float)controlPoints[i].mData[2] * scale.z;
 			shape->vertices.push_back(v);
-			shape->normals.push_back({ 0.f, 0.f, 0.f });
+			shape->normals.push_back({ 0.f, 1.f, 0.f });
 		}
 
 		int polygonCount = fbxMesh->GetPolygonCount();

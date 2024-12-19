@@ -123,7 +123,7 @@
             "opacity": 1.0,
             "opacity_textname": "",
             "parallax_angle_steps": 2.0,
-            "parallax_scale": 0.10000000149011612,
+            "parallax_scale": 0,
             "parallax_shadow_scale": 0,
             "parallax_shadows": false,
             "parallax_steps": 4.0,
@@ -135,7 +135,7 @@
             "spec_textname": "",
             "specular": 0.0,
             "tess_factor": 4.0,
-            "tess_type": 2,
+            "tess_type": 0,
             "vs": ""
         },
         {
@@ -513,7 +513,7 @@
             "displacement_scale": 0.0,
             "name": "Floor",
             "parallax_angle_steps": 5.0,
-            "parallax_scale": 0.10000000149011612,
+            "parallax_scale": 0,
             "parallax_steps": 4.0,
             "tess_factor": 32.0,
             "tess_type": 0,

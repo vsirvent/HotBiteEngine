@@ -87,7 +87,7 @@ private:
 	AudioSystem::PlayId tone = AudioSystem::INVALID_PLAY_ID;
 
 public:
-	GameDemoApplication(HINSTANCE hInstance) :DXCore(hInstance, "HotBiteDemoGame", 1280, 720, true, false) {
+	GameDemoApplication(HINSTANCE hInstance) :DXCore(hInstance, "HotBiteDemoGame", 1920, 1080, true, false) {
 		root = "..\\..\\..\\Tests\\DemoGame\\";
 		//Initialize core DirectX
 		InitWindow();
@@ -170,6 +170,7 @@ public:
 			world.LoadTemplate("Assets\\archer\\archer_death.fbx", false, true);
 			progress += 3.0f;
 			render->Update();
+#if 0
 			//Load zombie assets as templates
 			world.LoadTemplate("Assets\\zombie\\zombie_tpose.fbx", false, true);
 			progress += 3.0f;
@@ -202,6 +203,7 @@ public:
 			world.LoadTemplate("Assets\\troll\\troll_attack.fbx", false, true);
 			progress += 3.0f;
 			render->Update();
+#endif
 			//Init the world
 			world.Init();
 			progress += 5.0f;
@@ -253,12 +255,12 @@ public:
 			render->Update();
 
 			//Prepare zombies
-			SetUpZombies();
+			//SetUpZombies();
 			progress += 5.0f;
 			render->Update();
 
 			//Prepare trolls
-			SetUpTrolls();
+			//SetUpTrolls();
 			progress += 5.0f;
 			render->Update();
 
@@ -611,36 +613,39 @@ public:
 			}
 		}
 		{
+			ECS::Entity orig_ball = c->GetEntityByName("Ball");
 			std::string name = "_Ball_" + std::to_string(id);
 			ECS::Entity ball = c->CreateEntity(name);
 
-			c->AddComponent<Base>(ball, { .name = name, .id = ball, .draw_method = eDrawMethod::DRAW_SCREEN });
-			c->AddComponent<Bounds>(ball, c->GetConstComponent<Bounds>(c->GetEntityByName("Ball")));
-			c->AddComponent<Mesh>(ball);
-			c->AddComponent<Lighted>(ball);
-			c->AddComponent<Material>(ball, { .data = world.GetMaterials().Get("Ball") });
-			c->AddComponent<Transform>(ball, { .position = fireball_spawn_position });
-			c->AddComponent<Physics>(ball, Physics{});
-			Mesh& m = c->GetComponent<Mesh>(ball);
-			Bounds& b = c->GetComponent<Bounds>(ball);
-			Physics& p = c->GetComponent<Physics>(ball);
-			Transform& t = c->GetComponent<Transform>(ball);
-			m.SetData(world.GetMeshes().Get("Ball"));
-			p.type = reactphysics3d::BodyType::DYNAMIC;
-			p.shape = Physics::SHAPE_SPHERE;
-			p.Init(world.GetPhysicsWorld(), p.type, nullptr, b.bounding_box.Extents, t.position, t.scale, t.rotation, p.shape);
-			SetupFireBall(ball);
-			c->GetSystem<AudioSystem>()->Play(2, 0, true, 1.0f, 10.0f, true, ball);
-			c->AddEventListenerByEntity(PhysicsSystem::EVENT_ID_COLLISION_START, ball, [=] (Event& ev) {
-				if (ev.GetEntity() == ball) {
-					int64_t now = Scheduler::GetNanoSeconds();
-					if (now - last_ball_sound_ts[ball] > MSEC_TO_NSEC(200)) {
-						c->GetSystem<AudioSystem>()->Play(RandType(17, 19).Value(), 0, false, RandType(0.8f, 1.2f).Value(), RandType(10.0f, 15.0f).Value(), true, ball);
-						last_ball_sound_ts[ball] = now;
+			if (orig_ball != ECS::INVALID_ENTITY_ID) {
+				c->AddComponent<Base>(ball, { .name = name, .id = ball, .draw_method = eDrawMethod::DRAW_SCREEN });
+				c->AddComponent<Bounds>(ball, c->GetConstComponent<Bounds>(orig_ball));
+				c->AddComponent<Mesh>(ball);
+				c->AddComponent<Lighted>(ball);
+				c->AddComponent<Material>(ball, { .data = world.GetMaterials().Get("Ball") });
+				c->AddComponent<Transform>(ball, { .position = fireball_spawn_position });
+				c->AddComponent<Physics>(ball, Physics{});
+				Mesh& m = c->GetComponent<Mesh>(ball);
+				Bounds& b = c->GetComponent<Bounds>(ball);
+				Physics& p = c->GetComponent<Physics>(ball);
+				Transform& t = c->GetComponent<Transform>(ball);
+				m.SetData(world.GetMeshes().Get("Ball"));
+				p.type = reactphysics3d::BodyType::DYNAMIC;
+				p.shape = Physics::SHAPE_SPHERE;
+				p.Init(world.GetPhysicsWorld(), p.type, nullptr, b.bounding_box.Extents, t.position, t.scale, t.rotation, p.shape);
+				SetupFireBall(ball);
+				c->GetSystem<AudioSystem>()->Play(2, 0, true, 1.0f, 10.0f, true, ball);
+				c->AddEventListenerByEntity(PhysicsSystem::EVENT_ID_COLLISION_START, ball, [=](Event& ev) {
+					if (ev.GetEntity() == ball) {
+						int64_t now = Scheduler::GetNanoSeconds();
+						if (now - last_ball_sound_ts[ball] > MSEC_TO_NSEC(200)) {
+							c->GetSystem<AudioSystem>()->Play(RandType(17, 19).Value(), 0, false, RandType(0.8f, 1.2f).Value(), RandType(10.0f, 15.0f).Value(), true, ball);
+							last_ball_sound_ts[ball] = now;
+						}
 					}
-				}
-				});
-			c->NotifySignatureChange(ball);
+					});
+				c->NotifySignatureChange(ball);
+			}
 		}
 		physics_mutex.unlock();
 		rs->mutex.unlock();

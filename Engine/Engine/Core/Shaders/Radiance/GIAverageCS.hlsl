@@ -25,14 +25,12 @@ Texture2D<float4> prev_position_map: register(t6);
 void main(uint3 DTid : SV_DispatchThreadID)
 {
     float2 pixel = float2(DTid.x, DTid.y);
-
     if (debug == 1) { 
         output[pixel] = input[pixel];
         return;
     }
-
-    uint2 input_dimensions;
-    uint2 info_dimensions;
+    float2 input_dimensions;
+    float2 info_dimensions;
     {
         uint w = 0;
         uint h = 0;

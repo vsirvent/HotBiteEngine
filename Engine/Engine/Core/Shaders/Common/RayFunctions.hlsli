@@ -115,7 +115,7 @@ bool IntersectTri(RayObject ray, uint indexOffset, uint vertexOffset, out Inters
     return false; // No intersection
 }
 
-bool IntersectAABB(float3 pos, float3 dir, float3 bmin, float3 bmax)
+bool IntersectAABB(float3 pos, float3 dir, float3 bmin, float3 bmax, out float distance)
 {
     float3 invDir = 1.0f / dir; // Calculate the inverse direction vector
     // Calculate intersection times for x, y, and z
@@ -141,18 +141,21 @@ bool IntersectAABB(float3 pos, float3 dir, float3 bmin, float3 bmax)
     tmin = max(tmin, min(tz1, tz2));
     tmax = min(tmax, max(tz1, tz2));
 
+    distance = tmin;
     // Final intersection test
     return tmax >= tmin && tmax > Epsilon;
 }
 
 bool IntersectAABB(Ray ray, float3 bmin, float3 bmax)
 {
-    return IntersectAABB(ray.orig.xyz, ray.dir, bmin, bmax);
+    float dummy;
+    return IntersectAABB(ray.orig.xyz, ray.dir, bmin, bmax, dummy);
 }
 
 bool IntersectAABB(RayObject ray, float3 bmin, float3 bmax)
 {
-    return IntersectAABB(ray.orig.xyz, ray.dir, bmin, bmax);
+    float dummy;
+    return IntersectAABB(ray.orig.xyz, ray.dir, bmin, bmax, dummy);
 }
 
 bool IntersectAABB(Ray ray, BVHNode node)
@@ -167,6 +170,30 @@ bool IntersectAABB(RayObject ray, BVHNode node)
     float3 bmin = aabb_min(node);
     float3 bmax = aabb_max(node);
     return IntersectAABB(ray, bmin, bmax);
+}
+
+bool IntersectAABB(Ray ray, float3 bmin, float3 bmax, out float distance)
+{
+    return IntersectAABB(ray.orig.xyz, ray.dir, bmin, bmax, distance);
+}
+
+bool IntersectAABB(RayObject ray, float3 bmin, float3 bmax, out float distance)
+{
+    return IntersectAABB(ray.orig.xyz, ray.dir, bmin, bmax, distance);
+}
+
+bool IntersectAABB(Ray ray, BVHNode node, out float distance)
+{
+    float3 bmin = aabb_min(node);
+    float3 bmax = aabb_max(node);
+    return IntersectAABB(ray, bmin, bmax, distance);
+}
+
+bool IntersectAABB(RayObject ray, BVHNode node, out float distance)
+{
+    float3 bmin = aabb_min(node);
+    float3 bmax = aabb_max(node);
+    return IntersectAABB(ray, bmin, bmax, distance);
 }
 
 float3 GetDiffuseColor(uint object, float2 uv)

@@ -214,57 +214,86 @@ void GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
 
                 float objectExtent = length(o.aabb_max - o.aabb_min);
                 float distanceToObject = length(o.position - origRay.orig.xyz) - objectExtent;
-
-                if (distanceToObject < max_distance && distanceToObject < result.distance && IntersectAABB(ray, o.aabb_min, o.aabb_max))
+                [branch]
+                if (distanceToObject < max_distance && distanceToObject < result.distance && IntersectAABB(ray, o.aabb_min, o.aabb_max, distanceToObject))
                 {
 #else
             ObjectInfo o = objectInfos[i];
             float objectExtent = length(o.aabb_max - o.aabb_min);
             float distanceToObject = length(o.position - origRay.orig.xyz) - objectExtent;
-            if (distanceToObject < max_distance && distanceToObject < result.distance && IntersectAABB(ray, o.aabb_min, o.aabb_max))
+            if (distanceToObject < max_distance && distanceToObject < result.distance && IntersectAABB(ray, o.aabb_min, o.aabb_max, distanceToObject))
             {
 #endif
-                object_result.distance = FLT_MAX;
-
-                // Transform the ray direction from world space to object space
-                oray.orig = mul(ray.orig, o.inv_world);
-                oray.orig /= oray.orig.w;
-                oray.dir = normalize(mul(ray.dir, (float3x3) o.inv_world));
-                oray.t = FLT_MAX;
-
-                uint stackSize = 0;
-                stack[stackSize++] = 0;
-
-                while (stackSize > 0 && stackSize < MAX_STACK_SIZE)
+                if (distanceToObject < max_distance && distanceToObject < result.distance)
                 {
-                    uint current = stack[--stackSize];
+                    object_result.distance = FLT_MAX;
 
-                    BVHNode node = objects[o.objectOffset + current];
-                    if (is_leaf(node))
+                    // Transform the ray direction from world space to object space
+                    oray.orig = mul(ray.orig, o.inv_world);
+                    oray.orig /= oray.orig.w;
+                    oray.dir = normalize(mul(ray.dir, (float3x3) o.inv_world));
+                    oray.t = FLT_MAX;
+
+                    uint stackSize = 0;
+                    stack[stackSize++] = 0;
+
+                    while (stackSize > 0 && stackSize < MAX_STACK_SIZE)
                     {
-                        float t;
-                        uint idx = index(node);
-                        idx += o.indexOffset;
+                        uint current = stack[--stackSize];
 
-                        IntersectionResult tmp_result;
-                        tmp_result.distance = FLT_MAX;
-                        if (IntersectTri(oray, idx, o.vertexOffset, tmp_result))
+                        BVHNode node = objects[o.objectOffset + current];
+                        [branch]
+                        if (is_leaf(node))
                         {
-                            if (tmp_result.distance < object_result.distance) {
-                                object_result.v0 = tmp_result.v0;
-                                object_result.v1 = tmp_result.v1;
-                                object_result.v2 = tmp_result.v2;
-                                object_result.vindex = tmp_result.vindex;
-                                object_result.distance = tmp_result.distance;
-                                object_result.uv = tmp_result.uv;
-                                object_result.object = objectIndex;
+                            float t;
+                            uint idx = index(node);
+                            idx += o.indexOffset;
+
+                            IntersectionResult tmp_result;
+                            tmp_result.distance = FLT_MAX;
+                            if (IntersectTri(oray, idx, o.vertexOffset, tmp_result))
+                            {
+                                if (tmp_result.distance < object_result.distance) {
+                                    object_result.v0 = tmp_result.v0;
+                                    object_result.v1 = tmp_result.v1;
+                                    object_result.v2 = tmp_result.v2;
+                                    object_result.vindex = tmp_result.vindex;
+                                    object_result.distance = tmp_result.distance;
+                                    object_result.u = tmp_result.u;
+                                    object_result.v = tmp_result.v;
+                                    object_result.object = objectIndex;
+                                }
                             }
                         }
-                    }
-                    else if (IntersectAABB(oray, node))
-                    {
-                        stack[stackSize++] = left_child(node);
-                        stack[stackSize++] = right_child(node);
+                        else
+                            if (IntersectAABB(oray, node, distanceToObject) && distanceToObject < max_distance && distanceToObject < object_result.distance)
+                            {
+                                uint left_node_index = left_child(node);
+                                uint right_node_index = right_child(node);
+
+                                BVHNode left_node = objects[o.objectOffset + left_node_index];
+                                BVHNode right_node = objects[o.objectOffset + right_node_index];
+
+                                float left_dist = node_distance(left_node, oray.orig.xyz);
+                                float right_dist = node_distance(right_node, oray.orig.xyz);
+
+                                if (left_dist < right_dist) {
+                                    if (right_dist < object_result.distance) {
+                                        stack[stackSize++] = right_node_index;
+                                    }
+                                    if (left_dist < object_result.distance) {
+                                        stack[stackSize++] = left_node_index;
+                                    }
+                                }
+                                else {
+                                    if (left_dist < object_result.distance && left_dist < max_distance) {
+                                        stack[stackSize++] = left_node_index;
+                                    }
+                                    if (right_dist < object_result.distance && right_dist < max_distance) {
+                                        stack[stackSize++] = right_node_index;
+                                    }
+                                }
+                            }
                     }
                 }
 
@@ -389,8 +418,6 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     float2 pixel = float2(x, y);
 
     float2 rpixel = pixel * rayMapRatio;
-    //rpixel.x += frame_count % (rayMapRatio.x * 0.5f);
-    //rpixel.y += frame_count % (rayMapRatio.y * 0.5f) / 2.0f;
     float2 ray_pixel = round(rpixel);
 
     RaySource ray_source = fromColor(ray0[ray_pixel], ray1[ray_pixel]);
@@ -501,7 +528,20 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     restir_pdf_1[pixel] = PackRays(pdf_cache, RAY_W_SCALE);
     color_diffuse  = color_diffuse / wis_size;
     
-    output[pixel] = sqrt(color_diffuse) * !low_energy;
+    color_diffuse = color_diffuse;
+    output[pixel] = color_diffuse * !low_energy;
+
+    if (rc.hit) {        
+        [unroll]
+        for (int x = -2; x <= 2; ++x) {
+            [unroll]
+            for (int y = -2; y <= 2; ++y) {
+                int2 p = (pixel / kernel_size) + int2(x, y);
+                tiles_output[p] = 1;
+            }
+        }
+    }
+ 
     //float r = wis_size / ray_count;
     //output[pixel] = float4(wis_size, 0.0f, 0.0f, 1.0f);
 }
