@@ -183,6 +183,11 @@ namespace HotBite {
             return (a.x == b.x && a.y == b.y);
         }
 
+        // MAX
+        inline float3 MAX_F3_F3(const float3& a, const float3& b) {
+            return { max(a.x, b.x), max(a.y, b.y), max(a.z, b.z) };
+        }
+
         // ADD
         inline float4 ADD_F4_F4(const float4& a, const float4& b) {
             __m128 va = _mm_load_ps(&a.x);

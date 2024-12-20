@@ -87,7 +87,7 @@ private:
 	AudioSystem::PlayId tone = AudioSystem::INVALID_PLAY_ID;
 
 public:
-	GameDemoApplication(HINSTANCE hInstance) :DXCore(hInstance, "HotBiteDemoGame", 1280, 720, true, false) {
+	GameDemoApplication(HINSTANCE hInstance) :DXCore(hInstance, "HotBiteDemoGame", 1920, 1080, true, false) {
 		root = "..\\..\\..\\Tests\\DemoGame\\";
 		//Initialize core DirectX
 		InitWindow();
@@ -279,6 +279,7 @@ public:
 			};
 			set_terrain("Terrain*");
 			set_terrain("Bricks*");
+			set_terrain("floor*");
 
 			progress += 5.0f;
 			render->Update();
@@ -596,6 +597,7 @@ public:
 	std::unordered_map<ECS::Entity, int64_t> last_ball_sound_ts;
 	//This method spawns a new fireball in the scene
 	void SpawnFireBall(int id) {
+		return;
 		ECS::Coordinator* c = world.GetCoordinator();
 		//NOTE: Always lock first renderer mutex before physics mutex to avoid interlock
 		shared_ptr<RenderSystem> rs = c->GetSystem<RenderSystem>();

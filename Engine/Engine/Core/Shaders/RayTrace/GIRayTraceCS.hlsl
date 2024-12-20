@@ -32,7 +32,7 @@ SOFTWARE.
 #define USE_OBH 0
 #define LEVEL_RATIO 3
 //#define BOUNCES
-//#define DISABLE_RESTIR
+#define DISABLE_RESTIR
 
 cbuffer externalData : register(b0)
 {
@@ -94,7 +94,7 @@ static float2 lps[MAX_LIGHTS] = (float2[MAX_LIGHTS])LightPerspectiveValues;
 #include "../Common/SimpleLight.hlsli"
 #include "../Common/RayFunctions.hlsli"
 
-#define max_distance 10.0f
+#define max_distance 20.0f
 
 static const float inv_ray_count = 1.0f / (float)ray_count;
 static const uint stride = kernel_size * ray_count;
@@ -128,7 +128,7 @@ float3 GenerateHemisphereRay(float3 dir, float3 tangent, float3 bitangent, float
 {
     float index = (rX * dispersion) % N;
 
-    //index = (frame_count / 5) % N;
+    //index = (frame_count) % N;
     float cumulativePoints = 1.0f;
     float level = 1.0f;
     float c = 1.0f;
@@ -144,7 +144,7 @@ float3 GenerateHemisphereRay(float3 dir, float3 tangent, float3 bitangent, float
     // Calculate local index within the current level
     float localIndex = index - cumulativePoints;
 
-    float phi = (level * M_PI) / NLevels;
+    float phi = (level * M_PI * 0.5f) / NLevels;
 
     // Azimuthal angle (theta) based on number of points at this level
     float theta = (2.0f * M_PI) * localIndex / pointsAtLevel; // Spread points evenly in azimuthal direction
@@ -375,9 +375,7 @@ void GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
 
         float3 color = float3(0.0f, 0.0f, 0.0f);
 
-        color += CalcAmbient(normal) * 0.5f;
-        color *= o.opacity;
-
+ 
         uint i = 0;
         for (i = 0; i < dirLightsCount; ++i) {
             color += CalcDirectional(normal, pos.xyz, dirLights[i], i);
@@ -385,10 +383,13 @@ void GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
 
         // Calculate the point lights
         for (i = 0; i < pointLightsCount; ++i) {
-            //if (length(pos.xyz - pointLights[i].Position) < pointLights[i].Range) {
+            if (length(pos.xyz - pointLights[i].Position) < pointLights[i].Range) {
                 color += CalcPoint(normal, pos.xyz, pointLights[i], i);
-            //}
+            }
         }
+
+        color *= o.opacity;
+
 
         bool use_mat_texture = material.flags & DIFFUSSE_MAP_ENABLED_FLAG;
         float3 mat_color = material.diffuseColor.rgb * !use_mat_texture;
@@ -402,10 +403,10 @@ void GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
 
         color.rgb *= mat_color;
 
-        float3 emission = material.emission * material.emission_color;
-        color += emission;
-
-        att_dist *= max(collision_dist, 1.0f);
+        float3 emission = material.emission * material.emission_color * 100.0f;
+        color.rgb += emission;
+        
+        //att_dist *= max(collision_dist, 1.0f);
 
         out_color.color += color * ray.ratio / att_dist;
 
@@ -437,7 +438,7 @@ bool IsLowEnergy(float pdf[MAX_RAYS], uint len) {
     return (total_enery < threshold);
 }
 
-#define NTHREADS 32
+#define NTHREADS 9
 
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thread : SV_GroupThreadID)
@@ -460,15 +461,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     float2 rayMapRatio = ray_map_dimensions / dimensions;
         
     float2 pixel = float2(x, y);
-
-    uint offsetn = frame_count % 4;
-    uint offsetx = (offsetn) % 2;
-    uint offsety = (offsetn) / 2;
-    //pixel.x += offsetx;
-   // pixel.y += offsety;
     float2 rpixel = pixel * rayMapRatio;
-    //rpixel.x += frame_count % (rayMapRatio.x * 0.5f);
-    //rpixel.y += frame_count % (rayMapRatio.y * 0.5f) / 2.0f;
     float2 ray_pixel = round(rpixel);
 
     RaySource ray_source = fromColor(ray0[ray_pixel], ray1[ray_pixel]);
@@ -554,7 +547,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     }
  
     float4 color_diffuse = float4(0.0f, 0.0f, 0.0f, 1.0f);
-    float offset = (pixel.x % kernel_size) * ray_count + (pixel.y % kernel_size) * stride;
+    float offset = ((pixel.x) % kernel_size) * ray_count + ((pixel.y)% kernel_size) * stride;
     float offset2 = space_size;
    
     bool hit = false;
@@ -563,10 +556,10 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
         uint wi = wis[i];
         float n = fmod(offset + (float)wi * offset2, N);
 
-        ray.dir = GenerateHemisphereRay(normal, tangent, bitangent, 1.0f, N, level * 1.2f, n);
+        ray.dir = GenerateHemisphereRay(normal, tangent, bitangent, 1.0f, N, level, n);
         ray.orig.xyz = orig_pos.xyz + ray.dir * 0.001f;
         float dist = FLT_MAX;
-        GetColor(ray, n, level, 2, rc, ray_source.dispersion, true, false);
+        GetColor(ray, n, level, 1, rc, ray_source.dispersion, true, false);
         last_wi = wi;
         hit = hit || rc.hit;
 
@@ -577,18 +570,18 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
 #else
         pdf_cache[wi] = RAY_W_BIAS + w;
 #endif
-        color_diffuse.rgb += rc.color / (pdf_cache[wi] / w_pixel);
+        color_diffuse.rgb += rc.color;
 
     }
 
     wis_size = max(wis_size, 1);
     restir_pdf_1[pixel] = PackRays(pdf_cache, RAY_W_SCALE);
-    color_diffuse  = color_diffuse / wis_size;
+    color_diffuse  = color_diffuse / ray_count;
     
-    color_diffuse = sqrt(color_diffuse);
+    color_diffuse = pow(color_diffuse, 0.5f);
     output[pixel] = color_diffuse;
 
-    if (rc.hit) {        
+    if (rc.hit) {
         [unroll]
         for (int x = -2; x <= 2; ++x) {
             [unroll]

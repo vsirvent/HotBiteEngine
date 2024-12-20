@@ -1659,17 +1659,19 @@ void RenderSystem::PrepareRT() {
 				for (const auto& mat : shaders.second) {
 					for (const auto& de : mat.second.second.GetConstData()) {
 						if (de.base->visible &&  de.mesh->GetData()->skeletons.empty()) {
-							float distance = LENGHT_F3(de.transform->position - (ADD_F3_F3(ca->camera->world_position, ca->camera->direction)));
+
+							// Get the center and extents of the oriented box
+							const float3& orientedBoxCenter = de.bounds->final_box.Center;
+							const float3& orientedBoxExtents = de.bounds->final_box.Extents;
+
+							//float distance = LENGHT_F3(de.transform->position - (ADD_F3_F3(ca->camera->world_position, ca->camera->direction)));
+							float distance = LENGHT_F3(MAX_F3_F3(SUB_F3_F3(orientedBoxCenter - ca->transform->position, orientedBoxExtents), { 0.0f, 0.0f, 0.0f }));
 
 
 							MaterialProps mo = de.mat->data->props;
 							ID3D11ShaderResourceView* diffuse_text = de.mat->data->diffuse;
 
 							ObjectInfo o;
-
-							// Get the center and extents of the oriented box
-							const float3& orientedBoxCenter = de.bounds->final_box.Center;
-							const float3& orientedBoxExtents = de.bounds->final_box.Extents;
 
 							// Calculate the minimum and maximum points of the AABB
 							o.aabb_min = { orientedBoxCenter.x - orientedBoxExtents.x,
@@ -1703,7 +1705,7 @@ void RenderSystem::PrepareRT() {
 									break;
 								}
 								else {
-									distance += 0.001f;
+									distance += 1.0f;
 								}
 							}
 						}
@@ -1797,8 +1799,8 @@ void RenderSystem::ProcessGI() {
 		gi_shader->SetUnorderedAccessView("output", rt_texture_gi_trace->UAV());
 		gi_shader->SetUnorderedAccessView("tiles_output", rt_textures_gi_tiles.UAV());
 
-		int groupsX = (int32_t)(ceil((float)rt_texture_gi_curr->Width() / (32.0f)));
-		int groupsY = (int32_t)(ceil((float)rt_texture_gi_curr->Height() / (32.0f)));
+		int groupsX = (int32_t)(ceil((float)rt_texture_gi_curr->Width() / (RESTIR_KERNEL)));
+		int groupsY = (int32_t)(ceil((float)rt_texture_gi_curr->Height() / (RESTIR_KERNEL)));
 		dxcore->context->Dispatch((uint32_t)ceil((float)groupsX), (uint32_t)ceil((float)groupsY), 1);
 
 		gi_shader->SetShaderResourceView("restir_pdf_0", nullptr);
@@ -1846,7 +1848,7 @@ void RenderSystem::ProcessGI() {
 		gi_average->SetShaderResourceView("tiles_output", rt_textures_gi_tiles.SRV());
 		gi_average->SetInt("kernel_size", RESTIR_HALF_KERNEL);
 		gi_average->SetInt("frame_count", frame_count);
-
+#if 1
 		//Pass 1
 		gi_average->SetInt("type", 1);
 		gi_average->SetShaderResourceView("input", rt_texture_gi_trace->SRV());
@@ -1889,6 +1891,16 @@ void RenderSystem::ProcessGI() {
 		gi_average->SetShaderResourceView("input", nullptr);
 		gi_average->SetUnorderedAccessView("output", nullptr);
 		gi_average->CopyAllBufferData();
+#endif
+#else
+		//Pass 3
+		gi_average->SetInt("type", 3);
+		gi_average->SetShaderResourceView("orig_input", rt_texture_gi_trace->SRV());
+		gi_average->SetShaderResourceView("input", rt_texture_gi_tmp[1]->SRV());
+		gi_average->SetUnorderedAccessView("output", rt_texture_gi_curr->UAV());
+		gi_average->CopyAllBufferData();
+		gi_average->SetShader();
+		dxcore->context->Dispatch(groupsX, groupsY, 1);
 #endif
 		gi_average->SetShaderResourceView("input", nullptr);
 		gi_average->SetUnorderedAccessView("output", nullptr);
