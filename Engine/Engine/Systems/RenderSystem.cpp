@@ -1274,8 +1274,7 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 				gs->SetInt(SCREEN_W, w);
 				gs->SetInt(SCREEN_H, h);
 				gs->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
-				gs->SetMatrix4x4(VIEW, cam_entity.camera->view);
-				gs->SetMatrix4x4(PROJECTION, cam_entity.camera->projection);
+				gs->SetMatrix4x4("view_projection", cam_entity.camera->view_projection);
 				gs->SetFloat(TIME, time);
 				gs->SetShader();
 			}

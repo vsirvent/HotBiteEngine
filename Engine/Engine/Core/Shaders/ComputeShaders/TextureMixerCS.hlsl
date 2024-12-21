@@ -197,7 +197,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     float4 dust = readColor(tpos, dustTexture, w, h);
     float4 lens_flare = readColor(tpos, lensFlareTexture, w, h);
 	    
-	color = color * rt2 + rt1 + b + dust + lens_flare + vol;
+	color = color * (l + rt0 + rt2) + rt1 + b + dust + lens_flare + vol;
 
 #if 1
     output[pixel] = climit4(color);

@@ -32,7 +32,7 @@ SOFTWARE.
 #define USE_OBH 0
 #define LEVEL_RATIO 3
 //#define BOUNCES
-#define DISABLE_RESTIR
+//#define DISABLE_RESTIR
 
 cbuffer externalData : register(b0)
 {
@@ -578,7 +578,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     restir_pdf_1[pixel] = PackRays(pdf_cache, RAY_W_SCALE);
     color_diffuse  = color_diffuse / ray_count;
     
-    color_diffuse = pow(color_diffuse, 0.5f);
+    color_diffuse = pow(color_diffuse, 0.2f);
     output[pixel] = color_diffuse;
 
     if (rc.hit) {
