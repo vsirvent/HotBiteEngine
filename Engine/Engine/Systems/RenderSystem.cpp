@@ -246,11 +246,11 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		vertex_buffer = vb;
 		bvh_buffer = bvh;
 		tbvh_buffer.Prepare(MAX_OBJECTS * 2 - 1);
-		first_pass_target = dxcore;		
+		first_pass_target = dxcore;
 		depth_target = dxcore;
 		int w = dxcore->GetWidth();
 		int h = dxcore->GetHeight();
-		
+
 		for (int i = 0; i < 2; ++i)
 		{
 			if (FAILED(light_map[i].Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
@@ -283,6 +283,19 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		}
 		if (FAILED(depth_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("depth_map.Init failed");
+		}
+
+		if (FAILED(high_z_tmp_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+			throw std::exception("high_z_tmp_map.Init failed");
+		}
+		uint32_t hiz_w = w;
+		uint32_t hiz_h = h;
+		for (int i = 0; i < HIZ_TEXTURES; ++i) {
+			hiz_w = (uint32_t)ceil((float)hiz_w / (float)HIZ_RATIO);
+			hiz_h = (uint32_t)ceil((float)hiz_h / (float)HIZ_RATIO);
+			if (FAILED(high_z_map[i].Init(hiz_w, hiz_h, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+				throw std::exception("high_z_map.Init failed");
+			}
 		}
 		if (FAILED(depth_view.Init(w, h))) {
 			throw std::exception("depth_view.Init failed");
@@ -378,6 +391,10 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		if (copy_texture == nullptr) {
 			throw std::exception("Copy textures shader.Init failed");
 		}
+		high_z_shader = ShaderFactory::Get()->GetShader<SimpleComputeShader>("HiZDownSample.cso");
+		if (high_z_shader == nullptr) {
+			throw std::exception("HiZDownSample shader.Init failed");
+		}
 
 		LoadRTResources();
 
@@ -427,6 +444,10 @@ RenderSystem::~RenderSystem() {
 	rgba_noise_texture.Release();
 	motion_texture.Release();
 	depth_map.Release();
+	high_z_tmp_map.Release();
+	for (int i = 0; i < HIZ_TEXTURES; ++i) {
+		high_z_map[i].Release();
+	}
 
 	for (int i = 0; i < RT_NTEXTURES; ++i) {
 		for (int x = 0; x < 2; ++x) {
@@ -1637,6 +1658,51 @@ void RenderSystem::ProcessMotion() {
 	}
 }
 
+void RenderSystem::ProcessHighZ() {
+
+	auto calculateHiZ = [&](int i) {
+		Core::RenderTexture2D* input;
+		Core::RenderTexture2D* output;
+
+		if (i == 0) {
+			input = &depth_map;
+		}
+		else {
+			input = &high_z_map[i - 1];
+		}
+		output = &high_z_map[i];
+
+		int32_t  groupsX = (int32_t)(ceil((float)input->Width() / 32.0f));
+		int32_t  groupsY = (int32_t)(ceil((float)output->Height() / 32.0f));
+
+		high_z_shader->SetInt("type", 1);
+		high_z_shader->SetShaderResourceView("input", input->SRV());
+		high_z_shader->SetUnorderedAccessView("output", high_z_tmp_map.UAV());
+		high_z_shader->CopyAllBufferData();
+		dxcore->context->Dispatch(groupsX, groupsY, 1);
+
+		groupsX = (int32_t)(ceil((float)output->Width() / 32.0f));
+		groupsY = (int32_t)(ceil((float)input->Height() / 32.0f));
+
+		high_z_shader->SetInt("type", 2);
+		high_z_shader->SetShaderResourceView("input", nullptr);
+		high_z_shader->SetUnorderedAccessView("output", nullptr);
+		high_z_shader->SetShaderResourceView("input", high_z_tmp_map.SRV());
+		high_z_shader->SetUnorderedAccessView("output", output->UAV());
+		high_z_shader->CopyAllBufferData();
+		dxcore->context->Dispatch(groupsX, groupsY, 1);
+		high_z_shader->SetShaderResourceView("input", nullptr);
+		high_z_shader->SetUnorderedAccessView("output", nullptr);
+	};
+
+	high_z_shader->SetInt("ratio", HIZ_RATIO);
+	high_z_shader->SetShader();
+	
+	for (uint32_t i = 0; i < HIZ_TEXTURES; ++i) {
+		calculateHiZ(i);
+	}
+}
+
 void RenderSystem::PrepareRT() {
 	if (rt_quality != eRtQuality::OFF && rt_enabled && bvh_buffer != nullptr) {
 		auto& device = dxcore->device;
@@ -2630,6 +2696,7 @@ void RenderSystem::Draw() {
 			DrawScene(w, h, camera_position, view, projection, first_pass_texture.SRV(), second_pass_target, render_pass2_tree);
 		}
 		ProcessMotion();
+		ProcessHighZ();
 		ProcessRT();
 		ProcessGI();
 		PostProcessLight();

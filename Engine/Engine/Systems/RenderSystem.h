@@ -273,6 +273,13 @@ namespace HotBite {
 
 				//Motion blur
 				Core::SimpleComputeShader* motion_blur = nullptr;
+				
+				//SSR
+				Core::SimpleComputeShader* high_z_shader = nullptr;
+				static constexpr uint32_t HIZ_RATIO = 5;
+				static constexpr uint32_t HIZ_TEXTURES = 3;
+				Core::RenderTexture2D high_z_tmp_map;
+				Core::RenderTexture2D high_z_map[HIZ_TEXTURES];
 
 				//Ray tracing
 				eRtQuality rt_quality = eRtQuality::MID;
@@ -401,6 +408,7 @@ namespace HotBite {
 				void ResetRTBBuffers();
 				void CopyTexture(const Core::RenderTexture2D& input, Core::RenderTexture2D& output);
 				void ProcessMotion();
+				void ProcessHighZ();
 				void PrepareRT();
 				void ProcessRT();
 				void ProcessGI();
