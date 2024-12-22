@@ -38,6 +38,7 @@ using namespace DirectX;
 
 static const float zero[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 static const float ones[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+static const float max_floats[4] = { FLT_MAX, FLT_MAX, FLT_MAX, FLT_MAX };
 static const float minus_one[4] = { -1.0f, -1.0f, -1.0f, -1.0f };
 
 
@@ -485,6 +486,9 @@ void RenderSystem::LoadRTResources() {
 			}
 		}
 	}
+
+	input_rays.Unprepare();
+	input_rays.Prepare((w * h) / (RT_TEXTURE_RESOLUTION_DIVIDER * RT_TEXTURE_RESOLUTION_DIVIDER), DXGI_FORMAT_R32G32B32A32_FLOAT);
 
 	uint32_t restir_div = 3;// max(RT_TEXTURE_RESOLUTION_DIVIDER, 2);
 
@@ -1660,10 +1664,13 @@ void RenderSystem::ProcessMotion() {
 
 void RenderSystem::ProcessHighZ() {
 
-	auto calculateHiZ = [&](int i) {
-		Core::RenderTexture2D* input;
-		Core::RenderTexture2D* output;
+	high_z_shader->SetInt("ratio", HIZ_RATIO);
+	high_z_shader->SetShader();
 
+	Core::RenderTexture2D* input;
+	Core::RenderTexture2D* output;
+
+	for (uint32_t i = 0; i < HIZ_TEXTURES; ++i) {
 		if (i == 0) {
 			input = &depth_map;
 		}
@@ -1693,13 +1700,6 @@ void RenderSystem::ProcessHighZ() {
 		dxcore->context->Dispatch(groupsX, groupsY, 1);
 		high_z_shader->SetShaderResourceView("input", nullptr);
 		high_z_shader->SetUnorderedAccessView("output", nullptr);
-	};
-
-	high_z_shader->SetInt("ratio", HIZ_RATIO);
-	high_z_shader->SetShader();
-	
-	for (uint32_t i = 0; i < HIZ_TEXTURES; ++i) {
-		calculateHiZ(i);
 	}
 }
 
@@ -1990,7 +1990,8 @@ void RenderSystem::ProcessRT() {
 		if (rt_quality != eRtQuality::OFF && rt_enabled && bvh_buffer != nullptr && nobjects > 0) {
 
 			rt_textures_gi_tiles.Clear(zero);
-
+			
+			dxcore->context->ClearUnorderedAccessViewFloat(*input_rays.UAV(), max_floats);
 			std::lock_guard<std::mutex> lock(rt_mutex);
 			CameraEntity& cam_entity = cameras.GetData()[0];
 
@@ -1999,69 +2000,43 @@ void RenderSystem::ProcessRT() {
 			ID3D11RenderTargetView* nullRenderTargetViews[1] = { nullptr };
 			dxcore->context->OMSetRenderTargets(1, nullRenderTargetViews, nullptr);
 
-			rt_di_shader->SetInt("kernel_size", RESTIR_KERNEL);
-			rt_di_shader->SetInt("ray_count", RESTIR_PIXEL_RAYS);
-
-			rt_di_shader->SetInt("kernel_size", RESTIR_KERNEL);
-			rt_di_shader->SetInt("nobjects", nobjects);
-			rt_di_shader->SetInt("enabled", rt_enabled & (rt_quality != eRtQuality::OFF ? 0xFF : 0x00));
-			rt_di_shader->SetMatrix4x4("view_proj", cam_entity.camera->view_projection);
-			rt_di_shader->SetMatrix4x4("prev_view_proj", cam_entity.camera->prev_view_projection);
-			rt_di_shader->SetInt("frame_count", frame_count);
-			rt_di_shader->SetData("objectMaterials", objectMaterials, nobjects * sizeof(MaterialProps));
-			rt_di_shader->SetData("objectInfos", objects, nobjects * sizeof(ObjectInfo));
-
-			rt_di_shader->SetUnorderedAccessView("output0", rt_texture_di_curr[RT_TEXTURE_REFLEX].UAV());
-			rt_di_shader->SetUnorderedAccessView("output1", rt_texture_di_curr[RT_TEXTURE_REFRACT].UAV());
-			rt_di_shader->SetUnorderedAccessView("tiles_output", rt_textures_gi_tiles.UAV());
-
-
-			rt_di_shader->SetShaderResourceView("position_map", position_map.SRV());
-			rt_di_shader->SetShaderResourceView("depth_map", depth_map.SRV());
-			rt_di_shader->SetShaderResourceView("motion_texture", motion_texture.SRV());
-			rt_di_shader->SetUnorderedAccessView("bloom", rt_texture_di_curr[RT_TEXTURE_EMISSION].UAV());
-			rt_di_shader->SetUnorderedAccessView("props", rt_texture_props.UAV());
+			//Set ray requests
 			rt_di_shader->SetShaderResourceView("ray0", rt_ray_sources0.SRV());
 			rt_di_shader->SetShaderResourceView("ray1", rt_ray_sources1.SRV());
 			rt_di_shader->SetShaderResourceView("rgbaNoise", rgba_noise_texture.SRV());
+			rt_di_shader->SetUnorderedAccessView("ray_inputs", *input_rays.UAV());
 
 			float3 dir;
 			XMStoreFloat3(&dir, cam_entity.camera->xm_direction);
 			rt_di_shader->SetFloat(TIME, time);
+			rt_di_shader->SetInt("enabled", rt_enabled & (rt_quality != eRtQuality::OFF ? 0xFF : 0x00));
+			rt_di_shader->SetInt("frame_count", frame_count);
+			rt_di_shader->SetInt("divider", RT_TEXTURE_RESOLUTION_DIVIDER);
 			rt_di_shader->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
 			rt_di_shader->SetFloat3("cameraDirection", dir);
+
 			rt_di_shader->SetSamplerState(PCF_SAMPLER, dxcore->shadow_sampler);
 			rt_di_shader->SetSamplerState(BASIC_SAMPLER, dxcore->basic_sampler);
-			rt_di_shader->SetShaderResourceViewArray("DiffuseTextures[0]", diffuseTextures, nobjects);
-
-			PrepareLights(rt_di_shader);
 
 			rt_di_shader->CopyAllBufferData();
 
-			dxcore->context->CSSetShaderResources(2, 1, bvh_buffer->SRV());
-			dxcore->context->CSSetShaderResources(3, 1, tbvh_buffer.SRV());
-			dxcore->context->CSSetShaderResources(4, 1, vertex_buffer->VertexSRV());
-			dxcore->context->CSSetShaderResources(5, 1, vertex_buffer->IndexSRV());
 			rt_di_shader->SetShader();
 			int32_t  groupsX = (int32_t)(ceil((float)rt_texture_di_curr[RT_TEXTURE_REFLEX].Width() / (32.0f)));
 			int32_t  groupsY = (int32_t)(ceil((float)rt_texture_di_curr[RT_TEXTURE_REFLEX].Height() / (32.0f)));
 			dxcore->context->Dispatch(groupsX, groupsY, 2);
 
-			rt_di_shader->SetUnorderedAccessView("output0", nullptr);
-			rt_di_shader->SetUnorderedAccessView("output1", nullptr);
-			rt_di_shader->SetShaderResourceView("position_map", nullptr);
-			rt_di_shader->SetShaderResourceView("motion_texture", nullptr);
 			rt_di_shader->SetShaderResourceView("ray0", nullptr);
 			rt_di_shader->SetShaderResourceView("ray1", nullptr);
-			rt_di_shader->SetUnorderedAccessView("bloom", nullptr);
-			rt_di_shader->SetUnorderedAccessView("props", nullptr);
 			rt_di_shader->SetShaderResourceView("rgbaNoise", nullptr);
-			rt_di_shader->SetUnorderedAccessView("dispersion", nullptr);
-			rt_di_shader->SetUnorderedAccessView("tiles_output", nullptr);
-
-			UnprepareLights(rt_di_shader);
+			rt_di_shader->SetUnorderedAccessView("ray_inputs", nullptr);
 			rt_di_shader->CopyAllBufferData();
 
+			//TODO: Resolve rays with SSR
+			
+
+
+			// Resolve rays with world space Ray Tracing
+			
 			//Denoiser
 			rt_di_denoiser->SetInt("kernel_size", RESTIR_KERNEL);
 			rt_di_denoiser->SetInt("debug", rt_debug);

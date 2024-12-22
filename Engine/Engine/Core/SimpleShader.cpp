@@ -198,7 +198,7 @@ namespace HotBite {
 					break;
 					}
 				}
-
+				uint32_t realConstantBufferCount = 0;
 				// Loop through all constant buffers
 				for (unsigned int b = 0; b < constantBufferCount; b++)
 				{
@@ -215,6 +215,10 @@ namespace HotBite {
 					D3D11_SHADER_INPUT_BIND_DESC bindDesc;
 					refl->GetResourceBindingDescByName(bufferDesc.Name, &bindDesc);
 
+					if (bindDesc.Type != D3D_SIT_CBUFFER) {
+						continue;
+					}
+					realConstantBufferCount++;
 					// Set up the buffer and put its pointer in the table
 					constantBuffers[b].BindIndex = bindDesc.BindPoint;
 					constantBuffers[b].Name = bufferDesc.Name;
@@ -260,6 +264,7 @@ namespace HotBite {
 						constantBuffers[b].Variables.push_back(varStruct);
 					}
 				}
+				constantBufferCount = realConstantBufferCount;
 
 				// All set
 				refl->Release();

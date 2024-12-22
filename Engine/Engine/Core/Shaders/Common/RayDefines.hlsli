@@ -50,6 +50,11 @@ struct BVHNode
     float4 reg1; // aabb_max + index;
 };
 
+#define MAX_RAY_INPUTS 4
+struct InputRays {
+    float2 dir[MAX_RAY_INPUTS];
+};
+
 struct Ray {
     float4 orig;
     float3 dir;

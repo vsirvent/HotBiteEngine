@@ -72,8 +72,6 @@ Texture2D<float4> ray1;
 StructuredBuffer<BVHNode> objects: register(t2);
 StructuredBuffer<BVHNode> objectBVH: register(t3);
 
-ByteAddressBuffer vertexBuffer : register(t4);
-ByteAddressBuffer indicesBuffer : register(t5);
 Texture2D<float4> position_map : register(t6);
 Texture2D<float4> motion_texture : register(t8);
 Texture2D<float4> prev_position_map: register(t9);
@@ -82,10 +80,8 @@ Texture2D<float> restir_w_0: register(t11);
 RWTexture2D<uint4> restir_pdf_1: register(u0);
 RWTexture2D<uint> tiles_output: register(u1);
 
-Texture2D<float4> DiffuseTextures[MAX_OBJECTS];
 Texture2D<float> DirShadowMapTexture[MAX_LIGHTS];
 TextureCube<float> PointShadowMapTexture[MAX_LIGHTS];
-
 
 
 //Packed array
@@ -438,7 +434,7 @@ bool IsLowEnergy(float pdf[MAX_RAYS], uint len) {
     return (total_enery < threshold);
 }
 
-#define NTHREADS 9
+#define NTHREADS 11
 
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thread : SV_GroupThreadID)
@@ -473,7 +469,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     float3 tangent;
     float3 bitangent;
     RayTraceColor rc;
-    Ray ray = GetReflectedRayFromSource(ray_source);
+    Ray ray = GetReflectedRayFromSource(ray_source, cameraPosition);
 
     float pdf_cache[MAX_RAYS];
     UnpackRays(restir_pdf_0[pixel], RAY_W_SCALE, pdf_cache);

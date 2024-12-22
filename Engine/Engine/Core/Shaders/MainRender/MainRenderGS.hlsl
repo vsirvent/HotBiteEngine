@@ -110,6 +110,7 @@ void main(
 		p[i] = mul(input[i].worldPos, view_projection);
 	}
 #endif
+
 	if (process) {
 		// Edges of the triangle : postion delta
 		float3 edge1 = input[1].position.xyz - input[0].position.xyz;

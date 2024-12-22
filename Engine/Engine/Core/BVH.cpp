@@ -171,7 +171,14 @@ namespace HotBite {
 				int right_count = 0;
 				int left_offset = 0;
 				int right_offset = 0;
-				if (LENGHT_F3(extent) > FLT_EPSILON)
+
+				if (nidx.index_count == 2) {
+					left_count = 1;
+					right_count = 1;
+					left_offset = nidx.index_offset;
+					right_offset = left_offset + left_count;
+					
+				} else if (LENGHT_F3(extent) > FLT_EPSILON)
 				{
 					// in-place partition
 					int i = nidx.index_offset;

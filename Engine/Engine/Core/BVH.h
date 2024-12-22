@@ -185,7 +185,6 @@ namespace HotBite {
 				}
 
 				void Clear(T val, uint32_t start = 0, uint32_t len = 0) {
-					return;
 					if (len == 0) {
 						len = (uint32_t)size;
 					}

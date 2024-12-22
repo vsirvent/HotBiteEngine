@@ -176,8 +176,8 @@
         "ambient": {
           "type": "ambient",
           "name": "ambient",
-          "color_down": "001001001",
-          "color_up": "001001001"
+          "color_down": "000000000",
+          "color_up": "000000000"
         }
       },
       "lights": [
