@@ -63,17 +63,22 @@ void main(uint3 DTid : SV_DispatchThreadID)
     float dist_att = 0.0f;
     float disp = -1.0f;
     uint min_dispersion = 0;
-    bool skip = tiles_output[pixel / kernel_size] == 0;
+
     [branch]
-    if (dist2(ray_source.orig) <= Epsilon || skip) {
+    if (dist2(ray_source.orig) <= Epsilon) {
         output[pixel] = float4(0.0f, 0.0f, 0.0f, 0.0f);
         return;
     }  
 
+    bool skip = false;
+    uint tile_info = tiles_output[pixel / kernel_size];
     disp = ray_source.dispersion;
-
+    switch (light_type) {
+    case 0: skip = ((tile_info & 0x01) == 0); break;
+    case 1: skip = (((tile_info >> 1) & 0x01) == 0); break;
+    }
     [branch]
-    if (disp < Epsilon) {
+    if (disp < Epsilon || skip) {
         output[pixel] = float4(0.0f, 0.0f, 0.0f, 0.0f);
         return;
     }

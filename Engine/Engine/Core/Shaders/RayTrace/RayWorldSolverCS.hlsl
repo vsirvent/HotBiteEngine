@@ -375,7 +375,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     
     float4 color_reflex = float4(0.0f, 0.0f, 0.0f, 1.0f);
     float4 color_refrac = float4(0.0f, 0.0f, 0.0f, 1.0f);
-    bool hit = false;
+    uint2 hits = uint2(0, 0);
     Ray ray = GetRayInfoFromSourceWithNoDir(ray_source);
     float3 orig = ray.orig;
 
@@ -393,7 +393,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             GetColor(ray, 0, rc, ray_source.dispersion, false);
             float reflex_ratio = (1.0f - ray_source.dispersion);
             color_reflex.rgb += rc.color * ray_source.opacity;
-            hit = hit || rc.hit;
+            hits.x = rc.hit != 0;
         }
     }
     
@@ -408,16 +408,17 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
 
             GetColor(ray, 0, rc, ray_source.dispersion, true);
             color_refrac.rgb += rc.color * (1.0f - ray_source.opacity);
-            hit = hit || rc.hit;
+            hits.y = rc.hit != 0;
         }
     }
-    if (hit) {
+    uint hit = (hits.y & 0x01) << 1 | hits.x & 0x01;
+    if (hit != 0) {
         [unroll]
         for (int x = -2; x <= 2; ++x) {
             [unroll]
             for (int y = -2; y <= 2; ++y) {
                 int2 p = pixel / kernel_size + int2(x, y);
-                tiles_output[p] = 1;
+                tiles_output[p] = tiles_output[p] | hit;
             }
         }
     }
