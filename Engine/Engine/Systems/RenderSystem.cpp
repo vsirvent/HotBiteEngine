@@ -402,6 +402,11 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 			throw std::exception("RayWorldSolverCS shader.Init failed");
 		}
 
+		ray_reset = ShaderFactory::Get()->GetShader<SimpleComputeShader>("RayInputResetCS.cso");
+		if (ray_reset == nullptr) {
+			throw std::exception("RayInputResetCS shader.Init failed");
+		}
+
 		LoadRTResources();
 
 		rt_thread = std::thread([&]() {
@@ -1448,7 +1453,8 @@ void RenderSystem::ProcessMix() {
 	if (post_process_pipeline == nullptr) {
 		return;
 	}
-
+	ID3D11RenderTargetView* rv_zero[1] = { nullptr };
+	dxcore->context->OMSetRenderTargets(1, rv_zero, nullptr);
 	ID3D11UnorderedAccessView* image = temp_map.UAV();
 
 	int32_t  groupsX = (int32_t)(ceil((float)temp_map.Width() / 32.0f));
@@ -1462,12 +1468,16 @@ void RenderSystem::ProcessMix() {
 	mixer_shader->SetShaderResourceView("lightTexture", current_light_map->SRV());
 	mixer_shader->SetShaderResourceView("volLightTexture", vol_light_map.SRV());
 	mixer_shader->SetShaderResourceView("bloomTexture", bloom_map.SRV());
-	mixer_shader->SetShaderResourceView("emissionTexture", rt_texture_di_curr[RT_TEXTURE_EMISSION].SRV());
 	mixer_shader->SetShaderResourceView("dustTexture", dust_render_map.SRV());
 	mixer_shader->SetShaderResourceView("lensFlareTexture", lens_flare_map.SRV());
-	mixer_shader->SetShaderResourceView("rtTexture0", rt_texture_di_curr[RT_TEXTURE_REFLEX].SRV());
-	mixer_shader->SetShaderResourceView("rtTexture1", rt_texture_di_curr[RT_TEXTURE_REFRACT].SRV());
-	mixer_shader->SetShaderResourceView("rtTexture2", rt_texture_gi_curr->SRV());
+	if (rt_texture_di_curr != nullptr) {
+		mixer_shader->SetShaderResourceView("emissionTexture", rt_texture_di_curr[RT_TEXTURE_EMISSION].SRV());
+		mixer_shader->SetShaderResourceView("rtTexture0", rt_texture_di_curr[RT_TEXTURE_REFLEX].SRV());
+		mixer_shader->SetShaderResourceView("rtTexture1", rt_texture_di_curr[RT_TEXTURE_REFRACT].SRV());
+	}
+	if (rt_texture_gi_curr != nullptr) {
+		mixer_shader->SetShaderResourceView("rtTexture2", rt_texture_gi_curr->SRV());
+	}
 	mixer_shader->SetShaderResourceView("positions", rt_ray_sources0.SRV());
 	mixer_shader->SetShaderResourceView("normals", rt_ray_sources1.SRV());
 	mixer_shader->SetShaderResourceView("input", post_process_pipeline->RenderResource());
@@ -1489,6 +1499,8 @@ void RenderSystem::ProcessMix() {
 	mixer_shader->SetShaderResourceView("input", nullptr);
 	mixer_shader->SetShaderResourceView("lensFlareTexture", nullptr);
 	mixer_shader->SetShaderResourceView("rgbaNoise", nullptr);
+	mixer_shader->SetShaderResourceView("positions", nullptr);
+	mixer_shader->SetShaderResourceView("normals", nullptr);
 	mixer_shader->CopyAllBufferData();
 }
 
@@ -1807,6 +1819,7 @@ void RenderSystem::PrepareRT() {
 }
 
 void RenderSystem::ProcessGI() {
+	return;
 	if (rt_enabled & RT_INDIRECT_ENABLE && rt_quality != eRtQuality::OFF && rt_enabled && bvh_buffer != nullptr && nobjects > 0) {
 
 		restir_pdf_curr = &restir_pdf[0];
@@ -1995,12 +2008,13 @@ void RenderSystem::ProcessRT() {
 		if (rt_quality != eRtQuality::OFF && rt_enabled && bvh_buffer != nullptr && nobjects > 0) {
 
 			rt_textures_gi_tiles.Clear(zero);
-			
-			dxcore->context->ClearUnorderedAccessViewFloat(*input_rays.UAV(), max_floats);
-			std::lock_guard<std::mutex> lock(rt_mutex);
-			CameraEntity& cam_entity = cameras.GetData()[0];
+			ray_reset->SetUnorderedAccessView("ray_inputs", *input_rays.UAV());
+			ray_reset->SetShader();
 
-			tbvh_buffer.Refresh(tbvh.Root(), 0, tbvh.Size());
+			int32_t  groupsX = (int32_t)(ceil((float)input_rays.Size() / (32.0f)));
+			int32_t  groupsY = 1;
+			dxcore->context->Dispatch(groupsX, groupsY, 1);
+			ray_reset->SetUnorderedAccessView("ray_inputs", nullptr);
 
 			ID3D11RenderTargetView* nullRenderTargetViews[1] = { nullptr };
 			dxcore->context->OMSetRenderTargets(1, nullRenderTargetViews, nullptr);
@@ -2011,14 +2025,12 @@ void RenderSystem::ProcessRT() {
 			rt_di_shader->SetShaderResourceView("rgbaNoise", rgba_noise_texture.SRV());
 			rt_di_shader->SetUnorderedAccessView("ray_inputs", *input_rays.UAV());
 
-			float3 dir;
-			XMStoreFloat3(&dir, cam_entity.camera->xm_direction);
+			CameraEntity& cam_entity = cameras.GetData()[0];
 			rt_di_shader->SetFloat(TIME, time);
 			rt_di_shader->SetInt("enabled", rt_enabled & (rt_quality != eRtQuality::OFF ? 0xFF : 0x00));
 			rt_di_shader->SetInt("frame_count", frame_count);
 			rt_di_shader->SetInt("divider", RT_TEXTURE_RESOLUTION_DIVIDER);
 			rt_di_shader->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
-			rt_di_shader->SetFloat3("cameraDirection", dir);
 
 			rt_di_shader->SetSamplerState(PCF_SAMPLER, dxcore->shadow_sampler);
 			rt_di_shader->SetSamplerState(BASIC_SAMPLER, dxcore->basic_sampler);
@@ -2026,15 +2038,20 @@ void RenderSystem::ProcessRT() {
 			rt_di_shader->CopyAllBufferData();
 
 			rt_di_shader->SetShader();
-			int32_t  groupsX = (int32_t)(ceil((float)rt_texture_di_curr[RT_TEXTURE_REFLEX].Width() / (32.0f)));
-			int32_t  groupsY = (int32_t)(ceil((float)rt_texture_di_curr[RT_TEXTURE_REFLEX].Height() / (32.0f)));
-			dxcore->context->Dispatch(groupsX, groupsY, 2);
+			groupsX = (int32_t)(ceil((float)rt_texture_di_curr[RT_TEXTURE_REFLEX].Width() / (32.0f)));
+			groupsY = (int32_t)(ceil((float)rt_texture_di_curr[RT_TEXTURE_REFLEX].Height() / (32.0f)));
+			dxcore->context->Dispatch(groupsX, groupsY, 1);
 
 			rt_di_shader->SetShaderResourceView("ray0", nullptr);
 			rt_di_shader->SetShaderResourceView("ray1", nullptr);
 			rt_di_shader->SetShaderResourceView("rgbaNoise", nullptr);
 			rt_di_shader->SetUnorderedAccessView("ray_inputs", nullptr);
 			rt_di_shader->CopyAllBufferData();
+
+			{
+				std::lock_guard<std::mutex> lock(rt_mutex);			
+				tbvh_buffer.Refresh(tbvh.Root(), 0, tbvh.Size());
+			}
 
 			//TODO: Resolve rays with SSR
 			
@@ -2807,7 +2824,7 @@ void RenderSystem::SetRayTracingQuality(eRtQuality quality) {
 		switch (rt_quality) {
 		case eRtQuality::LOW: RT_TEXTURE_RESOLUTION_DIVIDER = 3; break;
 		case eRtQuality::MID: RT_TEXTURE_RESOLUTION_DIVIDER = 2; break;
-		case eRtQuality::HIGH: RT_TEXTURE_RESOLUTION_DIVIDER = 2; break;
+		case eRtQuality::HIGH: RT_TEXTURE_RESOLUTION_DIVIDER = 1; break;
 		}
 		if (rt_quality != eRtQuality::OFF) {
 			LoadRTResources();

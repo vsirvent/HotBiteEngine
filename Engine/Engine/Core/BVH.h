@@ -156,7 +156,7 @@ namespace HotBite {
 					bd.ByteWidth = data_size;
 					bd.CPUAccessFlags = 0;
 					bd.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS;
-					bd.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS;
+					bd.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
 					bd.StructureByteStride = sizeof(T);
 					
 					uint8_t* nullData = new uint8_t[data_size];
@@ -166,18 +166,18 @@ namespace HotBite {
 					assert(SUCCEEDED(hr));
 					delete[] nullData;
 					
-					srvDesc.Format = DXGI_FORMAT_R32_FLOAT;
+					srvDesc.Format = DXGI_FORMAT_UNKNOWN;
 					srvDesc.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
 					srvDesc.Buffer.FirstElement = 0;
-					srvDesc.Buffer.NumElements = data_size / 4;
+					srvDesc.Buffer.NumElements = size;
 					hr = device->CreateShaderResourceView(buffer, &srvDesc, &srv);
 					assert(SUCCEEDED(hr));
 					srv->GetResource(&resource);
 
 					uav_desc.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
-					uav_desc.Format = DXGI_FORMAT_R32_FLOAT;
+					uav_desc.Format = DXGI_FORMAT_UNKNOWN;
 					uav_desc.Buffer.FirstElement = 0;
-					uav_desc.Buffer.NumElements = data_size / 4;
+					uav_desc.Buffer.NumElements = size;
 					hr = device->CreateUnorderedAccessView(resource, &uav_desc, &uav);
 					assert(SUCCEEDED(hr));
 				

@@ -59,7 +59,7 @@ cbuffer objectData : register(b1)
 
 RWTexture2D<float4> output0 : register(u0);
 RWTexture2D<float4> output1 : register(u1);
-RWTexture2D<float4> tiles_output : register(u2);
+RWTexture2D<uint> tiles_output: register(u2);
 
 Texture2D<float4> ray0;
 Texture2D<float4> ray1;

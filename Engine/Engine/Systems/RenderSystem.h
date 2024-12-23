@@ -294,6 +294,7 @@ namespace HotBite {
 				Core::SimpleComputeShader* gi_weights = nullptr;
 
 				Core::SimpleComputeShader* ray_world_solver = nullptr;
+				Core::SimpleComputeShader* ray_reset = nullptr;
 
 				static constexpr int RT_TEXTURE_REFLEX = 0;
 				static constexpr int RT_TEXTURE_REFRACT = 1;

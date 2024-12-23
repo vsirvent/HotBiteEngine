@@ -600,5 +600,8 @@
     <FxCompile Include="Engine\Core\Shaders\RayTrace\RayWorldSolverCS.hlsl">
       <Filter>Engine\Core\Shaders\RayTrace</Filter>
     </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\RayTrace\RayInputResetCS.hlsl">
+      <Filter>Engine\Core\Shaders\RayTrace</Filter>
+    </FxCompile>
   </ItemGroup>
 </Project>

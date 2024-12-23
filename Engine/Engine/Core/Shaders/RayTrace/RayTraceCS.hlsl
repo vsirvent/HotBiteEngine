@@ -38,7 +38,6 @@ cbuffer externalData : register(b0)
     uint divider;
     float time;
     float3 cameraPosition;
-    float3 cameraDirection;
 }
 
 Texture2D<float4> ray0: register(t0);
