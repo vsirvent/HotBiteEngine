@@ -22,7 +22,7 @@ Texture2D<float2> motion_texture : register(t4);
 Texture2D<float4> prev_position_map: register(t5);
 Texture2D<uint> tiles_output : register(t7);
 
-#define NTHREADS 32
+#define NTHREADS 11
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main(uint3 DTid : SV_DispatchThreadID)
 {

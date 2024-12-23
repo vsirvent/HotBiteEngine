@@ -289,15 +289,19 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		if (FAILED(high_z_tmp_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("high_z_tmp_map.Init failed");
 		}
+		
 		uint32_t hiz_w = w;
 		uint32_t hiz_h = h;
-		for (int i = 0; i < HIZ_TEXTURES; ++i) {
+		high_z_maps[0] = depth_map.SRV();
+		for (int i = 0; i < HIZ_DOWNSAMPLED_NTEXTURES; ++i) {
 			hiz_w = (uint32_t)ceil((float)hiz_w / (float)HIZ_RATIO);
 			hiz_h = (uint32_t)ceil((float)hiz_h / (float)HIZ_RATIO);
-			if (FAILED(high_z_map[i].Init(hiz_w, hiz_h, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
-				throw std::exception("high_z_map.Init failed");
+			if (FAILED(high_z_downsampled_map[i].Init(hiz_w, hiz_h, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+				throw std::exception("high_z_downsampled_map.Init failed");
 			}
+			high_z_maps[i + 1] = high_z_downsampled_map[i].SRV();
 		}
+		
 		if (FAILED(depth_view.Init(w, h))) {
 			throw std::exception("depth_view.Init failed");
 		}
@@ -402,9 +406,9 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 			throw std::exception("RayWorldSolverCS shader.Init failed");
 		}
 
-		ray_reset = ShaderFactory::Get()->GetShader<SimpleComputeShader>("RayInputResetCS.cso");
-		if (ray_reset == nullptr) {
-			throw std::exception("RayInputResetCS shader.Init failed");
+		ray_screen_solver = ShaderFactory::Get()->GetShader<SimpleComputeShader>("RayScreenSolverCS.cso");
+		if (ray_screen_solver == nullptr) {
+			throw std::exception("RayScreenSolverCS shader.Init failed");
 		}
 
 		LoadRTResources();
@@ -456,8 +460,8 @@ RenderSystem::~RenderSystem() {
 	motion_texture.Release();
 	depth_map.Release();
 	high_z_tmp_map.Release();
-	for (int i = 0; i < HIZ_TEXTURES; ++i) {
-		high_z_map[i].Release();
+	for (int i = 0; i < HIZ_DOWNSAMPLED_NTEXTURES; ++i) {
+		high_z_downsampled_map[i].Release();
 	}
 
 	for (int i = 0; i < RT_NTEXTURES; ++i) {
@@ -1689,14 +1693,14 @@ void RenderSystem::ProcessHighZ() {
 	Core::RenderTexture2D* input;
 	Core::RenderTexture2D* output;
 
-	for (uint32_t i = 0; i < HIZ_TEXTURES; ++i) {
+	for (uint32_t i = 0; i < HIZ_DOWNSAMPLED_NTEXTURES; ++i) {
 		if (i == 0) {
 			input = &depth_map;
 		}
 		else {
-			input = &high_z_map[i - 1];
+			input = &high_z_downsampled_map[i - 1];
 		}
-		output = &high_z_map[i];
+		output = &high_z_downsampled_map[i];
 
 		int32_t  groupsX = (int32_t)(ceil((float)input->Width() / 32.0f));
 		int32_t  groupsY = (int32_t)(ceil((float)output->Height() / 32.0f));
@@ -1821,7 +1825,7 @@ void RenderSystem::PrepareRT() {
 }
 
 void RenderSystem::ProcessGI() {
-	return;
+	
 	if (rt_enabled & RT_INDIRECT_ENABLE && rt_quality != eRtQuality::OFF && rt_enabled && bvh_buffer != nullptr && nobjects > 0) {
 
 		restir_pdf_curr = &restir_pdf[0];
@@ -2013,6 +2017,9 @@ void RenderSystem::ProcessRT() {
 			rt_textures_gi_tiles.Clear(zero);
 			input_rays.Clear(max_floats);
 
+
+			ID3D11ShaderResourceView* nullsrc = nullptr;
+			ID3D11ShaderResourceView* no_data[MAX_OBJECTS] = {};
 			ID3D11RenderTargetView* nullRenderTargetViews[1] = { nullptr };
 			dxcore->context->OMSetRenderTargets(1, nullRenderTargetViews, nullptr);
 
@@ -2045,16 +2052,41 @@ void RenderSystem::ProcessRT() {
 			rt_di_shader->SetUnorderedAccessView("ray_inputs", nullptr);
 			rt_di_shader->CopyAllBufferData();
 
-			{
-				std::lock_guard<std::mutex> lock(rt_mutex);			
-				tbvh_buffer.Refresh(tbvh.Root(), 0, tbvh.Size());
-			}
+			//Resolve rays with screen space Ray Tracing
+			ray_screen_solver->SetInt("enabled", rt_enabled& (rt_quality != eRtQuality::OFF ? 0xFF : 0x00));
+			ray_screen_solver->SetInt("frame_count", frame_count);
+			ray_screen_solver->SetFloat(TIME, time);
+			ray_screen_solver->SetInt("kernel_size", RESTIR_KERNEL);
+			ray_screen_solver->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
 
-			//TODO: Resolve rays with SSR
+			ray_screen_solver->SetShaderResourceView("ray0", rt_ray_sources0.SRV());
+			ray_screen_solver->SetShaderResourceView("ray1", rt_ray_sources1.SRV());
+			ray_screen_solver->SetShaderResourceView("ray_inputs", input_rays.SRV());
+			ray_screen_solver->SetUnorderedAccessView("output", rt_texture_di_curr[RT_TEXTURE_REFLEX].UAV());
+			ray_screen_solver->SetUnorderedAccessView("tiles_output", rt_textures_gi_tiles.UAV());
+			ray_screen_solver->SetShaderResourceViewArray("hiz_textures[0]", high_z_maps, HIZ_NTEXTURES);
+			PrepareLights(ray_screen_solver);
+			ray_screen_solver->CopyAllBufferData();
+			ray_screen_solver->SetShader();
+
+			groupsX = (int32_t)(ceil((float)rt_texture_di_curr[RT_TEXTURE_REFLEX].Width() / (32.0f)));
+			groupsY = (int32_t)(ceil((float)rt_texture_di_curr[RT_TEXTURE_REFLEX].Height() / (32.0f)));
+			dxcore->context->Dispatch(groupsX, groupsY, 1);
 			
-
+			ray_screen_solver->SetShaderResourceView("ray0", nullptr);
+			ray_screen_solver->SetShaderResourceView("ray1", nullptr);
+			ray_screen_solver->SetShaderResourceView("ray_inputs", nullptr);
+			ray_screen_solver->SetUnorderedAccessView("output", nullptr);
+			ray_screen_solver->SetUnorderedAccessView("tiles_output", nullptr);
+			UnprepareLights(ray_screen_solver);
+			ray_screen_solver->CopyAllBufferData();
 
 			// Resolve rays with world space Ray Tracing
+			{
+				//We need at this point the BVH structures to be available
+				std::lock_guard<std::mutex> lock(rt_mutex);
+				tbvh_buffer.Refresh(tbvh.Root(), 0, tbvh.Size());
+			}
 			ray_world_solver->SetInt("enabled", rt_enabled & (rt_quality != eRtQuality::OFF ? 0xFF : 0x00));
 			ray_world_solver->SetInt("frame_count", frame_count);
 			ray_world_solver->SetFloat(TIME, time);
@@ -2088,7 +2120,7 @@ void RenderSystem::ProcessRT() {
 			groupsX = (int32_t)(ceil((float)rt_texture_di_curr[RT_TEXTURE_REFLEX].Width() / (32.0f)));
 			groupsY = (int32_t)(ceil((float)rt_texture_di_curr[RT_TEXTURE_REFLEX].Height() / (32.0f)));
 			dxcore->context->Dispatch(groupsX, groupsY, 1);
-			ID3D11ShaderResourceView* nullsrc = nullptr;
+			
 			ray_world_solver->SetUnorderedAccessView("output0", nullptr);
 			ray_world_solver->SetUnorderedAccessView("output1", nullptr);
 			ray_world_solver->SetShaderResourceView("ray0", nullptr);
@@ -2100,7 +2132,7 @@ void RenderSystem::ProcessRT() {
 			dxcore->context->CSSetShaderResources(3, 1, &nullsrc);
 			dxcore->context->CSSetShaderResources(4, 1, &nullsrc);
 			dxcore->context->CSSetShaderResources(5, 1, &nullsrc);
-			ID3D11ShaderResourceView* no_data[MAX_OBJECTS] = {};
+	
 			ray_world_solver->SetShaderResourceViewArray("DiffuseTextures[0]", no_data, nobjects);
 
 			UnprepareLights(ray_world_solver);
@@ -2123,8 +2155,8 @@ void RenderSystem::ProcessRT() {
 			for (int i = 0; i < ntextures; ++i) {
 				int ntexture = textures[i];
 
-				groupsX = (int32_t)(ceil((float)rt_texture_di_curr[ntexture].Width() / (32.0f)));
-				groupsY = (int32_t)(ceil((float)rt_texture_di_curr[ntexture].Height() / (32.0f)));
+				groupsX = (int32_t)(ceil((float)rt_texture_di_curr[ntexture].Width() / (RESTIR_KERNEL)));
+				groupsY = (int32_t)(ceil((float)rt_texture_di_curr[ntexture].Height() / (RESTIR_KERNEL)));
 
 				rt_di_denoiser->SetShaderResourceView("input", rt_texture_di_curr[ntexture].SRV());
 				rt_di_denoiser->SetUnorderedAccessView("output", texture_tmp.UAV());
@@ -2133,8 +2165,6 @@ void RenderSystem::ProcessRT() {
 				rt_di_denoiser->SetInt("light_type", i);
 				rt_di_denoiser->CopyAllBufferData();
 				rt_di_denoiser->SetShader();
-				groupsX = (int32_t)(ceil((float)rt_texture_di_curr[ntexture].Width() / (32.0f)));
-				groupsY = (int32_t)(ceil((float)rt_texture_di_curr[ntexture].Height() / (32.0f)));
 				dxcore->context->Dispatch(groupsX, groupsY, 1);
 				rt_di_denoiser->SetShaderResourceView("input", nullptr);
 				rt_di_denoiser->SetUnorderedAccessView("output", nullptr);
@@ -2742,7 +2772,7 @@ void RenderSystem::Draw() {
 		ProcessMotion();
 		ProcessHighZ();
 		ProcessRT();
-		ProcessGI();
+		//ProcessGI();
 		PostProcessLight();
 		ProcessMix();
 		ProcessAntiAlias();

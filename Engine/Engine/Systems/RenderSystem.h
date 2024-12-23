@@ -294,7 +294,7 @@ namespace HotBite {
 				Core::SimpleComputeShader* gi_weights = nullptr;
 
 				Core::SimpleComputeShader* ray_world_solver = nullptr;
-				Core::SimpleComputeShader* ray_reset = nullptr;
+				Core::SimpleComputeShader* ray_screen_solver = nullptr;
 
 				static constexpr int RT_TEXTURE_REFLEX = 0;
 				static constexpr int RT_TEXTURE_REFRACT = 1;
@@ -317,7 +317,6 @@ namespace HotBite {
 				static constexpr uint32_t RESTIR_KERNEL = 2 * RESTIR_HALF_KERNEL + 1;
 				static constexpr uint32_t RESTIR_PIXEL_RAYS = 16;
 				static constexpr uint32_t RESTIR_TOTAL_RAYS = RESTIR_PIXEL_RAYS * RESTIR_KERNEL * RESTIR_KERNEL;
-
 
 				Core::RenderTexture2D* rt_texture_di_prev;
 				Core::RenderTexture2D* rt_texture_di_curr;
@@ -353,10 +352,11 @@ namespace HotBite {
 				//SSR
 				Core::SimpleComputeShader* high_z_shader = nullptr;
 				static constexpr uint32_t HIZ_RATIO = 5;
-				static constexpr uint32_t HIZ_TEXTURES = 3;
+				static constexpr uint32_t HIZ_DOWNSAMPLED_NTEXTURES = 3;
+				static constexpr uint32_t HIZ_NTEXTURES = HIZ_DOWNSAMPLED_NTEXTURES + 1;
 				Core::RenderTexture2D high_z_tmp_map;
-				Core::RenderTexture2D high_z_map[HIZ_TEXTURES];
-
+				Core::RenderTexture2D high_z_downsampled_map[HIZ_DOWNSAMPLED_NTEXTURES];
+				ID3D11ShaderResourceView* high_z_maps[HIZ_NTEXTURES]{};
 				//Copy texture shader
 				Core::SimpleComputeShader* copy_texture = nullptr;
 
