@@ -63,8 +63,8 @@ RWTexture2D<uint> tiles_output: register(u2);
 
 Texture2D<float4> ray0;
 Texture2D<float4> ray1;
+Texture2D<float4> ray_inputs: register(t0);
 
-StructuredBuffer<InputRays> ray_inputs: register(t0);
 StructuredBuffer<BVHNode> objects: register(t2);
 StructuredBuffer<BVHNode> objectBVH: register(t3);
 
@@ -370,7 +370,6 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
 
 
     float2 ray_pixel = round(pixel * rayMapRatio);
-    uint ray_input_pos = (pixel.y * dimensions.x + pixel.x);
 
     RaySource ray_source = fromColor(ray0[ray_pixel], ray1[ray_pixel]);
     
@@ -381,39 +380,35 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     float3 orig = ray.orig;
 
     //Get rays to be solved in the pixel
-    float2 ray_input_dir[2];
-    [unroll]
-    for (int i = 0; i < MAX_RAY_INPUTS_POS; ++i) {
-        RayTraceColor rc;
-        float4 ray_input_dirs = ray_inputs[ray_input_pos].dir2[i];
-        ray_input_dir[0] = float2(ray_input_dirs.x, ray_input_dirs.y);
-        ray_input_dir[1] = float2(ray_input_dirs.z, ray_input_dirs.z);
-
-        if (ray_input_dir[0].x < 10e10) {
-            if (dist2(ray_input_dir[0]) <= Epsilon) {
-                color_reflex.rgb = float3(1.0f, 0.0f, 0.0f);
-            }
-            else {
-                ray.dir = GetCartesianCoordinates(ray_input_dir[0]);
-                ray.orig.xyz = orig + ray.dir * 0.01f;
-                GetColor(ray, 0, rc, ray_source.dispersion, false);
-                float reflex_ratio = (1.0f - ray_source.dispersion);
-                color_reflex.rgb += rc.color * ray_source.opacity;
-                hit = hit || rc.hit;
-            }
+    RayTraceColor rc;
+    float4 ray_input_dirs = ray_inputs[pixel];
+    [branch]
+    if (ray_input_dirs.x < 10e10) {
+        if (dist2(ray_input_dirs.xy) <= Epsilon) {
+            color_reflex.rgb = float3(1.0f, 0.0f, 0.0f);
         }
-        if (ray_input_dir[1].x < 10e10) {
-            if (dist2(ray_input_dir[1]) <= Epsilon) {
-                color_reflex.rgb = float3(1.0f, 0.0f, 0.0f);
-            }
-            else {
-                ray.dir = GetCartesianCoordinates(ray_input_dir[1]);
-                ray.orig.xyz = orig + ray.dir * 0.01f;
+        else {
+            ray.dir = GetCartesianCoordinates(ray_input_dirs.xy);
+            ray.orig.xyz = orig + ray.dir * 0.01f;
+            GetColor(ray, 0, rc, ray_source.dispersion, false);
+            float reflex_ratio = (1.0f - ray_source.dispersion);
+            color_reflex.rgb += rc.color * ray_source.opacity;
+            hit = hit || rc.hit;
+        }
+    }
+    
+    [branch]
+    if (ray_input_dirs.z < 10e10) {
+        if (dist2(ray_input_dirs.zw) <= Epsilon) {
+            color_reflex.rgb = float3(1.0f, 0.0f, 0.0f);
+        }
+        else {
+            ray.dir = GetCartesianCoordinates(ray_input_dirs.zw);
+            ray.orig.xyz = orig + ray.dir * 0.01f;
 
-                GetColor(ray, 0, rc, ray_source.dispersion, true);
-                color_refrac.rgb += rc.color * (1.0f - ray_source.opacity);
-                hit = hit || rc.hit;
-            }
+            GetColor(ray, 0, rc, ray_source.dispersion, true);
+            color_refrac.rgb += rc.color * (1.0f - ray_source.opacity);
+            hit = hit || rc.hit;
         }
     }
     if (hit) {

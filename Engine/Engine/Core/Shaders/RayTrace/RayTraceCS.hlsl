@@ -42,7 +42,7 @@ cbuffer externalData : register(b0)
 
 Texture2D<float4> ray0: register(t0);
 Texture2D<float4> ray1: register(t1);
-RWStructuredBuffer<InputRays> ray_inputs: register(u0);
+RWTexture2D<float4> ray_inputs: register(u0);
 
 #include "../Common/Utils.hlsli"
 #include "../Common/RayFunctions.hlsli"
@@ -70,7 +70,6 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     float x = (float)DTid.x;
     float y = (float)DTid.y;
     float2 pixel = float2(x, y);
-    float ray_input_pixel = y * ray_input_dimension.x + x;
     float2 ray_pixel = round(pixel * divider);
        
     RaySource ray_source = fromColor(ray0[ray_pixel], ray1[ray_pixel]);
@@ -84,19 +83,9 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     int count = 0;
 
     float cumulativePoints = 0;
-    float level = 1;
-    while (true) {
-        float c = cumulativePoints + level * 2;
-        if (c < N) {
-            cumulativePoints = c;
-        }
-        else {
-            break;
-        }
-        level++;
-    };
+    float level = NCOUNT;
 
-    float4 dirs;
+    float4 dirs = float4(10e11, 10e11, 10e11, 10e11);
     //Reflected ray
     if (ray_source.opacity > Epsilon && (enabled & REFLEX_ENABLED)) {
         Ray ray = GetReflectedRayFromSource(ray_source, cameraPosition);
@@ -118,5 +107,5 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             dirs.zw = GetPolarCoordinates(ray.dir);
         }
     }
-    ray_inputs[ray_input_pixel].dir2[0] = dirs;
+    ray_inputs[pixel] = dirs;
 }

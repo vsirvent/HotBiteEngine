@@ -497,8 +497,10 @@ void RenderSystem::LoadRTResources() {
 		}
 	}
 
-	input_rays.Unprepare();
-	input_rays.Prepare((w * h) / (RT_TEXTURE_RESOLUTION_DIVIDER * RT_TEXTURE_RESOLUTION_DIVIDER));
+	input_rays.Release();
+	if (FAILED(input_rays.Init(w / RT_TEXTURE_RESOLUTION_DIVIDER, h / RT_TEXTURE_RESOLUTION_DIVIDER, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+		throw std::exception("input_rays.Init failed");
+	}
 
 	uint32_t restir_div = 3;// max(RT_TEXTURE_RESOLUTION_DIVIDER, 2);
 
@@ -2009,14 +2011,7 @@ void RenderSystem::ProcessRT() {
 
 			//Reset tiles (that avoid denoising tiles with no ray color)
 			rt_textures_gi_tiles.Clear(zero);
-			//Reset input ray solver
-			ray_reset->SetUnorderedAccessView("ray_inputs", *input_rays.UAV());
-			ray_reset->SetShader();
-
-			int32_t  groupsX = (int32_t)(ceil((float)input_rays.Size() / (32.0f * 2.0f)));
-			int32_t  groupsY = 1;
-			dxcore->context->Dispatch(groupsX, groupsY, 1);
-			ray_reset->SetUnorderedAccessView("ray_inputs", nullptr);
+			input_rays.Clear(max_floats);
 
 			ID3D11RenderTargetView* nullRenderTargetViews[1] = { nullptr };
 			dxcore->context->OMSetRenderTargets(1, nullRenderTargetViews, nullptr);
@@ -2025,7 +2020,7 @@ void RenderSystem::ProcessRT() {
 			rt_di_shader->SetShaderResourceView("ray0", rt_ray_sources0.SRV());
 			rt_di_shader->SetShaderResourceView("ray1", rt_ray_sources1.SRV());
 			rt_di_shader->SetShaderResourceView("rgbaNoise", rgba_noise_texture.SRV());
-			rt_di_shader->SetUnorderedAccessView("ray_inputs", *input_rays.UAV());
+			rt_di_shader->SetUnorderedAccessView("ray_inputs", input_rays.UAV());
 
 			CameraEntity& cam_entity = cameras.GetData()[0];
 			rt_di_shader->SetFloat(TIME, time);
@@ -2040,8 +2035,8 @@ void RenderSystem::ProcessRT() {
 			rt_di_shader->CopyAllBufferData();
 
 			rt_di_shader->SetShader();
-			groupsX = (int32_t)(ceil((float)rt_texture_di_curr[RT_TEXTURE_REFLEX].Width() / (32.0f)));
-			groupsY = (int32_t)(ceil((float)rt_texture_di_curr[RT_TEXTURE_REFLEX].Height() / (32.0f)));
+			int32_t groupsX = (int32_t)(ceil((float)rt_texture_di_curr[RT_TEXTURE_REFLEX].Width() / (32.0f)));
+			int32_t groupsY = (int32_t)(ceil((float)rt_texture_di_curr[RT_TEXTURE_REFLEX].Height() / (32.0f)));
 			dxcore->context->Dispatch(groupsX, groupsY, 1);
 
 			rt_di_shader->SetShaderResourceView("ray0", nullptr);
@@ -2075,6 +2070,7 @@ void RenderSystem::ProcessRT() {
 			ray_world_solver->SetUnorderedAccessView("tiles_output", rt_textures_gi_tiles.UAV());
 			ray_world_solver->SetShaderResourceView("ray0", rt_ray_sources0.SRV());
 			ray_world_solver->SetShaderResourceView("ray1", rt_ray_sources1.SRV());
+			ray_world_solver->SetShaderResourceView("ray_inputs", input_rays.SRV());
 			ray_world_solver->SetShaderResourceViewArray("DiffuseTextures[0]", diffuseTextures, nobjects);
 			ray_world_solver->SetSamplerState(PCF_SAMPLER, dxcore->shadow_sampler);
 			ray_world_solver->SetSamplerState(BASIC_SAMPLER, dxcore->basic_sampler);
@@ -2083,7 +2079,6 @@ void RenderSystem::ProcessRT() {
 
 			ray_world_solver->CopyAllBufferData();
 
-			dxcore->context->CSSetShaderResources(0, 1, input_rays.SRV());
 			dxcore->context->CSSetShaderResources(2, 1, bvh_buffer->SRV());
 			dxcore->context->CSSetShaderResources(3, 1, tbvh_buffer.SRV());
 			dxcore->context->CSSetShaderResources(4, 1, vertex_buffer->VertexSRV());
@@ -2092,7 +2087,7 @@ void RenderSystem::ProcessRT() {
 
 			groupsX = (int32_t)(ceil((float)rt_texture_di_curr[RT_TEXTURE_REFLEX].Width() / (32.0f)));
 			groupsY = (int32_t)(ceil((float)rt_texture_di_curr[RT_TEXTURE_REFLEX].Height() / (32.0f)));
-			dxcore->context->Dispatch(groupsX, groupsY, 2);
+			dxcore->context->Dispatch(groupsX, groupsY, 1);
 			ID3D11ShaderResourceView* nullsrc = nullptr;
 			ray_world_solver->SetUnorderedAccessView("output0", nullptr);
 			ray_world_solver->SetUnorderedAccessView("output1", nullptr);
@@ -2100,7 +2095,7 @@ void RenderSystem::ProcessRT() {
 			ray_world_solver->SetShaderResourceView("ray1", nullptr);
 			ray_world_solver->SetUnorderedAccessView("bloom", nullptr);
 			ray_world_solver->SetUnorderedAccessView("tiles_output", nullptr);
-			dxcore->context->CSSetShaderResources(0, 1, &nullsrc);
+			ray_world_solver->SetShaderResourceView("ray_inputs", nullptr);
 			dxcore->context->CSSetShaderResources(2, 1, &nullsrc);
 			dxcore->context->CSSetShaderResources(3, 1, &nullsrc);
 			dxcore->context->CSSetShaderResources(4, 1, &nullsrc);

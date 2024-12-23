@@ -348,7 +348,7 @@ namespace HotBite {
 					float2 dir3{ FLT_MAX, FLT_MAX };
 				};
 
-				DataBuffer<RayData> input_rays;
+				Core::RenderTexture2D input_rays;
 
 				//SSR
 				Core::SimpleComputeShader* high_z_shader = nullptr;
