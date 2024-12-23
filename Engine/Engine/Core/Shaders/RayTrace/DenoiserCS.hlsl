@@ -7,8 +7,7 @@ cbuffer externalData : register(b0)
     uint count;
     float3 cameraPosition;
     uint light_type;
-    matrix view;
-    matrix projection;
+    matrix view_projection;
     uint debug;
     int kernel_size;
 }
@@ -118,8 +117,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
         output[pixel] = c0;
     }
     else {
-        matrix worldViewProj = mul(view, projection);
-        float4 prev_pos = mul(prev_position_map[info_pixel], worldViewProj);
+        float4 prev_pos = mul(prev_position_map[info_pixel], view_projection);
         prev_pos.x /= prev_pos.w;
         prev_pos.y /= -prev_pos.w;
         prev_pos.xy = (prev_pos.xy + 1.0f) * normals_dimensions.xy / 2.0f;

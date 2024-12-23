@@ -2057,11 +2057,14 @@ void RenderSystem::ProcessRT() {
 			ray_screen_solver->SetInt("frame_count", frame_count);
 			ray_screen_solver->SetFloat(TIME, time);
 			ray_screen_solver->SetInt("kernel_size", RESTIR_KERNEL);
+			ray_screen_solver->SetFloat("divider", HIZ_RATIO);
 			ray_screen_solver->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
-
+			ray_screen_solver->SetMatrix4x4("view_projection", cam_entity.camera->view_projection);
+			ray_screen_solver->SetMatrix4x4("inv_projection", cam_entity.camera->inverse_projection);
 			ray_screen_solver->SetShaderResourceView("ray0", rt_ray_sources0.SRV());
 			ray_screen_solver->SetShaderResourceView("ray1", rt_ray_sources1.SRV());
-			ray_screen_solver->SetShaderResourceView("ray_inputs", input_rays.SRV());
+			ray_screen_solver->SetUnorderedAccessView("ray_inputs", input_rays.UAV());
+			ray_screen_solver->SetShaderResourceView("color_texture", post_process_pipeline->RenderResource());
 			ray_screen_solver->SetUnorderedAccessView("output", rt_texture_di_curr[RT_TEXTURE_REFLEX].UAV());
 			ray_screen_solver->SetUnorderedAccessView("tiles_output", rt_textures_gi_tiles.UAV());
 			ray_screen_solver->SetShaderResourceViewArray("hiz_textures[0]", high_z_maps, HIZ_NTEXTURES);
@@ -2075,9 +2078,11 @@ void RenderSystem::ProcessRT() {
 			
 			ray_screen_solver->SetShaderResourceView("ray0", nullptr);
 			ray_screen_solver->SetShaderResourceView("ray1", nullptr);
-			ray_screen_solver->SetShaderResourceView("ray_inputs", nullptr);
+			ray_screen_solver->SetUnorderedAccessView("ray_inputs", nullptr);
 			ray_screen_solver->SetUnorderedAccessView("output", nullptr);
 			ray_screen_solver->SetUnorderedAccessView("tiles_output", nullptr);
+			ray_screen_solver->SetShaderResourceView("color_texture", nullptr);
+
 			UnprepareLights(ray_screen_solver);
 			ray_screen_solver->CopyAllBufferData();
 
@@ -2145,8 +2150,7 @@ void RenderSystem::ProcessRT() {
 			rt_di_denoiser->SetShaderResourceView("normals", rt_ray_sources1.SRV());
 			rt_di_denoiser->SetShaderResourceView("motion_texture", motion_texture.SRV());
 			rt_di_denoiser->SetShaderResourceView("prev_position_map", prev_position_map.SRV());
-			rt_di_denoiser->SetMatrix4x4(VIEW, cam_entity.camera->view);
-			rt_di_denoiser->SetMatrix4x4(PROJECTION, cam_entity.camera->projection);
+			rt_di_denoiser->SetMatrix4x4("view_projection", cam_entity.camera->view_projection);
 			rt_di_denoiser->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
 			rt_di_denoiser->SetShaderResourceView("tiles_output", rt_textures_gi_tiles.SRV());
 

@@ -394,6 +394,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             float reflex_ratio = (1.0f - ray_source.dispersion);
             color_reflex.rgb += rc.color * ray_source.opacity;
             hits.x = rc.hit != 0;
+            output0[pixel] = color_reflex;
         }
     }
     
@@ -409,6 +410,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             GetColor(ray, 0, rc, ray_source.dispersion, true);
             color_refrac.rgb += rc.color * (1.0f - ray_source.opacity);
             hits.y = rc.hit != 0;
+            output1[pixel] = color_refrac;
         }
     }
     uint hit = (hits.y & 0x01) << 1 | hits.x & 0x01;
@@ -422,7 +424,5 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             }
         }
     }
-    output0[pixel] = color_reflex;
-    output1[pixel] = color_refrac;
 }
     
