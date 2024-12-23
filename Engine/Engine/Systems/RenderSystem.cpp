@@ -2007,11 +2007,13 @@ void RenderSystem::ProcessRT() {
 
 		if (rt_quality != eRtQuality::OFF && rt_enabled && bvh_buffer != nullptr && nobjects > 0) {
 
+			//Reset tiles (that avoid denoising tiles with no ray color)
 			rt_textures_gi_tiles.Clear(zero);
+			//Reset input ray solver
 			ray_reset->SetUnorderedAccessView("ray_inputs", *input_rays.UAV());
 			ray_reset->SetShader();
 
-			int32_t  groupsX = (int32_t)(ceil((float)input_rays.Size() / (32.0f)));
+			int32_t  groupsX = (int32_t)(ceil((float)input_rays.Size() / (32.0f * 2.0f)));
 			int32_t  groupsY = 1;
 			dxcore->context->Dispatch(groupsX, groupsY, 1);
 			ray_reset->SetUnorderedAccessView("ray_inputs", nullptr);

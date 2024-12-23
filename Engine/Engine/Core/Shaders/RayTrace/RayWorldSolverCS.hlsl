@@ -377,37 +377,44 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     float4 color_reflex = float4(0.0f, 0.0f, 0.0f, 1.0f);
     float4 color_refrac = float4(0.0f, 0.0f, 0.0f, 1.0f);
     bool hit = false;
-    //Ray ray = GetRayInfoFromSourceWithNoDir(ray_source);
-    Ray ray = GetReflectedRayFromSource(ray_source, cameraPosition);
+    Ray ray = GetRayInfoFromSourceWithNoDir(ray_source);
     float3 orig = ray.orig;
+
     //Get rays to be solved in the pixel
+    float2 ray_input_dir[2];
     [unroll]
-    for (int i = 0; i < MAX_RAY_INPUTS; ++i) {
+    for (int i = 0; i < MAX_RAY_INPUTS_POS; ++i) {
         RayTraceColor rc;
-        float2 ray_input_dir = ray_inputs[ray_input_pos].dir[i];
-        [branch]
-        if (ray_input_dir.x > 10e10) {
-            continue;
+        float4 ray_input_dirs = ray_inputs[ray_input_pos].dir2[i];
+        ray_input_dir[0] = float2(ray_input_dirs.x, ray_input_dirs.y);
+        ray_input_dir[1] = float2(ray_input_dirs.z, ray_input_dirs.z);
+
+        if (ray_input_dir[0].x < 10e10) {
+            if (dist2(ray_input_dir[0]) <= Epsilon) {
+                color_reflex.rgb = float3(1.0f, 0.0f, 0.0f);
+            }
+            else {
+                ray.dir = GetCartesianCoordinates(ray_input_dir[0]);
+                ray.orig.xyz = orig + ray.dir * 0.01f;
+                GetColor(ray, 0, rc, ray_source.dispersion, false);
+                float reflex_ratio = (1.0f - ray_source.dispersion);
+                color_reflex.rgb += rc.color * ray_source.opacity;
+                hit = hit || rc.hit;
+            }
         }
+        if (ray_input_dir[1].x < 10e10) {
+            if (dist2(ray_input_dir[1]) <= Epsilon) {
+                color_reflex.rgb = float3(1.0f, 0.0f, 0.0f);
+            }
+            else {
+                ray.dir = GetCartesianCoordinates(ray_input_dir[1]);
+                ray.orig.xyz = orig + ray.dir * 0.01f;
 
-        if (dist2(ray_input_dir) <= Epsilon) {
-            color_reflex.rgb = float3(1.0f, 0.0f, 0.0f);
-            break;
+                GetColor(ray, 0, rc, ray_source.dispersion, true);
+                color_refrac.rgb += rc.color * (1.0f - ray_source.opacity);
+                hit = hit || rc.hit;
+            }
         }
-        bool is_refract = abs(ray_input_dir.x) > 50.0f;
-
-        ray_input_dir -= float2(100.0f, 100.0f) * is_refract;
-
-        //We have a ray
-        ray.dir = GetCartesianCoordinates(ray_input_dir);
-        ray.orig.xyz = orig + ray.dir * 0.01f;
-
-        GetColor(ray, 0, rc, ray_source.dispersion, is_refract);
-        
-        float reflex_ratio = (1.0f - ray_source.dispersion);
-        color_reflex.rgb += rc.color * ray_source.opacity * (is_refract == 0);
-        color_refrac.rgb += rc.color * (1.0f - ray_source.opacity) * is_refract;
-        hit = hit || rc.hit;
     }
     if (hit) {
         [unroll]

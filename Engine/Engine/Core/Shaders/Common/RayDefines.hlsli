@@ -51,8 +51,10 @@ struct BVHNode
 };
 
 #define MAX_RAY_INPUTS 4
+#define MAX_RAY_INPUTS_POS MAX_RAY_INPUTS / 2
+
 struct InputRays {
-    float2 dir[MAX_RAY_INPUTS];
+    float4 dir2[MAX_RAY_INPUTS_POS];
 };
 
 struct Ray {

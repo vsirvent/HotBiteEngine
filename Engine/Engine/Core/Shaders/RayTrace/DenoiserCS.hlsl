@@ -70,16 +70,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
         return;
     }  
 
-    switch (light_type) {
-    case 0: {
-        disp = sqrt(ray_source.dispersion);
-        break;
-    }
-    case 1: {
-        disp = ray_source.dispersion;
-        break;
-    }
-    }
+    disp = ray_source.dispersion;
 
     [branch]
     if (disp < Epsilon) {

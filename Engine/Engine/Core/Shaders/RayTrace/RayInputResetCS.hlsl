@@ -33,8 +33,8 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
 {
     uint ray_input_pos = DTid.x;
     [unroll]
-    for (int i = 0; i < MAX_RAY_INPUTS; ++i) {
-        ray_inputs[ray_input_pos].dir[i] = float2(FLT_MAX, FLT_MAX);
+    for (int i = 0; i < MAX_RAY_INPUTS_POS; ++i) {
+        ray_inputs[ray_input_pos].dir2[i] = float4(FLT_MAX, FLT_MAX, FLT_MAX, FLT_MAX);
     }
 }
     

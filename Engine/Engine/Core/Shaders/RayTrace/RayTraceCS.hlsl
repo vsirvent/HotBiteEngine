@@ -96,28 +96,27 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
         level++;
     };
 
+    float4 dirs;
     //Reflected ray
     if (ray_source.opacity > Epsilon && (enabled & REFLEX_ENABLED)) {
         Ray ray = GetReflectedRayFromSource(ray_source, cameraPosition);
         if (dist2(ray.dir) > Epsilon)
         {
-            float3 seed = orig_pos * 100.0f + frame_count;
+            float3 seed = orig_pos * 100.0f;
             float rX = rgba_tnoise(seed) * N;
-            rX = pow(rX, 5.0f);
+            rX = pow(rX, 2.0f);
             normal = ray.dir;
             GetSpaceVectors(normal, tangent, bitangent);
-            float2 polar_dir = GenerateHemisphereDispersedRay(normal, tangent, bitangent, ray_source.dispersion, N, level * 3.0f, rX);
-            ray_inputs[ray_input_pixel].dir[0] = polar_dir;
+            dirs.xy = GenerateHemisphereDispersedRay(normal, tangent, bitangent, ray_source.dispersion, N, level * 5.0f, rX);
         }
     }
-
     //Refracted ray
     if (ray_source.opacity < 0.99f && (enabled & REFRACT_ENABLED)) {
         Ray ray = GetRefractedRayFromSource(ray_source, cameraPosition);
         if (dist2(ray.dir) > Epsilon)
         {
-            float2 polar_dir = GetPolarCoordinates(ray.dir);
-            ray_inputs[ray_input_pixel].dir[1] = polar_dir + float2(100.0f, 100.0f);
+            dirs.zw = GetPolarCoordinates(ray.dir);
         }
     }
+    ray_inputs[ray_input_pixel].dir2[0] = dirs;
 }
