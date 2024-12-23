@@ -140,7 +140,8 @@ namespace HotBite {
 					return size;
 				}
 
-				HRESULT Prepare(int size, DXGI_FORMAT format) {
+				HRESULT Prepare(int size) {
+					Unprepare();
 					HRESULT hr = S_OK;
 					ID3D11Device* device = Core::DXCore::Get()->device;
 
@@ -162,44 +163,27 @@ namespace HotBite {
 					memset(nullData, 0, data_size);
 					initialData.pSysMem = nullData;
 					hr = device->CreateBuffer(&bd, &initialData, &buffer);
+					assert(SUCCEEDED(hr));
 					delete[] nullData;
-					if (FAILED(hr)) { goto end; }
-
-					srvDesc.Format = format;
+					
+					srvDesc.Format = DXGI_FORMAT_R32_FLOAT;
 					srvDesc.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
 					srvDesc.Buffer.FirstElement = 0;
-					srvDesc.Buffer.NumElements = size;
+					srvDesc.Buffer.NumElements = data_size / 4;
 					hr = device->CreateShaderResourceView(buffer, &srvDesc, &srv);
-					
+					assert(SUCCEEDED(hr));
 					srv->GetResource(&resource);
 
 					uav_desc.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
-					uav_desc.Format = format;
+					uav_desc.Format = DXGI_FORMAT_R32_FLOAT;
 					uav_desc.Buffer.FirstElement = 0;
-					uav_desc.Buffer.NumElements = size;
+					uav_desc.Buffer.NumElements = data_size / 4;
 					hr = device->CreateUnorderedAccessView(resource, &uav_desc, &uav);
+					assert(SUCCEEDED(hr));
+				
 					this->size = size;
-
-				end:
 					return hr;
 				}
-
-				void Clear(T val, uint32_t start = 0, uint32_t len = 0) {
-					if (len == 0) {
-						len = (uint32_t)size;
-					}
-					if (len > 0 && start < (uint32_t)size) {
-						ID3D11DeviceContext* context = Core::DXCore::Get()->context;
-						D3D11_MAPPED_SUBRESOURCE resource;
-						context->Map(buffer, 0, D3D11_MAP_WRITE, 0, &resource);
-						T* data = (T*)resource.pData;
-						for (uint32_t i = start; i < len; ++i) {
-							data[i] = val;
-						}
-						context->Unmap(buffer, 0);
-					}
-				}
-
 
 				HRESULT Unprepare() {
 					ID3D11DeviceContext* context = Core::DXCore::Get()->context;
@@ -220,8 +204,8 @@ namespace HotBite {
 					return hr;
 				}
 
-				ID3D11ShaderResourceView* SRV() const {
-					return srv;
+				ID3D11ShaderResourceView*const* SRV() const {
+					return &srv;
 				}
 
 				ID3D11UnorderedAccessView*const* UAV() const {

@@ -341,8 +341,12 @@ namespace HotBite {
 				std::thread rt_thread;
 
 				struct RayData {
-					float2 dir[4]{ { FLT_MAX, FLT_MAX}, {FLT_MAX, FLT_MAX}, { FLT_MAX, FLT_MAX}, {FLT_MAX, FLT_MAX} };
+					float2 dir0{ FLT_MAX, FLT_MAX };
+					float2 dir1{ FLT_MAX, FLT_MAX };
+					float2 dir2{ FLT_MAX, FLT_MAX };
+					float2 dir3{ FLT_MAX, FLT_MAX };
 				};
+
 				DataBuffer<RayData> input_rays;
 
 				//SSR

@@ -36,6 +36,8 @@ cbuffer externalData : register(b0)
     uint frame_count;
     float time;
     uint enabled;
+    int kernel_size;
+    float3 cameraPosition;
 
     //Lights
     AmbientLight ambientLight;
@@ -57,18 +59,14 @@ cbuffer objectData : register(b1)
 
 RWTexture2D<float4> output0 : register(u0);
 RWTexture2D<float4> output1 : register(u1);
-RWTexture2D<float4> bloom : register(u2);
-RWTexture2D<float4> tiles_output : register(u3);
-RWStructuredBuffer<InputRays> ray_inputs: register(u4);
+RWTexture2D<float4> tiles_output : register(u2);
 
 Texture2D<float4> ray0;
 Texture2D<float4> ray1;
 
+StructuredBuffer<InputRays> ray_inputs: register(t0);
 StructuredBuffer<BVHNode> objects: register(t2);
 StructuredBuffer<BVHNode> objectBVH: register(t3);
-
-Texture2D<float4> position_map : register(t6);
-Texture2D<float4> motion_texture : register(t8);
 
 Texture2D<float> DirShadowMapTexture[MAX_LIGHTS];
 TextureCube<float> PointShadowMapTexture[MAX_LIGHTS];
@@ -82,19 +80,14 @@ static float2 lps[MAX_LIGHTS] = (float2[MAX_LIGHTS])LightPerspectiveValues;
 #define max_distance 20.0f
 
 struct RayTraceColor {
-    float3 color[2];
-    float dispersion[2];
-    float3 bloom;
+    float3 color;
     bool hit;
 };
 
-bool GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTraceColor out_color, float dispersion, bool mix, bool refract)
+bool GetColor(Ray origRay, uint max_bounces, out RayTraceColor out_color, float dispersion, bool refract)
 {
-    out_color.color[0] = float3(0.0f, 0.0f, 0.0f);
-    out_color.color[1] = float3(0.0f, 0.0f, 0.0f);
-    out_color.bloom = float3(0.0f, 0.0f, 0.0f);
-    out_color.dispersion[0] = -1.0f;
-    out_color.dispersion[1] = -1.0f;
+    out_color.color = float3(0.0f, 0.0f, 0.0f);
+    out_color.hit = false;
 
     float last_dispersion = dispersion;
     float acc_dispersion = dispersion;
@@ -290,7 +283,7 @@ bool GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
         float3 color = float3(0.0f, 0.0f, 0.0f);
 
         color += CalcAmbient(normal) * 0.5f;
-        color *= o.opacity;
+
 
         uint i = 0;
         for (i = 0; i < dirLightsCount; ++i) {
@@ -314,7 +307,7 @@ bool GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
 
         mat_color += GetDiffuseColor(result.object, uv) * use_mat_texture;
 
-        color.rgb *= mat_color;
+        color.rgb *= mat_color * o.opacity;
 
         float3 emission = material.emission * material.emission_color;
         color += emission;
@@ -325,21 +318,12 @@ bool GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
             att_dist = 1.0f;
         }
         float curr_att_dist = max(att_dist, 1.0f);
-        if (ray.bounces == 0 || mix) {
-            out_color.color[0] += color * ray.ratio / curr_att_dist;
-            out_color.dispersion[0] = acc_dispersion;
-            if (!refract) {
-                out_color.bloom += emission / curr_att_dist;
-            }
-        }
-        else {
-            out_color.color[1] += color * ray.ratio / curr_att_dist;
-            out_color.dispersion[1] = acc_dispersion;
-        }
+        out_color.color += color * ray.ratio / curr_att_dist;
         acc_dispersion += material_dispersion;
         last_dispersion = material_dispersion;
         ray.orig = pos;
         out_color.hit = true;
+
         //If not opaque surface, generate a refraction ray
         if (ray.bounces < 5 && o.opacity < 1.0f) {
             if (ray.bounces % 2 == 0) {
@@ -362,55 +346,80 @@ return out_color.hit;
 #define DENSITY 1.0f
 #define NTHREADS 32
 
-        [numthreads(NTHREADS, NTHREADS, 1)]
-        void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thread : SV_GroupThreadID)
-        {
-            float2 dimensions;
-            float2 ray_map_dimensions;
-            float2 bloom_dimensions;
-            {
-                uint w, h;
-                output0.GetDimensions(w, h);
-                dimensions.x = w;
-                dimensions.y = h;
+[numthreads(NTHREADS, NTHREADS, 1)]
+void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thread : SV_GroupThreadID)
+{
+    float2 dimensions;
+    float2 ray_map_dimensions;
+    {
+        uint w, h;
+        output0.GetDimensions(w, h);
+        dimensions.x = w;
+        dimensions.y = h;
 
-                ray0.GetDimensions(w, h);
-                ray_map_dimensions.x = w;
-                ray_map_dimensions.y = h;
+        ray0.GetDimensions(w, h);
+        ray_map_dimensions.x = w;
+        ray_map_dimensions.y = h;
+    }
+    float x = (float)DTid.x;
+    float y = (float)DTid.y;
 
-                bloom.GetDimensions(w, h);
-                bloom_dimensions.x = w;
-                bloom_dimensions.y = h;
-            }
-            float x = (float)DTid.x;
-            float y = (float)DTid.y;
-
-            float2 rayMapRatio = ray_map_dimensions / dimensions;
-            float2 bloomRatio = bloom_dimensions / dimensions;
-
+    float2 rayMapRatio = ray_map_dimensions / dimensions;
             
-            float2 pixel = float2(x, y);
+    float2 pixel = float2(x, y);
 
 
-            float2 ray_pixel = round(pixel * rayMapRatio);
+    float2 ray_pixel = round(pixel * rayMapRatio);
+    uint ray_input_pos = (pixel.y * dimensions.x + pixel.x);
 
-            RaySource ray_source = fromColor(ray0[ray_pixel], ray1[ray_pixel]);
-#if 0
-            float4 color_reflex = float4(0.0f, 0.0f, 0.0f, 1.0f);
-            if (ray_source.opacity > Epsilon && (enabled & REFLEX_ENABLED)) {
-                GetColor(ray, rX, level, 0, rc, ray_source.dispersion, true, false);
-                color.rgb += rc.color[0] * ray_source.opacity;
-                float2 rc_disp = float2(rc.dispersion[0], rc.dispersion[1]);
-                float reflex_ratio = (1.0f - ray_source.dispersion);
-            }
-            output0[pixel] = color_reflex * reflex_ratio;
-            
-            float4 color_refrac = float4(0.0f, 0.0f, 0.0f, 1.0f);
-            if (ray_source.opacity < 1.0f && (enabled & REFRACT_ENABLED)) {
-                GetColor(ray, rX, level, 0, rc, ray_source.dispersion, true, true);
-                color_refrac.rgb += rc.color[0] * (1.0f - ray_source.opacity);                
-            }
-            output1[pixel] = color_refrac;
-#endif
+    RaySource ray_source = fromColor(ray0[ray_pixel], ray1[ray_pixel]);
+    
+    float4 color_reflex = float4(0.0f, 0.0f, 0.0f, 1.0f);
+    float4 color_refrac = float4(0.0f, 0.0f, 0.0f, 1.0f);
+    bool hit = false;
+    //Ray ray = GetRayInfoFromSourceWithNoDir(ray_source);
+    Ray ray = GetReflectedRayFromSource(ray_source, cameraPosition);
+    float3 orig = ray.orig;
+    //Get rays to be solved in the pixel
+    [unroll]
+    for (int i = 0; i < MAX_RAY_INPUTS; ++i) {
+        RayTraceColor rc;
+        float2 ray_input_dir = ray_inputs[ray_input_pos].dir[i];
+        [branch]
+        if (ray_input_dir.x > 10e10) {
+            continue;
         }
+
+        if (dist2(ray_input_dir) <= Epsilon) {
+            color_reflex.rgb = float3(1.0f, 0.0f, 0.0f);
+            break;
+        }
+        bool is_refract = abs(ray_input_dir.x) > 50.0f;
+
+        ray_input_dir -= float2(100.0f, 100.0f) * is_refract;
+
+        //We have a ray
+        ray.dir = GetCartesianCoordinates(ray_input_dir);
+        ray.orig.xyz = orig + ray.dir * 0.01f;
+
+        GetColor(ray, 0, rc, ray_source.dispersion, is_refract);
+        
+        float reflex_ratio = (1.0f - ray_source.dispersion);
+        color_reflex.rgb += rc.color * ray_source.opacity * (is_refract == 0);
+        color_refrac.rgb += rc.color * (1.0f - ray_source.opacity) * is_refract;
+        hit = hit || rc.hit;
+    }
+    if (hit) {
+        [unroll]
+        for (int x = -2; x <= 2; ++x) {
+            [unroll]
+            for (int y = -2; y <= 2; ++y) {
+                int2 p = pixel / kernel_size + int2(x, y);
+                tiles_output[p] = 1;
+            }
+        }
+    }
+    output0[pixel] = color_reflex;
+    output1[pixel] = color_refrac;
+}
     

@@ -397,6 +397,11 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 			throw std::exception("HiZDownSample shader.Init failed");
 		}
 
+		ray_world_solver = ShaderFactory::Get()->GetShader<SimpleComputeShader>("RayWorldSolverCS.cso");
+		if (ray_world_solver == nullptr) {
+			throw std::exception("RayWorldSolverCS shader.Init failed");
+		}
+
 		LoadRTResources();
 
 		rt_thread = std::thread([&]() {
@@ -488,7 +493,7 @@ void RenderSystem::LoadRTResources() {
 	}
 
 	input_rays.Unprepare();
-	input_rays.Prepare((w * h) / (RT_TEXTURE_RESOLUTION_DIVIDER * RT_TEXTURE_RESOLUTION_DIVIDER), DXGI_FORMAT_R32G32B32A32_FLOAT);
+	input_rays.Prepare((w * h) / (RT_TEXTURE_RESOLUTION_DIVIDER * RT_TEXTURE_RESOLUTION_DIVIDER));
 
 	uint32_t restir_div = 3;// max(RT_TEXTURE_RESOLUTION_DIVIDER, 2);
 
@@ -2036,7 +2041,57 @@ void RenderSystem::ProcessRT() {
 
 
 			// Resolve rays with world space Ray Tracing
-			
+			ray_world_solver->SetInt("enabled", rt_enabled & (rt_quality != eRtQuality::OFF ? 0xFF : 0x00));
+			ray_world_solver->SetInt("frame_count", frame_count);
+			ray_world_solver->SetFloat(TIME, time);
+			ray_world_solver->SetInt("kernel_size", RESTIR_KERNEL);
+			ray_world_solver->SetInt("nobjects", nobjects);
+			ray_world_solver->SetData("objectMaterials", objectMaterials, nobjects * sizeof(MaterialProps));
+			ray_world_solver->SetData("objectInfos", objects, nobjects * sizeof(ObjectInfo));
+			ray_world_solver->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
+
+			ray_world_solver->SetUnorderedAccessView("output0", rt_texture_di_curr[RT_TEXTURE_REFLEX].UAV());
+			ray_world_solver->SetUnorderedAccessView("output1", rt_texture_di_curr[RT_TEXTURE_REFRACT].UAV());
+			ray_world_solver->SetUnorderedAccessView("bloom", rt_texture_di_curr[RT_TEXTURE_EMISSION].UAV());
+			ray_world_solver->SetUnorderedAccessView("tiles_output", rt_textures_gi_tiles.UAV());
+			ray_world_solver->SetShaderResourceView("ray0", rt_ray_sources0.SRV());
+			ray_world_solver->SetShaderResourceView("ray1", rt_ray_sources1.SRV());
+			ray_world_solver->SetShaderResourceViewArray("DiffuseTextures[0]", diffuseTextures, nobjects);
+			ray_world_solver->SetSamplerState(PCF_SAMPLER, dxcore->shadow_sampler);
+			ray_world_solver->SetSamplerState(BASIC_SAMPLER, dxcore->basic_sampler);
+
+			PrepareLights(ray_world_solver);
+
+			ray_world_solver->CopyAllBufferData();
+
+			dxcore->context->CSSetShaderResources(0, 1, input_rays.SRV());
+			dxcore->context->CSSetShaderResources(2, 1, bvh_buffer->SRV());
+			dxcore->context->CSSetShaderResources(3, 1, tbvh_buffer.SRV());
+			dxcore->context->CSSetShaderResources(4, 1, vertex_buffer->VertexSRV());
+			dxcore->context->CSSetShaderResources(5, 1, vertex_buffer->IndexSRV());
+			ray_world_solver->SetShader();
+
+			groupsX = (int32_t)(ceil((float)rt_texture_di_curr[RT_TEXTURE_REFLEX].Width() / (32.0f)));
+			groupsY = (int32_t)(ceil((float)rt_texture_di_curr[RT_TEXTURE_REFLEX].Height() / (32.0f)));
+			dxcore->context->Dispatch(groupsX, groupsY, 2);
+			ID3D11ShaderResourceView* nullsrc = nullptr;
+			ray_world_solver->SetUnorderedAccessView("output0", nullptr);
+			ray_world_solver->SetUnorderedAccessView("output1", nullptr);
+			ray_world_solver->SetShaderResourceView("ray0", nullptr);
+			ray_world_solver->SetShaderResourceView("ray1", nullptr);
+			ray_world_solver->SetUnorderedAccessView("bloom", nullptr);
+			ray_world_solver->SetUnorderedAccessView("tiles_output", nullptr);
+			dxcore->context->CSSetShaderResources(0, 1, &nullsrc);
+			dxcore->context->CSSetShaderResources(2, 1, &nullsrc);
+			dxcore->context->CSSetShaderResources(3, 1, &nullsrc);
+			dxcore->context->CSSetShaderResources(4, 1, &nullsrc);
+			dxcore->context->CSSetShaderResources(5, 1, &nullsrc);
+			ID3D11ShaderResourceView* no_data[MAX_OBJECTS] = {};
+			ray_world_solver->SetShaderResourceViewArray("DiffuseTextures[0]", no_data, nobjects);
+
+			UnprepareLights(ray_world_solver);
+			ray_world_solver->CopyAllBufferData();
+#if 1
 			//Denoiser
 			rt_di_denoiser->SetInt("kernel_size", RESTIR_KERNEL);
 			rt_di_denoiser->SetInt("debug", rt_debug);
@@ -2092,7 +2147,7 @@ void RenderSystem::ProcessRT() {
 			rt_di_denoiser->SetShaderResourceView("tiles_output", nullptr);
 
 			rt_di_denoiser->CopyAllBufferData();
-
+#endif
 #if 0
 			//Apply antialias
 			int ntexture = RT_TEXTURE_INDIRECT;
@@ -2752,7 +2807,7 @@ void RenderSystem::SetRayTracingQuality(eRtQuality quality) {
 		switch (rt_quality) {
 		case eRtQuality::LOW: RT_TEXTURE_RESOLUTION_DIVIDER = 3; break;
 		case eRtQuality::MID: RT_TEXTURE_RESOLUTION_DIVIDER = 2; break;
-		case eRtQuality::HIGH: RT_TEXTURE_RESOLUTION_DIVIDER = 1; break;
+		case eRtQuality::HIGH: RT_TEXTURE_RESOLUTION_DIVIDER = 2; break;
 		}
 		if (rt_quality != eRtQuality::OFF) {
 			LoadRTResources();

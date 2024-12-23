@@ -292,6 +292,18 @@ float3 GetDiffuseColor(uint object, float2 uv)
     }
 }
 
+Ray GetRayInfoFromSourceWithNoDir(RaySource source)
+{
+    Ray ray;
+    ray.orig = float4(source.orig, 1.0f);
+    ray.dir = float3(0.0f, 1.0f, 0.0f);
+    ray.density = source.density;
+    ray.bounces = 0;
+    ray.ratio = 1.0f;
+    ray.t = FLT_MAX;
+    return ray;
+}
+
 Ray GetReflectedRayFromSource(RaySource source, float3 cameraPosition)
 {
     Ray ray;

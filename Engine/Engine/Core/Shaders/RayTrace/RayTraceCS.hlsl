@@ -73,75 +73,52 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     float2 pixel = float2(x, y);
     float ray_input_pixel = y * ray_input_dimension.x + x;
     float2 ray_pixel = round(pixel * divider);
-
-    uint ray_input_pos = 0;
-    for (i = 0; i < MAX_RAY_INPUTS; ++i) {
-        if (ray_inputs[ray_input_pixel].dir[i].x >= 10e10) {
-            ray_input_pos = i;
-            break;
-        }
-    }
-
-    if (i == MAX_RAY_INPUTS) {
-        return;
-    }
-
+       
     RaySource ray_source = fromColor(ray0[ray_pixel], ray1[ray_pixel]);
-    [branch]
-    if (ray_source.reflex <= Epsilon || dist2(ray_source.normal) <= Epsilon || ray_source.dispersion < 0.0f)
-    {
-        return;
-    }
-
+    
     float3 orig_pos = ray_source.orig.xyz;
     bool process = length(orig_pos - cameraPosition) < max_distance;
 
-    Ray ray = GetReflectedRayFromSource(ray_source, cameraPosition);
-    [branch]
-    if (dist2(ray.dir) > Epsilon)
-    {
-        float3 normal;
-        float3 tangent;
-        float3 bitangent;
-        int count = 0;
+    float3 normal;
+    float3 tangent;
+    float3 bitangent;
+    int count = 0;
 
-        float cumulativePoints = 0;
-        float level = 1;
-        while (true) {
-            float c = cumulativePoints + level * 2;
-            if (c < N) {
-                cumulativePoints = c;
-            }
-            else {
-                break;
-            }
-            level++;
-        };
+    float cumulativePoints = 0;
+    float level = 1;
+    while (true) {
+        float c = cumulativePoints + level * 2;
+        if (c < N) {
+            cumulativePoints = c;
+        }
+        else {
+            break;
+        }
+        level++;
+    };
 
-        [branch]
-        if (DTid.z == 0) {
-            float3 seed = orig_pos * 100.0f;
-            float rX = rgba_tnoise(seed);
+    //Reflected ray
+    if (ray_source.opacity > Epsilon && (enabled & REFLEX_ENABLED)) {
+        Ray ray = GetReflectedRayFromSource(ray_source, cameraPosition);
+        if (dist2(ray.dir) > Epsilon)
+        {
+            float3 seed = orig_pos * 100.0f + frame_count;
+            float rX = rgba_tnoise(seed) * N;
             rX = pow(rX, 5.0f);
             normal = ray.dir;
             GetSpaceVectors(normal, tangent, bitangent);
-            float2 polar_dir = GenerateHemisphereDispersedRay(normal, tangent, bitangent, ray_source.dispersion, N, level, rX);
-            ray_inputs[ray_input_pixel].dir[ray_input_pos++] = polar_dir;
+            float2 polar_dir = GenerateHemisphereDispersedRay(normal, tangent, bitangent, ray_source.dispersion, N, level * 3.0f, rX);
+            ray_inputs[ray_input_pixel].dir[0] = polar_dir;
         }
-        else {
-            //Refracted ray
-            if (ray_source.opacity < 1.0f && (enabled & REFRACT_ENABLED)) {
-                float3 seed = orig_pos * 100.0f;
-                float rX = rgba_tnoise(seed);
-                Ray ray = GetRefractedRayFromSource(ray_source, cameraPosition);
-                if (dist2(ray.dir) > Epsilon)
-                {
-                    normal = ray.dir;
-                    GetSpaceVectors(normal, tangent, bitangent);
-                    float2 polar_dir = GetPolarCoordinates(ray.dir, normal, tangent, bitangent);
-                    ray_inputs[ray_input_pixel].dir[ray_input_pos++] = polar_dir;
-                }
-            }
+    }
+
+    //Refracted ray
+    if (ray_source.opacity < 0.99f && (enabled & REFRACT_ENABLED)) {
+        Ray ray = GetRefractedRayFromSource(ray_source, cameraPosition);
+        if (dist2(ray.dir) > Epsilon)
+        {
+            float2 polar_dir = GetPolarCoordinates(ray.dir);
+            ray_inputs[ray_input_pixel].dir[1] = polar_dir + float2(100.0f, 100.0f);
         }
     }
 }

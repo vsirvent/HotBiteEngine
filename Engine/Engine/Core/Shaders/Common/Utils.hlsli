@@ -116,22 +116,27 @@ float3 GenerateDirection(int i, int N) {
 	return float3(x, y, z);
 }
 
-float2 GetPolarCoordinates(float3 dir, float3 normal, float3 tangent, float3 bitangent) {
-	float x = dot(dir, tangent);
-	float y = dot(dir, normal);
-	float z = dot(dir, bitangent);
-
-	float phi = atan2(y, x);
-	float theta = acos(z);
+float2 GetPolarCoordinates(float3 dir) {
+	float theta = atan2(dir.z, dir.x);
+	float phi = acos(dir.y);
 	return float2(phi, theta);
 }
 
 float3 GetCartesianCoordinates(float phi, float theta) {
-	return float3(sin(phi) * cos(theta), cos(phi), sin(phi) * sin(theta));
+	float sinPhi = sin(phi);
+	float cosPhi = cos(phi);
+	float sinTheta = sin(theta);
+	float cosTheta = cos(theta);
+
+	return float3(sinPhi * cosTheta, cosPhi, sinPhi * sinTheta);
+}
+
+float3 GetCartesianCoordinates(float2 coords) {
+	return GetCartesianCoordinates(coords.x, coords.y);
 }
 
 #define LEVEL_RATIO 3
-float2 GenerateHemisphereDispersedRay(float3 normal, float3 tangent, float3 bitangent, float dispersion, float N, float NLevels, float rX)
+float2 GenerateHemisphereDispersedRay(float3 dir, float3 tangent, float3 bitangent, float dispersion, float N, float NLevels, float rX)
 {
 	float index = (rX * dispersion) % N;
 
@@ -151,10 +156,11 @@ float2 GenerateHemisphereDispersedRay(float3 normal, float3 tangent, float3 bita
 	float phi = (level * M_PI * 0.5f) / NLevels;
 	float theta = (2.0f * M_PI) * localIndex / pointsAtLevel;
 
-	float3 dir = GetCartesianCoordinates(phi, theta);
-	float2 relativePolarCoords = GetPolarCoordinates(dir, normal, tangent, bitangent);
+	float3 localRay = GetCartesianCoordinates(phi, theta);
 
-	return relativePolarCoords;
+	float3 globalRay = localRay.x * tangent + localRay.y * dir + localRay.z * bitangent;
+
+	return GetPolarCoordinates(normalize(dir + globalRay));
 }
 
 void GetSpaceVectors(in float3 dir, out float3 tangent, out float3 bitangent) {
