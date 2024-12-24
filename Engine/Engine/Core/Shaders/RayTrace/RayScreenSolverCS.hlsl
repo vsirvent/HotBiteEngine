@@ -68,12 +68,12 @@ Texture2D<float4> ray1: register(t2);
 Texture2D<float> hiz_textures[4];
 
 float2 GetScreenDir(Ray ray, float2 pixel) {
-    //Advance ray in the 3d world by a dir unit
+    //Advance ray in the 3d view space by a dir unit
     float4 p1 = ray.orig;
     p1.rgb += ray.dir;
 
     //Convert to screen
-    float4 pixel1 = mul(p1, view_projection);
+    float4 pixel1 = mul(p1, projection);
     pixel1.xy /= pixel1.w;
     pixel1.y *= -1.0f;
     pixel1.xy = (pixel1.xy + 1.0f) * 0.5f;
@@ -83,11 +83,18 @@ float2 GetScreenDir(Ray ray, float2 pixel) {
     return dir;
 }
 
-float GetRayDepth(float2 grid_pos) {
+float GetRayDepth(Ray ray, float2 grid_pos) {
     float4 H = float4(grid_pos.x * 2.0f - 1.0f, (1.0f - grid_pos.y) * 2.0f - 1.0f, 0.0f, 1.0f);
     float4 D = mul(H, inv_projection);
     float4 eyepos = D / D.w;
-    return eyepos.z;
+    
+    float dir2 = normalize(eyepos).z;
+
+    //Line 1: z = ray.dir.z * step + ray.orig.z
+    //Line 2: z = dir2 * step + ray.orig.z
+    float step = 1.0f / (dir2 - ray.dir.z);
+    float z = ray.dir * step + ray.orig.z;
+    return z;
 }
 
 
@@ -135,7 +142,7 @@ float3 GetColor(Ray ray, float2 pixel, float2 depth_dimensions, out uint hit) {
     float2 dir = GetScreenDir(ray, pixel);
     float2 invDir = 1.0 / dir;
     
-    float2 grid_pixel = screen_pixel / pow(divider, current_level);
+    float2 grid_pixel = screen_pixel / current_divider;
 
     float grid_high_z = 0.0f;
     float ray_z = 0.0f;
@@ -146,9 +153,9 @@ float3 GetColor(Ray ray, float2 pixel, float2 depth_dimensions, out uint hit) {
         
         //Calculate ray z
         float2 grid_pos = (grid_pixel * current_divider) / depth_dimensions;
-        float ray_z = GetRayDepth(grid_pos);
+        float ray_z = GetRayDepth(ray, grid_pos);
 
-        if (grid_high_z > ray_z) {
+        if (grid_high_z < ray_z) {
             current_level--;
             if (current_level == 0) {
                 break;
@@ -226,7 +233,6 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     float4 color_reflex = float4(0.0f, 0.0f, 0.0f, 1.0f);
     uint hit = 0;
     Ray ray = GetRayInfoFromSourceWithNoDir(ray_source);
-    float3 orig = ray.orig.xyz;
 
     //Get rays to be solved in the pixel
     float4 ray_input_dirs = ray_inputs[pixel];
@@ -237,9 +243,9 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
         }
         else {
             ray.dir = GetCartesianCoordinates(ray_input_dirs.xy);
-            ray.dir = mul(ray.dir, view);
-            ray.orig = mul(ray.orig, view);
-            ray.orig.xyz = orig + ray.dir * 0.01f;
+            //We work in view space
+            ray.dir = normalize(mul(ray.dir, (float3x3)view));
+            ray.orig.xyz = mul(ray.orig, view).xyz + ray.dir * 0.01f;
             
             float reflex_ratio = (1.0f - ray_source.dispersion);
             color_reflex.rgb += GetColor(ray, pixel/dimensions, ray_map_dimensions, hit);

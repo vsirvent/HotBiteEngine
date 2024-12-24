@@ -2059,7 +2059,8 @@ void RenderSystem::ProcessRT() {
 			ray_screen_solver->SetInt("kernel_size", RESTIR_KERNEL);
 			ray_screen_solver->SetFloat("divider", HIZ_RATIO);
 			ray_screen_solver->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
-			ray_screen_solver->SetMatrix4x4("view_projection", cam_entity.camera->view_projection);
+			ray_screen_solver->SetMatrix4x4("view", cam_entity.camera->view);
+			ray_screen_solver->SetMatrix4x4("projection", cam_entity.camera->projection);
 			ray_screen_solver->SetMatrix4x4("inv_projection", cam_entity.camera->inverse_projection);
 			ray_screen_solver->SetShaderResourceView("ray0", rt_ray_sources0.SRV());
 			ray_screen_solver->SetShaderResourceView("ray1", rt_ray_sources1.SRV());
