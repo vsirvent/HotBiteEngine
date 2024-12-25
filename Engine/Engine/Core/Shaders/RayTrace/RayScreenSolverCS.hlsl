@@ -73,14 +73,14 @@ struct LineParam {
     float b;
 };
 
-LineParam GetRayLine(Ray ray) {
+LineParam GetLineParam(float3 orig, float3 dir) {
 
     //m = dz / dx
     LineParam l;
-    l.m = ray.dir.z / ray.dir.x;
+    l.m = dir.z / (dir.x + dir.y);
 
     //z0 = m * x0 + b => b = z0 - m * x0
-    l.b = ray.orig.z - l.m * ray.orig.x;
+    l.b = orig.z - l.m * (orig.x + orig.y);
 
     return l;
 }
@@ -93,11 +93,11 @@ float2 GetScreenDir(Ray ray) {
     
     //Convert to screen
     float4 pixel0 = mul(p0, projection);
-    pixel0 /= pixel0.w;
+    pixel0.xy /= pixel0.w;
     pixel0.y *= -1.0f;
     
     float4 pixel1 = mul(p1, projection);
-    pixel1 /= pixel1.w;
+    pixel1.xy /= pixel1.w;
     pixel1.y *= -1.0f;
 
     //Obtain direction in screen space
@@ -111,21 +111,30 @@ float GetRayDepth(LineParam lray, float2 grid_pos) {
     float4 eyepos = D / D.w;
     
     //Create a line from camera origin (0, 0)
-    LineParam leye;
-    leye.m = eyepos.z / eyepos.x;
-    leye.b = eyepos.z - leye.m * eyepos.x;
+    LineParam leye = GetLineParam(eyepos.xyz, eyepos.xyz);
 
     //get x value for a z match of lray and leye
-    // lray.m * x + lray.b = leye.m * x => 
-    // lray.b = (leye.m - lray.m) * x =>
-    // x = lray.b / (leye.m - lray.m)
-    float x = lray.b / (leye.m - lray.m);
+    // lray.m * x + lray.b = leye.m * x + leye.b=> 
+    // lray.b - leye.b = (leye.m - lray.m) * x =>
+    // x = (lray.b - leye.b) / (leye.m - lray.m)
+    float x = (lray.b - leye.b) / (leye.m - lray.m);
     //calculate matching z
     float z = lray.m * x + lray.b;
 
     return z;
 }
 
+float2 GetNextGrid2(Ray ray, float2 dims, float n) {
+    float4 p = ray.orig;
+    p.xyz += ray.dir * n * 0.1f;
+
+    float4 pixel = mul(p, projection);
+    pixel /= pixel.w;
+    pixel.y *= -1.0f;
+    pixel.xy = (pixel.xy + 1.0f) * 0.5f;
+    pixel.xy *= dims;
+    return pixel;
+}
 
 float2 GetNextGrid(float2 dir, float2 pixel) {
     float2 p0 = pixel;
@@ -172,33 +181,32 @@ float GetHiZ(uint level, float2 pixel) {
     return FLT_MAX;
 }
 
-float3 GetColor(Ray ray, float2 depth_dimensions, out uint hit) {
-    //hit = 1;
-    //return float3(ray.dir.x * 0.5f + 0.5f, ray.dir.y * 0.5f + 0.5f, ray.dir.z * 0.5f + 0.5f);
+float3 GetColor(Ray ray, float2 depth_dimensions, float2 output_dimensions, out uint hit) {
     float4 pixel0 = mul(ray.orig, projection);
     pixel0 /= pixel0.w;
     pixel0.y *= -1.0f;
     pixel0.xy = (pixel0.xy + 1.0f) * 0.5f;
-
+        
     float2 screen_pixel = pixel0.xy * depth_dimensions;
     float3 color = float3(0.0f, 0.0f, 0.0f);
     int current_level = 0;
     float current_divider = pow(divider, current_level);
 
-    LineParam line_param = GetRayLine(ray);
+    LineParam line_param = GetLineParam(ray.orig, ray.dir);
     float2 dir = GetScreenDir(ray);
-   // hit = 1;
-   // return float3(dir.x * 0.5f + 0.5f, dir.y * 0.5f + 0.5f, 0.0f);
+
     float2 grid_pixel = screen_pixel / current_divider;
+    float2 grid_pos = pixel0;
 
     float grid_high_z = 0.0f;
     float ray_z = 0.0f;
 
-    while (true) {
+    float n = 0.0f;
+    while (n < 300.0f) {
         grid_high_z = GetHiZ(current_level, grid_pixel);
         
-        //Calculate ray z
-        float2 grid_pos = (grid_pixel * current_divider) / depth_dimensions;
+        //Calculate ray z, grid_pos in NDC coords
+        grid_pos = (grid_pixel * current_divider) / depth_dimensions;
         ray_z = GetRayDepth(line_param, grid_pos);
 
         if (grid_high_z < ray_z) {
@@ -211,7 +219,8 @@ float3 GetColor(Ray ray, float2 depth_dimensions, out uint hit) {
             grid_pixel = grid_pos * depth_dimensions / current_divider;
         }
         else {
-            grid_pixel = GetNextGrid(dir, grid_pixel);
+            //grid_pixel = GetNextGrid(dir, grid_pixel);
+            grid_pixel = GetNextGrid2(ray, depth_dimensions / current_divider, ++n);
         }
 
         if (grid_pixel.x < 0 || grid_pixel.x >= depth_dimensions.x / (current_divider) ||
@@ -220,9 +229,10 @@ float3 GetColor(Ray ray, float2 depth_dimensions, out uint hit) {
             return color;
         }
     }
-
-    hit = (abs(ray_z - grid_high_z) < 0.1f);
+       
+    hit = (abs(ray_z - grid_high_z) < 0.2f);
     if (hit > 0) {
+        //Color texture has same dimension as depth
         color = color_texture[grid_pixel].rgb;
     }
     return color;
@@ -251,7 +261,6 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
 
     float2 pixel = float2(x, y);
 
-
     float2 ray_pixel = round(pixel * rayMapRatio);
 
     RaySource ray_source = fromColor(ray0[ray_pixel], ray1[ray_pixel]);
@@ -269,14 +278,15 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
         }
         else {
             ray.dir = GetCartesianCoordinates(ray_input_dirs.xy);
-          
-            ray.dir = normalize(mul(ray.dir, (float3x3)view)).xyz;
+            ray.dir = normalize(mul(ray.dir, (float3x3)view));
+
             ray.orig = mul(ray.orig, view);
-            ray.orig /= ray.orig.w;
-            ray.orig.xyz += ray.dir * 0.0001f;
+            //ray.orig /= ray.orig.w;
+            //ray.orig.xyz += ray.dir * 0.0001f;
 
             float reflex_ratio = (1.0f - ray_source.dispersion);
-            color_reflex.rgb += GetColor(ray, ray_map_dimensions, hit);
+            
+            color_reflex.rgb += GetColor(ray, ray_map_dimensions, dimensions, hit);
             if (hit != 0) {
                 ray_input_dirs.xy = float2(10e11, 10e11);
             }
