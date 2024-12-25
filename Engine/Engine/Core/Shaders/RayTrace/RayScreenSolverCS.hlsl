@@ -67,60 +67,98 @@ Texture2D<float4> ray0: register(t1);
 Texture2D<float4> ray1: register(t2);
 Texture2D<float> hiz_textures[4];
 
-float2 GetScreenDir(Ray ray, float2 pixel) {
-    //Advance ray in the 3d view space by a dir unit
-    float4 p1 = ray.orig;
-    p1.rgb += ray.dir;
+struct LineParam {
+    //y = x * m + b
+    float m;
+    float b;
+};
 
+LineParam GetRayLine(Ray ray) {
+
+    //m = dz / dx
+    LineParam l;
+    l.m = ray.dir.z / ray.dir.x;
+
+    //z0 = m * x0 + b => b = z0 - m * x0
+    l.b = ray.orig.z - l.m * ray.orig.x;
+
+    return l;
+}
+
+float2 GetScreenDir(Ray ray) {
+    //Advance ray in the 3d view space by a dir unit
+    float4 p0 = ray.orig;
+    float4 p1 = ray.orig;
+    p1.xyz += ray.dir;
+    
     //Convert to screen
+    float4 pixel0 = mul(p0, projection);
+    pixel0 /= pixel0.w;
+    pixel0.y *= -1.0f;
+    
     float4 pixel1 = mul(p1, projection);
-    pixel1.xy /= pixel1.w;
+    pixel1 /= pixel1.w;
     pixel1.y *= -1.0f;
-    pixel1.xy = (pixel1.xy + 1.0f) * 0.5f;
 
     //Obtain direction in screen space
-    float2 dir = normalize(pixel1.xy - pixel);
+    float2 dir = normalize(pixel1.xy - pixel0.xy);
     return dir;
 }
 
-float GetRayDepth(Ray ray, float2 grid_pos) {
+float GetRayDepth(LineParam lray, float2 grid_pos) {
     float4 H = float4(grid_pos.x * 2.0f - 1.0f, (1.0f - grid_pos.y) * 2.0f - 1.0f, 0.0f, 1.0f);
     float4 D = mul(H, inv_projection);
     float4 eyepos = D / D.w;
     
-    float dir2 = normalize(eyepos).z;
+    //Create a line from camera origin (0, 0)
+    LineParam leye;
+    leye.m = eyepos.z / eyepos.x;
+    leye.b = eyepos.z - leye.m * eyepos.x;
 
-    //Line 1: z = ray.dir.z * step + ray.orig.z
-    //Line 2: z = dir2 * step + ray.orig.z
-    float step = 1.0f / (dir2 - ray.dir.z);
-    float z = ray.dir * step + ray.orig.z;
+    //get x value for a z match of lray and leye
+    // lray.m * x + lray.b = leye.m * x => 
+    // lray.b = (leye.m - lray.m) * x =>
+    // x = lray.b / (leye.m - lray.m)
+    float x = lray.b / (leye.m - lray.m);
+    //calculate matching z
+    float z = lray.m * x + lray.b;
+
     return z;
 }
 
 
-float2 GetNextGrid(float2 invDir, float2 pixel) {
-
+float2 GetNextGrid(float2 dir, float2 pixel) {
     float2 p0 = pixel;
-
-    float2 currentGrid = floor(p0);
-    float2 nextGrid;
-    // Calculate initial intersection points with the grid lines
-    nextGrid.x = currentGrid.x + sign(invDir.x);
-    nextGrid.y = currentGrid.y + sign(invDir.y);
-
-    // Calculate the step size to the next grid for x and y
-    float2 tMax;
-    tMax.x = (nextGrid.x - p0.x) * invDir.x;
-    tMax.y = (nextGrid.y - p0.y) * invDir.y;
-
-    if (tMax.x < tMax.y) {
-        return float2(nextGrid.x, currentGrid.y);
+    
+    if (abs(dir.x) <= 0.00001f) {
+        float2 currentGrid = floor(p0);
+        float nextGrid = currentGrid.y + (dir.y > 0 ? 1 : -1);
+        return float2(currentGrid.x, nextGrid);
     }
-    else if (tMax.x > tMax.y) {
-        return float2(currentGrid.x, nextGrid.y);
+    else if (abs(dir.y) <= 0.00001f) {
+        float2 currentGrid = floor(p0);
+        float nextGrid = currentGrid.x + (dir.x > 0 ? 1 : -1);
+        return float2(nextGrid, currentGrid.y);
     }
     else {
-        return nextGrid;
+        
+        float2 currentGrid = floor(p0);
+        float2 nextGrid;
+        // Calculate initial intersection points with the grid lines
+        nextGrid.x = currentGrid.x + (dir.x > 0 ? 1 : -1);
+        nextGrid.y = currentGrid.y + (dir.y > 0 ? 1 : -1);
+
+        // Calculate the step size to the next grid for x and y
+        float2 tMax;
+        tMax.x = (nextGrid.x - p0.x) / dir.x;
+        tMax.y = (nextGrid.y - p0.y) / dir.y;
+       
+        if (tMax.x < tMax.y) {
+            return float2(nextGrid.x, p0.y + (nextGrid.x - p0.x) * dir.y / dir.x);
+        }
+        else {
+            return float2(p0.x + (nextGrid.y - p0.y) * dir.x / dir.y, nextGrid.y);
+        }
     }
 }
 
@@ -134,60 +172,48 @@ float GetHiZ(uint level, float2 pixel) {
     return FLT_MAX;
 }
 
-float3 GetColor(Ray ray, float2 pixel, float2 depth_dimensions, out uint hit) {
-    float2 screen_pixel = pixel * depth_dimensions;
+float3 GetColor(Ray ray, float2 depth_dimensions, out uint hit) {
+    //hit = 1;
+    //return float3(ray.dir.x * 0.5f + 0.5f, ray.dir.y * 0.5f + 0.5f, ray.dir.z * 0.5f + 0.5f);
+    float4 pixel0 = mul(ray.orig, projection);
+    pixel0 /= pixel0.w;
+    pixel0.y *= -1.0f;
+    pixel0.xy = (pixel0.xy + 1.0f) * 0.5f;
+
+    float2 screen_pixel = pixel0.xy * depth_dimensions;
     float3 color = float3(0.0f, 0.0f, 0.0f);
-    uint current_level = 3;
+    int current_level = 0;
     float current_divider = pow(divider, current_level);
-    float2 dir = GetScreenDir(ray, pixel);
-    float2 invDir = 1.0 / dir;
-    
+
+    LineParam line_param = GetRayLine(ray);
+    float2 dir = GetScreenDir(ray);
+   // hit = 1;
+   // return float3(dir.x * 0.5f + 0.5f, dir.y * 0.5f + 0.5f, 0.0f);
     float2 grid_pixel = screen_pixel / current_divider;
 
     float grid_high_z = 0.0f;
     float ray_z = 0.0f;
 
-    while (current_level > 0) {
-        grid_pixel = GetNextGrid(invDir, grid_pixel);
+    while (true) {
         grid_high_z = GetHiZ(current_level, grid_pixel);
         
         //Calculate ray z
         float2 grid_pos = (grid_pixel * current_divider) / depth_dimensions;
-        float ray_z = GetRayDepth(ray, grid_pos);
+        ray_z = GetRayDepth(line_param, grid_pos);
 
         if (grid_high_z < ray_z) {
             current_level--;
-            if (current_level == 0) {
+            if (current_level < 0) {
                 break;
             }
             current_divider = pow(divider, current_level);
             //Calculate new pixel position in the new level
-            float2 p0_scaled = screen_pixel / current_divider;
-            float2 g00 = grid_pixel * divider;
-            float2 g10 = float2(grid_pixel.x + 1, grid_pixel.y    ) * divider;
-            float2 g01 = float2(grid_pixel.x    , grid_pixel.y + 1) * divider;
-            float2 g11 = float2(grid_pixel.x + 1, grid_pixel.y + 1) * divider;
-
-            float d00 = dist2(p0_scaled - g00);
-            float d10 = dist2(p0_scaled - g10);
-            float d01 = dist2(p0_scaled - g01);
-            float d11 = dist2(p0_scaled - g11);
-
-            float min_dist = min(d00, min(d10, min(d01, d11)));
-            if (min_dist == d00) {
-                grid_pixel = g00;
-            }
-            else if (min_dist == d10) {
-                grid_pixel = g10;
-            }
-            else if (min_dist == d01) {
-                grid_pixel = g01;
-            }
-            else if (min_dist == d11) {
-                grid_pixel = g11;
-            }
+            grid_pixel = grid_pos * depth_dimensions / current_divider;
         }
-        
+        else {
+            grid_pixel = GetNextGrid(dir, grid_pixel);
+        }
+
         if (grid_pixel.x < 0 || grid_pixel.x >= depth_dimensions.x / (current_divider) ||
             grid_pixel.y < 0 || grid_pixel.y >= depth_dimensions.y / (current_divider)) {
             hit = 0;
@@ -195,7 +221,7 @@ float3 GetColor(Ray ray, float2 pixel, float2 depth_dimensions, out uint hit) {
         }
     }
 
-    hit = (abs(ray_z - grid_high_z) < 0.01f);
+    hit = (abs(ray_z - grid_high_z) < 0.1f);
     if (hit > 0) {
         color = color_texture[grid_pixel].rgb;
     }
@@ -243,12 +269,14 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
         }
         else {
             ray.dir = GetCartesianCoordinates(ray_input_dirs.xy);
-            //We work in view space
-            ray.dir = normalize(mul(ray.dir, (float3x3)view));
-            ray.orig.xyz = mul(ray.orig, view).xyz + ray.dir * 0.01f;
-            
+          
+            ray.dir = normalize(mul(ray.dir, (float3x3)view)).xyz;
+            ray.orig = mul(ray.orig, view);
+            ray.orig /= ray.orig.w;
+            ray.orig.xyz += ray.dir * 0.0001f;
+
             float reflex_ratio = (1.0f - ray_source.dispersion);
-            color_reflex.rgb += GetColor(ray, pixel/dimensions, ray_map_dimensions, hit);
+            color_reflex.rgb += GetColor(ray, ray_map_dimensions, hit);
             if (hit != 0) {
                 ray_input_dirs.xy = float2(10e11, 10e11);
             }

@@ -2052,6 +2052,7 @@ void RenderSystem::ProcessRT() {
 			rt_di_shader->SetUnorderedAccessView("ray_inputs", nullptr);
 			rt_di_shader->CopyAllBufferData();
 
+			rt_texture_di_curr[RT_TEXTURE_REFLEX].Clear(zero);
 			//Resolve rays with screen space Ray Tracing
 			ray_screen_solver->SetInt("enabled", rt_enabled& (rt_quality != eRtQuality::OFF ? 0xFF : 0x00));
 			ray_screen_solver->SetInt("frame_count", frame_count);
@@ -2086,7 +2087,7 @@ void RenderSystem::ProcessRT() {
 
 			UnprepareLights(ray_screen_solver);
 			ray_screen_solver->CopyAllBufferData();
-
+#if 0
 			// Resolve rays with world space Ray Tracing
 			{
 				//We need at this point the BVH structures to be available
@@ -2143,7 +2144,8 @@ void RenderSystem::ProcessRT() {
 
 			UnprepareLights(ray_world_solver);
 			ray_world_solver->CopyAllBufferData();
-#if 1
+#endif
+#if 0
 			//Denoiser
 			rt_di_denoiser->SetInt("kernel_size", RESTIR_KERNEL);
 			rt_di_denoiser->SetInt("debug", rt_debug);
