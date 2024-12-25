@@ -326,6 +326,7 @@ namespace HotBite {
 				Core::RenderTexture2D* rt_texture_gi_trace = nullptr;
 
 				Core::RenderTexture2D rt_texture_props;
+				Core::RenderTexture2D rt_texture_di_screen_uv;
 				Core::RenderTexture2D rt_ray_sources0;
 				Core::RenderTexture2D rt_ray_sources1;
 				Core::ExtBVHBuffer tbvh_buffer;
@@ -351,6 +352,7 @@ namespace HotBite {
 
 				//SSR
 				Core::SimpleComputeShader* high_z_shader = nullptr;
+				Core::SimpleComputeShader* ssr_mixer_shader = nullptr;
 				static constexpr uint32_t HIZ_RATIO = 5;
 				static constexpr uint32_t HIZ_DOWNSAMPLED_NTEXTURES = 3;
 				static constexpr uint32_t HIZ_NTEXTURES = HIZ_DOWNSAMPLED_NTEXTURES + 1;

@@ -603,5 +603,8 @@
     <FxCompile Include="Engine\Core\Shaders\RayTrace\RayScreenSolverCS.hlsl">
       <Filter>Engine\Core\Shaders\RayTrace</Filter>
     </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\RayTrace\RayScreenMixerCS.hlsl">
+      <Filter>Engine\Core\Shaders\RayTrace</Filter>
+    </FxCompile>
   </ItemGroup>
 </Project>

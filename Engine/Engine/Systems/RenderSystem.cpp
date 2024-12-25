@@ -411,6 +411,11 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 			throw std::exception("RayScreenSolverCS shader.Init failed");
 		}
 
+		ssr_mixer_shader = ShaderFactory::Get()->GetShader<SimpleComputeShader>("RayScreenMixerCS.cso");
+		if (ssr_mixer_shader == nullptr) {
+			throw std::exception("RayScreenMixerCS shader.Init failed");
+		}
+		
 		LoadRTResources();
 
 		rt_thread = std::thread([&]() {
@@ -470,6 +475,8 @@ RenderSystem::~RenderSystem() {
 		}
 	}
 
+	rt_texture_di_screen_uv.Release();
+
 	for (int x = 0; x < RT_GI_NTEXTURES; ++x) {
 		rt_textures_gi[x].Release();
 	}
@@ -499,6 +506,10 @@ void RenderSystem::LoadRTResources() {
 				throw std::exception("rt_texture.Init failed");
 			}
 		}
+	}
+	rt_texture_di_screen_uv.Release();
+	if (FAILED(rt_texture_di_screen_uv.Init(w / RT_TEXTURE_RESOLUTION_DIVIDER, h / RT_TEXTURE_RESOLUTION_DIVIDER, DXGI_FORMAT::DXGI_FORMAT_R16G16_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+		throw std::exception("rt_texture_di_screen_uv.Init failed");
 	}
 
 	input_rays.Release();
@@ -1500,6 +1511,7 @@ void RenderSystem::ProcessMix() {
 	mixer_shader->SetShaderResourceView("rtTexture1", nullptr);
 	mixer_shader->SetShaderResourceView("rtTexture2", nullptr);
 	mixer_shader->SetShaderResourceView("rtTexture3", nullptr);
+	mixer_shader->SetShaderResourceView("rtTextureUV", nullptr);
 	mixer_shader->SetShaderResourceView("volLightTexture", nullptr);
 	mixer_shader->SetShaderResourceView("dustTexture", nullptr);
 	mixer_shader->SetShaderResourceView("input", nullptr);
@@ -1508,6 +1520,14 @@ void RenderSystem::ProcessMix() {
 	mixer_shader->SetShaderResourceView("positions", nullptr);
 	mixer_shader->SetShaderResourceView("normals", nullptr);
 	mixer_shader->CopyAllBufferData();
+
+	ssr_mixer_shader->SetShaderResourceView("ray_screen_uv", rt_texture_di_screen_uv.SRV());
+	ssr_mixer_shader->SetUnorderedAccessView("output", temp_map.UAV());
+	ssr_mixer_shader->CopyAllBufferData();
+	ssr_mixer_shader->SetShader();
+	dxcore->context->Dispatch(groupsX, groupsY, 1);
+	ssr_mixer_shader->SetShaderResourceView("ray_screen_uv", nullptr);
+	ssr_mixer_shader->SetUnorderedAccessView("output", nullptr);
 }
 
 void RenderSystem::ProcessMotionBlur() {
@@ -2052,7 +2072,10 @@ void RenderSystem::ProcessRT() {
 			rt_di_shader->SetUnorderedAccessView("ray_inputs", nullptr);
 			rt_di_shader->CopyAllBufferData();
 
+			rt_texture_di_screen_uv.Clear(minus_one);
 			rt_texture_di_curr[RT_TEXTURE_REFLEX].Clear(zero);
+			rt_texture_di_curr[RT_TEXTURE_REFRACT].Clear(zero);
+#if 1
 			//Resolve rays with screen space Ray Tracing
 			ray_screen_solver->SetInt("enabled", rt_enabled& (rt_quality != eRtQuality::OFF ? 0xFF : 0x00));
 			ray_screen_solver->SetInt("frame_count", frame_count);
@@ -2067,7 +2090,7 @@ void RenderSystem::ProcessRT() {
 			ray_screen_solver->SetShaderResourceView("ray1", rt_ray_sources1.SRV());
 			ray_screen_solver->SetUnorderedAccessView("ray_inputs", input_rays.UAV());
 			ray_screen_solver->SetShaderResourceView("color_texture", post_process_pipeline->RenderResource());
-			ray_screen_solver->SetUnorderedAccessView("output", rt_texture_di_curr[RT_TEXTURE_REFLEX].UAV());
+			ray_screen_solver->SetUnorderedAccessView("output_uv", rt_texture_di_screen_uv.UAV());
 			ray_screen_solver->SetUnorderedAccessView("tiles_output", rt_textures_gi_tiles.UAV());
 			ray_screen_solver->SetShaderResourceViewArray("hiz_textures[0]", high_z_maps, HIZ_NTEXTURES);
 			PrepareLights(ray_screen_solver);
@@ -2081,12 +2104,13 @@ void RenderSystem::ProcessRT() {
 			ray_screen_solver->SetShaderResourceView("ray0", nullptr);
 			ray_screen_solver->SetShaderResourceView("ray1", nullptr);
 			ray_screen_solver->SetUnorderedAccessView("ray_inputs", nullptr);
-			ray_screen_solver->SetUnorderedAccessView("output", nullptr);
+			ray_screen_solver->SetUnorderedAccessView("output_uv", nullptr);
 			ray_screen_solver->SetUnorderedAccessView("tiles_output", nullptr);
 			ray_screen_solver->SetShaderResourceView("color_texture", nullptr);
 
 			UnprepareLights(ray_screen_solver);
 			ray_screen_solver->CopyAllBufferData();
+#endif
 #if 0
 			// Resolve rays with world space Ray Tracing
 			{
@@ -2872,6 +2896,7 @@ void RenderSystem::ResetRTBBuffers() {
 			rt_textures_di[x][i].Clear(zero);
 		}
 	}
+	rt_texture_di_screen_uv.Clear(zero);
 
 	for (int x = 0; x < RT_GI_NTEXTURES; ++x) {
 		rt_textures_gi[x].Clear(zero);

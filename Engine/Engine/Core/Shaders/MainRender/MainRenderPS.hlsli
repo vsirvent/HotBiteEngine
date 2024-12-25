@@ -57,7 +57,7 @@ RenderTargetRT MainRenderPS(GSOutput input)
 		PointLightParallaxAtt[i] = 1.0f;
 	}
 	//wpos without parallax displacement
-	float3 wpos2 = wpos.xyz;
+	float3 wpos2 = wpos.xyz / wpos.w;
 	if (material.flags & NORMAL_MAP_ENABLED_FLAG || multi_texture_count > 0) {
 		// Build orthonormal basis.
 		float3 N = normal;
@@ -211,7 +211,7 @@ RenderTargetRT MainRenderPS(GSOutput input)
 	output.bloom_map = saturate(lightColor);
 
 	RaySource ray;
-	ray.orig = wpos2.xyz;
+	ray.orig = wpos2;
 	if (disable_rt == 0 && (material.flags & RAYTRACING_ENABLED)) {
 		ray.dispersion = saturate(1.0f - spec_intensity);
 		ray.reflex = material.rt_reflex;
