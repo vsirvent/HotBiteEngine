@@ -163,6 +163,11 @@ float2 GenerateHemisphereDispersedRay(float3 dir, float3 tangent, float3 bitange
 	return GetPolarCoordinates(normalize(dir + globalRay));
 }
 
+bool ValidUVCoord(float2 uv_coord) {
+	return (uv_coord.x >= 0.0f && uv_coord.x < 1.0f &&
+		uv_coord.y >= 0.0f && uv_coord.y < 1.0f);
+}
+
 void GetSpaceVectors(in float3 dir, out float3 tangent, out float3 bitangent) {
 	float3 up = abs(dir.z) < 0.999f ? float3(0.0f, 0.0f, 1.0f) : float3(1.0f, 0.0f, 0.0f);
 	tangent = normalize(cross(up, dir));

@@ -344,7 +344,7 @@ return out_color.hit;
         }
 
 #define DENSITY 1.0f
-#define NTHREADS 32
+#define NTHREADS 8
 
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thread : SV_GroupThreadID)
@@ -382,6 +382,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     //Get rays to be solved in the pixel
     RayTraceColor rc;
     float4 ray_input_dirs = ray_inputs[pixel];
+#if 1
     [branch]
     if (ray_input_dirs.x < 10e10) {
         if (dist2(ray_input_dirs.xy) <= Epsilon) {
@@ -397,7 +398,8 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             output0[pixel] = color_reflex;
         }
     }
-    
+#endif
+#if 1
     [branch]
     if (ray_input_dirs.z < 10e10) {
         if (dist2(ray_input_dirs.zw) <= Epsilon) {
@@ -411,8 +413,9 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             color_refrac.rgb += rc.color * (1.0f - ray_source.opacity);
             hits.y = rc.hit != 0;
             output1[pixel] = color_refrac;
-        }
-    }
+        }        
+    }    
+#endif
     uint hit = (hits.y & 0x01) << 1 | hits.x & 0x01;
     if (hit != 0) {
         [unroll]

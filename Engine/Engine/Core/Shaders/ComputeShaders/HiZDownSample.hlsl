@@ -44,7 +44,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     
     float2 in_pixel;
     float2 out_pixel = float2(DTid.x, DTid.y);
-    float depth = -1.0f;
+    float depth = FLT_MAX;
     uint2 dir = { 0, 0 };
     int kernel_size = ratio / 2;
     
@@ -63,7 +63,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
         if (tpos.x >= 0 && tpos.x < input_dimensions.x && tpos.y >= 0 && tpos.y < input_dimensions.y) {
             float tmp_depth = input[tpos];
             if (tmp_depth < FLT_MAX) {
-                depth = max(depth, tmp_depth);
+                depth = min(depth, tmp_depth);
             }
         }
     }

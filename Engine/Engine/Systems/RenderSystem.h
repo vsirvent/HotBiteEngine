@@ -352,7 +352,7 @@ namespace HotBite {
 				//SSR
 				Core::SimpleComputeShader* high_z_shader = nullptr;
 				static constexpr uint32_t HIZ_RATIO = 5;
-				static constexpr uint32_t HIZ_DOWNSAMPLED_NTEXTURES = 3;
+				static constexpr uint32_t HIZ_DOWNSAMPLED_NTEXTURES = 4;
 				static constexpr uint32_t HIZ_NTEXTURES = HIZ_DOWNSAMPLED_NTEXTURES + 1;
 				Core::RenderTexture2D high_z_tmp_map;
 				Core::RenderTexture2D high_z_downsampled_map[HIZ_DOWNSAMPLED_NTEXTURES];

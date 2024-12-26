@@ -2134,8 +2134,8 @@ void RenderSystem::ProcessRT() {
 			dxcore->context->CSSetShaderResources(5, 1, vertex_buffer->IndexSRV());
 			ray_world_solver->SetShader();
 
-			groupsX = (int32_t)(ceil((float)rt_texture_di_curr[RT_TEXTURE_REFLEX].Width() / (32.0f)));
-			groupsY = (int32_t)(ceil((float)rt_texture_di_curr[RT_TEXTURE_REFLEX].Height() / (32.0f)));
+			groupsX = (int32_t)(ceil((float)rt_texture_di_curr[RT_TEXTURE_REFLEX].Width() / (8.0f)));
+			groupsY = (int32_t)(ceil((float)rt_texture_di_curr[RT_TEXTURE_REFLEX].Height() / (8.0f)));
 			dxcore->context->Dispatch(groupsX, groupsY, 1);
 			
 			ray_world_solver->SetUnorderedAccessView("output0", nullptr);
