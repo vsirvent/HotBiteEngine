@@ -2088,7 +2088,7 @@ void RenderSystem::ProcessRT() {
 			ray_screen_solver->SetShaderResourceView("ray0", nullptr);
 			ray_screen_solver->SetShaderResourceView("ray1", nullptr);
 			ray_screen_solver->SetUnorderedAccessView("ray_inputs", nullptr);
-			ray_screen_solver->SetUnorderedAccessView("output_uv", nullptr);
+			ray_screen_solver->SetUnorderedAccessView("output", nullptr);
 			ray_screen_solver->SetUnorderedAccessView("tiles_output", nullptr);
 			ray_screen_solver->SetShaderResourceView("colorTexture", nullptr);
 			ray_screen_solver->SetShaderResourceView("lightTexture", nullptr);
@@ -2155,7 +2155,7 @@ void RenderSystem::ProcessRT() {
 			UnprepareLights(ray_world_solver);
 			ray_world_solver->CopyAllBufferData();
 #endif
-#if 0
+#if 1
 			//Denoiser
 			rt_di_denoiser->SetInt("kernel_size", RESTIR_KERNEL);
 			rt_di_denoiser->SetInt("debug", rt_debug);

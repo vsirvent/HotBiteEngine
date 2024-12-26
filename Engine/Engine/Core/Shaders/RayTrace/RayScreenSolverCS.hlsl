@@ -70,22 +70,42 @@ Texture2D bloomTexture: register(t5);
 
 Texture2D<float> hiz_textures[4];
 
-float GetZ(float pStart_Z, float pEnd_Z, float2 pStartProj, float2 pEndProj, float2 pCurrentProj) {
-    float current = (pCurrentProj.x - pStartProj.x) / (pEndProj.x - pStartProj.x);
-    float z = pStart_Z + (pEnd_Z.x - pStart_Z.x) * current;
-    return z;
+struct Line {
+    float3 P0; // Point on the line
+    float3 d;  // Direction vector of the line
+};
+
+struct Plane {
+    float3 Q; // Point on the plane
+    float3 n; // Normal vector of the plane
+};
+
+float3 IntersectLinePlane(Line l, Plane p) {
+    float3 P0 = l.P0;
+    float3 d = l.d;
+    float3 Q = p.Q;
+    float3 n = p.n;
+
+    float denom = dot(n, d);
+
+    if (abs(denom) < 1e-6) {
+        return FLT_MAX;
+    }
+
+    float t = dot(n, Q - P0) / denom;
+    return (P0 + t * d);
 }
 
-float2 GetNextGrid2(Ray ray, float2 dims, float n) {
-    float4 p = ray.orig;
-    p.xyz += ray.dir * n * 0.1f;
+float GetRayDepth(Plane rayPlane, float2 grid_pos) {
+    float4 H = float4(grid_pos.x * 2.0f - 1.0f, (1.0f - grid_pos.y) * 2.0f - 1.0f, 0.0f, 1.0f);
+    float4 D = mul(H, inv_projection);
+    float4 eyepos = D / D.w;
 
-    float4 pixel = mul(p, projection);
-    pixel /= pixel.w;
-    pixel.y *= -1.0f;
-    pixel.xy = (pixel.xy + 1.0f) * 0.5f;
-    pixel.xy *= dims;
-    return pixel;
+    Line eyeLine;
+    eyeLine.P0 = eyepos.xyz;
+    eyeLine.d = eyepos.xyz;
+    
+    return length(IntersectLinePlane(eyeLine, rayPlane));
 }
 
 float2 GetNextGrid(float2 dir, float2 pixel) {
@@ -134,9 +154,6 @@ float GetHiZ(uint level, float2 pixel) {
 
 float2 GetColor(Ray ray, float2 depth_dimensions, float2 output_dimensions, out uint hit) {
     
-
-    float pStart_Z = length(ray.orig);
-
     float4 pixel0 = mul(ray.orig, projection);
     pixel0 /= pixel0.w;
     pixel0.y *= -1.0f;
@@ -145,7 +162,6 @@ float2 GetColor(Ray ray, float2 depth_dimensions, float2 output_dimensions, out 
     
     float4 p1 = ray.orig;
     p1.xyz += ray.dir;
-    float pEnd_Z = length(p1);
 
     float4 pixel1 = mul(p1, projection);
     pixel1 /= pixel1.w;
@@ -157,11 +173,11 @@ float2 GetColor(Ray ray, float2 depth_dimensions, float2 output_dimensions, out 
 
     float2 screen_pixel = pixel0.xy * depth_dimensions;
     float3 color = float3(0.0f, 0.0f, 0.0f);
-    int current_level = 0;
+    int current_level = 1;
     float current_divider = pow(divider, current_level);
 
     float2 grid_pixel = screen_pixel / current_divider;
-    float2 grid_pos = pixel0;
+    float2 grid_pos = pixel0.xy;
     float2 prev_grid_pos;
 
     float grid_high_z = 0.0f;
@@ -169,37 +185,42 @@ float2 GetColor(Ray ray, float2 depth_dimensions, float2 output_dimensions, out 
         
     float n = 0.0f;
 
+    float3 up = float3(0.0f, 1.0f, 0.0f);
+    float3 normal = normalize(cross(up, ray.dir));
+    Plane rayPlane;
+    rayPlane.Q = ray.orig.xyz;
+    rayPlane.n = normal;
     while (true) {
-        grid_high_z = GetHiZ(current_level, grid_pixel);
         prev_grid_pos = grid_pos;
+        
         //Calculate ray z, grid_pos in NDC coords
         grid_pos = (grid_pixel * current_divider) / depth_dimensions;
-        ray_z = GetZ(pStart_Z, pEnd_Z, pStartProj, pEndProj, grid_pos);
+        
+        grid_high_z = GetHiZ(current_level, grid_pixel);
+        ray_z = GetRayDepth(rayPlane, grid_pos);
 
-        if (grid_high_z < ray_z - 0.1f) {
+        if (grid_high_z < ray_z) {
             current_level--;
             if (current_level < 0) {
                 break;
             }
-            float prev_divider = current_divider;
             current_divider = pow(divider, current_level);
-            //Calculate new pixel position in the new level from the previous valid grid            
+            grid_pos = prev_grid_pos;
+            //Calculate new pixel position in the new level from the previous valid grid       
             grid_pixel = grid_pos * depth_dimensions / current_divider;
-            grid_pixel -= dir * prev_divider;
         }
         else {
-            //grid_pixel = GetNextGrid(dir, grid_pixel);
-            grid_pixel = GetNextGrid2(ray, depth_dimensions, ++n);
+            grid_pixel = GetNextGrid(dir, grid_pixel);
         }
         
         if (grid_pixel.x < 0 || grid_pixel.x >= depth_dimensions.x / (current_divider) ||
             grid_pixel.y < 0 || grid_pixel.y >= depth_dimensions.y / (current_divider)) {
             hit = 0;
-            return color;
+            return float2(-1, -1);
         }
     }
        
-    hit = (abs(ray_z - grid_high_z) < 0.2f);
+    hit = (abs(ray_z - grid_high_z) < 0.1f);
     return grid_pos;
 }
 
@@ -267,7 +288,8 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
         float4 c = colorTexture[color_uv];
         float4 l = lightTexture[color_uv];
         float4 b = bloomTexture[color_uv];
-        output[pixel] = float4(color_uv, 0.0f, 1.0f); // c* l + b;
+        output[pixel] = float4(color_uv, 0.0f, 1.0f);// c* l + b;
+        //output[pixel] = c * l + b;
         ray_inputs[pixel] = ray_input_dirs;
     }
 }

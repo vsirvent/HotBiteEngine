@@ -91,7 +91,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
         Ray ray = GetReflectedRayFromSource(ray_source, cameraPosition);
         if (dist2(ray.dir) > Epsilon)
         {
-            float3 seed = orig_pos * 100.0f;
+            float3 seed = DTid;
             float rX = rgba_tnoise(seed) * N;
             rX = pow(rX, 2.0f);
             normal = ray.dir;
