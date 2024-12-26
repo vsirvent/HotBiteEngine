@@ -59,16 +59,20 @@ static float2 lps[MAX_LIGHTS] = (float2[MAX_LIGHTS])LightPerspectiveValues;
 #include "../Common/RayFunctions.hlsli"
 
 RWTexture2D<float4> ray_inputs: register(u0);
-RWTexture2D<float2> output_uv : register(u1);
+RWTexture2D<float4> output : register(u1);
 RWTexture2D<uint> tiles_output: register(u2);
 
 Texture2D<float4> ray0: register(t1);
 Texture2D<float4> ray1: register(t2);
+Texture2D colorTexture: register(t3);
+Texture2D lightTexture: register(t4);
+Texture2D bloomTexture: register(t5);
+
 Texture2D<float> hiz_textures[4];
 
 float GetZ(float pStart_Z, float pEnd_Z, float2 pStartProj, float2 pEndProj, float2 pCurrentProj) {
-    float current = length(pCurrentProj - pStartProj) / length(pEndProj - pStartProj);
-    float z = lerp(pStart_Z, pEnd_Z, current);
+    float current = (pCurrentProj.x - pStartProj.x) / (pEndProj.x - pStartProj.x);
+    float z = pStart_Z + (pEnd_Z.x - pStart_Z.x) * current;
     return z;
 }
 
@@ -165,7 +169,7 @@ float2 GetColor(Ray ray, float2 depth_dimensions, float2 output_dimensions, out 
         
     float n = 0.0f;
 
-    while (n < 300.0f) {
+    while (true) {
         grid_high_z = GetHiZ(current_level, grid_pixel);
         prev_grid_pos = grid_pos;
         //Calculate ray z, grid_pos in NDC coords
@@ -184,7 +188,8 @@ float2 GetColor(Ray ray, float2 depth_dimensions, float2 output_dimensions, out 
             grid_pixel -= dir * prev_divider;
         }
         else {
-            grid_pixel = GetNextGrid(dir, grid_pixel);
+            //grid_pixel = GetNextGrid(dir, grid_pixel);
+            grid_pixel = GetNextGrid2(ray, depth_dimensions, ++n);
         }
         
         if (grid_pixel.x < 0 || grid_pixel.x >= depth_dimensions.x / (current_divider) ||
@@ -206,7 +211,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     float2 ray_map_dimensions;
     {
         uint w, h;
-        output_uv.GetDimensions(w, h);
+        output.GetDimensions(w, h);
         dimensions.x = w;
         dimensions.y = h;
 
@@ -258,7 +263,11 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
                 tiles_output[p] = hit;
             }
         }
-        output_uv[pixel] = color_uv;
+        color_uv *= ray_map_dimensions;
+        float4 c = colorTexture[color_uv];
+        float4 l = lightTexture[color_uv];
+        float4 b = bloomTexture[color_uv];
+        output[pixel] = float4(color_uv, 0.0f, 1.0f); // c* l + b;
         ray_inputs[pixel] = ray_input_dirs;
     }
 }
