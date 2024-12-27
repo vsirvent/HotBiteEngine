@@ -118,7 +118,7 @@ float2 GetNextGrid(float2 dir, float2 pixel) {
     float2 tMax;
     tMax.x = (nextGrid.x - p0.x) * invDir.x;
     tMax.y = (nextGrid.y - p0.y) * invDir.y;
-       
+
     if (tMax.x < tMax.y) {
         return float2(nextGrid.x, p0.y + (nextGrid.x - p0.x) * dir.y / dir.x);
     }
@@ -139,13 +139,13 @@ float GetHiZ(uint level, float2 pixel) {
 }
 
 float2 GetColor(Ray ray, float2 depth_dimensions, float2 output_dimensions, out float z_diff, out float hit_distance) {
-    
+
     float4 pixel0 = mul(ray.orig, projection);
     pixel0 /= pixel0.w;
     pixel0.y *= -1.0f;
     pixel0.xy = (pixel0.xy + 1.0f) * 0.5f;
     float2 pStartProj = pixel0.xy;
-
+    
     float4 p1 = ray.orig;
     p1.xyz += ray.dir;
 
@@ -155,24 +155,26 @@ float2 GetColor(Ray ray, float2 depth_dimensions, float2 output_dimensions, out 
     pixel1.xy = (pixel1.xy + 1.0f) * 0.5f;
     float2 pEndProj = pixel1.xy;
 
-    float2 dir = normalize((pEndProj - pStartProj) * depth_dimensions);
 
+    float2 dir = normalize((pixel1.xy - pStartProj) * depth_dimensions);
+
+  
     float2 screen_pixel = pixel0.xy * depth_dimensions;
     float3 color = float3(0.0f, 0.0f, 0.0f);
-    int current_level = HIZ_TEXTURES - 1;
+    int current_level = 3; // HIZ_TEXTURES - 1;
     float current_divider = pow(divider, current_level);
 
     float2 grid_pixel = screen_pixel / current_divider;
     float2 grid_pos = pixel0.xy;
     float2 last_valid_grid_pos = grid_pos;
-    float2 prev_grid_pos;
+    float2 last_last_valid_grid_pos = grid_pos;
 
     float grid_high_z = 0.0f;
-   
+
     float3 intersection_point;
-    
+
     float ray_z = 0.0f;
-        
+
     float n = 0.0f;
 
     float3 up = float3(0.0f, 1.0f, 0.0f);
@@ -185,31 +187,34 @@ float2 GetColor(Ray ray, float2 depth_dimensions, float2 output_dimensions, out 
 
     while (current_level >= 0) {
         //Calculate ray z, grid_pos in NDC coords
-       
+
         grid_pos = grid_pixel * grid_size;
         if (!ValidUVCoord(grid_pos)) {
             z_diff = FLT_MAX;
             return float2(-1, -1);
         }
-        grid_high_z = GetHiZ(current_level, round(grid_pixel));
+        grid_high_z = GetHiZ(current_level, grid_pixel);
         ray_z = GetRayDepth(rayPlane, grid_pos, intersection_point);
-
-        if (grid_high_z <= ray_z) {
+       if (grid_high_z < ray_z) {
             current_level--;
             current_divider = pow(divider, current_level);
-            grid_pos = last_valid_grid_pos;
+            grid_pos = last_last_valid_grid_pos;
             grid_size = current_divider / depth_dimensions;
             grid_pixel = (grid_pos * depth_dimensions) / current_divider;
         }
-        else {  
+        else {
+           last_last_valid_grid_pos = last_valid_grid_pos;
             last_valid_grid_pos = grid_pos;
             grid_pixel = GetNextGrid(dir, grid_pixel);
         }
-        
+
     }
-       
+
     z_diff = abs(ray_z - grid_high_z);
     hit_distance = length(intersection_point - ray.orig.xyz);
+    last_valid_grid_pos -= 0.5f;
+    last_valid_grid_pos *= 0.95f;
+    last_valid_grid_pos += 0.5f;
     return last_valid_grid_pos;
 }
 
@@ -217,7 +222,7 @@ float2 GetColor(Ray ray, float2 depth_dimensions, float2 output_dimensions, out 
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thread : SV_GroupThreadID)
 {
-    return;
+
     float2 dimensions;
     float2 ray_map_dimensions;
     {
@@ -247,7 +252,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     float hit_distance;
     //Get rays to be solved in the pixel
     float4 ray_input_dirs = ray_inputs[pixel];
-    
+
     if (ray_input_dirs.x < 10e10 && dist2(ray_input_dirs.xy) > Epsilon) {
         ray.dir = GetCartesianCoordinates(ray_input_dirs.xy);
         ray.dir = normalize(mul(ray.dir, (float3x3)view));
@@ -256,31 +261,29 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
         ray.orig.xyz += ray.dir * 0.5f;
         float reflex_ratio = (1.0f - ray_source.dispersion);
         color_uv = GetColor(ray, ray_map_dimensions, dimensions, z_diff, hit_distance);
-    }
 
-    if (z_diff < 0.2f && ValidUVCoord(color_uv)) {
-        [unroll]
-        for (int x = -2; x <= 2; ++x) {
+        if (z_diff < 0.2f && ValidUVCoord(color_uv)) {
             [unroll]
-            for (int y = -2; y <= 2; ++y) {
-                int2 p = pixel / kernel_size + int2(x, y);
-                tiles_output[p] = 1;
+            for (int x = -2; x <= 2; ++x) {
+                [unroll]
+                for (int y = -2; y <= 2; ++y) {
+                    int2 p = pixel / kernel_size + int2(x, y);
+                    tiles_output[p] = 1;
+                }
             }
+
+            color_uv *= ray_map_dimensions;
+            color_uv = round(color_uv);
+            float4 c = colorTexture[color_uv];
+            float4 l = lightTexture[color_uv];
+            float4 b = bloomTexture[color_uv];
+            float att = max(hit_distance, 1.0f);
+            att += (z_diff / 0.05f);
+            ray_input_dirs.xy = float2(10e11, 10e11);
+            ray_inputs[pixel] = ray_input_dirs;
+            float reflex_ratio = (1.0f - ray_source.dispersion);
+            output[pixel] = (c * l) * ray.ratio * ray_source.opacity / att;
+            //output[pixel] = float4(color_uv, 0.0f, 1.0f) * ray.ratio * ray_source.opacity / att;        
         }
-        
-        color_uv *= ray_map_dimensions;
-        color_uv = round(color_uv);
-        float4 c = colorTexture[color_uv];
-        float4 l = lightTexture[color_uv];
-        float4 b = bloomTexture[color_uv];
-        float3 normal = ray1[color_uv].xyz;
-        float att = max(hit_distance, 1.0f);
-        att += (z_diff / 0.05f);
-        ray_input_dirs.xy = float2(10e11, 10e11);
-        ray_inputs[pixel] = ray_input_dirs;
-        float reflex_ratio = (1.0f - ray_source.dispersion);
-        output[pixel] = (c * l) * ray.ratio* ray_source.opacity * saturate(dot(ray.dir, normal)) * reflex_ratio / att;
-        //output[pixel] = float4(color_uv, 0.0f, 1.0f) * ray.ratio * ray_source.opacity / att;        
     }
 }
-    

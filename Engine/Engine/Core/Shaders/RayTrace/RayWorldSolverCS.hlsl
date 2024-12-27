@@ -382,7 +382,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     //Get rays to be solved in the pixel
     RayTraceColor rc;
     float4 ray_input_dirs = ray_inputs[pixel];
-#if 1
+#if 0
     
     if (ray_input_dirs.x < 10e10) {
         if (dist2(ray_input_dirs.xy) <= Epsilon) {
