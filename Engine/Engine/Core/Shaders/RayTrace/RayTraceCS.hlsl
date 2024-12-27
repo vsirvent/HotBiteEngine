@@ -92,7 +92,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
         if (dist2(ray.dir) > Epsilon)
         {
             {
-                float3 seed = DTid;
+                float3 seed = DTid + float3(frame_count, frame_count, frame_count);
                 float rX = rgba_tnoise(seed) * N;
                 rX = pow(rX, 2.0f);
                 normal = ray.dir;
@@ -102,7 +102,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             }
 #if 0
             {
-                float3 seed = DTid + float3(10.0f, 10.0f, 10.0f);
+                float3 seed = DTid + float3(frame_count, frame_count, frame_count) * 0.5f;
                 float rX = rgba_tnoise(seed) * N;
                 rX = pow(rX, 2.0f);
                 normal = ray.dir;

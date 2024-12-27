@@ -317,11 +317,10 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
                 float att = max(hit_distance, 1.0f);
                 float diff_ratio = (z_diff / 0.05f);
                 ray_input[r] = float2(10e11, 10e11);
-                final_color += ((c * l) * ratio * ray_source.opacity / att);
+                final_color += ((c * l)  * ray_source.opacity / att);
                 n++;
             }
             ray_input[r] = float2(10e11, 10e11);
-            
         }
     }
     if (n > 0) {
@@ -336,5 +335,5 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     }
     n = max(n, 1);
     ray_inputs[pixel] = float4(ray_input[0], ray_input[1]);
-    output[pixel] = float4(final_color / n, 1.0f);
+    output[pixel] = output[pixel] * 0.2f + float4(sqrt(final_color), 1.0f);
 }

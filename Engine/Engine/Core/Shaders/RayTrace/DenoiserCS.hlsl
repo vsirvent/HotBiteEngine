@@ -25,7 +25,6 @@ Texture2D<uint> tiles_output : register(t7);
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main(uint3 DTid : SV_DispatchThreadID)
 {
-    return;
     float2 pixel = float2(DTid.x, DTid.y);
 
     uint2 input_dimensions;
@@ -113,7 +112,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     else {
         c0 *= 0.0f;
     }
-#if 1
+#if 0
     if (type == 1) {
         output[pixel] = c0;
     }

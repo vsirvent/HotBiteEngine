@@ -2022,8 +2022,6 @@ void RenderSystem::ProcessRT() {
 			rt_di_shader->SetUnorderedAccessView("ray_inputs", nullptr);
 			rt_di_shader->CopyAllBufferData();
 
-			rt_texture_di_curr[RT_TEXTURE_REFLEX].Clear(zero);
-			rt_texture_di_curr[RT_TEXTURE_REFRACT].Clear(zero);
 #if 1
 			//Resolve rays with screen space Ray Tracing
 			ray_screen_solver->SetInt("enabled", rt_enabled& (rt_quality != eRtQuality::OFF ? 0xFF : 0x00));
