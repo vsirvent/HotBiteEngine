@@ -306,8 +306,8 @@ namespace HotBite {
 				static constexpr int RT_GI_NTEXTURES = 5;
 				Core::RenderTexture2D rt_textures_gi[RT_GI_NTEXTURES];
 				Core::RenderTexture2D rt_textures_gi_tiles;
-				Core::RenderTexture2D rt_inputs;
-
+		
+		
 				Core::RenderTexture2D restir_pdf[2];
 				Core::RenderTexture2D restir_w;
 				Core::RenderTexture2D* restir_pdf_curr = nullptr;
@@ -348,6 +348,8 @@ namespace HotBite {
 				};
 
 				Core::RenderTexture2D input_rays;
+				Core::RenderTexture2D input_pass2_rays;
+				Core::RenderTexture2D input_pass2_pixels;
 
 				//SSR
 				Core::SimpleComputeShader* high_z_shader = nullptr;

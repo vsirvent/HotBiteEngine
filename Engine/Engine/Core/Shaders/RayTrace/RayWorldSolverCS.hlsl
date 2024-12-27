@@ -64,6 +64,7 @@ RWTexture2D<uint> tiles_output: register(u2);
 Texture2D<float4> ray0;
 Texture2D<float4> ray1;
 Texture2D<float4> ray_inputs: register(t0);
+Texture2D<uint2> ray_input_pixels: register(t1);
 
 StructuredBuffer<BVHNode> objects: register(t2);
 StructuredBuffer<BVHNode> objectBVH: register(t3);
@@ -344,7 +345,7 @@ return out_color.hit;
         }
 
 #define DENSITY 1.0f
-#define NTHREADS 8
+#define NTHREADS 32
 
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thread : SV_GroupThreadID)
@@ -366,11 +367,13 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
 
     float2 rayMapRatio = ray_map_dimensions / dimensions;
             
-    float2 pixel = float2(x, y);
-
+    float2 ray_input_pixel = float2(x, y);
+    float4 ray_input_dirs = ray_inputs[ray_input_pixel];
+    float2 pixel = ray_input_pixels[ray_input_pixel];
 
     float2 ray_pixel = round(pixel * rayMapRatio);
 
+   
     RaySource ray_source = fromColor(ray0[ray_pixel], ray1[ray_pixel]);
     
     float4 color_reflex = float4(0.0f, 0.0f, 0.0f, 1.0f);
@@ -381,9 +384,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
 
     //Get rays to be solved in the pixel
     RayTraceColor rc;
-    float4 ray_input_dirs = ray_inputs[pixel];
 #if 1
-    
     if (ray_input_dirs.x < 10e10) {
         if (dist2(ray_input_dirs.xy) <= Epsilon) {
             color_reflex.rgb = float3(1.0f, 0.0f, 0.0f);

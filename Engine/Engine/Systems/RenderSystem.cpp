@@ -481,6 +481,9 @@ RenderSystem::~RenderSystem() {
 	restir_w.Release();
 	texture_tmp.Release();
 
+	input_rays.Release();
+	input_pass2_rays.Release();
+	input_pass2_pixels.Release();
 	rt_texture_props.Release();
 	rt_ray_sources0.Release();
 	rt_ray_sources1.Release();
@@ -504,6 +507,16 @@ void RenderSystem::LoadRTResources() {
 	input_rays.Release();
 	if (FAILED(input_rays.Init(w / RT_TEXTURE_RESOLUTION_DIVIDER, h / RT_TEXTURE_RESOLUTION_DIVIDER, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 		throw std::exception("input_rays.Init failed");
+	}
+
+	input_pass2_rays.Release();
+	if (FAILED(input_pass2_rays.Init(w / RT_TEXTURE_RESOLUTION_DIVIDER, h / RT_TEXTURE_RESOLUTION_DIVIDER, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+		throw std::exception("input_pass2_rays.Init failed");
+	}
+
+	input_pass2_pixels.Release();
+	if (FAILED(input_pass2_pixels.Init(w / RT_TEXTURE_RESOLUTION_DIVIDER, h / RT_TEXTURE_RESOLUTION_DIVIDER, DXGI_FORMAT::DXGI_FORMAT_R16G16_UINT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+		throw std::exception("input_pass2_pixels.Init failed");
 	}
 
 	uint32_t restir_div = 3;// max(RT_TEXTURE_RESOLUTION_DIVIDER, 2);
@@ -2017,7 +2030,7 @@ void RenderSystem::ProcessRT() {
 			//Reset tiles (that avoid denoising tiles with no ray color)
 			rt_textures_gi_tiles.Clear(zero);
 			input_rays.Clear(max_floats);
-
+			input_pass2_rays.Clear(max_floats);
 
 			ID3D11ShaderResourceView* nullsrc = nullptr;
 			ID3D11ShaderResourceView* no_data[MAX_OBJECTS] = {};
@@ -2068,7 +2081,10 @@ void RenderSystem::ProcessRT() {
 			ray_screen_solver->SetMatrix4x4("inv_projection", cam_entity.camera->inverse_projection);
 			ray_screen_solver->SetShaderResourceView("ray0", rt_ray_sources0.SRV());
 			ray_screen_solver->SetShaderResourceView("ray1", rt_ray_sources1.SRV());
-			ray_screen_solver->SetUnorderedAccessView("ray_inputs", input_rays.UAV());
+			ray_screen_solver->SetShaderResourceView("ray_inputs", input_rays.SRV());
+			ray_screen_solver->SetUnorderedAccessView("ray_data", vol_data.UAV());
+			ray_screen_solver->SetUnorderedAccessView("ray_outputs", input_pass2_rays.UAV());
+			ray_screen_solver->SetUnorderedAccessView("ray_output_pixels", input_pass2_pixels.UAV());
 			ray_screen_solver->SetUnorderedAccessView("output", rt_texture_di_curr[RT_TEXTURE_REFLEX].UAV());
 			ray_screen_solver->SetUnorderedAccessView("tiles_output", rt_textures_gi_tiles.UAV());
 			ray_screen_solver->SetShaderResourceViewArray("hiz_textures[0]", high_z_maps, HIZ_NTEXTURES);
@@ -2087,12 +2103,15 @@ void RenderSystem::ProcessRT() {
 			
 			ray_screen_solver->SetShaderResourceView("ray0", nullptr);
 			ray_screen_solver->SetShaderResourceView("ray1", nullptr);
-			ray_screen_solver->SetUnorderedAccessView("ray_inputs", nullptr);
+			ray_screen_solver->SetShaderResourceView("ray_inputs", nullptr);
+			ray_screen_solver->SetUnorderedAccessView("ray_outputs", nullptr);
+			ray_screen_solver->SetUnorderedAccessView("ray_output_pixels", nullptr);
 			ray_screen_solver->SetUnorderedAccessView("output", nullptr);
 			ray_screen_solver->SetUnorderedAccessView("tiles_output", nullptr);
 			ray_screen_solver->SetShaderResourceView("colorTexture", nullptr);
 			ray_screen_solver->SetShaderResourceView("lightTexture", nullptr);
 			ray_screen_solver->SetShaderResourceView("bloomTexture", nullptr);
+			ray_screen_solver->SetUnorderedAccessView("ray_data", nullptr);
 
 			UnprepareLights(ray_screen_solver);
 			ray_screen_solver->CopyAllBufferData();
@@ -2119,7 +2138,8 @@ void RenderSystem::ProcessRT() {
 			ray_world_solver->SetUnorderedAccessView("tiles_output", rt_textures_gi_tiles.UAV());
 			ray_world_solver->SetShaderResourceView("ray0", rt_ray_sources0.SRV());
 			ray_world_solver->SetShaderResourceView("ray1", rt_ray_sources1.SRV());
-			ray_world_solver->SetShaderResourceView("ray_inputs", input_rays.SRV());
+			ray_world_solver->SetShaderResourceView("ray_inputs", input_pass2_rays.SRV());
+			ray_world_solver->SetShaderResourceView("ray_input_pixels", input_pass2_pixels.SRV());
 			ray_world_solver->SetShaderResourceViewArray("DiffuseTextures[0]", diffuseTextures, nobjects);
 			ray_world_solver->SetSamplerState(PCF_SAMPLER, dxcore->shadow_sampler);
 			ray_world_solver->SetSamplerState(BASIC_SAMPLER, dxcore->basic_sampler);
@@ -2134,8 +2154,8 @@ void RenderSystem::ProcessRT() {
 			dxcore->context->CSSetShaderResources(5, 1, vertex_buffer->IndexSRV());
 			ray_world_solver->SetShader();
 
-			groupsX = (int32_t)(ceil((float)rt_texture_di_curr[RT_TEXTURE_REFLEX].Width() / (8.0f)));
-			groupsY = (int32_t)(ceil((float)rt_texture_di_curr[RT_TEXTURE_REFLEX].Height() / (8.0f)));
+			groupsX = (int32_t)(ceil((float)rt_texture_di_curr[RT_TEXTURE_REFLEX].Width() / (32.0f)));
+			groupsY = (int32_t)(ceil((float)rt_texture_di_curr[RT_TEXTURE_REFLEX].Height() / (32.0f)));
 			dxcore->context->Dispatch(groupsX, groupsY, 1);
 			
 			ray_world_solver->SetUnorderedAccessView("output0", nullptr);
@@ -2145,6 +2165,7 @@ void RenderSystem::ProcessRT() {
 			ray_world_solver->SetUnorderedAccessView("bloom", nullptr);
 			ray_world_solver->SetUnorderedAccessView("tiles_output", nullptr);
 			ray_world_solver->SetShaderResourceView("ray_inputs", nullptr);
+			ray_world_solver->SetShaderResourceView("ray_input_pixels", nullptr);
 			dxcore->context->CSSetShaderResources(2, 1, &nullsrc);
 			dxcore->context->CSSetShaderResources(3, 1, &nullsrc);
 			dxcore->context->CSSetShaderResources(4, 1, &nullsrc);
@@ -2669,7 +2690,7 @@ void RenderSystem::PostProcessLight() {
 
 	if (!cameras.GetData().empty()) {
 
-		vol_data.Clear(zero);
+
 		CameraEntity& cam_entity = cameras.GetData()[0];
 		PrepareVolumetricShader(vol_shader);
 		vol_shader->SetShaderResourceView("rgbaNoise", rgba_noise_texture.SRV());
@@ -2774,6 +2795,8 @@ void RenderSystem::Draw() {
 
 		current_light_map = &light_map[0];
 		prev_light_map = nullptr;
+		
+		vol_data.Clear(zero);
 
 		CastShadows(w, h, camera_position, view, projection, false);
 		DrawDepth(w, h, camera_position, view, projection);

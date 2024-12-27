@@ -71,7 +71,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
 
     bool skip = false;
     uint tile_info = tiles_output[pixel / kernel_size];
-    disp = ray_source.dispersion;
+    disp = sqrt(ray_source.dispersion);
     switch (light_type) {
     case 0: skip = ((tile_info & 0x01) == 0); break;
     case 1: skip = (((tile_info >> 1) & 0x01) == 0); break;

@@ -58,7 +58,11 @@ static float2 lps[MAX_LIGHTS] = (float2[MAX_LIGHTS])LightPerspectiveValues;
 #include "../Common/SimpleLight.hlsli"
 #include "../Common/RayFunctions.hlsli"
 
-RWTexture2D<float4> ray_inputs: register(u0);
+Texture2D<float4> ray_inputs: register(t0);
+RWTexture2D<float4> ray_outputs: register(u0);
+RWTexture2D<uint2> ray_output_pixels: register(u4);
+RWTexture2D<uint> ray_data: register(u3);
+
 RWTexture2D<float4> output : register(u1);
 RWTexture2D<uint> tiles_output: register(u2);
 
@@ -91,6 +95,13 @@ float3 IntersectLinePlane(Line l, Plane p) {
     denom = max(abs(denom), 1e-6) * sign(denom);
     float t = dot(n, Q - P0) / denom;
     return (P0 + t * d);
+}
+
+float GetInterpolatedDepth(float pStart_Z, float pEnd_Z, float3 pStartView, float3 pEndView, float2 pStartProj, float2 pEndProj, float2 pCurrentProj, out float3 intersection_point) {
+    float current = length(pCurrentProj - pStartProj) / length(pEndProj - pStartProj);
+    float z = lerp(pStart_Z, pEnd_Z, current);
+    intersection_point = lerp(pStartView, pEndView, current);
+    return z;
 }
 
 float GetRayDepth(Plane rayPlane, float2 grid_pos, out float3 intersection_point) {
@@ -145,17 +156,27 @@ float2 GetColor(Ray ray, float2 depth_dimensions, float2 output_dimensions, out 
     pixel0.y *= -1.0f;
     pixel0.xy = (pixel0.xy + 1.0f) * 0.5f;
     float2 pStartProj = pixel0.xy;
+    float startZ = length(ray.orig);
 
     float4 p1 = ray.orig;
-    p1.xyz += ray.dir;
+    p1.xyz += ray.dir ;
 
     float4 pixel1 = mul(p1, projection);
     pixel1 /= pixel1.w;
     pixel1.y *= -1.0f;
     pixel1.xy = (pixel1.xy + 1.0f) * 0.5f;
     float2 pEndProj = pixel1.xy;
+   
 
-    float2 dir = normalize((pEndProj - pStartProj) * depth_dimensions);
+    float2 dir = normalize((pixel1.xy - pStartProj) * depth_dimensions);
+
+    p1.xyz += ray.dir * 20.0f;
+    float4 pixel2 = mul(p1, projection);
+    pixel2 /= pixel2.w;
+    pixel2.y *= -1.0f;
+    pixel2.xy = (pixel2.xy + 1.0f) * 0.5f;
+    pEndProj = pixel2.xy;
+    float endZ = length(p1);
 
     float2 screen_pixel = pixel0.xy * depth_dimensions;
     float3 color = float3(0.0f, 0.0f, 0.0f);
@@ -193,7 +214,7 @@ float2 GetColor(Ray ray, float2 depth_dimensions, float2 output_dimensions, out 
         }
         grid_high_z = GetHiZ(current_level, round(grid_pixel));
         ray_z = GetRayDepth(rayPlane, grid_pos, intersection_point);
-
+        //ray_z = GetInterpolatedDepth(startZ, endZ, ray.orig.xyz, p1.xyz, pStartProj, pEndProj, grid_pos, intersection_point);
         if (grid_high_z <= ray_z) {
             current_level--;
             current_divider = pow(divider, current_level);
@@ -210,6 +231,9 @@ float2 GetColor(Ray ray, float2 depth_dimensions, float2 output_dimensions, out 
        
     z_diff = abs(ray_z - grid_high_z);
     hit_distance = length(intersection_point - ray.orig.xyz);
+    last_valid_grid_pos -= 0.5f;
+    last_valid_grid_pos *= 0.95f;
+    last_valid_grid_pos += 0.5f;
     return last_valid_grid_pos;
 }
 
@@ -217,7 +241,6 @@ float2 GetColor(Ray ray, float2 depth_dimensions, float2 output_dimensions, out 
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thread : SV_GroupThreadID)
 {
-    return;
     float2 dimensions;
     float2 ray_map_dimensions;
     {
@@ -256,31 +279,37 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
         ray.orig.xyz += ray.dir * 0.5f;
         float reflex_ratio = (1.0f - ray_source.dispersion);
         color_uv = GetColor(ray, ray_map_dimensions, dimensions, z_diff, hit_distance);
-    }
 
-    if (z_diff < 0.2f && ValidUVCoord(color_uv)) {
-        [unroll]
-        for (int x = -2; x <= 2; ++x) {
+        if (z_diff < 0.1f && ValidUVCoord(color_uv)) {
             [unroll]
-            for (int y = -2; y <= 2; ++y) {
-                int2 p = pixel / kernel_size + int2(x, y);
-                tiles_output[p] = 1;
+            for (int x = -2; x <= 2; ++x) {
+                [unroll]
+                for (int y = -2; y <= 2; ++y) {
+                    int2 p = pixel / kernel_size + int2(x, y);
+                    tiles_output[p] = 1;
+                }
             }
+
+            color_uv *= ray_map_dimensions;
+            color_uv = round(color_uv);
+            float4 c = colorTexture[color_uv];
+            float4 l = lightTexture[color_uv];
+            float4 b = bloomTexture[color_uv];
+            float att = max(hit_distance, 1.0f);
+            att += (z_diff / 0.05f);
+
+            float reflex_ratio = (1.0f - ray_source.dispersion);
+            output[pixel] = (c * l) * ray.ratio * ray_source.opacity * reflex_ratio / att;
+            //output[pixel] = float4(color_uv, 0.0f, 1.0f) * ray.ratio * ray_source.opacity / att;        
         }
-        
-        color_uv *= ray_map_dimensions;
-        color_uv = round(color_uv);
-        float4 c = colorTexture[color_uv];
-        float4 l = lightTexture[color_uv];
-        float4 b = bloomTexture[color_uv];
-        float3 normal = ray1[color_uv].xyz;
-        float att = max(hit_distance, 1.0f);
-        att += (z_diff / 0.05f);
-        ray_input_dirs.xy = float2(10e11, 10e11);
-        ray_inputs[pixel] = ray_input_dirs;
-        float reflex_ratio = (1.0f - ray_source.dispersion);
-        output[pixel] = (c * l) * ray.ratio* ray_source.opacity * saturate(dot(ray.dir, normal)) * reflex_ratio / att;
-        //output[pixel] = float4(color_uv, 0.0f, 1.0f) * ray.ratio * ray_source.opacity / att;        
+        else {
+            uint ray_count = 0;
+            InterlockedAdd(ray_data[uint2(1, 0)], (uint)1, ray_count);
+            float2 pos = float2(ray_count % dimensions.x, ray_count / dimensions.x);
+
+            ray_outputs[pos] = ray_input_dirs;
+            ray_output_pixels[pos] = uint2(pixel);
+        }
     }
 }
     
