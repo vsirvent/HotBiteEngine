@@ -310,6 +310,8 @@ namespace HotBite {
 				Core::RenderTexture2D rt_inputs;
 
 				Core::RenderTexture2D restir_pdf[2];
+				Core::RenderTexture2D restir_pdf_mask;
+
 				Core::RenderTexture2D restir_w;
 				Core::RenderTexture2D* restir_pdf_curr = nullptr;
 				Core::RenderTexture2D* restir_pdf_prev = nullptr;

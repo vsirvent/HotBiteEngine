@@ -33,6 +33,7 @@ float GetPosW(int pos, uint kernel) {
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main(uint3 DTid : SV_DispatchThreadID)
 {
+
     float2 pixel = float2(DTid.x, DTid.y);
 #ifdef DEBUG
     if (debug == 1) { 

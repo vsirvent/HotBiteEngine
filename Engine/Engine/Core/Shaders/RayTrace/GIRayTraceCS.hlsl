@@ -53,6 +53,7 @@ Texture2D<float4> prev_position_map: register(t9);
 Texture2D<uint4> restir_pdf_0: register(t10);
 Texture2D<float> restir_w_0: register(t11);
 RWTexture2D<float4> ray_inputs: register(u2);
+RWTexture2D<uint> restir_pdf_mask: register(u3);
 
 #include "../Common/RayFunctions.hlsli"
 
@@ -220,7 +221,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     uint start = (((pixel.x + pixel.y + frame_count)) % ray_count) * low_energy * motion_ratio;
     uint step = frame_count % 8 + ray_count / 2 + (ray_count * motion_ratio) * low_energy;
 #endif
-
+    uint restir_mask = 0;
     float w_pixel = max(restir_w_0[pixel], RAY_W_BIAS * ray_count);
     for (i = 0; i < ray_count; i += step) {
         uint index = (i + start) % ray_count;
@@ -228,6 +229,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
         wis[wis_size] = wi;
         wis_size += (last_wi != wi);
         last_wi = wi;
+        restir_mask |= 1 << i;
     }
  
     float4 color_diffuse = float4(0.0f, 0.0f, 0.0f, 1.0f);
@@ -244,5 +246,5 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
         ray_input[i] = GetPolarCoordinates(ray.dir);
     }
     ray_inputs[pixel] = float4(ray_input[0], ray_input[1]);
-
+    restir_pdf_mask[pixel] = restir_mask;
 }

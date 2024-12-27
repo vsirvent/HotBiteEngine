@@ -30,7 +30,7 @@ SOFTWARE.
 
 //#define PACK_RAYS_8
 #define RAY_W_SCALE 1.0f
-#define RAY_W_BIAS 0.0001f
+#define RAY_W_BIAS 0.01f
 
 #ifdef PACK_RAYS_8
 #define MAX_RAYS 8

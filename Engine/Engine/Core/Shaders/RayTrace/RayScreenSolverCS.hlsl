@@ -32,7 +32,8 @@ cbuffer externalData : register(b0)
     float time;
     uint enabled;
     uint type;
-    float divider;
+    float hiz_ratio;
+    uint divider;
     int kernel_size;
     float3 cameraPosition;
     matrix view;
@@ -62,12 +63,15 @@ static float2 lps[MAX_LIGHTS] = (float2[MAX_LIGHTS])LightPerspectiveValues;
 RWTexture2D<float4> ray_inputs: register(u0);
 RWTexture2D<float4> output : register(u1);
 RWTexture2D<uint> tiles_output: register(u2);
+RWTexture2D<uint4> restir_pdf_1: register(u3);
 
 Texture2D<float4> ray0: register(t1);
 Texture2D<float4> ray1: register(t2);
 Texture2D colorTexture: register(t3);
 Texture2D lightTexture: register(t4);
 Texture2D bloomTexture: register(t5);
+Texture2D<uint> restir_pdf_mask: register(t6);
+Texture2D<uint4> restir_pdf_0: register(t7);
 
 #define HIZ_TEXTURES 5
 #define TYPE_DI 1
@@ -166,7 +170,7 @@ float2 GetColor(Ray ray, float2 depth_dimensions, float2 output_dimensions, out 
     float2 screen_pixel = pixel0.xy * depth_dimensions;
     float3 color = float3(0.0f, 0.0f, 0.0f);
     int current_level = HIZ_TEXTURES - 1;
-    float current_divider = pow(divider, current_level);
+    float current_divider = pow(hiz_ratio, current_level);
 
     float2 grid_pixel = screen_pixel / current_divider;
     float2 grid_pos = pixel0.xy;
@@ -201,7 +205,7 @@ float2 GetColor(Ray ray, float2 depth_dimensions, float2 output_dimensions, out 
         ray_z = GetRayDepth(rayPlane, grid_pos, intersection_point);
        if (grid_high_z <= ray_z) {
             current_level--;
-            current_divider = pow(divider, current_level);
+            current_divider = pow(hiz_ratio, current_level);
             grid_pos = last_last_valid_grid_pos;
             grid_size = current_divider / depth_dimensions;
             grid_pixel = (grid_pos * depth_dimensions) / current_divider;
@@ -297,32 +301,90 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
         ratio = ray_source.dispersion;
     }
 
-    for (int r = 0; r < 2; ++r) {
-        z_diff = FLT_MAX;
-        Ray ray = GetRayInfoFromSourceWithNoDir(ray_source);
-        if (ray_input[r].x < 100.0f && dist2(ray_input[r]) > Epsilon) {
-            ray.dir = GetCartesianCoordinates(ray_input[r]);
-            ray.dir = normalize(mul(ray.dir, (float3x3)view));
-            ray.orig = mul(ray.orig, view);
-            ray.orig /= ray.orig.w;
-            ray.orig.xyz += ray.dir * 0.5f;
-            float reflex_ratio = (1.0f - ray_source.dispersion);
-            color_uv = GetColor(ray, ray_map_dimensions, dimensions, z_diff, hit_distance);
+    [branch]
+    switch(type)
+    {
+        //Direct Illumination
+        case 1: {
+            //
+            for (int r = 0; r < 2; ++r) {
+                z_diff = FLT_MAX;
+                Ray ray = GetRayInfoFromSourceWithNoDir(ray_source);
+                if (ray_input[r].x < 100.0f && dist2(ray_input[r]) > Epsilon) {
+                    ray.dir = GetCartesianCoordinates(ray_input[r]);
+                    ray.dir = normalize(mul(ray.dir, (float3x3)view));
+                    ray.orig = mul(ray.orig, view);
+                    ray.orig /= ray.orig.w;
+                    ray.orig.xyz += ray.dir * 0.5f;
+                    float reflex_ratio = (1.0f - ray_source.dispersion);
+                    color_uv = GetColor(ray, ray_map_dimensions, dimensions, z_diff, hit_distance);
 
-            float max_diff = GetMaxDiff(color_uv, ray_map_dimensions);
-            if (z_diff < max_diff && ValidUVCoord(color_uv)) {
-                float4 c = GetInterpolatedColor(color_uv, colorTexture, ray_map_dimensions);
-                float4 l = GetInterpolatedColor(color_uv, lightTexture, ray_map_dimensions);
-                float4 b = GetInterpolatedColor(color_uv, bloomTexture, ray_map_dimensions);
-                float att = max(hit_distance, 1.0f);
-                float diff_ratio = (z_diff / 0.05f);
-                ray_input[r] = float2(10e11, 10e11);
-                final_color += ((c * l)  * ray_source.opacity / att);
-                n++;
+                    float max_diff = GetMaxDiff(color_uv, ray_map_dimensions);
+                    if (z_diff < max_diff && ValidUVCoord(color_uv)) {
+                        float4 c = GetInterpolatedColor(color_uv, colorTexture, ray_map_dimensions);
+                        float4 l = GetInterpolatedColor(color_uv, lightTexture, ray_map_dimensions);
+                        float4 b = GetInterpolatedColor(color_uv, bloomTexture, ray_map_dimensions);
+                        float att = max(hit_distance, 1.0f);
+                        float diff_ratio = (z_diff / 0.05f);
+                        ray_input[r] = float2(10e11, 10e11);
+                        final_color += ((c * l) * ray_source.opacity / att);
+                        n++;
+                    }
+                    ray_input[r] = float2(10e11, 10e11);
+                }
             }
-            ray_input[r] = float2(10e11, 10e11);
+            break;
+        }
+        //Global Illumination
+        case 2: {
+            float pdf_cache[MAX_RAYS];
+            UnpackRays(restir_pdf_0[pixel], RAY_W_SCALE, pdf_cache);
+            float wis[MAX_RAYS];
+            int wis_size = 0;
+            uint i = 0;
+            uint mask = restir_pdf_mask[pixel];
+            for (i = 0; i < MAX_RAYS; ++i) {
+                if (mask & (1 << i) != 0) {
+                    wis[wis_size++] = i;
+                }
+            }
+            for (i = 0; i < 2; ++i) {
+                z_diff = FLT_MAX;
+                Ray ray = GetRayInfoFromSourceWithNoDir(ray_source);
+                if (ray_input[i].x < 100.0f && dist2(ray_input[i]) > Epsilon) {
+                    ray.dir = GetCartesianCoordinates(ray_input[i]);
+                    ray.dir = normalize(mul(ray.dir, (float3x3)view));
+                    ray.orig = mul(ray.orig, view);
+                    ray.orig /= ray.orig.w;
+                    ray.orig.xyz += ray.dir * 0.5f;
+                    float reflex_ratio = (1.0f - ray_source.dispersion);
+                    color_uv = GetColor(ray, ray_map_dimensions, dimensions, z_diff, hit_distance);
+
+                    float max_diff = GetMaxDiff(color_uv, ray_map_dimensions);
+                    if (z_diff < max_diff && ValidUVCoord(color_uv)) {
+                        float4 c = GetInterpolatedColor(color_uv, colorTexture, ray_map_dimensions);
+                        float4 l = GetInterpolatedColor(color_uv, lightTexture, ray_map_dimensions);
+                        float4 b = GetInterpolatedColor(color_uv, bloomTexture, ray_map_dimensions);
+                      
+                        float diff_ratio = (z_diff / 0.05f);
+                        ray_input[i] = float2(10e11, 10e11);
+                        float att = max(hit_distance, 1.0f);
+                        float3 color = ((c * l) * ray_source.opacity) / att;
+                        uint wi = wis[i];
+                        pdf_cache[wi] = RAY_W_BIAS + length(color);
+                        final_color += color;
+                        ray_input[i] = float2(10e11, 10e11);
+                        n++;
+                    }
+                }
+            }
+            n = max(n, 1);
+            final_color /= n;
+            restir_pdf_1[pixel] = PackRays(pdf_cache, RAY_W_SCALE);
+            break;
         }
     }
+
     if (n > 0) {
         [unroll]
         for (int x = -2; x <= 2; ++x) {
@@ -333,7 +395,6 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             }
         }
     }
-    n = max(n, 1);
     ray_inputs[pixel] = float4(ray_input[0], ray_input[1]);
     output[pixel] = output[pixel] * 0.2f + float4(sqrt(final_color), 1.0f);
 }

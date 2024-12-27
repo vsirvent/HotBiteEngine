@@ -478,6 +478,7 @@ RenderSystem::~RenderSystem() {
 	for (int x = 0; x < 2; ++x) {
 		restir_pdf[x].Release();
 	}
+	restir_pdf_mask.Release();
 	restir_w.Release();
 	texture_tmp.Release();
 
@@ -526,6 +527,11 @@ void RenderSystem::LoadRTResources() {
 		if (FAILED(restir_pdf[n].Init(w / restir_div, h / restir_div, DXGI_FORMAT_R32G32B32A32_UINT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("restir_pdf.Init failed");
 		}
+	}
+
+	restir_pdf_mask.Release();
+	if (FAILED(restir_pdf_mask.Init(w / restir_div, h / restir_div, DXGI_FORMAT::DXGI_FORMAT_R16_UINT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+		throw std::exception("restir_w.Init failed");
 	}
 	restir_w.Release();
 	if (FAILED(restir_w.Init(w / restir_div, h / restir_div, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
@@ -1843,6 +1849,7 @@ void RenderSystem::ProcessGI() {
 		CameraEntity& cam_entity = cameras.GetData()[0];
 
 		input_rays.Clear(max_floats);
+		restir_pdf_mask.Clear(zero);
 
 		gi_shader->SetInt("kernel_size", RESTIR_KERNEL);
 		gi_shader->SetInt("ray_count", RESTIR_PIXEL_RAYS);
@@ -1853,6 +1860,7 @@ void RenderSystem::ProcessGI() {
 		gi_shader->SetInt("frame_count", frame_count);
 		gi_shader->SetInt("divider", GI_TEXTURE_RESOLUTION_DIVIDER);
 
+		gi_shader->SetUnorderedAccessView("restir_pdf_mask", restir_pdf_mask.UAV());
 		gi_shader->SetUnorderedAccessView("ray_inputs", input_rays.UAV());
 		gi_shader->SetShaderResourceView("motion_texture", motion_texture.SRV());
 		gi_shader->SetShaderResourceView("prev_position_map", prev_position_map.SRV());
@@ -1869,13 +1877,14 @@ void RenderSystem::ProcessGI() {
 		int groupsY = (int32_t)(ceil((float)rt_texture_gi_curr->Height() / (RESTIR_KERNEL)));
 		dxcore->context->Dispatch((uint32_t)ceil((float)groupsX), (uint32_t)ceil((float)groupsY), 1);
 
-		gi_shader->SetUnorderedAccessView("ray_inputs", input_rays.UAV());
-		gi_shader->SetShaderResourceView("motion_texture", motion_texture.SRV());
-		gi_shader->SetShaderResourceView("prev_position_map", prev_position_map.SRV());
-		gi_shader->SetShaderResourceView("ray0", rt_ray_sources0.SRV());
-		gi_shader->SetShaderResourceView("ray1", rt_ray_sources1.SRV());
-		gi_shader->SetShaderResourceView("restir_pdf_0", restir_pdf_prev->SRV());
-		gi_shader->SetShaderResourceView("restir_w_0", restir_w.SRV());
+		gi_shader->SetUnorderedAccessView("restir_pdf_mask", nullptr);
+		gi_shader->SetUnorderedAccessView("ray_inputs", nullptr);
+		gi_shader->SetShaderResourceView("motion_texture", nullptr);
+		gi_shader->SetShaderResourceView("prev_position_map", nullptr);
+		gi_shader->SetShaderResourceView("ray0", nullptr);
+		gi_shader->SetShaderResourceView("ray1", nullptr);
+		gi_shader->SetShaderResourceView("restir_pdf_0", nullptr);
+		gi_shader->SetShaderResourceView("restir_w_0", nullptr);
 
 #if 1
 		//Resolve rays with screen space Ray Tracing
@@ -1883,18 +1892,24 @@ void RenderSystem::ProcessGI() {
 		ray_screen_solver->SetInt("frame_count", frame_count);
 		ray_screen_solver->SetFloat(TIME, time);
 		ray_screen_solver->SetInt("kernel_size", RESTIR_KERNEL);
-		ray_screen_solver->SetInt("type", 1);
-		ray_screen_solver->SetFloat("divider", HIZ_RATIO);
+		ray_screen_solver->SetInt("type", 2);
+		ray_screen_solver->SetInt("divider", GI_TEXTURE_RESOLUTION_DIVIDER);
+		ray_screen_solver->SetFloat("hiz_ratio", HIZ_RATIO);
 		ray_screen_solver->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
 		ray_screen_solver->SetMatrix4x4("view", cam_entity.camera->view);
 		ray_screen_solver->SetMatrix4x4("projection", cam_entity.camera->projection);
 		ray_screen_solver->SetMatrix4x4("inv_projection", cam_entity.camera->inverse_projection);
+
 		ray_screen_solver->SetShaderResourceView("ray0", rt_ray_sources0.SRV());
 		ray_screen_solver->SetShaderResourceView("ray1", rt_ray_sources1.SRV());
 		ray_screen_solver->SetUnorderedAccessView("ray_inputs", input_rays.UAV());
-		ray_screen_solver->SetUnorderedAccessView("output", rt_texture_gi_curr->UAV());
+		ray_screen_solver->SetUnorderedAccessView("output", rt_texture_gi_trace->UAV());
 		ray_screen_solver->SetUnorderedAccessView("tiles_output", rt_textures_gi_tiles.UAV());
 		ray_screen_solver->SetShaderResourceViewArray("hiz_textures[0]", high_z_maps, HIZ_NTEXTURES);
+
+		ray_screen_solver->SetShaderResourceView("restir_pdf_mask", restir_pdf_mask.SRV());
+		ray_screen_solver->SetShaderResourceView("restir_pdf_0", restir_pdf_prev->SRV());
+		ray_screen_solver->SetUnorderedAccessView("restir_pdf_1", restir_pdf_curr->UAV());
 
 		ray_screen_solver->SetShaderResourceView("colorTexture", post_process_pipeline->RenderResource());
 		ray_screen_solver->SetShaderResourceView("lightTexture", current_light_map->SRV());
@@ -1910,6 +1925,15 @@ void RenderSystem::ProcessGI() {
 		ray_screen_solver->SetUnorderedAccessView("ray_inputs", nullptr);
 		ray_screen_solver->SetUnorderedAccessView("output", nullptr);
 		ray_screen_solver->SetUnorderedAccessView("tiles_output", nullptr);
+
+
+		ID3D11ShaderResourceView* no_data[HIZ_NTEXTURES] = {};
+		ray_screen_solver->SetShaderResourceViewArray("hiz_textures[0]", no_data, HIZ_NTEXTURES);
+
+		ray_screen_solver->SetShaderResourceView("restir_pdf_mask", nullptr);
+		ray_screen_solver->SetShaderResourceView("restir_pdf_0", nullptr);
+		ray_screen_solver->SetUnorderedAccessView("restir_pdf_1", nullptr);
+
 		ray_screen_solver->SetShaderResourceView("colorTexture", nullptr);
 		ray_screen_solver->SetShaderResourceView("lightTexture", nullptr);
 		ray_screen_solver->SetShaderResourceView("bloomTexture", nullptr);
@@ -1917,7 +1941,7 @@ void RenderSystem::ProcessGI() {
 		UnprepareLights(ray_screen_solver);
 		ray_screen_solver->CopyAllBufferData();
 #endif
-#if 0
+#if 1
 		gi_weights->SetShader();
 		gi_weights->SetInt("ray_count", RESTIR_PIXEL_RAYS);
 		gi_weights->SetShaderResourceView("restir_pdf_0", restir_pdf_curr->SRV());
@@ -2067,21 +2091,24 @@ void RenderSystem::ProcessRT() {
 			ray_screen_solver->SetFloat(TIME, time);
 			ray_screen_solver->SetInt("kernel_size", RESTIR_KERNEL);
 			ray_screen_solver->SetInt("type", 1);
-			ray_screen_solver->SetFloat("divider", HIZ_RATIO);
+			ray_screen_solver->SetFloat("hiz_ratio", HIZ_RATIO);
+			ray_screen_solver->SetInt("divider", RT_TEXTURE_RESOLUTION_DIVIDER);
 			ray_screen_solver->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
 			ray_screen_solver->SetMatrix4x4("view", cam_entity.camera->view);
 			ray_screen_solver->SetMatrix4x4("projection", cam_entity.camera->projection);
 			ray_screen_solver->SetMatrix4x4("inv_projection", cam_entity.camera->inverse_projection);
+
 			ray_screen_solver->SetShaderResourceView("ray0", rt_ray_sources0.SRV());
 			ray_screen_solver->SetShaderResourceView("ray1", rt_ray_sources1.SRV());
 			ray_screen_solver->SetUnorderedAccessView("ray_inputs", input_rays.UAV());
 			ray_screen_solver->SetUnorderedAccessView("output", rt_texture_di_curr[RT_TEXTURE_REFLEX].UAV());
 			ray_screen_solver->SetUnorderedAccessView("tiles_output", rt_textures_gi_tiles.UAV());
-			ray_screen_solver->SetShaderResourceViewArray("hiz_textures[0]", high_z_maps, HIZ_NTEXTURES);
 
 			ray_screen_solver->SetShaderResourceView("colorTexture", post_process_pipeline->RenderResource());
 			ray_screen_solver->SetShaderResourceView("lightTexture", current_light_map->SRV());
 			ray_screen_solver->SetShaderResourceView("bloomTexture", bloom_map.SRV());
+
+			ray_screen_solver->SetShaderResourceViewArray("hiz_textures[0]", high_z_maps, HIZ_NTEXTURES);
 
 			PrepareLights(ray_screen_solver);
 			ray_screen_solver->CopyAllBufferData();
@@ -2096,9 +2123,12 @@ void RenderSystem::ProcessRT() {
 			ray_screen_solver->SetUnorderedAccessView("ray_inputs", nullptr);
 			ray_screen_solver->SetUnorderedAccessView("output", nullptr);
 			ray_screen_solver->SetUnorderedAccessView("tiles_output", nullptr);
+
 			ray_screen_solver->SetShaderResourceView("colorTexture", nullptr);
 			ray_screen_solver->SetShaderResourceView("lightTexture", nullptr);
 			ray_screen_solver->SetShaderResourceView("bloomTexture", nullptr);
+
+			ray_screen_solver->SetShaderResourceViewArray("hiz_textures[0]", no_data, HIZ_NTEXTURES);
 
 			UnprepareLights(ray_screen_solver);
 			ray_screen_solver->CopyAllBufferData();
@@ -2902,6 +2932,7 @@ void RenderSystem::ResetRTBBuffers() {
 		light_map[i].Clear(zero);
 		restir_pdf[i].Clear(zero);
 		restir_w.Clear(nrays);
+		restir_pdf_mask.Clear(zero);
 	}
 }
 
