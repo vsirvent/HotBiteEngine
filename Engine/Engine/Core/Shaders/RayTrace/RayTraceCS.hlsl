@@ -91,13 +91,25 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
         Ray ray = GetReflectedRayFromSource(ray_source, cameraPosition);
         if (dist2(ray.dir) > Epsilon)
         {
-            float3 seed = DTid;
-            float rX = rgba_tnoise(seed) * N;
-            rX = pow(rX, 2.0f);
-            normal = ray.dir;
-            GetSpaceVectors(normal, tangent, bitangent);
-            //dirs.xy = GetPolarCoordinates(ray.dir);
-            dirs.xy = GenerateHemisphereDispersedRay(normal, tangent, bitangent, ray_source.dispersion, N, level * 5.0f, rX);
+            {
+                float3 seed = DTid;
+                float rX = rgba_tnoise(seed) * N;
+                rX = pow(rX, 2.0f);
+                normal = ray.dir;
+                GetSpaceVectors(normal, tangent, bitangent);
+                //dirs.xy = GetPolarCoordinates(ray.dir);
+                dirs.xy = GenerateHemisphereDispersedRay(normal, tangent, bitangent, ray_source.dispersion, N, level * 10.0f, rX);
+            }
+#if 0
+            {
+                float3 seed = DTid + float3(10.0f, 10.0f, 10.0f);
+                float rX = rgba_tnoise(seed) * N;
+                rX = pow(rX, 2.0f);
+                normal = ray.dir;
+                GetSpaceVectors(normal, tangent, bitangent);
+                dirs.zw = GenerateHemisphereDispersedRay(normal, tangent, bitangent, ray_source.dispersion, N, level * 10.0f, rX);
+            }
+#endif
         }
     }
     //Refracted ray
@@ -106,7 +118,9 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
         if (dist2(ray.dir) > Epsilon)
         {
             dirs.zw = GetPolarCoordinates(ray.dir);
+            dirs.zw += float2(100.0f, 100.f);
         }
     }
+
     ray_inputs[pixel] = dirs;
 }

@@ -383,7 +383,6 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     RayTraceColor rc;
     float4 ray_input_dirs = ray_inputs[pixel];
 #if 0
-    
     if (ray_input_dirs.x < 10e10) {
         if (dist2(ray_input_dirs.xy) <= Epsilon) {
             color_reflex.rgb = float3(1.0f, 0.0f, 0.0f);
@@ -401,11 +400,12 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
 #endif
 #if 1
     
-    if (ray_input_dirs.z < 10e10) {
+    if (ray_input_dirs.z >= 100.0f && ray_input_dirs.z < 10e10) {
         if (dist2(ray_input_dirs.zw) <= Epsilon) {
             color_reflex.rgb = float3(1.0f, 0.0f, 0.0f);
         }
         else {
+            ray_input_dirs.zw -= float2(100.0f, 100.f);
             ray.dir = GetCartesianCoordinates(ray_input_dirs.zw);
             ray.orig.xyz = orig + ray.dir * 0.01f;
 
