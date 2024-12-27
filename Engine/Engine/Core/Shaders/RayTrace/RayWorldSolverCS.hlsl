@@ -344,7 +344,7 @@ return out_color.hit;
         }
 
 #define DENSITY 1.0f
-#define NTHREADS 8
+#define NTHREADS 32
 
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thread : SV_GroupThreadID)
@@ -382,7 +382,9 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     //Get rays to be solved in the pixel
     RayTraceColor rc;
     float4 ray_input_dirs = ray_inputs[pixel];
-#if 0
+    float reflex_ratio = (1.0f - ray_source.dispersion);
+
+#if 1
     if (ray_input_dirs.x < 10e10) {
         if (dist2(ray_input_dirs.xy) <= Epsilon) {
             color_reflex.rgb = float3(1.0f, 0.0f, 0.0f);
@@ -391,15 +393,13 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             ray.dir = GetCartesianCoordinates(ray_input_dirs.xy);
             ray.orig.xyz = orig + ray.dir * 0.01f;
             GetColor(ray, 0, rc, ray_source.dispersion, false);
-            float reflex_ratio = (1.0f - ray_source.dispersion);
-            color_reflex.rgb += rc.color * ray_source.opacity;
+            color_reflex.rgb += rc.color * reflex_ratio * ray_source.opacity;
             hits.x = rc.hit != 0;
             output0[pixel] = color_reflex;
         }
     }
 #endif
 #if 1
-    
     if (ray_input_dirs.z >= 100.0f && ray_input_dirs.z < 10e10) {
         if (dist2(ray_input_dirs.zw) <= Epsilon) {
             color_reflex.rgb = float3(1.0f, 0.0f, 0.0f);

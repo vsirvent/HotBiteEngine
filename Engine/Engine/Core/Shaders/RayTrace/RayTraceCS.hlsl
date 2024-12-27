@@ -87,7 +87,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
 
     float4 dirs = float4(10e11, 10e11, 10e11, 10e11);
     //Reflected ray
-    if (ray_source.opacity > Epsilon && (enabled & REFLEX_ENABLED)) {
+    if (ray_source.opacity > Epsilon && ray_source.dispersion < 1.0f && (enabled & REFLEX_ENABLED)) {
         Ray ray = GetReflectedRayFromSource(ray_source, cameraPosition);
         if (dist2(ray.dir) > Epsilon)
         {

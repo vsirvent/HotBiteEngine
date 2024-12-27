@@ -506,7 +506,7 @@ void RenderSystem::LoadRTResources() {
 		throw std::exception("input_rays.Init failed");
 	}
 
-	uint32_t restir_div = 3;// max(RT_TEXTURE_RESOLUTION_DIVIDER, 2);
+	uint32_t restir_div = GI_TEXTURE_RESOLUTION_DIVIDER;
 
 	for (int n = 0; n < RT_GI_NTEXTURES; ++n) {
 		rt_textures_gi[n].Release();
@@ -1842,73 +1842,41 @@ void RenderSystem::ProcessGI() {
 		std::lock_guard<std::mutex> lock(rt_mutex);
 		CameraEntity& cam_entity = cameras.GetData()[0];
 
+		input_rays.Clear(max_floats);
 
 		gi_shader->SetInt("kernel_size", RESTIR_KERNEL);
 		gi_shader->SetInt("ray_count", RESTIR_PIXEL_RAYS);
+		gi_shader->SetFloat(TIME, time);
+		gi_shader->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
 
-		gi_shader->SetInt("nobjects", nobjects);
-		gi_shader->SetInt("enabled", rt_enabled & (rt_quality != eRtQuality::OFF ? 0xFF : 0x00));
 		gi_shader->SetMatrix4x4("view_proj", cam_entity.camera->view_projection);
-		gi_shader->SetMatrix4x4("prev_view_proj", cam_entity.camera->prev_view_projection);
 		gi_shader->SetInt("frame_count", frame_count);
-		gi_shader->SetData("objectMaterials", objectMaterials, nobjects * sizeof(MaterialProps));
-		gi_shader->SetData("objectInfos", objects, nobjects * sizeof(ObjectInfo));
-		gi_shader->SetMatrix4x4(VIEW, cam_entity.camera->view);
-		gi_shader->SetMatrix4x4(PROJECTION, cam_entity.camera->projection);
-		gi_shader->SetShaderResourceView("position_map", position_map.SRV());
-		gi_shader->SetShaderResourceView("depth_map", depth_map.SRV());
+		gi_shader->SetInt("divider", GI_TEXTURE_RESOLUTION_DIVIDER);
+
+		gi_shader->SetUnorderedAccessView("ray_inputs", input_rays.UAV());
 		gi_shader->SetShaderResourceView("motion_texture", motion_texture.SRV());
 		gi_shader->SetShaderResourceView("prev_position_map", prev_position_map.SRV());
 		gi_shader->SetShaderResourceView("ray0", rt_ray_sources0.SRV());
 		gi_shader->SetShaderResourceView("ray1", rt_ray_sources1.SRV());
-		gi_shader->SetUnorderedAccessView("props", rt_texture_props.UAV());
-
-		float3 dir;
-		XMStoreFloat3(&dir, cam_entity.camera->xm_direction);
-		gi_shader->SetFloat(TIME, time);
-		gi_shader->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
-		gi_shader->SetFloat3("cameraDirection", dir);
-		gi_shader->SetSamplerState(PCF_SAMPLER, dxcore->shadow_sampler);
-		gi_shader->SetSamplerState(BASIC_SAMPLER, dxcore->basic_sampler);
-		gi_shader->SetShaderResourceViewArray("DiffuseTextures[0]", diffuseTextures, nobjects);
-
-		PrepareLights(gi_shader);
+		gi_shader->SetShaderResourceView("restir_pdf_0", restir_pdf_prev->SRV());
+		gi_shader->SetShaderResourceView("restir_w_0", restir_w.SRV());
 
 		gi_shader->CopyAllBufferData();
 		gi_shader->SetShader();
 
-		dxcore->context->CSSetShaderResources(2, 1, bvh_buffer->SRV());
-		dxcore->context->CSSetShaderResources(3, 1, tbvh_buffer.SRV());
-		dxcore->context->CSSetShaderResources(4, 1, vertex_buffer->VertexSRV());
-		dxcore->context->CSSetShaderResources(5, 1, vertex_buffer->IndexSRV());
-
-		gi_shader->SetShaderResourceView("restir_pdf_0", restir_pdf_prev->SRV());
-		gi_shader->SetShaderResourceView("restir_w_0", restir_w.SRV());
-		gi_shader->SetUnorderedAccessView("restir_pdf_1", restir_pdf_curr->UAV());
-
-		gi_shader->SetUnorderedAccessView("output", rt_texture_gi_trace->UAV());
-		gi_shader->SetUnorderedAccessView("tiles_output", rt_textures_gi_tiles.UAV());
 
 		int groupsX = (int32_t)(ceil((float)rt_texture_gi_curr->Width() / (RESTIR_KERNEL)));
 		int groupsY = (int32_t)(ceil((float)rt_texture_gi_curr->Height() / (RESTIR_KERNEL)));
 		dxcore->context->Dispatch((uint32_t)ceil((float)groupsX), (uint32_t)ceil((float)groupsY), 1);
 
-		gi_shader->SetShaderResourceView("restir_pdf_0", nullptr);
-		gi_shader->SetShaderResourceView("restir_w_0", nullptr);
-		gi_shader->SetUnorderedAccessView("restir_pdf_1", nullptr);
-
-		gi_shader->SetUnorderedAccessView("output", nullptr);
-		gi_shader->SetUnorderedAccessView("tiles_output", nullptr);
-		gi_shader->SetShaderResourceView("position_map", nullptr);
-		gi_shader->SetShaderResourceView("motion_texture", nullptr);
-		gi_shader->SetShaderResourceView("ray0", nullptr);
-		gi_shader->SetShaderResourceView("ray1", nullptr);
-		gi_shader->SetUnorderedAccessView("props", nullptr);
-		gi_shader->SetShaderResourceView("prev_position_map", nullptr);
-
-		UnprepareLights(gi_shader);
-		gi_shader->CopyAllBufferData();
-
+		gi_shader->SetUnorderedAccessView("ray_inputs", input_rays.UAV());
+		gi_shader->SetShaderResourceView("motion_texture", motion_texture.SRV());
+		gi_shader->SetShaderResourceView("prev_position_map", prev_position_map.SRV());
+		gi_shader->SetShaderResourceView("ray0", rt_ray_sources0.SRV());
+		gi_shader->SetShaderResourceView("ray1", rt_ray_sources1.SRV());
+		gi_shader->SetShaderResourceView("restir_pdf_0", restir_pdf_prev->SRV());
+		gi_shader->SetShaderResourceView("restir_w_0", restir_w.SRV());
+#if 0
 		groupsX = (int32_t)(ceil((float)rt_texture_gi_curr->Width() / (32.0f)));
 		groupsY = (int32_t)(ceil((float)rt_texture_gi_curr->Height() / (32.0f)));
 
@@ -2002,6 +1970,7 @@ void RenderSystem::ProcessGI() {
 		gi_average->SetShaderResourceView("motion_texture", nullptr);
 		gi_average->SetShaderResourceView("prev_position_map", nullptr);
 		gi_average->CopyAllBufferData();
+#endif
 	}
 }
 
@@ -2061,6 +2030,7 @@ void RenderSystem::ProcessRT() {
 			ray_screen_solver->SetInt("frame_count", frame_count);
 			ray_screen_solver->SetFloat(TIME, time);
 			ray_screen_solver->SetInt("kernel_size", RESTIR_KERNEL);
+			ray_screen_solver->SetInt("type", 1);
 			ray_screen_solver->SetFloat("divider", HIZ_RATIO);
 			ray_screen_solver->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
 			ray_screen_solver->SetMatrix4x4("view", cam_entity.camera->view);
@@ -2134,8 +2104,8 @@ void RenderSystem::ProcessRT() {
 			dxcore->context->CSSetShaderResources(5, 1, vertex_buffer->IndexSRV());
 			ray_world_solver->SetShader();
 
-			groupsX = (int32_t)(ceil((float)rt_texture_di_curr[RT_TEXTURE_REFLEX].Width() / (8.0f)));
-			groupsY = (int32_t)(ceil((float)rt_texture_di_curr[RT_TEXTURE_REFLEX].Height() / (8.0f)));
+			groupsX = (int32_t)(ceil((float)rt_texture_di_curr[RT_TEXTURE_REFLEX].Width() / (32.0f)));
+			groupsY = (int32_t)(ceil((float)rt_texture_di_curr[RT_TEXTURE_REFLEX].Height() / (32.0f)));
 			dxcore->context->Dispatch(groupsX, groupsY, 1);
 			
 			ray_world_solver->SetUnorderedAccessView("output0", nullptr);
@@ -2789,7 +2759,7 @@ void RenderSystem::Draw() {
 		ProcessMotion();
 		ProcessHighZ();
 		ProcessRT();
-		//ProcessGI();
+		ProcessGI();
 		PostProcessLight();
 		ProcessMix();
 		ProcessAntiAlias();

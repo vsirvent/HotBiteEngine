@@ -31,6 +31,7 @@ cbuffer externalData : register(b0)
     uint frame_count;
     float time;
     uint enabled;
+    uint type;
     float divider;
     int kernel_size;
     float3 cameraPosition;
@@ -69,6 +70,9 @@ Texture2D lightTexture: register(t4);
 Texture2D bloomTexture: register(t5);
 
 #define HIZ_TEXTURES 5
+#define TYPE_DI 1
+#define TYPE_GI 2
+
 Texture2D<float> hiz_textures[HIZ_TEXTURES];
 
 struct Line {
@@ -279,17 +283,25 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     float hit_distance;
     //Get rays to be solved in the pixel
     float4 ray_input_dirs = ray_inputs[pixel];
-    float2 ray_inputs[2];
-    ray_inputs[0] = ray_input_dirs.xy;
-    ray_inputs[1] = ray_input_dirs.zw;
+    float2 ray_input[2];
+    ray_input[0] = ray_input_dirs.xy;
+    ray_input[1] = ray_input_dirs.zw;
 
     float3 final_color = float3(0.0f, 0.0f, 0.0f);
     float n = 0.0f;
+    float ratio = 0.0f;
+    if (type == TYPE_DI) {
+        ratio = (1.0f - ray_source.dispersion);
+    }
+    else {
+        ratio = ray_source.dispersion;
+    }
+
     for (int r = 0; r < 2; ++r) {
         z_diff = FLT_MAX;
         Ray ray = GetRayInfoFromSourceWithNoDir(ray_source);
-        if (ray_inputs[r].x < 100.0f && dist2(ray_inputs[r]) > Epsilon) {
-            ray.dir = GetCartesianCoordinates(ray_inputs[r]);
+        if (ray_input[r].x < 100.0f && dist2(ray_input[r]) > Epsilon) {
+            ray.dir = GetCartesianCoordinates(ray_input[r]);
             ray.dir = normalize(mul(ray.dir, (float3x3)view));
             ray.orig = mul(ray.orig, view);
             ray.orig /= ray.orig.w;
@@ -304,10 +316,12 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
                 float4 b = GetInterpolatedColor(color_uv, bloomTexture, ray_map_dimensions);
                 float att = max(hit_distance, 1.0f);
                 float diff_ratio = (z_diff / 0.05f);
-                float reflex_ratio = (1.0f - ray_source.dispersion);
-                final_color += ((c * l) * ray.ratio * ray_source.opacity / att);
+                ray_input[r] = float2(10e11, 10e11);
+                final_color += ((c * l) * ratio * ray_source.opacity / att);
                 n++;
             }
+            ray_input[r] = float2(10e11, 10e11);
+            
         }
     }
     if (n > 0) {
@@ -321,5 +335,6 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
         }
     }
     n = max(n, 1);
+    ray_inputs[pixel] = float4(ray_input[0], ray_input[1]);
     output[pixel] = float4(final_color / n, 1.0f);
 }

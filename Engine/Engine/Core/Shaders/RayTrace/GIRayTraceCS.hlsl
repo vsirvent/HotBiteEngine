@@ -39,69 +39,28 @@ cbuffer externalData : register(b0)
     uint frame_count;
     float time;
     float3 cameraPosition;
-    float3 cameraDirection;
-
+    uint divider;
+    matrix view_proj;
     uint ray_count;
     int kernel_size;
-
-    //Lights
-    AmbientLight ambientLight;
-    DirLight dirLights[MAX_LIGHTS];
-    PointLight pointLights[MAX_LIGHTS];
-    uint dirLightsCount;
-    uint pointLightsCount;
-
-    matrix view;
-    matrix projection;
-
-    float4 LightPerspectiveValues[MAX_LIGHTS / 2];
-    matrix DirPerspectiveMatrix[MAX_LIGHTS];
 }
 
-cbuffer objectData : register(b1)
-{
-    uint nobjects;
-    ObjectInfo objectInfos[MAX_OBJECTS];
-    MaterialColor objectMaterials[MAX_OBJECTS];
-}
-
-RWTexture2D<float4> output;
 Texture2D<float4> ray0;
 Texture2D<float4> ray1;
 
-StructuredBuffer<BVHNode> objects: register(t2);
-StructuredBuffer<BVHNode> objectBVH: register(t3);
-
-Texture2D<float4> position_map : register(t6);
 Texture2D<float4> motion_texture : register(t8);
 Texture2D<float4> prev_position_map: register(t9);
 Texture2D<uint4> restir_pdf_0: register(t10);
 Texture2D<float> restir_w_0: register(t11);
-RWTexture2D<uint4> restir_pdf_1: register(u0);
-RWTexture2D<uint> tiles_output: register(u1);
+RWTexture2D<float4> ray_inputs: register(u2);
 
-Texture2D<float> DirShadowMapTexture[MAX_LIGHTS];
-TextureCube<float> PointShadowMapTexture[MAX_LIGHTS];
-
-
-//Packed array
-static float2 lps[MAX_LIGHTS] = (float2[MAX_LIGHTS])LightPerspectiveValues;
-
-#include "../Common/SimpleLight.hlsli"
 #include "../Common/RayFunctions.hlsli"
-
-#define max_distance 20.0f
 
 static const float inv_ray_count = 1.0f / (float)ray_count;
 static const uint stride = kernel_size * ray_count;
 
-static const uint max_x = ray_count * kernel_size;
-static const uint max_y = stride * kernel_size;
-
 static const uint N = ray_count * kernel_size * kernel_size;
 static const float space_size = (float)N / (float)ray_count;
-static const float ray_enery_unit = inv_ray_count;
-
 
 
 uint GetRayIndex(float2 pixel, float pdf_cache[MAX_RAYS], float w, float index) {
@@ -135,7 +94,7 @@ float3 GenerateHemisphereRay(float3 dir, float3 tangent, float3 bitangent, float
     };
     level--;
 
-    float pointsAtLevel = level * LEVEL_RATIO;
+    float pointsAtLevel = 1.0f + level * LEVEL_RATIO;
 
     // Calculate local index within the current level
     float localIndex = index - cumulativePoints;
@@ -162,271 +121,11 @@ float3 GenerateHemisphereRay(float3 dir, float3 tangent, float3 bitangent, float
     return normalize(dir + globalRay);
 }
 
-struct RayTraceColor {
-    float3 color;
-    bool hit;
-};
-
-void GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTraceColor out_color, float dispersion, bool mix, bool refract)
-{
-    out_color.color = float3(0.0f, 0.0f, 0.0f);
-    out_color.hit = false;
-
-    float collision_dist = 0.0f;
-#if USE_OBH   
-    uint volumeStack[MAX_STACK_SIZE];
-#endif
-    uint stack[MAX_STACK_SIZE];
-    RayObject oray;
-    IntersectionResult object_result;
-
-    bool collide = false;
-    IntersectionResult result;
-    Ray ray = origRay;
-    float att_dist = 1.0f;
-    bool end = false;
-#ifdef BOUNCES
-    while (!end) {
-#endif
-        result.distance = FLT_MAX;
-        end = true;
-        collide = false;
-#if USE_OBH
-        uint volumeStackSize = 0;
-        volumeStack[volumeStackSize++] = 0;
-        uint i = 0;
-        while (volumeStackSize > 0 && volumeStackSize < MAX_STACK_SIZE)
-        {
-#else
-        for (uint i = 0; i < nobjects; ++i)
-        {
-            uint objectIndex = i;
-#endif
-
-#if USE_OBH
-            uint currentVolume = volumeStack[--volumeStackSize];
-
-            BVHNode volumeNode = objectBVH[currentVolume];
-            [branch]
-            if (is_leaf(volumeNode))
-            {
-                uint objectIndex = index(volumeNode);
-                ObjectInfo o = objectInfos[objectIndex];
-
-                float objectExtent = length(o.aabb_max - o.aabb_min);
-                float distanceToObject = length(o.position - origRay.orig.xyz) - objectExtent;
-                [branch]
-                if (distanceToObject < max_distance && distanceToObject < result.distance && IntersectAABB(ray, o.aabb_min, o.aabb_max))
-                {
-#else
-            ObjectInfo o = objectInfos[i];
-            float objectExtent = length(o.aabb_max - o.aabb_min);
-            float distanceToObject = length(o.position - origRay.orig.xyz) - objectExtent;
-            if (distanceToObject < max_distance && distanceToObject < result.distance && IntersectAABB(ray, o.aabb_min, o.aabb_max))
-            {
-#endif
-                object_result.distance = FLT_MAX;
-
-                // Transform the ray direction from world space to object space
-                oray.orig = mul(ray.orig, o.inv_world);
-                oray.orig /= oray.orig.w;
-                oray.dir = normalize(mul(ray.dir, (float3x3) o.inv_world));
-                oray.t = FLT_MAX;
-
-                uint stackSize = 0;
-                stack[stackSize++] = 0;
-
-                while (stackSize > 0 && stackSize < MAX_STACK_SIZE)
-                {
-                    uint current = stack[--stackSize];
-
-                    BVHNode node = objects[o.objectOffset + current];
-                    [branch]
-                    if (is_leaf(node))
-                    {
-                        float t;
-                        uint idx = index(node);
-                        idx += o.indexOffset;
-
-                        IntersectionResult tmp_result;
-                        tmp_result.distance = FLT_MAX;
-                        if (IntersectTri(oray, idx, o.vertexOffset, tmp_result))
-                        {
-                            if (tmp_result.distance < object_result.distance) {
-                                object_result.v0 = tmp_result.v0;
-                                object_result.v1 = tmp_result.v1;
-                                object_result.v2 = tmp_result.v2;
-                                object_result.vindex = tmp_result.vindex;
-                                object_result.distance = tmp_result.distance;
-                                object_result.u = tmp_result.u;
-                                object_result.v = tmp_result.v;
-                                object_result.object = objectIndex;
-                            }
-                        }
-                    }
-                    else 
-                    if (IntersectAABB(oray, node))
-                    {
-                        uint left_node_index = left_child(node);
-                        uint right_node_index = right_child(node);
-
-                        BVHNode left_node = objects[o.objectOffset + left_node_index];
-                        BVHNode right_node = objects[o.objectOffset + right_node_index];
-
-                        float left_dist = node_distance(left_node, oray.orig.xyz);
-                        float right_dist = node_distance(right_node, oray.orig.xyz);
-
-                        if (left_dist < right_dist) {
-                            if (right_dist < object_result.distance && right_dist < max_distance) {
-                                stack[stackSize++] = right_node_index;
-                            }
-                            if (left_dist < object_result.distance && left_dist < max_distance) {
-                                stack[stackSize++] = left_node_index;
-                            }
-                        }
-                        else {
-                            if (left_dist < object_result.distance && left_dist < max_distance) {
-                                stack[stackSize++] = left_node_index;
-                            }
-                            if (right_dist < object_result.distance && right_dist < max_distance) {
-                                stack[stackSize++] = right_node_index;
-                            }
-                        }
-                    }
-                }
-
-                if (object_result.distance < FLT_MAX) {
-                    float3 opos = (1.0f - object_result.u - object_result.v) * object_result.v0 + object_result.u * object_result.v1 + object_result.v * object_result.v2;
-                    float4 pos = mul(float4(opos, 1.0f), o.world);
-                    float distance = length(pos - ray.orig);
-                    if (distance < result.distance)
-                    {
-                        collide = true;
-                        collision_dist = distance;
-                        ray.t = distance;
-                        result.v0 = object_result.v0;
-                        result.v1 = object_result.v1;
-                        result.v2 = object_result.v2;
-                        result.vindex = object_result.vindex;
-                        result.distance = distance;
-                        result.u = object_result.u;
-                        result.v = object_result.v;
-                        result.object = objectIndex;
-                    }
-                }
-            }
-#if USE_OBH
-                }
- else 
-     [branch]
-     if (IntersectAABB(ray, volumeNode)) {
-
-
-         uint left_node_index = left_child(volumeNode);
-         uint right_node_index = right_child(volumeNode);
-
-         BVHNode left_node = objectBVH[left_node_index];
-         BVHNode right_node = objectBVH[right_node_index];
-
-         float left_dist = node_distance(left_node, ray.orig.xyz);
-         float right_dist = node_distance(right_node, ray.orig.xyz);
-
-         float dists[2] = { left_dist, right_dist };
-         uint node_indices[2] = { left_node_index, right_node_index };
-
-         if (dists[0] > dists[1]) {
-             float temp_dist = dists[0];
-             dists[0] = dists[1];
-             dists[1] = temp_dist;
-
-             uint temp_index = node_indices[0];
-             node_indices[0] = node_indices[1];
-             node_indices[1] = temp_index;
-         }
-
-         [unroll]
-         for (int i = 0; i < 2; ++i) {
-             if (dists[i] < result.distance && dists[i] < max_distance) {
-                 volumeStack[volumeStackSize++] = node_indices[i];
-             }
-         }
-        }
-        ++i;
-#endif
-    }
-
-    //At this point we have the ray collision distance and a collision result
-    if (collide) {
-        // Calculate space position
-        ObjectInfo o = objectInfos[result.object];
-        float3 normal0 = asfloat(vertexBuffer.Load3(result.vindex.x + 12));
-        float3 normal1 = asfloat(vertexBuffer.Load3(result.vindex.y + 12));
-        float3 normal2 = asfloat(vertexBuffer.Load3(result.vindex.z + 12));
-        float3 opos = (1.0f - result.u - result.v) * result.v0 + result.u * result.v1 + result.v * result.v2;
-        float3 normal = (1.0f - result.u - result.v) * normal0 + result.u * normal1 + result.v * normal2;
-        normal = normalize(mul(normal, (float3x3)o.world));
-        float4 pos = mul(float4(opos, 1.0f), o.world);
-        pos /= pos.w;
-        MaterialColor material = objectMaterials[result.object];
-
-        float3 color = float3(0.0f, 0.0f, 0.0f);
-
- 
-        uint i = 0;
-        for (i = 0; i < dirLightsCount; ++i) {
-            color += CalcDirectional(normal, pos.xyz, dirLights[i], i);
-        }
-
-        // Calculate the point lights
-        for (i = 0; i < pointLightsCount; ++i) {
-            if (length(pos.xyz - pointLights[i].Position) < pointLights[i].Range) {
-                color += CalcPoint(normal, pos.xyz, pointLights[i], i);
-            }
-        }
-
-        color *= o.opacity;
-
-
-        bool use_mat_texture = material.flags & DIFFUSSE_MAP_ENABLED_FLAG;
-        float3 mat_color = material.diffuseColor.rgb * !use_mat_texture;
-
-        float2 uv0 = asfloat(vertexBuffer.Load2(result.vindex.x + 24));
-        float2 uv1 = asfloat(vertexBuffer.Load2(result.vindex.y + 24));
-        float2 uv2 = asfloat(vertexBuffer.Load2(result.vindex.z + 24));
-        float2 uv = uv0 * (1.0f - result.u - result.v) + uv1 * result.u + uv2 * result.v;
-
-        mat_color += GetDiffuseColor(result.object, uv) * use_mat_texture;
-
-        color.rgb *= mat_color;
-
-        float3 emission = material.emission * material.emission_color * 100.0f;
-        color.rgb += emission;
-        
-        //att_dist *= max(collision_dist, 1.0f);
-
-        out_color.color += color * ray.ratio / att_dist;
-
-        ray.orig = pos;
-        out_color.hit = true;
-#ifdef BOUNCES
-        if (material.emission <= Epsilon && ray.bounces < max_bounces && o.opacity > 0.0f) {
-            ray = GetReflectedRayFromRay(ray, normal, ray.ratio);
-            float3 tangent;
-            float3 bitangent;
-            GetSpaceVectors(ray.dir, tangent, bitangent);
-            ray.dir = GenerateHemisphereRay(ray.dir, tangent, bitangent, (1.0f - material.specIntensity), N, level, rX);
-            end = false;
-        }
-    }
-#endif
-    }
-}
-
 bool IsLowEnergy(float pdf[MAX_RAYS], uint len) {
         
     float total_enery = 0.0f;
 
-    for (int i = 0; i < len; ++i) {
+    for (uint i = 0; i < len; ++i) {
         total_enery += pdf[i];
     }
     float threshold = len * RAY_W_BIAS;
@@ -443,10 +142,6 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     float2 ray_map_dimensions;
     {
         uint w, h;
-        output.GetDimensions(w, h);
-        dimensions.x = w;
-        dimensions.y = h;
-
         ray0.GetDimensions(w, h);
         ray_map_dimensions.x = w;
         ray_map_dimensions.y = h;
@@ -454,7 +149,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     float x = (float)DTid.x;
     float y = (float)DTid.y;
 
-    float2 rayMapRatio = ray_map_dimensions / dimensions;
+    float rayMapRatio = divider;
         
     float2 pixel = float2(x, y);
     float2 rpixel = pixel * rayMapRatio;
@@ -468,7 +163,6 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
    
     float3 tangent;
     float3 bitangent;
-    RayTraceColor rc;
     Ray ray = GetReflectedRayFromSource(ray_source, cameraPosition);
 
     float pdf_cache[MAX_RAYS];
@@ -479,16 +173,10 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     [branch]
     if (end)
     {
-        for (i = 0; i < ray_count; i++) {
-            pdf_cache[i] = max(pdf_cache[i] - 0.01f, RAY_W_BIAS);
-            restir_pdf_1[pixel] = PackRays(pdf_cache, RAY_W_SCALE);
-        }
-        output[pixel] = float4(0.0f, 0.0f, 0.0f, -1.0f);
         return;
     }
     
-    matrix worldViewProj = mul(view, projection);
-    float4 prev_pos = mul(prev_position_map[ray_pixel], worldViewProj);
+    float4 prev_pos = mul(prev_position_map[ray_pixel], view_proj);
     prev_pos.x /= prev_pos.w;
     prev_pos.y /= -prev_pos.w;
     prev_pos.xy = round((prev_pos.xy + 1.0f) * dimensions.xy / 2.0f);
@@ -546,48 +234,15 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     float offset = ((pixel.x) % kernel_size) * ray_count + ((pixel.y)% kernel_size) * stride;
     float offset2 = space_size;
    
-    bool hit = false;
-    for (i = 0; i < wis_size; ++i) {
+    float2 ray_input[2];
+    for (i = 0; i < 2; ++i) {
 
         uint wi = wis[i];
         float n = fmod(offset + (float)wi * offset2, N);
 
         ray.dir = GenerateHemisphereRay(normal, tangent, bitangent, 1.0f, N, level, n);
-        ray.orig.xyz = orig_pos.xyz + ray.dir * 0.001f;
-        float dist = FLT_MAX;
-        GetColor(ray, n, level, 1, rc, ray_source.dispersion, true, false);
-        last_wi = wi;
-        hit = hit || rc.hit;
-
-        float w = length(rc.color.rgb);
-
-#ifdef DISABLE_RESTIR
-        pdf_cache[wi] = 1.0f;
-#else
-        pdf_cache[wi] = RAY_W_BIAS + w;
-#endif
-        color_diffuse.rgb += rc.color;
-
+        ray_input[i] = GetPolarCoordinates(ray.dir);
     }
+    ray_inputs[pixel] = float4(ray_input[0], ray_input[1]);
 
-    wis_size = max(wis_size, 1);
-    restir_pdf_1[pixel] = PackRays(pdf_cache, RAY_W_SCALE);
-    color_diffuse  = color_diffuse / ray_count;
-    
-    color_diffuse = pow(color_diffuse, 0.2f);
-    output[pixel] = color_diffuse;
-
-    if (rc.hit) {
-        [unroll]
-        for (int x = -2; x <= 2; ++x) {
-            [unroll]
-            for (int y = -2; y <= 2; ++y) {
-                int2 p = (pixel / kernel_size) + int2(x, y);
-                tiles_output[p] = 1;
-            }
-        }
-    }
- 
-    //float r = wis_size / ray_count;
-    //output[pixel] = float4(wis_size, 0.0f, 0.0f, 1.0f);
 }
