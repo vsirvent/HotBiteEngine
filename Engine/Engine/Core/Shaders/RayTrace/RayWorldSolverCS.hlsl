@@ -29,7 +29,7 @@ SOFTWARE.
 
 #define REFLEX_ENABLED 1
 #define REFRACT_ENABLED 2
-#define USE_OBH 0
+#define USE_OBH 1
 
 cbuffer externalData : register(b0)
 {
@@ -126,7 +126,7 @@ bool GetColor(Ray origRay, uint max_bounces, out RayTraceColor out_color, float 
             uint currentVolume = volumeStack[--volumeStackSize];
 
             BVHNode volumeNode = objectBVH[currentVolume];
-            [branch]
+            
             if (is_leaf(volumeNode))
             {
                 uint objectIndex = index(volumeNode);
@@ -138,7 +138,7 @@ bool GetColor(Ray origRay, uint max_bounces, out RayTraceColor out_color, float 
             ObjectInfo o = objectInfos[i];
             float objectExtent = length(o.aabb_max - o.aabb_min);
             float distanceToObject = length(o.position - origRay.orig.xyz) - objectExtent;
-            [branch]
+            
             if (distanceToObject < max_distance && distanceToObject < result.distance && IntersectAABB(ray, o.aabb_min, o.aabb_max))
             {
 #endif
@@ -233,7 +233,7 @@ bool GetColor(Ray origRay, uint max_bounces, out RayTraceColor out_color, float 
 #if USE_OBH
                 }
             else
-                [branch]
+                
                 if (IntersectAABB(ray, volumeNode)) {
 
                     uint left_node_index = left_child(volumeNode);
@@ -383,7 +383,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     RayTraceColor rc;
     float4 ray_input_dirs = ray_inputs[pixel];
 #if 1
-    [branch]
+    
     if (ray_input_dirs.x < 10e10) {
         if (dist2(ray_input_dirs.xy) <= Epsilon) {
             color_reflex.rgb = float3(1.0f, 0.0f, 0.0f);
@@ -400,7 +400,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     }
 #endif
 #if 1
-    [branch]
+    
     if (ray_input_dirs.z < 10e10) {
         if (dist2(ray_input_dirs.zw) <= Epsilon) {
             color_reflex.rgb = float3(1.0f, 0.0f, 0.0f);
