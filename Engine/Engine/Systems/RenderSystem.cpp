@@ -1876,10 +1876,48 @@ void RenderSystem::ProcessGI() {
 		gi_shader->SetShaderResourceView("ray1", rt_ray_sources1.SRV());
 		gi_shader->SetShaderResourceView("restir_pdf_0", restir_pdf_prev->SRV());
 		gi_shader->SetShaderResourceView("restir_w_0", restir_w.SRV());
-#if 0
-		groupsX = (int32_t)(ceil((float)rt_texture_gi_curr->Width() / (32.0f)));
-		groupsY = (int32_t)(ceil((float)rt_texture_gi_curr->Height() / (32.0f)));
 
+#if 1
+		//Resolve rays with screen space Ray Tracing
+		ray_screen_solver->SetInt("enabled", rt_enabled & (rt_quality != eRtQuality::OFF ? 0xFF : 0x00));
+		ray_screen_solver->SetInt("frame_count", frame_count);
+		ray_screen_solver->SetFloat(TIME, time);
+		ray_screen_solver->SetInt("kernel_size", RESTIR_KERNEL);
+		ray_screen_solver->SetInt("type", 1);
+		ray_screen_solver->SetFloat("divider", HIZ_RATIO);
+		ray_screen_solver->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
+		ray_screen_solver->SetMatrix4x4("view", cam_entity.camera->view);
+		ray_screen_solver->SetMatrix4x4("projection", cam_entity.camera->projection);
+		ray_screen_solver->SetMatrix4x4("inv_projection", cam_entity.camera->inverse_projection);
+		ray_screen_solver->SetShaderResourceView("ray0", rt_ray_sources0.SRV());
+		ray_screen_solver->SetShaderResourceView("ray1", rt_ray_sources1.SRV());
+		ray_screen_solver->SetUnorderedAccessView("ray_inputs", input_rays.UAV());
+		ray_screen_solver->SetUnorderedAccessView("output", rt_texture_gi_curr->UAV());
+		ray_screen_solver->SetUnorderedAccessView("tiles_output", rt_textures_gi_tiles.UAV());
+		ray_screen_solver->SetShaderResourceViewArray("hiz_textures[0]", high_z_maps, HIZ_NTEXTURES);
+
+		ray_screen_solver->SetShaderResourceView("colorTexture", post_process_pipeline->RenderResource());
+		ray_screen_solver->SetShaderResourceView("lightTexture", current_light_map->SRV());
+		ray_screen_solver->SetShaderResourceView("bloomTexture", bloom_map.SRV());
+
+		PrepareLights(ray_screen_solver);
+		ray_screen_solver->CopyAllBufferData();
+		ray_screen_solver->SetShader();
+		dxcore->context->Dispatch(groupsX, groupsY, 1);
+
+		ray_screen_solver->SetShaderResourceView("ray0", nullptr);
+		ray_screen_solver->SetShaderResourceView("ray1", nullptr);
+		ray_screen_solver->SetUnorderedAccessView("ray_inputs", nullptr);
+		ray_screen_solver->SetUnorderedAccessView("output", nullptr);
+		ray_screen_solver->SetUnorderedAccessView("tiles_output", nullptr);
+		ray_screen_solver->SetShaderResourceView("colorTexture", nullptr);
+		ray_screen_solver->SetShaderResourceView("lightTexture", nullptr);
+		ray_screen_solver->SetShaderResourceView("bloomTexture", nullptr);
+
+		UnprepareLights(ray_screen_solver);
+		ray_screen_solver->CopyAllBufferData();
+#endif
+#if 0
 		gi_weights->SetShader();
 		gi_weights->SetInt("ray_count", RESTIR_PIXEL_RAYS);
 		gi_weights->SetShaderResourceView("restir_pdf_0", restir_pdf_curr->SRV());

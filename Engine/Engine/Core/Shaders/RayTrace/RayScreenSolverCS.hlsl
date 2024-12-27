@@ -269,7 +269,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     float x = (float)DTid.x;
     float y = (float)DTid.y;
 
-    float2 rayMapRatio = ray_map_dimensions / dimensions;
+    float2 rayMapRatio = divider;
 
     float2 pixel = float2(x, y);
 
