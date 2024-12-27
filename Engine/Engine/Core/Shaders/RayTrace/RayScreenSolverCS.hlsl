@@ -138,7 +138,7 @@ float GetHiZ(uint level, float2 pixel) {
     return FLT_MAX;
 }
 
-float2 GetColor(Ray ray, float2 depth_dimensions, float2 output_dimensions, out uint hit, out float hit_distance) {
+float2 GetColor(Ray ray, float2 depth_dimensions, float2 output_dimensions, out float z_diff, out float hit_distance) {
     
     float4 pixel0 = mul(ray.orig, projection);
     pixel0 /= pixel0.w;
@@ -164,7 +164,7 @@ float2 GetColor(Ray ray, float2 depth_dimensions, float2 output_dimensions, out 
 
     float2 grid_pixel = screen_pixel / current_divider;
     float2 grid_pos = pixel0.xy;
-    float2 last_valid_grid_pos;
+    float2 last_valid_grid_pos = grid_pos;
     float2 prev_grid_pos;
 
     float grid_high_z = 0.0f;
@@ -182,35 +182,33 @@ float2 GetColor(Ray ray, float2 depth_dimensions, float2 output_dimensions, out 
     Plane rayPlane;
     rayPlane.Q = ray.orig.xyz;
     rayPlane.n = normal;
-    while (true) {
+
+    while (current_level >= 0) {
         //Calculate ray z, grid_pos in NDC coords
-        last_valid_grid_pos = grid_pos;
+       
         grid_pos = grid_pixel * grid_size;
-        
-        grid_high_z = GetHiZ(current_level, grid_pixel);
+        if (!ValidUVCoord(grid_pos)) {
+            z_diff = FLT_MAX;
+            return float2(-1, -1);
+        }
+        grid_high_z = GetHiZ(current_level, round(grid_pixel));
         ray_z = GetRayDepth(rayPlane, grid_pos, intersection_point);
 
-        if (grid_high_z < ray_z) {
+        if (grid_high_z <= ray_z) {
             current_level--;
-            if (current_level < 0) {
-                break;
-            }
             current_divider = pow(divider, current_level);
+            grid_pos = last_valid_grid_pos;
             grid_size = current_divider / depth_dimensions;
             grid_pixel = (grid_pos * depth_dimensions) / current_divider;
         }
-        else {            
+        else {  
+            last_valid_grid_pos = grid_pos;
             grid_pixel = GetNextGrid(dir, grid_pixel);
         }
         
-        if (grid_pixel.x < 0 || grid_pixel.x >= depth_dimensions.x / (current_divider) ||
-            grid_pixel.y < 0 || grid_pixel.y >= depth_dimensions.y / (current_divider)) {
-            hit = 0;
-            return float2(-1, -1);
-        }
     }
        
-    hit = (abs(ray_z - grid_high_z) < 0.2f);
+    z_diff = abs(ray_z - grid_high_z);
     hit_distance = length(intersection_point - ray.orig.xyz);
     return last_valid_grid_pos;
 }
@@ -219,6 +217,7 @@ float2 GetColor(Ray ray, float2 depth_dimensions, float2 output_dimensions, out 
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thread : SV_GroupThreadID)
 {
+    return;
     float2 dimensions;
     float2 ray_map_dimensions;
     {
@@ -243,43 +242,43 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     RaySource ray_source = fromColor(ray0[ray_pixel], ray1[ray_pixel]);
 
     float2 color_uv = float2(0.0f, 0.0f);
-    uint hit = 0;
+    float z_diff = FLT_MAX;
     Ray ray = GetRayInfoFromSourceWithNoDir(ray_source);
     float hit_distance;
     //Get rays to be solved in the pixel
     float4 ray_input_dirs = ray_inputs[pixel];
     
-    if (ray_input_dirs.x < 10e10) {
-        if (dist2(ray_input_dirs.xy) > Epsilon) {
-            ray.dir = GetCartesianCoordinates(ray_input_dirs.xy);
-            ray.dir = normalize(mul(ray.dir, (float3x3)view));
-
-            ray.orig = mul(ray.orig, view);
-            ray.orig /= ray.orig.w;
-            ray.orig.xyz += ray.dir * 0.05f;
-            float reflex_ratio = (1.0f - ray_source.dispersion);            
-            color_uv = GetColor(ray, ray_map_dimensions, dimensions, hit, hit_distance);
-        }
+    if (ray_input_dirs.x < 10e10 && dist2(ray_input_dirs.xy) > Epsilon) {
+        ray.dir = GetCartesianCoordinates(ray_input_dirs.xy);
+        ray.dir = normalize(mul(ray.dir, (float3x3)view));
+        ray.orig = mul(ray.orig, view);
+        ray.orig /= ray.orig.w;
+        ray.orig.xyz += ray.dir * 0.5f;
+        float reflex_ratio = (1.0f - ray_source.dispersion);
+        color_uv = GetColor(ray, ray_map_dimensions, dimensions, z_diff, hit_distance);
     }
 
-    if (hit != 0 && ValidUVCoord(color_uv)) {
+    if (z_diff < 0.2f && ValidUVCoord(color_uv)) {
         [unroll]
         for (int x = -2; x <= 2; ++x) {
             [unroll]
             for (int y = -2; y <= 2; ++y) {
                 int2 p = pixel / kernel_size + int2(x, y);
-                tiles_output[p] = hit;
+                tiles_output[p] = 1;
             }
         }
         
         color_uv *= ray_map_dimensions;
+        color_uv = round(color_uv);
         float4 c = colorTexture[color_uv];
         float4 l = lightTexture[color_uv];
         float4 b = bloomTexture[color_uv];
         float att = max(hit_distance, 1.0f);
+        att += (z_diff / 0.05f);
         ray_input_dirs.xy = float2(10e11, 10e11);
         ray_inputs[pixel] = ray_input_dirs;
-        output[pixel] = (c * l)* ray.ratio* ray_source.opacity / att + b;
+        float reflex_ratio = (1.0f - ray_source.dispersion);
+        output[pixel] = (c * l) * ray.ratio* ray_source.opacity * reflex_ratio / att;
         //output[pixel] = float4(color_uv, 0.0f, 1.0f) * ray.ratio * ray_source.opacity / att;        
     }
 }
