@@ -276,10 +276,11 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
         float4 c = colorTexture[color_uv];
         float4 l = lightTexture[color_uv];
         float4 b = bloomTexture[color_uv];
+        float3 normal = ray1[color_uv].xyz;
         float att = max(hit_distance, 1.0f);
         ray_input_dirs.xy = float2(10e11, 10e11);
         ray_inputs[pixel] = ray_input_dirs;
-        output[pixel] = (c * l)* ray.ratio* ray_source.opacity / att + b;
+        output[pixel] = (c * l) * ray.ratio * ray_source.opacity * saturate(dot(ray.dir, normal)) / att + b;
         //output[pixel] = float4(color_uv, 0.0f, 1.0f) * ray.ratio * ray_source.opacity / att;        
     }
 }
