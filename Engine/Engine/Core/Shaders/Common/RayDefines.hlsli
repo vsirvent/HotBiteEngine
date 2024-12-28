@@ -30,7 +30,7 @@ SOFTWARE.
 
 //#define PACK_RAYS_8
 #define RAY_W_SCALE 1.0f
-#define RAY_W_BIAS 0.01f
+#define RAY_W_BIAS 0.00001f
 
 #ifdef PACK_RAYS_8
 #define MAX_RAYS 8
@@ -52,6 +52,7 @@ struct BVHNode
 
 #define MAX_RAY_INPUTS 4
 #define MAX_RAY_INPUTS_POS MAX_RAY_INPUTS / 2
+static const float MAX_RAY_POLAR_DIR = 2.0f * PI; //Maximum polar angle 2.0 * PI
 
 struct InputRays {
     float4 dir2[MAX_RAY_INPUTS_POS];

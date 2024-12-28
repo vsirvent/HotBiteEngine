@@ -381,16 +381,17 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
 
     //Get rays to be solved in the pixel
     RayTraceColor rc;
-    float4 ray_input_dirs = ray_inputs[pixel];
+    float2 ray_input[4];
+    Unpack4Float2FromI16(ray_inputs[pixel], MAX_RAY_POLAR_DIR, ray_input);
     float reflex_ratio = (1.0f - ray_source.dispersion);
 
 #if 1
-    if (ray_input_dirs.x < 10e10) {
-        if (dist2(ray_input_dirs.xy) <= Epsilon) {
+    if (ray_input[0].x < MAX_RAY_POLAR_DIR) {
+        if (dist2(ray_input[0]) <= Epsilon) {
             color_reflex.rgb = float3(1.0f, 0.0f, 0.0f);
         }
         else {
-            ray.dir = GetCartesianCoordinates(ray_input_dirs.xy);
+            ray.dir = GetCartesianCoordinates(ray_input[0]);
             ray.orig.xyz = orig + ray.dir * 0.01f;
             GetColor(ray, 0, rc, ray_source.dispersion, false);
             color_reflex.rgb += rc.color * reflex_ratio * ray_source.opacity;
@@ -400,13 +401,12 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     }
 #endif
 #if 1
-    if (ray_input_dirs.z >= 100.0f && ray_input_dirs.z < 10e10) {
-        if (dist2(ray_input_dirs.zw) <= Epsilon) {
+    if (ray_input[1].x < MAX_RAY_POLAR_DIR) {
+        if (dist2(ray_input[1]) <= Epsilon) {
             color_reflex.rgb = float3(1.0f, 0.0f, 0.0f);
         }
         else {
-            ray_input_dirs.zw -= float2(100.0f, 100.f);
-            ray.dir = GetCartesianCoordinates(ray_input_dirs.zw);
+            ray.dir = GetCartesianCoordinates(ray_input[1]);
             ray.orig.xyz = orig + ray.dir * 0.01f;
 
             GetColor(ray, 0, rc, ray_source.dispersion, true);

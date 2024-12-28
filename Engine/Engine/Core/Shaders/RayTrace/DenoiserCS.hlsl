@@ -112,7 +112,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     else {
         c0 *= 0.0f;
     }
-#if 0
+#if 1
     if (type == 1) {
         output[pixel] = c0;
     }
@@ -143,7 +143,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
         }
 
         float4 prev_color = prev_output[floor(prev_pos.xy)];
-        float w = saturate(0.8f - motion * 50.0f);
+        float w = saturate(0.8f - motion * 100.0f);
         output[pixel] = prev_color * w + c0 * (1.0f - w);
     }
 #else

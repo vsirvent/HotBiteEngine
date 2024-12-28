@@ -35,6 +35,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
 {
 
     float2 pixel = float2(DTid.x, DTid.y);
+
 #ifdef DEBUG
     if (debug == 1) { 
         output[pixel] = input[pixel];
@@ -159,7 +160,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
         case 3: {
             //Pass 2 convolution failed again, make a minimal 2D pass
             [branch]
-            if (prev_w < 2.0f && dist_to_cam < 100.0f) {
+            if (prev_w < 0.0f && dist_to_cam < 100.0f) {
                 k = kernel_size + full_kernel;
                 for (x = -k; x <= k; ++x) {
                     for (y = -k; y <= k; ++y) {
@@ -208,7 +209,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
 
         c = lerp(c, input[pixel], input_mix);
     }
-#if 1
+#if 0
     if (type < 3) {
         output[pixel] = c;
     }

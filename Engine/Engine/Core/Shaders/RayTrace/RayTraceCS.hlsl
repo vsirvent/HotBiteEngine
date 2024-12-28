@@ -42,7 +42,7 @@ cbuffer externalData : register(b0)
 
 Texture2D<float4> ray0: register(t0);
 Texture2D<float4> ray1: register(t1);
-RWTexture2D<float4> ray_inputs: register(u0);
+RWTexture2D<uint4> ray_inputs: register(u0);
 
 #include "../Common/Utils.hlsli"
 #include "../Common/RayFunctions.hlsli"
@@ -85,31 +85,22 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     float cumulativePoints = 0;
     float level = NCOUNT;
 
-    float4 dirs = float4(10e11, 10e11, 10e11, 10e11);
+    float2 dirs[4];
+    for (i = 0; i < 4; ++i) {
+        dirs[i] = float2(MAX_RAY_POLAR_DIR, MAX_RAY_POLAR_DIR);
+    }
+
     //Reflected ray
     if (ray_source.opacity > Epsilon && ray_source.dispersion < 1.0f && (enabled & REFLEX_ENABLED)) {
         Ray ray = GetReflectedRayFromSource(ray_source, cameraPosition);
         if (dist2(ray.dir) > Epsilon)
         {
-            {
-                float3 seed = DTid + float3(frame_count, frame_count, frame_count);
-                float rX = rgba_tnoise(seed) * N;
-                rX = pow(rX, 2.0f);
-                normal = ray.dir;
-                GetSpaceVectors(normal, tangent, bitangent);
-                //dirs.xy = GetPolarCoordinates(ray.dir);
-                dirs.xy = GenerateHemisphereDispersedRay(normal, tangent, bitangent, ray_source.dispersion, N, level * 10.0f, rX);
-            }
-#if 0
-            {
-                float3 seed = DTid + float3(frame_count, frame_count, frame_count) * 0.5f;
-                float rX = rgba_tnoise(seed) * N;
-                rX = pow(rX, 2.0f);
-                normal = ray.dir;
-                GetSpaceVectors(normal, tangent, bitangent);
-                dirs.zw = GenerateHemisphereDispersedRay(normal, tangent, bitangent, ray_source.dispersion, N, level * 10.0f, rX);
-            }
-#endif
+            float3 seed = DTid + float3(frame_count, frame_count, frame_count);
+            float rX = rgba_tnoise(seed) * N;
+            rX = pow(rX, 2.0f);
+            normal = ray.dir;
+            GetSpaceVectors(normal, tangent, bitangent);
+            dirs[0] = GenerateHemisphereDispersedRay(normal, tangent, bitangent, ray_source.dispersion, N, level * 10.0f, rX);
         }
     }
     //Refracted ray
@@ -117,10 +108,9 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
         Ray ray = GetRefractedRayFromSource(ray_source, cameraPosition);
         if (dist2(ray.dir) > Epsilon)
         {
-            dirs.zw = GetPolarCoordinates(ray.dir);
-            dirs.zw += float2(100.0f, 100.f);
+            dirs[1] = GetPolarCoordinates(ray.dir);
         }
     }
 
-    ray_inputs[pixel] = dirs;
+    ray_inputs[pixel] = Pack4Float2ToI16(dirs, MAX_RAY_POLAR_DIR);
 }

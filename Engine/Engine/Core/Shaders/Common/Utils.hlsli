@@ -195,6 +195,64 @@ uint ToByte(float val, float range)
 	return (uint)val;
 }
 
+float FromByte(uint val, float range)
+{
+	float fval = (float)val;
+	fval = range * clamp(fval, 0.0f, 255.0f) / 255.0f;
+	return fval;
+}
+
+int ToI16(float val, float range)
+{
+	val = 32768.0f * clamp(val, -range, range) / range;
+	return (int)val;
+}
+
+float FromI16(int val, float range)
+{
+	float fval = (float)val;
+	fval = range * clamp(fval, -32768.0f, 32768.0f) / 32768.0f;
+	return fval;
+}
+
+uint PackTwoInt16(int low, int high) {
+	return ( ((low & 0xFFFF) << 16) | (high & 0xFFFF) );
+}
+
+void UnpackTwoInt16(uint packedValue, out int low, out int high) {
+	int intPackedValue = asint(packedValue);
+	low = (intPackedValue >> 16);
+	high = (intPackedValue << 16) >> 16;
+}
+
+uint4 Pack4Float2ToI16(float2 values[4], float max_value)
+{
+	uint4 data;
+	data.r = PackTwoInt16(ToI16(values[0].x, max_value), ToI16(values[0].y, max_value));
+	data.g = PackTwoInt16(ToI16(values[1].x, max_value), ToI16(values[1].y, max_value));
+	data.b = PackTwoInt16(ToI16(values[2].x, max_value), ToI16(values[2].y, max_value));
+	data.a = PackTwoInt16(ToI16(values[3].x, max_value), ToI16(values[3].y, max_value));
+	return data;
+}
+
+void Unpack4Float2FromI16(uint4 data, float max_value, out float2 values[4])
+{
+	int low;
+	int high;
+	UnpackTwoInt16(data.r, low, high);
+	values[0].x = FromI16(low, max_value);
+	values[0].y = FromI16(high, max_value);
+	UnpackTwoInt16(data.g, low, high);
+	values[1].x = FromI16(low, max_value);
+	values[1].y = FromI16(high, max_value);
+	UnpackTwoInt16(data.b, low, high);
+	values[2].x = FromI16(low, max_value);
+	values[2].y = FromI16(high, max_value);
+	UnpackTwoInt16(data.a, low, high);
+	values[3].x = FromI16(low, max_value);
+	values[3].y = FromI16(high, max_value);
+}
+
 uint4 Pack8Bytes(float values[8], float max_value)
 {
 	uint4 data;
@@ -213,13 +271,6 @@ uint4 Pack16Bytes(float values[16], float max_value)
 	data.b = ToByte(values[8], max_value) << 24 | ToByte(values[9], max_value) << 16 | ToByte(values[10], max_value) << 8 | ToByte(values[11], max_value);
 	data.a = ToByte(values[12], max_value) << 24 | ToByte(values[13], max_value) << 16 | ToByte(values[14], max_value) << 8 | ToByte(values[15], max_value);
 	return data;
-}
-
-float FromByte(uint val, float range)
-{
-	float fval = (float)val;
-	fval = range * clamp(fval, 0.0f, 255.0f) / 255.0f;
-	return fval;
 }
 
 void Unpack8Bytes(uint4 data, float max_value, out float values[8])

@@ -60,7 +60,7 @@ static float2 lps[MAX_LIGHTS] = (float2[MAX_LIGHTS])LightPerspectiveValues;
 #include "../Common/SimpleLight.hlsli"
 #include "../Common/RayFunctions.hlsli"
 
-RWTexture2D<float4> ray_inputs: register(u0);
+RWTexture2D<uint4> ray_inputs: register(u0);
 RWTexture2D<float4> output : register(u1);
 RWTexture2D<uint> tiles_output: register(u2);
 RWTexture2D<uint4> restir_pdf_1: register(u3);
@@ -286,10 +286,8 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     
     float hit_distance;
     //Get rays to be solved in the pixel
-    float4 ray_input_dirs = ray_inputs[pixel];
-    float2 ray_input[2];
-    ray_input[0] = ray_input_dirs.xy;
-    ray_input[1] = ray_input_dirs.zw;
+    float2 ray_input[4];
+    Unpack4Float2FromI16(ray_inputs[pixel], MAX_RAY_POLAR_DIR, ray_input);
 
     float3 final_color = float3(0.0f, 0.0f, 0.0f);
     float n = 0.0f;
@@ -306,11 +304,12 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     {
         //Direct Illumination
         case 1: {
-            //
-            for (int r = 0; r < 2; ++r) {
+            [unroll]
+            //Only work with 1 ray for DI
+            for (int r = 0; r < 1; ++r) {
                 z_diff = FLT_MAX;
                 Ray ray = GetRayInfoFromSourceWithNoDir(ray_source);
-                if (ray_input[r].x < 100.0f && dist2(ray_input[r]) > Epsilon) {
+                if (ray_input[r].x < MAX_RAY_POLAR_DIR && dist2(ray_input[r]) > Epsilon) {
                     ray.dir = GetCartesianCoordinates(ray_input[r]);
                     ray.dir = normalize(mul(ray.dir, (float3x3)view));
                     ray.orig = mul(ray.orig, view);
@@ -326,32 +325,34 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
                         float4 b = GetInterpolatedColor(color_uv, bloomTexture, ray_map_dimensions);
                         float att = max(hit_distance, 1.0f);
                         float diff_ratio = (z_diff / 0.05f);
-                        ray_input[r] = float2(10e11, 10e11);
+                        ray_input[r] = float2(MAX_RAY_POLAR_DIR, MAX_RAY_POLAR_DIR);
                         final_color += ((c * l) * ray_source.opacity / att);
                         n++;
                     }
-                    ray_input[r] = float2(10e11, 10e11);
+                    //Disable the ray for world resolve always
+                    ray_input[r] = float2(MAX_RAY_POLAR_DIR, MAX_RAY_POLAR_DIR);
                 }
             }
             break;
         }
         //Global Illumination
         case 2: {
+            uint i = 0;
             float pdf_cache[MAX_RAYS];
             UnpackRays(restir_pdf_0[pixel], RAY_W_SCALE, pdf_cache);
+
             float wis[MAX_RAYS];
             int wis_size = 0;
-            uint i = 0;
             uint mask = restir_pdf_mask[pixel];
             for (i = 0; i < MAX_RAYS; ++i) {
-                if (mask & (1 << i) != 0) {
+                if ((mask & (1 << i)) != 0) {
                     wis[wis_size++] = i;
                 }
             }
-            for (i = 0; i < 2; ++i) {
+            for (i = 0; i < 4 && i < wis_size; ++i) {
                 z_diff = FLT_MAX;
                 Ray ray = GetRayInfoFromSourceWithNoDir(ray_source);
-                if (ray_input[i].x < 100.0f && dist2(ray_input[i]) > Epsilon) {
+                if (ray_input[i].x < MAX_RAY_POLAR_DIR && dist2(ray_input[i]) > Epsilon) {
                     ray.dir = GetCartesianCoordinates(ray_input[i]);
                     ray.dir = normalize(mul(ray.dir, (float3x3)view));
                     ray.orig = mul(ray.orig, view);
@@ -367,13 +368,12 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
                         float4 b = GetInterpolatedColor(color_uv, bloomTexture, ray_map_dimensions);
                       
                         float diff_ratio = (z_diff / 0.05f);
-                        ray_input[i] = float2(10e11, 10e11);
+                        ray_input[i] = float2(MAX_RAY_POLAR_DIR, MAX_RAY_POLAR_DIR);
                         float att = max(hit_distance, 1.0f);
                         float3 color = ((c * l) * ray_source.opacity) / att;
                         uint wi = wis[i];
                         pdf_cache[wi] = RAY_W_BIAS + length(color);
                         final_color += color;
-                        ray_input[i] = float2(10e11, 10e11);
                         n++;
                     }
                 }
@@ -395,6 +395,6 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             }
         }
     }
-    ray_inputs[pixel] = float4(ray_input[0], ray_input[1]);
+    ray_inputs[pixel] = Pack4Float2ToI16(ray_input, MAX_RAY_POLAR_DIR);
     output[pixel] = output[pixel] * 0.2f + float4(sqrt(final_color), 1.0f);
 }

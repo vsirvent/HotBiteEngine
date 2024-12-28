@@ -39,6 +39,7 @@ using namespace DirectX;
 static const float zero[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 static const float ones[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
 static const float max_floats[4] = { FLT_MAX, FLT_MAX, FLT_MAX, FLT_MAX };
+static const uint32_t max_uint[4] = { UINT_MAX, UINT_MAX, UINT_MAX, UINT_MAX };
 static const float minus_one[4] = { -1.0f, -1.0f, -1.0f, -1.0f };
 
 
@@ -503,7 +504,7 @@ void RenderSystem::LoadRTResources() {
 	}
 
 	input_rays.Release();
-	if (FAILED(input_rays.Init(w / RT_TEXTURE_RESOLUTION_DIVIDER, h / RT_TEXTURE_RESOLUTION_DIVIDER, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+	if (FAILED(input_rays.Init(w / RT_TEXTURE_RESOLUTION_DIVIDER, h / RT_TEXTURE_RESOLUTION_DIVIDER, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_UINT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 		throw std::exception("input_rays.Init failed");
 	}
 
@@ -1848,7 +1849,7 @@ void RenderSystem::ProcessGI() {
 		std::lock_guard<std::mutex> lock(rt_mutex);
 		CameraEntity& cam_entity = cameras.GetData()[0];
 
-		input_rays.Clear(max_floats);
+		input_rays.Clear((float*)max_uint);
 		restir_pdf_mask.Clear(zero);
 
 		gi_shader->SetInt("kernel_size", RESTIR_KERNEL);
@@ -1873,8 +1874,8 @@ void RenderSystem::ProcessGI() {
 		gi_shader->SetShader();
 
 
-		int groupsX = (int32_t)(ceil((float)rt_texture_gi_curr->Width() / (RESTIR_KERNEL)));
-		int groupsY = (int32_t)(ceil((float)rt_texture_gi_curr->Height() / (RESTIR_KERNEL)));
+		int groupsX = (int32_t)(ceil((float)rt_texture_gi_curr->Width() / (32.0f)));
+		int groupsY = (int32_t)(ceil((float)rt_texture_gi_curr->Height() / (32.0f)));
 		dxcore->context->Dispatch((uint32_t)ceil((float)groupsX), (uint32_t)ceil((float)groupsY), 1);
 
 		gi_shader->SetUnorderedAccessView("restir_pdf_mask", nullptr);
@@ -2047,7 +2048,7 @@ void RenderSystem::ProcessRT() {
 
 			//Reset tiles (that avoid denoising tiles with no ray color)
 			rt_textures_gi_tiles.Clear(zero);
-			input_rays.Clear(max_floats);
+			input_rays.Clear((float*)max_uint);
 
 
 			ID3D11ShaderResourceView* nullsrc = nullptr;
