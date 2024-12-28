@@ -2141,6 +2141,7 @@ void RenderSystem::ProcessRT() {
 				std::lock_guard<std::mutex> lock(rt_mutex);
 				tbvh_buffer.Refresh(tbvh.Root(), 0, tbvh.Size());
 			}
+			rt_texture_di_curr[RT_TEXTURE_REFRACT].Clear(zero);
 			ray_world_solver->SetInt("enabled", rt_enabled & (rt_quality != eRtQuality::OFF ? 0xFF : 0x00));
 			ray_world_solver->SetInt("frame_count", frame_count);
 			ray_world_solver->SetFloat(TIME, time);

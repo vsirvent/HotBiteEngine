@@ -60,8 +60,6 @@ void main(uint3 DTid : SV_DispatchThreadID)
     }
     float2 infoRatio = info_dimensions / input_dimensions;
     float2 rpixel = pixel * infoRatio;
-    //rpixel.x += frame_count % (infoRatio.x * 0.5f);
-    //rpixel.y += frame_count % (infoRatio.y * 0.5f) / 2.0f;
     
 
     float2 info_pixel = round(rpixel);

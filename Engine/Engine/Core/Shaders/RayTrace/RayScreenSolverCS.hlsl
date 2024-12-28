@@ -251,7 +251,7 @@ float GetMaxDiff(float2 uv, float2 dimension) {
     float d01_10 = abs(z01 - z10);
 
     float diff = min(max(d00_11, max(d00_10, max(d00_01, max(d11_01, max(d11_10, d01_10))))), 0.299f);
-    return saturate(0.3f - diff);
+    return saturate(0.5f - diff);
 }
 
 #define NTHREADS 32
@@ -306,10 +306,11 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
         case 1: {
             [unroll]
             //Only work with 1 ray for DI
+            float reflex_ratio = (1.0f - ray_source.dispersion);
             for (int r = 0; r < 1; ++r) {
                 z_diff = FLT_MAX;
                 Ray ray = GetRayInfoFromSourceWithNoDir(ray_source);
-                if (ray_input[r].x < MAX_RAY_POLAR_DIR && dist2(ray_input[r]) > Epsilon) {
+                if (abs(ray_input[r].x) < MAX_RAY_POLAR_DIR && dist2(ray_input[r]) > Epsilon) {
                     ray.dir = GetCartesianCoordinates(ray_input[r]);
                     ray.dir = normalize(mul(ray.dir, (float3x3)view));
                     ray.orig = mul(ray.orig, view);
@@ -324,13 +325,14 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
                         float4 l = GetInterpolatedColor(color_uv, lightTexture, ray_map_dimensions);
                         float4 b = GetInterpolatedColor(color_uv, bloomTexture, ray_map_dimensions);
                         float att = max(hit_distance, 1.0f);
-                        float diff_ratio = (z_diff / 0.05f);
-                        ray_input[r] = float2(MAX_RAY_POLAR_DIR, MAX_RAY_POLAR_DIR);
-                        final_color += ((c * l) * ray_source.opacity / att);
+                        ray_input[r] = float2(FLT_MAX, FLT_MAX);
+                        final_color += ((c * l) * reflex_ratio * ray_source.opacity / att);
                         n++;
                     }
-                    //Disable the ray for world resolve always
-                    ray_input[r] = float2(MAX_RAY_POLAR_DIR, MAX_RAY_POLAR_DIR);
+                    //Disable the ray for world resolve always                    
+                    if (z_diff > 10e10) {
+                        ray_input[r] = float2(FLT_MAX, FLT_MAX);
+                    }
                 }
             }
             break;
@@ -352,7 +354,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             for (i = 0; i < 4 && i < wis_size; ++i) {
                 z_diff = FLT_MAX;
                 Ray ray = GetRayInfoFromSourceWithNoDir(ray_source);
-                if (ray_input[i].x < MAX_RAY_POLAR_DIR && dist2(ray_input[i]) > Epsilon) {
+                if (abs(ray_input[i].x) < MAX_RAY_POLAR_DIR && dist2(ray_input[i]) > Epsilon) {
                     ray.dir = GetCartesianCoordinates(ray_input[i]);
                     ray.dir = normalize(mul(ray.dir, (float3x3)view));
                     ray.orig = mul(ray.orig, view);
@@ -368,7 +370,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
                         float4 b = GetInterpolatedColor(color_uv, bloomTexture, ray_map_dimensions);
                       
                         float diff_ratio = (z_diff / 0.05f);
-                        ray_input[i] = float2(MAX_RAY_POLAR_DIR, MAX_RAY_POLAR_DIR);
+                        ray_input[i] = float2(FLT_MAX, FLT_MAX);
                         float att = max(hit_distance, 1.0f);
                         float3 color = ((c * l) * ray_source.opacity) / att;
                         uint wi = wis[i];
@@ -376,10 +378,15 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
                         final_color += color;
                         n++;
                     }
+
+                    //if (z_diff < 10e10) {
+                        ray_input[i] = float2(FLT_MAX, FLT_MAX);
+                    //}
                 }
             }
             n = max(n, 1);
-            final_color /= n;
+            //final_color /= n;
+            final_color = sqrt(final_color);
             restir_pdf_1[pixel] = PackRays(pdf_cache, RAY_W_SCALE);
             break;
         }
@@ -396,5 +403,5 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
         }
     }
     ray_inputs[pixel] = Pack4Float2ToI16(ray_input, MAX_RAY_POLAR_DIR);
-    output[pixel] = output[pixel] * 0.2f + float4(sqrt(final_color), 1.0f);
+    output[pixel] = output[pixel] * 0.2f + float4(final_color, 1.0f);
 }

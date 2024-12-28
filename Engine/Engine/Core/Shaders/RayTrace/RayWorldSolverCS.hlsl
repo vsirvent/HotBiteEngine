@@ -63,7 +63,7 @@ RWTexture2D<uint> tiles_output: register(u2);
 
 Texture2D<float4> ray0;
 Texture2D<float4> ray1;
-Texture2D<float4> ray_inputs: register(t0);
+Texture2D<uint4> ray_inputs: register(t0);
 
 StructuredBuffer<BVHNode> objects: register(t2);
 StructuredBuffer<BVHNode> objectBVH: register(t3);
@@ -386,7 +386,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     float reflex_ratio = (1.0f - ray_source.dispersion);
 
 #if 1
-    if (ray_input[0].x < MAX_RAY_POLAR_DIR) {
+    if (abs(ray_input[0].x) < MAX_RAY_POLAR_DIR) {
         if (dist2(ray_input[0]) <= Epsilon) {
             color_reflex.rgb = float3(1.0f, 0.0f, 0.0f);
         }
@@ -396,12 +396,12 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             GetColor(ray, 0, rc, ray_source.dispersion, false);
             color_reflex.rgb += rc.color * reflex_ratio * ray_source.opacity;
             hits.x = rc.hit != 0;
-            output0[pixel] = color_reflex;
         }
+        output0[pixel] = color_reflex;
     }
 #endif
 #if 1
-    if (ray_input[1].x < MAX_RAY_POLAR_DIR) {
+    if (abs(ray_input[1].x) < MAX_RAY_POLAR_DIR) {
         if (dist2(ray_input[1]) <= Epsilon) {
             color_reflex.rgb = float3(1.0f, 0.0f, 0.0f);
         }
@@ -412,8 +412,8 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             GetColor(ray, 0, rc, ray_source.dispersion, true);
             color_refrac.rgb += rc.color * (1.0f - ray_source.opacity);
             hits.y = rc.hit != 0;
-            output1[pixel] = color_refrac;
         }        
+        output1[pixel] = color_refrac;
     }    
 #endif
     uint hit = (hits.y & 0x01) << 1 | hits.x & 0x01;
