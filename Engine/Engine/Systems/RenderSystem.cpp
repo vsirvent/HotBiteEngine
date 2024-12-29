@@ -1835,6 +1835,7 @@ void RenderSystem::PrepareRT() {
 void RenderSystem::ProcessGI() {
 	
 	if (rt_enabled & RT_INDIRECT_ENABLE && rt_quality != eRtQuality::OFF && rt_enabled && bvh_buffer != nullptr && nobjects > 0) {
+		ID3D11ShaderResourceView* nullsrc = nullptr;
 
 		restir_pdf_curr = &restir_pdf[0];
 		restir_pdf_prev = &restir_pdf[1];
@@ -1928,7 +1929,7 @@ void RenderSystem::ProcessGI() {
 		ray_screen_solver->SetUnorderedAccessView("tiles_output", nullptr);
 
 
-		ID3D11ShaderResourceView* no_data[HIZ_NTEXTURES] = {};
+		ID3D11ShaderResourceView* no_data[MAX_OBJECTS] = {};
 		ray_screen_solver->SetShaderResourceViewArray("hiz_textures[0]", no_data, HIZ_NTEXTURES);
 
 		ray_screen_solver->SetShaderResourceView("restir_pdf_mask", nullptr);
@@ -1942,6 +1943,65 @@ void RenderSystem::ProcessGI() {
 		UnprepareLights(ray_screen_solver);
 		ray_screen_solver->CopyAllBufferData();
 #endif
+#if 1
+		// Resolve rays with world space Ray Tracing
+		ray_world_solver->SetInt("enabled", rt_enabled& (rt_quality != eRtQuality::OFF ? 0xFF : 0x00));
+		ray_world_solver->SetInt("frame_count", frame_count);
+		ray_world_solver->SetInt("type", 2);
+		ray_world_solver->SetFloat(TIME, time);
+		ray_world_solver->SetInt("kernel_size", RESTIR_KERNEL);
+		ray_world_solver->SetInt("nobjects", nobjects);
+		ray_world_solver->SetData("objectMaterials", objectMaterials, nobjects * sizeof(MaterialProps));
+		ray_world_solver->SetData("objectInfos", objects, nobjects * sizeof(ObjectInfo));
+		ray_world_solver->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
+
+		ray_world_solver->SetUnorderedAccessView("output0", rt_texture_gi_trace->UAV());
+		ray_world_solver->SetUnorderedAccessView("tiles_output", rt_textures_gi_tiles.UAV());
+		ray_world_solver->SetShaderResourceView("ray0", rt_ray_sources0.SRV());
+		ray_world_solver->SetShaderResourceView("ray1", rt_ray_sources1.SRV());
+		ray_world_solver->SetShaderResourceView("ray_inputs", input_rays.SRV());
+		ray_world_solver->SetShaderResourceViewArray("DiffuseTextures[0]", diffuseTextures, nobjects);
+		ray_world_solver->SetSamplerState(PCF_SAMPLER, dxcore->shadow_sampler);
+		ray_world_solver->SetSamplerState(BASIC_SAMPLER, dxcore->basic_sampler);
+
+		ray_world_solver->SetShaderResourceView("restir_pdf_mask", restir_pdf_mask.SRV());
+		ray_world_solver->SetUnorderedAccessView("restir_pdf_1", restir_pdf_curr->UAV());
+
+		PrepareLights(ray_world_solver);
+
+		ray_world_solver->CopyAllBufferData();
+
+		dxcore->context->CSSetShaderResources(2, 1, bvh_buffer->SRV());
+		dxcore->context->CSSetShaderResources(3, 1, tbvh_buffer.SRV());
+		dxcore->context->CSSetShaderResources(4, 1, vertex_buffer->VertexSRV());
+		dxcore->context->CSSetShaderResources(5, 1, vertex_buffer->IndexSRV());
+		ray_world_solver->SetShader();
+
+		groupsX = (int32_t)(ceil((float)rt_texture_gi_trace->Width() / (32.0f)));
+		groupsY = (int32_t)(ceil((float)rt_texture_gi_trace->Height() / (32.0f)));
+		dxcore->context->Dispatch(groupsX, groupsY, 1);
+
+		ray_world_solver->SetUnorderedAccessView("output0", nullptr);
+		ray_world_solver->SetUnorderedAccessView("output1", nullptr);
+		ray_world_solver->SetShaderResourceView("ray0", nullptr);
+		ray_world_solver->SetShaderResourceView("ray1", nullptr);
+		ray_world_solver->SetUnorderedAccessView("bloom", nullptr);
+		ray_world_solver->SetUnorderedAccessView("tiles_output", nullptr);
+		ray_world_solver->SetShaderResourceView("ray_inputs", nullptr);
+		dxcore->context->CSSetShaderResources(2, 1, &nullsrc);
+		dxcore->context->CSSetShaderResources(3, 1, &nullsrc);
+		dxcore->context->CSSetShaderResources(4, 1, &nullsrc);
+		dxcore->context->CSSetShaderResources(5, 1, &nullsrc);
+
+		ray_world_solver->SetShaderResourceView("restir_pdf_mask", nullptr);
+		ray_world_solver->SetUnorderedAccessView("restir_pdf_1", nullptr);
+
+		ray_world_solver->SetShaderResourceViewArray("DiffuseTextures[0]", no_data, nobjects);
+
+		UnprepareLights(ray_world_solver);
+		ray_world_solver->CopyAllBufferData();
+#endif
+
 #if 1
 		gi_weights->SetShader();
 		gi_weights->SetInt("ray_count", RESTIR_PIXEL_RAYS);
@@ -2145,6 +2205,7 @@ void RenderSystem::ProcessRT() {
 			ray_world_solver->SetInt("enabled", rt_enabled & (rt_quality != eRtQuality::OFF ? 0xFF : 0x00));
 			ray_world_solver->SetInt("frame_count", frame_count);
 			ray_world_solver->SetFloat(TIME, time);
+			ray_world_solver->SetInt("type", 1);
 			ray_world_solver->SetInt("kernel_size", RESTIR_KERNEL);
 			ray_world_solver->SetInt("nobjects", nobjects);
 			ray_world_solver->SetData("objectMaterials", objectMaterials, nobjects * sizeof(MaterialProps));

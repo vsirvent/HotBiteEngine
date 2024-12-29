@@ -251,7 +251,7 @@ float GetMaxDiff(float2 uv, float2 dimension) {
     float d01_10 = abs(z01 - z10);
 
     float diff = min(max(d00_11, max(d00_10, max(d00_01, max(d11_01, max(d11_10, d01_10))))), 0.299f);
-    return saturate(0.5f - diff);
+    return saturate(0.3f - diff);
 }
 
 #define NTHREADS 32
@@ -299,11 +299,11 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
         ratio = ray_source.dispersion;
     }
 
-    [branch]
     switch(type)
     {
         //Direct Illumination
         case 1: {
+#if 1
             [unroll]
             //Only work with 1 ray for DI
             float reflex_ratio = (1.0f - ray_source.dispersion);
@@ -335,10 +335,12 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
                     }
                 }
             }
+#endif
             break;
         }
         //Global Illumination
         case 2: {
+#if 1
             uint i = 0;
             float pdf_cache[MAX_RAYS];
             UnpackRays(restir_pdf_0[pixel], RAY_W_SCALE, pdf_cache);
@@ -362,7 +364,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
                     ray.orig.xyz += ray.dir * 0.5f;
                     float reflex_ratio = (1.0f - ray_source.dispersion);
                     color_uv = GetColor(ray, ray_map_dimensions, dimensions, z_diff, hit_distance);
-
+                    uint wi = wis[i];
                     float max_diff = GetMaxDiff(color_uv, ray_map_dimensions);
                     if (z_diff < max_diff && ValidUVCoord(color_uv)) {
                         float4 c = GetInterpolatedColor(color_uv, colorTexture, ray_map_dimensions);
@@ -373,21 +375,24 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
                         ray_input[i] = float2(FLT_MAX, FLT_MAX);
                         float att = max(hit_distance, 1.0f);
                         float3 color = ((c * l) * ray_source.opacity) / att;
-                        uint wi = wis[i];
+                        
                         pdf_cache[wi] = RAY_W_BIAS + length(color);
                         final_color += color;
                         n++;
                     }
-
-                    //if (z_diff < 10e10) {
+                    else {
+                        pdf_cache[wi] = RAY_W_BIAS;
+                    }
+                    if (z_diff > 10e10) {
                         ray_input[i] = float2(FLT_MAX, FLT_MAX);
-                    //}
+                    }
                 }
             }
             n = max(n, 1);
             //final_color /= n;
-            final_color = sqrt(final_color);
+            final_color = sqrt(final_color * ray_source.dispersion * ray_source.opacity / n);
             restir_pdf_1[pixel] = PackRays(pdf_cache, RAY_W_SCALE);
+#endif
             break;
         }
     }

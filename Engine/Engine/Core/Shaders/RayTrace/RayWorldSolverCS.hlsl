@@ -38,6 +38,7 @@ cbuffer externalData : register(b0)
     uint enabled;
     int kernel_size;
     float3 cameraPosition;
+    uint type;
 
     //Lights
     AmbientLight ambientLight;
@@ -60,10 +61,13 @@ cbuffer objectData : register(b1)
 RWTexture2D<float4> output0 : register(u0);
 RWTexture2D<float4> output1 : register(u1);
 RWTexture2D<uint> tiles_output: register(u2);
+RWTexture2D<uint4> restir_pdf_1: register(u3);
 
 Texture2D<float4> ray0;
 Texture2D<float4> ray1;
 Texture2D<uint4> ray_inputs: register(t0);
+
+Texture2D<uint> restir_pdf_mask: register(t6);
 
 StructuredBuffer<BVHNode> objects: register(t2);
 StructuredBuffer<BVHNode> objectBVH: register(t3);
@@ -384,38 +388,84 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     float2 ray_input[4];
     Unpack4Float2FromI16(ray_inputs[pixel], MAX_RAY_POLAR_DIR, ray_input);
     float reflex_ratio = (1.0f - ray_source.dispersion);
-
+    [branch]
+    switch (type) {
+    case 1: {
+#if 0
+        if (abs(ray_input[0].x) < MAX_RAY_POLAR_DIR) {
+            if (dist2(ray_input[0]) <= Epsilon) {
+                color_reflex.rgb = float3(1.0f, 0.0f, 0.0f);
+            }
+            else {
+                ray.dir = GetCartesianCoordinates(ray_input[0]);
+                ray.orig.xyz = orig + ray.dir * 0.01f;
+                GetColor(ray, 0, rc, ray_source.dispersion, false);
+                color_reflex.rgb += rc.color * reflex_ratio * ray_source.opacity;
+                hits.x = rc.hit != 0;
+            }
+            output0[pixel] = color_reflex;
+        }
+#endif
 #if 1
-    if (abs(ray_input[0].x) < MAX_RAY_POLAR_DIR) {
-        if (dist2(ray_input[0]) <= Epsilon) {
-            color_reflex.rgb = float3(1.0f, 0.0f, 0.0f);
+        if (abs(ray_input[1].x) < MAX_RAY_POLAR_DIR) {
+            if (dist2(ray_input[1]) <= Epsilon) {
+                color_reflex.rgb = float3(1.0f, 0.0f, 0.0f);
+            }
+            else {
+                ray.dir = GetCartesianCoordinates(ray_input[1]);
+                ray.orig.xyz = orig + ray.dir * 0.01f;
+
+                GetColor(ray, 0, rc, ray_source.dispersion, true);
+                color_refrac.rgb += rc.color * (1.0f - ray_source.opacity);
+                hits.y = rc.hit != 0;
+            }
+            output1[pixel] = color_refrac;
         }
-        else {
-            ray.dir = GetCartesianCoordinates(ray_input[0]);
-            ray.orig.xyz = orig + ray.dir * 0.01f;
-            GetColor(ray, 0, rc, ray_source.dispersion, false);
-            color_reflex.rgb += rc.color * reflex_ratio * ray_source.opacity;
-            hits.x = rc.hit != 0;
-        }
-        output0[pixel] = color_reflex;
+#endif
+        break;
     }
-#endif
+    case 2:
+    {
 #if 1
-    if (abs(ray_input[1].x) < MAX_RAY_POLAR_DIR) {
-        if (dist2(ray_input[1]) <= Epsilon) {
-            color_reflex.rgb = float3(1.0f, 0.0f, 0.0f);
-        }
-        else {
-            ray.dir = GetCartesianCoordinates(ray_input[1]);
-            ray.orig.xyz = orig + ray.dir * 0.01f;
+        float pdf_cache[MAX_RAYS];
+        UnpackRays(restir_pdf_1[pixel], RAY_W_SCALE, pdf_cache);
 
-            GetColor(ray, 0, rc, ray_source.dispersion, true);
-            color_refrac.rgb += rc.color * (1.0f - ray_source.opacity);
-            hits.y = rc.hit != 0;
-        }        
-        output1[pixel] = color_refrac;
-    }    
+        float wis[MAX_RAYS];
+        int wis_size = 0;
+        uint mask = restir_pdf_mask[pixel];
+        uint i = 0;
+        for (i = 0; i < MAX_RAYS; ++i) {
+            if ((mask & (1 << i)) != 0) {
+                wis[wis_size++] = i;
+            }
+        }
+        uint n = 0;
+        float4 final_color = float4(0.0f, 0.0f, 0.0f, 1.0f);
+        for (i = 0; i < 4 && i < wis_size; ++i) {
+            Ray ray = GetRayInfoFromSourceWithNoDir(ray_source);
+            ray.dir = GetCartesianCoordinates(ray_input[i]);
+            
+            if (abs(ray_input[i].x) < MAX_RAY_POLAR_DIR && dist2(ray_input[i]) > Epsilon) {
+                ray.orig.xyz += ray.dir * 0.01f;
+                float reflex_ratio = (1.0f - ray_source.dispersion);
+                GetColor(ray, 0, rc, ray_source.dispersion, false);
+                final_color.rgb += rc.color.rgb;
+                hits.x = rc.hit != 0;
+                uint wi = wis[i];
+                pdf_cache[wi] = RAY_W_BIAS + length(rc.color.rgb);
+                n++;
+            }
+        }
+        if (n > 0) {
+            final_color = sqrt(final_color * ray_source.dispersion * ray_source.opacity / n);
+            output0[pixel] += final_color;
+            restir_pdf_1[pixel] = PackRays(pdf_cache, RAY_W_SCALE);
+        }
 #endif
+        break;
+    }
+    }
+
     uint hit = (hits.y & 0x01) << 1 | hits.x & 0x01;
     if (hit != 0) {
         [unroll]
