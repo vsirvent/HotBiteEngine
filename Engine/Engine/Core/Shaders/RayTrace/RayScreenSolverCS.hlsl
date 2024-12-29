@@ -336,11 +336,12 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
                 }
             }
 #endif
+            output[pixel] = output[pixel] * 0.2f + float4(sqrt(final_color), 1.0f);
             break;
         }
         //Global Illumination
         case 2: {
-#if 1
+
             uint i = 0;
             float pdf_cache[MAX_RAYS];
             UnpackRays(restir_pdf_0[pixel], RAY_W_SCALE, pdf_cache);
@@ -353,6 +354,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
                     wis[wis_size++] = i;
                 }
             }
+
             for (i = 0; i < 4 && i < wis_size; ++i) {
                 z_diff = FLT_MAX;
                 Ray ray = GetRayInfoFromSourceWithNoDir(ray_source);
@@ -374,7 +376,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
                         float diff_ratio = (z_diff / 0.05f);
                         ray_input[i] = float2(FLT_MAX, FLT_MAX);
                         float att = max(hit_distance, 1.0f);
-                        float3 color = ((c * l) * ray_source.opacity) / att;
+                        float3 color = ((c * l) * ray_source.opacity) / att + b;
                         
                         pdf_cache[wi] = RAY_W_BIAS + length(color);
                         final_color += color;
@@ -388,11 +390,11 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
                     }
                 }
             }
+
             n = max(n, 1);
-            //final_color /= n;
-            final_color = sqrt(final_color * ray_source.dispersion * ray_source.opacity / n);
+            final_color = sqrt(final_color  / n);
             restir_pdf_1[pixel] = PackRays(pdf_cache, RAY_W_SCALE);
-#endif
+            output[pixel] = float4(sqrt(final_color), 1.0f);
             break;
         }
     }
@@ -408,5 +410,5 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
         }
     }
     ray_inputs[pixel] = Pack4Float2ToI16(ray_input, MAX_RAY_POLAR_DIR);
-    output[pixel] = output[pixel] * 0.2f + float4(final_color, 1.0f);
+    
 }

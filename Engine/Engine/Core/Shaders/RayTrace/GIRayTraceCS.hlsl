@@ -129,7 +129,7 @@ bool IsLowEnergy(float pdf[MAX_RAYS], uint len) {
     for (uint i = 0; i < len; ++i) {
         total_enery += pdf[i];
     }
-    float threshold = len * RAY_W_BIAS * 5.0f;
+    float threshold = len * RAY_W_BIAS;
 
     return (total_enery < threshold);
 }
@@ -240,13 +240,9 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     }
     else {
         for (i = frame_count % 4; i < ray_count; i += 4) {
-            uint wi = GetRayIndex(pdf_cache, w_pixel, i);
-            if (last_wi != wi) {
-                wis[wis_size] = wi;
-                wis_size++;
-                last_wi = wi;
-                restir_mask |= 1 << i;
-            }
+            wis[wis_size] = i;
+            wis_size++;
+            restir_mask |= 1 << i;
         }
     }
 

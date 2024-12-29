@@ -1977,8 +1977,8 @@ void RenderSystem::ProcessGI() {
 		dxcore->context->CSSetShaderResources(5, 1, vertex_buffer->IndexSRV());
 		ray_world_solver->SetShader();
 
-		groupsX = (int32_t)(ceil((float)rt_texture_gi_trace->Width() / (32.0f)));
-		groupsY = (int32_t)(ceil((float)rt_texture_gi_trace->Height() / (32.0f)));
+		groupsX = (int32_t)(ceil((float)rt_texture_gi_trace->Width() / (RESTIR_KERNEL)));
+		groupsY = (int32_t)(ceil((float)rt_texture_gi_trace->Height() / (RESTIR_KERNEL)));
 		dxcore->context->Dispatch(groupsX, groupsY, 1);
 
 		ray_world_solver->SetUnorderedAccessView("output0", nullptr);
@@ -2003,6 +2003,10 @@ void RenderSystem::ProcessGI() {
 #endif
 
 #if 1
+
+		groupsX = (int32_t)(ceil((float)rt_texture_gi_curr->Width() / (32.0f)));
+		groupsY = (int32_t)(ceil((float)rt_texture_gi_curr->Height() / (32.0f)));
+
 		gi_weights->SetShader();
 		gi_weights->SetInt("ray_count", RESTIR_PIXEL_RAYS);
 		gi_weights->SetShaderResourceView("restir_pdf_0", restir_pdf_curr->SRV());
@@ -2040,7 +2044,7 @@ void RenderSystem::ProcessGI() {
 		gi_average->SetShaderResourceView("input", nullptr);
 		gi_average->SetUnorderedAccessView("output", nullptr);
 		gi_average->CopyAllBufferData();
-#if 1
+#if 0
 		//Pass 2 
 		gi_average->SetInt("type", 2);
 		gi_average->SetShaderResourceView("orig_input", rt_texture_gi_trace->SRV());
@@ -2233,8 +2237,8 @@ void RenderSystem::ProcessRT() {
 			dxcore->context->CSSetShaderResources(5, 1, vertex_buffer->IndexSRV());
 			ray_world_solver->SetShader();
 
-			groupsX = (int32_t)(ceil((float)rt_texture_di_curr[RT_TEXTURE_REFLEX].Width() / (32.0f)));
-			groupsY = (int32_t)(ceil((float)rt_texture_di_curr[RT_TEXTURE_REFLEX].Height() / (32.0f)));
+			groupsX = (int32_t)(ceil((float)rt_texture_di_curr[RT_TEXTURE_REFLEX].Width() / (RESTIR_KERNEL)));
+			groupsY = (int32_t)(ceil((float)rt_texture_di_curr[RT_TEXTURE_REFLEX].Height() / (RESTIR_KERNEL)));
 			dxcore->context->Dispatch(groupsX, groupsY, 1);
 			
 			ray_world_solver->SetUnorderedAccessView("output0", nullptr);

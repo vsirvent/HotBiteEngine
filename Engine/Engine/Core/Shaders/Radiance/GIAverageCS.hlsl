@@ -35,6 +35,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
 {
 
     float2 pixel = float2(DTid.x, DTid.y);
+
 #ifdef DEBUG
     if (debug == 1) { 
         output[pixel] = input[pixel];

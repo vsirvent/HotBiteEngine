@@ -348,7 +348,7 @@ return out_color.hit;
         }
 
 #define DENSITY 1.0f
-#define NTHREADS 32
+#define NTHREADS 11
 
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thread : SV_GroupThreadID)
@@ -457,7 +457,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             }
         }
         if (n > 0) {
-            final_color = sqrt(final_color * ray_source.dispersion * ray_source.opacity / n);
+            final_color = sqrt(final_color * ray_source.opacity / n);
             output0[pixel] += final_color;
             restir_pdf_1[pixel] = PackRays(pdf_cache, RAY_W_SCALE);
         }
