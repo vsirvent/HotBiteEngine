@@ -1943,7 +1943,7 @@ void RenderSystem::ProcessGI() {
 		UnprepareLights(ray_screen_solver);
 		ray_screen_solver->CopyAllBufferData();
 #endif
-#if 0
+#if 1
 		// Resolve rays with world space Ray Tracing
 		ray_world_solver->SetInt("enabled", rt_enabled& (rt_quality != eRtQuality::OFF ? 0xFF : 0x00));
 		ray_world_solver->SetInt("frame_count", frame_count);
@@ -1966,7 +1966,8 @@ void RenderSystem::ProcessGI() {
 
 		ray_world_solver->SetShaderResourceView("restir_pdf_mask", restir_pdf_mask.SRV());
 		ray_world_solver->SetUnorderedAccessView("restir_pdf_1", restir_pdf_curr->UAV());
-
+		ray_world_solver->SetShaderResourceView("restir_pdf_0", restir_pdf_prev->SRV());
+		
 		PrepareLights(ray_world_solver);
 
 		ray_world_solver->CopyAllBufferData();
@@ -1988,6 +1989,7 @@ void RenderSystem::ProcessGI() {
 		ray_world_solver->SetUnorderedAccessView("bloom", nullptr);
 		ray_world_solver->SetUnorderedAccessView("tiles_output", nullptr);
 		ray_world_solver->SetShaderResourceView("ray_inputs", nullptr);
+
 		dxcore->context->CSSetShaderResources(2, 1, &nullsrc);
 		dxcore->context->CSSetShaderResources(3, 1, &nullsrc);
 		dxcore->context->CSSetShaderResources(4, 1, &nullsrc);
@@ -1995,6 +1997,7 @@ void RenderSystem::ProcessGI() {
 
 		ray_world_solver->SetShaderResourceView("restir_pdf_mask", nullptr);
 		ray_world_solver->SetUnorderedAccessView("restir_pdf_1", nullptr);
+		ray_world_solver->SetShaderResourceView("restir_pdf_0", nullptr);
 
 		ray_world_solver->SetShaderResourceViewArray("DiffuseTextures[0]", no_data, nobjects);
 

@@ -44,6 +44,9 @@
       {
         "name": "Floor",
         "material": "MaterialDesignerFloor"
+      },{
+        "name": "Cube*",
+        "pass": 2
       }
     ]
   }

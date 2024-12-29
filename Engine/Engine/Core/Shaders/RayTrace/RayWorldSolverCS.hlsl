@@ -29,7 +29,7 @@ SOFTWARE.
 
 #define REFLEX_ENABLED 1
 #define REFRACT_ENABLED 2
-#define USE_OBH 1
+#define USE_OBH 0
 
 cbuffer externalData : register(b0)
 {
@@ -63,6 +63,7 @@ RWTexture2D<float4> output1 : register(u1);
 RWTexture2D<uint> tiles_output: register(u2);
 RWTexture2D<uint4> restir_pdf_1: register(u3);
 
+Texture2D<uint4> restir_pdf_0: register(t7);
 Texture2D<float4> ray0;
 Texture2D<float4> ray1;
 Texture2D<uint4> ray_inputs: register(t0);
@@ -426,9 +427,8 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     }
     case 2:
     {
-#if 1
         float pdf_cache[MAX_RAYS];
-        UnpackRays(restir_pdf_1[pixel], RAY_W_SCALE, pdf_cache);
+        UnpackRays(restir_pdf_0[pixel], RAY_W_SCALE, pdf_cache);
 
         float wis[MAX_RAYS];
         int wis_size = 0;
@@ -444,24 +444,26 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
         for (i = 0; i < 4 && i < wis_size; ++i) {
             Ray ray = GetRayInfoFromSourceWithNoDir(ray_source);
             ray.dir = GetCartesianCoordinates(ray_input[i]);
-            
+            uint wi = wis[i];
             if (abs(ray_input[i].x) < MAX_RAY_POLAR_DIR && dist2(ray_input[i]) > Epsilon) {
                 ray.orig.xyz += ray.dir * 0.01f;
                 float reflex_ratio = (1.0f - ray_source.dispersion);
                 GetColor(ray, 0, rc, ray_source.dispersion, false);
                 final_color.rgb += rc.color.rgb;
                 hits.x = rc.hit != 0;
-                uint wi = wis[i];
+                
                 pdf_cache[wi] = RAY_W_BIAS + length(rc.color.rgb);
                 n++;
+            }
+            else {
+                pdf_cache[wi] = RAY_W_BIAS;
             }
         }
         if (n > 0) {
             final_color = sqrt(final_color * ray_source.opacity / n);
-            output0[pixel] += final_color;
-            restir_pdf_1[pixel] = PackRays(pdf_cache, RAY_W_SCALE);
+            output0[pixel] = final_color;            
         }
-#endif
+        restir_pdf_1[pixel] = PackRays(pdf_cache, RAY_W_SCALE);
         break;
     }
     }

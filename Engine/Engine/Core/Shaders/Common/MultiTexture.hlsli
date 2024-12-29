@@ -80,7 +80,7 @@ void getValues(out float output_values[MAX_MULTI_TEXTURE], SamplerState basicSam
 	}
 }
 
-float3 getMutliTextureValue(SamplerState basicSampler, uint type, uint count, const uint op[MAX_MULTI_TEXTURE], const float val[MAX_MULTI_TEXTURE],
+float4 getMutliTextureValue(SamplerState basicSampler, uint type, uint count, const uint op[MAX_MULTI_TEXTURE], const float val[MAX_MULTI_TEXTURE],
 	const float uv_scales[MAX_MULTI_TEXTURE], float2 uv, const Texture2D text[MAX_MULTI_TEXTURE]) {
 	float3 color = { 0.0f, 0.0f, 0.0f };
 	uint i;
@@ -119,7 +119,7 @@ float3 getMutliTextureValue(SamplerState basicSampler, uint type, uint count, co
 		}break;
 		}
 	}
-	return color;
+	return float4(color, 1.0f);
 }
 
 float3 getMutliTextureValueLevel(SamplerState basicSampler, uint level, uint type,

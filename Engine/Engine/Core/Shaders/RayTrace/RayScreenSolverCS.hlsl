@@ -337,7 +337,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
         }
         //Global Illumination
         case 2: {
-
+            break;
             uint i = 0;
             float pdf_cache[MAX_RAYS];
             UnpackRays(restir_pdf_0[pixel], RAY_W_SCALE, pdf_cache);
@@ -351,7 +351,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
                 }
             }
 
-            for (i = 0; i < 4 && i < wis_size; ++i) {
+            for (i = 0; i < 0 && i < wis_size; ++i) {
                 z_diff = FLT_MAX;
                 Ray ray = GetRayInfoFromSourceWithNoDir(ray_source);
                 if (abs(ray_input[i].x) < MAX_RAY_POLAR_DIR && dist2(ray_input[i]) > Epsilon) {
@@ -381,7 +381,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
                     else {
                         pdf_cache[wi] = RAY_W_BIAS;
                     }
-                    if (z_diff > 10e10) {
+                    if (z_diff > 10.0f) {
                         ray_input[i] = float2(FLT_MAX, FLT_MAX);
                     }
                 }

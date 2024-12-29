@@ -209,9 +209,10 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     uint last_wi = MAX_RAYS + 1;
     uint low_energy = IsLowEnergy(pdf_cache, ray_count);
 
-    uint restir_mask = 0;
+    uint restir_mask = 1;
     float w_pixel = max(restir_w_0[pixel], RAY_W_BIAS * ray_count);
-
+    ========TODO: THIS IS WRONGGGGGGGG========
+    ========GetRayIndex not returning weights but indexes, so the reordering is wrong!
     if (!low_energy) {
         float unordered_wis[MAX_RAYS];
         for (i = 0; i < ray_count; ++i) {
