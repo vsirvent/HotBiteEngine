@@ -1943,7 +1943,7 @@ void RenderSystem::ProcessGI() {
 		UnprepareLights(ray_screen_solver);
 		ray_screen_solver->CopyAllBufferData();
 #endif
-#if 1
+#if 0
 		// Resolve rays with world space Ray Tracing
 		ray_world_solver->SetInt("enabled", rt_enabled& (rt_quality != eRtQuality::OFF ? 0xFF : 0x00));
 		ray_world_solver->SetInt("frame_count", frame_count);
@@ -2198,7 +2198,7 @@ void RenderSystem::ProcessRT() {
 			UnprepareLights(ray_screen_solver);
 			ray_screen_solver->CopyAllBufferData();
 #endif
-#if 1
+#if 0
 			// Resolve rays with world space Ray Tracing
 			{
 				//We need at this point the BVH structures to be available

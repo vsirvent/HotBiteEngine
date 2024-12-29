@@ -175,7 +175,6 @@ float2 GetColor(Ray ray, float2 depth_dimensions, float2 output_dimensions, out 
     float2 grid_pixel = screen_pixel / current_divider;
     float2 grid_pos = pixel0.xy;
     float2 last_valid_grid_pos = grid_pos;
-    float2 last_last_valid_grid_pos = grid_pos;
 
     float grid_high_z = 0.0f;
 
@@ -206,12 +205,11 @@ float2 GetColor(Ray ray, float2 depth_dimensions, float2 output_dimensions, out 
        if (grid_high_z <= ray_z) {
             current_level--;
             current_divider = pow(hiz_ratio, current_level);
-            grid_pos = last_last_valid_grid_pos;
+            grid_pos = last_valid_grid_pos;
             grid_size = current_divider / depth_dimensions;
             grid_pixel = (grid_pos * depth_dimensions) / current_divider;
         }
         else {
-           last_last_valid_grid_pos = last_valid_grid_pos;
             last_valid_grid_pos = grid_pos;
             grid_pixel = GetNextGrid(dir, grid_pixel);
         }
@@ -221,7 +219,7 @@ float2 GetColor(Ray ray, float2 depth_dimensions, float2 output_dimensions, out 
     z_diff = abs(ray_z - grid_high_z);
     hit_distance = length(intersection_point - ray.orig.xyz);
     
-    return last_last_valid_grid_pos;
+    return last_valid_grid_pos;
 }
 
 //Max diff depends on the distance gap between adyacent pixels and distance to camera
@@ -303,7 +301,6 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     {
         //Direct Illumination
         case 1: {
-#if 1
             [unroll]
             //Only work with 1 ray for DI
             float reflex_ratio = (1.0f - ray_source.dispersion);
@@ -335,7 +332,6 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
                     }
                 }
             }
-#endif
             output[pixel] = output[pixel] * 0.2f + float4(sqrt(final_color), 1.0f);
             break;
         }
