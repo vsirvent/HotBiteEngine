@@ -33,9 +33,10 @@ float GetPosW(int pos, uint kernel) {
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main(uint3 DTid : SV_DispatchThreadID)
 {
-
+    
     float2 pixel = float2(DTid.x, DTid.y);
-
+    output[pixel] = input[pixel];
+    return;
 #ifdef DEBUG
     if (debug == 1) { 
         output[pixel] = input[pixel];
@@ -207,7 +208,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
 
         c = lerp(c, input[pixel], input_mix);
     }
-#if 0
+#if 1
     if (type < 3) {
         output[pixel] = c;
     }

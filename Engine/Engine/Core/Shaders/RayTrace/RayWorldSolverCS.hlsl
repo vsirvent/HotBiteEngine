@@ -454,17 +454,21 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             if (abs(ray_input[i].x) < MAX_RAY_POLAR_DIR && dist2(ray_input[i]) > Epsilon) {
                 ray.orig.xyz += ray.dir * 0.01f;
                 float reflex_ratio = (1.0f - ray_source.dispersion);
-                GetColor(ray, 0, rc, ray_source.dispersion, false);
-                final_color.rgb += rc.color.rgb;
-                hits.x = rc.hit != 0;
-                
-                pdf_cache[wi] = RAY_W_BIAS + length(rc.color.rgb);
-                n++;
+                if (GetColor(ray, 0, rc, ray_source.dispersion, false)) {
+                    final_color.rgb += rc.color.rgb;
+                    hits.x = rc.hit != 0;
+
+                    pdf_cache[wi] = RAY_W_BIAS + length(rc.color.rgb);
+                    n++;
+                }
+                else {
+                    pdf_cache[wi] = RAY_W_BIAS;
+                }
             }
         }
         if (n > 0) {
             final_color = sqrt(final_color * ray_source.opacity / n);
-            output0[pixel] += float4(final_color.r, 0.0f, 1.0f, 1.0f);
+            output0[pixel] = final_color;//float4(final_color.r, 0.0f, 1.0f, 1.0f);
             restir_pdf_1[pixel] = PackRays(pdf_cache, RAY_W_SCALE);
         }
 #endif

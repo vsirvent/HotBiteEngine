@@ -162,8 +162,7 @@ float2 GetColor(Ray ray, float2 depth_dimensions, float2 output_dimensions, out 
     pixel1.y *= -1.0f;
     pixel1.xy = (pixel1.xy + 1.0f) * 0.5f;
     float2 pEndProj = pixel1.xy;
-
-
+ 
     float2 dir = normalize((pixel1.xy - pStartProj) * depth_dimensions);
 
   
@@ -198,6 +197,7 @@ float2 GetColor(Ray ray, float2 depth_dimensions, float2 output_dimensions, out 
         grid_pos = grid_pixel * grid_size;
         if (!ValidUVCoord(grid_pos)) {
             z_diff = FLT_MAX;
+            hit_distance = FLT_MAX;
             return float2(-1, -1);
         }
         grid_high_z = GetHiZ(current_level, grid_pixel);
@@ -328,11 +328,12 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
                 
                 }
             }
-            output[pixel] = output[pixel] * 0.2f + float4(sqrt(final_color), 1.0f);
+            output[pixel] = float4(sqrt(final_color), 1.0f);
             break;
         }
         //Global Illumination
         case 2: {
+#if 1
             uint i = 0;
             float pdf_cache[MAX_RAYS];
             UnpackRays(restir_pdf_0[pixel], RAY_W_SCALE, pdf_cache);
@@ -380,6 +381,10 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
                     else {
                         pdf_cache[wi] = RAY_W_BIAS;
                     }
+
+                    if (hit_distance > 5.0f) {
+                        ray_input[i] = float2(FLT_MAX, FLT_MAX);
+                    }
                 }
             }
 
@@ -387,6 +392,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             final_color = (final_color  / n);
             restir_pdf_1[pixel] = PackRays(pdf_cache, RAY_W_SCALE);
             output[pixel] = float4(final_color, 1.0f);
+#endif
             break;
         }
     }
