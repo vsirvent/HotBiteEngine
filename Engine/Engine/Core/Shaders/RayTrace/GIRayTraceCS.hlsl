@@ -211,11 +211,9 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
 
     uint restir_mask = 1;
     float w_pixel = max(restir_w_0[pixel], RAY_W_BIAS * ray_count);
-    ========TODO: THIS IS WRONGGGGGGGG========
-    ========GetRayIndex not returning weights but indexes, so the reordering is wrong!
     if (!low_energy) {
         float unordered_wis[MAX_RAYS];
-        for (i = 0; i < ray_count; ++i) {
+        for (i = 0; i < MAX_RAYS; ++i) {
             uint wi = GetRayIndex(pdf_cache, w_pixel, i);
             if (last_wi != wi) {
                 unordered_wis[wis_size] = wi;
@@ -227,15 +225,17 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
         for (i = 0; i < 4 && i < wis_size; ++i) {
             float max_wi = 0.0f;
             uint max_wi_pos = 0;
+            uint max_unordered_wis_pos = 0;
             for (int j = 0; j < wis_size; ++j) {
-                if (max_wi < unordered_wis[j]) {
-                    max_wi = unordered_wis[j];
-                    max_wi_pos = j;
+                if (max_wi < pdf_cache[unordered_wis[j]]) {
+                    max_wi_pos = unordered_wis[j];
+                    max_wi = pdf_cache[max_wi_pos];
+                    max_unordered_wis_pos = j;
                 }
             }
 
-            wis[i] = max_wi;
-            unordered_wis[max_wi_pos] = 0.0f;
+            wis[i] = max_wi_pos;
+            unordered_wis[max_unordered_wis_pos] = 0.0f;
             restir_mask |= 1 << max_wi_pos;
         }
     }

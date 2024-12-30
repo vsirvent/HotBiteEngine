@@ -337,7 +337,6 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
         }
         //Global Illumination
         case 2: {
-            break;
             uint i = 0;
             float pdf_cache[MAX_RAYS];
             UnpackRays(restir_pdf_0[pixel], RAY_W_SCALE, pdf_cache);
