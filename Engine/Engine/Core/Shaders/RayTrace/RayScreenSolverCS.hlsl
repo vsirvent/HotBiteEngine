@@ -321,15 +321,11 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
                         float4 c = GetInterpolatedColor(color_uv, colorTexture, ray_map_dimensions);
                         float4 l = GetInterpolatedColor(color_uv, lightTexture, ray_map_dimensions);
                         float4 b = GetInterpolatedColor(color_uv, bloomTexture, ray_map_dimensions);
-                        float att = max(hit_distance, 1.0f);
                         ray_input[r] = float2(FLT_MAX, FLT_MAX);
-                        final_color += ((c * l) * reflex_ratio * ray_source.opacity / att);
+                        final_color += ((c * l) * reflex_ratio * ray_source.opacity);
                         n++;
                     }
-                    //Disable the ray for world resolve always                    
-                    if (z_diff > 10e10) {
-                        ray_input[r] = float2(FLT_MAX, FLT_MAX);
-                    }
+                
                 }
             }
             output[pixel] = output[pixel] * 0.2f + float4(sqrt(final_color), 1.0f);
@@ -344,13 +340,18 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             float wis[MAX_RAYS];
             int wis_size = 0;
             uint mask = restir_pdf_mask[pixel];
-            for (i = 0; i < MAX_RAYS; ++i) {
-                if ((mask & (1 << i)) != 0) {
-                    wis[wis_size++] = i;
+            for (i = 0; i < 4; ++i) {
+                uint wi = (mask & 0xF000) >> 12;
+                if (wi < 0xFF) {
+                    wis[wis_size++] = wi;
                 }
+                else {
+                    break;
+                }
+                mask <<= 4;
             }
-
-            for (i = 0; i < 0 && i < wis_size; ++i) {
+            
+            for (i = 0; i < wis_size; ++i) {
                 z_diff = FLT_MAX;
                 Ray ray = GetRayInfoFromSourceWithNoDir(ray_source);
                 if (abs(ray_input[i].x) < MAX_RAY_POLAR_DIR && dist2(ray_input[i]) > Epsilon) {
@@ -370,8 +371,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
                       
                         float diff_ratio = (z_diff / 0.05f);
                         ray_input[i] = float2(FLT_MAX, FLT_MAX);
-                        float att = max(hit_distance, 1.0f);
-                        float3 color = ((c * l) * ray_source.opacity) / att + b;
+                        float3 color = ((c * l) * ray_source.opacity) + b;
                         
                         pdf_cache[wi] = RAY_W_BIAS + length(color);
                         final_color += color;
@@ -380,16 +380,13 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
                     else {
                         pdf_cache[wi] = RAY_W_BIAS;
                     }
-                    if (z_diff > 10.0f) {
-                        ray_input[i] = float2(FLT_MAX, FLT_MAX);
-                    }
                 }
             }
 
             n = max(n, 1);
-            final_color = sqrt(final_color  / n);
+            final_color = (final_color  / n);
             restir_pdf_1[pixel] = PackRays(pdf_cache, RAY_W_SCALE);
-            output[pixel] = float4(sqrt(final_color), 1.0f);
+            output[pixel] = float4(final_color, 1.0f);
             break;
         }
     }

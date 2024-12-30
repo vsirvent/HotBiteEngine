@@ -2047,7 +2047,7 @@ void RenderSystem::ProcessGI() {
 		gi_average->SetShaderResourceView("input", nullptr);
 		gi_average->SetUnorderedAccessView("output", nullptr);
 		gi_average->CopyAllBufferData();
-#if 0
+#if 1
 		//Pass 2 
 		gi_average->SetInt("type", 2);
 		gi_average->SetShaderResourceView("orig_input", rt_texture_gi_trace->SRV());
@@ -2201,7 +2201,7 @@ void RenderSystem::ProcessRT() {
 			UnprepareLights(ray_screen_solver);
 			ray_screen_solver->CopyAllBufferData();
 #endif
-#if 0
+#if 1
 			// Resolve rays with world space Ray Tracing
 			{
 				//We need at this point the BVH structures to be available

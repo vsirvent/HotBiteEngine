@@ -35,8 +35,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
 {
 
     float2 pixel = float2(DTid.x, DTid.y);
-    output[pixel] = input[pixel];
-    return;
+
 #ifdef DEBUG
     if (debug == 1) { 
         output[pixel] = input[pixel];
@@ -71,8 +70,8 @@ void main(uint3 DTid : SV_DispatchThreadID)
     int x;
     int y;
 
-    static const float NORMAL_RATIO = 10.0f;
-    static const float sigma = 2.0f;
+    static const float NORMAL_RATIO = 5.0f;
+    static const float sigma = 1.0f;
     
     float total_w = 0.0f;
     float ww = 1.0f;
@@ -159,7 +158,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
         case 3: {
             //Pass 2 convolution failed again, make a minimal 2D pass
             [branch]
-            if (prev_w < 0.0f && dist_to_cam < 100.0f) {
+            if (prev_w < 2.0f && dist_to_cam < 100.0f) {
                 k = kernel_size + full_kernel;
                 for (x = -k; x <= k; ++x) {
                     for (y = -k; y <= k; ++y) {

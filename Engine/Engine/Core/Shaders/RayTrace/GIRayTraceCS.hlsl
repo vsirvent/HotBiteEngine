@@ -41,7 +41,6 @@ cbuffer externalData : register(b0)
     float3 cameraPosition;
     uint divider;
     matrix view_proj;
-    uint ray_count;
     int kernel_size;
 }
 
@@ -57,11 +56,11 @@ RWTexture2D<uint> restir_pdf_mask: register(u3);
 
 #include "../Common/RayFunctions.hlsli"
 
-static const float inv_ray_count = 1.0f / (float)ray_count;
-static const uint stride = kernel_size * ray_count;
+static const float inv_ray_count = 1.0f / (float)MAX_RAYS;
+static const uint stride = kernel_size * MAX_RAYS;
 
-static const uint N = ray_count * kernel_size * kernel_size;
-static const float space_size = (float)N / (float)ray_count;
+static const uint N = MAX_RAYS * kernel_size * kernel_size;
+static const float space_size = (float)N / (float)MAX_RAYS;
 
 
 uint GetRayIndex(float pdf_cache[MAX_RAYS], float w, float index) {
@@ -69,9 +68,9 @@ uint GetRayIndex(float pdf_cache[MAX_RAYS], float w, float index) {
     return index;
 #endif
     float tmp_w = 0.0f;
-    index = index * w * inv_ray_count;
+    index = (index + 1.0f) * w * inv_ray_count;
     
-    for (uint i = 0; i < ray_count; i++) {
+    for (uint i = 0; i < MAX_RAYS; i++) {
             tmp_w += pdf_cache[i];
             if (tmp_w > index) {
                 break;
@@ -129,7 +128,7 @@ bool IsLowEnergy(float pdf[MAX_RAYS], uint len) {
     for (uint i = 0; i < len; ++i) {
         total_enery += pdf[i];
     }
-    float threshold = len * RAY_W_BIAS;
+    float threshold = len * 0.01f;
 
     return (total_enery < threshold);
 }
@@ -173,7 +172,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     prev_pos.y /= -prev_pos.w;
     prev_pos.xy = round((prev_pos.xy + 1.0f) * dimensions.xy / 2.0f);
 
-    UnpackRays(restir_pdf_0[pixel], RAY_W_SCALE, pdf_cache);
+    UnpackRays(restir_pdf_0[prev_pos.xy], RAY_W_SCALE, pdf_cache);
     uint i = 0;
 
     end = end || (dist2(ray.dir) <= Epsilon);
@@ -198,19 +197,19 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     GetSpaceVectors(normal, tangent, bitangent);
 
     float color_w = 0.0f;
-
-    for (i = 0; i < ray_count; i++) {
-        pdf_cache[i] = max(pdf_cache[i], RAY_W_BIAS);
-    }
     
     float wis[MAX_RAYS];
     int wis_size = 0;
 
     uint last_wi = MAX_RAYS + 1;
-    uint low_energy = IsLowEnergy(pdf_cache, ray_count);
+    uint low_energy = IsLowEnergy(pdf_cache, MAX_RAYS);
 
-    uint restir_mask = 1;
-    float w_pixel = max(restir_w_0[pixel], RAY_W_BIAS * ray_count);
+    for (i = 0; i < MAX_RAYS; i++) {
+        pdf_cache[i] = max(pdf_cache[i], RAY_W_BIAS);
+    }
+
+    uint restir_mask = 0;
+    float w_pixel = max(restir_w_0[pixel], RAY_W_BIAS * MAX_RAYS);
     if (!low_energy) {
         float unordered_wis[MAX_RAYS];
         for (i = 0; i < MAX_RAYS; ++i) {
@@ -236,19 +235,23 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
 
             wis[i] = max_wi_pos;
             unordered_wis[max_unordered_wis_pos] = 0.0f;
-            restir_mask |= 1 << max_wi_pos;
+            restir_mask = (restir_mask << 4) | max_wi_pos;
+        }
+
+        for (i = wis_size; i < 4; ++i) {
+            restir_mask = (restir_mask << 4) | 0xFF;
         }
     }
     else {
-        for (i = frame_count % 4; i < ray_count; i += 4) {
-            wis[wis_size] = i;
-            wis_size++;
-            restir_mask |= 1 << i;
+        for (i = frame_count % 4; i < MAX_RAYS; i += 4) {
+            wis[wis_size++] = i;
+            restir_mask = (restir_mask << 4) | i;
         }
     }
 
+
     float4 color_diffuse = float4(0.0f, 0.0f, 0.0f, 1.0f);
-    float offset = ((pixel.x) % kernel_size) * ray_count + ((pixel.y)% kernel_size) * stride;
+    float offset = ((pixel.x) % kernel_size) * MAX_RAYS + ((pixel.y)% kernel_size) * stride;
     float offset2 = space_size;
    
     float2 ray_input[4];

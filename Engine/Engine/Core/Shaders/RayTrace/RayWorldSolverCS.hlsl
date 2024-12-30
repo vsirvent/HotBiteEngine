@@ -318,7 +318,7 @@ bool GetColor(Ray origRay, uint max_bounces, out RayTraceColor out_color, float 
         color += emission;
 
         float material_dispersion = saturate(1.0f - material.specIntensity);
-        att_dist += collision_dist * material_dispersion;
+        att_dist += material_dispersion;
         if (refract) {
             att_dist = 1.0f;
         }
@@ -382,7 +382,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     float4 color_refrac = float4(0.0f, 0.0f, 0.0f, 1.0f);
     uint2 hits = uint2(0, 0);
     Ray ray = GetRayInfoFromSourceWithNoDir(ray_source);
-    float3 orig = ray.orig;
+    float3 orig = ray.orig.xyz;
 
     //Get rays to be solved in the pixel
     RayTraceColor rc;
@@ -404,7 +404,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
                 color_reflex.rgb += rc.color * reflex_ratio * ray_source.opacity;
                 hits.x = rc.hit != 0;
             }
-            output0[pixel] = color_reflex;
+            output0[pixel] = color_reflex;// float4(color_reflex.r, 0.0f, 1.0f, 1.0f);
         }
 #endif
 #if 1
@@ -427,21 +427,27 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     }
     case 2:
     {
+#if 0
         float pdf_cache[MAX_RAYS];
         UnpackRays(restir_pdf_0[pixel], RAY_W_SCALE, pdf_cache);
-
+        uint i = 0;
         float wis[MAX_RAYS];
         int wis_size = 0;
         uint mask = restir_pdf_mask[pixel];
-        uint i = 0;
-        for (i = 0; i < MAX_RAYS; ++i) {
-            if ((mask & (1 << i)) != 0) {
-                wis[wis_size++] = i;
+        for (i = 0; i < 4; ++i) {
+            uint wi = (mask & 0xF000) >> 12;
+            if (wi < 0xFF) {
+                wis[wis_size++] = wi;
             }
+            else {
+                break;
+            }
+            mask <<= 4;
         }
+
         uint n = 0;
         float4 final_color = float4(0.0f, 0.0f, 0.0f, 1.0f);
-        for (i = 0; i < 4 && i < wis_size; ++i) {
+        for (i = 0; i < wis_size; ++i) {
             Ray ray = GetRayInfoFromSourceWithNoDir(ray_source);
             ray.dir = GetCartesianCoordinates(ray_input[i]);
             uint wi = wis[i];
@@ -455,15 +461,13 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
                 pdf_cache[wi] = RAY_W_BIAS + length(rc.color.rgb);
                 n++;
             }
-            else {
-                pdf_cache[wi] = RAY_W_BIAS;
-            }
         }
         if (n > 0) {
             final_color = sqrt(final_color * ray_source.opacity / n);
-            output0[pixel] = final_color;            
+            output0[pixel] += float4(final_color.r, 0.0f, 1.0f, 1.0f);
+            restir_pdf_1[pixel] = PackRays(pdf_cache, RAY_W_SCALE);
         }
-        restir_pdf_1[pixel] = PackRays(pdf_cache, RAY_W_SCALE);
+#endif
         break;
     }
     }
