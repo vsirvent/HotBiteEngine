@@ -431,35 +431,35 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
         float pdf_cache[MAX_RAYS];
         UnpackRays(restir_pdf_0[pixel], RAY_W_SCALE, pdf_cache);
         uint i = 0;
+
         float wis[MAX_RAYS];
         int wis_size = 0;
         uint mask = restir_pdf_mask[pixel];
         for (i = 0; i < 4; ++i) {
             uint wi = (mask & 0xF000) >> 12;
-            if (wi < 0xFF) {
-                wis[wis_size++] = wi;
-            }
-            else {
-                break;
-            }
+            wis[wis_size++] = wi;
             mask <<= 4;
         }
 
         uint n = 0;
         float4 final_color = float4(0.0f, 0.0f, 0.0f, 1.0f);
-        for (i = 0; i < wis_size; ++i) {
+        for (i = 0; i < 4; ++i) {
+            uint wi = wis[i];
+            if (wi == 0xF) continue;
+
             Ray ray = GetRayInfoFromSourceWithNoDir(ray_source);
             ray.dir = GetCartesianCoordinates(ray_input[i]);
-            uint wi = wis[i];
             if (abs(ray_input[i].x) < MAX_RAY_POLAR_DIR && dist2(ray_input[i]) > Epsilon) {
                 ray.orig.xyz += ray.dir * 0.01f;
                 float reflex_ratio = (1.0f - ray_source.dispersion);
                 if (GetColor(ray, 0, rc, ray_source.dispersion, false)) {
-                    final_color.rgb += rc.color.rgb;
                     hits.x = rc.hit != 0;
 
                     pdf_cache[wi] = RAY_W_BIAS + length(rc.color.rgb);
-                    n++;
+                    if (i < 3) {
+                        final_color.rgb += rc.color.rgb;
+                        n++;
+                    }
                 }
                 else {
                     pdf_cache[wi] = RAY_W_BIAS;
@@ -468,7 +468,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
         }
         if (n > 0) {
             final_color = sqrt(final_color * ray_source.opacity / n);
-            output0[pixel] = final_color;//float4(final_color.r, 0.0f, 1.0f, 1.0f);
+            output0[pixel] += final_color;
             restir_pdf_1[pixel] = PackRays(pdf_cache, RAY_W_SCALE);
         }
 #endif

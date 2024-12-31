@@ -202,7 +202,6 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     int wis_size = 0;
 
     uint last_wi = MAX_RAYS + 1;
-    uint low_energy = IsLowEnergy(pdf_cache, MAX_RAYS);
 
     for (i = 0; i < MAX_RAYS; i++) {
         pdf_cache[i] = max(pdf_cache[i], RAY_W_BIAS);
@@ -210,60 +209,70 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
 
     uint restir_mask = 0;
     float w_pixel = max(restir_w_0[pixel], RAY_W_BIAS * MAX_RAYS);
-    if (!low_energy) {
-        float unordered_wis[MAX_RAYS];
-        for (i = 0; i < MAX_RAYS; ++i) {
-            uint wi = GetRayIndex(pdf_cache, w_pixel, i);
-            if (last_wi != wi) {
-                unordered_wis[wis_size] = wi;
-                wis_size++;
-                last_wi = wi;
-            }
-        }
 
-        for (i = 0; i < 4 && i < wis_size; ++i) {
-            float max_wi = 0.0f;
-            uint max_wi_pos = 0;
-            uint max_unordered_wis_pos = 0;
-            for (int j = 0; j < wis_size; ++j) {
-                if (max_wi < pdf_cache[unordered_wis[j]]) {
-                    max_wi_pos = unordered_wis[j];
-                    max_wi = pdf_cache[max_wi_pos];
-                    max_unordered_wis_pos = j;
-                }
-            }
-
-            wis[i] = max_wi_pos;
-            unordered_wis[max_unordered_wis_pos] = 0.0f;
-            restir_mask = (restir_mask << 4) | max_wi_pos;
-        }
-
-        for (i = wis_size; i < 4; ++i) {
-            restir_mask = (restir_mask << 4) | 0xFF;
-        }
-    }
-    else {
-        for (i = frame_count % 4; i < MAX_RAYS; i += 4) {
-            wis[wis_size++] = i;
-            restir_mask = (restir_mask << 4) | i;
+    float unordered_wis[MAX_RAYS];
+    for (i = 0; i < MAX_RAYS; ++i) {
+        uint wi = GetRayIndex(pdf_cache, w_pixel, i);
+        if (last_wi != wi) {
+            unordered_wis[wis_size] = wi;
+            wis_size++;
+            last_wi = wi;
         }
     }
 
+    for (i = 0; i < 3 && i < wis_size; ++i) {
+        float max_wi = 0.0f;
+        uint max_wi_pos = 0;
+        uint max_unordered_wis_pos = 0;
+        for (int j = 0; j < wis_size; ++j) {
+            if (max_wi < pdf_cache[unordered_wis[j]]) {
+                max_wi_pos = unordered_wis[j];
+                max_wi = pdf_cache[max_wi_pos];
+                max_unordered_wis_pos = j;
+            }
+        }
 
+        wis[i] = max_wi_pos;
+        unordered_wis[max_unordered_wis_pos] = 0.0f;
+        restir_mask = (restir_mask << 4) | max_wi_pos;
+    }
+
+    for (i = wis_size; i < 3; ++i) {
+        wis[i] = 0xF;
+        restir_mask = (restir_mask << 4) | 0xF;
+    }
+
+    //Add scan line in ray 4
+    uint scan_ray = frame_count% MAX_RAYS;
+    bool found;
+    do {
+        found = false;
+        for (i = 0; i < 3; ++i) {
+            if (wis[i] == scan_ray) {
+                scan_ray = (scan_ray + 1) % MAX_RAYS;
+                found = true;
+                break;
+            }
+        }
+
+    } while (found);
+    wis[3] = scan_ray;
+    restir_mask = (restir_mask << 4) | scan_ray;
+    
     float4 color_diffuse = float4(0.0f, 0.0f, 0.0f, 1.0f);
     float offset = ((pixel.x) % kernel_size) * MAX_RAYS + ((pixel.y)% kernel_size) * stride;
     float offset2 = space_size;
    
     float2 ray_input[4];
     for (i = 0; i < 4; ++i) {
-        ray_input[i] = float2(MAX_RAY_POLAR_DIR, MAX_RAY_POLAR_DIR);
-    }
-
-    for (i = 0; i < 4 && i < wis_size; ++i) {
         uint wi = wis[i];
-        float n = fmod(offset + (float)wi * offset2, N);
-
-        ray_input[i] = GenerateHemisphereRay(normal, tangent, bitangent, 1.0f, N, level, n);
+        if (wi < 0xF) {
+            float n = fmod(offset + (float)wi * offset2, N);
+            ray_input[i] = GenerateHemisphereRay(normal, tangent, bitangent, 1.0f, N, level, n);
+        }
+        else {
+            ray_input[i] = float2(MAX_RAY_POLAR_DIR, MAX_RAY_POLAR_DIR);
+        }
     }
     uint4 data = Pack4Float2ToI16(ray_input, MAX_RAY_POLAR_DIR);
     ray_inputs[pixel] = data;

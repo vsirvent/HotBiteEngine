@@ -35,8 +35,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
 {
     
     float2 pixel = float2(DTid.x, DTid.y);
-    output[pixel] = input[pixel];
-    return;
+   
 #ifdef DEBUG
     if (debug == 1) { 
         output[pixel] = input[pixel];
@@ -71,8 +70,8 @@ void main(uint3 DTid : SV_DispatchThreadID)
     int x;
     int y;
 
-    static const float NORMAL_RATIO = 5.0f;
-    static const float sigma = 1.0f;
+    static const float NORMAL_RATIO = 10.0f;
+    static const float sigma = 0.1f;
     
     float total_w = 0.0f;
     float ww = 1.0f;
@@ -159,8 +158,8 @@ void main(uint3 DTid : SV_DispatchThreadID)
         case 3: {
             //Pass 2 convolution failed again, make a minimal 2D pass
             [branch]
-            if (prev_w < 2.0f && dist_to_cam < 100.0f) {
-                k = kernel_size + full_kernel;
+            if (prev_w < 1.8f) {
+                k = kernel_size + kernel_size;
                 for (x = -k; x <= k; ++x) {
                     for (y = -k; y <= k; ++y) {
                         int2 p = pixel + int2(x, y);
@@ -181,6 +180,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
                         ww *= GetPosW(x, k) * GetPosW(y, k);;
 
                         c.rgb += orig_input[p].rgb * ww;
+                        //c.rgb += float3(orig_input[p].r * ww, 0.0f, 1.0f);
                         total_w += ww;
                         count++;
                     }
@@ -189,7 +189,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
             }
             else {
                 // Pass2 convolution finished already, nothing to do in this pixel, just copy it
-                c = input[pixel];
+                input_mix = 1.0f;
                 total_w = 1.0f;
                 c.a = 0.0f;
             }
@@ -218,7 +218,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
         prev_pos.y /= -prev_pos.w;
         prev_pos.xy = (prev_pos.xy + 1.0f) * input_dimensions.xy / 2.0f;
         float w = 0.3f;
-        float4 prev_color = prev_output[floor(prev_pos.xy)];
+        float4 prev_color = prev_output[round(prev_pos.xy)];
         output[pixel] = lerp(prev_color, c, w);
     }
 #else

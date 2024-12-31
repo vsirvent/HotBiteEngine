@@ -343,16 +343,14 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             uint mask = restir_pdf_mask[pixel];
             for (i = 0; i < 4; ++i) {
                 uint wi = (mask & 0xF000) >> 12;
-                if (wi < 0xFF) {
-                    wis[wis_size++] = wi;
-                }
-                else {
-                    break;
-                }
+                wis[wis_size++] = wi;
                 mask <<= 4;
             }
             
-            for (i = 0; i < wis_size; ++i) {
+            for (i = 0; i < 4; ++i) {
+                uint wi = wis[i];
+                if (wi == 0xF) continue;
+
                 z_diff = FLT_MAX;
                 Ray ray = GetRayInfoFromSourceWithNoDir(ray_source);
                 if (abs(ray_input[i].x) < MAX_RAY_POLAR_DIR && dist2(ray_input[i]) > Epsilon) {
@@ -363,7 +361,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
                     ray.orig.xyz += ray.dir * 0.5f;
                     float reflex_ratio = (1.0f - ray_source.dispersion);
                     color_uv = GetColor(ray, ray_map_dimensions, dimensions, z_diff, hit_distance);
-                    uint wi = wis[i];
+                    
                     float max_diff = GetMaxDiff(color_uv, ray_map_dimensions);
                     if (z_diff < max_diff && ValidUVCoord(color_uv)) {
                         float4 c = GetInterpolatedColor(color_uv, colorTexture, ray_map_dimensions);
@@ -374,12 +372,16 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
                         ray_input[i] = float2(FLT_MAX, FLT_MAX);
                         float3 color = ((c * l) * ray_source.opacity) + b;
                         
+                        //Do not paint scan ray
                         pdf_cache[wi] = RAY_W_BIAS + length(color);
-                        final_color += color;
-                        n++;
+                        if (i < 3) {
+                            final_color += color;
+                            n++;
+                        }
                     }
                     else {
                         pdf_cache[wi] = RAY_W_BIAS;
+                        
                     }
 
                     if (hit_distance > 5.0f) {
@@ -387,11 +389,12 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
                     }
                 }
             }
-
-            n = max(n, 1);
-            final_color = (final_color  / n);
+            if (n > 0) {
+                final_color = (final_color / n);
+            }
             restir_pdf_1[pixel] = PackRays(pdf_cache, RAY_W_SCALE);
             output[pixel] = float4(final_color, 1.0f);
+            //output[pixel] = float4(final_color.r, 0.0f, 1.0f, 1.0f);
 #endif
             break;
         }

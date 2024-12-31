@@ -25,7 +25,6 @@ Texture2D<uint> tiles_output : register(t7);
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main(uint3 DTid : SV_DispatchThreadID)
 {
-    return;
     float2 pixel = float2(DTid.x, DTid.y);
 
     uint2 input_dimensions;
@@ -143,7 +142,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
             prev_pos.xy /= normalRatio;
         }
 
-        float4 prev_color = prev_output[floor(prev_pos.xy)];
+        float4 prev_color = prev_output[(prev_pos.xy)];
         float w = saturate(0.8f - motion * 100.0f);
         output[pixel] = prev_color * w + c0 * (1.0f - w);
     }
