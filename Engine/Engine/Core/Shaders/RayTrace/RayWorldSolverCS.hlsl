@@ -404,7 +404,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
                 color_reflex.rgb += rc.color * reflex_ratio * ray_source.opacity;
                 hits.x = rc.hit != 0;
             }
-            output0[pixel] = color_reflex;// float4(color_reflex.r, 0.0f, 1.0f, 1.0f);
+            output0[pixel] = color_reflex;
         }
 #endif
 #if 1

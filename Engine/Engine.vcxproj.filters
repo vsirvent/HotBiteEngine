@@ -436,6 +436,9 @@
     <None Include="Engine\Core\Shaders\Common\RayFunctions.hlsli">
       <Filter>Engine\Core\Shaders\Common</Filter>
     </None>
+    <None Include="Engine\Core\Shaders\RayTrace\RayScreenSolver.hlsli">
+      <Filter>Engine\Core\Shaders\RayTrace</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="Engine\Core\Shaders\DepthRender\DepthPS.hlsl">
@@ -600,7 +603,10 @@
     <FxCompile Include="Engine\Core\Shaders\RayTrace\RayWorldSolverCS.hlsl">
       <Filter>Engine\Core\Shaders\RayTrace</Filter>
     </FxCompile>
-    <FxCompile Include="Engine\Core\Shaders\RayTrace\RayScreenSolverCS.hlsl">
+    <FxCompile Include="Engine\Core\Shaders\RayTrace\RayGIScreenSolverCS.hlsl">
+      <Filter>Engine\Core\Shaders\RayTrace</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\RayTrace\RayReflexScreenSolverCS.hlsl">
       <Filter>Engine\Core\Shaders\RayTrace</Filter>
     </FxCompile>
   </ItemGroup>
