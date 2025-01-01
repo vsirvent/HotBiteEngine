@@ -1948,7 +1948,7 @@ void RenderSystem::ProcessGI() {
 
 		ray_gi_screen_solver->CopyAllBufferData();
 #endif
-#if 0
+#if 1
 		// Resolve rays with world space Ray Tracing
 		ray_world_solver->SetInt("enabled", rt_enabled& (rt_quality != eRtQuality::OFF ? 0xFF : 0x00));
 		ray_world_solver->SetInt("frame_count", frame_count);
@@ -2009,9 +2009,7 @@ void RenderSystem::ProcessGI() {
 		UnprepareLights(ray_world_solver);
 		ray_world_solver->CopyAllBufferData();
 #endif
-
 #if 1
-
 		groupsX = (int32_t)(ceil((float)rt_texture_gi_curr->Width() / (32.0f)));
 		groupsY = (int32_t)(ceil((float)rt_texture_gi_curr->Height() / (32.0f)));
 

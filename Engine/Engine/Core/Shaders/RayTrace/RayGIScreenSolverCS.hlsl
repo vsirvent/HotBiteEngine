@@ -125,13 +125,19 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
 
             float max_diff = GetMaxDiff(hiz_textures[0], color_uv, ray_map_dimensions);
             if (z_diff < max_diff && ValidUVCoord(color_uv)) {
+#if 1
                 float4 c = GetInterpolatedColor(color_uv, colorTexture, ray_map_dimensions);
                 float4 l = GetInterpolatedColor(color_uv, lightTexture, ray_map_dimensions);
                 float4 b = GetInterpolatedColor(color_uv, bloomTexture, ray_map_dimensions);
-
+#else
+                color_uv *= ray_map_dimensions;
+                float4 c = colorTexture[color_uv];
+                float4 l = lightTexture[color_uv];
+                float4 b = bloomTexture[color_uv];
+#endif
                 float diff_ratio = (z_diff / 0.05f);
                 ray_input[i] = float2(FLT_MAX, FLT_MAX);
-                float3 color = ((c * l) * ray_source.opacity) + b;
+                float3 color = ((c * l + b) * ray_source.opacity);
 
                 //Do not paint scan ray
                 pdf_cache[wi] = RAY_W_BIAS + length(color);
@@ -145,13 +151,13 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
 
             }
 
-            if (hit_distance > 5.0f) {
+            if (hit_distance > 2.0f || i >= 3) {
                 ray_input[i] = float2(FLT_MAX, FLT_MAX);
             }
         }
     }
     if (n > 0) {
-        final_color = (final_color / n);
+        final_color = (final_color * ray_source.opacity / n);
     }
     restir_pdf_1[pixel] = PackRays(pdf_cache, RAY_W_SCALE);
     output[pixel] = lerp(output[pixel], float4(final_color, 1.0f), 0.3f);

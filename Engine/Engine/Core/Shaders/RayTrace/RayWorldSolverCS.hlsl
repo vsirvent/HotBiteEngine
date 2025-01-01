@@ -427,7 +427,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     }
     case 2:
     {
-#if 0
+#if 1
         float pdf_cache[MAX_RAYS];
         UnpackRays(restir_pdf_0[pixel], RAY_W_SCALE, pdf_cache);
         uint i = 0;
@@ -443,7 +443,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
 
         uint n = 0;
         float4 final_color = float4(0.0f, 0.0f, 0.0f, 1.0f);
-        for (i = 0; i < 4; ++i) {
+        for (i = 0; i < 2; ++i) {
             uint wi = wis[i];
             if (wi == 0xF) continue;
 
@@ -456,10 +456,8 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
                     hits.x = rc.hit != 0;
 
                     pdf_cache[wi] = RAY_W_BIAS + length(rc.color.rgb);
-                    if (i < 3) {
-                        final_color.rgb += rc.color.rgb;
-                        n++;
-                    }
+                    final_color.rgb += rc.color.rgb;
+                    n++;
                 }
                 else {
                     pdf_cache[wi] = RAY_W_BIAS;

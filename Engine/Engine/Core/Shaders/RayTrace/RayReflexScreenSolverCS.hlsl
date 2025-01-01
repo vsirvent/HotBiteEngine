@@ -55,6 +55,7 @@ Texture2D<float> hiz_textures[HIZ_TEXTURES];
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thread : SV_GroupThreadID)
 {
+
     float2 dimensions;
     float2 ray_map_dimensions;
     {
@@ -108,14 +109,18 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
 
             float max_diff = GetMaxDiff(hiz_textures[0], color_uv, ray_map_dimensions);
             if (z_diff < max_diff && ValidUVCoord(color_uv)) {
-                float4 c = GetInterpolatedColor(color_uv, colorTexture, ray_map_dimensions);
-                float4 l = GetInterpolatedColor(color_uv, lightTexture, ray_map_dimensions);
-                float4 b = GetInterpolatedColor(color_uv, bloomTexture, ray_map_dimensions);
+                //float4 c = GetInterpolatedColor(color_uv, colorTexture, ray_map_dimensions);
+                //float4 l = GetInterpolatedColor(color_uv, lightTexture, ray_map_dimensions);
+                //float4 b = GetInterpolatedColor(color_uv, bloomTexture, ray_map_dimensions);
+                color_uv *= ray_map_dimensions;
+                float4 c = colorTexture[color_uv];
+                float4 l = lightTexture[color_uv]; 
+                float4 b = bloomTexture[color_uv]; 
+
                 ray_input[r] = float2(FLT_MAX, FLT_MAX);
-                final_color += ((c * l) * reflex_ratio * ray_source.opacity);
+                final_color += ((c * l + b) * reflex_ratio * ray_source.opacity);
                 n++;
-            }
-                
+            }    
         }
     }
     output[pixel] = lerp(output[pixel], float4(sqrt(final_color), 1.0f), 0.5f);

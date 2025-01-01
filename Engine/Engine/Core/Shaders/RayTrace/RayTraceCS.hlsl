@@ -100,7 +100,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             rX = pow(rX, ray_source.dispersion * 5.0f);
             normal = ray.dir;
             GetSpaceVectors(normal, tangent, bitangent);
-            dirs[0] = GenerateHemisphereDispersedRay(normal, tangent, bitangent, ray_source.dispersion, N, level * 10.0f, rX);
+            dirs[0] = GenerateHemisphereDispersedRay(normal, tangent, bitangent, ray_source.dispersion, N, level, rX);
         }
     }
     //Refracted ray

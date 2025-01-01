@@ -135,25 +135,29 @@ float3 GetCartesianCoordinates(float2 coords) {
 	return GetCartesianCoordinates(coords.x, coords.y);
 }
 
-#define LEVEL_RATIO 3
 float2 GenerateHemisphereDispersedRay(float3 dir, float3 tangent, float3 bitangent, float dispersion, float N, float NLevels, float rX)
 {
 	float index = (rX * dispersion) % N;
 
 	//index = (frame_count) % N;
+	float N_SQRT = sqrt(N);
 	float cumulativePoints = 1.0f;
 	float level = 1.0f;
-	float c = 0.0f;
-	while (c <= index) {
-		c = cumulativePoints + level * LEVEL_RATIO;
+	float c = 1.0f;
+	float phi;
+	while (c < index) {
+		phi = (level * M_PI * 0.5f) / NLevels;
+		c = cumulativePoints + N_SQRT * sin(phi);
 		cumulativePoints = c;
 		level++;
 	};
 	level--;
 
-	float pointsAtLevel = level * LEVEL_RATIO;
+	phi = (level * M_PI * 0.5f) / NLevels;
+
+	float pointsAtLevel = 1.0f + N_SQRT * sin(phi);
+
 	float localIndex = index - cumulativePoints;
-	float phi = (level * M_PI * 0.5f) / NLevels;
 	float theta = (2.0f * M_PI) * localIndex / pointsAtLevel;
 
 	float3 localRay = GetCartesianCoordinates(phi, theta);

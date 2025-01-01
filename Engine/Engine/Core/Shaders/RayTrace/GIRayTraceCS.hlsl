@@ -30,7 +30,7 @@ SOFTWARE.
 #define REFRACT_ENABLED 2
 #define INDIRECT_ENABLED 4
 #define USE_OBH 0
-#define LEVEL_RATIO 3
+
 //#define BOUNCES
 //#define DISABLE_RESTIR
 
@@ -84,26 +84,28 @@ float2 GenerateHemisphereRay(float3 dir, float3 tangent, float3 bitangent, float
     float index = (rX * dispersion) % N;
 
     //index = (frame_count) % N;
+    float N_SQRT = sqrt(N);
     float cumulativePoints = 1.0f;
     float level = 1.0f;
     float c = 1.0f;
+    float phi;
     while (c < index) {
-        c = cumulativePoints + level * LEVEL_RATIO;
+        phi = (level * M_PI * 0.5f) / NLevels;
+        c = cumulativePoints + N_SQRT * sin(phi);
         cumulativePoints = c;
         level++;
     };
     level--;
 
-    float pointsAtLevel = 1.0f + level * LEVEL_RATIO;
+    phi = (level * M_PI * 0.5f) / NLevels;
+
+    float pointsAtLevel = 1.0f + N_SQRT * sin(phi);
 
     // Calculate local index within the current level
     float localIndex = index - cumulativePoints;
-
-    float phi = (level * M_PI * 0.5f) / NLevels;
-
+   
     // Azimuthal angle (theta) based on number of points at this level
-    float theta = (2.0f * M_PI) * localIndex / pointsAtLevel; // Spread points evenly in azimuthal direction
-        
+    float theta = (2.0f * M_PI) * localIndex / pointsAtLevel; // Spread points evenly in azimuthal direction        
 
     // Convert spherical coordinates to Cartesian coordinates
     float sinPhi = sin(phi);
@@ -116,7 +118,6 @@ float2 GenerateHemisphereRay(float3 dir, float3 tangent, float3 bitangent, float
 
     // Convert local ray to global coordinates (tangent space to world space)
     float3 globalRay = localRay.x * tangent + localRay.y * dir + localRay.z * bitangent;
-
 
     return GetPolarCoordinates(normalize(dir + globalRay));
 }
@@ -186,13 +187,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     float3 orig_dir = ray.dir;
 
     float cumulativePoints = 1;
-    float level = 1;
-    uint c = 0;
-    while (c < N) {
-        c = cumulativePoints + level * LEVEL_RATIO;
-        cumulativePoints = c;
-        level++;
-    };
+    float NLEVELS = sqrt(N);
                       
     GetSpaceVectors(normal, tangent, bitangent);
 
@@ -268,7 +263,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
         uint wi = wis[i];
         if (wi < 0xF) {
             float n = fmod(offset + (float)wi * offset2, N);
-            ray_input[i] = GenerateHemisphereRay(normal, tangent, bitangent, 1.0f, N, level, n);
+            ray_input[i] = GenerateHemisphereRay(normal, tangent, bitangent, 1.0f, N, NLEVELS, n);
         }
         else {
             ray_input[i] = float2(MAX_RAY_POLAR_DIR, MAX_RAY_POLAR_DIR);
