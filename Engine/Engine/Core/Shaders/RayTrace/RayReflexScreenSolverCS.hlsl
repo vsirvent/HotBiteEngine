@@ -55,7 +55,6 @@ Texture2D<float> hiz_textures[HIZ_TEXTURES];
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thread : SV_GroupThreadID)
 {
-
     float2 dimensions;
     float2 ray_map_dimensions;
     {
@@ -123,8 +122,13 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             }    
         }
     }
-    output[pixel] = lerp(output[pixel], float4(sqrt(final_color), 1.0f), 0.5f);
-            
+    float4 prev_color = output[pixel];
+    if (isnan(prev_color.x)) {
+        output[pixel] = float4(sqrt(final_color), 1.0);
+    }
+    else {
+        output[pixel] = lerp(prev_color, float4(sqrt(final_color), 1.0f), 0.5f);
+    }
 
     if (n > 0) {
         [unroll]

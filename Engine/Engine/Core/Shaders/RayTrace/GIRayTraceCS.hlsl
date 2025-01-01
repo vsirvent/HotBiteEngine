@@ -171,7 +171,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     float4 prev_pos = mul(prev_position_map[ray_pixel], view_proj);
     prev_pos.x /= prev_pos.w;
     prev_pos.y /= -prev_pos.w;
-    prev_pos.xy = round((prev_pos.xy + 1.0f) * dimensions.xy / 2.0f);
+    prev_pos.xy = (prev_pos.xy + 1.0f) * dimensions.xy * 0.5f;
 
     UnpackRays(restir_pdf_0[prev_pos.xy], RAY_W_SCALE, pdf_cache);
     uint i = 0;
@@ -253,9 +253,9 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     } while (found);
     wis[3] = scan_ray;
     restir_mask = (restir_mask << 4) | scan_ray;
-    
+
     float4 color_diffuse = float4(0.0f, 0.0f, 0.0f, 1.0f);
-    float offset = ((pixel.x) % kernel_size) * MAX_RAYS + ((pixel.y)% kernel_size) * stride;
+    float offset = ((pixel.x) % kernel_size) * MAX_RAYS + ((pixel.y) % kernel_size) * stride;
     float offset2 = space_size;
    
     float2 ray_input[4];

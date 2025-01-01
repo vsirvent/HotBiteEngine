@@ -157,7 +157,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
         }
     }
     if (n > 0) {
-        final_color = (final_color * ray_source.opacity / n);
+        final_color = sqrt(final_color * ray_source.opacity / n);
     }
     restir_pdf_1[pixel] = PackRays(pdf_cache, RAY_W_SCALE);
     output[pixel] = lerp(output[pixel], float4(final_color, 1.0f), 0.3f);
