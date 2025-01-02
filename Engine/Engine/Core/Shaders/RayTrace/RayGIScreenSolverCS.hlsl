@@ -51,6 +51,7 @@ Texture2D lightTexture: register(t4);
 Texture2D bloomTexture: register(t5);
 Texture2D<uint> restir_pdf_mask: register(t6);
 Texture2D<uint4> restir_pdf_0: register(t7);
+Texture2D<float> restir_w_0: register(t11);
 
 Texture2D<float> hiz_textures[HIZ_TEXTURES];
 
@@ -124,6 +125,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             color_uv = GetColor(ray, projection, inv_projection, hiz_textures, hiz_ratio, ray_map_dimensions, dimensions, z_diff, hit_distance);
 
             float max_diff = GetMaxDiff(hiz_textures[0], color_uv, ray_map_dimensions);
+            float3 color = float3(0.0f, 0.0f, 0.0f);
             if (z_diff < max_diff && ValidUVCoord(color_uv)) {
 #if 1
                 float4 c = GetInterpolatedColor(color_uv, colorTexture, ray_map_dimensions);
@@ -137,31 +139,31 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
 #endif
                 float diff_ratio = (z_diff / 0.05f);
                 ray_input[i] = float2(FLT_MAX, FLT_MAX);
-                float3 color = ((c * l + b) * ray_source.opacity);
+                color = ((c * l + b) * ray_source.opacity);
 
                 //Do not paint scan ray
-                pdf_cache[wi] = RAY_W_BIAS + length(color);
                 if (i < 3) {
                     final_color += color;
-                    n++;
+                    n += pdf_cache[wi];
                 }
             }
-            else {
-                pdf_cache[wi] = RAY_W_BIAS;
+            pdf_cache[wi] = RAY_W_BIAS + length(color);
 
-            }
 
-            if (hit_distance > 2.0f || i >= 3) {
+            if (hit_distance > 2.0f) {
                 ray_input[i] = float2(FLT_MAX, FLT_MAX);
             }
         }
     }
+    float w_ratio = 1.0f;
     if (n > 0) {
-        final_color = sqrt(final_color * ray_source.opacity / n);
+        final_color = (final_color * ray_source.opacity);
+        w_ratio = restir_w_0[pixel] / n;
     }
+
     restir_pdf_1[pixel] = PackRays(pdf_cache, RAY_W_SCALE);
-    output[pixel] = lerp(output[pixel], float4(final_color, 1.0f), 0.3f);
-    //output[pixel] = float4(final_color.r, 0.0f, 1.0f, 1.0f);
+    //output[pixel] = lerp(output[pixel], float4(sqrt(final_color * w_ratio) / 4, 1.0f), 0.3f);
+    output[pixel] = float4(sqrt(final_color) / 4, 1.0f);
 #endif
     
     if (n > 0) {

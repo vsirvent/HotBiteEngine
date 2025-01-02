@@ -69,6 +69,7 @@ Texture2D<float4> ray1;
 Texture2D<uint4> ray_inputs: register(t0);
 
 Texture2D<uint> restir_pdf_mask: register(t6);
+Texture2D<float> restir_w_0: register(t11);
 
 StructuredBuffer<BVHNode> objects: register(t2);
 StructuredBuffer<BVHNode> objectBVH: register(t3);
@@ -96,7 +97,6 @@ bool GetColor(Ray origRay, uint max_bounces, out RayTraceColor out_color, float 
 
     float last_dispersion = dispersion;
     float acc_dispersion = dispersion;
-    float collision_dist = 0.0f;
     float att_dist = 0.0f;
 #if USE_OBH   
     uint volumeStack[MAX_STACK_SIZE];
@@ -222,7 +222,6 @@ bool GetColor(Ray origRay, uint max_bounces, out RayTraceColor out_color, float 
                     if (distance < result.distance)
                     {
                         collide = true;
-                        collision_dist = length(pos - ray.orig);
                         ray.t = distance;
                         result.v0 = object_result.v0;
                         result.v1 = object_result.v1;
@@ -318,12 +317,12 @@ bool GetColor(Ray origRay, uint max_bounces, out RayTraceColor out_color, float 
         color += emission;
 
         float material_dispersion = saturate(1.0f - material.specIntensity);
-        att_dist += material_dispersion;
+
         if (refract) {
             att_dist = 1.0f;
         }
         float curr_att_dist = max(att_dist, 1.0f);
-        out_color.color += color * ray.ratio / curr_att_dist;
+        out_color.color += color * ray.ratio;
         acc_dispersion += material_dispersion;
         last_dispersion = material_dispersion;
         ray.orig = pos;
@@ -407,7 +406,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             output0[pixel] = color_reflex;
         }
 #endif
-#if 1
+#if 0
         if (abs(ray_input[1].x) < MAX_RAY_POLAR_DIR) {
             if (dist2(ray_input[1]) <= Epsilon) {
                 color_reflex.rgb = float3(1.0f, 0.0f, 0.0f);
@@ -429,46 +428,47 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     {
 #if 1
         float pdf_cache[MAX_RAYS];
-        UnpackRays(restir_pdf_0[pixel], RAY_W_SCALE, pdf_cache);
+        UnpackRays(restir_pdf_1[pixel], RAY_W_SCALE, pdf_cache);
         uint i = 0;
 
         float wis[MAX_RAYS];
-        int wis_size = 0;
         uint mask = restir_pdf_mask[pixel];
         for (i = 0; i < 4; ++i) {
             uint wi = (mask & 0xF000) >> 12;
-            wis[wis_size++] = wi;
+            wis[i] = wi;
             mask <<= 4;
         }
 
         uint n = 0;
         float4 final_color = float4(0.0f, 0.0f, 0.0f, 1.0f);
-        for (i = 0; i < 2; ++i) {
+        for (i = 0; i < 4; ++i) {
             uint wi = wis[i];
             if (wi == 0xF) continue;
 
             Ray ray = GetRayInfoFromSourceWithNoDir(ray_source);
             ray.dir = GetCartesianCoordinates(ray_input[i]);
+            ray.orig.xyz += ray.dir * 0.05f;
             if (abs(ray_input[i].x) < MAX_RAY_POLAR_DIR && dist2(ray_input[i]) > Epsilon) {
                 ray.orig.xyz += ray.dir * 0.01f;
-                float reflex_ratio = (1.0f - ray_source.dispersion);
                 if (GetColor(ray, 0, rc, ray_source.dispersion, false)) {
                     hits.x = rc.hit != 0;
-
-                    pdf_cache[wi] = RAY_W_BIAS + length(rc.color.rgb);
-                    final_color.rgb += rc.color.rgb;
-                    n++;
+                    if (i < 3) {
+                        final_color.rgb += rc.color.rgb;
+                        n += pdf_cache[wi];
+                    }
                 }
-                else {
-                    pdf_cache[wi] = RAY_W_BIAS;
-                }
+                pdf_cache[wi] = RAY_W_BIAS + length(rc.color.rgb);
             }
         }
+        float w_ratio = 1.0f;
         if (n > 0) {
-            final_color = sqrt(final_color * ray_source.opacity / n);
-            output0[pixel] += final_color;
-            restir_pdf_1[pixel] = PackRays(pdf_cache, RAY_W_SCALE);
+            final_color = (final_color * ray_source.opacity);
+            w_ratio = restir_w_0[pixel] / n;
         }
+        
+        output0[pixel] = sqrt((output0[pixel] + final_color * w_ratio) / 4);
+        //output0[pixel] = sqrt((final_color * w_ratio) / 4);
+        restir_pdf_1[pixel] = PackRays(pdf_cache, RAY_W_SCALE);
 #endif
         break;
     }

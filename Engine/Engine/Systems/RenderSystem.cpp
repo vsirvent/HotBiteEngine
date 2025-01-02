@@ -1917,6 +1917,7 @@ void RenderSystem::ProcessGI() {
 		ray_gi_screen_solver->SetShaderResourceView("restir_pdf_mask", restir_pdf_mask.SRV());
 		ray_gi_screen_solver->SetShaderResourceView("restir_pdf_0", restir_pdf_prev->SRV());
 		ray_gi_screen_solver->SetUnorderedAccessView("restir_pdf_1", restir_pdf_curr->UAV());
+		ray_gi_screen_solver->SetShaderResourceView("restir_w_0", restir_w.SRV());
 
 		ray_gi_screen_solver->SetShaderResourceView("colorTexture", post_process_pipeline->RenderResource());
 		ray_gi_screen_solver->SetShaderResourceView("lightTexture", current_light_map->SRV());
@@ -1945,6 +1946,7 @@ void RenderSystem::ProcessGI() {
 		ray_gi_screen_solver->SetShaderResourceView("colorTexture", nullptr);
 		ray_gi_screen_solver->SetShaderResourceView("lightTexture", nullptr);
 		ray_gi_screen_solver->SetShaderResourceView("bloomTexture", nullptr);
+		ray_gi_screen_solver->SetShaderResourceView("restir_w_0", nullptr);
 
 		ray_gi_screen_solver->CopyAllBufferData();
 #endif
@@ -1972,7 +1974,8 @@ void RenderSystem::ProcessGI() {
 		ray_world_solver->SetShaderResourceView("restir_pdf_mask", restir_pdf_mask.SRV());
 		ray_world_solver->SetUnorderedAccessView("restir_pdf_1", restir_pdf_curr->UAV());
 		ray_world_solver->SetShaderResourceView("restir_pdf_0", restir_pdf_prev->SRV());
-		
+		ray_world_solver->SetShaderResourceView("restir_w_0", restir_w.SRV());
+
 		PrepareLights(ray_world_solver);
 
 		ray_world_solver->CopyAllBufferData();
@@ -2003,6 +2006,7 @@ void RenderSystem::ProcessGI() {
 		ray_world_solver->SetShaderResourceView("restir_pdf_mask", nullptr);
 		ray_world_solver->SetUnorderedAccessView("restir_pdf_1", nullptr);
 		ray_world_solver->SetShaderResourceView("restir_pdf_0", nullptr);
+		ray_world_solver->SetShaderResourceView("restir_w_0", nullptr);
 
 		ray_world_solver->SetShaderResourceViewArray("DiffuseTextures[0]", no_data, nobjects);
 

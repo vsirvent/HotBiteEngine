@@ -140,13 +140,14 @@ float2 GetColor(Ray ray, in matrix projection, in matrix inv_projection, Texture
     rayPlane.Q = ray.orig.xyz;
     rayPlane.n = normal;
 
+    z_diff = FLT_MAX;
+    hit_distance = FLT_MAX;
+
     while (current_level >= 0) {
         //Calculate ray z, grid_pos in NDC coords
 
         grid_pos = grid_pixel * grid_size;
         if (!ValidUVCoord(grid_pos)) {
-            z_diff = FLT_MAX;
-            hit_distance = FLT_MAX;
             return float2(-1, -1);
         }
         grid_high_z = GetHiZ(hiz_textures, current_level, grid_pixel);

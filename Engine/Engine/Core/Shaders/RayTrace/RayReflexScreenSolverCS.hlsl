@@ -102,20 +102,22 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             ray.dir = normalize(mul(ray.dir, (float3x3)view));
             ray.orig = mul(ray.orig, view);
             ray.orig /= ray.orig.w;
-            ray.orig.xyz += ray.dir * 0.5f;
+            ray.orig.xyz += ray.dir * 0.01f;
             float reflex_ratio = (1.0f - ray_source.dispersion);
             color_uv = GetColor(ray, projection, inv_projection, hiz_textures, hiz_ratio, ray_map_dimensions, dimensions, z_diff, hit_distance);
 
             float max_diff = GetMaxDiff(hiz_textures[0], color_uv, ray_map_dimensions);
             if (z_diff < max_diff && ValidUVCoord(color_uv)) {
-                //float4 c = GetInterpolatedColor(color_uv, colorTexture, ray_map_dimensions);
-                //float4 l = GetInterpolatedColor(color_uv, lightTexture, ray_map_dimensions);
-                //float4 b = GetInterpolatedColor(color_uv, bloomTexture, ray_map_dimensions);
+#if 1 
+                float4 c = GetInterpolatedColor(color_uv, colorTexture, ray_map_dimensions);
+                float4 l = GetInterpolatedColor(color_uv, lightTexture, ray_map_dimensions);
+                float4 b = GetInterpolatedColor(color_uv, bloomTexture, ray_map_dimensions);
+#else
                 color_uv *= ray_map_dimensions;
                 float4 c = colorTexture[color_uv];
                 float4 l = lightTexture[color_uv]; 
                 float4 b = bloomTexture[color_uv]; 
-
+#endif
                 ray_input[r] = float2(FLT_MAX, FLT_MAX);
                 final_color += ((c * l + b) * reflex_ratio * ray_source.opacity);
                 n++;

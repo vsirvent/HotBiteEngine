@@ -79,6 +79,7 @@ uint GetRayIndex(float pdf_cache[MAX_RAYS], float w, float index) {
     return i;
 }
 
+#if 0
 float2 GenerateHemisphereRay(float3 dir, float3 tangent, float3 bitangent, float dispersion, float N, float NLevels, float rX)
 {
     float index = (rX * dispersion) % N;
@@ -97,9 +98,9 @@ float2 GenerateHemisphereRay(float3 dir, float3 tangent, float3 bitangent, float
     };
     level--;
 
-    phi = (level * M_PI * 0.5f) / NLevels;
-
-    float pointsAtLevel = 1.0f + N_SQRT * sin(phi);
+    
+    float pointsAtLevel = 1.0f + ceil(N_SQRT * sin(phi));
+    phi = (level * M_PI) / NLevels;
 
     // Calculate local index within the current level
     float localIndex = index - cumulativePoints;
@@ -121,7 +122,49 @@ float2 GenerateHemisphereRay(float3 dir, float3 tangent, float3 bitangent, float
 
     return GetPolarCoordinates(normalize(dir + globalRay));
 }
+#else
 
+#define LEVEL_RATIO 3
+float2 GenerateHemisphereRay(float3 dir, float3 tangent, float3 bitangent, float dispersion, float N, float NLevels, float rX)
+{
+    float index = (rX * dispersion) % N;
+
+    //index = (frame_count) % N;
+    float cumulativePoints = 1.0f;
+    float level = 1.0f;
+    float c = 1.0f;
+    while (c < index) {
+        c = cumulativePoints + level * LEVEL_RATIO;
+        cumulativePoints = c;
+        level++;
+    };
+    level--;
+
+    float pointsAtLevel = 1.0f + level * LEVEL_RATIO;
+
+    // Calculate local index within the current level
+    float localIndex = index - cumulativePoints;
+    float phi = (level * M_PI * 0.8f) / NLevels;
+    // Azimuthal angle (theta) based on number of points at this level
+    float theta = (2.0f * M_PI) * localIndex / pointsAtLevel; // Spread points evenly in azimuthal direction
+
+
+    // Convert spherical coordinates to Cartesian coordinates
+    float sinPhi = sin(phi);
+    float cosPhi = cos(phi);
+    float sinTheta = sin(theta);
+    float cosTheta = cos(theta);
+
+    // Local ray direction in spherical coordinates
+    float3 localRay = float3(sinPhi * cosTheta, cosPhi, sinPhi * sinTheta);
+
+    // Convert local ray to global coordinates (tangent space to world space)
+    float3 globalRay = localRay.x * tangent + localRay.y * dir + localRay.z * bitangent;
+
+    return GetPolarCoordinates(normalize(dir + globalRay));
+}
+
+#endif
 bool IsLowEnergy(float pdf[MAX_RAYS], uint len) {
         
     float total_enery = 0.0f;
@@ -187,8 +230,13 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     float3 orig_dir = ray.dir;
 
     float cumulativePoints = 1;
-    float NLEVELS = sqrt(N);
-                      
+    float level = 1;
+    uint c = 0;
+    while (c < N) {
+        c = cumulativePoints + level * LEVEL_RATIO;
+        cumulativePoints = c;
+        level++;
+    };
     GetSpaceVectors(normal, tangent, bitangent);
 
     float color_w = 0.0f;
@@ -263,7 +311,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
         uint wi = wis[i];
         if (wi < 0xF) {
             float n = fmod(offset + (float)wi * offset2, N);
-            ray_input[i] = GenerateHemisphereRay(normal, tangent, bitangent, 1.0f, N, NLEVELS, n);
+            ray_input[i] = GenerateHemisphereRay(normal, tangent, bitangent, 1.0f, N, level, n);
         }
         else {
             ray_input[i] = float2(MAX_RAY_POLAR_DIR, MAX_RAY_POLAR_DIR);
