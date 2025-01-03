@@ -28,6 +28,9 @@ SOFTWARE.
 #define MAX_OBJECTS 100
 #define MAX_STACK_SIZE 20
 
+#define GI_SCREEN 0
+#define GI_WORLD 1
+
 //#define PACK_RAYS_8
 #define RAY_W_SCALE 1.0f
 #define RAY_W_BIAS 0.01f

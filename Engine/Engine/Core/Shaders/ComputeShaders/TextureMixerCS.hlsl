@@ -148,29 +148,11 @@ float4 Get3dInterpolatedColor(float2 uv, Texture2D text, float2 dimension, Textu
 float4 readColor(float2 pixel, texture2D text, uint w, uint h) {
     uint w2, h2;
     text.GetDimensions(w2, h2);
-    if (w2 == w && h2 == h) {
+	if (w2 == w && h2 == h) {
 		return text[round(pixel * float2(w2, h2))];
     }
     else {
-#if 0
-        float ratioW = ((float)w * 0.5f) / w2;
-		float ratioH = ((float)h * 0.5f) / h2;
-		uint n = 2;
-		float x = 0;
-		float y = 0;
-		float4 c = 2 * Get3dInterpolatedColor(pixel, text, float2(w2, h2), positions, normals, float2(w, h));
-		for (x = -ratioW; x < ratioW; x++) {
-			for (y = -ratioH; y < ratioH; y++) {
-				c += text.SampleLevel(basicSampler, pixel + float2(x * 0.5f / w2, y * 0.5f / h2), 0);
-				//c += Get3dInterpolatedColor(pixel + float2(x / w, y / h), text, float2(w2, h2), positions, normals, float2(w, h));
-				n++;
-			}
-		}
-		c /= n;
-		return c;
-#else
 		return Get3dInterpolatedColor(pixel, text, float2(w2, h2), positions, normals, float2(w, h));
-#endif
     }
 }
 

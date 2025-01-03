@@ -440,7 +440,6 @@ namespace HotBite {
 				renderTargetViewDesc.Texture2D.MipSlice = 0;
 				// Create the render target view.
 				hr = device->CreateRenderTargetView(texture, &renderTargetViewDesc, &render_view);
-				
 				return hr;
 			}
 

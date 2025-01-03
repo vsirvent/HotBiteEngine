@@ -294,8 +294,9 @@ namespace HotBite {
 				Core::SimpleComputeShader* gi_average = nullptr;
 				Core::SimpleComputeShader* gi_weights = nullptr;
 
-				Core::SimpleComputeShader* ray_world_solver = nullptr;
+				Core::SimpleComputeShader* ray_gi_world_solver = nullptr;
 				Core::SimpleComputeShader* ray_gi_screen_solver = nullptr;
+				Core::SimpleComputeShader* ray_reflex_world_solver = nullptr;
 				Core::SimpleComputeShader* ray_reflex_screen_solver = nullptr;
 
 				static constexpr int RT_TEXTURE_REFLEX = 0;
@@ -361,6 +362,7 @@ namespace HotBite {
 				Core::RenderTexture2D high_z_tmp_map;
 				Core::RenderTexture2D high_z_downsampled_map[HIZ_DOWNSAMPLED_NTEXTURES];
 				ID3D11ShaderResourceView* high_z_maps[HIZ_NTEXTURES]{};
+
 				//Copy texture shader
 				Core::SimpleComputeShader* copy_texture = nullptr;
 

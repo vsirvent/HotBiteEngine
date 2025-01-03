@@ -402,19 +402,24 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 			throw std::exception("HiZDownSample shader.Init failed");
 		}
 
-		ray_world_solver = ShaderFactory::Get()->GetShader<SimpleComputeShader>("RayWorldSolverCS.cso");
-		if (ray_world_solver == nullptr) {
-			throw std::exception("RayWorldSolverCS shader.Init failed");
-		}
-
 		ray_reflex_screen_solver = ShaderFactory::Get()->GetShader<SimpleComputeShader>("RayReflexScreenSolverCS.cso");
 		if (ray_reflex_screen_solver == nullptr) {
 			throw std::exception("RayReflexScreenSolverCS shader.Init failed");
 		}
-	
+
+		ray_reflex_world_solver = ShaderFactory::Get()->GetShader<SimpleComputeShader>("RayReflexWorldSolverCS.cso");
+		if (ray_reflex_world_solver == nullptr) {
+			throw std::exception("RayReflexWorldSolverCS shader.Init failed");
+		}
+
 		ray_gi_screen_solver = ShaderFactory::Get()->GetShader<SimpleComputeShader>("RayGIScreenSolverCS.cso");
 		if (ray_gi_screen_solver == nullptr) {
 			throw std::exception("RayGIScreenSolverCS shader.Init failed");
+		}
+
+		ray_gi_world_solver = ShaderFactory::Get()->GetShader<SimpleComputeShader>("RayGIWorldSolverCS.cso");
+		if (ray_gi_world_solver == nullptr) {
+			throw std::exception("RayGIWorldSolverCS shader.Init failed");
 		}
 
 		LoadRTResources();
@@ -505,6 +510,7 @@ void RenderSystem::LoadRTResources() {
 			if (FAILED(rt_textures_di[n][x].Init(w / div, h / div, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 				throw std::exception("rt_texture.Init failed");
 			}
+			rt_textures_di[n][x].Clear(zero);
 		}
 	}
 
@@ -512,7 +518,7 @@ void RenderSystem::LoadRTResources() {
 	if (FAILED(input_rays.Init(w / RT_TEXTURE_RESOLUTION_DIVIDER, h / RT_TEXTURE_RESOLUTION_DIVIDER, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_UINT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 		throw std::exception("input_rays.Init failed");
 	}
-
+	
 	uint32_t restir_div = GI_TEXTURE_RESOLUTION_DIVIDER;
 
 	for (int n = 0; n < RT_GI_NTEXTURES; ++n) {
@@ -520,6 +526,7 @@ void RenderSystem::LoadRTResources() {
 		if (FAILED(rt_textures_gi[n].Init(w / restir_div, h / restir_div, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("rt_texture.Init failed");
 		}
+		rt_textures_gi[n].Clear(zero);
 	}
 		
 	uint32_t tile_div = min(restir_div, RT_TEXTURE_RESOLUTION_DIVIDER) * RESTIR_KERNEL;
@@ -1906,6 +1913,7 @@ void RenderSystem::ProcessGI() {
 		ray_gi_screen_solver->SetMatrix4x4("view", cam_entity.camera->view);
 		ray_gi_screen_solver->SetMatrix4x4("projection", cam_entity.camera->projection);
 		ray_gi_screen_solver->SetMatrix4x4("inv_projection", cam_entity.camera->inverse_projection);
+		ray_gi_screen_solver->SetMatrix4x4("prev_view_proj", cam_entity.camera->prev_view_projection);
 
 		ray_gi_screen_solver->SetShaderResourceView("ray0", rt_ray_sources0.SRV());
 		ray_gi_screen_solver->SetShaderResourceView("ray1", rt_ray_sources1.SRV());
@@ -1913,7 +1921,7 @@ void RenderSystem::ProcessGI() {
 		ray_gi_screen_solver->SetUnorderedAccessView("output", rt_texture_gi_trace->UAV());
 		ray_gi_screen_solver->SetUnorderedAccessView("tiles_output", rt_textures_gi_tiles.UAV());
 		ray_gi_screen_solver->SetShaderResourceViewArray("hiz_textures[0]", high_z_maps, HIZ_NTEXTURES);
-
+		ray_gi_screen_solver->SetShaderResourceView("prev_position_map", prev_position_map.SRV());
 		ray_gi_screen_solver->SetShaderResourceView("restir_pdf_mask", restir_pdf_mask.SRV());
 		ray_gi_screen_solver->SetShaderResourceView("restir_pdf_0", restir_pdf_prev->SRV());
 		ray_gi_screen_solver->SetUnorderedAccessView("restir_pdf_1", restir_pdf_curr->UAV());
@@ -1938,7 +1946,7 @@ void RenderSystem::ProcessGI() {
 
 		ID3D11ShaderResourceView* no_data[MAX_OBJECTS] = {};
 		ray_gi_screen_solver->SetShaderResourceViewArray("hiz_textures[0]", no_data, HIZ_NTEXTURES);
-
+		ray_gi_screen_solver->SetShaderResourceView("prev_position_map", nullptr);
 		ray_gi_screen_solver->SetShaderResourceView("restir_pdf_mask", nullptr);
 		ray_gi_screen_solver->SetShaderResourceView("restir_pdf_0", nullptr);
 		ray_gi_screen_solver->SetUnorderedAccessView("restir_pdf_1", nullptr);
@@ -1952,66 +1960,65 @@ void RenderSystem::ProcessGI() {
 #endif
 #if 1
 		// Resolve rays with world space Ray Tracing
-		ray_world_solver->SetInt("enabled", rt_enabled& (rt_quality != eRtQuality::OFF ? 0xFF : 0x00));
-		ray_world_solver->SetInt("frame_count", frame_count);
-		ray_world_solver->SetInt("type", 2);
-		ray_world_solver->SetFloat(TIME, time);
-		ray_world_solver->SetInt("kernel_size", RESTIR_KERNEL);
-		ray_world_solver->SetInt("nobjects", nobjects);
-		ray_world_solver->SetData("objectMaterials", objectMaterials, nobjects * sizeof(MaterialProps));
-		ray_world_solver->SetData("objectInfos", objects, nobjects * sizeof(ObjectInfo));
-		ray_world_solver->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
+		ray_gi_world_solver->SetInt("enabled", rt_enabled& (rt_quality != eRtQuality::OFF ? 0xFF : 0x00));
+		ray_gi_world_solver->SetInt("frame_count", frame_count);
+		ray_gi_world_solver->SetInt("type", 2);
+		ray_gi_world_solver->SetFloat(TIME, time);
+		ray_gi_world_solver->SetInt("kernel_size", RESTIR_KERNEL);
+		ray_gi_world_solver->SetInt("nobjects", nobjects);
+		ray_gi_world_solver->SetData("objectMaterials", objectMaterials, nobjects * sizeof(MaterialProps));
+		ray_gi_world_solver->SetData("objectInfos", objects, nobjects * sizeof(ObjectInfo));
+		ray_gi_world_solver->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
 
-		ray_world_solver->SetUnorderedAccessView("output0", rt_texture_gi_trace->UAV());
-		ray_world_solver->SetUnorderedAccessView("tiles_output", rt_textures_gi_tiles.UAV());
-		ray_world_solver->SetShaderResourceView("ray0", rt_ray_sources0.SRV());
-		ray_world_solver->SetShaderResourceView("ray1", rt_ray_sources1.SRV());
-		ray_world_solver->SetShaderResourceView("ray_inputs", input_rays.SRV());
-		ray_world_solver->SetShaderResourceViewArray("DiffuseTextures[0]", diffuseTextures, nobjects);
-		ray_world_solver->SetSamplerState(PCF_SAMPLER, dxcore->shadow_sampler);
-		ray_world_solver->SetSamplerState(BASIC_SAMPLER, dxcore->basic_sampler);
+		ray_gi_world_solver->SetUnorderedAccessView("output", rt_texture_gi_trace->UAV());
+		ray_gi_world_solver->SetUnorderedAccessView("tiles_output", rt_textures_gi_tiles.UAV());
+		ray_gi_world_solver->SetShaderResourceView("ray0", rt_ray_sources0.SRV());
+		ray_gi_world_solver->SetShaderResourceView("ray1", rt_ray_sources1.SRV());
+		ray_gi_world_solver->SetShaderResourceView("ray_inputs", input_rays.SRV());
+		ray_gi_world_solver->SetShaderResourceViewArray("DiffuseTextures[0]", diffuseTextures, nobjects);
+		ray_gi_world_solver->SetSamplerState(PCF_SAMPLER, dxcore->shadow_sampler);
+		ray_gi_world_solver->SetSamplerState(BASIC_SAMPLER, dxcore->basic_sampler);
 
-		ray_world_solver->SetShaderResourceView("restir_pdf_mask", restir_pdf_mask.SRV());
-		ray_world_solver->SetUnorderedAccessView("restir_pdf_1", restir_pdf_curr->UAV());
-		ray_world_solver->SetShaderResourceView("restir_pdf_0", restir_pdf_prev->SRV());
-		ray_world_solver->SetShaderResourceView("restir_w_0", restir_w.SRV());
+		ray_gi_world_solver->SetShaderResourceView("restir_pdf_mask", restir_pdf_mask.SRV());
+		ray_gi_world_solver->SetUnorderedAccessView("restir_pdf_1", restir_pdf_curr->UAV());
+		ray_gi_world_solver->SetShaderResourceView("restir_pdf_0", restir_pdf_prev->SRV());
+		ray_gi_world_solver->SetShaderResourceView("restir_w_0", restir_w.SRV());
 
-		PrepareLights(ray_world_solver);
+		PrepareLights(ray_gi_world_solver);
 
-		ray_world_solver->CopyAllBufferData();
+		ray_gi_world_solver->CopyAllBufferData();
 
 		dxcore->context->CSSetShaderResources(2, 1, bvh_buffer->SRV());
 		dxcore->context->CSSetShaderResources(3, 1, tbvh_buffer.SRV());
 		dxcore->context->CSSetShaderResources(4, 1, vertex_buffer->VertexSRV());
 		dxcore->context->CSSetShaderResources(5, 1, vertex_buffer->IndexSRV());
-		ray_world_solver->SetShader();
+		ray_gi_world_solver->SetShader();
 
 		groupsX = (int32_t)(ceil((float)rt_texture_gi_trace->Width() / (RESTIR_KERNEL)));
 		groupsY = (int32_t)(ceil((float)rt_texture_gi_trace->Height() / (RESTIR_KERNEL)));
 		dxcore->context->Dispatch(groupsX, groupsY, 1);
 
-		ray_world_solver->SetUnorderedAccessView("output0", nullptr);
-		ray_world_solver->SetUnorderedAccessView("output1", nullptr);
-		ray_world_solver->SetShaderResourceView("ray0", nullptr);
-		ray_world_solver->SetShaderResourceView("ray1", nullptr);
-		ray_world_solver->SetUnorderedAccessView("bloom", nullptr);
-		ray_world_solver->SetUnorderedAccessView("tiles_output", nullptr);
-		ray_world_solver->SetShaderResourceView("ray_inputs", nullptr);
+		ray_gi_world_solver->SetUnorderedAccessView("output", nullptr);
+		ray_gi_world_solver->SetShaderResourceView("ray0", nullptr);
+		ray_gi_world_solver->SetShaderResourceView("ray1", nullptr);
+		ray_gi_world_solver->SetUnorderedAccessView("bloom", nullptr);
+		ray_gi_world_solver->SetUnorderedAccessView("tiles_output", nullptr);
+		ray_gi_world_solver->SetShaderResourceView("ray_inputs", nullptr);
 
 		dxcore->context->CSSetShaderResources(2, 1, &nullsrc);
 		dxcore->context->CSSetShaderResources(3, 1, &nullsrc);
 		dxcore->context->CSSetShaderResources(4, 1, &nullsrc);
 		dxcore->context->CSSetShaderResources(5, 1, &nullsrc);
 
-		ray_world_solver->SetShaderResourceView("restir_pdf_mask", nullptr);
-		ray_world_solver->SetUnorderedAccessView("restir_pdf_1", nullptr);
-		ray_world_solver->SetShaderResourceView("restir_pdf_0", nullptr);
-		ray_world_solver->SetShaderResourceView("restir_w_0", nullptr);
+		ray_gi_world_solver->SetShaderResourceView("restir_pdf_mask", nullptr);
+		ray_gi_world_solver->SetUnorderedAccessView("restir_pdf_1", nullptr);
+		ray_gi_world_solver->SetShaderResourceView("restir_pdf_0", nullptr);
+		ray_gi_world_solver->SetShaderResourceView("restir_w_0", nullptr);
 
-		ray_world_solver->SetShaderResourceViewArray("DiffuseTextures[0]", no_data, nobjects);
+		ray_gi_world_solver->SetShaderResourceViewArray("DiffuseTextures[0]", no_data, nobjects);
 
-		UnprepareLights(ray_world_solver);
-		ray_world_solver->CopyAllBufferData();
+		UnprepareLights(ray_gi_world_solver);
+		ray_gi_world_solver->CopyAllBufferData();
 #endif
 #if 1
 		groupsX = (int32_t)(ceil((float)rt_texture_gi_curr->Width() / (32.0f)));
@@ -2206,7 +2213,7 @@ void RenderSystem::ProcessRT() {
 
 			ray_reflex_screen_solver->CopyAllBufferData();
 #endif
-#if 0
+#if 1
 			// Resolve rays with world space Ray Tracing
 			{
 				//We need at this point the BVH structures to be available
@@ -2214,57 +2221,57 @@ void RenderSystem::ProcessRT() {
 				tbvh_buffer.Refresh(tbvh.Root(), 0, tbvh.Size());
 			}
 			rt_texture_di_curr[RT_TEXTURE_REFRACT].Clear(zero);
-			ray_world_solver->SetInt("enabled", rt_enabled & (rt_quality != eRtQuality::OFF ? 0xFF : 0x00));
-			ray_world_solver->SetInt("frame_count", frame_count);
-			ray_world_solver->SetFloat(TIME, time);
-			ray_world_solver->SetInt("type", 1);
-			ray_world_solver->SetInt("kernel_size", RESTIR_KERNEL);
-			ray_world_solver->SetInt("nobjects", nobjects);
-			ray_world_solver->SetData("objectMaterials", objectMaterials, nobjects * sizeof(MaterialProps));
-			ray_world_solver->SetData("objectInfos", objects, nobjects * sizeof(ObjectInfo));
-			ray_world_solver->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
+			ray_reflex_world_solver->SetInt("enabled", rt_enabled & (rt_quality != eRtQuality::OFF ? 0xFF : 0x00));
+			ray_reflex_world_solver->SetInt("frame_count", frame_count);
+			ray_reflex_world_solver->SetFloat(TIME, time);
+			ray_reflex_world_solver->SetInt("type", 1);
+			ray_reflex_world_solver->SetInt("kernel_size", RESTIR_KERNEL);
+			ray_reflex_world_solver->SetInt("nobjects", nobjects);
+			ray_reflex_world_solver->SetData("objectMaterials", objectMaterials, nobjects * sizeof(MaterialProps));
+			ray_reflex_world_solver->SetData("objectInfos", objects, nobjects * sizeof(ObjectInfo));
+			ray_reflex_world_solver->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
 
-			ray_world_solver->SetUnorderedAccessView("output0", rt_texture_di_curr[RT_TEXTURE_REFLEX].UAV());
-			ray_world_solver->SetUnorderedAccessView("output1", rt_texture_di_curr[RT_TEXTURE_REFRACT].UAV());
-			ray_world_solver->SetUnorderedAccessView("bloom", rt_texture_di_curr[RT_TEXTURE_EMISSION].UAV());
-			ray_world_solver->SetUnorderedAccessView("tiles_output", rt_textures_gi_tiles.UAV());
-			ray_world_solver->SetShaderResourceView("ray0", rt_ray_sources0.SRV());
-			ray_world_solver->SetShaderResourceView("ray1", rt_ray_sources1.SRV());
-			ray_world_solver->SetShaderResourceView("ray_inputs", input_rays.SRV());
-			ray_world_solver->SetShaderResourceViewArray("DiffuseTextures[0]", diffuseTextures, nobjects);
-			ray_world_solver->SetSamplerState(PCF_SAMPLER, dxcore->shadow_sampler);
-			ray_world_solver->SetSamplerState(BASIC_SAMPLER, dxcore->basic_sampler);
+			ray_reflex_world_solver->SetUnorderedAccessView("output0", rt_texture_di_curr[RT_TEXTURE_REFLEX].UAV());
+			ray_reflex_world_solver->SetUnorderedAccessView("output1", rt_texture_di_curr[RT_TEXTURE_REFRACT].UAV());
+			ray_reflex_world_solver->SetUnorderedAccessView("bloom", rt_texture_di_curr[RT_TEXTURE_EMISSION].UAV());
+			ray_reflex_world_solver->SetUnorderedAccessView("tiles_output", rt_textures_gi_tiles.UAV());
+			ray_reflex_world_solver->SetShaderResourceView("ray0", rt_ray_sources0.SRV());
+			ray_reflex_world_solver->SetShaderResourceView("ray1", rt_ray_sources1.SRV());
+			ray_reflex_world_solver->SetShaderResourceView("ray_inputs", input_rays.SRV());
+			ray_reflex_world_solver->SetShaderResourceViewArray("DiffuseTextures[0]", diffuseTextures, nobjects);
+			ray_reflex_world_solver->SetSamplerState(PCF_SAMPLER, dxcore->shadow_sampler);
+			ray_reflex_world_solver->SetSamplerState(BASIC_SAMPLER, dxcore->basic_sampler);
 
-			PrepareLights(ray_world_solver);
+			PrepareLights(ray_reflex_world_solver);
 
-			ray_world_solver->CopyAllBufferData();
+			ray_reflex_world_solver->CopyAllBufferData();
 
 			dxcore->context->CSSetShaderResources(2, 1, bvh_buffer->SRV());
 			dxcore->context->CSSetShaderResources(3, 1, tbvh_buffer.SRV());
 			dxcore->context->CSSetShaderResources(4, 1, vertex_buffer->VertexSRV());
 			dxcore->context->CSSetShaderResources(5, 1, vertex_buffer->IndexSRV());
-			ray_world_solver->SetShader();
+			ray_reflex_world_solver->SetShader();
 
 			groupsX = (int32_t)(ceil((float)rt_texture_di_curr[RT_TEXTURE_REFLEX].Width() / (RESTIR_KERNEL)));
 			groupsY = (int32_t)(ceil((float)rt_texture_di_curr[RT_TEXTURE_REFLEX].Height() / (RESTIR_KERNEL)));
 			dxcore->context->Dispatch(groupsX, groupsY, 1);
 			
-			ray_world_solver->SetUnorderedAccessView("output0", nullptr);
-			ray_world_solver->SetUnorderedAccessView("output1", nullptr);
-			ray_world_solver->SetShaderResourceView("ray0", nullptr);
-			ray_world_solver->SetShaderResourceView("ray1", nullptr);
-			ray_world_solver->SetUnorderedAccessView("bloom", nullptr);
-			ray_world_solver->SetUnorderedAccessView("tiles_output", nullptr);
-			ray_world_solver->SetShaderResourceView("ray_inputs", nullptr);
+			ray_reflex_world_solver->SetUnorderedAccessView("output0", nullptr);
+			ray_reflex_world_solver->SetUnorderedAccessView("output1", nullptr);
+			ray_reflex_world_solver->SetShaderResourceView("ray0", nullptr);
+			ray_reflex_world_solver->SetShaderResourceView("ray1", nullptr);
+			ray_reflex_world_solver->SetUnorderedAccessView("bloom", nullptr);
+			ray_reflex_world_solver->SetUnorderedAccessView("tiles_output", nullptr);
+			ray_reflex_world_solver->SetShaderResourceView("ray_inputs", nullptr);
 			dxcore->context->CSSetShaderResources(2, 1, &nullsrc);
 			dxcore->context->CSSetShaderResources(3, 1, &nullsrc);
 			dxcore->context->CSSetShaderResources(4, 1, &nullsrc);
 			dxcore->context->CSSetShaderResources(5, 1, &nullsrc);
 	
-			ray_world_solver->SetShaderResourceViewArray("DiffuseTextures[0]", no_data, nobjects);
+			ray_reflex_world_solver->SetShaderResourceViewArray("DiffuseTextures[0]", no_data, nobjects);
 
-			UnprepareLights(ray_world_solver);
-			ray_world_solver->CopyAllBufferData();
+			UnprepareLights(ray_reflex_world_solver);
+			ray_reflex_world_solver->CopyAllBufferData();
 #endif
 #if 1
 			//Denoiser

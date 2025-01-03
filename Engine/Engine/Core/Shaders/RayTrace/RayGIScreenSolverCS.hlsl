@@ -35,6 +35,7 @@ cbuffer externalData : register(b0)
     matrix view;
     matrix projection;
     matrix inv_projection;
+    matrix prev_view_proj;
 }
 
 #include "../Common/RayFunctions.hlsli"
@@ -53,12 +54,15 @@ Texture2D<uint> restir_pdf_mask: register(t6);
 Texture2D<uint4> restir_pdf_0: register(t7);
 Texture2D<float> restir_w_0: register(t11);
 
+Texture2D<float4> prev_position_map: register(t8);
 Texture2D<float> hiz_textures[HIZ_TEXTURES];
 
 #define NTHREADS 11
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thread : SV_GroupThreadID)
 {
+
+#if GI_SCREEN
     float2 dimensions;
     float2 ray_map_dimensions;
     {
@@ -95,7 +99,6 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     float ratio = 0.0f;
     ratio = ray_source.dispersion;
     
-#if 1
     uint i = 0;
     float pdf_cache[MAX_RAYS];
     UnpackRays(restir_pdf_0[pixel], RAY_W_SCALE, pdf_cache);
@@ -138,6 +141,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
                 float4 b = bloomTexture[color_uv];
 #endif
                 float diff_ratio = (z_diff / 0.05f);
+                //Disable world resolve
                 ray_input[i] = float2(FLT_MAX, FLT_MAX);
                 color = ((c * l + b) * ray_source.opacity);
 
@@ -149,8 +153,8 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             }
             pdf_cache[wi] = RAY_W_BIAS + length(color);
 
-
-            if (hit_distance > 2.0f) {
+            //Disable world resolve if hit distance is greater than 20
+            if (hit_distance > 10.0f) {
                 ray_input[i] = float2(FLT_MAX, FLT_MAX);
             }
         }
@@ -162,10 +166,17 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     }
 
     restir_pdf_1[pixel] = PackRays(pdf_cache, RAY_W_SCALE);
-    //output[pixel] = lerp(output[pixel], float4(sqrt(final_color * w_ratio) / 4, 1.0f), 0.3f);
-    output[pixel] = float4(sqrt(final_color) / 4, 1.0f);
-#endif
-    
+
+    float4 prev_pos = mul(prev_position_map[ray_pixel], prev_view_proj);
+    prev_pos.x /= prev_pos.w;
+    prev_pos.y /= -prev_pos.w;
+    prev_pos.xy = (prev_pos.xy + 1.0f) * 0.5f;
+    float w = 0.2f;
+    float4 prev_color = GetInterpolatedColor(prev_pos, output, dimensions);
+
+    output[pixel] = lerp(prev_color, float4(sqrt(final_color * w_ratio / 3) , 1.0f), w);
+    ray_inputs[pixel] = Pack4Float2ToI16(ray_input, MAX_RAY_POLAR_DIR);
+
     if (n > 0) {
         [unroll]
         for (int x = -2; x <= 2; ++x) {
@@ -176,6 +187,6 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             }
         }
     }
-    ray_inputs[pixel] = Pack4Float2ToI16(ray_input, MAX_RAY_POLAR_DIR);
-
+#endif 
+    
 }

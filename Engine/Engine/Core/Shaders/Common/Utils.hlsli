@@ -50,7 +50,36 @@ float4 climit4(float4 color) {
 float2 GetCloserPixel(float2 pixel, float ratio) {
 	return round(round(pixel / ratio) * ratio);
 }
+
 float4 GetInterpolatedColor(float2 uv, Texture2D text, float2 dimension) {
+	uv = saturate(uv);
+	// Calculate the texture coordinates in the range [0, 1]
+	float2 texCoords = uv * dimension;
+
+	// Calculate the integer coordinates of the four surrounding pixels
+	int2 p00 = (int2)floor(texCoords);
+	int2 p11 = (int2)ceil(texCoords);
+	int2 p01 = int2(p00.x, p11.y);
+	int2 p10 = int2(p11.x, p00.y);
+
+	// Calculate the fractional part of the coordinates
+	float2 f = frac(texCoords);
+
+	// Calculate the weights for bilinear interpolation
+	float w00 = (1.0f - f.x) * (1.0f - f.y);
+	float w11 = f.x * f.y;
+	float w01 = (1.0f - f.x) * f.y;
+	float w10 = f.x * (1.0f - f.y);
+
+	// Perform the bilinear interpolation
+	return (text[p00] * w00 +
+		text[p11] * w11 +
+		text[p01] * w01 +
+		text[p10] * w10);
+}
+
+float4 GetInterpolatedColor(float2 uv, RWTexture2D<float4> text, float2 dimension) {
+	uv = saturate(uv);
 	// Calculate the texture coordinates in the range [0, 1]
 	float2 texCoords = uv * dimension;
 

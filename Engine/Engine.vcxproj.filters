@@ -72,6 +72,12 @@
     <Filter Include="Engine\Core\Shaders\DoFBoke">
       <UniqueIdentifier>{bf606861-2003-454a-ab74-7da83189dc71}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Engine\Core\Shaders\RayTrace\GI">
+      <UniqueIdentifier>{9096dc46-36a8-4493-a27e-62a0f4af9708}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Engine\Core\Shaders\RayTrace\Reflex">
+      <UniqueIdentifier>{2a4aab81-82e6-49c4-87e3-12d55f5bcc26}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Engine\Core\DXCore.cpp">
@@ -439,6 +445,9 @@
     <None Include="Engine\Core\Shaders\RayTrace\RayScreenSolver.hlsli">
       <Filter>Engine\Core\Shaders\RayTrace</Filter>
     </None>
+    <None Include="Engine\Core\Shaders\RayTrace\RayWorldSolver.hlsli">
+      <Filter>Engine\Core\Shaders\RayTrace</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="Engine\Core\Shaders\DepthRender\DepthPS.hlsl">
@@ -537,9 +546,6 @@
     <FxCompile Include="Engine\Core\Shaders\Particles\FireBall2ParticlePS.hlsl">
       <Filter>Engine\Core\Shaders\Particles</Filter>
     </FxCompile>
-    <FxCompile Include="Engine\Core\Shaders\RayTrace\GIRayTraceCS.hlsl">
-      <Filter>Engine\Core\Shaders\RayTrace</Filter>
-    </FxCompile>
     <FxCompile Include="Engine\Core\Shaders\ComputeShaders\BlurCS.hlsl">
       <Filter>Engine\Core\Shaders\ComputeShaders</Filter>
     </FxCompile>
@@ -579,35 +585,38 @@
     <FxCompile Include="Engine\Core\Shaders\ComputeShaders\MotionCS.hlsl">
       <Filter>Engine\Core\Shaders\ComputeShaders</Filter>
     </FxCompile>
-    <FxCompile Include="Engine\Core\Shaders\RayTrace\DenoiserCS.hlsl">
-      <Filter>Engine\Core\Shaders\RayTrace</Filter>
-    </FxCompile>
-    <FxCompile Include="Engine\Core\Shaders\RayTrace\DispersionCS.hlsl">
-      <Filter>Engine\Core\Shaders\RayTrace</Filter>
-    </FxCompile>
     <FxCompile Include="Engine\Core\Shaders\ComputeShaders\CopyTexturesCS.hlsl">
       <Filter>Engine\Core\Shaders\ComputeShaders</Filter>
-    </FxCompile>
-    <FxCompile Include="Engine\Core\Shaders\Radiance\GIAverageCS.hlsl">
-      <Filter>Engine\Core\Shaders\RayTrace</Filter>
-    </FxCompile>
-    <FxCompile Include="Engine\Core\Shaders\RayTrace\GICalcWeightsCS.hlsl">
-      <Filter>Engine\Core\Shaders\RayTrace</Filter>
-    </FxCompile>
-    <FxCompile Include="Engine\Core\Shaders\RayTrace\RayTraceCS.hlsl">
-      <Filter>Engine\Core\Shaders\RayTrace</Filter>
     </FxCompile>
     <FxCompile Include="Engine\Core\Shaders\ComputeShaders\HiZDownSample.hlsl">
       <Filter>Engine\Core\Shaders\ComputeShaders</Filter>
     </FxCompile>
-    <FxCompile Include="Engine\Core\Shaders\RayTrace\RayWorldSolverCS.hlsl">
-      <Filter>Engine\Core\Shaders\RayTrace</Filter>
+    <FxCompile Include="Engine\Core\Shaders\Radiance\GIAverageCS.hlsl">
+      <Filter>Engine\Core\Shaders\RayTrace\GI</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\RayTrace\GICalcWeightsCS.hlsl">
+      <Filter>Engine\Core\Shaders\RayTrace\GI</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\RayTrace\GIRayTraceCS.hlsl">
+      <Filter>Engine\Core\Shaders\RayTrace\GI</Filter>
     </FxCompile>
     <FxCompile Include="Engine\Core\Shaders\RayTrace\RayGIScreenSolverCS.hlsl">
-      <Filter>Engine\Core\Shaders\RayTrace</Filter>
+      <Filter>Engine\Core\Shaders\RayTrace\GI</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\RayTrace\RayGIWorldSolverCS.hlsl">
+      <Filter>Engine\Core\Shaders\RayTrace\GI</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\RayTrace\DenoiserCS.hlsl">
+      <Filter>Engine\Core\Shaders\RayTrace\Reflex</Filter>
     </FxCompile>
     <FxCompile Include="Engine\Core\Shaders\RayTrace\RayReflexScreenSolverCS.hlsl">
-      <Filter>Engine\Core\Shaders\RayTrace</Filter>
+      <Filter>Engine\Core\Shaders\RayTrace\Reflex</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\RayTrace\RayTraceCS.hlsl">
+      <Filter>Engine\Core\Shaders\RayTrace\Reflex</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\RayTrace\RayReflexWorldSolverCS.hlsl">
+      <Filter>Engine\Core\Shaders\RayTrace\Reflex</Filter>
     </FxCompile>
   </ItemGroup>
 </Project>
