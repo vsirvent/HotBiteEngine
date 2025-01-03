@@ -55,6 +55,7 @@ Texture2D<float> hiz_textures[HIZ_TEXTURES];
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thread : SV_GroupThreadID)
 {
+
     float2 dimensions;
     float2 ray_map_dimensions;
     {
@@ -94,36 +95,35 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     [unroll]
     //Only work with 1 ray for DI
     float reflex_ratio = (1.0f - ray_source.dispersion);
-    for (int r = 0; r < 1; ++r) {
-        z_diff = FLT_MAX;
-        Ray ray = GetRayInfoFromSourceWithNoDir(ray_source);
-        if (abs(ray_input[r].x) < MAX_RAY_POLAR_DIR && dist2(ray_input[r]) > Epsilon) {
-            ray.dir = GetCartesianCoordinates(ray_input[r]);
-            ray.dir = normalize(mul(ray.dir, (float3x3)view));
-            ray.orig = mul(ray.orig, view);
-            ray.orig /= ray.orig.w;
-            ray.orig.xyz += ray.dir * 0.01f;
-            float reflex_ratio = (1.0f - ray_source.dispersion);
-            color_uv = GetColor(ray, projection, inv_projection, hiz_textures, hiz_ratio, ray_map_dimensions, dimensions, z_diff, hit_distance);
+    z_diff = FLT_MAX;
+    Ray ray = GetRayInfoFromSourceWithNoDir(ray_source);
+    if (abs(ray_input[0].x) < MAX_RAY_POLAR_DIR && dist2(ray_input[0]) > Epsilon) {
+        ray.dir = GetCartesianCoordinates(ray_input[0]);
+        ray.dir = normalize(mul(ray.dir, (float3x3)view));
+        ray.orig = mul(ray.orig, view);
+        ray.orig /= ray.orig.w;
+        ray.orig.xyz += ray.dir * 0.1f;
+        float reflex_ratio = (1.0f - ray_source.dispersion);
+        color_uv = GetColor(ray, projection, inv_projection, hiz_textures, hiz_ratio, ray_map_dimensions, dimensions, z_diff, hit_distance);
 
-            float max_diff = GetMaxDiff(hiz_textures[0], color_uv, ray_map_dimensions);
-            if (z_diff < max_diff && ValidUVCoord(color_uv)) {
-#if 1 
-                float4 c = GetInterpolatedColor(color_uv, colorTexture, ray_map_dimensions);
-                float4 l = GetInterpolatedColor(color_uv, lightTexture, ray_map_dimensions);
-                float4 b = GetInterpolatedColor(color_uv, bloomTexture, ray_map_dimensions);
+        float max_diff = GetMaxDiff(hiz_textures[0], color_uv, ray_map_dimensions);
+        if (z_diff < max_diff && ValidUVCoord(color_uv)) {
+#if 0
+            float4 c = GetInterpolatedColor(color_uv, colorTexture, ray_map_dimensions);
+            float4 l = GetInterpolatedColor(color_uv, lightTexture, ray_map_dimensions);
+            float4 b = GetInterpolatedColor(color_uv, bloomTexture, ray_map_dimensions);
 #else
-                color_uv *= ray_map_dimensions;
-                float4 c = colorTexture[color_uv];
-                float4 l = lightTexture[color_uv]; 
-                float4 b = bloomTexture[color_uv]; 
+            color_uv *= ray_map_dimensions;
+            float4 c = colorTexture[color_uv];
+            float4 l = lightTexture[color_uv]; 
+            float4 b = bloomTexture[color_uv]; 
 #endif
-                ray_input[r] = float2(FLT_MAX, FLT_MAX);
-                final_color += ((c * l + b) * reflex_ratio * ray_source.opacity);
-                n++;
-            }    
-        }
+            ray_input[0] = float2(FLT_MAX, FLT_MAX);
+            final_color += ((c * l + b) * reflex_ratio * ray_source.opacity);
+            n++;
+        }    
     }
+    
     float4 prev_color = output[pixel];
     if (isnan(prev_color.x)) {
         output[pixel] = float4(sqrt(final_color), 1.0);
