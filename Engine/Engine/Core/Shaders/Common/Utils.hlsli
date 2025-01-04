@@ -27,7 +27,7 @@ SOFTWARE.
 #ifndef __UTILS_HLSLI__
 #define __UTILS_HLSLI__
 
-float Epsilon = 1e-4;
+static const float Epsilon = 1e-4;
 
 float3 climit3(float3 color) {
 	float m = max(color.r, max(color.g, color.b));

@@ -55,7 +55,6 @@ Texture2D<float> hiz_textures[HIZ_TEXTURES];
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thread : SV_GroupThreadID)
 {
-    return;
     float2 dimensions;
     float2 ray_map_dimensions;
     {
@@ -92,7 +91,6 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     float ratio = 0.0f;
     ratio = (1.0f - ray_source.dispersion);
     
-    [unroll]
     //Only work with 1 ray for DI
     float reflex_ratio = (1.0f - ray_source.dispersion);
     z_diff = FLT_MAX;
@@ -119,7 +117,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             float4 b = bloomTexture[color_uv]; 
 #endif
             ray_input[0] = float2(FLT_MAX, FLT_MAX);
-            final_color += ((c * l + b) * reflex_ratio * ray_source.opacity);
+            final_color += ((c * l + b) * reflex_ratio * ray_source.opacity).rgb;
             n++;
         }    
     }

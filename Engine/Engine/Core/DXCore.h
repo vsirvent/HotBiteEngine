@@ -27,6 +27,7 @@ SOFTWARE.
 #include <winsock2.h>
 #include <Windows.h>
 #include <d3d11.h>
+#include <d3d12.h>
 #include <string>
 
 #include "../Defines.h"
@@ -38,6 +39,7 @@ SOFTWARE.
 #include <dwrite_2.h>
 
 #pragma comment(lib, "d3d11.lib")
+#pragma comment(lib, "d3d12.lib")
 #pragma comment(lib, "d2d1.lib")
 #pragma comment(lib, "dwrite.lib")
 
@@ -141,7 +143,7 @@ namespace HotBite {
 				float GetScreenHeight() const { return screen_dimensions.y; }
 
 			public:
-
+				ID3D12Device* d12device = nullptr;
 				ID3D11Device* device = nullptr;
 				ID3D11DeviceContext* context = nullptr;
 				ID3D11SamplerState* basic_sampler = nullptr;

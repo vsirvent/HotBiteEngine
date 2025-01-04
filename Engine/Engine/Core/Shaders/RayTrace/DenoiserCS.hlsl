@@ -98,7 +98,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
         float3 p1_normal = normals[p1_info_pixel].xyz;
         float n = saturate(dot(p1_normal, p0_normal));
         float dist = max(dist2(p1_position - p0_position) / camDist, 0.1f);
-        float w = pow(n, 5.0f / normalRatio) / dist;
+        float w = pow(n, 5.0f / normalRatio.x) / dist;
         if (kernel > 1) {
             w *= cos((M_PI * abs((float)i)) / (2.0 * (float)kernel));
         }

@@ -27,7 +27,7 @@ float GetPosW(int pos, uint kernel) {
 }
 
 //#define DEBUG
-#define MIN_W 0.1f
+#define MIN_W 0.00001f
 
 #define NTHREADS 32
 [numthreads(NTHREADS, NTHREADS, 1)]
@@ -35,6 +35,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
 {
     
     float2 pixel = float2(DTid.x, DTid.y);
+
 #ifdef DEBUG
     if (debug == 1) { 
         output[pixel] = input[pixel];

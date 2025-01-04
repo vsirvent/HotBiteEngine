@@ -161,17 +161,19 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     if (n > 0) {
         final_color = (final_color * ray_source.opacity);
         w_ratio = restir_w_0[pixel] / n;
-    }
 #if GI_SCREEN
-    float4 gi_screen_color = output[pixel];
-    gi_screen_color.rgb += sqrt((final_color * w_ratio) / 3);
-    output[pixel] = gi_screen_color;
-#else
+        float4 gi_screen_color = output[pixel];
+        final_color = sqrt((final_color * w_ratio) / 3);
+        gi_screen_color.rgb += final_color.rgb;
+        output[pixel] = gi_screen_color;
+#endif
+    }
+#if !GI_SCREEN
     output[pixel] = sqrt((final_color * w_ratio) / 3);
 #endif
     restir_pdf_1[pixel] = PackRays(pdf_cache, RAY_W_SCALE);
 
-    uint hit = (hits.y & 0x01) << 1 | hits.x & 0x01;
+    uint hit = (hits.y & 0x01) << 1 | (hits.x & 0x01);
     if (hit != 0) {
         [unroll]
         for (int x = -2; x <= 2; ++x) {
