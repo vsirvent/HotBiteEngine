@@ -22,8 +22,8 @@ Texture2D<float4> prev_position_map: register(t6);
 Texture2D<uint> tiles_output: register(t7);
 
 
-float GetPosW(int pos, uint kernel) {
-    return cos((M_PI * abs((float)pos)) / (2.0f * (float)kernel));
+float GetPosW(int pos, float wk) {
+    return cos(pos * wk);
 }
 
 //#define DEBUG
@@ -31,17 +31,8 @@ float GetPosW(int pos, uint kernel) {
 
 #define NTHREADS 32
 [numthreads(NTHREADS, NTHREADS, 1)]
-void main(uint3 DTid : SV_DispatchThreadID)
+void main(uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint3 Gid : SV_GroupID)
 {
-    
-    float2 pixel = float2(DTid.x, DTid.y);
-
-#ifdef DEBUG
-    if (debug == 1) { 
-        output[pixel] = input[pixel];
-        return;
-    }
-#endif
     float2 input_dimensions;
     float2 info_dimensions;
     {
@@ -58,6 +49,16 @@ void main(uint3 DTid : SV_DispatchThreadID)
         info_dimensions.x = w;
         info_dimensions.y = h;
     }
+
+    float2 pixel = ThreadGroupTilingX(input_dimensions / NTHREADS, uint2(NTHREADS, NTHREADS), 32, GTid.xy, Gid.xy);
+  
+#ifdef DEBUG
+    if (debug == 1) { 
+        output[pixel] = input[pixel];
+        return;
+    }
+#endif
+    
     float2 infoRatio = info_dimensions / input_dimensions;
     float2 rpixel = pixel * infoRatio;
     
@@ -86,6 +87,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
 
         int k = kernel_size + kernel_size + full_kernel;
         float prev_w = input[pixel].a;
+        float wk = (M_PI / (2.0f * (float)k));
 
         [branch]
         if (prev_w < 0.0f) {
@@ -118,7 +120,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
                 float3 p1_normal = normals[p1_info_pixel].xyz;
                 float n = saturate(dot(p1_normal, p0_normal));
                 ww *= pow(n, max(NORMAL_RATIO / infoRatio.x, 1.0f));
-                ww *= GetPosW(x, k);
+                ww *= GetPosW(x, wk);
                 ww = max(ww, MIN_W);
 
                 c += input[p] * ww;
@@ -133,7 +135,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
             for (x = -k; x <= k; ++x) {
                 int2 p = (pixel + x * dir);
                 p.y += step(Epsilon, -p.y) * k;
-                p.x += step(Epsilon, p.y - input_dimensions.y) * -k;
+                p.y += step(Epsilon, p.y - input_dimensions.y) * -k;
 
                 float2 p1_info_pixel = round(p * infoRatio);
                 ww = 1.0f;
@@ -145,7 +147,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
                 float3 p1_normal = normals[p1_info_pixel].xyz;
                 float n = saturate(dot(p1_normal, p0_normal));
                 ww *= pow(n, max(NORMAL_RATIO / infoRatio.x, 1.0f));
-                ww *= GetPosW(x, k);
+                ww *= GetPosW(x, wk);
                 ww = max(ww, MIN_W);
                 c.rgb += input[p].rgb * ww;
 
@@ -163,10 +165,10 @@ void main(uint3 DTid : SV_DispatchThreadID)
                 for (x = -k; x <= k; ++x) {
                     for (y = -k; y <= k; ++y) {
                         int2 p = pixel + int2(x, y);
-                        if (p.x < 0) { p.x += k; }
-                        if (p.y < 0) { p.y += k; }
-                        if (p.x > input_dimensions.x) { p.x -= k; }
-                        if (p.y > input_dimensions.y) { p.y -= k; }
+                        p.x += step(Epsilon, -p.x) * k;
+                        p.x += step(Epsilon, p.x - input_dimensions.x) * -k;
+                        p.y += step(Epsilon, -p.y) * k;
+                        p.y += step(Epsilon, p.y - input_dimensions.y) * -k;
                         float2 p1_info_pixel = round(p * infoRatio);
                         ww = 1.0f;
 
@@ -177,7 +179,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
                         float3 p1_normal = normals[p1_info_pixel].xyz;
                         float n = saturate(dot(p1_normal, p0_normal));
                         ww *= pow(n, max(NORMAL_RATIO / infoRatio.x, 1.0f));
-                        ww *= GetPosW(x, k) * GetPosW(y, k);;
+                        ww *= GetPosW(x, wk) * GetPosW(y, wk);
 
                         c.rgb += orig_input[p].rgb * ww;
                         //c.rgb += float3(orig_input[p].r * ww, 0.0f, 1.0f);

@@ -2195,8 +2195,8 @@ void RenderSystem::ProcessRT() {
 			ray_reflex_screen_solver->CopyAllBufferData();
 			ray_reflex_screen_solver->SetShader();
 
-			groupsX = (int32_t)(ceil((float)rt_texture_di_curr[RT_TEXTURE_REFLEX].Width() / (32.0f)));
-			groupsY = (int32_t)(ceil((float)rt_texture_di_curr[RT_TEXTURE_REFLEX].Height() / (32.0f)));
+			groupsX = (int32_t)(ceil((float)rt_texture_di_curr[RT_TEXTURE_REFLEX].Width() / (16.0f)));
+			groupsY = (int32_t)(ceil((float)rt_texture_di_curr[RT_TEXTURE_REFLEX].Height() / (16.0f)));
 			dxcore->context->Dispatch(groupsX, groupsY, 1);
 			
 			ray_reflex_screen_solver->SetShaderResourceView("ray0", nullptr);
@@ -2290,8 +2290,8 @@ void RenderSystem::ProcessRT() {
 			for (int i = 0; i < ntextures; ++i) {
 				int ntexture = textures[i];
 
-				groupsX = (int32_t)(ceil((float)rt_texture_di_curr[ntexture].Width() / (RESTIR_KERNEL)));
-				groupsY = (int32_t)(ceil((float)rt_texture_di_curr[ntexture].Height() / (RESTIR_KERNEL)));
+				groupsX = (int32_t)(ceil((float)rt_texture_di_curr[ntexture].Width() / (32.0f)));
+				groupsY = (int32_t)(ceil((float)rt_texture_di_curr[ntexture].Height() / (32.0f)));
 
 				rt_di_denoiser->SetShaderResourceView("input", rt_texture_di_curr[ntexture].SRV());
 				rt_di_denoiser->SetUnorderedAccessView("output", texture_tmp.UAV());

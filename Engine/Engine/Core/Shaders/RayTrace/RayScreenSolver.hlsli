@@ -26,7 +26,7 @@ SOFTWARE.
 #include "../Common/RayDefines.hlsli"
 #include "../Common/RGBANoise.hlsli"
 
-#define HIZ_TEXTURES 5
+#define HIZ_TEXTURES 4
 
 struct Line {
     float3 P0; // Point on the line
@@ -67,9 +67,10 @@ float2 GetNextGrid(float2 dir, float2 pixel) {
     float2 invDir = 1.0f / dir;
     float2 currentGrid = floor(p0);
     float2 nextGrid;
+
     // Calculate initial intersection points with the grid lines
     nextGrid.x = currentGrid.x + sign(dir.x);
-    nextGrid.y = currentGrid.y + sign(dir.y);;
+    nextGrid.y = currentGrid.y + sign(dir.y);
 
     // Calculate the step size to the next grid for x and y
     float2 tMax;
@@ -84,13 +85,12 @@ float2 GetNextGrid(float2 dir, float2 pixel) {
     }
 }
 
-float GetHiZ(Texture2D<float> hiz_textures[5], uint level, float2 pixel) {
+float GetHiZ(Texture2D<float> hiz_textures[HIZ_TEXTURES], uint level, float2 pixel) {
     switch (level) {
     case 0: return hiz_textures[0][pixel];
     case 1: return hiz_textures[1][pixel];
     case 2: return hiz_textures[2][pixel];
     case 3: return hiz_textures[3][pixel];
-    case 4: return hiz_textures[4][pixel];
     }
     return FLT_MAX;
 }

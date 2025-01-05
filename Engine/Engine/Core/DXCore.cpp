@@ -412,7 +412,7 @@ HRESULT DXCore::InitDirectX()
 		}
 	}
 
-	hr = _D3D11CreateDeviceAndSwapChain(
+	hr = D3D11CreateDeviceAndSwapChain(
 		adapter,					// Video adapter (physical GPU) to use, or null for default
 		D3D_DRIVER_TYPE_UNKNOWN,	// We want to use the hardware (GPU)
 		0,							// Used when doing software rendering
@@ -424,7 +424,7 @@ HRESULT DXCore::InitDirectX()
 		&swapChain,					// Pointer to our Swap Chain pointer
 		&device,					// Pointer to our Device pointer
 		&dxFeatureLevel,			// This will hold the actual feature level the app will use
-		&context, &d12device);					// Pointer to our Device Context pointer
+		&context);					// Pointer to our Device Context pointer
 	if (FAILED(hr)) return hr;
 
 	context->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);

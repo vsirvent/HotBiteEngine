@@ -318,7 +318,7 @@ namespace HotBite {
 				Core::RenderTexture2D* restir_pdf_curr = nullptr;
 				Core::RenderTexture2D* restir_pdf_prev = nullptr;
 
-				static constexpr uint32_t RESTIR_HALF_KERNEL = 5;
+				static constexpr uint32_t RESTIR_HALF_KERNEL = 4;
 				static constexpr uint32_t RESTIR_KERNEL = 2 * RESTIR_HALF_KERNEL + 1;
 				static constexpr uint32_t RESTIR_PIXEL_RAYS = 16;
 				static constexpr uint32_t RESTIR_TOTAL_RAYS = RESTIR_PIXEL_RAYS * RESTIR_KERNEL * RESTIR_KERNEL;
@@ -357,7 +357,7 @@ namespace HotBite {
 				//SSR
 				Core::SimpleComputeShader* high_z_shader = nullptr;
 				static constexpr uint32_t HIZ_RATIO = 5;
-				static constexpr uint32_t HIZ_DOWNSAMPLED_NTEXTURES = 4;
+				static constexpr uint32_t HIZ_DOWNSAMPLED_NTEXTURES = 3;
 				static constexpr uint32_t HIZ_NTEXTURES = HIZ_DOWNSAMPLED_NTEXTURES + 1;
 				Core::RenderTexture2D high_z_tmp_map;
 				Core::RenderTexture2D high_z_downsampled_map[HIZ_DOWNSAMPLED_NTEXTURES];

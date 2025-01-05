@@ -21,13 +21,10 @@ Texture2D<float2> motion_texture : register(t4);
 Texture2D<float4> prev_position_map: register(t5);
 Texture2D<uint> tiles_output : register(t7);
 
-#define NTHREADS 11
+#define NTHREADS 32
 [numthreads(NTHREADS, NTHREADS, 1)]
-void main(uint3 DTid : SV_DispatchThreadID)
+void main(uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint3 Gid : SV_GroupID)
 {
-
-    float2 pixel = float2(DTid.x, DTid.y);
-
     uint2 input_dimensions;
     uint2 normals_dimensions;
     {
@@ -44,6 +41,8 @@ void main(uint3 DTid : SV_DispatchThreadID)
         normals_dimensions.x = w;
         normals_dimensions.y = h;
     }
+    float2 pixel = ThreadGroupTilingX(input_dimensions / NTHREADS, uint2(NTHREADS, NTHREADS), 32, GTid.xy, Gid.xy);
+
     uint2 normalRatio = normals_dimensions / input_dimensions;
 
     float2 info_pixel = round(pixel * normalRatio);
@@ -64,12 +63,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     float disp = -1.0f;
     uint min_dispersion = 0;
 
-    [branch]
-    if (dist2(ray_source.orig) <= Epsilon) {
-        output[pixel] = float4(0.0f, 0.0f, 0.0f, 0.0f);
-        return;
-    }  
-
+    
     bool skip = false;
     uint tile_info = tiles_output[pixel / kernel_size];
     disp = sqrt(ray_source.dispersion);
@@ -79,7 +73,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     }
     [branch]
     if (disp < Epsilon || skip) {
-        output[pixel] = float4(0.0f, 0.0f, 0.0f, 0.0f);
+        output[pixel] = input[pixel];
         return;
     }
     uint min_k = max(normalRatio.x * 0.5f, 0);
@@ -113,7 +107,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     else {
         c0 *= 0.0f;
     }
-#if 0
+#if 1
     if (type == 1) {
         output[pixel] = c0;
     }
