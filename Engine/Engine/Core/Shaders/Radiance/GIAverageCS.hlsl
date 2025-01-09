@@ -51,7 +51,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint3
     }
 
     float2 pixel = ThreadGroupTilingX(input_dimensions / NTHREADS, uint2(NTHREADS, NTHREADS), 32, GTid.xy, Gid.xy);
-  
+
 #ifdef DEBUG
     if (debug == 1) { 
         output[pixel] = input[pixel];

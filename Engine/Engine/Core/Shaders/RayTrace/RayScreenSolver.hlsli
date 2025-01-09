@@ -159,17 +159,14 @@ float2 GetColor(Ray ray, in matrix projection, in matrix inv_projection, Texture
             grid_size = current_divider / depth_dimensions;
             grid_pixel = (grid_pos * depth_dimensions) / current_divider;
         }
-        else {
-            last_valid_grid_pos = grid_pos;
-            grid_pixel = GetNextGrid(dir, grid_pixel);
-        }
-
+        last_valid_grid_pos = grid_pos;
+        grid_pixel = GetNextGrid(dir, grid_pixel);        
     }
 
     z_diff = abs(ray_z - grid_high_z);
     hit_distance = length(intersection_point - ray.orig.xyz);
     
-    return last_valid_grid_pos;
+    return last_valid_grid_pos + dir * grid_size * 0.5f;
 }
 
 //Max diff depends on the distance gap between adyacent pixels and distance to camera

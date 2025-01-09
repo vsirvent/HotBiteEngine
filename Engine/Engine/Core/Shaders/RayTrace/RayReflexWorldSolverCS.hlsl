@@ -89,6 +89,7 @@ static float2 lps[MAX_LIGHTS] = (float2[MAX_LIGHTS])LightPerspectiveValues;
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thread : SV_GroupThreadID)
 {
+#if REFLEX_WORLD
     float2 dimensions;
     float2 ray_map_dimensions;
     {
@@ -125,7 +126,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     Unpack4Float2FromI16(ray_inputs[pixel], MAX_RAY_POLAR_DIR, ray_input);
     float reflex_ratio = (1.0f - ray_source.dispersion);
     
-#if 0
+#if 1
     if (abs(ray_input[0].x) < MAX_RAY_POLAR_DIR) {
         if (dist2(ray_input[0]) <= Epsilon) {
             color_reflex.rgb = float3(1.0f, 0.0f, 0.0f);
@@ -168,4 +169,5 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
             }
         }
     }
+#endif
 }

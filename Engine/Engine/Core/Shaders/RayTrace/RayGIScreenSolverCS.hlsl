@@ -61,7 +61,6 @@ Texture2D<float> hiz_textures[HIZ_TEXTURES];
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thread : SV_GroupThreadID)
 {
-
 #if GI_SCREEN
     float2 dimensions;
     float2 ray_map_dimensions;
@@ -174,8 +173,8 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     float w = 0.2f;
     float4 prev_color = GetInterpolatedColor(prev_pos.xy, output, dimensions);
 
-    //output[pixel] = lerp(prev_color, float4(sqrt(final_color * w_ratio / 3) , 1.0f), w);
-    output[pixel] = float4(sqrt(final_color * w_ratio / 3), 1.0f);
+    output[pixel] = lerp(prev_color, float4(sqrt(final_color * w_ratio / 3) , 1.0f), w);
+    //output[pixel] = float4(sqrt(final_color * w_ratio / 3), 1.0f);
     ray_inputs[pixel] = Pack4Float2ToI16(ray_input, MAX_RAY_POLAR_DIR);
 
     if (n > 0) {
