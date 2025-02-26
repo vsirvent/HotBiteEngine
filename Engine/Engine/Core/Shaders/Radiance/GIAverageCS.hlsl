@@ -219,7 +219,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint3
         prev_pos.x /= prev_pos.w;
         prev_pos.y /= -prev_pos.w;
         prev_pos.xy = (prev_pos.xy + 1.0f) * input_dimensions.xy / 2.0f;
-        float w = 0.3f;
+        float w = 0.8f;
         float4 prev_color = prev_output[round(prev_pos.xy)];
         output[pixel] = lerp(prev_color, c, w);
     }

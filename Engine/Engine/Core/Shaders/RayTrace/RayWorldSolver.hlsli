@@ -23,7 +23,7 @@ SOFTWARE.
 */
 
 #define USE_OBH 0
-#define max_distance 10.0f
+#define max_distance 50.0f
 
 struct RayTraceColor {
 	float3 color;

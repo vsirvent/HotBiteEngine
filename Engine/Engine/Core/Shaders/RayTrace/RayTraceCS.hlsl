@@ -93,15 +93,13 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     //Reflected ray
     if (ray_source.opacity > Epsilon && ray_source.dispersion < 1.0f && (enabled & REFLEX_ENABLED)) {
         Ray ray = GetReflectedRayFromSource(ray_source, cameraPosition);
-        if (dist2(ray.dir) > Epsilon)
-        {
-            float3 seed = DTid + float3(frame_count, frame_count, frame_count);
-            float rX = rgba_tnoise(seed) * N;
-            rX = pow(rX, ray_source.dispersion * 5.0f);
-            normal = ray.dir;
-            GetSpaceVectors(normal, tangent, bitangent);
-            dirs[0] = GenerateHemisphereDispersedRay(normal, tangent, bitangent, ray_source.dispersion, N, level, rX);
-        }
+        float3 seed = DTid + float3(frame_count, frame_count, frame_count);
+        float rX = rgba_tnoise(seed);
+        rX = pow(rX, 1.0f + (1.0f - ray_source.dispersion));
+        normal = ray.dir;
+        GetSpaceVectors(normal, tangent, bitangent);
+        dirs[0] = GenerateHemisphereDispersedRay(normal, tangent, bitangent, ray_source.dispersion, N, level, rX);
+    
     }
     //Refracted ray
     if (ray_source.opacity < 0.99f && (enabled & REFRACT_ENABLED)) {
