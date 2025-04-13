@@ -179,6 +179,7 @@ public:
 	//Event CameraSystem::EVENT_ID_CAMERA_MOVED received every time the camera is moved,
 	//we check if the camera is clipping with the terrain and if so we correct the position
 	void CheckCameraPosition(ECS::Event& ev) {
+		return;
 		if (!is_checking_camera) {
 			this->is_checking_camera = true;
 			//Smooth correct position to avoid camera clipping with terrain

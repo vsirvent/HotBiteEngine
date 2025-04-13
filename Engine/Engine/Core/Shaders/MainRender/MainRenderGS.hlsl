@@ -30,10 +30,18 @@ cbuffer externalData : register(b0)
 	int screenH;
 	matrix world;
 	matrix inv_world;
-	matrix view;
-	matrix projection;
+	matrix view_projection;
 	float3 cameraPosition;
 }
+
+float4 frustumPlanes[6] = {
+	float4(1, 0, 0, 1),
+	float4(-1, 0, 0, 1),
+	float4(0, 1, 0, 1),
+	float4(0, -1, 0, 1),
+	float4(0, 0, 1, 1),
+	float4(0, 0, -1, 1)
+};
 
 [maxvertexcount(3)]
 void main(
@@ -45,21 +53,53 @@ void main(
 	bool process = false;
 
 	float4 p[3];
-	
+	float2 dimensions = { screenW , screenH };
+
 	uint i = 0;
 	for (i = 0; i < 3; i++) {
-		p[i] = mul(input[i].worldPos, mul(view, projection));
+		p[i] = mul(input[i].worldPos, view_projection);	
 	}
+
+	bool behind = true;
 	for (i = 0; i < 3; i++) {
-		float2 pos;
-		pos = p[i].xy;
-		pos.x /= p[i].w;
-		pos.y /= -p[i].w;
-		pos.x = (pos.x + 1.0f) * 0.5f;
-		pos.y = (pos.y + 1.0f) * 0.5f;
-		if (pos.x > -screenW && pos.x < screenW && pos.y > -screenH && pos.y < screenH) {
-			process = true;
+		if (p[i].z >= 0.0f) {
+			behind = false;
 			break;
+		}
+	}
+
+	if (!behind) {
+		for (i = 0; i < 3; i++) {
+			float2 pos;
+			pos = p[i].xy;
+			pos.xy /= p[i].w;
+			pos.y *= -1.0f;
+
+			pos.xy = (pos.xy + 1.0f) * 0.5f;
+			if (pos.x >= 0.0f && pos.x <= 1.0f && pos.y >= 0.0f && pos.y <= 1.0f) {
+				process = true;
+				break;
+			}
+		}
+	}
+
+	if (!process) {
+		float3 pp[3];
+		for (i = 0; i < 3; ++i) {
+			pp[i] = p[i].xyz / p[i].w;
+		}
+
+		float3 normal = cross(pp[1].xyz - pp[0].xyz, pp[2].xyz - pp[0].xyz);
+		float d = dot(normal, pp[0].xyz);
+		float3 frustumCenter = float3(0.0f, 0.0f, 0.0f);
+
+		for (int i = 0; i < 6; i++) {
+			frustumCenter += float3(frustumPlanes[i].x, frustumPlanes[i].y, frustumPlanes[i].z) * frustumPlanes[i].w;
+		}
+		frustumCenter /= 6.0f;
+
+		if (abs(dot(normal, frustumCenter) + d) < length(normal)) {
+			process = true;
 		}
 	}
 #else
@@ -67,9 +107,10 @@ void main(
 	float4 p[3];
 	uint i = 0;
 	for (i = 0; i < 3; i++) {
-		p[i] = mul(input[i].worldPos, mul(view, projection));
+		p[i] = mul(input[i].worldPos, view_projection);
 	}
 #endif
+
 	if (process) {
 		// Edges of the triangle : postion delta
 		float3 edge1 = input[1].position.xyz - input[0].position.xyz;
@@ -92,7 +133,6 @@ void main(
 			bitangent.y = r * (-deltaUV2.x * edge1.y + deltaUV1.x * edge2.y);
 			bitangent.z = r * (-deltaUV2.x * edge1.z + deltaUV1.x * edge2.z);
 		}
-		matrix worldViewProj = mul(view, projection);
 		for (uint i = 0; i < 3; i++)
 		{
 			GSOutput element;

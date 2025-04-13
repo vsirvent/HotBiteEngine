@@ -57,7 +57,7 @@ RenderTargetRT MainRenderPS(GSOutput input)
 		PointLightParallaxAtt[i] = 1.0f;
 	}
 	//wpos without parallax displacement
-	float3 wpos2 = wpos.xyz;
+	float3 wpos2 = wpos.xyz / wpos.w;
 	if (material.flags & NORMAL_MAP_ENABLED_FLAG || multi_texture_count > 0) {
 		// Build orthonormal basis.
 		float3 N = normal;
@@ -81,8 +81,8 @@ RenderTargetRT MainRenderPS(GSOutput input)
 		}
 		
 		scale = abs(scale);
+		matrix global_to_tbn = inverse(tbn);
 		if ((material.flags & PARALLAX_MAP_ENABLED_FLAG || multi_texture_count > 0 ) && scale != 0.0f) {
-			matrix global_to_tbn = inverse(tbn);
 			float h = 0;
 			float3 tbn_cam_pos = mul(float4(cameraPosition, 0.0f), global_to_tbn).xyz;
 			float3 tbn_fragment_pos = mul(input.worldPos, global_to_tbn).xyz;
@@ -122,11 +122,12 @@ RenderTargetRT MainRenderPS(GSOutput input)
 			texture_normal = normalTexture.Sample(basicSampler, input.uv);
 		}
 		texture_normal = texture_normal * 2.0f - 1.0f;
-		normal = normalize(mul(texture_normal, (float3x3)tbn) + normal);
+		normal = normalize(mul(texture_normal, (float3x3)tbn) + normal);		
+
 	}
 
 #if 1
-	float4 lumColor = float4(0.0f, 0.0f, 0.0f, 0.0f);
+	float4 lumColor = float4(0.0f, 0.0f, 0.0f, 1.0f);
 	// Calculate the ambient light
 	lumColor.rgb += CalcAmbient(normal);
 #endif
@@ -148,30 +149,32 @@ RenderTargetRT MainRenderPS(GSOutput input)
 #if 1
 	// Apply textures
 	if (material.flags & DIFFUSSE_MAP_ENABLED_FLAG || multi_texture_count > 0) {
-		float3 text_color;
+		float4 text_color;
 		if (multi_texture_count > 0) {
 			text_color = getMutliTextureValue(basicSampler, MULTITEXT_DIFF, multi_texture_count, multi_texture_operations,
-				calculated_values, multi_texture_uv_scales, input.uv, multi_diffuseTexture).rgb;
+				calculated_values, multi_texture_uv_scales, input.uv, multi_diffuseTexture);
 		}
 		else {
-			text_color = diffuseTexture.Sample(basicSampler, input.uv).rgb;
+			text_color = diffuseTexture.Sample(basicSampler, input.uv);
 		}
 		if (material.flags & ALPHA_ENABLED_FLAG) {
-			if (length(material.alphaColor - text_color) > 0.4f) {
-				finalColor.rgb = text_color;
+			if (length(material.alphaColor - text_color) > material.alphaThreshold) {
+				finalColor = text_color;
 			}
 			else {
 				discard;
 			}
 		}
 		else {
-			finalColor.rgb = text_color;
+			finalColor = text_color;
 		}
 	}
 	else {
 		finalColor = material.diffuseColor;
 	}
+	
 #endif
+	lumColor.a = finalColor.a;
 
 	// Apply ambient occlusion
 	if (multi_texture_count > 0) {
@@ -205,13 +208,12 @@ RenderTargetRT MainRenderPS(GSOutput input)
 	}
 	opacity = saturate(opacity);
 	finalColor *= opacity;
-	
 	output.scene = finalColor;
-	output.light_map = lumColor + prevLightTexture[input.position.xy];
+	output.light_map = lerp(prevLightTexture[input.position.xy], lumColor, lumColor.a);
 	output.bloom_map = saturate(lightColor);
 
 	RaySource ray;
-	ray.orig = wpos2.xyz;
+	ray.orig = wpos2;
 	if (disable_rt == 0 && (material.flags & RAYTRACING_ENABLED)) {
 		ray.dispersion = saturate(1.0f - spec_intensity);
 		ray.reflex = material.rt_reflex;

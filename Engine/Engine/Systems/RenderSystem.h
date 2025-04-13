@@ -273,10 +273,13 @@ namespace HotBite {
 
 				//Motion blur
 				Core::SimpleComputeShader* motion_blur = nullptr;
-
+				
+				
+				
 				//Ray tracing
 				eRtQuality rt_quality = eRtQuality::MID;
 				uint32_t RT_TEXTURE_RESOLUTION_DIVIDER = 1;
+				uint32_t GI_TEXTURE_RESOLUTION_DIVIDER = 4;
 				static constexpr uint32_t RT_REFLEX_ENABLE = 1;
 				static constexpr uint32_t RT_REFRACT_ENABLE = 2;
 				static constexpr uint32_t RT_INDIRECT_ENABLE = 4;
@@ -286,10 +289,15 @@ namespace HotBite {
 				Core::SimpleComputeShader* rt_di_shader = nullptr;
 				Core::SimpleComputeShader* rt_di_denoiser = nullptr;
 				Core::SimpleComputeShader* rt_disp = nullptr;
-
+				
 				Core::SimpleComputeShader* gi_shader = nullptr;
 				Core::SimpleComputeShader* gi_average = nullptr;
 				Core::SimpleComputeShader* gi_weights = nullptr;
+
+				Core::SimpleComputeShader* ray_gi_world_solver = nullptr;
+				Core::SimpleComputeShader* ray_gi_screen_solver = nullptr;
+				Core::SimpleComputeShader* ray_reflex_world_solver = nullptr;
+				Core::SimpleComputeShader* ray_reflex_screen_solver = nullptr;
 
 				static constexpr int RT_TEXTURE_REFLEX = 0;
 				static constexpr int RT_TEXTURE_REFRACT = 1;
@@ -301,8 +309,11 @@ namespace HotBite {
 				static constexpr int RT_GI_NTEXTURES = 5;
 				Core::RenderTexture2D rt_textures_gi[RT_GI_NTEXTURES];
 				Core::RenderTexture2D rt_textures_gi_tiles;
+				Core::RenderTexture2D rt_inputs;
 
 				Core::RenderTexture2D restir_pdf[2];
+				Core::RenderTexture2D restir_pdf_mask;
+
 				Core::RenderTexture2D restir_w;
 				Core::RenderTexture2D* restir_pdf_curr = nullptr;
 				Core::RenderTexture2D* restir_pdf_prev = nullptr;
@@ -311,7 +322,6 @@ namespace HotBite {
 				static constexpr uint32_t RESTIR_KERNEL = 2 * RESTIR_HALF_KERNEL + 1;
 				static constexpr uint32_t RESTIR_PIXEL_RAYS = 16;
 				static constexpr uint32_t RESTIR_TOTAL_RAYS = RESTIR_PIXEL_RAYS * RESTIR_KERNEL * RESTIR_KERNEL;
-
 
 				Core::RenderTexture2D* rt_texture_di_prev;
 				Core::RenderTexture2D* rt_texture_di_curr;
@@ -334,6 +344,24 @@ namespace HotBite {
 				bool rt_end = false;
 				bool rt_prepare = false;
 				std::thread rt_thread;
+
+				struct RayData {
+					float2 dir0{ FLT_MAX, FLT_MAX };
+					float2 dir1{ FLT_MAX, FLT_MAX };
+					float2 dir2{ FLT_MAX, FLT_MAX };
+					float2 dir3{ FLT_MAX, FLT_MAX };
+				};
+
+				Core::RenderTexture2D input_rays;
+
+				//SSR
+				Core::SimpleComputeShader* high_z_shader = nullptr;
+				static constexpr uint32_t HIZ_RATIO = 5;
+				static constexpr uint32_t HIZ_DOWNSAMPLED_NTEXTURES = 3;
+				static constexpr uint32_t HIZ_NTEXTURES = HIZ_DOWNSAMPLED_NTEXTURES + 1;
+				Core::RenderTexture2D high_z_tmp_map;
+				Core::RenderTexture2D high_z_downsampled_map[HIZ_DOWNSAMPLED_NTEXTURES];
+				ID3D11ShaderResourceView* high_z_maps[HIZ_NTEXTURES]{};
 
 				//Copy texture shader
 				Core::SimpleComputeShader* copy_texture = nullptr;
@@ -401,6 +429,7 @@ namespace HotBite {
 				void ResetRTBBuffers();
 				void CopyTexture(const Core::RenderTexture2D& input, Core::RenderTexture2D& output);
 				void ProcessMotion();
+				void ProcessHighZ();
 				void PrepareRT();
 				void ProcessRT();
 				void ProcessGI();

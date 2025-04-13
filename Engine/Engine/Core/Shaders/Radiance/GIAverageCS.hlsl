@@ -22,25 +22,17 @@ Texture2D<float4> prev_position_map: register(t6);
 Texture2D<uint> tiles_output: register(t7);
 
 
-float GetPosW(int pos, uint kernel) {
-    return cos((M_PI * abs((float)pos)) / (2.0f * (float)kernel));
+float GetPosW(int pos, float wk) {
+    return cos(pos * wk);
 }
 
 //#define DEBUG
-#define MIN_W 0.1f
+#define MIN_W 0.00001f
 
 #define NTHREADS 32
 [numthreads(NTHREADS, NTHREADS, 1)]
-void main(uint3 DTid : SV_DispatchThreadID)
+void main(uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint3 Gid : SV_GroupID)
 {
-    float2 pixel = float2(DTid.x, DTid.y);
-
-#ifdef DEBUG
-    if (debug == 1) { 
-        output[pixel] = input[pixel];
-        return;
-    }
-#endif
     float2 input_dimensions;
     float2 info_dimensions;
     {
@@ -57,10 +49,18 @@ void main(uint3 DTid : SV_DispatchThreadID)
         info_dimensions.x = w;
         info_dimensions.y = h;
     }
+
+    float2 pixel = ThreadGroupTilingX(input_dimensions / NTHREADS, uint2(NTHREADS, NTHREADS), 32, GTid.xy, Gid.xy);
+
+#ifdef DEBUG
+    if (debug == 1) { 
+        output[pixel] = input[pixel];
+        return;
+    }
+#endif
+    
     float2 infoRatio = info_dimensions / input_dimensions;
     float2 rpixel = pixel * infoRatio;
-    //rpixel.x += frame_count % (infoRatio.x * 0.5f);
-    //rpixel.y += frame_count % (infoRatio.y * 0.5f) / 2.0f;
     
 
     float2 info_pixel = round(rpixel);
@@ -71,8 +71,8 @@ void main(uint3 DTid : SV_DispatchThreadID)
     int x;
     int y;
 
-    static const float NORMAL_RATIO = 20.0f;
-    static const float sigma = 1.0f;
+    static const float NORMAL_RATIO = 10.0f;
+    static const float sigma = 0.1f;
     
     float total_w = 0.0f;
     float ww = 1.0f;
@@ -81,141 +81,136 @@ void main(uint3 DTid : SV_DispatchThreadID)
     int full_kernel = 2 * kernel_size + 1;
 
     [branch]
-    if (tiles_output[pixel / full_kernel] == 0) {
-        output[pixel] = orig_input[pixel];
-        return;
-    }
+    if (tiles_output[pixel / full_kernel] != 0) {
 
-    float input_mix = 0.0f;
+        float input_mix = 0.0f;
 
-    int k = kernel_size + kernel_size + full_kernel;
-    float prev_w = input[pixel].a;
+        int k = kernel_size + kernel_size + full_kernel;
+        float prev_w = input[pixel].a;
+        float wk = (M_PI / (2.0f * (float)k));
 
-    [branch]
-    if (prev_w < 0.0f) {
-        return;
-    }
-
-    uint count = 0;
-
-    [branch]
-    switch (type)
-    {
-
-    //Execute pass 1
-    case 1: {
-        //Pass 1 horizontal convolution
-        float2 dir = float2(1.0f, 0.0f);
-
-        for (x = -k; x <= k; ++x) {
-            int2 p = (pixel + x * dir);
-            p.x += step(Epsilon, -p.x) * k;
-            p.x += step(Epsilon, p.x - input_dimensions.x) * -k;
-
-            float2 p1_info_pixel = round(p * infoRatio);
-            ww = 1.0f;
-
-            float3 p1_position = positions[p1_info_pixel].xyz;
-            float world_dist = dist2(p1_position - p0_position) / (dist_to_cam);
-            ww = exp(-world_dist / (2.0f * sigma * sigma));
-
-            float3 p1_normal = normals[p1_info_pixel].xyz;
-            float n = saturate(dot(p1_normal, p0_normal));
-            ww *= pow(n, max(NORMAL_RATIO / infoRatio.x, 1.0f));
-            ww *= GetPosW(x, k);
-            ww = max(ww, MIN_W);
-
-            c += input[p] * ww;
-            total_w += ww;
-            count++;
-        }
-    } break;
-
-    //Execute pass 2
-    case 2: {
-        float2 dir = float2(0.0f, 1.0f);
-        for (x = -k; x <= k; ++x) {
-            int2 p = (pixel + x * dir);
-            p.y += step(Epsilon, -p.y) * k;
-            p.x += step(Epsilon, p.y - input_dimensions.y) * -k;
-
-            float2 p1_info_pixel = round(p * infoRatio);
-            ww = 1.0f;
-
-            float3 p1_position = positions[p1_info_pixel].xyz;
-            float world_dist = dist2(p1_position - p0_position) / (dist_to_cam);
-            ww = exp(-world_dist / (2.0f * sigma * sigma));
-            
-            float3 p1_normal = normals[p1_info_pixel].xyz;
-            float n = saturate(dot(p1_normal, p0_normal));
-            ww *= pow(n, max(NORMAL_RATIO / infoRatio.x, 1.0f));
-            ww *= GetPosW(x, k);
-            ww = max(ww, MIN_W);
-            c.rgb += input[p].rgb * ww;
-       
-            total_w += ww;
-            count++;
-        }
-    } break;
-
-    //Execute pass 3 
-    case 3: {
-        //Pass 2 convolution failed again, make a minimal 2D pass
         [branch]
-        if (prev_w < 2.0f && dist_to_cam < 100.0f) {
-            k = kernel_size + full_kernel;
+        if (prev_w < 0.0f) {
+            return;
+        }
+
+        uint count = 0;
+
+        [branch]
+        switch (type)
+        {
+
+            //Execute pass 1
+        case 1: {
+            //Pass 1 horizontal convolution
+            float2 dir = float2(1.0f, 0.0f);
+
             for (x = -k; x <= k; ++x) {
-                for (y = -k; y <= k; ++y) {
-                    int2 p = pixel + int2(x,y);
-                    if (p.x < 0) { p.x += k; }
-                    if (p.y < 0) { p.y += k; }
-                    if (p.x > input_dimensions.x) { p.x -= k; }
-                    if (p.y > input_dimensions.y) { p.y -= k; }
-                    float2 p1_info_pixel = round(p * infoRatio);
-                    ww = 1.0f;
-                    
-                    float3 p1_position = positions[p1_info_pixel].xyz;
-                    float world_dist = dist2(p1_position - p0_position) / (dist_to_cam);
-                    ww = exp(-world_dist / (2.0f * sigma * sigma));
+                int2 p = (pixel + x * dir);
+                p.x += step(Epsilon, -p.x) * k;
+                p.x += step(Epsilon, p.x - input_dimensions.x) * -k;
 
-                    float3 p1_normal = normals[p1_info_pixel].xyz;
-                    float n = saturate(dot(p1_normal, p0_normal));
-                    ww *= pow(n, max(NORMAL_RATIO / infoRatio.x, 1.0f));
-                    ww *= GetPosW(x, k) * GetPosW(y, k);;
+                float2 p1_info_pixel = round(p * infoRatio);
+                ww = 1.0f;
 
-                    c.rgb += orig_input[p].rgb * ww;
-                    total_w += ww;
-                    count++;
-                }
+                float3 p1_position = positions[p1_info_pixel].xyz;
+                float world_dist = dist2(p1_position - p0_position) / (dist_to_cam);
+                ww = exp(-world_dist / (2.0f * sigma * sigma));
+
+                float3 p1_normal = normals[p1_info_pixel].xyz;
+                float n = saturate(dot(p1_normal, p0_normal));
+                ww *= pow(n, max(NORMAL_RATIO / infoRatio.x, 1.0f));
+                ww *= GetPosW(x, wk);
+                ww = max(ww, MIN_W);
+
+                c += input[p] * ww;
+                total_w += ww;
+                count++;
             }
-            input_mix = saturate(prev_w - 1.5f);
+        } break;
+
+            //Execute pass 2
+        case 2: {
+            float2 dir = float2(0.0f, 1.0f);
+            for (x = -k; x <= k; ++x) {
+                int2 p = (pixel + x * dir);
+                p.y += step(Epsilon, -p.y) * k;
+                p.y += step(Epsilon, p.y - input_dimensions.y) * -k;
+
+                float2 p1_info_pixel = round(p * infoRatio);
+                ww = 1.0f;
+
+                float3 p1_position = positions[p1_info_pixel].xyz;
+                float world_dist = dist2(p1_position - p0_position) / (dist_to_cam);
+                ww = exp(-world_dist / (2.0f * sigma * sigma));
+
+                float3 p1_normal = normals[p1_info_pixel].xyz;
+                float n = saturate(dot(p1_normal, p0_normal));
+                ww *= pow(n, max(NORMAL_RATIO / infoRatio.x, 1.0f));
+                ww *= GetPosW(x, wk);
+                ww = max(ww, MIN_W);
+                c.rgb += input[p].rgb * ww;
+
+                total_w += ww;
+                count++;
+            }
+        } break;
+
+            //Execute pass 3 
+        case 3: {
+            //Pass 2 convolution failed again, make a minimal 2D pass
+            [branch]
+            if (prev_w < 1.0f) {
+                k = kernel_size + kernel_size;
+                for (x = -k; x <= k; ++x) {
+                    for (y = -k; y <= k; ++y) {
+                        int2 p = pixel + int2(x, y);
+                        p.x += step(Epsilon, -p.x) * k;
+                        p.x += step(Epsilon, p.x - input_dimensions.x) * -k;
+                        p.y += step(Epsilon, -p.y) * k;
+                        p.y += step(Epsilon, p.y - input_dimensions.y) * -k;
+                        float2 p1_info_pixel = round(p * infoRatio);
+                        ww = 1.0f;
+
+                        float3 p1_position = positions[p1_info_pixel].xyz;
+                        float world_dist = dist2(p1_position - p0_position) / (dist_to_cam);
+                        ww = exp(-world_dist / (2.0f * sigma * sigma));
+
+                        float3 p1_normal = normals[p1_info_pixel].xyz;
+                        float n = saturate(dot(p1_normal, p0_normal));
+                        ww *= pow(n, max(NORMAL_RATIO / infoRatio.x, 1.0f));
+                        ww *= GetPosW(x, wk) * GetPosW(y, wk);
+
+                        c.rgb += orig_input[p].rgb * ww;
+                        //c.rgb += float3(orig_input[p].r * ww, 0.0f, 1.0f);
+                        total_w += ww;
+                        count++;
+                    }
+                }
+                input_mix = saturate(prev_w - 0.2f);
+            }
+            else {
+                // Pass2 convolution finished already, nothing to do in this pixel, just copy it
+                input_mix = 1.0f;
+                total_w = 1.0f;
+                c.a = 0.0f;
+            }
+        } break;
+        }
+
+        c = c / max(total_w, 1.0f);
+
+        total_w /= k;
+        if (type == 1) {
+            c.a = total_w;
         }
         else {
-            // Pass2 convolution finished already, nothing to do in this pixel, just copy it
-            c = input[pixel];
-            total_w = 1.0f;
-            c.a = 0.0f;
+            c.a = prev_w + total_w;
         }
-    } break;
-    }
 
-#if 1
-    c = c / max(total_w, 1.0f);
-#else
-    count = max(count, 1);
-    c = c / count;
-#endif
-    total_w /= k;
-    if (type == 1) {
-        c.a = total_w;
+        c = lerp(c, input[pixel], input_mix);
     }
-    else {
-        c.a = prev_w + total_w;
-    }
-    
-    c = lerp(c, input[pixel], input_mix);
-
-#if 1
+#if 0
     if (type < 3) {
         output[pixel] = c;
     }
@@ -224,8 +219,8 @@ void main(uint3 DTid : SV_DispatchThreadID)
         prev_pos.x /= prev_pos.w;
         prev_pos.y /= -prev_pos.w;
         prev_pos.xy = (prev_pos.xy + 1.0f) * input_dimensions.xy / 2.0f;
-        float w = 0.5f;
-        float4 prev_color = prev_output[floor(prev_pos.xy)];
+        float w = 0.8f;
+        float4 prev_color = prev_output[round(prev_pos.xy)];
         output[pixel] = lerp(prev_color, c, w);
     }
 #else

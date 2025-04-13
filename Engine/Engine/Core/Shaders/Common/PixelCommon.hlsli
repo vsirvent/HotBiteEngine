@@ -97,7 +97,8 @@ struct MaterialColor
 	float3 emission_color;
 
 	float rt_reflex;
-	float3 padding;
+	float alphaThreshold;
+	float2 padding;
 
 	float3 alphaColor;	
 #define NORMAL_MAP_ENABLED_FLAG 1 << 0

@@ -7,8 +7,7 @@ cbuffer externalData : register(b0)
     uint count;
     float3 cameraPosition;
     uint light_type;
-    matrix view;
-    matrix projection;
+    matrix view_projection;
     uint debug;
     int kernel_size;
 }
@@ -24,10 +23,8 @@ Texture2D<uint> tiles_output : register(t7);
 
 #define NTHREADS 32
 [numthreads(NTHREADS, NTHREADS, 1)]
-void main(uint3 DTid : SV_DispatchThreadID)
+void main(uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint3 Gid : SV_GroupID)
 {
-    float2 pixel = float2(DTid.x, DTid.y);
-
     uint2 input_dimensions;
     uint2 normals_dimensions;
     {
@@ -44,6 +41,8 @@ void main(uint3 DTid : SV_DispatchThreadID)
         normals_dimensions.x = w;
         normals_dimensions.y = h;
     }
+    float2 pixel = ThreadGroupTilingX(input_dimensions / NTHREADS, uint2(NTHREADS, NTHREADS), 32, GTid.xy, Gid.xy);
+
     uint2 normalRatio = normals_dimensions / input_dimensions;
 
     float2 info_pixel = round(pixel * normalRatio);
@@ -63,30 +62,21 @@ void main(uint3 DTid : SV_DispatchThreadID)
     float dist_att = 0.0f;
     float disp = -1.0f;
     uint min_dispersion = 0;
-    bool skip = tiles_output[pixel / kernel_size] == 0;
-    [branch]
-    if (dist2(ray_source.orig) <= Epsilon || skip) {
-        output[pixel] = float4(0.0f, 0.0f, 0.0f, 0.0f);
-        return;
-    }  
 
+    
+    bool skip = false;
+    uint tile_info = tiles_output[pixel / kernel_size];
+    disp = (ray_source.dispersion);
     switch (light_type) {
-    case 0: {
-        disp = sqrt(ray_source.dispersion);
-        break;
+    case 0: skip = ((tile_info & 0x01) == 0); break;
+    case 1: skip = (((tile_info >> 1) & 0x01) == 0); break;
     }
-    case 1: {
-        disp = ray_source.dispersion;
-        break;
-    }
-    }
-
     [branch]
-    if (disp < Epsilon) {
-        output[pixel] = float4(0.0f, 0.0f, 0.0f, 0.0f);
+    if (disp < Epsilon || skip) {
+        output[pixel] = input[pixel];
         return;
     }
-    uint min_k = max(normalRatio.x * 0.25f, 0);
+    uint min_k = max(normalRatio.x * 0.5f, 0);
     int kernel = clamp(floor(max(MAX_KERNEL * disp, min_dispersion)), min_k, MAX_KERNEL);
     float motion = 0.0f;
     float camDist = dist2(cameraPosition - p0_position);
@@ -102,7 +92,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
         float3 p1_normal = normals[p1_info_pixel].xyz;
         float n = saturate(dot(p1_normal, p0_normal));
         float dist = max(dist2(p1_position - p0_position) / camDist, 0.1f);
-        float w = pow(n, 5.0f / normalRatio) / dist;
+        float w = pow(n, 5.0f / normalRatio.x) / dist;
         if (kernel > 1) {
             w *= cos((M_PI * abs((float)i)) / (2.0 * (float)kernel));
         }
@@ -117,13 +107,12 @@ void main(uint3 DTid : SV_DispatchThreadID)
     else {
         c0 *= 0.0f;
     }
-#if 1
+#if 0
     if (type == 1) {
         output[pixel] = c0;
     }
     else {
-        matrix worldViewProj = mul(view, projection);
-        float4 prev_pos = mul(prev_position_map[info_pixel], worldViewProj);
+        float4 prev_pos = mul(prev_position_map[info_pixel], view_projection);
         prev_pos.x /= prev_pos.w;
         prev_pos.y /= -prev_pos.w;
         prev_pos.xy = (prev_pos.xy + 1.0f) * normals_dimensions.xy / 2.0f;
@@ -148,8 +137,8 @@ void main(uint3 DTid : SV_DispatchThreadID)
             prev_pos.xy /= normalRatio;
         }
 
-        float4 prev_color = prev_output[floor(prev_pos.xy)];
-        float w = saturate(0.8f - motion * 50.0f);
+        float4 prev_color = prev_output[(prev_pos.xy)];
+        float w = saturate(0.8f - motion * 100.0f);
         output[pixel] = prev_color * w + c0 * (1.0f - w);
     }
 #else

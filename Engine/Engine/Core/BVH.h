@@ -140,7 +140,8 @@ namespace HotBite {
 					return size;
 				}
 
-				HRESULT Prepare(int size, DXGI_FORMAT format) {
+				HRESULT Prepare(int size) {
+					Unprepare();
 					HRESULT hr = S_OK;
 					ID3D11Device* device = Core::DXCore::Get()->device;
 
@@ -155,52 +156,34 @@ namespace HotBite {
 					bd.ByteWidth = data_size;
 					bd.CPUAccessFlags = 0;
 					bd.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS;
-					bd.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS;
+					bd.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
 					bd.StructureByteStride = sizeof(T);
 					
 					uint8_t* nullData = new uint8_t[data_size];
 					memset(nullData, 0, data_size);
 					initialData.pSysMem = nullData;
 					hr = device->CreateBuffer(&bd, &initialData, &buffer);
+					assert(SUCCEEDED(hr));
 					delete[] nullData;
-					if (FAILED(hr)) { goto end; }
-
-					srvDesc.Format = format;
+					
+					srvDesc.Format = DXGI_FORMAT_UNKNOWN;
 					srvDesc.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
 					srvDesc.Buffer.FirstElement = 0;
 					srvDesc.Buffer.NumElements = size;
 					hr = device->CreateShaderResourceView(buffer, &srvDesc, &srv);
-					
+					assert(SUCCEEDED(hr));
 					srv->GetResource(&resource);
 
 					uav_desc.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
-					uav_desc.Format = format;
+					uav_desc.Format = DXGI_FORMAT_UNKNOWN;
 					uav_desc.Buffer.FirstElement = 0;
 					uav_desc.Buffer.NumElements = size;
 					hr = device->CreateUnorderedAccessView(resource, &uav_desc, &uav);
+					assert(SUCCEEDED(hr));
+				
 					this->size = size;
-
-				end:
 					return hr;
 				}
-
-				void Clear(T val, uint32_t start = 0, uint32_t len = 0) {
-					return;
-					if (len == 0) {
-						len = (uint32_t)size;
-					}
-					if (len > 0 && start < (uint32_t)size) {
-						ID3D11DeviceContext* context = Core::DXCore::Get()->context;
-						D3D11_MAPPED_SUBRESOURCE resource;
-						context->Map(buffer, 0, D3D11_MAP_WRITE, 0, &resource);
-						T* data = (T*)resource.pData;
-						for (uint32_t i = start; i < len; ++i) {
-							data[i] = val;
-						}
-						context->Unmap(buffer, 0);
-					}
-				}
-
 
 				HRESULT Unprepare() {
 					ID3D11DeviceContext* context = Core::DXCore::Get()->context;
@@ -221,8 +204,8 @@ namespace HotBite {
 					return hr;
 				}
 
-				ID3D11ShaderResourceView* SRV() const {
-					return srv;
+				ID3D11ShaderResourceView*const* SRV() const {
+					return &srv;
 				}
 
 				ID3D11UnorderedAccessView*const* UAV() const {

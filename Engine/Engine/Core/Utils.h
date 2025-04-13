@@ -97,61 +97,7 @@ namespace HotBite {
                 }
             };
 
-            template <class T, int grid_value>
-            class SpaceTree {
-            public:
-                struct Cube {
-                    float3 p0;
-                    float3 p1;
-
-                    bool operator>(const Cube& other) {
-                        return DIST2(p0) > DIST2(other.p0);
-                    }
-
-                    bool operator==(const Cube& other) {
-                        return DIST2(p0) == DIST2(other.p0);
-                    }
-
-                    static Cube Get(const float3& pos) {
-                        p0 = pos.x / grid_value;
-                        p0 = pos.y / grid_value;
-                        p0 = pos.z / grid_value;
-                        p1.x = p0.x + 1;
-                        p1.y = p0.y + 1;
-                        p1.z = p0.z + 1;
-                        return { p0, p1 };
-                    }
-
-                    static bool Inside(const float3& p) {
-                        return ((p.x >= p0.x && p.x < p0.x + p1.x) &&
-                            (p.y >= p0.y && p.y < p0.y + p1.y) &&
-                            (p.z >= p0.z && p.z < p0.z + p1.z));
-                    }
-                };
-
-            private:
-                using SpaceMap = std::unordered_map<Cube, std::vector<T>>;
-                SpaceMap data;
-                
-            public:
-                void Insert(const float3& position, const T& v) {
-                    auto k = Cube<grid_value>::Get(position);
-                    data[k].push_back(v);
-                }
-
-                void Remove(const float3& position) {
-                    for (auto& quad: data) {
-                        for (auto it = quad.being(); it != quad.end(); ++it) {
-                            if (it->p0 == position) {
-                                quad.erase(position);
-                                return;
-                            }
-                        }
-                    }
-                }
-
-                const std::unordered_map<Cube, std::vector<T>>& Data() { return data; }
-            };
+            
             /**
              * This is an map that stores data in vectors in order to allow fast access and
              * and be cache friendly.

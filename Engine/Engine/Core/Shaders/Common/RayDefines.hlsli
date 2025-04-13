@@ -28,9 +28,15 @@ SOFTWARE.
 #define MAX_OBJECTS 100
 #define MAX_STACK_SIZE 20
 
+#define GI_SCREEN 1
+#define GI_WORLD 1
+
+#define REFLEX_SCREEN 0
+#define REFLEX_WORLD 1
+
 //#define PACK_RAYS_8
 #define RAY_W_SCALE 1.0f
-#define RAY_W_BIAS 0.0001f
+#define RAY_W_BIAS 0.01f
 
 #ifdef PACK_RAYS_8
 #define MAX_RAYS 8
@@ -48,6 +54,14 @@ struct BVHNode
     float4 reg0; // aabb_min + left_child + right_child;
     //--
     float4 reg1; // aabb_max + index;
+};
+
+#define MAX_RAY_INPUTS 4
+#define MAX_RAY_INPUTS_POS MAX_RAY_INPUTS / 2
+static const float MAX_RAY_POLAR_DIR = 2.0f * PI; //Maximum polar angle 2.0 * PI
+
+struct InputRays {
+    float4 dir2[MAX_RAY_INPUTS_POS];
 };
 
 struct Ray {

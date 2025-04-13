@@ -27,7 +27,63 @@ SOFTWARE.
 #ifndef __UTILS_HLSLI__
 #define __UTILS_HLSLI__
 
-float Epsilon = 1e-4;
+static const float Epsilon = 1e-4;
+
+// Divide the 2D-Dispatch_Grid into tiles of dimension [N, DipatchGridDim.y]
+// “CTA” (Cooperative Thread Array) == Thread Group in DirectX terminology
+uint2 ThreadGroupTilingX(
+	const uint2 dipatchGridDim,		// Arguments of the Dispatch call (typically from a ConstantBuffer)
+	const uint2 ctaDim,			// Already known in HLSL, eg:[numthreads(8, 8, 1)] -> uint2(8, 8)
+	const uint maxTileWidth,		// User parameter (N). Recommended values: 8, 16 or 32.
+	const uint2 groupThreadID,		// SV_GroupThreadID
+	const uint2 groupId			// SV_GroupID
+)
+{
+	// A perfect tile is one with dimensions = [maxTileWidth, dipatchGridDim.y]
+	const uint Number_of_CTAs_in_a_perfect_tile = maxTileWidth * dipatchGridDim.y;
+
+	// Possible number of perfect tiles
+	const uint Number_of_perfect_tiles = dipatchGridDim.x / maxTileWidth;
+
+	// Total number of CTAs present in the perfect tiles
+	const uint Total_CTAs_in_all_perfect_tiles = Number_of_perfect_tiles * maxTileWidth * dipatchGridDim.y;
+	const uint vThreadGroupIDFlattened = dipatchGridDim.x * groupId.y + groupId.x;
+
+	// Tile_ID_of_current_CTA : current CTA to TILE-ID mapping.
+	const uint Tile_ID_of_current_CTA = vThreadGroupIDFlattened / Number_of_CTAs_in_a_perfect_tile;
+	const uint Local_CTA_ID_within_current_tile = vThreadGroupIDFlattened % Number_of_CTAs_in_a_perfect_tile;
+	uint Local_CTA_ID_y_within_current_tile;
+	uint Local_CTA_ID_x_within_current_tile;
+
+	if (Total_CTAs_in_all_perfect_tiles <= vThreadGroupIDFlattened)
+	{
+		// Path taken only if the last tile has imperfect dimensions and CTAs from the last tile are launched. 
+		uint X_dimension_of_last_tile = dipatchGridDim.x % maxTileWidth;
+		X_dimension_of_last_tile = max(1, X_dimension_of_last_tile);
+		Local_CTA_ID_y_within_current_tile = Local_CTA_ID_within_current_tile / X_dimension_of_last_tile;
+		Local_CTA_ID_x_within_current_tile = Local_CTA_ID_within_current_tile % X_dimension_of_last_tile;
+	}
+	else
+	{
+		Local_CTA_ID_y_within_current_tile = Local_CTA_ID_within_current_tile / maxTileWidth;
+		Local_CTA_ID_x_within_current_tile = Local_CTA_ID_within_current_tile % maxTileWidth;
+	}
+
+	const uint Swizzled_vThreadGroupIDFlattened =
+		Tile_ID_of_current_CTA * maxTileWidth +
+		Local_CTA_ID_y_within_current_tile * dipatchGridDim.x +
+		Local_CTA_ID_x_within_current_tile;
+
+	uint2 SwizzledvThreadGroupID;
+	SwizzledvThreadGroupID.y = Swizzled_vThreadGroupIDFlattened / dipatchGridDim.x;
+	SwizzledvThreadGroupID.x = Swizzled_vThreadGroupIDFlattened % dipatchGridDim.x;
+
+	uint2 SwizzledvThreadID;
+	SwizzledvThreadID.x = ctaDim.x * SwizzledvThreadGroupID.x + groupThreadID.x;
+	SwizzledvThreadID.y = ctaDim.y * SwizzledvThreadGroupID.y + groupThreadID.y;
+
+	return SwizzledvThreadID.xy;
+}
 
 float3 climit3(float3 color) {
 	float m = max(color.r, max(color.g, color.b));
@@ -50,7 +106,36 @@ float4 climit4(float4 color) {
 float2 GetCloserPixel(float2 pixel, float ratio) {
 	return round(round(pixel / ratio) * ratio);
 }
+
 float4 GetInterpolatedColor(float2 uv, Texture2D text, float2 dimension) {
+	uv = saturate(uv);
+	// Calculate the texture coordinates in the range [0, 1]
+	float2 texCoords = uv * dimension;
+
+	// Calculate the integer coordinates of the four surrounding pixels
+	int2 p00 = (int2)floor(texCoords);
+	int2 p11 = (int2)ceil(texCoords);
+	int2 p01 = int2(p00.x, p11.y);
+	int2 p10 = int2(p11.x, p00.y);
+
+	// Calculate the fractional part of the coordinates
+	float2 f = frac(texCoords);
+
+	// Calculate the weights for bilinear interpolation
+	float w00 = (1.0f - f.x) * (1.0f - f.y);
+	float w11 = f.x * f.y;
+	float w01 = (1.0f - f.x) * f.y;
+	float w10 = f.x * (1.0f - f.y);
+
+	// Perform the bilinear interpolation
+	return (text[p00] * w00 +
+		text[p11] * w11 +
+		text[p01] * w01 +
+		text[p10] * w10);
+}
+
+float4 GetInterpolatedColor(float2 uv, RWTexture2D<float4> text, float2 dimension) {
+	uv = saturate(uv);
 	// Calculate the texture coordinates in the range [0, 1]
 	float2 texCoords = uv * dimension;
 
@@ -116,6 +201,61 @@ float3 GenerateDirection(int i, int N) {
 	return float3(x, y, z);
 }
 
+float2 GetPolarCoordinates(float3 dir) {
+	float theta = atan2(dir.z, dir.x);
+	float phi = acos(dir.y);
+	return float2(phi, theta);
+}
+
+float3 GetCartesianCoordinates(float phi, float theta) {
+	float sinPhi = sin(phi);
+	float cosPhi = cos(phi);
+	float sinTheta = sin(theta);
+	float cosTheta = cos(theta);
+
+	return float3(sinPhi * cosTheta, cosPhi, sinPhi * sinTheta);
+}
+
+float3 GetCartesianCoordinates(float2 coords) {
+	return GetCartesianCoordinates(coords.x, coords.y);
+}
+
+float2 GenerateHemisphereDispersedRay(float3 dir, float3 tangent, float3 bitangent, float dispersion, float N, float NLevels, float rX)
+{
+	float index = (rX * dispersion) % N;
+
+	//index = (frame_count) % N;
+	float N_SQRT = sqrt(N);
+	float cumulativePoints = 1.0f;
+	float level = 1.0f;
+	float c = 1.0f;
+	float phi;
+	while (c < index) {
+		phi = (level * M_PI * 0.5f) / NLevels;
+		c = cumulativePoints + N_SQRT * sin(phi);
+		cumulativePoints = c;
+		level++;
+	};
+	level--;
+
+	phi = (level * M_PI * 0.5f) / NLevels;
+
+	float pointsAtLevel = 1.0f + N_SQRT * sin(phi);
+
+	float localIndex = index - cumulativePoints;
+	float theta = (2.0f * M_PI) * localIndex / pointsAtLevel;
+
+	float3 localRay = GetCartesianCoordinates(phi, theta);
+
+	float3 globalRay = localRay.x * tangent + localRay.y * dir + localRay.z * bitangent;
+
+	return GetPolarCoordinates(normalize(dir + globalRay));
+}
+
+bool ValidUVCoord(float2 uv_coord) {
+	return (uv_coord.x >= 0.0f && uv_coord.x < 1.0f &&
+		uv_coord.y >= 0.0f && uv_coord.y < 1.0f);
+}
 
 void GetSpaceVectors(in float3 dir, out float3 tangent, out float3 bitangent) {
 	float3 up = abs(dir.z) < 0.999f ? float3(0.0f, 0.0f, 1.0f) : float3(1.0f, 0.0f, 0.0f);
@@ -144,6 +284,64 @@ uint ToByte(float val, float range)
 	return (uint)val;
 }
 
+float FromByte(uint val, float range)
+{
+	float fval = (float)val;
+	fval = range * clamp(fval, 0.0f, 255.0f) / 255.0f;
+	return fval;
+}
+
+int ToI16(float val, float range)
+{
+	val = 32768.0f * clamp(val, -range, range) / range;
+	return (int)val;
+}
+
+float FromI16(int val, float range)
+{
+	float fval = (float)val;
+	fval = range * clamp(fval, -32768.0f, 32768.0f) / 32768.0f;
+	return fval;
+}
+
+uint PackTwoInt16(int low, int high) {
+	return ( ((low & 0xFFFF) << 16) | (high & 0xFFFF) );
+}
+
+void UnpackTwoInt16(uint packedValue, out int low, out int high) {
+	int intPackedValue = asint(packedValue);
+	low = (intPackedValue >> 16);
+	high = (intPackedValue << 16) >> 16;
+}
+
+uint4 Pack4Float2ToI16(float2 values[4], float max_value)
+{
+	uint4 data;
+	data.r = PackTwoInt16(ToI16(values[0].x, max_value), ToI16(values[0].y, max_value));
+	data.g = PackTwoInt16(ToI16(values[1].x, max_value), ToI16(values[1].y, max_value));
+	data.b = PackTwoInt16(ToI16(values[2].x, max_value), ToI16(values[2].y, max_value));
+	data.a = PackTwoInt16(ToI16(values[3].x, max_value), ToI16(values[3].y, max_value));
+	return data;
+}
+
+void Unpack4Float2FromI16(uint4 data, float max_value, out float2 values[4])
+{
+	int low;
+	int high;
+	UnpackTwoInt16(data.r, low, high);
+	values[0].x = FromI16(low, max_value);
+	values[0].y = FromI16(high, max_value);
+	UnpackTwoInt16(data.g, low, high);
+	values[1].x = FromI16(low, max_value);
+	values[1].y = FromI16(high, max_value);
+	UnpackTwoInt16(data.b, low, high);
+	values[2].x = FromI16(low, max_value);
+	values[2].y = FromI16(high, max_value);
+	UnpackTwoInt16(data.a, low, high);
+	values[3].x = FromI16(low, max_value);
+	values[3].y = FromI16(high, max_value);
+}
+
 uint4 Pack8Bytes(float values[8], float max_value)
 {
 	uint4 data;
@@ -162,13 +360,6 @@ uint4 Pack16Bytes(float values[16], float max_value)
 	data.b = ToByte(values[8], max_value) << 24 | ToByte(values[9], max_value) << 16 | ToByte(values[10], max_value) << 8 | ToByte(values[11], max_value);
 	data.a = ToByte(values[12], max_value) << 24 | ToByte(values[13], max_value) << 16 | ToByte(values[14], max_value) << 8 | ToByte(values[15], max_value);
 	return data;
-}
-
-float FromByte(uint val, float range)
-{
-	float fval = (float)val;
-	fval = range * clamp(fval, 0.0f, 255.0f) / 255.0f;
-	return fval;
 }
 
 void Unpack8Bytes(uint4 data, float max_value, out float values[8])

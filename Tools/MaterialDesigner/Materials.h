@@ -181,6 +181,8 @@ public:
 		props["bloom_scale"] = std::make_shared<Prop<float>>(0.0f);
 		props["normal_map_enabled"] = std::make_shared<Prop<bool>>(false);
 		props["alpha_enabled"] = std::make_shared<Prop<bool>>(false);
+		props["alpha_color"] = std::make_shared<Prop<std::string>>("#00000000");
+		props["alpha_threshold"] = std::make_shared<Prop<float>>(0.4f);
 		props["blend_enabled"] = std::make_shared<Prop<bool>>(false);
 		props["diffuse_textname"] = std::make_shared<Prop<std::string>>("");
 		props["normal_textname"] = std::make_shared<Prop<std::string>>("");
@@ -230,6 +232,8 @@ public:
 			props["bloom_scale"]->SetValue<float>(js.value("bloom_scale", 0.0f));
 			props["normal_map_enabled"]->SetValue<bool>(js.value("normal_map_enabled", true));
 			props["alpha_enabled"]->SetValue<bool>(js.value("alpha_enabled", false));
+			props["alpha_color"]->SetValue<std::string>(js.value("alpha_color", "#00000000"));
+			props["alpha_threshold"]->SetValue<float>(js.value("alpha_threshold", 0.4f));
 			props["blend_enabled"]->SetValue<bool>(js.value("blend_enabled", false));
 			props["diffuse_textname"]->SetValue<std::string>(js.value("diffuse_textname", ""));
 			props["normal_textname"]->SetValue<std::string>(js.value("normal_textname", ""));
@@ -781,6 +785,35 @@ public:
 		void set(bool newValue)
 		{
 			return material->props["alpha_enabled"]->SetValue<bool>(newValue);
+		}
+	}
+
+	[CategoryAttribute("Material")]
+	property Drawing::Color AlphaColor {
+		Drawing::Color get()
+		{
+			auto color = HotBite::Engine::Core::parseColorStringF4(material->props["alpha_color"]->GetValue<std::string>());
+			return Drawing::Color::FromArgb((int)(color.w * 255.0f), (int)(color.x * 255.0f), (int)(color.y * 255.0f), (int)(color.z * 255.0f));
+		}
+
+		void set(Drawing::Color newValue)
+		{
+			char color[64];
+			snprintf(color, 64, "#%02X%02X%02X%02X", newValue.R, newValue.G, newValue.B, newValue.A);
+			return material->props["alpha_color"]->SetValue<std::string>(color);
+		}
+	}
+
+	[CategoryAttribute("Material")]
+	property float AlphaThreshold {
+		float get()
+		{
+			return material->props["alpha_threshold"]->GetValue<float>();
+		}
+
+		void set(float newValue)
+		{
+			return material->props["alpha_threshold"]->SetValue<float>((float)newValue);
 		}
 	}
 

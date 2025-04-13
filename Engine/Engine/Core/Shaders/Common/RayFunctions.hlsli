@@ -23,6 +23,10 @@ SOFTWARE.
 */
 #include "RayDefines.hlsli"
 
+ByteAddressBuffer vertexBuffer : register(t4);
+ByteAddressBuffer indicesBuffer: register(t5);
+Texture2D<float4> DiffuseTextures[MAX_OBJECTS];
+
 bool is_leaf(BVHNode node)
 {
     return (asuint(node.reg0.w) == 0);
@@ -62,7 +66,6 @@ float node_distance(BVHNode node, float3 pos)
     float dist = max(length(center - pos) - extent, 0.0f);
     return dist;
 }
-
 
 bool IntersectTri(RayObject ray, uint indexOffset, uint vertexOffset, out IntersectionResult result)
 {
@@ -289,7 +292,19 @@ float3 GetDiffuseColor(uint object, float2 uv)
     }
 }
 
-Ray GetReflectedRayFromSource(RaySource source)
+Ray GetRayInfoFromSourceWithNoDir(RaySource source)
+{
+    Ray ray;
+    ray.orig = float4(source.orig, 1.0f);
+    ray.dir = float3(0.0f, 1.0f, 0.0f);
+    ray.density = source.density;
+    ray.bounces = 0;
+    ray.ratio = 1.0f;
+    ray.t = FLT_MAX;
+    return ray;
+}
+
+Ray GetReflectedRayFromSource(RaySource source, float3 cameraPosition)
 {
     Ray ray;
     ray.orig = float4(source.orig, 1.0f);
@@ -305,7 +320,7 @@ Ray GetReflectedRayFromSource(RaySource source)
     return ray;
 }
 
-Ray GetRefractedRayFromSource(RaySource source)
+Ray GetRefractedRayFromSource(RaySource source, float3 cameraPosition)
 {
     Ray ray;
     ray.orig = float4(source.orig, 1.0f);

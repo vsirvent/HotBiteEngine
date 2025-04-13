@@ -204,6 +204,9 @@ namespace HotBite {
 				if (j.value("parallax_shadows", false)) {
 					props.flags |= PARALLAX_SHADOW_ENABLED_FLAG;
 				}
+				props.alphaColor = parseColorStringF3(j.value("alpha_color", "#00000000"));
+				props.alphaThreshold = j.value("alpha_threshold", 0.4f);
+				
 				SetTexture(diffuse, texture_names.diffuse_texname, root, j.value("diffuse_textname", ""));
 				SetTexture(high, texture_names.high_textname, root, j.value("high_textname", ""));
 				SetTexture(normal, texture_names.normal_textname, root, j.value("normal_textname", ""));
