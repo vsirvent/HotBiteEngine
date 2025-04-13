@@ -210,7 +210,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint3
 
         c = lerp(c, input[pixel], input_mix);
     }
-#if 1
+#if 0
     if (type < 3) {
         output[pixel] = c;
     }

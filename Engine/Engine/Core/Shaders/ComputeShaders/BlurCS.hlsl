@@ -7,7 +7,7 @@ Texture2D<uint> vol_data: register(t0);
 #define EPSILON 1e-6
 #define VERTICAL 1
 #define HORIZONTAL 2
-#define KERNEL_SIZE 19
+#define KERNEL_SIZE 1
 #define HALF_KERNEL KERNEL_SIZE/2
 cbuffer externalData : register(b0)
 {
@@ -15,38 +15,24 @@ cbuffer externalData : register(b0)
     float variance;
 }
 
-void FillGaussianArray(out float array[KERNEL_SIZE])
+static const float BlurWeights32[33] =
 {
-    float sum = 0.0;
-    int halfSize = KERNEL_SIZE / 2;
-    int i;
-    float v = 5.0f;
-    for (i = -HALF_KERNEL; i <= HALF_KERNEL; ++i)
-    {
-        int x = i;
-        array[i + halfSize] = exp(-(x * x) / (2.0f * v * v)) / sqrt(2.0f * 3.14159265358979323846f * v * v);
-        sum += array[i + halfSize];
-    }
+    0.0216771440357829, 0.023030174945629842, 0.024372268162712405, 0.0256920167211696, 0.026977641631473703, 0.028217160189400764, 0.02939856710486361, 0.030510024758829798, 0.03154005846550627, 0.032477752297221024, 0.033312940837257485, 0.03403639217321265, 0.034639977537105585, 0.03511682323976621, 0.035461440931519074, 0.035669832738636206, 0.03573956845982569, 0.035669832738636206, 0.035461440931519074, 0.03511682323976621, 0.034639977537105585, 0.03403639217321265, 0.033312940837257485, 0.032477752297221024, 0.03154005846550627, 0.030510024758829798, 0.02939856710486361, 0.028217160189400764, 0.026977641631473703, 0.0256920167211696, 0.024372268162712405, 0.023030174945629842, 0.0216771440357829
+};
 
-    // Normalize the array
-    for (i = 0; i < KERNEL_SIZE; ++i)
-    {
-        array[i] /= sum;
-    }
-}
-
-float4 getColor(float2 pixel, float2 dir)
-{
-
-        float BlurWeights[KERNEL_SIZE];
-        FillGaussianArray(BlurWeights);
-        float4 color = float4(0.f, 0.f, 0.f, 0.f);
-        float2 tpos;
-        for (int i = -HALF_KERNEL; i <= HALF_KERNEL; ++i) {
-            tpos = pixel + dir * i;
-            color += input[tpos] * BlurWeights[i + HALF_KERNEL];
+float4 blur32(RWTexture2D<float4> t, float2 pos, int type) {
+    float4 color = float4(0.f, 0.f, 0.f, 1.f);
+    if (type == HORIZONTAL) {
+        for (int dx = -16; dx <= 16; ++dx) {
+            color += t.Load(float3(pos.x + dx, pos.y, 0)) * BlurWeights32[dx + 16];
         }
-        return color;
+    }
+    else {
+        for (int dy = -16; dy <= 16; ++dy) {
+            color += t.Load(float3(pos.x, pos.y + dy, 0)) * BlurWeights32[dy + 16];
+        }
+    }
+    return color;
 }
 
 
@@ -55,28 +41,21 @@ float4 getColor(float2 pixel, float2 dir)
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main(uint3 DTid : SV_DispatchThreadID)
 {
-    uint2 dir = { 0, 0 };
-    if (type == VERTICAL) {        
-        dir = uint2(0, 1);
-    }
-    else if (type == HORIZONTAL) {
-        dir = uint2(1, 0);
-    }
-    
     uint2 dimensions;
     uint w, h;
     input.GetDimensions(w, h);
     float2 pixel = float2(DTid.x, DTid.y);
     float global = (float)vol_data[uint2(0, 0)] / (float)(w * h * 1000);
     //Linear function for global atenuation y = −x + (1 + (MAX_GLOBAL_ILLUMINATION)
-#define MAX_GLOBAL_ILLUMINATION 1.0f
+#define MAX_GLOBAL_ILLUMINATION 0.8f
     float att = 1.0f;
     global *= global;
     global *= global;
     att = -global + (1.0f + MAX_GLOBAL_ILLUMINATION);
-    float4 color = getColor(pixel, dir);
+    //float4 color = blur32(input, pixel, type);
+    float4 color = input.Load(float3(pixel.x, pixel.y, 0));
     if (type == HORIZONTAL) {
-        color *= att;
+        //color *= att;
     }
     output[pixel] = max(color, 0);
 }

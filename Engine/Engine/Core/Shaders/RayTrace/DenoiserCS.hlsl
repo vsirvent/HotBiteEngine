@@ -107,7 +107,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint3
     else {
         c0 *= 0.0f;
     }
-#if 1
+#if 0
     if (type == 1) {
         output[pixel] = c0;
     }

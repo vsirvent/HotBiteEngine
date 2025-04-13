@@ -232,7 +232,7 @@ float3 DirVolumetricLight(float4 position, DirLight light, int index, float time
 	float3 lcolor = light.Color.rgb * light.intensity;
 	float3 color = { 0.f, 0.f, 0.f };
 
-	float step = 0.5f;
+	float step = 0.4f;
 	float max_vol = 1.0f;
 
 	float3 ToEye = cameraPosition.xyz - position.xyz;
@@ -329,7 +329,7 @@ float3 DirVolumetricLight(float4 position, DirLight light, int index, float time
 float3 VolumetricLight(float3 position, PointLight light, int index) {
 	float3 color = { 0.f, 0.f, 0.f };
 	float3 step_color = light.Color.rgb;
-	float step = 0.5f;
+	float step = 0.4f;
 	float max_vol = 0.3f;
 	step_color.rgb *= (light.density * step);
 	float3 intersection_position;

@@ -127,6 +127,9 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     float reflex_ratio = (1.0f - ray_source.dispersion);
     
 #if 1
+#if !REFLEX_SCREEN
+    output0[pixel] = float4(0.0f, 0.0f, 0.0f, 1.0f);
+#endif
     if (abs(ray_input[0].x) < MAX_RAY_POLAR_DIR) {
         if (dist2(ray_input[0]) <= Epsilon) {
             color_reflex.rgb = float3(1.0f, 0.0f, 0.0f);
