@@ -136,7 +136,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
         mask <<= 4;
     }
 
-    uint n = 0;
+    float n = 0.0f;
     float4 final_color = float4(0.0f, 0.0f, 0.0f, 1.0f);
     for (i = 0; i < 4; ++i) {
         uint wi = wis[i];
@@ -158,7 +158,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
         }
     }
     float w_ratio = 1.0f;
-    if (n > 0) {
+    if (n > Epsilon) {
         final_color = (final_color * ray_source.opacity);
         w_ratio = restir_w_0[pixel] / n;
 #if GI_SCREEN
@@ -175,9 +175,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
 
     uint hit = (hits.y & 0x01) << 1 | (hits.x & 0x01);
     if (hit != 0) {
-        [unroll]
         for (int x = -2; x <= 2; ++x) {
-            [unroll]
             for (int y = -2; y <= 2; ++y) {
                 int2 p = pixel / kernel_size + int2(x, y);
                 tiles_output[p] = tiles_output[p] | hit;
