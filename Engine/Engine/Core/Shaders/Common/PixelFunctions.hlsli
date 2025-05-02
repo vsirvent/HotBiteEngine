@@ -88,22 +88,22 @@ float DirShadowPCF(float4 position, DirLight light, int index)
 	float4 p = mul(position, DirPerspectiveMatrix[index]);
 	p.x = (p.x + 1.0f) / 2.0f;
 	p.y = 1.0f - ((p.y + 1.0f) / 2.0f);
-	if (p.x < 0.0f || p.x > 1.0f || p.y < 0.0f || p.y > 1.0f) {
-		return 0.5f;
-	}
 	float w;
 	float h;
 	DirShadowMapTexture[index].GetDimensions(w, h);
-	float2 delta = 1.0f / float2(w, h);
-	float2 kernel = delta * 3.0f;
-	float step = 0.0001f;
+	float2 delta = 0.5f / float2(w, h);
+	float2 kernel = delta * 5.0f;
 	float att1 = 0.0f;
 	float count = 0.0f;
 
 	for (float x = -kernel.x; x <= kernel.x; x += delta.x) {
 		for (float y = -kernel.y; y <= kernel.y; y += delta.y) {
-			att1 += round(DirShadowMapTexture[index].SampleCmpLevelZero(PCFSampler, float2(p.x + x, p.y + y), p.z).r);
-			count += 0.8f;
+            float w0 = kernel.x - x;
+            float w1 = kernel.y - y;
+            float w = w0 * w1;
+            float4 val = DirShadowMapTexture[index].GatherCmp(PCFSampler, float2(p.x + x, p.y + y), p.z);
+            att1 += dot(val, float4(0.25, 0.25, 0.25, 0.25));			
+			count++;
 		}
 	}
 	att1 /= count;
@@ -118,7 +118,8 @@ float DirShadowPCFFAST(float4 position, DirLight light, int index)
 	if (p.x < 0.0f || p.x > 1.0f || p.y < 0.0f || p.y > 1.0f) {
 		return 0.5f;
 	}
-	float att1 = round(DirShadowMapTexture[index].SampleCmpLevelZero(PCFSampler, float2(p.x, p.y), p.z).r);
+	float4 val = DirShadowMapTexture[index].GatherCmp(PCFSampler, float2(p.x, p.y), p.z);
+    float att1 = dot(val, float4(0.25, 0.25, 0.25, 0.25));
 	return saturate(att1);
 }
 
@@ -139,6 +140,8 @@ float PointShadowPCF(float3 ToPixel, PointLight light, int index)
 		}
 	}
 	att1 /= count;
+    float4 val = PointShadowMapTexture[index].GatherCmp(PCFSampler, float3(ToPixel.x, ToPixel.y, ToPixel.z), d);
+    att1 = dot(val, float4(0.25, 0.25, 0.25, 0.25));
 	return saturate(att1);
 }
 

@@ -27,7 +27,6 @@ Texture2D<uint> tiles_output : register(t7);
 void main(uint3 DTid : SV_DispatchThreadID)
 {
     float2 pixel = float2(DTid.x, DTid.y);
-
     uint2 input_dimensions;
     uint2 normals_dimensions;
     {
@@ -110,7 +109,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
         count += w;
         c0 += input[p] * w;
     }
-
+    count = max(0.01f, count);
     if (count > Epsilon) {
         c0 /= count;
     }
@@ -149,7 +148,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
         }
 
         float4 prev_color = prev_output[floor(prev_pos.xy)];
-        float w = saturate(0.3f - motion * 50.0f);
+        float w = saturate(0.7f - motion * 50.0f);
         output[pixel] = lerp(prev_color, c0, (1.0f - w));
     }
 #else

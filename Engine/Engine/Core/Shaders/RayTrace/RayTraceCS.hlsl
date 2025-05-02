@@ -501,7 +501,7 @@ return out_color.hit;
                 if (DTid.z == 0) {
                     float3 seed = orig_pos * 100.0f;
                     float rX = rgba_tnoise(seed);
-                    rX = pow(rX, 5.0f);
+                    rX = pow(rX, 4.0f);
                     GetSpaceVectors(orig_dir, tangent, bitangent);
                     ray.dir = GenerateHemisphereRay(orig_dir, tangent, bitangent, ray_source.dispersion, N, level, rX);
                     ray.orig.xyz = orig_pos.xyz + ray.dir * 0.001f;
