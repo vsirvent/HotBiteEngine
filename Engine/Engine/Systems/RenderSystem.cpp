@@ -365,10 +365,6 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		if (rt_di_denoiser == nullptr) {
 			throw std::exception("DenoiserCS shader.Init failed");
 		}
-		rt_disp = ShaderFactory::Get()->GetShader<SimpleComputeShader>("DispersionCS.cso");
-		if (rt_disp == nullptr) {
-			throw std::exception("DispersionCS shader.Init failed");
-		}
 		gi_average = ShaderFactory::Get()->GetShader<SimpleComputeShader>("GIAverageCS.cso");
 		if (gi_average == nullptr) {
 			throw std::exception("GIAverageCS shader.Init failed");

@@ -288,7 +288,6 @@ namespace HotBite {
 				Core::TBVH tbvh{ MAX_OBJECTS };
 				Core::SimpleComputeShader* rt_di_shader = nullptr;
 				Core::SimpleComputeShader* rt_di_denoiser = nullptr;
-				Core::SimpleComputeShader* rt_disp = nullptr;
 				
 				Core::SimpleComputeShader* gi_shader = nullptr;
 				Core::SimpleComputeShader* gi_average = nullptr;
