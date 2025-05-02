@@ -69,10 +69,9 @@ void main(uint3 DTid : SV_DispatchThreadID)
     float2 pixel = float2(DTid.x, DTid.y);
     float global = (float)vol_data[uint2(0, 0)] / (float)(w * h * 1000);
     //Linear function for global atenuation y = −x + (1 + (MAX_GLOBAL_ILLUMINATION)
-#define MAX_GLOBAL_ILLUMINATION 0.5f
+#define MAX_GLOBAL_ILLUMINATION 0.6f
     float att = 1.0f;
-    global *= global;
-    global *= global;
+    global = pow(global, 3.0f);
     att = -global + (1.0f + MAX_GLOBAL_ILLUMINATION);
     float4 color = getColor(pixel, dir);
     if (type == HORIZONTAL) {
