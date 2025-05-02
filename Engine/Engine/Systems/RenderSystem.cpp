@@ -1438,7 +1438,10 @@ void RenderSystem::ProcessMix() {
 	mixer_shader->SetShaderResourceView("lensFlareTexture", lens_flare_map.SRV());
 	mixer_shader->SetShaderResourceView("rtTexture0", rt_texture_di_curr[RT_TEXTURE_REFLEX].SRV());
 	mixer_shader->SetShaderResourceView("rtTexture1", rt_texture_di_curr[RT_TEXTURE_REFRACT].SRV());
-	mixer_shader->SetShaderResourceView("rtTexture2", rt_texture_gi_curr->SRV());
+	if (rt_texture_gi_curr != nullptr)
+	{
+		mixer_shader->SetShaderResourceView("rtTexture2", rt_texture_gi_curr->SRV());
+	}
 	mixer_shader->SetShaderResourceView("positions", rt_ray_sources0.SRV());
 	mixer_shader->SetShaderResourceView("normals", rt_ray_sources1.SRV());
 	mixer_shader->SetShaderResourceView("input", post_process_pipeline->RenderResource());
@@ -1950,7 +1953,7 @@ void RenderSystem::ProcessRT() {
 			rt_di_shader->SetUnorderedAccessView("output1", rt_texture_di_curr[RT_TEXTURE_REFRACT].UAV());
 			rt_di_shader->SetUnorderedAccessView("tiles_output", rt_textures_gi_tiles.UAV());
 
-
+			rt_di_shader->SetShaderResourceView("prev_position_map", prev_position_map.SRV());
 			rt_di_shader->SetShaderResourceView("position_map", position_map.SRV());
 			rt_di_shader->SetShaderResourceView("depth_map", depth_map.SRV());
 			rt_di_shader->SetShaderResourceView("motion_texture", motion_texture.SRV());
@@ -1984,6 +1987,7 @@ void RenderSystem::ProcessRT() {
 
 			rt_di_shader->SetUnorderedAccessView("output0", nullptr);
 			rt_di_shader->SetUnorderedAccessView("output1", nullptr);
+			rt_di_shader->SetShaderResourceView("prev_position_map", nullptr);
 			rt_di_shader->SetShaderResourceView("position_map", nullptr);
 			rt_di_shader->SetShaderResourceView("motion_texture", nullptr);
 			rt_di_shader->SetShaderResourceView("ray0", nullptr);

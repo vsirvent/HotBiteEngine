@@ -72,7 +72,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
 
     switch (light_type) {
     case 0: {
-        disp = sqrt(ray_source.dispersion);
+        disp = ray_source.dispersion;
         break;
     }
     case 1: {
@@ -117,7 +117,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     else {
         c0 *= 0.0f;
     }
-#if 0
+#if 1
     if (type == 1) {
         output[pixel] = c0;
     }
@@ -149,8 +149,8 @@ void main(uint3 DTid : SV_DispatchThreadID)
         }
 
         float4 prev_color = prev_output[floor(prev_pos.xy)];
-        float w = saturate(0.8f - motion * 50.0f);
-        output[pixel] = prev_color * w + c0 * (1.0f - w);
+        float w = saturate(0.3f - motion * 50.0f);
+        output[pixel] = lerp(prev_color, c0, (1.0f - w));
     }
 #else
     output[pixel] = c0;

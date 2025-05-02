@@ -40,6 +40,8 @@ cbuffer externalData : register(b0)
     uint enabled;
     int kernel_size;
 
+    matrix prev_view_proj;
+    
     //Lights
     AmbientLight ambientLight;
     DirLight dirLights[MAX_LIGHTS];
@@ -73,6 +75,7 @@ ByteAddressBuffer vertexBuffer : register(t4);
 ByteAddressBuffer indicesBuffer : register(t5);
 Texture2D<float4> position_map : register(t6);
 Texture2D<float4> motion_texture : register(t8);
+Texture2D<float4> prev_position_map : register(t9);
 
 Texture2D<float4> DiffuseTextures[MAX_OBJECTS];
 Texture2D<float> DirShadowMapTexture[MAX_LIGHTS];
@@ -422,7 +425,6 @@ return out_color.hit;
         [numthreads(NTHREADS, NTHREADS, 1)]
         void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thread : SV_GroupThreadID)
         {
-            return;
             float2 dimensions;
             float2 ray_map_dimensions;
             float2 bloom_dimensions;
@@ -458,17 +460,22 @@ return out_color.hit;
             [branch]
             if (ray_source.reflex <= Epsilon || dist2(ray_source.normal) <= Epsilon || ray_source.dispersion < 0.0f || ray_source.dispersion >= 1.0f)
             {
+                output0[pixel] = color_reflex;
+                output1[pixel] = color_refrac;
                 return;
             }
 
             //Reflected ray
             float3 orig_pos = ray_source.orig.xyz;
-            bool process = length(orig_pos - cameraPosition) < max_distance;
+            float camDist = length(orig_pos - cameraPosition);
+            bool process = camDist < max_distance;
 
             float3 tangent;
             float3 bitangent;
             RayTraceColor rc;
             Ray ray = GetReflectedRayFromSource(ray_source);
+    
+        
             [branch]
             if (dist2(ray.dir) > Epsilon)
             {
@@ -505,7 +512,7 @@ return out_color.hit;
                     
                     float2 rc_disp = float2(rc.dispersion[0], rc.dispersion[1]);
                     float reflex_ratio = (1.0f - ray_source.dispersion);
-                    output0[pixel] = color_reflex * reflex_ratio;
+                    output0[pixel] = color_reflex;
                     if (rc.hit) {
                         [unroll]
                         for (int x = -1; x <= 1; ++x) {

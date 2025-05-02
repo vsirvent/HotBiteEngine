@@ -34,8 +34,6 @@ float GetPosW(int pos, uint kernel) {
 void main(uint3 DTid : SV_DispatchThreadID)
 {
     float2 pixel = float2(DTid.x, DTid.y);
-    output[pixel] = input[pixel];
-    return;
 #ifdef DEBUG
     if (debug == 1) { 
         output[pixel] = input[pixel];
@@ -160,7 +158,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
         case 3: {
             //Pass 2 convolution failed again, make a minimal 2D pass
             [branch]
-            if (prev_w < 2.0f && dist_to_cam < 100.0f) {
+            if (prev_w < 2.0f) {
                 k = kernel_size + full_kernel;
                 for (x = -k; x <= k; ++x) {
                     for (y = -k; y <= k; ++y) {
@@ -209,7 +207,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
 
         c = lerp(c, input[pixel], input_mix);
     }
-#if 1
+#if 0
     if (type < 3) {
         output[pixel] = c;
     }
@@ -217,8 +215,8 @@ void main(uint3 DTid : SV_DispatchThreadID)
         float4 prev_pos = mul(prev_position_map[info_pixel], prev_view_proj);
         prev_pos.x /= prev_pos.w;
         prev_pos.y /= -prev_pos.w;
-        prev_pos.xy = (prev_pos.xy + 1.0f) * input_dimensions.xy / 2.0f;
-        float w = 0.3f;
+        prev_pos.xy = (prev_pos.xy + 1.0f) * input_dimensions.xy * 0.5f;
+        float w = 0.5f;
         float4 prev_color = prev_output[floor(prev_pos.xy)];
         output[pixel] = lerp(prev_color, c, w);
     }

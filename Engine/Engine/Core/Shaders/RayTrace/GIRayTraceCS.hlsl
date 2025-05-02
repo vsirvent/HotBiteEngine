@@ -94,7 +94,7 @@ static float2 lps[MAX_LIGHTS] = (float2[MAX_LIGHTS])LightPerspectiveValues;
 #include "../Common/SimpleLight.hlsli"
 #include "../Common/RayFunctions.hlsli"
 
-#define max_distance 20.0f
+#define max_distance 10.0f
 
 static const float inv_ray_count = 1.0f / (float)ray_count;
 static const uint stride = kernel_size * ray_count;
@@ -187,7 +187,6 @@ void GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
     bool collide = false;
     IntersectionResult result;
     Ray ray = origRay;
-    float att_dist = 1.0f;
     bool end = false;
 #ifdef BOUNCES
     while (!end) {
@@ -403,12 +402,10 @@ void GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
 
         color.rgb *= mat_color;
 
-        float3 emission = material.emission * material.emission_color * 100.0f;
+        float3 emission = material.emission * material.emission_color;
         color.rgb += emission;
         
-        //att_dist *= max(collision_dist, 1.0f);
-
-        out_color.color += color * ray.ratio / att_dist;
+        out_color.color += color * ray.ratio;
 
         ray.orig = pos;
         out_color.hit = true;
@@ -438,7 +435,7 @@ bool IsLowEnergy(float pdf[MAX_RAYS], uint len) {
     return (total_enery < threshold);
 }
 
-#define NTHREADS 9
+#define NTHREADS 11
 
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thread : SV_GroupThreadID)
