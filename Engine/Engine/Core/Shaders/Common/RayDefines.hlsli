@@ -28,7 +28,7 @@ SOFTWARE.
 #define MAX_OBJECTS 100
 #define MAX_STACK_SIZE 20
 
-#define GI_SCREEN 1
+#define GI_SCREEN 0
 #define GI_WORLD 1
 
 #define REFLEX_SCREEN 0
