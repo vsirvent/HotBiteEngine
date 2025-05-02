@@ -2,7 +2,7 @@
   "world": {
     "path": "..\\..\\..\\Tests\\DemoGame\\",
     "level": {
-      "file": ".\\Assets\\level.fbx",
+      "file": ".\\Assets\\particle_test.fbx",
       "triangulate": false
     },
     "audio": {
