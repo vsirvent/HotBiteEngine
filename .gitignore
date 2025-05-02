@@ -580,7 +580,6 @@ Solution/x64/Release/WaterPS.cso
 Solution/x64/Release/xapobaseredist.pdb
 Solution/x64/Release/xaudio2_9redist.dll
 Solution/x64/Release/xaudio2_9redist.pdb
-Tests/DemoGame/DemoGame.vcxproj.user
 Tests/DemoGame/x64/Debug/DemoGame.log
 Tests/DemoGame/x64/Debug/DemoGame.obj
 Tests/DemoGame/x64/Debug/DemoGame.tlog/CL.command.1.tlog

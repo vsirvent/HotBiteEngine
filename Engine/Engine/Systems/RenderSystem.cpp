@@ -465,7 +465,7 @@ void RenderSystem::LoadRTResources() {
 		}
 	}
 
-	uint32_t restir_div = 3;// max(RT_TEXTURE_RESOLUTION_DIVIDER, 2);
+	uint32_t restir_div = 8;// max(RT_TEXTURE_RESOLUTION_DIVIDER, 2);
 
 	for (int n = 0; n < RT_GI_NTEXTURES; ++n) {
 		rt_textures_gi[n].Release();

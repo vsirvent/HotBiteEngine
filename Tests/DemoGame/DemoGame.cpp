@@ -376,7 +376,7 @@ public:
 					}
 					else if (GetAsyncKeyState('R') & 0x8000) {
 						world.GetCoordinator()->GetSystem<RenderSystem>()->SetRayTracingQuality(RenderSystem::eRtQuality::LOW);
-						world.GetCoordinator()->GetSystem<RenderSystem>()->SetRayTracing(true, true, true);
+						world.GetCoordinator()->GetSystem<RenderSystem>()->SetRayTracing(false, true, true);
 					}
 					else if (GetAsyncKeyState('T') & 0x8000) {
 						world.GetCoordinator()->GetSystem<RenderSystem>()->SetRayTracing(false, false, false);
