@@ -17,6 +17,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Marbles", "..\..\Marbles\Ma
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "GameServer", "..\..\HotBite\Tests\GameServer\GameServer.vcxproj", "{8E403B35-E983-498C-833C-7BB39E91D9DA}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "SceneEditor", "..\Tools\SceneEditor\SceneEditor.vcxproj", "{AFD8BEBA-7D68-4206-9988-43DE938A9145}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -111,6 +113,18 @@ Global
 		{8E403B35-E983-498C-833C-7BB39E91D9DA}.Release|x64.Build.0 = Release|x64
 		{8E403B35-E983-498C-833C-7BB39E91D9DA}.Release|x86.ActiveCfg = Release|Win32
 		{8E403B35-E983-498C-833C-7BB39E91D9DA}.Release|x86.Build.0 = Release|Win32
+		{AFD8BEBA-7D68-4206-9988-43DE938A9145}.Debug|x64.ActiveCfg = Debug|x64
+		{AFD8BEBA-7D68-4206-9988-43DE938A9145}.Debug|x64.Build.0 = Debug|x64
+		{AFD8BEBA-7D68-4206-9988-43DE938A9145}.Debug|x86.ActiveCfg = Debug|Win32
+		{AFD8BEBA-7D68-4206-9988-43DE938A9145}.Debug|x86.Build.0 = Debug|Win32
+		{AFD8BEBA-7D68-4206-9988-43DE938A9145}.Release_Production|x64.ActiveCfg = Release_Production|x64
+		{AFD8BEBA-7D68-4206-9988-43DE938A9145}.Release_Production|x64.Build.0 = Release_Production|x64
+		{AFD8BEBA-7D68-4206-9988-43DE938A9145}.Release_Production|x86.ActiveCfg = Release_Production|Win32
+		{AFD8BEBA-7D68-4206-9988-43DE938A9145}.Release_Production|x86.Build.0 = Release_Production|Win32
+		{AFD8BEBA-7D68-4206-9988-43DE938A9145}.Release|x64.ActiveCfg = Release|x64
+		{AFD8BEBA-7D68-4206-9988-43DE938A9145}.Release|x64.Build.0 = Release|x64
+		{AFD8BEBA-7D68-4206-9988-43DE938A9145}.Release|x86.ActiveCfg = Release|Win32
+		{AFD8BEBA-7D68-4206-9988-43DE938A9145}.Release|x86.Build.0 = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

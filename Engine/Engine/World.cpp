@@ -369,6 +369,134 @@ void World::LoadTemplate(const std::string& template_file, bool triangulate, boo
 	template_entities[std::filesystem::path(template_file).filename().replace_extension().string()] = LoadFBX(template_file, triangulate, relative, materials, meshes, shapes, templates_coordinator, vertex_buffer, use_animation_names);
 }
 
+void World::ParsePhysicsJson(const nlohmann::json& physics_json, Components::Physics& physics) {
+	physics.type = reactphysics3d::BodyType::STATIC;
+	if (physics_json.contains("type")) {
+		const std::string& type = physics_json["type"];
+		if (type == "DYNAMIC") {
+			physics.type = reactphysics3d::BodyType::DYNAMIC;
+		}
+		else if (type == "KINEMATIC") {
+			physics.type = reactphysics3d::BodyType::KINEMATIC;
+		}
+		else {
+			assert(false && "Unknown physics type.");
+		}
+	}
+	if (physics_json.contains("bounce")) {
+		physics.bounce = physics_json["bounce"];
+	}
+	if (physics_json.contains("friction")) {
+		physics.friction = physics_json["friction"];
+	}
+	if (physics_json.contains("air_friction")) {
+		physics.air_friction = physics_json["air_friction"];
+	}
+	if (physics_json.contains("shape")) {
+		const std::string& shape = physics_json["shape"];
+		if (shape == "CAPSULE") {
+			physics.shape = Physics::SHAPE_CAPSULE;
+		}
+		else if (shape == "SPHERE") {
+			physics.shape = Physics::SHAPE_SPHERE;
+		}
+		else if (shape == "BOX") {
+			physics.shape = Physics::SHAPE_BOX;
+		}
+		else {
+			assert(false && "Unknown physics shape.");
+		}
+	}
+}
+
+ECS::Entity World::SpawnInstance(const std::string& name, const std::string& template_name,
+	const float3& position, const float4& rotation, const float3& scale,
+	const std::string& material_name, const nlohmann::json* physics_json)
+{
+	ECS::Entity primary = ECS::INVALID_ENTITY_ID;
+	const std::set<ECS::Entity>& parts = GetTemplateEntities(template_name);
+	assert(!parts.empty() && "SpawnInstance: unknown template name.");
+
+	int part_index = 0;
+	for (ECS::Entity te : parts) {
+		const Components::Bounds& tbounds = templates_coordinator->GetConstComponent<Components::Bounds>(te);
+		const Components::Transform& tt = templates_coordinator->GetConstComponent<Components::Transform>(te);
+
+		//Multi-part templates (several FBX nodes sharing the same template name) get a
+		//stable "_<index>" suffix so each part keeps a unique, reload-safe name.
+		std::string instance_name = (parts.size() > 1) ? (name + "_" + std::to_string(part_index)) : name;
+		ECS::Entity e = coordinator->CreateEntity(instance_name);
+
+		coordinator->AddComponent<Components::Base>(e, Components::Base{ .name = instance_name, .id = e, .draw_method = Components::eDrawMethod::DRAW_SCREEN });
+		coordinator->AddComponent<Components::Bounds>(e, tbounds);
+		coordinator->AddComponent<Components::Mesh>(e);
+		coordinator->AddComponent<Components::Lighted>(e);
+		coordinator->AddComponent<Components::Material>(e);
+
+		Components::Mesh& mesh = coordinator->GetComponent<Components::Mesh>(e);
+		mesh.SetData(templates_coordinator->GetComponent<Components::Mesh>(te).GetData());
+
+		Components::Material& mat = coordinator->GetComponent<Components::Material>(e);
+		mat.data = templates_coordinator->GetComponent<Components::Material>(te).data;
+		if (!material_name.empty()) {
+			Core::MaterialData* named = materials.Get(material_name);
+			if (named != nullptr) {
+				mat.data = named;
+			}
+		}
+
+		Components::Transform t{};
+		t.position = ADD_F3_F3(position, tt.position);
+		t.rotation = quaternion_multiply(rotation, tt.rotation);
+		t.scale = { tt.scale.x * scale.x, tt.scale.y * scale.y, tt.scale.z * scale.z };
+		t.dirty = true;
+		coordinator->AddComponent<Components::Transform>(e, t);
+
+		if (physics_json != nullptr) {
+			Components::Physics physics;
+			ParsePhysicsJson(*physics_json, physics);
+			coordinator->AddComponent<Components::Physics>(e, physics);
+			Components::Physics& p = coordinator->GetComponent<Components::Physics>(e);
+			p.Init(phys_world, p.type, nullptr, tbounds.bounding_box.Extents, t.position, t.scale, t.rotation, p.shape);
+		}
+
+		coordinator->NotifySignatureChange(e);
+
+		if (primary == ECS::INVALID_ENTITY_ID) {
+			primary = e;
+		}
+		++part_index;
+	}
+	return primary;
+}
+
+void World::LoadInstances(const nlohmann::json& instances_json) {
+	for (const auto& instance : instances_json) {
+		std::string name = instance["name"];
+		std::string template_name = instance["template"];
+
+		float3 position{};
+		if (instance.contains("position")) {
+			const auto& pos = instance["position"];
+			position = { pos["x"], pos["y"], pos["z"] };
+		}
+		float4 rotation{ 0.0f, 0.0f, 0.0f, 1.0f };
+		if (instance.contains("rotation")) {
+			const auto& rot = instance["rotation"];
+			rotation = { rot["x"], rot["y"], rot["z"], rot["w"] };
+		}
+		float3 scale{ 1.0f, 1.0f, 1.0f };
+		if (instance.contains("scale")) {
+			const auto& scl = instance["scale"];
+			scale = { scl["x"], scl["y"], scl["z"] };
+		}
+		std::string material_name = instance.value("material", "");
+		const nlohmann::json* physics_json = instance.contains("physics") ? &instance["physics"] : nullptr;
+
+		SpawnInstance(name, template_name, position, rotation, scale, material_name, physics_json);
+	}
+}
+
 bool World::Load(const std::string& scene_file, float* progress, std::function<void(float)> OnLoadProgress, float progress_unit) {
 	bool ret = true;
 	try {
@@ -379,13 +507,15 @@ bool World::Load(const std::string& scene_file, float* progress, std::function<v
 		if (OnLoadProgress != nullptr) { OnLoadProgress(*progress += 5.0f * progress_unit); }
 		//Load the FBX scene, entities
 		//can point to already created materials and meshes
-		json& world_fbx = jw["level"];
-		{
+		//The base level FBX is optional: a project can start from an empty,
+		//instances-only scene (see "instances" below) with no authored geometry yet.
+		if (jw.contains("level")) {
+			json& world_fbx = jw["level"];
 			std::string file = world_fbx["file"];
 			bool triangulate = world_fbx["triangulate"];
 			LoadFBX(file, triangulate, true, materials, meshes, shapes, coordinator, vertex_buffer);
-			if (OnLoadProgress != nullptr) { OnLoadProgress(*progress += 5.0f * progress_unit); }
 		}
+		if (OnLoadProgress != nullptr) { OnLoadProgress(*progress += 5.0f * progress_unit); }
 
 		//Load templates
 		if (jw.contains("templates")) {
@@ -395,6 +525,12 @@ bool World::Load(const std::string& scene_file, float* progress, std::function<v
 			}
 			coordinator->SendEvent(this, EVENT_ID_TEMPLATES_LOADED);
 			if (OnLoadProgress != nullptr) { OnLoadProgress(*progress += 10.0f * progress_unit); }
+		}
+
+		//Load editor-placed object instances (entities cloned from templates at load time,
+		//as opposed to "entities" below which only modifies already-existing named entities)
+		if (jw.contains("instances")) {
+			LoadInstances(jw["instances"]);
 		}
 
 		//Load sky
@@ -588,45 +724,8 @@ bool World::Load(const std::string& scene_file, float* progress, std::function<v
 					changed = true;
 				}
 				if (entity.contains("physics")) {
-					auto& physics_json = entity["physics"];
 					Components::Physics physics;
-					physics.type = reactphysics3d::BodyType::STATIC;
-					if (physics_json.contains("type")) {
-						const std::string& type = physics_json["type"];
-						if (type == "DYNAMIC") {
-							physics.type = reactphysics3d::BodyType::DYNAMIC;
-						}
-						else if (type == "KINEMATIC") {
-							physics.type = reactphysics3d::BodyType::KINEMATIC;
-						}
-						else {
-							assert(false && "Unknown physics type.");
-						}
-					}
-					if (physics_json.contains("bounce")) {
-						physics.bounce = physics_json["bounce"];
-					}
-					if (physics_json.contains("friction")) {
-						physics.friction = physics_json["friction"];
-					}
-					if (physics_json.contains("air_friction")) {
-						physics.air_friction = physics_json["air_friction"];
-					}
-					if (physics_json.contains("shape")) {
-						const std::string& shape = physics_json["shape"];
-						if (shape == "CAPSULE") {
-							physics.shape = Physics::SHAPE_CAPSULE;
-						}
-						else if (shape == "SPHERE") {
-							physics.shape = Physics::SHAPE_SPHERE;
-						}
-						else if (shape == "BOX") {
-							physics.shape = Physics::SHAPE_BOX;
-						}
-						else {
-							assert(false && "Unknown physics shape.");
-						}
-					}
+					ParsePhysicsJson(entity["physics"], physics);
 					coordinator->AddComponent<Components::Physics>(e, std::move(physics));
 					changed = true;
 				}
@@ -766,7 +865,7 @@ void World::Init() {
 	bvh_buffer->Prepare();
 }
 
-void World::Run(int render_fps, int background_fps, int physics_fps) {
+void World::Run(int render_fps, int background_fps, int physics_fps, bool auto_render) {
 	if (!running) {
 		running = true;
 		if (background_fps != 0) {
@@ -781,15 +880,17 @@ void World::Run(int render_fps, int background_fps, int physics_fps) {
 
 			physics_system->Update(0, 0, true);
 
-			run_timer_ids[DXCore::MAIN_THREAD].push_back(Scheduler::Get(DXCore::MAIN_THREAD)->RegisterTimer(1000000000 / render_fps, [this](const Scheduler::TimerData& t) {
-				//Update render system that don't need sync with lockstep
-				particle_system->Update(t.period, t.total);
-				render_system->Update();
-				render_system->mutex.lock();
-				coordinator->SendEvent(this, World::EVENT_ID_UPDATE_MAIN);
-				render_system->mutex.unlock();
-				return true;
-				}));
+			if (auto_render) {
+				run_timer_ids[DXCore::MAIN_THREAD].push_back(Scheduler::Get(DXCore::MAIN_THREAD)->RegisterTimer(1000000000 / render_fps, [this](const Scheduler::TimerData& t) {
+					//Update render system that don't need sync with lockstep
+					particle_system->Update(t.period, t.total);
+					render_system->Update();
+					render_system->mutex.lock();
+					coordinator->SendEvent(this, World::EVENT_ID_UPDATE_MAIN);
+					render_system->mutex.unlock();
+					return true;
+					}));
+			}
 
 			run_timer_ids[DXCore::BACKGROUND_THREAD].push_back(Scheduler::Get(DXCore::BACKGROUND_THREAD)->RegisterTimer(background_thread_period, [this](const Scheduler::TimerData& t) {
 				//Update systems that need sync with lockstep

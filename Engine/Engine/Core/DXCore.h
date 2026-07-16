@@ -119,6 +119,11 @@ namespace HotBite {
 				virtual void OnMouseMove(WPARAM buttonState, int x, int y) { }
 				virtual void OnMouseWheel(float wheelDelta, int x, int y) { }
 
+				// Hook for embedding a UI overlay (e.g. Dear ImGui) into the Win32 message
+				// stream. Called unconditionally as the first statement of ProcessMessage.
+				// Default is a no-op, so consumers that don't override it are unaffected.
+				virtual void ForwardWindowMessage(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) { }
+
 				// Helper function for allocating a console window
 				void CreateConsoleWindow(int bufferLines, int bufferColumns, int windowLines, int windowColumns);
 				//Frame stats function

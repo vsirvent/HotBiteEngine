@@ -120,8 +120,10 @@ namespace HotBite {
 							Core::FlatMap<std::string, Core::MeshData>& meshes,
 							Core::FlatMap<std::string, Core::ShapeData>& shapes,
 							ECS::Coordinator* c, Core::VertexBuffer<Core::Vertex>* vb, bool use_animation_names = false);
-			
-		public:			
+			void LoadInstances(const nlohmann::json& instances_json);
+			static void ParsePhysicsJson(const nlohmann::json& physics_json, Components::Physics& physics);
+
+		public:
 
 			World();
 			~World();
@@ -133,7 +135,12 @@ namespace HotBite {
 			virtual bool Load(const std::string& scene_file, float* progress = nullptr, std::function<void(float)> OnLoadProgress = nullptr, float progress_unit = 1.0f);
 			virtual void Init();
 			virtual void SetPostProcessPipeline(Core::PostProcess* pipeline);
-			virtual void Run(int render_fps, int background_fps = 0, int physics_fps = 0);
+			// auto_render: when false, skips registering the main-thread render timer
+			// (RenderSystem::Update, i.e. Clear/Draw/Present) while still starting the
+			// physics/background/audio timers. Lets a host that hasn't loaded any scene
+			// content yet (e.g. an editor showing only a project picker UI) drive its own
+			// render tick on its own schedule instead, without waiting on Load()/Init().
+			virtual void Run(int render_fps, int background_fps = 0, int physics_fps = 0, bool auto_render = true);
 			virtual void Stop();
 			virtual void LoadTemplate(const std::string& template_file, bool triangulate, bool relative, bool use_animation_names = false);
 			virtual void LoadMaterialFiles(const nlohmann::json& materials_info, const std::string& path);
@@ -142,6 +149,12 @@ namespace HotBite {
 			virtual void LoadMultiMaterial(const std::string& name, const nlohmann::json& multi_material_info);
 			virtual const std::set<ECS::Entity>& GetTemplateEntities(const std::string& template_name);
 			virtual bool IsTemplateLoaded(const std::string& template_name);
+			// Spawns a new, persistable entity (or set of entities, for multi-part templates)
+			// cloned from a named template, at the given base transform. Used both by the
+			// "instances" section of Load() and by editor tooling that places objects at runtime.
+			virtual ECS::Entity SpawnInstance(const std::string& name, const std::string& template_name,
+							const float3& position, const float4& rotation, const float3& scale,
+							const std::string& material_name = "", const nlohmann::json* physics_json = nullptr);
 
 			template<typename T>
 			void RegisterComponent()

@@ -1,0 +1,2 @@
+cb16be3a3fc1f9cd146ae24d52b615f8a05fa93d 2024-07-01 17:03:21 +0200
+Dear ImGui vendored from https://github.com/ocornut/imgui, tag v1.90.9

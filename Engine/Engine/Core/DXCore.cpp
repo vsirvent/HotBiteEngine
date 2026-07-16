@@ -617,6 +617,7 @@ void DXCore::OnFrame() {
 
 LRESULT DXCore::ProcessMessage(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
+	ForwardWindowMessage(hWnd, uMsg, wParam, lParam);
 	if (end) {
 		return DefWindowProc(hWnd, uMsg, wParam, lParam);
 	}
