@@ -178,6 +178,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance
 	setvbuf(stderr, nullptr, _IONBF, 0);
 
 	HotBiteEditor::SceneEditorApp app(hInstance);
+	app.OpenLevel("C:\\Users\\Vicen\\source\\repos\\Marbles\\Marbles\\Assets\\Levels\\Solo\\1\\level.json"); // TEMP smoke test - revert before final commit
 	app.Run();
 	return 0;
 }

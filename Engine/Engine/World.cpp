@@ -664,7 +664,14 @@ bool World::Load(const std::string& scene_file, float* progress, std::function<v
 		for (auto& entity : jw["entities"]) {
 			std::string name = entity["name"];
 			std::list<ECS::Entity> entity_list = coordinator->GetEntitiesByName(name);
-			assert(!entity_list.empty() && "entity not found.");
+			if (entity_list.empty()) {
+				//Not fatal: an "entities" rule matching nothing is already silently
+				//tolerated in Release builds (this used to be a hard assert here, live
+				//only in Debug); log it instead so Debug builds behave the same way,
+				// just visibly instead of invisibly.
+				printf("World::Load: warning: no entity matches name pattern '%s', skipping rule.\n", name.c_str());
+				continue;
+			}
 			for (ECS::Entity e : entity_list) {
 				assert(e != ECS::INVALID_ENTITY_ID && "Unknown entity.");
 				bool changed = false;
