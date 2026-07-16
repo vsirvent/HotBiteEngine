@@ -427,7 +427,7 @@ bool IsLowEnergy(float pdf[MAX_RAYS], uint len) {
         
     float total_enery = 0.0f;
 
-    for (int i = 0; i < len; ++i) {
+    for (uint i = 0; i < len; ++i) {
         total_enery += pdf[i];
     }
     float threshold = len * RAY_W_BIAS;
@@ -435,7 +435,7 @@ bool IsLowEnergy(float pdf[MAX_RAYS], uint len) {
     return (total_enery < threshold);
 }
 
-#define NTHREADS 11
+#define NTHREADS 8
 
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thread : SV_GroupThreadID)
@@ -515,7 +515,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     }
     
     float wis[MAX_RAYS];
-    int wis_size = 0;
+    uint wis_size = 0;
     uint last_wi = MAX_RAYS + 1;
     
     //Check if this is a low enery pixel

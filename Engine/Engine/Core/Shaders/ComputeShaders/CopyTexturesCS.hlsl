@@ -25,7 +25,7 @@ SOFTWARE.
 Texture2D input;
 RWTexture2D<float4> output;
 
-#define NTHREADS 32
+#define NTHREADS 8
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main(uint3 DTid : SV_DispatchThreadID)
 {

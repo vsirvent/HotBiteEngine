@@ -12,7 +12,7 @@ RWTexture2D<float4> output : register(u0);
 
 static const float kw[21] = { 0.000514f,0.001478f,0.003800f,0.008744f,0.018005f,0.033174f,0.054694f,0.080692f,0.106529f,0.125850f,0.133039f,0.125850f,0.106529f,0.080692f,0.054694f,0.033174f,0.018005f,0.008744f,0.003800f,0.001478f,0.000514f };
 
-#define NTHREADS 32
+#define NTHREADS 8
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main(uint3 DTid : SV_DispatchThreadID)
 {
@@ -33,7 +33,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
         float3 max_disp = float3(-1.0f, -1.0f, -1.0f);
         for (int i = -kernel; i <= kernel; ++i) {
             float2 p = pixel + dir * i;
-            if ((p.x < 0 || p.x >= input_dimensions.x) && (p.y < 0 || p.y >= input_dimensions.y)) {
+            if ((p.x < 0 || p.x >= (float)input_dimensions.x) && (p.y < 0 || p.y >= (float)input_dimensions.y)) {
                 break;
             }
             float3 c = input[p].rgb;
@@ -47,7 +47,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
         float3 max_disp = float3(0.0f, 0.0f, 0.0f);
         for (int i = -kernel; i <= kernel; ++i) {
             float2 p = pixel + dir * i;
-            if ((p.x < 0 || p.x >= input_dimensions.x) && (p.y < 0 || p.y >= input_dimensions.y)) {
+            if ((p.x < 0 || p.x >= (float)input_dimensions.x) && (p.y < 0 || p.y >= (float)input_dimensions.y)) {
                 break;
             }
             max_disp += input[p].rgb * kw[i + 10];

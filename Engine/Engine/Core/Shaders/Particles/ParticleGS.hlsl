@@ -59,9 +59,9 @@ void main(
 			element.life = input[0].life;
 			element.size = input[0].size;
 			element.id = input[0].id;
-			element.center = input[0].worldPos;
+			element.center = input[0].worldPos.xyz;
 			float a = element.size + sizeIncrementRatio * element.size * (1.0f - element.life);
-			float3 normal = normalize(cameraPosition - input[0].position);
+			float3 normal = normalize(cameraPosition - input[0].position.xyz);
 			float3 tangent;
 			float3 bitangent;
 

@@ -94,7 +94,7 @@ float DirShadowPCF(float4 position, DirLight light, int index)
 	float2 delta = 0.5f / float2(w, h);
 	float2 kernel = delta * 5.0f;
 	float att1 = 0.0f;
-	float count = 0.0f;
+	float count = 0.00001f;
 
 	for (float x = -kernel.x; x <= kernel.x; x += delta.x) {
 		for (float y = -kernel.y; y <= kernel.y; y += delta.y) {
@@ -102,7 +102,7 @@ float DirShadowPCF(float4 position, DirLight light, int index)
             float w1 = kernel.y - y;
             float w = w0 * w1;
             float4 val = DirShadowMapTexture[index].GatherCmp(PCFSampler, float2(p.x + x, p.y + y), p.z);
-            att1 += dot(val, float4(0.25, 0.25, 0.25, 0.25));			
+            att1 += dot(val, float4(0.25, 0.25, 0.25, 0.25));
 			count++;
 		}
 	}

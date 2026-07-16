@@ -119,7 +119,7 @@ RenderTargetRT MainRenderPS(GSOutput input)
 				calculated_values, multi_texture_uv_scales, input.uv, multi_normalTexture).xyz);
 		}
 		else {
-			texture_normal = normalTexture.Sample(basicSampler, input.uv);
+			texture_normal = normalTexture.Sample(basicSampler, input.uv).xyz;
 		}
 		texture_normal = texture_normal * 2.0f - 1.0f;
 		normal = normalize(mul(texture_normal, (float3x3)tbn) + normal);
@@ -139,8 +139,8 @@ RenderTargetRT MainRenderPS(GSOutput input)
 #if 1
 	// Calculate the point lights
 	for (i = 0; i < pointLightsCount; ++i) {
-		if (length(wpos - pointLights[i].Position) < pointLights[i].Range) {
-			lumColor.rgb += CalcPoint(normal, wpos, input.uv, material, pointLights[i], i, lightColor) * PointLightParallaxAtt[i];
+		if (length(wpos.xyz - pointLights[i].Position) < pointLights[i].Range) {
+			lumColor.rgb += CalcPoint(normal, wpos.xyz, input.uv, material, pointLights[i], i, lightColor) * PointLightParallaxAtt[i];
 		}
 	}
 #endif

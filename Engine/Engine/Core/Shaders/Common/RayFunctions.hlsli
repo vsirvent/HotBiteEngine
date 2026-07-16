@@ -66,6 +66,7 @@ float node_distance(BVHNode node, float3 pos)
 
 bool IntersectTri(RayObject ray, uint indexOffset, uint vertexOffset, out IntersectionResult result)
 {
+    result = (IntersectionResult)0;
 
     const uint indexByteOffset = indexOffset * 4;
     const uint vertexSize = 96;

@@ -420,7 +420,7 @@ return out_color.hit;
 }
 
 #define DENSITY 1.0f
-#define NTHREADS 32
+#define NTHREADS 8
 
         [numthreads(NTHREADS, NTHREADS, 1)]
         void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thread : SV_GroupThreadID)

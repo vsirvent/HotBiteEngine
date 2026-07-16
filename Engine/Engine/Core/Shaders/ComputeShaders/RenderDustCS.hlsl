@@ -66,7 +66,7 @@ static float2 lps[MAX_LIGHTS] = (float2[MAX_LIGHTS])LightPerspectiveValues;
 #include "../Common/SimpleLight.hlsli"
 #include "../Common/RGBANoise.hlsli"
 
-#define NTHREADS 32
+#define NTHREADS 8
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main(uint3 DTid : SV_DispatchThreadID)
 {
@@ -122,7 +122,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
             float2 screenPos2;
             screenPos2.x = (projPos2.x * 0.5f + 0.5f) * dimensions.x;
             screenPos2.y = (1.0f - (projPos2.y * 0.5f + 0.5f)) * dimensions.y;
-            if (screenPos.x >= 0 && screenPos.x < dimensions.x && screenPos.y >= 0 && screenPos.y < dimensions.y)
+            if (screenPos.x >= 0 && screenPos.x < (float)dimensions.x && screenPos.y >= 0 && screenPos.y < (float)dimensions.y)
             {
                 float depth = depthTextureUAV[screenPos / 2];
                 float dist_to_cam = length(wpos.xyz - cameraPosition);

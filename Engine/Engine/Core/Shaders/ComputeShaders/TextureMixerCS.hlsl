@@ -52,6 +52,7 @@ SamplerState basicSampler : register(s0);
 
 float4 Get3dInterpolatedColor(float2 uv, Texture2D text, float2 dimension, Texture2D positions, Texture2D normals, float2 pos_dimension) {
 
+	float4 result;
 
 	// Calculate the texture coordinates in the range [0, 1]
 	float2 texCoords = uv * dimension;
@@ -80,68 +81,74 @@ float4 Get3dInterpolatedColor(float2 uv, Texture2D text, float2 dimension, Textu
 
 	[branch]
 	if (wp00.x >= FLT_MAX || wp11.x >= FLT_MAX || wp01.x >= FLT_MAX || wp10.x >= FLT_MAX || wpxx.x >= FLT_MAX) {
-		return GetInterpolatedColor(uv, text, dimension);
+		result = GetInterpolatedColor(uv, text, dimension);
 	}
-	
-	float d00 = dist2(wpxx - wp00);  // Distance to wp00
-	float d11 = dist2(wpxx - wp11);  // Distance to wp11
-	float d01 = dist2(wpxx - wp01);  // Distance to wp01
-	float d10 = dist2(wpxx - wp10);  // Distance to wp10
+	else {
+		float d00 = dist2(wpxx - wp00);  // Distance to wp00
+		float d11 = dist2(wpxx - wp11);  // Distance to wp11
+		float d01 = dist2(wpxx - wp01);  // Distance to wp01
+		float d10 = dist2(wpxx - wp10);  // Distance to wp10
 
-	float all_dist = d00 + d11 + d01 + d10;
+		float all_dist = d00 + d11 + d01 + d10;
 
-	[branch]
-	if (all_dist < epsilon) {
-		return GetInterpolatedColor(uv, text, dimension);
-	}
-
-	float w00 = 1.0f - d00 / all_dist;
-	float w11 = 1.0f - d11 / all_dist;
-	float w01 = 1.0f - d01 / all_dist;
-	float w10 = 1.0f - d10 / all_dist;
+		[branch]
+		if (all_dist < epsilon) {
+			result = GetInterpolatedColor(uv, text, dimension);
+		}
+		else {
+			float w00 = 1.0f - d00 / all_dist;
+			float w11 = 1.0f - d11 / all_dist;
+			float w01 = 1.0f - d01 / all_dist;
+			float w10 = 1.0f - d10 / all_dist;
 
 #if 1
-	// Calculate the fractional part of the coordinates
-	float2 f = frac(texCoords);
+			// Calculate the fractional part of the coordinates
+			float2 f = frac(texCoords);
 
-	// Calculate the weights for bilinear interpolation
-	w00 *= (1.0f - f.x) * (1.0f - f.y);
-	w11 *= f.x * f.y;
-	w01 *= (1.0f - f.x) * f.y;
-	w10 *= f.x * (1.0f - f.y);
+			// Calculate the weights for bilinear interpolation
+			w00 *= (1.0f - f.x) * (1.0f - f.y);
+			w11 *= f.x * f.y;
+			w01 *= (1.0f - f.x) * f.y;
+			w10 *= f.x * (1.0f - f.y);
 #endif
 #if 0
-	static const float DIST_K = 2.0f;
-	w00 = pow(w00, DIST_K);
-	w11 = pow(w11, DIST_K);
-	w01 = pow(w01, DIST_K);
-	w10 = pow(w10, DIST_K);
+			static const float DIST_K = 2.0f;
+			w00 = pow(w00, DIST_K);
+			w11 = pow(w11, DIST_K);
+			w01 = pow(w01, DIST_K);
+			w10 = pow(w10, DIST_K);
 #endif
-	float3 n00 = normals[pos_p00].xyz;
-	float3 n11 = normals[pos_p11].xyz;
-	float3 n01 = normals[pos_p01].xyz;
-	float3 n10 = normals[pos_p10].xyz;
-	float3 nxx = normals[in_pos].xyz;
+			float3 n00 = normals[pos_p00].xyz;
+			float3 n11 = normals[pos_p11].xyz;
+			float3 n01 = normals[pos_p01].xyz;
+			float3 n10 = normals[pos_p10].xyz;
+			float3 nxx = normals[in_pos].xyz;
 #if 1
-	static const float DOT_K = 2.0f;
-	w00 *= pow(saturate(dot(nxx, n00)), DOT_K);
-	w11 *= pow(saturate(dot(nxx, n11)), DOT_K);
-	w01 *= pow(saturate(dot(nxx, n01)), DOT_K);
-	w10 *= pow(saturate(dot(nxx, n10)), DOT_K);
+			static const float DOT_K = 2.0f;
+			w00 *= pow(saturate(dot(nxx, n00)), DOT_K);
+			w11 *= pow(saturate(dot(nxx, n11)), DOT_K);
+			w01 *= pow(saturate(dot(nxx, n01)), DOT_K);
+			w10 *= pow(saturate(dot(nxx, n10)), DOT_K);
 #endif
-	// Normalize weights
-	float totalWeight = w00 + w11 + w01 + w10;
+			// Normalize weights
+			float totalWeight = w00 + w11 + w01 + w10;
 
-	[branch]
-	if (totalWeight < epsilon) {
-		return GetInterpolatedColor(uv, text, dimension);
+			[branch]
+			if (totalWeight < epsilon) {
+				result = GetInterpolatedColor(uv, text, dimension);
+			}
+			else {
+				w00 /= totalWeight;
+				w11 /= totalWeight;
+				w01 /= totalWeight;
+				w10 /= totalWeight;
+
+				result = (text[p00] * w00 + text[p11] * w11 + text[p01] * w01 + text[p10] * w10);
+			}
+		}
 	}
-	w00 /= totalWeight;
-	w11 /= totalWeight;
-	w01 /= totalWeight;
-	w10 /= totalWeight;
 
-	return (text[p00] * w00 + text[p11] * w11 + text[p01] * w01 + text[p10] * w10);
+	return result;
 }
 
 
@@ -174,7 +181,7 @@ float4 readColor(float2 pixel, texture2D text, uint w, uint h) {
     }
 }
 
-#define NTHREADS 32
+#define NTHREADS 8
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main(uint3 DTid : SV_DispatchThreadID)
 {

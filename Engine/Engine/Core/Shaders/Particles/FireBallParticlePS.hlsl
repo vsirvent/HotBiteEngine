@@ -66,7 +66,7 @@ RenderTarget main(GSParticleOutput input)
 {
 	RenderTarget output;
 	float4 lightColor = { 0.0f, 0.0f, 0.0f, 0.0f };
-	float alpha = pow(input.life, 3.2f);
+	float alpha = pow(abs(input.life), 3.2f);
 	float4 finalColor = material.ambientColor * alpha + material.diffuseColor * (1.0f - alpha);
 	float border = 1.0f - pow(length(abs(input.uv * 2.0f - 1.0f)), 2.0f);
 	float4 wpos = input.worldPos;
@@ -78,7 +78,7 @@ RenderTarget main(GSParticleOutput input)
 #if 1
 	uint i = 0;
 	// Calculate the directional light
-	for (i = 0; i < dirLightsCount; ++i) {
+	for (i = 0; i < (uint)dirLightsCount; ++i) {
 		finalColor.rgb += 0.6f * CalcDirectionalWithoutNormal(wpos, material, dirLights[i], 0.0f, i, lightColor);
 	}
 #endif

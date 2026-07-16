@@ -18,7 +18,7 @@ float2 GetPixelDir(float2 pixel) {
 }
 
 #define MAX_STEPS 30
-#define NTHREADS 32
+#define NTHREADS 8
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main(uint3 DTid : SV_DispatchThreadID, uint3 Gid: SV_GroupID, uint3 Tid: SV_GroupThreadID)
 {

@@ -29,7 +29,7 @@ float4 Upscale(float2 ipixel, float2 dir, float2 isize, float2 osize)
     return (input[p0] * 0.25 + input[p1] * 0.75) * w0 + (input[p1] * 0.75 + input[p2] * 0.25) * w1;
 }
 
-#define NTHREADS 32
+#define NTHREADS 8
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main(uint3 DTid : SV_DispatchThreadID)
 {

@@ -84,7 +84,7 @@ float4 SmoothColor(float2 pixel) {
 #endif
 }
 
-#define NTHREADS 32
+#define NTHREADS 8
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main(uint3 DTid : SV_DispatchThreadID)
 {

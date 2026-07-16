@@ -50,7 +50,7 @@ float4 getColor(float2 pixel, float2 dir)
 }
 
 
-#define NTHREADS 32
+#define NTHREADS 8
 
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main(uint3 DTid : SV_DispatchThreadID)

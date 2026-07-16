@@ -12,7 +12,7 @@ Texture2D<uint4> restir_pdf_0: register(t0);
 RWTexture2D<uint4> restir_pdf_1: register(u0);
 RWTexture2D<float> restir_w_1: register(u1);
 
-#define NTHREADS 32
+#define NTHREADS 8
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main(uint3 DTid : SV_DispatchThreadID)
 {

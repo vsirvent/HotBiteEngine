@@ -101,7 +101,7 @@ RenderTarget main(GSParticleOutput input)
 	float4 finalColor = material.diffuseColor;
 	float border = 1.0f - pow(length(abs(input.uv * 2.0f - 1.0f)), 2.0f);
 	float fade_in = saturate((1.0f - input.life) / 0.1f);
-	float3 wpos = input.worldPos;
+	float3 wpos = input.worldPos.xyz;
 	float2 uv = float2(input.uv.y,1.0f - input.uv.x);
 	float2 q = uv;
 	float tfire = time * 0.6f;

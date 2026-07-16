@@ -1396,8 +1396,8 @@ void RenderSystem::ProcessAntiAlias() {
 
 	ID3D11UnorderedAccessView* image = motion_blur_map.UAV();
 
-	int32_t  groupsX = (int32_t)(ceil((float)motion_blur_map.Width() / 32.0f));
-	int32_t  groupsY = (int32_t)(ceil((float)motion_blur_map.Height() / 32.0f));
+	int32_t  groupsX = (int32_t)(ceil((float)motion_blur_map.Width() / 8.0f));
+	int32_t  groupsY = (int32_t)(ceil((float)motion_blur_map.Height() / 8.0f));
 
 	aa_shader->SetShaderResourceView("depthTexture", depth_map.SRV());
 	aa_shader->SetShaderResourceView("normalTexture", rt_ray_sources1.SRV());
@@ -1422,8 +1422,8 @@ void RenderSystem::ProcessMix() {
 
 	ID3D11UnorderedAccessView* image = temp_map.UAV();
 
-	int32_t  groupsX = (int32_t)(ceil((float)temp_map.Width() / 32.0f));
-	int32_t  groupsY = (int32_t)(ceil((float)temp_map.Height() / 32.0f));
+	int32_t  groupsX = (int32_t)(ceil((float)temp_map.Width() / 8.0f));
+	int32_t  groupsY = (int32_t)(ceil((float)temp_map.Height() / 8.0f));
 
 	mixer_shader->SetInt("frame_count", frame_count);
 	mixer_shader->SetFloat("time", time);
@@ -1475,8 +1475,8 @@ void RenderSystem::ProcessMotionBlur() {
 	}
 	
 	CameraEntity& cam_entity = cameras.GetData()[0];
-	int32_t  groupsX = (int32_t)(ceil((float)post_process_pipeline->GetW() / 32.0f));
-	int32_t  groupsY = (int32_t)(ceil((float)post_process_pipeline->GetH() / 32.0f));
+	int32_t  groupsX = (int32_t)(ceil((float)post_process_pipeline->GetW() / 8.0f));
+	int32_t  groupsY = (int32_t)(ceil((float)post_process_pipeline->GetH() / 8.0f));
 	motion_blur->SetMatrix4x4("view_proj", cam_entity.camera->view_projection);
 	motion_blur->SetMatrix4x4("prev_view_proj", cam_entity.camera->prev_view_projection);
 	motion_blur->SetShaderResourceView("input", motion_blur_map.SRV());
@@ -1502,8 +1502,8 @@ void RenderSystem::ProcessDust() {
 		float3 dir;
 		XMStoreFloat3(&dir, cam_entity.camera->xm_direction);
 
-		int32_t  groupsX = (int32_t)(ceil((float)dust_map.Width() / (32.0f)));
-		int32_t  groupsY = (int32_t)(ceil((float)dust_map.Height() / (32.0f)));
+		int32_t  groupsX = (int32_t)(ceil((float)dust_map.Width() / (8.0f)));
+		int32_t  groupsY = (int32_t)(ceil((float)dust_map.Height() / (8.0f)));
 
 		if (!is_dust_init) {
 			//Update dust positions
@@ -1567,8 +1567,8 @@ void RenderSystem::ProcessLensFlare() {
 	if (lens_flare_enabled && lens_flare_map.UAV() != nullptr) {
 		lens_flare_map.Clear(zero);
 		
-		int32_t  groupsX = (int32_t)(ceil((float)lens_flare_map.Width() / (32.0f)));
-		int32_t  groupsY = (int32_t)(ceil((float)lens_flare_map.Height() / (32.0f)));
+		int32_t  groupsX = (int32_t)(ceil((float)lens_flare_map.Width() / (8.0f)));
+		int32_t  groupsY = (int32_t)(ceil((float)lens_flare_map.Height() / (8.0f)));
 		
 		int w = dxcore->GetWidth();
 		int h = dxcore->GetHeight();
@@ -1609,8 +1609,8 @@ void RenderSystem::ProcessLensFlare() {
 
 void RenderSystem::CopyTexture(const Core::RenderTexture2D& input, Core::RenderTexture2D& output)
 {
-	int32_t  groupsX = (int32_t)(ceil((float)output.Width() / 32.0f));
-	int32_t  groupsY = (int32_t)(ceil((float)output.Height() / 32.0f));
+	int32_t  groupsX = (int32_t)(ceil((float)output.Width() / 8.0f));
+	int32_t  groupsY = (int32_t)(ceil((float)output.Height() / 8.0f));
 	copy_texture->SetShaderResourceView("input", input.SRV());
 	copy_texture->SetUnorderedAccessView("output", output.UAV());
 	copy_texture->CopyAllBufferData();
@@ -1624,8 +1624,8 @@ void RenderSystem::CopyTexture(const Core::RenderTexture2D& input, Core::RenderT
 void RenderSystem::ProcessMotion() {
 	if (!cameras.GetData().empty()) {
 		CameraEntity& cam_entity = cameras.GetData()[0];
-		int32_t  groupsX = (int32_t)(ceil((float)motion_texture.Width() / 32.0f));
-		int32_t  groupsY = (int32_t)(ceil((float)motion_texture.Height() / 32.0f));
+		int32_t  groupsX = (int32_t)(ceil((float)motion_texture.Width() / 8.0f));
+		int32_t  groupsY = (int32_t)(ceil((float)motion_texture.Height() / 8.0f));
 		motion_shader->SetMatrix4x4("view_proj", cam_entity.camera->view_projection);
 		motion_shader->SetMatrix4x4("prev_view_proj", cam_entity.camera->prev_view_projection);
 		motion_shader->SetUnorderedAccessView("output", motion_texture.UAV());
@@ -1802,8 +1802,8 @@ void RenderSystem::ProcessGI() {
 		gi_shader->SetUnorderedAccessView("output", rt_texture_gi_trace->UAV());
 		gi_shader->SetUnorderedAccessView("tiles_output", rt_textures_gi_tiles.UAV());
 
-		int groupsX = (int32_t)(ceil((float)rt_texture_gi_curr->Width() / (RESTIR_KERNEL)));
-		int groupsY = (int32_t)(ceil((float)rt_texture_gi_curr->Height() / (RESTIR_KERNEL)));
+		int groupsX = (int32_t)(ceil((float)rt_texture_gi_curr->Width() / (8.0f)));
+		int groupsY = (int32_t)(ceil((float)rt_texture_gi_curr->Height() / (8.0f)));
 		dxcore->context->Dispatch((uint32_t)ceil((float)groupsX), (uint32_t)ceil((float)groupsY), 1);
 
 		gi_shader->SetShaderResourceView("restir_pdf_0", nullptr);
@@ -1822,8 +1822,8 @@ void RenderSystem::ProcessGI() {
 		UnprepareLights(gi_shader);
 		gi_shader->CopyAllBufferData();
 
-		groupsX = (int32_t)(ceil((float)rt_texture_gi_curr->Width() / (32.0f)));
-		groupsY = (int32_t)(ceil((float)rt_texture_gi_curr->Height() / (32.0f)));
+		groupsX = (int32_t)(ceil((float)rt_texture_gi_curr->Width() / (8.0f)));
+		groupsY = (int32_t)(ceil((float)rt_texture_gi_curr->Height() / (8.0f)));
 
 		gi_weights->SetShader();
 		gi_weights->SetInt("ray_count", RESTIR_PIXEL_RAYS);
@@ -1981,8 +1981,8 @@ void RenderSystem::ProcessRT() {
 			dxcore->context->CSSetShaderResources(4, 1, vertex_buffer->VertexSRV());
 			dxcore->context->CSSetShaderResources(5, 1, vertex_buffer->IndexSRV());
 			rt_di_shader->SetShader();
-			int32_t  groupsX = (int32_t)(ceil((float)rt_texture_di_curr[RT_TEXTURE_REFLEX].Width() / (32.0f)));
-			int32_t  groupsY = (int32_t)(ceil((float)rt_texture_di_curr[RT_TEXTURE_REFLEX].Height() / (32.0f)));
+			int32_t  groupsX = (int32_t)(ceil((float)rt_texture_di_curr[RT_TEXTURE_REFLEX].Width() / (8.0f)));
+			int32_t  groupsY = (int32_t)(ceil((float)rt_texture_di_curr[RT_TEXTURE_REFLEX].Height() / (8.0f)));
 			dxcore->context->Dispatch(groupsX, groupsY, 2);
 
 			rt_di_shader->SetUnorderedAccessView("output0", nullptr);
@@ -2018,8 +2018,8 @@ void RenderSystem::ProcessRT() {
 			for (int i = 0; i < ntextures; ++i) {
 				int ntexture = textures[i];
 
-				groupsX = (int32_t)(ceil((float)rt_texture_di_curr[ntexture].Width() / (32.0f)));
-				groupsY = (int32_t)(ceil((float)rt_texture_di_curr[ntexture].Height() / (32.0f)));
+				groupsX = (int32_t)(ceil((float)rt_texture_di_curr[ntexture].Width() / (8.0f)));
+				groupsY = (int32_t)(ceil((float)rt_texture_di_curr[ntexture].Height() / (8.0f)));
 
 				rt_di_denoiser->SetShaderResourceView("input", rt_texture_di_curr[ntexture].SRV());
 				rt_di_denoiser->SetUnorderedAccessView("output", texture_tmp.UAV());
@@ -2028,8 +2028,8 @@ void RenderSystem::ProcessRT() {
 				rt_di_denoiser->SetInt("light_type", i);
 				rt_di_denoiser->CopyAllBufferData();
 				rt_di_denoiser->SetShader();
-				groupsX = (int32_t)(ceil((float)rt_texture_di_curr[ntexture].Width() / (32.0f)));
-				groupsY = (int32_t)(ceil((float)rt_texture_di_curr[ntexture].Height() / (32.0f)));
+				groupsX = (int32_t)(ceil((float)rt_texture_di_curr[ntexture].Width() / (8.0f)));
+				groupsY = (int32_t)(ceil((float)rt_texture_di_curr[ntexture].Height() / (8.0f)));
 				dxcore->context->Dispatch(groupsX, groupsY, 1);
 				rt_di_denoiser->SetShaderResourceView("input", nullptr);
 				rt_di_denoiser->SetUnorderedAccessView("output", nullptr);
@@ -2060,8 +2060,8 @@ void RenderSystem::ProcessRT() {
 #if 0
 			//Apply antialias
 			int ntexture = RT_TEXTURE_INDIRECT;
-			groupsX = (int32_t)(ceil((float)rt_texture_di_curr[ntexture].Width() / (32.0f)));
-			groupsY = (int32_t)(ceil((float)rt_texture_di_curr[ntexture].Height() / (32.0f)));
+			groupsX = (int32_t)(ceil((float)rt_texture_di_curr[ntexture].Width() / (8.0f)));
+			groupsY = (int32_t)(ceil((float)rt_texture_di_curr[ntexture].Height() / (8.0f)));
 
 			aa_shader->SetShaderResourceView("depthTexture", depth_map.SRV());
 			aa_shader->SetShaderResourceView("normalTexture", rt_ray_sources1.SRV());
@@ -2527,8 +2527,8 @@ void RenderSystem::PostProcessLight() {
 		vol_shader->SetUnorderedAccessView("vol_data", vol_data.UAV());
 		vol_shader->CopyAllBufferData();
 		vol_shader->SetShader();
-		int32_t  groupsX = (int32_t)(ceil((float)vol_light_map.Width() / (32.0f)));
-		int32_t  groupsY = (int32_t)(ceil((float)vol_light_map.Height() / (32.0f)));
+		int32_t  groupsX = (int32_t)(ceil((float)vol_light_map.Width() / (8.0f)));
+		int32_t  groupsY = (int32_t)(ceil((float)vol_light_map.Height() / (8.0f)));
 		dxcore->context->Dispatch(groupsX, groupsY, 1);
 		vol_shader->SetUnorderedAccessView("output", nullptr);
 		vol_shader->SetUnorderedAccessView("vol_data", nullptr);
@@ -2539,8 +2539,8 @@ void RenderSystem::PostProcessLight() {
 		blur_shader->SetUnorderedAccessView("input", vol_light_map.UAV());
 		blur_shader->SetUnorderedAccessView("output", vol_light_map2.UAV());
 		blur_shader->SetShaderResourceView("vol_data", vol_data.SRV());
-		groupsX = (int32_t)(ceil((float)vol_light_map.Width() / 32.0f));
-		groupsY = (int32_t)(ceil((float)vol_light_map.Height() / 32.0f));
+		groupsX = (int32_t)(ceil((float)vol_light_map.Width() / 8.0f));
+		groupsY = (int32_t)(ceil((float)vol_light_map.Height() / 8.0f));
 		blur_shader->SetFloat("variance", 5.0f);
 		blur_shader->SetInt("type", 1);
 		blur_shader->CopyAllBufferData();

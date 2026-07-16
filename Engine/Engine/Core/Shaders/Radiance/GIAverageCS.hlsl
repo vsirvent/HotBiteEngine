@@ -29,7 +29,7 @@ float GetPosW(int pos, uint kernel) {
 //#define DEBUG
 #define MIN_W 0.1f
 
-#define NTHREADS 32
+#define NTHREADS 8
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main(uint3 DTid : SV_DispatchThreadID)
 {

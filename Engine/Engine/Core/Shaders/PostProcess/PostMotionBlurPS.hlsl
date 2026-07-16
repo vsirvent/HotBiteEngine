@@ -73,7 +73,7 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
         int i = 0;
         int real_steps = 0;
 
-        while (n < fsteps && n < MAX_STEPS) {
+        while (n < fsteps && n < (float)MAX_STEPS) {
             float a = (fsteps - n) / fsteps;
             t += a;
             n += step_size;
@@ -85,7 +85,7 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
         float ratio = (float)fsteps / real_steps;
         float4 inputColor = renderTexture[pos.xy];
         output_color = output_color / t;
-        float2 p = pos - dir * ratio * real_steps / 5.0f;
+        float2 p = pos.xy - dir * ratio * real_steps / 5.0f;
         for (i = 0; i < real_steps ; ++i) {
             p += dir * ratio;
             float a = (fsteps - n) / (fsteps * t);

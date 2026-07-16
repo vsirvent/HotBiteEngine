@@ -68,7 +68,7 @@ RenderTarget main(GSParticleOutput input)
 {
 	RenderTarget output;
 	float4 lightColor = { 0.0f, 0.0f, 0.0f, 0.0f };
-	float alpha = pow(input.life, 3.2f);
+	float alpha = pow(abs(input.life), 3.2f);
 	float4 finalColor = material.ambientColor* alpha + material.diffuseColor*(1.0f - alpha);
 	float border = 1.0f - pow(length(abs(input.uv * 2.0f - 1.0f)), 2.0f);
 	float4 wpos = input.worldPos;
@@ -80,7 +80,7 @@ RenderTarget main(GSParticleOutput input)
 #if 1
 	uint i = 0;
 	// Calculate the directional light
-	for (i = 0; i < dirLightsCount; ++i) {
+	for (i = 0; i < (uint)dirLightsCount; ++i) {
 		finalColor.rgb += 0.6f * CalcDirectionalWithoutNormal(wpos, material, dirLights[i], 0.0f, i, lightColor);
 	}
 #endif
@@ -95,12 +95,12 @@ RenderTarget main(GSParticleOutput input)
 	float t = time * 0.5f;
 	wpos *= 1.01f - 0.01f * (1.0f - alpha);
 	float3 eye = cameraPosition;
-	float3 dir = normalize(wpos - cameraPosition);
+	float3 dir = normalize(wpos.xyz - cameraPosition);
 
 	float3 pos = eye;
 	float n0 = 0.0f;
 	float step_size = input.size / nsteps;
-	for (i = 0; i < nsteps; i++)
+	for (i = 0; i < (uint)nsteps; i++)
 	{
 		if (n0 > 0.99) break;
 		n0 += rgba_tnoise(float3(wpos.x - 0.5f * t, wpos.y - t, wpos.z + 0.5f * t) * 2.0f) * 0.5f / nsteps;

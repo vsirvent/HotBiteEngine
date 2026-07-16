@@ -41,7 +41,7 @@ VertexParticleOutput main(VertexParticleInput input)
 {
 	VertexParticleOutput output;
 	int use_bones = 0;
-	matrix m;
+	matrix m = (matrix)0;
 	if (flags & PARTICLES_FLAG_LOCAL) {
 		for (int i = 0; i < 4; ++i) {
 			if (input.bone_ids[i] >= 0 && input.weights[i] > 0.0f && (int)njoints > input.bone_ids[i]) {

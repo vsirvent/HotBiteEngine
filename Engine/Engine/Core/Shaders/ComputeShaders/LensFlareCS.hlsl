@@ -104,7 +104,7 @@ float4 EmitPoint(float2 pixel, float2 light_screen_pos, float2 dimenstion, Point
     return float4(color, 1.0f);
 }
 
-#define NTHREADS 32
+#define NTHREADS 8
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main(uint3 DTid : SV_DispatchThreadID)
 {

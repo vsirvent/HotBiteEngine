@@ -209,6 +209,7 @@ RenderTargetRT main(GSOutput input)
 	output.scene = finalColor * 0.6f * dz_pcf;
 	lightColor += output.scene;
 	output.light_map = saturate(lightColor);
+	output.bloom_map = lightColor;
 
 	RaySource ray;
 	ray.orig = input.worldPos.xyz;
@@ -220,6 +221,8 @@ RenderTargetRT main(GSOutput input)
 
 	output.rt_ray0_map = getColor0(ray);
 	output.rt_ray1_map = getColor1(ray);
+	output.pos0_map = input.worldPos;
+	output.pos1_map = input.worldPos;
 	return output;
 }
 
