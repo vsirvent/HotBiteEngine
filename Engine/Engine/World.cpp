@@ -369,6 +369,17 @@ void World::LoadTemplate(const std::string& template_file, bool triangulate, boo
 	template_entities[std::filesystem::path(template_file).filename().replace_extension().string()] = LoadFBX(template_file, triangulate, relative, materials, meshes, shapes, templates_coordinator, vertex_buffer, use_animation_names);
 }
 
+void World::RefreshMeshBuffers() {
+	vertex_buffer->Unprepare();
+	vertex_buffer->Prepare();
+	bvh_buffer->Unprepare();
+	bvh_buffer->Clean();
+	for (auto& m : meshes.GetData()) {
+		bvh_buffer->Add(m.bvh.Root(), m.bvh.Size(), &m.bvhOffset);
+	}
+	bvh_buffer->Prepare();
+}
+
 void World::ParsePhysicsJson(const nlohmann::json& physics_json, Components::Physics& physics) {
 	physics.type = reactphysics3d::BodyType::STATIC;
 	if (physics_json.contains("type")) {

@@ -7,10 +7,24 @@
 // this same include order for the same reason.
 #include <Core/PhysicsCommon.h>
 #include <Core/DXCore.h>
+#include <GUI\GUI.h>
 #include <World.h>
+#include <functional>
 #include <string>
 #include <vector>
 #include <set>
+
+#include "EditorCamera.h"
+
+namespace HotBite {
+	namespace Engine {
+		namespace Core {
+			class MainEffect;
+			class DOFBokeProcess;
+			class BaseDOFProcess;
+		}
+	}
+}
 
 namespace HotBiteEditor {
 
@@ -58,6 +72,15 @@ namespace HotBiteEditor {
 		std::string status_message;
 	};
 
+	// A menu-bar entry, registered by path (e.g. "File/Save Level"). The ImGui menu
+	// bar is built from this list and the automation channel executes entries from it
+	// by the same path, so scripted runs exercise exactly the code a mouse click would.
+	struct MenuCommand {
+		std::string path;               // "<Menu>/<Item>"
+		std::function<bool()> enabled;  // nullptr = always enabled
+		std::function<void()> action;
+	};
+
 	class SceneEditorApp : public HotBite::Engine::Core::DXCore, public HotBite::Engine::ECS::EventListener
 	{
 	public:
@@ -71,14 +94,44 @@ namespace HotBiteEditor {
 		HotBite::Engine::ECS::Coordinator* GetCoordinator() override;
 
 		void OpenProject(const std::string& project_root);
-		void OpenLevel(const std::string& level_json_path);
+		bool OpenLevel(const std::string& level_json_path);
 		void CloseLevel();
+
+		bool IsLevelLoaded() const { return level_loaded; }
+		EditorState& GetState() { return state; }
+		EditorCamera& GetEditorCamera() { return editor_camera; }
+
+		// The DOF stage of the post-process pipeline installed on level load (null
+		// until then). Focus/amplitude live here; the on/off switch is
+		// RenderSystem::SetDOF like every other render feature.
+		HotBite::Engine::Core::BaseDOFProcess* GetDofEffect();
+
+		// Runs the menu command registered under `path` exactly as if it were clicked,
+		// honoring its enabled() predicate. Returns false with `error` set for an
+		// unknown or currently disabled command.
+		bool ExecuteMenuCommand(const std::string& path, std::string& error);
+		const std::vector<MenuCommand>& GetMenuCommands() const { return menu_commands; }
+
+		// Saves the current backbuffer (including the ImGui UI already rendered into
+		// it this frame) as a PNG. Only meaningful between the UI render and the DXGI
+		// present, which is when EditorAutomation::OnFrameEnd runs.
+		bool CaptureBackBuffer(const std::string& png_path, std::string& error);
 
 	private:
 		HotBite::Engine::World world;
 		bool level_loaded = false;
+		EditorCamera editor_camera;
 
 		EditorState state;
+		std::vector<MenuCommand> menu_commands;
+
+		// Post-process chain installed on level load (Marbles-style:
+		// MainEffect -> DOFBokeProcess -> backbuffer). Without a pipeline the
+		// RenderSystem skips the deferred light mix, ray tracing, AA and motion
+		// blur entirely and the scene presents as a flat base pass.
+		HotBite::Engine::Core::MainEffect* post_effect = nullptr;
+		HotBite::Engine::Core::BaseDOFProcess* dof_effect = nullptr;
+		UI::GUI* gui = nullptr;
 
 		void DrawMenuBar();
 	};

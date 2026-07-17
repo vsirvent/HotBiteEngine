@@ -262,11 +262,13 @@ void PhysicsSystem::onContact(const reactphysics3d::CollisionCallback::CallbackD
 
 void PhysicsSystem::Update(PhysicsEntity& pe, int64_t elapsed_nsec, int64_t total_nsec, bool force) {
 
-	
 	Transform* transform = pe.transform;
 	Bounds* bounds = pe.bounds;
 	Physics* physics = pe.physics;
 	Base* base = pe.base;
+
+	if (!physics->body)
+		return;
 
 	const reactphysics3d::Transform& bt = physics->body->getTransform();
 

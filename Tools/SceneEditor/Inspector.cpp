@@ -41,6 +41,68 @@ namespace HotBiteEditor {
 			};
 		}
 
+		//Shared post-edit bookkeeping for both the interactive (Draw) and programmatic
+		//(ApplyTransform) paths: marks the transform dirty and records what needs to be
+		//written back on save.
+		static void CommitTransformEdit(EditorState& state, const Base& base, Transform& t)
+		{
+			t.dirty = true;
+
+			if (state.instance_entity_ids.count(state.selected_entity) != 0) {
+				//This entity is an editor-placed instance: update its bookkeeping
+				//entry directly so a save writes the new transform out.
+				for (auto& inst : state.placed_instances) {
+					if (inst.name == base.name) {
+						inst.position = t.position;
+						inst.rotation = t.rotation;
+						inst.scale = t.scale;
+						break;
+					}
+				}
+			}
+			else {
+				//An FBX-authored entity: remember its name so SceneSerializer
+				//writes a position/scale/rotation override for it under "entities".
+				state.overridden_entities.insert(base.name);
+			}
+		}
+
+		bool ApplyTransform(EditorState& state,
+			const float3* position,
+			const float3* scale,
+			const float3* euler_degrees,
+			std::string& error)
+		{
+			Coordinator* c = state.world->GetCoordinator();
+			if (c == nullptr || state.selected_entity == INVALID_ENTITY_ID) {
+				error = "no entity selected";
+				return false;
+			}
+			if (!c->ContainsComponent<Base>(state.selected_entity) ||
+				!c->ContainsComponent<Transform>(state.selected_entity)) {
+				error = "selected entity has no Base/Transform component";
+				return false;
+			}
+			const Base& base = c->GetComponent<Base>(state.selected_entity);
+			Transform& t = c->GetComponent<Transform>(state.selected_entity);
+
+			if (position != nullptr) {
+				t.position = *position;
+			}
+			if (scale != nullptr) {
+				t.scale = *scale;
+			}
+			if (euler_degrees != nullptr) {
+				//Only touch the rotation when explicitly requested, so pure
+				//position/scale edits don't accumulate quaternion<->Euler
+				//round-trip error through the cached Euler angles.
+				state.inspector_euler_degrees = *euler_degrees;
+				t.rotation = float3_to_quaternion(state.inspector_euler_degrees);
+			}
+			CommitTransformEdit(state, base, t);
+			return true;
+		}
+
 		void Draw(EditorState& state)
 		{
 			ImGui::Begin("Inspector");
@@ -71,25 +133,7 @@ namespace HotBiteEditor {
 
 				if (changed) {
 					t.rotation = float3_to_quaternion(state.inspector_euler_degrees);
-					t.dirty = true;
-
-					if (state.instance_entity_ids.count(state.selected_entity) != 0) {
-						//This entity is an editor-placed instance: update its bookkeeping
-						//entry directly so a save writes the new transform out.
-						for (auto& inst : state.placed_instances) {
-							if (inst.name == base.name) {
-								inst.position = t.position;
-								inst.rotation = t.rotation;
-								inst.scale = t.scale;
-								break;
-							}
-						}
-					}
-					else {
-						//An FBX-authored entity: remember its name so SceneSerializer
-						//writes a position/scale/rotation override for it under "entities".
-						state.overridden_entities.insert(base.name);
-					}
+					CommitTransformEdit(state, base, t);
 				}
 			}
 			else {

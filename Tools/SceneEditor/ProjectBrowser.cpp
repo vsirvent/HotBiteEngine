@@ -28,7 +28,7 @@ namespace HotBiteEditor {
 			ofn.lpstrFile = file;
 			ofn.nMaxFile = sizeof(file);
 			ofn.lpstrTitle = "Open Level";
-			ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
+			ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
 			if (GetOpenFileNameA(&ofn)) {
 				return std::string(file);
 			}
@@ -55,7 +55,7 @@ namespace HotBiteEditor {
 		//the project root, matching Marbles' own layout. Falls back to the level's
 		//own directory if none is found (still lets the level open/save; just means
 		//the Asset Browser won't find Assets/Objects for that project).
-		static std::string DeriveProjectRoot(const std::string& level_json_path)
+		std::string DeriveProjectRoot(const std::string& level_json_path)
 		{
 			fs::path dir = fs::path(level_json_path).parent_path();
 			for (int i = 0; i < 8 && !dir.empty(); ++i) {

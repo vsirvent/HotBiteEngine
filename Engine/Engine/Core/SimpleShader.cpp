@@ -133,6 +133,7 @@ namespace HotBite {
 			bool ISimpleShader::LoadShaderFile(LPCWSTR shaderFile)
 			{
 				this->shaderFile = shaderFile;
+
 				// Load the shader to a blob and ensure it worked
 				HRESULT hr = D3DReadFileToBlob(shaderFile, &shaderBlob);
 				assert(hr == S_OK);

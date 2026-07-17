@@ -33,6 +33,11 @@
     <ClCompile Include="Inspector.cpp" />
     <ClCompile Include="AssetBrowser.cpp" />
     <ClCompile Include="SceneSerializer.cpp" />
+    <ClCompile Include="EditorAutomation.cpp" />
+    <ClCompile Include="EditorCamera.cpp" />
+    <ClCompile Include="CrashHandler.cpp" />
+    <ClCompile Include="RenderSettings.cpp" />
+    <ClCompile Include="RenderDocIntegration.cpp" />
     <ClCompile Include="imgui\imgui.cpp" />
     <ClCompile Include="imgui\imgui_draw.cpp" />
     <ClCompile Include="imgui\imgui_tables.cpp" />
@@ -47,6 +52,12 @@
     <ClInclude Include="Inspector.h" />
     <ClInclude Include="AssetBrowser.h" />
     <ClInclude Include="SceneSerializer.h" />
+    <ClInclude Include="EditorAutomation.h" />
+    <ClInclude Include="EditorCamera.h" />
+    <ClInclude Include="CrashHandler.h" />
+    <ClInclude Include="RenderSettings.h" />
+    <ClInclude Include="RenderDocIntegration.h" />
+    <ClInclude Include="renderdoc_app.h" />
     <ClInclude Include="imgui\imgui.h" />
     <ClInclude Include="imgui\imgui_internal.h" />
     <ClInclude Include="imgui\imconfig.h" />

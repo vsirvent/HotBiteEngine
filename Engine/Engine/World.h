@@ -149,6 +149,12 @@ namespace HotBite {
 			virtual void LoadMultiMaterial(const std::string& name, const nlohmann::json& multi_material_info);
 			virtual const std::set<ECS::Entity>& GetTemplateEntities(const std::string& template_name);
 			virtual bool IsTemplateLoaded(const std::string& template_name);
+			// Rebuilds the GPU vertex/BVH buffers from the current CPU-side mesh data.
+			// Init() uploads them exactly once, so meshes added by LoadTemplate/LoadFBX
+			// calls made after Init() (e.g. an editor importing objects into a running
+			// session) otherwise reference GPU data that was never uploaded and render
+			// as nothing. Call from the render thread, between frames.
+			virtual void RefreshMeshBuffers();
 			// Spawns a new, persistable entity (or set of entities, for multi-part templates)
 			// cloned from a named template, at the given base transform. Used both by the
 			// "instances" section of Load() and by editor tooling that places objects at runtime.

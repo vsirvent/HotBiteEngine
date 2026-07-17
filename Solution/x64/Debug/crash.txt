@@ -1,0 +1,30 @@
+=== SceneEditor crash ===
+Exception 0xC0000005 at 0x00007FF7C799AD3F
+Access violation: reading address 0x0000000000000000
+Stack:
+  00 0x00007FF7C799AD3F HotBite::Engine::Core::SimpleVertexShader::CreateShader+0x6F [C:\Users\vicen\Documents\GitHub\HotBiteEngine\Engine\Engine\Core\SimpleShader.cpp:697]
+  01 0x00007FF7C799C476 HotBite::Engine::Core::ISimpleShader::LoadShaderFile+0xB6 [C:\Users\vicen\Documents\GitHub\HotBiteEngine\Engine\Engine\Core\SimpleShader.cpp:142]
+  02 0x00007FF7C79AE86A HotBite::Engine::Core::ShaderFactory::GetShader<HotBite::Engine::Core::SimpleVertexShader>+0x21A [C:\Users\vicen\Documents\GitHub\HotBiteEngine\Engine\Engine\Core\SimpleShader.h:334]
+  03 0x00007FF7C7AEBB8F HotBite::Engine::Core::MaterialData::_MaterialData+0x3F [C:\Users\vicen\Documents\GitHub\HotBiteEngine\Engine\Engine\Core\Material.cpp:95]
+  04 0x00007FF7C7AE6A48 HotBite::Engine::Core::MaterialData::MaterialData+0x128 [C:\Users\vicen\Documents\GitHub\HotBiteEngine\Engine\Engine\Core\Material.cpp:109]
+  05 0x00007FF7C7B13E6B HotBite::Engine::Core::FlatMap<std::basic_string<char,std::char_traits<char>,std::allocator<char> >,HotBite::Engine::Core::MaterialData>::Create+0x3B [C:\Users\vicen\Documents\GitHub\HotBiteEngine\Engine\Engine\Core\Utils.h:129]
+  06 0x00007FF7C7B16FAC HotBite::Engine::Loader::FBXLoader::LoadMaterials+0xBC [C:\Users\vicen\Documents\GitHub\HotBiteEngine\Engine\Engine\Loader\FBXLoader.cpp:455]
+  07 0x00007FF7C7A84EA0 HotBite::Engine::World::LoadFBX+0x250 [C:\Users\vicen\Documents\GitHub\HotBiteEngine\Engine\Engine\World.cpp:216]
+  08 0x00007FF7C7A80954 HotBite::Engine::World::Load+0x2F4 [C:\Users\vicen\Documents\GitHub\HotBiteEngine\Engine\Engine\World.cpp:527]
+  09 0x00007FF7C76A5132 HotBiteEditor::SceneEditorApp::OpenLevel+0xC2 [C:\Users\vicen\Documents\GitHub\HotBiteEngine\Tools\SceneEditor\SceneEditor.cpp:264]
+  10 0x00007FF7C76BCD35 HotBiteEditor::ProjectBrowser::Draw+0x175 [C:\Users\vicen\Documents\GitHub\HotBiteEngine\Tools\SceneEditor\ProjectBrowser.cpp:166]
+  11 0x00007FF7C76A4EDA HotBiteEditor::SceneEditorApp::Present+0x3A [C:\Users\vicen\Documents\GitHub\HotBiteEngine\Tools\SceneEditor\SceneEditor.cpp:119]
+  12 0x00007FF7C76A60F8 `HotBiteEditor::SceneEditorApp::SceneEditorApp'::`2'::<lambda_1>::operator()+0x138 [C:\Users\vicen\Documents\GitHub\HotBiteEngine\Tools\SceneEditor\SceneEditor.cpp:75]
+  13 0x00007FF7C76AE9DD std::invoke<`HotBiteEditor::SceneEditorApp::SceneEditorApp'::`2'::<lambda_1> &,HotBite::Engine::Core::Scheduler::TimerData const &>+0x1D [C:\Program Files\Microsoft Visual Studio\18\Insiders\VC\Tools\MSVC\14.51.36231\include\type_traits:1831]
+  14 0x00007FF7C76A6514 std::_Func_impl_no_alloc<`HotBiteEditor::SceneEditorApp::SceneEditorApp'::`2'::<lambda_1>,bool,HotBite::Engine::Core::Scheduler::TimerData const &>::_Do_call+0x24 [C:\Program Files\Microsoft Visual Studio\18\Insiders\VC\Tools\MSVC\14.51.36231\include\functional:1009]
+  15 0x00007FF7C7970621 std::_Func_class<bool,HotBite::Engine::Core::Scheduler::TimerData const &>::operator()+0x51 [C:\Program Files\Microsoft Visual Studio\18\Insiders\VC\Tools\MSVC\14.51.36231\include\functional:1058]
+  16 0x00007FF7C7971EE9 HotBite::Engine::Core::Scheduler::Update+0x2F9 [C:\Users\vicen\Documents\GitHub\HotBiteEngine\Engine\Engine\Core\Scheduler.cpp:224]
+  17 0x00007FF7C79842FC HotBite::Engine::Core::DXCore::Run+0x1AC [C:\Users\vicen\Documents\GitHub\HotBiteEngine\Engine\Engine\Core\DXCore.cpp:529]
+  18 0x00007FF7C76A4842 wWinMain+0x5B2 [C:\Users\vicen\Documents\GitHub\HotBiteEngine\Tools\SceneEditor\SceneEditor.cpp:407]
+  19 0x00007FF7C7B7CA52 invoke_main+0x32 [D:\a\_work\1\s\src\vctools\crt\vcstartup\src\startup\exe_common.inl:123]
+  20 0x00007FF7C7B7C902 __scrt_common_main_seh+0x132 [D:\a\_work\1\s\src\vctools\crt\vcstartup\src\startup\exe_common.inl:288]
+  21 0x00007FF7C7B7C7BE __scrt_common_main+0xE [D:\a\_work\1\s\src\vctools\crt\vcstartup\src\startup\exe_common.inl:331]
+  22 0x00007FF7C7B7CAEE wWinMainCRTStartup+0xE [D:\a\_work\1\s\src\vctools\crt\vcstartup\src\startup\exe_wwinmain.cpp:17]
+  23 0x00007FFF7A99E957 BaseThreadInitThunk+0x17
+  24 0x00007FFF7BE0AD6C RtlUserThreadStart+0x2C
+Minidump: C:\Users\vicen\Documents\GitHub\HotBiteEngine\Solution\x64\Debug\crash.dmp

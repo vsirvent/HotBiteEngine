@@ -315,6 +315,9 @@ namespace HotBite {
 					if (buffer != nullptr) {
 						int count = buffer->Release();
 						hr |= (count == 0) ? S_OK : E_FAIL;
+						//Null out so repeated Unprepare/Prepare cycles (buffer rebuilds
+						//after post-Init mesh loads) can't double-release.
+						buffer = nullptr;
 						srv->Release();
 						srv = nullptr;
 					}

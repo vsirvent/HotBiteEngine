@@ -4,10 +4,19 @@
 #include "Inspector.h"
 #include "AssetBrowser.h"
 #include "SceneSerializer.h"
+#include "EditorAutomation.h"
+#include "CrashHandler.h"
+#include "RenderSettings.h"
+#include "RenderDocIntegration.h"
+
+#include <Core/PostProcess.h>
 
 #include "imgui.h"
 #include "backends/imgui_impl_win32.h"
 #include "backends/imgui_impl_dx11.h"
+
+#include <DirectXTex.h>
+#include <shellapi.h>
 
 #include <crtdbg.h>
 #include <cstdio>
@@ -46,6 +55,9 @@ namespace HotBiteEditor {
 		//query from frame one.
 		world.PreLoad(this);
 		state.world = &world;
+		//Input events fire from the same (main) thread the render tick runs on; the
+		//camera controller is inert until a level provides a camera entity.
+		editor_camera.Init(&world);
 
 		//Start physics/audio/background ticking immediately, but with auto_render=false:
 		//RenderSystem::Update() (Clear/Draw/Present) must not run before World::Init() has
@@ -53,8 +65,12 @@ namespace HotBiteEditor {
 		//then we drive our own minimal Clear+Present tick below so the ImGui project picker
 		//still renders on an otherwise-empty window.
 		world.Run(60, 60, 60, false);
-		Scheduler::Get(DXCore::MAIN_THREAD)->RegisterTimer(1000000000 / 60, [this](const Scheduler::TimerData&) {
+		Scheduler::Get(DXCore::MAIN_THREAD)->RegisterTimer(1000000000 / 60, [this](const Scheduler::TimerData& t) {
+			//Remote-control commands run before the frame renders, so their effects
+			//(and any screenshot taken at the end of this same frame) are consistent.
+			EditorAutomation::ProcessCommands(state, *this);
 			if (level_loaded) {
+				editor_camera.Update((float)t.period / 1000000000.0f);
 				world.GetSystem<RenderSystem>()->Update();
 			}
 			else {
@@ -64,6 +80,13 @@ namespace HotBiteEditor {
 			}
 			return true;
 			});
+
+		menu_commands.push_back({ "File/Save Level",
+			[this]() { return level_loaded; },
+			[this]() { SceneSerializer::Save(state); } });
+		menu_commands.push_back({ "File/Exit",
+			nullptr,
+			[this]() { Quit(); } });
 	}
 
 	SceneEditorApp::~SceneEditorApp()
@@ -71,6 +94,15 @@ namespace HotBiteEditor {
 		ImGui_ImplDX11_Shutdown();
 		ImGui_ImplWin32_Shutdown();
 		ImGui::DestroyContext();
+
+		delete dof_effect;
+		delete post_effect;
+		delete gui;
+	}
+
+	Core::BaseDOFProcess* SceneEditorApp::GetDofEffect()
+	{
+		return dof_effect;
 	}
 
 	void SceneEditorApp::ForwardWindowMessage(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
@@ -101,6 +133,10 @@ namespace HotBiteEditor {
 		context->OMSetRenderTargets(1, &rtv, nullptr);
 		ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
 
+		//The backbuffer now holds the complete frame (scene + UI): let automation
+		//capture pending screenshots and flush its responses before presenting.
+		EditorAutomation::OnFrameEnd(state, *this);
+
 		DXCore::Present();
 	}
 
@@ -109,20 +145,113 @@ namespace HotBiteEditor {
 		return world.GetCoordinator();
 	}
 
+	//Splits a MenuCommand path ("File/Save Level") into its menu and item parts.
+	static void SplitMenuPath(const std::string& path, std::string& menu, std::string& item)
+	{
+		size_t slash = path.find('/');
+		if (slash == std::string::npos) {
+			menu = path;
+			item.clear();
+		}
+		else {
+			menu = path.substr(0, slash);
+			item = path.substr(slash + 1);
+		}
+	}
+
 	void SceneEditorApp::DrawMenuBar()
 	{
 		if (ImGui::BeginMainMenuBar()) {
-			if (ImGui::BeginMenu("File")) {
-				if (ImGui::MenuItem("Save Level", nullptr, false, level_loaded)) {
-					SceneSerializer::Save(state);
+			//Commands are grouped into top-level menus by the prefix of their path;
+			//consecutive commands sharing a prefix land in the same BeginMenu block.
+			for (size_t i = 0; i < menu_commands.size();) {
+				std::string menu, item;
+				SplitMenuPath(menu_commands[i].path, menu, item);
+				if (ImGui::BeginMenu(menu.c_str())) {
+					for (; i < menu_commands.size(); ++i) {
+						std::string m, it;
+						SplitMenuPath(menu_commands[i].path, m, it);
+						if (m != menu) {
+							break;
+						}
+						MenuCommand& mc = menu_commands[i];
+						bool is_enabled = !mc.enabled || mc.enabled();
+						if (ImGui::MenuItem(it.c_str(), nullptr, false, is_enabled)) {
+							mc.action();
+						}
+					}
+					ImGui::EndMenu();
 				}
-				ImGui::EndMenu();
+				else {
+					//Menu closed: still advance past this group.
+					std::string m, it;
+					for (; i < menu_commands.size(); ++i) {
+						SplitMenuPath(menu_commands[i].path, m, it);
+						if (m != menu) {
+							break;
+						}
+					}
+				}
 			}
+			RenderSettings::DrawMenu(*this);
 			if (!state.status_message.empty()) {
 				ImGui::TextUnformatted(state.status_message.c_str());
 			}
 			ImGui::EndMainMenuBar();
 		}
+	}
+
+	bool SceneEditorApp::ExecuteMenuCommand(const std::string& path, std::string& error)
+	{
+		for (auto& mc : menu_commands) {
+			if (mc.path == path) {
+				if (mc.enabled && !mc.enabled()) {
+					error = "menu command is disabled: " + path;
+					return false;
+				}
+				mc.action();
+				return true;
+			}
+		}
+		error = "unknown menu command: " + path;
+		return false;
+	}
+
+	bool SceneEditorApp::CaptureBackBuffer(const std::string& png_path, std::string& error)
+	{
+		//WIC (used by SaveToWICFile) needs COM on this thread; nothing else on the
+		//render thread initializes it. RPC_E_CHANGED_MODE just means it already was.
+		static bool com_initialized = false;
+		if (!com_initialized) {
+			CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+			com_initialized = true;
+		}
+
+		char hr_text[32];
+		ID3D11Texture2D* back_buffer = nullptr;
+		HRESULT hr = swapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&back_buffer);
+		if (FAILED(hr)) {
+			snprintf(hr_text, sizeof(hr_text), "0x%08X", (unsigned)hr);
+			error = std::string("GetBuffer failed: ") + hr_text;
+			return false;
+		}
+		DirectX::ScratchImage image;
+		hr = DirectX::CaptureTexture(device, context, back_buffer, image);
+		back_buffer->Release();
+		if (FAILED(hr)) {
+			snprintf(hr_text, sizeof(hr_text), "0x%08X", (unsigned)hr);
+			error = std::string("CaptureTexture failed: ") + hr_text;
+			return false;
+		}
+		std::wstring wpath(png_path.begin(), png_path.end());
+		hr = DirectX::SaveToWICFile(*image.GetImage(0, 0, 0), DirectX::WIC_FLAGS_NONE,
+			DirectX::GetWICCodec(DirectX::WIC_CODEC_PNG), wpath.c_str());
+		if (FAILED(hr)) {
+			snprintf(hr_text, sizeof(hr_text), "0x%08X", (unsigned)hr);
+			error = std::string("SaveToWICFile failed: ") + hr_text + " (" + png_path + ")";
+			return false;
+		}
+		return true;
 	}
 
 	void SceneEditorApp::OpenProject(const std::string& project_root)
@@ -131,23 +260,41 @@ namespace HotBiteEditor {
 		state.status_message = "Project: " + project_root;
 	}
 
-	void SceneEditorApp::OpenLevel(const std::string& level_json_path)
+	bool SceneEditorApp::OpenLevel(const std::string& level_json_path)
 	{
 		if (level_loaded) {
 			state.status_message = "A level is already open in this session; restart the editor to open a different one.";
-			return;
+			return false;
 		}
 		if (!world.Load(level_json_path)) {
 			state.status_message = "Failed to load level: " + level_json_path;
-			return;
+			return false;
 		}
 		world.Init();
+
+		//Install the full post-process pipeline, mirroring Marbles' setup
+		//(MainEffect -> DOF -> backbuffer; RenderSystem finds the DOF stage by
+		//walking the chain). Without a pipeline the RenderSystem never runs the
+		//deferred light mix / ray tracing / AA / motion blur and the scene
+		//presents as a flat base pass.
+		post_effect = new Core::MainEffect(context, width, height);
+		gui = new UI::GUI(context, width, height, world.GetCoordinator());
+		dof_effect = new Core::DOFBokeProcess(context, width, height, world.GetCoordinator());
+		post_effect->SetNext(dof_effect);
+		dof_effect->SetEnabled(true);
+		dof_effect->SetFocus(30.0f);
+		dof_effect->SetAmplitude(5.0f);
+		dof_effect->SetNext(gui);
+		world.SetPostProcessPipeline(post_effect);
+		RenderSettings::ApplyHighDefaults(*this);
+
 		// world.Run() already started in the constructor (with rendering disabled until
 		// now); flipping level_loaded lets our own render tick switch to driving
 		// RenderSystem::Update() instead of the bare Clear+Present used for the picker.
 		state.current_level_path = level_json_path;
 		level_loaded = true;
 		state.status_message = "Loaded: " + level_json_path;
+		return true;
 	}
 
 	void SceneEditorApp::CloseLevel()
@@ -161,6 +308,7 @@ namespace HotBiteEditor {
 int APIENTRY wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance,
 	_In_ LPWSTR lpCmdLine, _In_ int nCmdShow)
 {
+#if 0
 	// By default, a failed assert() in a debug CRT build pops a blocking modal dialog
 	// (Abort/Retry/Ignore), which looks like a silent hang/crash when the process has
 	// no visible console attached or is launched non-interactively. Route assert and
@@ -176,9 +324,93 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance
 	SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
 	setvbuf(stdout, nullptr, _IONBF, 0);
 	setvbuf(stderr, nullptr, _IONBF, 0);
+#endif
+	// Supported switches:
+	//   --project <dir>      open a project root (folder containing config.json)
+	//   --level <level.json> open a level directly (project root derived if not given)
+	//   --automation <dir>   enable the file-based remote-control channel (see
+	//                        EditorAutomation.h) rooted at <dir>
+	//   --renderdoc [dll]    load the RenderDoc in-app API for programmatic frame
+	//                        captures (rdoc_capture automation command); optional
+	//                        value overrides the default renderdoc.dll path
+	std::string project_arg, level_arg, automation_arg;
+	bool renderdoc_enabled = false;
+	std::string renderdoc_dll;
+	{
+		int argc = 0;
+		LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+		auto narrow = [](LPCWSTR w) {
+			int len = WideCharToMultiByte(CP_ACP, 0, w, -1, nullptr, 0, nullptr, nullptr);
+			std::string s(len > 0 ? len - 1 : 0, '\0');
+			if (len > 1) {
+				WideCharToMultiByte(CP_ACP, 0, w, -1, s.data(), len, nullptr, nullptr);
+			}
+			return s;
+		};
+		if (argv != nullptr) {
+			for (int i = 1; i < argc; ++i) {
+				std::string key = narrow(argv[i]);
+				if (key == "--project" && i + 1 < argc) {
+					project_arg = narrow(argv[++i]);
+				}
+				else if (key == "--level" && i + 1 < argc) {
+					level_arg = narrow(argv[++i]);
+				}
+				else if (key == "--automation" && i + 1 < argc) {
+					automation_arg = narrow(argv[++i]);
+				}
+				else if (key == "--renderdoc") {
+					renderdoc_enabled = true;
+					//Optional value: a custom renderdoc.dll path (not another switch).
+					if (i + 1 < argc) {
+						std::string value = narrow(argv[i + 1]);
+						if (value.rfind("--", 0) != 0) {
+							renderdoc_dll = value;
+							++i;
+						}
+					}
+				}
+			}
+			LocalFree(argv);
+		}
+	}
+
+	if (!automation_arg.empty()) {
+		HotBiteEditor::EditorAutomation::Init(automation_arg);
+	}
+
+	//Crash reports land in the automation dir when one is set (so a driving agent
+	//finds crash.txt/crash.dmp next to its command channel), else beside the exe.
+	{
+		std::string crash_dir = automation_arg;
+		if (crash_dir.empty()) {
+			char exe_path[MAX_PATH] = {};
+			GetModuleFileNameA(nullptr, exe_path, MAX_PATH);
+			crash_dir = exe_path;
+			size_t slash = crash_dir.find_last_of('\\');
+			crash_dir = (slash != std::string::npos) ? crash_dir.substr(0, slash) : ".";
+		}
+		HotBiteEditor::CrashHandler::Install(crash_dir);
+
+		//RenderDoc's dll must be loaded before the D3D11 device exists (created in
+		//the SceneEditorApp constructor below), or the device escapes its hooks.
+		if (renderdoc_enabled) {
+			if (!HotBiteEditor::RenderDocIntegration::Load(renderdoc_dll, crash_dir)) {
+				fprintf(stderr, "RenderDoc integration requested (--renderdoc) but loading the API failed.\n");
+			}
+		}
+	}
 
 	HotBiteEditor::SceneEditorApp app(hInstance);
-	app.OpenLevel("C:\\Users\\Vicen\\source\\repos\\Marbles\\Marbles\\Assets\\Levels\\Solo\\1\\level.json"); // TEMP smoke test - revert before final commit
+	if (!project_arg.empty()) {
+		app.OpenProject(project_arg);
+	}
+	if (!level_arg.empty()) {
+		if (app.GetState().project_root.empty()) {
+			app.GetState().project_root = HotBiteEditor::ProjectBrowser::DeriveProjectRoot(level_arg);
+		}
+		app.OpenLevel(level_arg);
+	}
 	app.Run();
 	return 0;
 }

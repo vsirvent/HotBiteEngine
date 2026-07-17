@@ -1,0 +1,14 @@
+{
+    "version": 1,
+    "revision": 0,
+    "rules": [
+        {
+            "primary-output": "x64\\Release\\SimpleShader.obj",
+            "outputs": [
+                "x64\\Release\\SimpleShader.h.obj.dt.module.json",
+                "x64\\Release\\SimpleShader.h.obj.dt.d.json"
+            ],
+            "requires": []
+        }
+    ]
+}
