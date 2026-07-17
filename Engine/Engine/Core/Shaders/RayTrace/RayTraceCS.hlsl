@@ -63,7 +63,9 @@ cbuffer objectData : register(b1)
 RWTexture2D<float4> output0 : register(u0);
 RWTexture2D<float4> output1 : register(u1);
 RWTexture2D<float4> bloom : register(u7);
-RWTexture2D<float4> tiles_output : register(u4);
+//Must be uint: this is bound to the R8_UINT tiles texture. Declaring it float4
+//made every tile write undefined and the DI denoiser skipped the whole frame.
+RWTexture2D<uint> tiles_output : register(u4);
 
 Texture2D<float4> ray0;
 Texture2D<float4> ray1;
@@ -98,18 +100,11 @@ float3 GenerateHemisphereRay(float3 dir, float3 tangent, float3 bitangent, float
         return dir; // The first point is directly at the top
     }
 
-    float cumulativePoints = 1;
-    float level = 1;
-    while (true) {
-        float c = cumulativePoints + level * 2;
-        if (c < index) {
-            cumulativePoints = c;
-        }
-        else {
-            break;
-        }
-        level++;
-    };
+    //Largest m >= 0 with 1 + m * (m + 1) < index, closed form of the previous
+    //linear search (levels grow by 2 points per level).
+    float m = max(ceil((sqrt(max(4.0f * (index - 1.0f) + 1.0f, 0.0f)) - 1.0f) * 0.5f) - 1.0f, 0.0f);
+    float level = m + 1.0f;
+    float cumulativePoints = 1.0f + m * (m + 1.0f);
 
     float pointsAtLevel = level * 2;  // Quadratic growth
 
@@ -148,6 +143,34 @@ struct RayTraceColor {
     bool hit;
 };
 
+//Objects within max_distance of the pixel origin are the same for every ray and
+//every refraction bounce of the pixel (the original code also culled against the
+//first origin): cull the object list once per pixel. A bitmask keeps the
+//per-thread storage at 4 registers instead of a spilled index array.
+#define CANDIDATE_WORDS ((MAX_OBJECTS + 31) / 32)
+static uint candidate_mask[CANDIDATE_WORDS];
+
+void BuildCandidateList(float3 orig)
+{
+    uint w = 0;
+    for (w = 0; w < CANDIDATE_WORDS; ++w) {
+        candidate_mask[w] = 0;
+    }
+    for (uint i = 0; i < nobjects; ++i) {
+        ObjectInfo o = objectInfos[i];
+        float objectExtent = length(o.aabb_max - o.aabb_min);
+        float distanceToObject = length(o.position - orig) - objectExtent;
+        if (distanceToObject < max_distance) {
+            candidate_mask[i >> 5] |= 1u << (i & 31);
+        }
+    }
+}
+
+bool IsCandidate(uint i)
+{
+    return (candidate_mask[i >> 5] & (1u << (i & 31))) != 0;
+}
+
 bool GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTraceColor out_color, float dispersion, bool mix, bool refract)
 {
     out_color.color[0] = float3(0.0f, 0.0f, 0.0f);
@@ -184,9 +207,12 @@ bool GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
         while (volumeStackSize > 0 && volumeStackSize < MAX_STACK_SIZE)
         {
 #else
-        for (uint i = 0; i < nobjects; ++i)
+        for (uint ci = 0; ci < nobjects; ++ci)
         {
-            uint objectIndex = i;
+            uint objectIndex = ci;
+            if (!IsCandidate(ci)) {
+                continue;
+            }
 #endif
 
 #if USE_OBH
@@ -202,11 +228,9 @@ bool GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
                 if (IntersectAABB(ray, o.aabb_min, o.aabb_max))
                 {
 #else
-            ObjectInfo o = objectInfos[i];
-            float objectExtent = length(o.aabb_max - o.aabb_min);
-            float distanceToObject = length(o.position - origRay.orig.xyz) - objectExtent;
+            ObjectInfo o = objectInfos[objectIndex];
             [branch]
-            if (distanceToObject < max_distance && distanceToObject < result.distance && IntersectAABB(ray, o.aabb_min, o.aabb_max))
+            if (IntersectAABB(ray, o.aabb_min, o.aabb_max))
             {
 #endif
                 object_result.distance = FLT_MAX;
@@ -481,24 +505,14 @@ return out_color.hit;
             {
                 float3 normal = ray_source.normal;
                 float3 orig_dir = ray.dir;
-                int count = 0;
-
-                float cumulativePoints = 0;
-                float level = 1;
-                while (true) {
-                    float c = cumulativePoints + level * 2;
-                    if (c < N) {
-                        cumulativePoints = c;
-                    }
-                    else {
-                        break;
-                    }
-                    level++;
-                };
+                //Smallest level with level * (level + 1) >= N, closed form of the
+                //previous linear search.
+                float level = ceil((sqrt(4.0f * N + 1.0f) - 1.0f) * 0.5f);
 
                 rc.hit = false;
                 [branch]
                 if (DTid.z == 0) {
+                    BuildCandidateList(orig_pos);
                     float3 seed = orig_pos * 100.0f;
                     float rX = rgba_tnoise(seed);
                     rX = pow(rX, 4.0f);
@@ -527,6 +541,7 @@ return out_color.hit;
                 else {
                     //Refracted ray
                     if (ray_source.opacity < 1.0f && (enabled & REFRACT_ENABLED)) {
+                        BuildCandidateList(orig_pos);
                         float3 seed = orig_pos * 100.0f;
                         float rX = rgba_tnoise(seed);
                         Ray ray = GetRefractedRayFromSource(ray_source);

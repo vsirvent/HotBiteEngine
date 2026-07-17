@@ -32,7 +32,7 @@ SOFTWARE.
 #define USE_OBH 0
 #define LEVEL_RATIO 3
 //#define BOUNCES
-#define DISABLE_RESTIR
+//#define DISABLE_RESTIR
 
 cbuffer externalData : register(b0)
 {
@@ -121,23 +121,26 @@ uint GetRayIndex(float2 pixel, float pdf_cache[MAX_RAYS], float w, float index) 
                 break;
             }
     }
-    return i;
+    //If the accumulated weights never reach the target, i ends at ray_count: clamp to a valid ray
+    return min(i, ray_count - 1);
+}
+
+//Smallest level k >= 1 such that 1 + LEVEL_RATIO * k * (k + 1) / 2 >= index.
+//Closed form of the previous linear search, which also returned 0 (division by zero
+//in the caller) for index <= 1.
+float HemisphereLevelFromIndex(float index)
+{
+    float m = 2.0f * (index - 1.0f) / (float)LEVEL_RATIO;
+    float k = ceil((sqrt(1.0f + 4.0f * m) - 1.0f) * 0.5f);
+    return max(k, 1.0f);
 }
 
 float3 GenerateHemisphereRay(float3 dir, float3 tangent, float3 bitangent, float dispersion, float N, float NLevels, float rX)
 {
     float index = (rX * dispersion) % N;
 
-    //index = (frame_count) % N;
-    float cumulativePoints = 1.0f;
-    float level = 1.0f;
-    float c = 1.0f;
-    while (c < index) {
-        c = cumulativePoints + level * LEVEL_RATIO;
-        cumulativePoints = c;
-        level++;
-    };
-    level--;
+    float level = HemisphereLevelFromIndex(index);
+    float cumulativePoints = 1.0f + (float)LEVEL_RATIO * level * (level + 1.0f) * 0.5f;
 
     float pointsAtLevel = level * LEVEL_RATIO;
 
@@ -171,6 +174,33 @@ struct RayTraceColor {
     bool hit;
 };
 
+//Objects within max_distance of the pixel origin are the same for every ray of the
+//pixel: cull the object list once per pixel instead of once per ray. A bitmask keeps
+//the per-thread storage at 4 registers instead of a spilled index array.
+#define CANDIDATE_WORDS ((MAX_OBJECTS + 31) / 32)
+static uint candidate_mask[CANDIDATE_WORDS];
+
+void BuildCandidateList(float3 orig)
+{
+    uint w = 0;
+    for (w = 0; w < CANDIDATE_WORDS; ++w) {
+        candidate_mask[w] = 0;
+    }
+    for (uint i = 0; i < nobjects; ++i) {
+        ObjectInfo o = objectInfos[i];
+        float objectExtent = length(o.aabb_max - o.aabb_min);
+        float distanceToObject = length(o.position - orig) - objectExtent;
+        if (distanceToObject < max_distance) {
+            candidate_mask[i >> 5] |= 1u << (i & 31);
+        }
+    }
+}
+
+bool IsCandidate(uint i)
+{
+    return (candidate_mask[i >> 5] & (1u << (i & 31))) != 0;
+}
+
 void GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTraceColor out_color, float dispersion, bool mix, bool refract)
 {
     out_color.color = float3(0.0f, 0.0f, 0.0f);
@@ -201,9 +231,12 @@ void GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
         while (volumeStackSize > 0 && volumeStackSize < MAX_STACK_SIZE)
         {
 #else
-        for (uint i = 0; i < nobjects; ++i)
+        for (uint ci = 0; ci < nobjects; ++ci)
         {
-            uint objectIndex = i;
+            uint objectIndex = ci;
+            if (!IsCandidate(ci)) {
+                continue;
+            }
 #endif
 
 #if USE_OBH
@@ -222,10 +255,8 @@ void GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
                 if (distanceToObject < max_distance && distanceToObject < result.distance && IntersectAABB(ray, o.aabb_min, o.aabb_max))
                 {
 #else
-            ObjectInfo o = objectInfos[i];
-            float objectExtent = length(o.aabb_max - o.aabb_min);
-            float distanceToObject = length(o.position - origRay.orig.xyz) - objectExtent;
-            if (distanceToObject < max_distance && distanceToObject < result.distance && IntersectAABB(ray, o.aabb_min, o.aabb_max))
+            ObjectInfo o = objectInfos[objectIndex];
+            if (IntersectAABB(ray, o.aabb_min, o.aabb_max))
             {
 #endif
                 object_result.distance = FLT_MAX;
@@ -482,8 +513,8 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     {
         for (i = 0; i < ray_count; i++) {
             pdf_cache[i] = max(pdf_cache[i] - 0.01f, RAY_W_BIAS);
-            restir_pdf_1[pixel] = PackRays(pdf_cache, RAY_W_SCALE);
         }
+        restir_pdf_1[pixel] = PackRays(pdf_cache, RAY_W_SCALE);
         output[pixel] = float4(0.0f, 0.0f, 0.0f, -1.0f);
         return;
     }
@@ -497,44 +528,49 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     float3 normal = ray_source.normal;
     float3 orig_dir = ray.dir;
 
-    float cumulativePoints = 1;
-    float level = 1;
-    uint c = 0;
-    while (c < N) {
-        c = cumulativePoints + level * LEVEL_RATIO;
-        cumulativePoints = c;
-        level++;
-    };
-                      
+    float level = HemisphereLevelFromIndex((float)N) + 1.0f;
+
     GetSpaceVectors(normal, tangent, bitangent);
 
-    float color_w = 0.0f;
+    BuildCandidateList(orig_pos);
 
-    for (i = 0; i < ray_count; i++) {
-        pdf_cache[i] = max(pdf_cache[i], RAY_W_BIAS);
-    }
-    
-    float wis[MAX_RAYS];
-    uint wis_size = 0;
-    uint last_wi = MAX_RAYS + 1;
-    
-    //Check if this is a low enery pixel
+    //Check if this is a low enery pixel. Must be done on the raw unpacked values:
+    //after the bias floor below the total can never go under the threshold.
     uint low_energy = IsLowEnergy(pdf_cache, ray_count);
-#ifdef DISABLE_RESTIR
-    uint start = 0;
-    uint step = 1;
-#else
+
     float2 mvector = motion_texture[ray_pixel].xy;
     float motion = 0.0f;
     if (mvector.x > -FLT_MAX) {
         motion = dist2(mvector);
     }
-    float motion_ratio = 1.0f / max(100.0f * sqrt(motion) * toCamDistance, 0.01f);
-    uint start = (((pixel.x + pixel.y + frame_count)) % ray_count) * low_energy * motion_ratio;
-    uint step = frame_count % 8 + ray_count / 2 + (ray_count * motion_ratio) * low_energy;
-#endif
 
     float w_pixel = max(restir_w_0[pixel], RAY_W_BIAS * ray_count);
+
+    //The pdf cache is stored per screen pixel and is not reprojected, so any motion
+    //makes it describe a different surface point. Blend it toward a flat distribution
+    //proportionally to how many pixels the point moved: selection degrades to uniform
+    //sampling instead of importance-amplifying stale directions (smearing artifacts).
+    float pixels_moved = sqrt(motion) * dimensions.x * 0.5f;
+    float stale = saturate(pixels_moved * 0.25f);
+    float flat_pdf = w_pixel * inv_ray_count;
+    for (i = 0; i < ray_count; i++) {
+        pdf_cache[i] = lerp(max(pdf_cache[i], RAY_W_BIAS), flat_pdf, stale);
+    }
+
+    float wis[MAX_RAYS];
+    uint wis_size = 0;
+    uint last_wi = MAX_RAYS + 1;
+
+#ifdef DISABLE_RESTIR
+    uint start = 0;
+    uint step = 1;
+#else
+    float motion_ratio = 1.0f / max(100.0f * sqrt(motion) * toCamDistance, 0.01f);
+    //start cycles every frame for every pixel so all CDF strata get revisited over
+    //time; otherwise rays in the lower half of the CDF keep a stale pdf forever.
+    uint start = (uint)(pixel.x + pixel.y + (float)frame_count) % ray_count;
+    uint step = frame_count % 8 + ray_count / 2 + (uint)((ray_count * motion_ratio) * low_energy);
+#endif
     for (i = 0; i < ray_count; i += step) {
         uint index = (i + start) % ray_count;
         uint wi = GetRayIndex(prev_pos.xy, pdf_cache, w_pixel, index);
@@ -546,7 +582,12 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     float4 color_diffuse = float4(0.0f, 0.0f, 0.0f, 1.0f);
     float offset = ((pixel.x) % kernel_size) * ray_count + ((pixel.y)% kernel_size) * stride;
     float offset2 = space_size;
-   
+
+    //Resampled-importance weight: rays are drawn with probability pdf/W, so the
+    //estimate of the mean over the full ray set is (W / (ray_count * n)) * sum(f / pdf).
+    //This keeps the pixel brightness equivalent to tracing all ray_count rays.
+    float ris_w = w_pixel * inv_ray_count / (float)wis_size;
+
     bool hit = false;
     for (i = 0; i < wis_size; ++i) {
 
@@ -564,21 +605,24 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
 
 #ifdef DISABLE_RESTIR
         pdf_cache[wi] = 1.0f;
+        color_diffuse.rgb += rc.color;
 #else
+        //A converged cache never needs a per-ray weight above 1/n (flat pdf case);
+        //clamp at 2/n so a stale pdf cannot amplify a ray into a firefly.
+        color_diffuse.rgb += rc.color * min(ris_w / pdf_cache[wi], 2.0f / (float)wis_size);
         pdf_cache[wi] = RAY_W_BIAS + w;
 #endif
-        color_diffuse.rgb += rc.color;
-
     }
 
-    wis_size = max(wis_size, 1);
     restir_pdf_1[pixel] = PackRays(pdf_cache, RAY_W_SCALE);
-    color_diffuse  = color_diffuse / ray_count;
-    
-    color_diffuse = pow(color_diffuse, 0.5f);
+#ifdef DISABLE_RESTIR
+    color_diffuse = color_diffuse / ray_count;
+#endif
+
+    color_diffuse.rgb = pow(color_diffuse.rgb, 0.5f);
     output[pixel] = color_diffuse;
 
-    if (rc.hit) {
+    if (hit) {
         [unroll]
         for (int x = -2; x <= 2; ++x) {
             [unroll]

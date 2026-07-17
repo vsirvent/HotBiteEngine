@@ -88,8 +88,11 @@ void main(uint3 DTid : SV_DispatchThreadID)
         int k = kernel_size + kernel_size + full_kernel;
         float prev_w = input[pixel].a;
 
+        //Invalid pixel (no ray source): propagate the marker instead of leaving
+        //whatever stale value the output texture had from a previous frame.
         [branch]
         if (prev_w < 0.0f) {
+            output[pixel] = input[pixel];
             return;
         }
 
@@ -134,7 +137,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
             for (x = -k; x <= k; ++x) {
                 int2 p = (pixel + x * dir);
                 p.y += step(Epsilon, -p.y) * k;
-                p.x += step(Epsilon, p.y - input_dimensions.y) * -k;
+                p.y += step(Epsilon, p.y - input_dimensions.y) * -k;
 
                 float2 p1_info_pixel = round(p * infoRatio);
                 ww = 1.0f;
@@ -161,8 +164,10 @@ void main(uint3 DTid : SV_DispatchThreadID)
             [branch]
             if (prev_w < 2.0f) {
                 k = kernel_size + full_kernel;
-                for (x = -k; x <= k; ++x) {
-                    for (y = -k; y <= k; ++y) {
+                //Stride-2 sampling: this fallback blur is wide enough that skipping
+                //every other tap is not noticeable and it is 4x cheaper.
+                for (x = -k; x <= k; x += 2) {
+                    for (y = -k; y <= k; y += 2) {
                         int2 p = pixel + int2(x, y);
                         if (p.x < 0) { p.x += k; }
                         if (p.y < 0) { p.y += k; }
@@ -207,22 +212,43 @@ void main(uint3 DTid : SV_DispatchThreadID)
         }
 
         c = lerp(c, input[pixel], input_mix);
-    }
-#if 0
-    if (type < 3) {
-        output[pixel] = c;
-    }
-    else {
-        float4 prev_pos = mul(prev_position_map[info_pixel], prev_view_proj);
-        prev_pos.x /= prev_pos.w;
-        prev_pos.y /= -prev_pos.w;
-        prev_pos.xy = (prev_pos.xy + 1.0f) * input_dimensions.xy * 0.5f;
-        float w = 0.5f;
-        float4 prev_color = prev_output[floor(prev_pos.xy)];
-        output[pixel] = lerp(prev_color, c, w);
-    }
-#else
-    output[pixel] = c;
-#endif
 
+        //Temporal accumulation on the final pass: reproject the previous frame's
+        //result and blend it in. History is clamped to the local neighborhood so a
+        //stale/disoccluded fetch cannot ghost, and it is trusted less under motion.
+        [branch]
+        if (type == 3) {
+            float4 prev_pos = mul(prev_position_map[info_pixel], prev_view_proj);
+            [branch]
+            if (prev_pos.w > Epsilon) {
+                prev_pos.xy /= prev_pos.w;
+                prev_pos.y = -prev_pos.y;
+                float2 pp = (prev_pos.xy + 1.0f) * input_dimensions.xy * 0.5f;
+                [branch]
+                if (all(pp >= 0.0f) && all(pp < input_dimensions)) {
+                    float3 cmin = c.rgb;
+                    float3 cmax = c.rgb;
+                    [unroll]
+                    for (int nx = -1; nx <= 1; ++nx) {
+                        [unroll]
+                        for (int ny = -1; ny <= 1; ++ny) {
+                            float3 nc = input[int2(pixel) + int2(nx, ny)].rgb;
+                            cmin = min(cmin, nc);
+                            cmax = max(cmax, nc);
+                        }
+                    }
+                    float3 prev_color = clamp(prev_output[floor(pp)].rgb, cmin, cmax);
+
+                    float2 mvector = motion_texture[info_pixel].xy;
+                    float pixels_moved = 0.0f;
+                    if (mvector.x > -FLT_MAX) {
+                        pixels_moved = length(mvector) * info_dimensions.x * 0.5f;
+                    }
+                    float blend = lerp(0.15f, 0.8f, saturate(pixels_moved * 0.25f));
+                    c.rgb = lerp(prev_color, c.rgb, blend);
+                }
+            }
+        }
+    }
+    output[pixel] = c;
 }

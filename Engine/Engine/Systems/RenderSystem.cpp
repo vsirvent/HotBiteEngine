@@ -1920,7 +1920,7 @@ void RenderSystem::ProcessGI() {
 
 void RenderSystem::ProcessRT() {
 
-	if (rt_enabled & (RT_REFLEX_ENABLE || RT_REFRACT_ENABLE)) {
+	if (rt_enabled & (RT_REFLEX_ENABLE | RT_REFRACT_ENABLE)) {
 
 		rt_texture_di_curr = rt_textures_di[current];
 		rt_texture_di_prev = rt_textures_di[prev];
