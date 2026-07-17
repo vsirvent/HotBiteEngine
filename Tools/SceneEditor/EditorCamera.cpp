@@ -117,6 +117,32 @@ namespace HotBiteEditor {
 		Translate(*cam, fwd * forward + right_v * right + world_up * up);
 	}
 
+	bool EditorCamera::Focus(const float3& center, float radius)
+	{
+		CameraSystem::CameraData* cam = GetCamera();
+		if (cam == nullptr) {
+			return false;
+		}
+		//Far enough that a sphere of `radius` fits comfortably in a ~45deg FOV,
+		//but never inside the orbit math's minimum focus distance.
+		float distance = (std::max)(radius * 2.5f, MIN_FOCUS_DISTANCE * 2.0f);
+		//Keep the current viewing direction: the pivot moves to the target and the
+		//orbit position is re-placed along the existing pivot->position offset.
+		//(CameraSystem derives the rendered pose from position/direction/rotation,
+		//so translating both keeps the same rotation around the new pivot.)
+		float3 offset = cam->transform->position - cam->camera->direction;
+		vector3d off = XMLoadFloat3(&offset);
+		if (XMVectorGetX(XMVector3LengthSq(off)) < 1e-6f) {
+			off = XMVectorSet(0.0f, 0.6f, -1.0f, 0.0f); //degenerate rig: default 3/4 view
+		}
+		off = XMVector3Normalize(off) * distance;
+		vector3d pos = XMLoadFloat3(&center) + off;
+		XMStoreFloat3(&cam->transform->position, pos);
+		cam->camera->direction = center;
+		cam->transform->dirty = true;
+		return true;
+	}
+
 	void EditorCamera::Update(float elapsed_sec)
 	{
 		if (ImGui::GetIO().WantCaptureKeyboard) {

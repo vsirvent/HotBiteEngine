@@ -41,6 +41,11 @@ namespace HotBiteEditor {
 		void Dolly(float wheel_steps);
 		void Fly(float forward, float right, float up); // world units, camera-relative
 
+		// Re-centers the orbit pivot on `center` and backs the camera off to a
+		// distance that frames a sphere of `radius`, keeping the current viewing
+		// direction. Returns false when the level has no camera entity yet.
+		bool Focus(const HotBite::Engine::float3& center, float radius);
+
 		// Both return false when the level has no camera entity yet.
 		bool GetPose(Pose& out);
 		bool SetPose(const HotBite::Engine::float3* position,

@@ -1,4 +1,5 @@
 #include "Inspector.h"
+#include "EditorLayout.h"
 
 #include "imgui.h"
 #include <Components/Base.h>
@@ -105,6 +106,7 @@ namespace HotBiteEditor {
 
 		void Draw(EditorState& state)
 		{
+			EditorLayout::PlaceInspector(state);
 			ImGui::Begin("Inspector");
 
 			Coordinator* c = state.world->GetCoordinator();

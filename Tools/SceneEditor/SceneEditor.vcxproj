@@ -38,6 +38,7 @@
     <ClCompile Include="CrashHandler.cpp" />
     <ClCompile Include="RenderSettings.cpp" />
     <ClCompile Include="RenderDocIntegration.cpp" />
+    <ClCompile Include="SelectionGizmo.cpp" />
     <ClCompile Include="imgui\imgui.cpp" />
     <ClCompile Include="imgui\imgui_draw.cpp" />
     <ClCompile Include="imgui\imgui_tables.cpp" />
@@ -57,6 +58,8 @@
     <ClInclude Include="CrashHandler.h" />
     <ClInclude Include="RenderSettings.h" />
     <ClInclude Include="RenderDocIntegration.h" />
+    <ClInclude Include="SelectionGizmo.h" />
+    <ClInclude Include="EditorLayout.h" />
     <ClInclude Include="renderdoc_app.h" />
     <ClInclude Include="imgui\imgui.h" />
     <ClInclude Include="imgui\imgui_internal.h" />

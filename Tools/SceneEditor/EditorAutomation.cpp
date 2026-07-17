@@ -2,6 +2,7 @@
 #include "ProjectBrowser.h"
 #include "Inspector.h"
 #include "AssetBrowser.h"
+#include "Outliner.h"
 #include "RenderSettings.h"
 #include "RenderDocIntegration.h"
 
@@ -232,6 +233,16 @@ namespace HotBiteEditor {
 						Inspector::RefreshEulerCache(state);
 						response_lines.push_back("OK selected " + args[1] + " id=" + std::to_string(e));
 					}
+				}
+			}
+			else if (cmd == "focus") {
+				//Frames the selected entity, exactly like double-clicking it in the
+				//Outliner (same FocusSelected code path).
+				if (Outliner::FocusSelected(state, app.GetEditorCamera(), error)) {
+					response_lines.push_back("OK focused entity " + std::to_string(state.selected_entity));
+				}
+				else {
+					response_lines.push_back("ERR " + error);
 				}
 			}
 			else if (cmd == "set_position" || cmd == "set_scale" || cmd == "set_rotation") {

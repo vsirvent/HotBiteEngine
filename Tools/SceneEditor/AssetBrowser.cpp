@@ -1,4 +1,5 @@
 #include "AssetBrowser.h"
+#include "EditorLayout.h"
 
 #include "imgui.h"
 
@@ -154,8 +155,21 @@ namespace HotBiteEditor {
 			return true;
 		}
 
+		void ImportObjectWithDialog(EditorState& state)
+		{
+			HWND owner = nullptr; //ImGui doesn't own a native HWND handle here; nullptr is a valid dialog owner.
+			std::string picked = OpenFbxFileDialog(owner);
+			if (!picked.empty()) {
+				std::string error;
+				if (!ImportObject(state, picked, error)) {
+					state.status_message = "Import failed: " + error;
+				}
+			}
+		}
+
 		void Draw(EditorState& state)
 		{
+			EditorLayout::PlaceAssetBrowser(state);
 			ImGui::Begin("Asset Browser");
 
 			if (state.project_root.empty()) {
@@ -165,17 +179,6 @@ namespace HotBiteEditor {
 			}
 
 			EnsureTemplatesScanned(state);
-
-			if (ImGui::Button("Import Object...")) {
-				HWND owner = nullptr; //ImGui doesn't own a native HWND handle here; nullptr is a valid dialog owner.
-				std::string picked = OpenFbxFileDialog(owner);
-				if (!picked.empty()) {
-					std::string error;
-					if (!ImportObject(state, picked, error)) {
-						state.status_message = "Import failed: " + error;
-					}
-				}
-			}
 
 			ImGui::SeparatorText("Templates");
 			for (auto& t : state.templates) {

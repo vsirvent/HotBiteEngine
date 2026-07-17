@@ -1,4 +1,5 @@
 #include "ProjectBrowser.h"
+#include "EditorLayout.h"
 
 #include "imgui.h"
 
@@ -145,8 +146,29 @@ namespace HotBiteEditor {
 			}
 		}
 
+		void OpenLevelWithDialog(EditorState& state, SceneEditorApp& app)
+		{
+			std::string path = OpenLevelFileDialog(app.wnd);
+			if (!path.empty()) {
+				state.project_root = DeriveProjectRoot(path);
+				app.OpenLevel(path);
+			}
+		}
+
+		void NewProjectWithDialog(EditorState& state, SceneEditorApp& app)
+		{
+			std::string base = BrowseFolderDialog(app.wnd, "Choose an empty folder for the new project");
+			if (!base.empty()) {
+				std::string level_path;
+				ScaffoldNewProject(base, level_path);
+				state.project_root = base;
+				app.OpenLevel(level_path);
+			}
+		}
+
 		void Draw(EditorState& state, SceneEditorApp& app)
 		{
+			EditorLayout::PlaceProject(state);
 			ImGui::Begin("Project");
 
 			if (!state.project_root.empty()) {
@@ -154,27 +176,10 @@ namespace HotBiteEditor {
 			}
 			else {
 				ImGui::TextUnformatted("No project open.");
+				ImGui::TextUnformatted("Use File > Open Level... or File > New Project... to get started.");
 			}
 			if (!state.current_level_path.empty()) {
 				ImGui::TextWrapped("Level: %s", state.current_level_path.c_str());
-			}
-
-			if (ImGui::Button("Open Level...")) {
-				std::string path = OpenLevelFileDialog(app.wnd);
-				if (!path.empty()) {
-					state.project_root = DeriveProjectRoot(path);
-					app.OpenLevel(path);
-				}
-			}
-			ImGui::SameLine();
-			if (ImGui::Button("New Project...")) {
-				std::string base = BrowseFolderDialog(app.wnd, "Choose an empty folder for the new project");
-				if (!base.empty()) {
-					std::string level_path;
-					ScaffoldNewProject(base, level_path);
-					state.project_root = base;
-					app.OpenLevel(level_path);
-				}
 			}
 
 			if (!state.project_root.empty()) {

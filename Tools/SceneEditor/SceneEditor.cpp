@@ -8,6 +8,7 @@
 #include "CrashHandler.h"
 #include "RenderSettings.h"
 #include "RenderDocIntegration.h"
+#include "SelectionGizmo.h"
 
 #include <Core/PostProcess.h>
 
@@ -81,12 +82,45 @@ namespace HotBiteEditor {
 			return true;
 			});
 
+		//File: project/level lifecycle. Open/New are disabled once a level is
+		//loaded because OpenLevel refuses a second level per session.
+		menu_commands.push_back({ "File/New Project...",
+			[this]() { return !level_loaded; },
+			[this]() { ProjectBrowser::NewProjectWithDialog(state, *this); } });
+		menu_commands.push_back({ "File/Open Level...",
+			[this]() { return !level_loaded; },
+			[this]() { ProjectBrowser::OpenLevelWithDialog(state, *this); } });
+		menu_commands.push_back({ "File/Import Object...",
+			[this]() { return level_loaded; },
+			[this]() { AssetBrowser::ImportObjectWithDialog(state); } });
 		menu_commands.push_back({ "File/Save Level",
 			[this]() { return level_loaded; },
 			[this]() { SceneSerializer::Save(state); } });
 		menu_commands.push_back({ "File/Exit",
 			nullptr,
 			[this]() { Quit(); } });
+
+		//View: panel visibility toggles (the Project panel always shows before a
+		//level loads, since it doubles as the project picker) and layout reset.
+		menu_commands.push_back({ "View/Outliner",
+			[this]() { return level_loaded; },
+			[this]() { state.show_outliner = !state.show_outliner; },
+			[this]() { return state.show_outliner; } });
+		menu_commands.push_back({ "View/Inspector",
+			[this]() { return level_loaded; },
+			[this]() { state.show_inspector = !state.show_inspector; },
+			[this]() { return state.show_inspector; } });
+		menu_commands.push_back({ "View/Asset Browser",
+			[this]() { return level_loaded; },
+			[this]() { state.show_asset_browser = !state.show_asset_browser; },
+			[this]() { return state.show_asset_browser; } });
+		menu_commands.push_back({ "View/Project",
+			[this]() { return level_loaded; },
+			[this]() { state.show_project = !state.show_project; },
+			[this]() { return state.show_project; } });
+		menu_commands.push_back({ "View/Reset Layout",
+			nullptr,
+			[this]() { state.apply_default_layout = true; } });
 	}
 
 	SceneEditorApp::~SceneEditorApp()
@@ -121,12 +155,27 @@ namespace HotBiteEditor {
 	void SceneEditorApp::Present()
 	{
 		DrawMenuBar();
-		ProjectBrowser::Draw(state, *this);
-		if (level_loaded) {
-			Outliner::Draw(state);
-			Inspector::Draw(state);
-			AssetBrowser::Draw(state);
+		if (!level_loaded) {
+			//Pre-level, the Project panel is the project/level picker.
+			ProjectBrowser::Draw(state, *this);
 		}
+		else {
+			if (state.show_project) {
+				ProjectBrowser::Draw(state, *this);
+			}
+			if (state.show_outliner) {
+				Outliner::Draw(state, editor_camera);
+			}
+			if (state.show_inspector) {
+				Inspector::Draw(state);
+			}
+			if (state.show_asset_browser) {
+				AssetBrowser::Draw(state);
+			}
+			SelectionGizmo::Draw(state);
+		}
+		//A View/Reset Layout request has now been consumed by every visible panel.
+		state.apply_default_layout = false;
 
 		ImGui::Render();
 		ID3D11RenderTargetView* rtv = RenderTarget();
@@ -176,7 +225,8 @@ namespace HotBiteEditor {
 						}
 						MenuCommand& mc = menu_commands[i];
 						bool is_enabled = !mc.enabled || mc.enabled();
-						if (ImGui::MenuItem(it.c_str(), nullptr, false, is_enabled)) {
+						bool is_checked = mc.checked && mc.checked();
+						if (ImGui::MenuItem(it.c_str(), nullptr, is_checked, is_enabled)) {
 							mc.action();
 						}
 					}

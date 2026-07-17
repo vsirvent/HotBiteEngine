@@ -42,18 +42,19 @@ directory so relative asset paths in level files resolve the same way the other 
 | `ping` | liveness check, answers `OK pong` |
 | `state` | one-line JSON dump: project, level, selection, status message, entity/template counts |
 | `open_project <dir>` | same as choosing a project root |
-| `open_level <path>` | same as the Project panel's Open Level (one level per session) |
+| `open_level <path>` | same as File/Open Level..., minus the file dialog (one level per session) |
 | `menus` | lists registered menu commands and whether they are enabled |
 | `menu <Menu/Item>` | executes a menu item, e.g. `menu "File/Save Level"` |
 | `list_entities` | outliner contents with ids and positions |
 | `select <name>` | selects an entity (same bookkeeping as clicking it in the Outliner) |
+| `focus` | frames the selected entity with the camera, same code path as double-clicking it in the Outliner |
 | `set_position x y z` | edits the selected entity's Transform like the Inspector fields |
 | `set_scale x y z` | ditto |
 | `set_rotation p y r` | Euler degrees, pitch/yaw/roll |
 | `list_templates` | Asset Browser template list |
 | `select_template <name>` | selects a template |
 | `place <template>` | same as "Place at Origin" |
-| `import <fbx path>` | same as "Import Object...", minus the file dialog |
+| `import <fbx path>` | same as File/Import Object..., minus the file dialog |
 | `camera` | one-line JSON dump of the viewport camera: orbit `position`, rendered `world_position`, focus `target`, `rotation_deg` (pitch/yaw/roll), focus `distance` |
 | `camera_pos x y z` | sets the camera's orbit position |
 | `camera_target x y z` | sets the focus point the camera looks at / orbits around |

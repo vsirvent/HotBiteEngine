@@ -11,9 +11,13 @@ namespace HotBiteEditor {
 		// automation calls it before template commands so both see the same list.
 		void EnsureTemplatesScanned(EditorState& state);
 
-		// Programmatic equivalent of the "Import Object..." button, minus the file
-		// dialog: copies the .fbx into Assets/Objects, loads it as a template and
-		// selects it. Returns false with `error` set on failure.
+		// The File/Import Object... menu action: picks an .fbx via the native file
+		// dialog and imports it. No-op when the dialog is cancelled.
+		void ImportObjectWithDialog(EditorState& state);
+
+		// Programmatic equivalent of Import Object, minus the file dialog: copies
+		// the .fbx into Assets/Objects, loads it as a template and selects it.
+		// Returns false with `error` set on failure.
 		bool ImportObject(EditorState& state, const std::string& fbx_path, std::string& error);
 
 		// Programmatic equivalent of the "Place at Origin" button: spawns an instance

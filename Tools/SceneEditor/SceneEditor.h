@@ -70,6 +70,18 @@ namespace HotBiteEditor {
 		std::string selected_template;        // template name chosen in the Asset Browser
 
 		std::string status_message;
+
+		// Panel visibility, driven by the View menu. The Project panel doubles as
+		// the pre-level project picker, so it is always drawn until a level loads;
+		// afterwards it stays hidden unless re-opened from View.
+		bool show_outliner = true;
+		bool show_inspector = true;
+		bool show_asset_browser = true;
+		bool show_project = false;
+
+		// Set by View/Reset Layout: for one frame every panel re-applies its
+		// default position/size unconditionally instead of ImGuiCond_FirstUseEver.
+		bool apply_default_layout = false;
 	};
 
 	// A menu-bar entry, registered by path (e.g. "File/Save Level"). The ImGui menu
@@ -79,6 +91,7 @@ namespace HotBiteEditor {
 		std::string path;               // "<Menu>/<Item>"
 		std::function<bool()> enabled;  // nullptr = always enabled
 		std::function<void()> action;
+		std::function<bool()> checked;  // nullptr = no checkmark (used by View toggles)
 	};
 
 	class SceneEditorApp : public HotBite::Engine::Core::DXCore, public HotBite::Engine::ECS::EventListener
