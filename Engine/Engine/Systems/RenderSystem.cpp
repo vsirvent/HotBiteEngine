@@ -1399,18 +1399,14 @@ void RenderSystem::ProcessAntiAlias() {
 	int32_t  groupsX = (int32_t)(ceil((float)motion_blur_map.Width() / 8.0f));
 	int32_t  groupsY = (int32_t)(ceil((float)motion_blur_map.Height() / 8.0f));
 
-	aa_shader->SetShaderResourceView("depthTexture", depth_map.SRV());
-	aa_shader->SetShaderResourceView("normalTexture", rt_ray_sources1.SRV());
 	aa_shader->SetShaderResourceView("input", temp_map.SRV());
-	aa_shader->SetInt("size", 1);
+	aa_shader->SetSamplerState("basicSampler", dxcore->basic_sampler);
 	aa_shader->SetInt("enabled", aa_enabled);
 	aa_shader->SetUnorderedAccessView("output", image);
 	aa_shader->CopyAllBufferData();
 	aa_shader->SetShader();
 	dxcore->context->Dispatch(groupsX, groupsY, 1);
 	aa_shader->SetUnorderedAccessView("output", nullptr);
-	aa_shader->SetShaderResourceView("depthTexture", nullptr);
-	aa_shader->SetShaderResourceView("normalTexture", nullptr);
 	aa_shader->SetShaderResourceView("input", nullptr);
 	aa_shader->CopyAllBufferData();
 }

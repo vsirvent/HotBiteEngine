@@ -256,6 +256,21 @@ HRESULT DXCore::InitDirectX()
 		w = rect.right - rect.left;
 		h = rect.bottom - rect.top;
 	}
+	else if (wnd != NULL) {
+		//The real client area can differ from the requested size (frame metrics,
+		//SW_MAXIMIZE, DPI). The swapchain must match it exactly, otherwise DXGI
+		//stretches the backbuffer on present and every screen-space mapping
+		//(mouse picking, UI overlays) ends up offset.
+		RECT rect;
+		if (GetClientRect(wnd, &rect) && rect.right > rect.left && rect.bottom > rect.top) {
+			w = rect.right - rect.left;
+			h = rect.bottom - rect.top;
+		}
+	}
+	//Keep the logical dimensions in sync with the actual backbuffer so viewports
+	//and camera aspect ratios agree with what is presented.
+	width = w;
+	height = h;
 #if defined(DEBUG) || defined(_DEBUG)
 	deviceFlags |= D3D11_CREATE_DEVICE_DEBUG;
 #endif

@@ -145,9 +145,11 @@ namespace HotBiteEditor {
 
 	void EditorCamera::Update(float elapsed_sec)
 	{
-		if (ImGui::GetIO().WantCaptureKeyboard) {
-			//A panel grabbed the keyboard mid-hold (e.g. clicking into a text
-			//field while flying): drop the held keys so the camera stops.
+		if (ImGui::GetIO().WantTextInput) {
+			//A text field grabbed the keyboard mid-hold (e.g. clicking into a
+			//name filter while flying): drop the held keys so the camera stops.
+			//Plain panel focus deliberately does NOT block flying — WASD must
+			//work without first clicking the viewport.
 			keys_down.clear();
 			return;
 		}
@@ -205,10 +207,20 @@ namespace HotBiteEditor {
 
 	void EditorCamera::OnMouseMove(Event& ev)
 	{
-		if (ImGui::GetIO().WantCaptureMouse) {
+		int buttons = ev.GetParam<int>(DXCore::PARAM_ID_BUTTON);
+		if ((buttons & (MK_RBUTTON | MK_MBUTTON)) == 0) {
+			drag_active = false;
 			return;
 		}
-		int buttons = ev.GetParam<int>(DXCore::PARAM_ID_BUTTON);
+		if (!drag_active) {
+			//A new drag: it belongs to the camera only if it starts outside every
+			//panel. Once claimed, it stays with the camera even when the cursor
+			//crosses a panel, so long orbits are not interrupted.
+			if (ImGui::GetIO().WantCaptureMouse) {
+				return;
+			}
+			drag_active = true;
+		}
 		float dx = (float)ev.GetParam<int>(DXCore::PARAM_RELATIVE_ID_X);
 		float dy = (float)ev.GetParam<int>(DXCore::PARAM_RELATIVE_ID_Y);
 		if (buttons & MK_RBUTTON) {
@@ -229,7 +241,9 @@ namespace HotBiteEditor {
 
 	void EditorCamera::OnKeyDown(Event& ev)
 	{
-		if (ImGui::GetIO().WantCaptureKeyboard) {
+		//Only an active text field blocks camera keys; mere panel focus must not,
+		//so WASD flying works without clicking the viewport first.
+		if (ImGui::GetIO().WantTextInput) {
 			return;
 		}
 		keys_down.insert(ev.GetParam<uint32_t>(DXCore::PARAM_ID_KEY));

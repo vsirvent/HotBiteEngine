@@ -63,6 +63,8 @@ directory so relative asset paths in level files resolve the same way the other 
 | `camera_pan dx dy` | simulates a middle-button drag (pan camera + focus point) |
 | `camera_zoom steps` | simulates mouse-wheel steps (positive = toward the focus point, clamped before it) |
 | `camera_fly fwd right up` | moves camera + focus point by camera-relative world units, like the WASD/QE fly keys |
+| `render` | one-line JSON dump of the render settings (same keys as the Render menu) |
+| `render <key> <value>` | changes one render setting, e.g. `render aa 0`, `render rt_quality high` |
 | `screenshot <png path>` | saves the backbuffer (scene + ImGui UI) as PNG at the end of the frame |
 | `quit` | closes the editor |
 | `debug_crash` | deliberate null write to exercise the crash pipeline; never responds (the process dies), so expect the driver to time out |

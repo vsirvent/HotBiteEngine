@@ -1,252 +1,331 @@
 {
-  "world": {
-    "path": "..\\..\\..\\Tests\\DemoGame\\",
-    "level": {
-      "file": ".\\Assets\\particle_test.fbx",
-      "triangulate": false
-    },
-    "audio": {
-      "clips": [
-        {
-          "id": 1,
-          "file": ".\\Assets\\audio\\witcher.raw"
+    "world": {
+        "audio": {
+            "clips": [
+                {
+                    "file": ".\\Assets\\audio\\witcher.raw",
+                    "id": 1
+                },
+                {
+                    "file": ".\\Assets\\audio\\fire.raw",
+                    "id": 2
+                },
+                {
+                    "file": ".\\Assets\\audio\\siren.raw",
+                    "id": 3
+                },
+                {
+                    "file": ".\\Assets\\audio\\tone.raw",
+                    "id": 4
+                },
+                {
+                    "file": ".\\Assets\\audio\\bells.raw",
+                    "id": 5
+                },
+                {
+                    "file": ".\\Assets\\audio\\forest.raw",
+                    "id": 6
+                },
+                {
+                    "file": ".\\Assets\\audio\\man_hurt.raw",
+                    "id": 7
+                },
+                {
+                    "file": ".\\Assets\\audio\\step_1.raw",
+                    "id": 8
+                },
+                {
+                    "file": ".\\Assets\\audio\\step_2.raw",
+                    "id": 9
+                },
+                {
+                    "file": ".\\Assets\\audio\\step_3.raw",
+                    "id": 10
+                },
+                {
+                    "file": ".\\Assets\\audio\\step_4.raw",
+                    "id": 11
+                },
+                {
+                    "file": ".\\Assets\\audio\\lava.raw",
+                    "id": 12
+                },
+                {
+                    "file": ".\\Assets\\audio\\water.raw",
+                    "id": 13
+                },
+                {
+                    "file": ".\\Assets\\audio\\jump_1.raw",
+                    "id": 14
+                },
+                {
+                    "file": ".\\Assets\\audio\\jump_2.raw",
+                    "id": 15
+                },
+                {
+                    "file": ".\\Assets\\audio\\arrow.raw",
+                    "id": 16
+                },
+                {
+                    "file": ".\\Assets\\audio\\rock_1.raw",
+                    "id": 17
+                },
+                {
+                    "file": ".\\Assets\\audio\\rock_2.raw",
+                    "id": 18
+                },
+                {
+                    "file": ".\\Assets\\audio\\rock_3.raw",
+                    "id": 19
+                }
+            ]
         },
-        {
-          "id": 2,
-          "file": ".\\Assets\\audio\\fire.raw"
+        "entities": [
+            {
+                "name": "Player",
+                "physics": {
+                    "type": "DYNAMIC"
+                }
+            },
+            {
+                "name": "Zombie*",
+                "physics": {
+                    "type": "DYNAMIC"
+                }
+            },
+            {
+                "name": "Troll*",
+                "physics": {
+                    "type": "DYNAMIC"
+                }
+            },
+            {
+                "name": "Ball*",
+                "physics": {
+                    "shape": "SPHERE",
+                    "type": "DYNAMIC"
+                }
+            },
+            {
+                "cast_shadow": false,
+                "name": "Water*",
+                "pass": 2
+            },
+            {
+                "cast_shadow": false,
+                "material": "Lava",
+                "name": "Lava*",
+                "pass": 2
+            },
+            {
+                "name": "Camera",
+                "position": {
+                    "x": 0.0,
+                    "y": 15.0,
+                    "z": -20.0
+                }
+            },
+            {
+                "material": "Floor",
+                "name": "Terrain*"
+            },
+            {
+                "material": "Bricks",
+                "name": "Bricks*"
+            },
+            {
+                "material": "Marble",
+                "name": "Cube*"
+            },
+            {
+                "material": "Cristal",
+                "name": "Cristal*",
+                "physics": {
+                    "shape": "SPHERE",
+                    "type": "DYNAMIC"
+                }
+            },
+            {
+                "name": "Cristal",
+                "position": {
+                    "x": -59.089900970458984,
+                    "y": 20.054458618164063,
+                    "z": -111.62865447998047
+                },
+                "rotation": {
+                    "w": -0.2917245030403137,
+                    "x": -0.24013353884220123,
+                    "y": 0.7100977897644043,
+                    "z": 0.5941329598426819
+                },
+                "scale": {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 1.0
+                }
+            },
+            {
+                "name": "Test.001.NoSmooth",
+                "position": {
+                    "x": -52.12112045288086,
+                    "y": 19.020526885986328,
+                    "z": -114.68323516845703
+                },
+                "rotation": {
+                    "w": -5.338507946817117e-08,
+                    "x": -5.338507236274381e-08,
+                    "y": 0.7071066498756409,
+                    "z": 0.70710688829422
+                },
+                "scale": {
+                    "x": 1.0,
+                    "y": 4.020570278167725,
+                    "z": 5.432567596435547
+                }
+            },
+            {
+                "name": "Test.002.NoSmooth",
+                "position": {
+                    "x": -70.2204818725586,
+                    "y": 17.509233474731445,
+                    "z": -112.87857055664063
+                },
+                "rotation": {
+                    "w": -5.338507946817117e-08,
+                    "x": -5.338507236274381e-08,
+                    "y": 0.7071066498756409,
+                    "z": 0.70710688829422
+                },
+                "scale": {
+                    "x": 1.0,
+                    "y": 4.020570278167725,
+                    "z": 5.432567596435547
+                }
+            },
+            {
+                "name": "Test.003.NoSmooth",
+                "position": {
+                    "x": -61.0505256652832,
+                    "y": 17.509233474731445,
+                    "z": -98.82828521728516
+                },
+                "rotation": {
+                    "w": -0.4980449378490448,
+                    "x": 0.49804219603538513,
+                    "y": 0.5019500851631165,
+                    "z": 0.5019475817680359
+                },
+                "scale": {
+                    "x": 0.9999999403953552,
+                    "y": 4.020570278167725,
+                    "z": 5.432567596435547
+                }
+            }
+        ],
+        "instances": [],
+        "level": {
+            "file": ".\\Assets\\particle_test.fbx",
+            "triangulate": false
         },
-        {
-          "id": 3,
-          "file": ".\\Assets\\audio\\siren.raw"
+        "lights": [],
+        "material_files": [
+            "demo_game_scene.mat",
+            "\\assets\\archer\\archer.mat",
+            "\\assets\\troll\\troll.mat",
+            "\\assets\\zombie\\zombie.mat"
+        ],
+        "materials": [
+            {
+                "ambient_color": "090030000",
+                "blend_enabled": true,
+                "diffuse_color": "030030030",
+                "draw_ds": "",
+                "draw_gs": "ParticleGS.cso",
+                "draw_hs": "",
+                "draw_ps": "SmokeParticlePS.cso",
+                "draw_vs": "ParticleVS.cso",
+                "name": "SmokeParticles"
+            },
+            {
+                "alhpa_color": "000000000",
+                "alhpa_enabled": true,
+                "ambient_color": "090090050",
+                "blend_enabled": true,
+                "diffuse_color": "090030030",
+                "draw_ds": "",
+                "draw_gs": "ParticleGS.cso",
+                "draw_hs": "",
+                "draw_ps": "FireParticlePS.cso",
+                "draw_vs": "ParticleVS.cso",
+                "name": "FireCoreParticles"
+            },
+            {
+                "alhpa_color": "000000000",
+                "alhpa_enabled": true,
+                "ambient_color": "090090030",
+                "blend_enabled": true,
+                "diffuse_color": "090030030",
+                "draw_ds": "",
+                "draw_gs": "ParticleGS.cso",
+                "draw_hs": "",
+                "draw_ps": "FireParticlePS.cso",
+                "draw_vs": "ParticleVS.cso",
+                "name": "FireParticles"
+            },
+            {
+                "blend_enabled": true,
+                "diffuse_color": "090060000",
+                "draw_ds": "",
+                "draw_gs": "ParticleGS.cso",
+                "draw_hs": "",
+                "draw_ps": "ParticlePS.cso",
+                "draw_vs": "ParticleVS.cso",
+                "name": "SparksParticles"
+            },
+            {
+                "draw_ps": "SkyPS.cso",
+                "draw_vs": "SkyVS.cso",
+                "name": "Sky"
+            },
+            {
+                "draw_ps": "SkyPS.cso",
+                "draw_vs": "SkyVS.cso",
+                "name": "Space"
+            }
+        ],
+        "path": "..\\..\\..\\Tests\\DemoGame\\",
+        "sky": {
+            "ambient": {
+                "color_down": "001001001",
+                "color_up": "001001001",
+                "name": "ambient",
+                "type": "ambient"
+            },
+            "cloud_density": 0.7,
+            "day_backcolor": "002002005",
+            "file": ".\\Assets\\Sky\\sky.fbx",
+            "mid_backcolor": "050030010",
+            "name": "Sky",
+            "night_backcolor": "000000000",
+            "second_of_day": 30000.0,
+            "second_speed": 1.0,
+            "space_name": "Space",
+            "sun": {
+                "cast_shadow": true,
+                "color": "100100100",
+                "density": 15.0,
+                "fog": true,
+                "name": "Sun",
+                "resolution": 1,
+                "type": "directional"
+            },
+            "triangulate": false
         },
-        {
-          "id": 4,
-          "file": ".\\Assets\\audio\\tone.raw"
-        },
-        {
-          "id": 5,
-          "file": ".\\Assets\\audio\\bells.raw"
-        },
-        {
-          "id": 6,
-          "file": ".\\Assets\\audio\\forest.raw"
-        },
-        {
-          "id": 7,
-          "file": ".\\Assets\\audio\\man_hurt.raw"
-        },
-        {
-          "id": 8,
-          "file": ".\\Assets\\audio\\step_1.raw"
-        },
-        {
-          "id": 9,
-          "file": ".\\Assets\\audio\\step_2.raw"
-        },
-        {
-          "id": 10,
-          "file": ".\\Assets\\audio\\step_3.raw"
-        },
-        {
-          "id": 11,
-          "file": ".\\Assets\\audio\\step_4.raw"
-        },
-        {
-          "id": 12,
-          "file": ".\\Assets\\audio\\lava.raw"
-        },
-        {
-          "id": 13,
-          "file": ".\\Assets\\audio\\water.raw"
-        },
-        {
-          "id": 14,
-          "file": ".\\Assets\\audio\\jump_1.raw"
-        },
-        {
-          "id": 15,
-          "file": ".\\Assets\\audio\\jump_2.raw"
-        },
-        {
-          "id": 16,
-          "file": ".\\Assets\\audio\\arrow.raw"
-        },
-        {
-          "id": 17,
-          "file": ".\\Assets\\audio\\rock_1.raw"
-        },
-        {
-          "id": 18,
-          "file": ".\\Assets\\audio\\rock_2.raw"
-        },
-        {
-          "id": 19,
-          "file": ".\\Assets\\audio\\rock_3.raw"
-        }
-      ]
-    },
-      "templates": [
-        {
-          "file": ".\\Assets\\Sky\\space.fbx",
-          "triangulate": false
-        }
-      ],
-    "material_files": [ "demo_game_scene.mat", "\\assets\\archer\\archer.mat", "\\assets\\troll\\troll.mat", "\\assets\\zombie\\zombie.mat" ],
-    "materials": [
-        {
-          "name": "SmokeParticles",
-          "blend_enabled": true,
-          "ambient_color": "090030000",
-          "diffuse_color": "030030030",
-          "draw_gs": "ParticleGS.cso",
-          "draw_ps": "SmokeParticlePS.cso",
-          "draw_vs": "ParticleVS.cso",
-          "draw_hs": "",
-          "draw_ds": ""
-        },
-        {
-          "name": "FireCoreParticles",
-          "blend_enabled": true,
-          "alhpa_enabled": true,
-          "alhpa_color": "000000000",
-          "ambient_color": "090090050",
-          "diffuse_color": "090030030",
-          "draw_gs": "ParticleGS.cso",
-          "draw_ps": "FireParticlePS.cso",
-          "draw_vs": "ParticleVS.cso",
-          "draw_hs": "",
-          "draw_ds": ""
-        },
-        {
-          "name": "FireParticles",
-          "blend_enabled": true,
-          "alhpa_enabled": true,
-          "alhpa_color": "000000000",
-          "ambient_color": "090090030",
-          "diffuse_color": "090030030",
-          "draw_gs": "ParticleGS.cso",
-          "draw_ps": "FireParticlePS.cso",
-          "draw_vs": "ParticleVS.cso",
-          "draw_hs": "",
-          "draw_ds": ""
-        },
-        {
-          "name": "SparksParticles",
-          "blend_enabled": true,
-          "diffuse_color": "090060000",
-          "draw_gs": "ParticleGS.cso",
-          "draw_ps": "ParticlePS.cso",
-          "draw_vs": "ParticleVS.cso",
-          "draw_hs": "",
-          "draw_ds": ""
-        },
-        {
-          "name": "Sky",
-          "draw_vs": "SkyVS.cso",
-          "draw_ps": "SkyPS.cso"
-        },
-        {
-          "name": "Space",
-          "draw_vs": "SkyVS.cso",
-          "draw_ps": "SkyPS.cso"
-        }
-      ],
-      "sky": {
-        "file": ".\\Assets\\Sky\\sky.fbx",
-        "triangulate": false,
-        "name": "Sky",
-        "space_name": "Space",
-
-        "day_backcolor": "002002005",
-        "mid_backcolor": "050030010",
-        "night_backcolor": "000000000",
-
-        "cloud_density": 0.7,
-        "second_of_day": 30000.0,
-        "second_speed": 1.0,
-        "sun": {
-          "type": "directional",
-          "name": "Sun",
-          "color": "100100100",
-          "density": 15.0,
-          "fog": true,
-          "cast_shadow": true,
-          "resolution": 1
-        },
-        "ambient": {
-          "type": "ambient",
-          "name": "ambient",
-          "color_down": "001001001",
-          "color_up": "001001001"
-        }
-      },
-      "lights": [
-      ],
-      "entities": [
-        {
-          "name": "Player",
-          "physics": {
-            "type": "DYNAMIC"
-          }
-        },
-        {
-          "name": "Zombie*",
-          "physics": {
-            "type": "DYNAMIC"
-          }
-        },
-        {
-          "name": "Troll*",
-          "physics": {
-            "type": "DYNAMIC"
-          }
-        },
-        {
-          "name": "Ball*",
-          "physics": {
-            "type": "DYNAMIC",
-            "shape": "SPHERE"
-          }
-        },
-        {
-          "name": "Water*",
-          "cast_shadow": false,
-          "pass": 2
-        },
-        {
-          "name": "Lava*",
-          "cast_shadow": false,
-          "material": "Lava",
-          "pass": 2
-        },
-        {
-          "name": "Camera",
-          "position": {
-            "x": 0.0,
-            "y": 15.0,
-            "z": -20.0
-          }
-        },
-        {
-          "name": "Terrain*",
-          "material": "Floor"
-        },
-        {
-          "name": "Bricks*",
-          "material": "Bricks"
-        },
-        {
-          "name": "Cube*",
-          "material": "Marble"
-        },
-        {
-          "name": "Cristal*",
-          "material": "Cristal",
-          "physics": {
-            "type": "DYNAMIC",
-            "shape": "SPHERE"
-          }
-        }
-      ]
+        "templates": [
+            {
+                "file": ".\\Assets\\Sky\\space.fbx",
+                "triangulate": false
+            }
+        ]
     }
 }

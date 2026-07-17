@@ -17,8 +17,11 @@ namespace HotBiteEditor {
 	//  - W/A/S/D or arrows + Q/E (down/up) fly the camera; Shift = fast, Ctrl = slow
 	// All paths mutate the level's camera entity through the engine's CameraSystem
 	// (the way games do, see Tests/DemoGame/GameCameraSystem), so rendering, DOF and
-	// audio pick the motion up with no editor-specific plumbing. Input that ImGui
-	// claims (hovered panel, focused text field) is ignored.
+	// audio pick the motion up with no editor-specific plumbing.
+	// Camera input works regardless of which docked panel has focus: keys are only
+	// ignored while a text field is being edited (io.WantTextInput), and mouse drags
+	// are only ignored when they *start* over a panel — a drag that begins over the
+	// viewport keeps orbiting/panning even if the cursor crosses a panel mid-drag.
 	class EditorCamera : public HotBite::Engine::ECS::EventListener {
 	public:
 		struct Pose {
@@ -61,5 +64,7 @@ namespace HotBiteEditor {
 
 		std::shared_ptr<HotBite::Engine::Systems::CameraSystem> camera_system;
 		std::set<uint32_t> keys_down;
+		//True while an orbit/pan drag that started outside any ImGui panel is held.
+		bool drag_active = false;
 	};
 }

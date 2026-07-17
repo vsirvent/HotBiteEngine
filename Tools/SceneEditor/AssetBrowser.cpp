@@ -169,8 +169,7 @@ namespace HotBiteEditor {
 
 		void Draw(EditorState& state)
 		{
-			EditorLayout::PlaceAssetBrowser(state);
-			ImGui::Begin("Asset Browser");
+			ImGui::Begin(EditorLayout::ASSET_BROWSER_WINDOW);
 
 			if (state.project_root.empty()) {
 				ImGui::TextUnformatted("No project open.");

@@ -1,4 +1,5 @@
 #include "SceneEditor.h"
+#include "EditorLayout.h"
 #include "ProjectBrowser.h"
 #include "Outliner.h"
 #include "Inspector.h"
@@ -20,6 +21,7 @@
 #include <shellapi.h>
 
 #include <crtdbg.h>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 
@@ -47,6 +49,7 @@ namespace HotBiteEditor {
 		ImGui::CreateContext();
 		ImGuiIO& io = ImGui::GetIO();
 		io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+		io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 		ImGui::StyleColorsDark();
 		ImGui_ImplWin32_Init(wnd);
 		ImGui_ImplDX11_Init(device, context);
@@ -141,6 +144,26 @@ namespace HotBiteEditor {
 
 	void SceneEditorApp::ForwardWindowMessage(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 	{
+		//When the user resizes the window, the fixed-size backbuffer is stretched
+		//to the client area on present. ImGui is laid out in backbuffer pixels
+		//(see ClearScreen), so remap mouse positions from client to backbuffer
+		//space; the UI, the 3D scene and the cursor then stay in agreement at any
+		//window size. Only WM_MOUSEMOVE carries coordinates the ImGui backend uses.
+		if (uMsg == WM_MOUSEMOVE) {
+			RECT rc;
+			if (GetClientRect(hWnd, &rc)) {
+				const float cw = (float)(rc.right - rc.left);
+				const float ch = (float)(rc.bottom - rc.top);
+				if (cw > 0.0f && ch > 0.0f &&
+					((int)cw != GetWidth() || (int)ch != GetHeight())) {
+					//Coordinates are signed: during a captured drag they can go
+					//negative or past the client edge.
+					const int x = (int)std::lroundf((float)(short)LOWORD(lParam) * (float)GetWidth() / cw);
+					const int y = (int)std::lroundf((float)(short)HIWORD(lParam) * (float)GetHeight() / ch);
+					lParam = (LPARAM)(((y & 0xFFFF) << 16) | (x & 0xFFFF));
+				}
+			}
+		}
 		ImGui_ImplWin32_WndProcHandler(hWnd, uMsg, wParam, lParam);
 	}
 
@@ -149,6 +172,12 @@ namespace HotBiteEditor {
 		DXCore::ClearScreen(color);
 		ImGui_ImplDX11_NewFrame();
 		ImGui_ImplWin32_NewFrame();
+		//ImGui must think in backbuffer pixels, not client pixels: the engine
+		//renders at the swapchain size and the whole backbuffer is stretched to
+		//the client area on present. The win32 backend just set DisplaySize to
+		//the client rect; force it back to the backbuffer size (mouse input is
+		//remapped correspondingly in ForwardWindowMessage).
+		ImGui::GetIO().DisplaySize = ImVec2((float)GetWidth(), (float)GetHeight());
 		ImGui::NewFrame();
 	}
 
@@ -160,6 +189,8 @@ namespace HotBiteEditor {
 			ProjectBrowser::Draw(state, *this);
 		}
 		else {
+			//The dockspace must be submitted before any window that docks into it.
+			EditorLayout::BeginDockspace(state);
 			if (state.show_project) {
 				ProjectBrowser::Draw(state, *this);
 			}

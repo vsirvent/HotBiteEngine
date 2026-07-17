@@ -45,8 +45,7 @@ namespace HotBiteEditor {
 
 		void Draw(EditorState& state, EditorCamera& camera)
 		{
-			EditorLayout::PlaceOutliner(state);
-			ImGui::Begin("Outliner");
+			ImGui::Begin(EditorLayout::OUTLINER_WINDOW);
 
 			Coordinator* c = state.world->GetCoordinator();
 			if (c == nullptr) {

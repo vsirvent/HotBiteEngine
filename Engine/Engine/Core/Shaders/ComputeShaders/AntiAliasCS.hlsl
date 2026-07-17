@@ -22,66 +22,194 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-#include "../Common/Defines.hlsli"
-#include "../Common/Utils.hlsli"
-
-//#define TEST
+// FXAA 3.11 (quality preset), after Timothy Lottes' algorithm.
+// Runs on the mixed LDR image, so luma-based edge detection is valid here.
 
 cbuffer externalData : register(b0)
 {
     int enabled;
-    int size;
 }
-
 
 RWTexture2D<float4> output : register(u0);
-Texture2D input: register(t0);
-Texture2D depthTexture: register(t1);
-Texture2D normalTexture: register(t2);
+Texture2D input : register(t0);
+SamplerState basicSampler : register(s0);
 
-#define BORDER_DIFF 1.0f
-#define NORMAL_DIFF 0.5f
+// Trims processing of flat areas (absolute and relative-to-local-contrast).
+#define EDGE_THRESHOLD_MIN 0.0312f
+#define EDGE_THRESHOLD_MAX 0.125f
+// Amount of sub-pixel aliasing removal.
+#define SUBPIXEL_QUALITY 0.75f
+// Edge end search: 12 steps with growing stride covers ~30 pixels.
+#define ITERATIONS 12
 
-float BorderValue(float2 pixel, float2 ratio) {
-    float2 dp = round((pixel + float2(0.9f, 0.9f)) * ratio);
-    
-    float z0 = depthTexture[dp].r;
-    float3 n0 = normalTexture[dp].xyz;
+static const float QUALITY[ITERATIONS] = {
+    1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.5f, 2.0f, 2.0f, 2.0f, 2.0f, 4.0f, 8.0f
+};
 
-    float border = 0.0f;
-    int l = size;
-    for (int x = -l; x < l; ++x) {
-        for (int y = -l; y < l; ++y) {
-            float2 delta = float2(x, y);
-            float z = depthTexture[dp + delta].r;
-            float diff = abs(z - z0);
-            border = max(border, saturate(diff / BORDER_DIFF - BORDER_DIFF) / length(delta));
-            float3 n = normalTexture[dp + delta].xyz;
-            float angle = acos(dot(n0, n));
-            if (length(n) > 0.0f && angle > NORMAL_DIFF) {
-                border = max(border, saturate(angle / NORMAL_DIFF - 1.0f));
-            }
-        }
-    }
-    return border;
+float RgbToLuma(float3 rgb)
+{
+    // sqrt approximates a perceptual curve since the input is linear.
+    return sqrt(dot(rgb, float3(0.299f, 0.587f, 0.114f)));
 }
 
-float4 SmoothColor(float2 pixel) {
-    float w[5] = { 0.1f, 0.2f, 0.4f, 0.2f, 0.1f };
-    float4 color = float4(0.0f, 0.0f, 0.0f, 0.0f);
-    float l = 2;
-    int2 delta;
-    for (delta.x = -l; delta.x <= l; ++delta.x) {
-        for (delta.y = -l; delta.y <= l; ++delta.y) {
-            int2 p = pixel + delta;
-            color += input[p] * w[delta.x + l] * w[delta.y + l];
+float3 SampleColor(float2 uv, float2 rcpFrame)
+{
+    // basicSampler uses wrap addressing; clamp so border pixels never fetch the opposite edge.
+    uv = clamp(uv, 0.5f * rcpFrame, 1.0f - 0.5f * rcpFrame);
+    return input.SampleLevel(basicSampler, uv, 0).rgb;
+}
+
+float SampleLuma(float2 uv, float2 rcpFrame)
+{
+    return RgbToLuma(SampleColor(uv, rcpFrame));
+}
+
+float SampleLumaOff(float2 uv, int2 off, float2 rcpFrame)
+{
+    return SampleLuma(uv + off * rcpFrame, rcpFrame);
+}
+
+float3 Fxaa(float2 uv, float2 rcpFrame, float3 colorCenter)
+{
+    float lumaCenter = RgbToLuma(colorCenter);
+    float lumaDown = SampleLumaOff(uv, int2(0, -1), rcpFrame);
+    float lumaUp = SampleLumaOff(uv, int2(0, 1), rcpFrame);
+    float lumaLeft = SampleLumaOff(uv, int2(-1, 0), rcpFrame);
+    float lumaRight = SampleLumaOff(uv, int2(1, 0), rcpFrame);
+
+    float lumaMin = min(lumaCenter, min(min(lumaDown, lumaUp), min(lumaLeft, lumaRight)));
+    float lumaMax = max(lumaCenter, max(max(lumaDown, lumaUp), max(lumaLeft, lumaRight)));
+    float lumaRange = lumaMax - lumaMin;
+
+    // Flat area: keep the pixel untouched.
+    float3 result = colorCenter;
+
+    [branch]
+    if (lumaRange >= max(EDGE_THRESHOLD_MIN, lumaMax * EDGE_THRESHOLD_MAX)) {
+        float lumaDownLeft = SampleLumaOff(uv, int2(-1, -1), rcpFrame);
+        float lumaUpRight = SampleLumaOff(uv, int2(1, 1), rcpFrame);
+        float lumaUpLeft = SampleLumaOff(uv, int2(-1, 1), rcpFrame);
+        float lumaDownRight = SampleLumaOff(uv, int2(1, -1), rcpFrame);
+
+        float lumaDownUp = lumaDown + lumaUp;
+        float lumaLeftRight = lumaLeft + lumaRight;
+
+        float lumaLeftCorners = lumaDownLeft + lumaUpLeft;
+        float lumaDownCorners = lumaDownLeft + lumaDownRight;
+        float lumaRightCorners = lumaDownRight + lumaUpRight;
+        float lumaUpCorners = lumaUpRight + lumaUpLeft;
+
+        float edgeHorizontal = abs(-2.0f * lumaLeft + lumaLeftCorners)
+                             + abs(-2.0f * lumaCenter + lumaDownUp) * 2.0f
+                             + abs(-2.0f * lumaRight + lumaRightCorners);
+        float edgeVertical = abs(-2.0f * lumaUp + lumaUpCorners)
+                           + abs(-2.0f * lumaCenter + lumaLeftRight) * 2.0f
+                           + abs(-2.0f * lumaDown + lumaDownCorners);
+
+        bool isHorizontal = (edgeHorizontal >= edgeVertical);
+
+        // Pick the edge side with the steepest gradient.
+        float luma1 = isHorizontal ? lumaDown : lumaLeft;
+        float luma2 = isHorizontal ? lumaUp : lumaRight;
+        float gradient1 = luma1 - lumaCenter;
+        float gradient2 = luma2 - lumaCenter;
+
+        bool is1Steepest = abs(gradient1) >= abs(gradient2);
+        float gradientScaled = 0.25f * max(abs(gradient1), abs(gradient2));
+
+        float stepLength = isHorizontal ? rcpFrame.y : rcpFrame.x;
+        float lumaLocalAverage;
+        if (is1Steepest) {
+            stepLength = -stepLength;
+            lumaLocalAverage = 0.5f * (luma1 + lumaCenter);
         }
+        else {
+            lumaLocalAverage = 0.5f * (luma2 + lumaCenter);
+        }
+
+        // Start on the edge, half a pixel towards the steepest side.
+        float2 currentUv = uv;
+        if (isHorizontal) {
+            currentUv.y += stepLength * 0.5f;
+        }
+        else {
+            currentUv.x += stepLength * 0.5f;
+        }
+
+        // Walk along the edge in both directions until its luma end is found.
+        float2 offset = isHorizontal ? float2(rcpFrame.x, 0.0f) : float2(0.0f, rcpFrame.y);
+        float2 uv1 = currentUv - offset;
+        float2 uv2 = currentUv + offset;
+
+        float lumaEnd1 = SampleLuma(uv1, rcpFrame) - lumaLocalAverage;
+        float lumaEnd2 = SampleLuma(uv2, rcpFrame) - lumaLocalAverage;
+
+        bool reached1 = abs(lumaEnd1) >= gradientScaled;
+        bool reached2 = abs(lumaEnd2) >= gradientScaled;
+        bool reachedBoth = reached1 && reached2;
+
+        if (!reached1) {
+            uv1 -= offset;
+        }
+        if (!reached2) {
+            uv2 += offset;
+        }
+
+        if (!reachedBoth) {
+            for (int i = 2; i < ITERATIONS; i++) {
+                if (!reached1) {
+                    lumaEnd1 = SampleLuma(uv1, rcpFrame) - lumaLocalAverage;
+                }
+                if (!reached2) {
+                    lumaEnd2 = SampleLuma(uv2, rcpFrame) - lumaLocalAverage;
+                }
+                reached1 = abs(lumaEnd1) >= gradientScaled;
+                reached2 = abs(lumaEnd2) >= gradientScaled;
+                reachedBoth = reached1 && reached2;
+                if (!reached1) {
+                    uv1 -= offset * QUALITY[i];
+                }
+                if (!reached2) {
+                    uv2 += offset * QUALITY[i];
+                }
+                if (reachedBoth) {
+                    break;
+                }
+            }
+        }
+
+        float distance1 = isHorizontal ? (uv.x - uv1.x) : (uv.y - uv1.y);
+        float distance2 = isHorizontal ? (uv2.x - uv.x) : (uv2.y - uv.y);
+
+        bool isDirection1 = distance1 < distance2;
+        float distanceFinal = min(distance1, distance2);
+        float edgeThickness = distance1 + distance2;
+
+        float pixelOffset = -distanceFinal / edgeThickness + 0.5f;
+
+        // Only shift if the closer end confirms the edge crossing, to avoid overshooting.
+        bool isLumaCenterSmaller = lumaCenter < lumaLocalAverage;
+        bool correctVariation = ((isDirection1 ? lumaEnd1 : lumaEnd2) < 0.0f) != isLumaCenterSmaller;
+        float finalOffset = correctVariation ? pixelOffset : 0.0f;
+
+        // Sub-pixel aliasing removal for isolated details thinner than one pixel.
+        float lumaAverage = (1.0f / 12.0f) * (2.0f * (lumaDownUp + lumaLeftRight) + lumaLeftCorners + lumaRightCorners);
+        float subPixelOffset1 = saturate(abs(lumaAverage - lumaCenter) / lumaRange);
+        float subPixelOffset2 = (-2.0f * subPixelOffset1 + 3.0f) * subPixelOffset1 * subPixelOffset1;
+        float subPixelOffsetFinal = subPixelOffset2 * subPixelOffset2 * SUBPIXEL_QUALITY;
+
+        finalOffset = max(finalOffset, subPixelOffsetFinal);
+
+        float2 finalUv = uv;
+        if (isHorizontal) {
+            finalUv.y += finalOffset * stepLength;
+        }
+        else {
+            finalUv.x += finalOffset * stepLength;
+        }
+        result = SampleColor(finalUv, rcpFrame);
     }
-#ifdef TEST
-    return float4(1.0f, 0.0f, 0.0f, 1.0f);
-#else
-    return color;
-#endif
+    return result;
 }
 
 #define NTHREADS 8
@@ -90,21 +218,16 @@ void main(uint3 DTid : SV_DispatchThreadID)
 {
     uint w, h;
     output.GetDimensions(w, h);
-    float2 imageRes = { w, h };
-
-    depthTexture.GetDimensions(w, h);
-    float2 ratio = float2(w, h) / imageRes;
-   
-    float2 pixel = float2(DTid.x, DTid.y);
-    
-    float4 color = input[pixel];
-
-    if (enabled != 0) {
-        float border = BorderValue(pixel, ratio);
-        if (border > 0.0f) {
-            color = color * (1.0f - border) + SmoothColor(pixel) * border;
-        }
+    if (DTid.x >= w || DTid.y >= h) {
+        return;
     }
 
-    output[pixel] = color;
+    float2 rcpFrame = 1.0f / float2(w, h);
+    float2 uv = (float2(DTid.xy) + 0.5f) * rcpFrame;
+
+    float4 color = input[DTid.xy];
+    if (enabled != 0) {
+        color.rgb = Fxaa(uv, rcpFrame, color.rgb);
+    }
+    output[DTid.xy] = color;
 }
