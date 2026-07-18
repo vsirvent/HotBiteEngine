@@ -75,18 +75,30 @@ namespace HotBiteEditor {
 			if (ImGui::Checkbox("Depth of field", &dof)) {
 				rs->SetDOF(dof);
 			}
+			bool autofocus = app.GetDofAutofocus();
+			if (ImGui::Checkbox("DOF autofocus", &autofocus)) {
+				app.SetDofAutofocus(autofocus);
+			}
 			Core::BaseDOFProcess* dof_effect = app.GetDofEffect();
 			if (dof_effect != nullptr) {
 				float focus = dof_effect->GetFocus();
 				ImGui::SetNextItemWidth(120.0f);
-				if (ImGui::SliderFloat("DOF focus", &focus, 1.0f, 200.0f)) {
+				//While autofocus drives the focal distance every frame, the slider
+				//just displays it; editing it only makes sense in manual mode.
+				ImGui::BeginDisabled(autofocus);
+				if (ImGui::SliderFloat("DOF focus", &focus, 1.0f, 200.0f) && !autofocus) {
 					dof_effect->SetFocus(focus);
 				}
+				ImGui::EndDisabled();
 				float amplitude = dof_effect->GetAmplitude();
 				ImGui::SetNextItemWidth(120.0f);
-				if (ImGui::SliderFloat("DOF amplitude", &amplitude, 0.0f, 20.0f)) {
+				//Autofocus owns the amplitude too (Marbles' distance-based aperture),
+				//so like the focus slider this is display-only until manual mode.
+				ImGui::BeginDisabled(autofocus);
+				if (ImGui::SliderFloat("DOF amplitude", &amplitude, 0.0f, 20.0f) && !autofocus) {
 					dof_effect->SetAmplitude(amplitude);
 				}
+				ImGui::EndDisabled();
 			}
 
 			ImGui::Separator();
@@ -145,12 +157,21 @@ namespace HotBiteEditor {
 				else { rs->SetWireframe(enabled); }
 				return true;
 			}
+			if (key == "dof_autofocus") {
+				bool enabled;
+				if (!ParseBool(value, enabled)) { error = key + " must be 0|1"; return false; }
+				app.SetDofAutofocus(enabled);
+				return true;
+			}
 			if (key == "dof_focus" || key == "dof_amplitude") {
 				Core::BaseDOFProcess* dof_effect = app.GetDofEffect();
 				if (dof_effect == nullptr) { error = "no DOF effect installed"; return false; }
 				float v;
 				try { v = std::stof(value); }
 				catch (...) { error = key + " must be a float"; return false; }
+				//Setting either value manually is an implicit switch to manual mode;
+				//autofocus drives both and would overwrite them next camera move.
+				app.SetDofAutofocus(false);
 				if (key == "dof_focus") { dof_effect->SetFocus(v); }
 				else { dof_effect->SetAmplitude(v); }
 				return true;
@@ -174,6 +195,7 @@ namespace HotBiteEditor {
 				j["aa"] = rs->GetAA();
 				j["motion_blur"] = rs->GetMotionBlur();
 				j["dof"] = rs->GetDOF();
+				j["dof_autofocus"] = app.GetDofAutofocus();
 				j["lens_flare"] = rs->GetLensFlare();
 				j["wireframe"] = rs->GetWireframe();
 				Core::BaseDOFProcess* dof_effect = app.GetDofEffect();

@@ -3,6 +3,7 @@
 #include "imgui.h"
 
 #include <algorithm>
+#include <cmath>
 
 using namespace HotBite::Engine;
 using namespace HotBite::Engine::Core;
@@ -15,6 +16,11 @@ namespace HotBiteEditor {
 	static constexpr float ORBIT_RADIANS_PER_PIXEL = 0.005f;
 	static constexpr float PAN_UNITS_PER_PIXEL = 0.0015f; // additionally scaled by focus distance
 	static constexpr float FLY_UNITS_PER_SEC = 12.0f;
+	//Wheel while navigating rescales the fly speed exponentially, clamped so a
+	//long scroll can neither freeze the camera nor launch it across the level.
+	static constexpr float FLY_SPEED_FACTOR_PER_STEP = 1.25f;
+	static constexpr float MIN_FLY_SPEED_SCALE = 0.1f;
+	static constexpr float MAX_FLY_SPEED_SCALE = 10.0f;
 	static constexpr float DOLLY_DISTANCE_FRACTION = 0.15f; // per wheel step
 	static constexpr float MIN_FOCUS_DISTANCE = 0.5f;
 	//LookToLH uses a fixed world up, which degenerates at the poles.
@@ -163,7 +169,7 @@ namespace HotBiteEditor {
 		if (forward == 0.0f && right == 0.0f && up == 0.0f) {
 			return;
 		}
-		float speed = FLY_UNITS_PER_SEC * elapsed_sec;
+		float speed = FLY_UNITS_PER_SEC * fly_speed_scale * elapsed_sec;
 		if (down(VK_SHIFT)) {
 			speed *= 4.0f;
 		}
@@ -231,12 +237,41 @@ namespace HotBiteEditor {
 		}
 	}
 
+	bool EditorCamera::FlyKeysDown() const
+	{
+		for (uint32_t vk : { (uint32_t)'W', (uint32_t)'A', (uint32_t)'S', (uint32_t)'D',
+			(uint32_t)'Q', (uint32_t)'E', (uint32_t)VK_UP, (uint32_t)VK_DOWN,
+			(uint32_t)VK_LEFT, (uint32_t)VK_RIGHT }) {
+			if (keys_down.count(vk) != 0) {
+				return true;
+			}
+		}
+		return false;
+	}
+
 	void EditorCamera::OnMouseWheel(Event& ev)
 	{
+		float steps = ev.GetParam<float>(DXCore::PARAM_ID_WHEEL);
+		//While navigating (orbit/pan drag held or fly keys down) the wheel tunes
+		//the fly speed instead of dollying, like game-engine editors do. A held
+		//drag owns the wheel outright; fly keys only claim it while the cursor is
+		//not over a panel, so scrolling a list mid-flight still works.
+		auto adjust_speed = [this, steps]() {
+			fly_speed_scale = std::clamp(fly_speed_scale * std::pow(FLY_SPEED_FACTOR_PER_STEP, steps),
+				MIN_FLY_SPEED_SCALE, MAX_FLY_SPEED_SCALE);
+		};
+		if (drag_active) {
+			adjust_speed();
+			return;
+		}
 		if (ImGui::GetIO().WantCaptureMouse) {
 			return;
 		}
-		Dolly(ev.GetParam<float>(DXCore::PARAM_ID_WHEEL));
+		if (FlyKeysDown()) {
+			adjust_speed();
+			return;
+		}
+		Dolly(steps);
 	}
 
 	void EditorCamera::OnKeyDown(Event& ev)

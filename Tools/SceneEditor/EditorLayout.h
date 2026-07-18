@@ -9,15 +9,15 @@ namespace HotBiteEditor {
 
 		// Window titles docked by BeginDockspace. The panels' ImGui::Begin calls and
 		// the DockBuilder layout below must agree on these names.
-		inline constexpr const char* OUTLINER_WINDOW = "Outliner";
+		inline constexpr const char* OUTLINER_WINDOW = "Entities";
 		inline constexpr const char* ASSET_BROWSER_WINDOW = "Asset Browser";
-		inline constexpr const char* INSPECTOR_WINDOW = "Inspector";
+		inline constexpr const char* INSPECTOR_WINDOW = "Components";
 
 		// Fullscreen dockspace over the main viewport's work area with a transparent
 		// pass-through central node: the 3D scene (already rendered into the
 		// backbuffer) shows through the middle while panels dock to the sides.
-		// Layout persists via imgui.ini; the default (Outliner over Asset Browser on
-		// the left, Inspector on the right) is built with DockBuilder the first time
+		// Layout persists via imgui.ini; the default (Entities over Asset Browser on
+		// the left, Components on the right) is built with DockBuilder the first time
 		// no saved layout exists, or unconditionally on View/Reset Layout.
 		inline void BeginDockspace(EditorState& state)
 		{
@@ -37,7 +37,14 @@ namespace HotBiteEditor {
 
 			ImGuiID dockspace_id = ImGui::GetID("EditorDockspace");
 			bool has_layout = ImGui::DockBuilderGetNode(dockspace_id) != nullptr;
-			if (!has_layout || state.apply_default_layout) {
+			//An imgui.ini from before the Outliner->Entities / Inspector->Components
+			//renames has a dock layout but no settings for the renamed windows, which
+			//would leave them floating. Treat that as "no layout" and rebuild the
+			//default docking; DockBuilderDockWindow below creates their settings
+			//entries, so this fires at most once.
+			bool panels_known = ImGui::FindWindowSettingsByID(ImHashStr(OUTLINER_WINDOW)) != nullptr &&
+				ImGui::FindWindowSettingsByID(ImHashStr(INSPECTOR_WINDOW)) != nullptr;
+			if (!has_layout || !panels_known || state.apply_default_layout) {
 				ImGui::DockBuilderRemoveNode(dockspace_id);
 				ImGui::DockBuilderAddNode(dockspace_id, ImGuiDockNodeFlags_DockSpace | ImGuiDockNodeFlags_PassthruCentralNode);
 				ImGui::DockBuilderSetNodeSize(dockspace_id, vp->WorkSize);

@@ -13,7 +13,9 @@ namespace HotBiteEditor {
 	// Viewport camera controls for moving through the loaded scene:
 	//  - right-drag   orbits around the camera's focus point
 	//  - middle-drag  pans the camera and its focus point in the view plane
-	//  - mouse wheel  dollies toward/away from the focus point
+	//  - mouse wheel  dollies toward/away from the focus point; while navigating
+	//                 (drag held or fly keys down) it tunes the fly speed instead,
+	//                 clamped so it cannot run away
 	//  - W/A/S/D or arrows + Q/E (down/up) fly the camera; Shift = fast, Ctrl = slow
 	// All paths mutate the level's camera entity through the engine's CameraSystem
 	// (the way games do, see Tests/DemoGame/GameCameraSystem), so rendering, DOF and
@@ -57,6 +59,7 @@ namespace HotBiteEditor {
 
 	private:
 		HotBite::Engine::Systems::CameraSystem::CameraData* GetCamera();
+		bool FlyKeysDown() const;
 		void OnMouseMove(HotBite::Engine::ECS::Event& ev);
 		void OnMouseWheel(HotBite::Engine::ECS::Event& ev);
 		void OnKeyDown(HotBite::Engine::ECS::Event& ev);
@@ -64,6 +67,8 @@ namespace HotBiteEditor {
 
 		std::shared_ptr<HotBite::Engine::Systems::CameraSystem> camera_system;
 		std::set<uint32_t> keys_down;
+		//Wheel-adjusted multiplier on the WASD fly speed, kept across drags.
+		float fly_speed_scale = 1.0f;
 		//True while an orbit/pan drag that started outside any ImGui panel is held.
 		bool drag_active = false;
 	};

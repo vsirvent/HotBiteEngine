@@ -115,6 +115,14 @@ bool World::GetLockStepSync(void) {
 	return lockstep_sync;
 }
 
+void World::SetPhysicsPause(bool paused) {
+	physics_paused = paused;
+}
+
+bool World::GetPhysicsPause(void) const {
+	return physics_paused;
+}
+
 void World::OnLockStepTick(ECS::Event& ev) {
 	//This callback is called from NETWORK_LOCKSTEP_TICK_THREAD
 	if (lockstep_sync) {
@@ -919,8 +927,10 @@ void World::Run(int render_fps, int background_fps, int physics_fps, bool auto_r
 				physics_mutex.lock();
 				//physics systems moves information to transform component used by the renderer,
 				//so we need to take the renderer lock for this
-				phys_world->update((float)t.period / 1000000000.0f);
-				physics_system->Update(t.period, t.total, false);
+				if (!physics_paused) {
+					phys_world->update((float)t.period / 1000000000.0f);
+					physics_system->Update(t.period, t.total, false);
+				}
 				camera_system->Update(t.period, t.total);
 				coordinator->SendEvent(this, World::EVENT_ID_UPDATE_BACKGROUND);
 				physics_mutex.unlock();

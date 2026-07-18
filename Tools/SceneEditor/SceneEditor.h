@@ -10,6 +10,7 @@
 #include <GUI\GUI.h>
 #include <World.h>
 #include <functional>
+#include <map>
 #include <string>
 #include <vector>
 #include <set>
@@ -69,6 +70,14 @@ namespace HotBiteEditor {
 		std::vector<TemplateAsset> templates; // discovered/imported object templates
 		std::string selected_template;        // template name chosen in the Asset Browser
 
+		// Entity grouping shown as a tree in the Entities panel: every group name
+		// (kept even while empty) plus the group each entity name belongs to
+		// (entities absent from the map are ungrouped). Keyed by entity *name*
+		// because entity ids are not stable across sessions. Persisted in the level
+		// JSON under a top-level "editor" object the engine loader never reads.
+		std::set<std::string> entity_groups;
+		std::map<std::string, std::string> entity_group_of; // entity name -> group name
+
 		std::string status_message;
 
 		// Panel visibility, driven by the View menu. The Project panel doubles as
@@ -119,6 +128,25 @@ namespace HotBiteEditor {
 		// RenderSystem::SetDOF like every other render feature.
 		HotBite::Engine::Core::BaseDOFProcess* GetDofEffect();
 
+		// Marbles-style DOF autofocus: whenever the camera moves, the focus distance
+		// is recomputed as the depth of whatever sits at the center of the view
+		// (scene raycast, falling back to the orbit target against the sky), and
+		// the amplitude follows Marbles' distance-based aperture - wide open
+		// (macro-like shallow depth of field) up close, fully stopped down (whole
+		// scene in focus) from ~20 units out. Marbles does the same continuous
+		// refocusing with the player as its subject; the editor's subject is what
+		// the camera is aimed at. While enabled both manual DOF sliders are inert.
+		// Toggled from the Render menu or the automation channel's
+		// `render dof_autofocus 0|1`.
+		bool GetDofAutofocus() const { return dof_autofocus; }
+		void SetDofAutofocus(bool enabled)
+		{
+			//Re-arm the camera-motion check so enabling refocuses immediately even
+			//from a standstill.
+			dof_refocus_pending = dof_refocus_pending || (enabled && !dof_autofocus);
+			dof_autofocus = enabled;
+		}
+
 		// Runs the menu command registered under `path` exactly as if it were clicked,
 		// honoring its enabled() predicate. Returns false with `error` set for an
 		// unknown or currently disabled command.
@@ -145,8 +173,16 @@ namespace HotBiteEditor {
 		HotBite::Engine::Core::MainEffect* post_effect = nullptr;
 		HotBite::Engine::Core::BaseDOFProcess* dof_effect = nullptr;
 		UI::GUI* gui = nullptr;
+		bool dof_autofocus = true;
+		//Camera pose at the last autofocus evaluation; refocusing is skipped while
+		//it is unchanged. dof_refocus_pending forces one evaluation regardless
+		//(startup, autofocus just re-enabled).
+		HotBite::Engine::float3 dof_last_cam_pos{ 0.0f, 0.0f, 0.0f };
+		HotBite::Engine::float3 dof_last_cam_dir{ 0.0f, 0.0f, 0.0f };
+		bool dof_refocus_pending = true;
 
 		void DrawMenuBar();
+		void UpdateDofAutofocus();
 	};
 
 }

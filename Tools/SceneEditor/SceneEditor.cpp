@@ -69,12 +69,20 @@ namespace HotBiteEditor {
 		//then we drive our own minimal Clear+Present tick below so the ImGui project picker
 		//still renders on an otherwise-empty window.
 		world.Run(60, 60, 60, false);
+		//The editor authors a scene, it doesn't play it: with the simulation live,
+		//gravity re-settles every dynamic body (Ball, Cristal, ...) right after each
+		//load and PhysicsSystem writes those body poses back over the Transforms, so
+		//hand-placed positions drift and saves capture/restore the wrong spots -
+		//which reads as "saving doesn't work". Edit/Simulate Physics re-enables it
+		//for previewing.
+		world.SetPhysicsPause(true);
 		Scheduler::Get(DXCore::MAIN_THREAD)->RegisterTimer(1000000000 / 60, [this](const Scheduler::TimerData& t) {
 			//Remote-control commands run before the frame renders, so their effects
 			//(and any screenshot taken at the end of this same frame) are consistent.
 			EditorAutomation::ProcessCommands(state, *this);
 			if (level_loaded) {
 				editor_camera.Update((float)t.period / 1000000000.0f);
+				UpdateDofAutofocus();
 				world.GetSystem<RenderSystem>()->Update();
 			}
 			else {
@@ -103,13 +111,21 @@ namespace HotBiteEditor {
 			nullptr,
 			[this]() { Quit(); } });
 
+		//Edit: physics preview. Off by default (see SetPhysicsPause above); while
+		//checked, dynamic bodies simulate so the user can watch objects settle, then
+		//pause again to keep authoring from the settled state.
+		menu_commands.push_back({ "Edit/Simulate Physics",
+			[this]() { return level_loaded; },
+			[this]() { world.SetPhysicsPause(!world.GetPhysicsPause()); },
+			[this]() { return !world.GetPhysicsPause(); } });
+
 		//View: panel visibility toggles (the Project panel always shows before a
 		//level loads, since it doubles as the project picker) and layout reset.
-		menu_commands.push_back({ "View/Outliner",
+		menu_commands.push_back({ "View/Entities",
 			[this]() { return level_loaded; },
 			[this]() { state.show_outliner = !state.show_outliner; },
 			[this]() { return state.show_outliner; } });
-		menu_commands.push_back({ "View/Inspector",
+		menu_commands.push_back({ "View/Components",
 			[this]() { return level_loaded; },
 			[this]() { state.show_inspector = !state.show_inspector; },
 			[this]() { return state.show_inspector; } });
@@ -140,6 +156,69 @@ namespace HotBiteEditor {
 	Core::BaseDOFProcess* SceneEditorApp::GetDofEffect()
 	{
 		return dof_effect;
+	}
+
+	void SceneEditorApp::UpdateDofAutofocus()
+	{
+		if (!dof_autofocus || dof_effect == nullptr) {
+			return;
+		}
+		auto camera_system = world.GetSystem<Systems::CameraSystem>();
+		if (camera_system == nullptr || camera_system->GetCameras().GetData().empty()) {
+			return;
+		}
+		const Components::Camera* cam = camera_system->GetCameras().GetData()[0].camera;
+
+		//Refocus only when the camera actually moved (or the mode was just turned
+		//on): the scene holds still while authoring, so the depth under the view
+		//center can only change with the camera - and skipping the idle frames
+		//keeps the scene raycast (which takes the physics lock) off the hot path.
+		if (!dof_refocus_pending &&
+			cam->world_position.x == dof_last_cam_pos.x &&
+			cam->world_position.y == dof_last_cam_pos.y &&
+			cam->world_position.z == dof_last_cam_pos.z &&
+			cam->direction.x == dof_last_cam_dir.x &&
+			cam->direction.y == dof_last_cam_dir.y &&
+			cam->direction.z == dof_last_cam_dir.z) {
+			return;
+		}
+		dof_last_cam_pos = cam->world_position;
+		dof_last_cam_dir = cam->direction;
+		dof_refocus_pending = false;
+
+		//Focal distance = depth of whatever sits at the center of the view, from
+		//the same collider/AABB raycast a viewport click uses. Marbles refocuses on
+		//its one subject (the player ball); the editor's subject is whatever the
+		//user aimed the camera at.
+		Coordinator* c = world.GetCoordinator();
+		if (c == nullptr) {
+			return;
+		}
+		float distance = 0.0f;
+		if (SelectionGizmo::RaycastScene(c, cam->world_position, cam->direction, &distance) == INVALID_ENTITY_ID) {
+			//Nothing under the view center (sky): fall back to the orbit target,
+			//the point the camera controls revolve around.
+			EditorCamera::Pose pose;
+			if (!editor_camera.GetPose(pose)) {
+				return;
+			}
+			float3 d = { pose.target.x - cam->world_position.x,
+						 pose.target.y - cam->world_position.y,
+						 pose.target.z - cam->world_position.z };
+			distance = sqrtf(d.x * d.x + d.y * d.y + d.z * d.z);
+		}
+		dof_effect->SetFocus(distance);
+
+		//Marbles' distance-based aperture (MarblesGame::UpdateCamera): amplitude
+		//(1 - distance/20) * 10, clamped at 0. Up close that's a wide-open macro
+		//lens with a paper-thin depth of field; past 20 units the aperture is fully
+		//stopped down and the whole scene renders in focus, so backing the camera
+		//away never leaves the view blurred.
+		float amplitude = (1.0f - distance / 20.0f) * 10.0f;
+		if (amplitude < 0.0f) {
+			amplitude = 0.0f;
+		}
+		dof_effect->SetAmplitude(amplitude);
 	}
 
 	void SceneEditorApp::ForwardWindowMessage(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
@@ -352,6 +431,7 @@ namespace HotBiteEditor {
 			return false;
 		}
 		world.Init();
+		SceneSerializer::LoadEditorData(state, level_json_path);
 
 		//Install the full post-process pipeline, mirroring Marbles' setup
 		//(MainEffect -> DOF -> backbuffer; RenderSystem finds the DOF stage by

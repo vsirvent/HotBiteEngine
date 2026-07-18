@@ -54,6 +54,29 @@ namespace HotBiteEditor {
 		{
 			t.dirty = true;
 
+			//Move the physics body (when there is one) along with the edit: bodies
+			//live in world space independently of the Transform, so without this the
+			//collider stays behind at the old spot and, the moment the simulation
+			//runs, PhysicsSystem snaps the entity right back to it.
+			Coordinator* c = state.world->GetCoordinator();
+			if (c->ContainsComponent<Physics>(state.selected_entity)) {
+				Physics& ph = c->GetComponent<Physics>(state.selected_entity);
+				if (ph.body != nullptr) {
+					std::lock_guard<std::recursive_mutex> lock(Core::physics_mutex);
+					reactphysics3d::Transform bt(
+						{ t.position.x, t.position.y, t.position.z },
+						{ t.rotation.x, t.rotation.y, t.rotation.z, t.rotation.w });
+					ph.body->setTransform(bt);
+					if (ph.type == reactphysics3d::BodyType::DYNAMIC) {
+						ph.body->setLinearVelocity({ 0.0f, 0.0f, 0.0f });
+						ph.body->setAngularVelocity({ 0.0f, 0.0f, 0.0f });
+					}
+					//Prime the change detector so a paused PhysicsSystem doesn't
+					//treat the teleport itself as pending body movement to sync back.
+					ph.last_body_transform = bt;
+				}
+			}
+
 			if (state.instance_entity_ids.count(state.selected_entity) != 0) {
 				//This entity is an editor-placed instance: update its bookkeeping
 				//entry directly so a save writes the new transform out.

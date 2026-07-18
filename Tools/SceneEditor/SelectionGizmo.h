@@ -17,5 +17,15 @@ namespace HotBiteEditor {
 		// world AABBs (camera-enclosing boxes skipped so terrain-sized volumes
 		// don't shadow props), or clears the selection on empty space/sky.
 		void Draw(EditorState& state);
+
+		// Nearest entity along a world-space ray - the same test a viewport click
+		// runs (physics colliders + world AABBs, camera-enclosing AABB hits skipped).
+		// `ray_dir` need not be normalized. On a hit, `out_distance` (when non-null)
+		// receives the distance from `ray_origin` in world units. Used by the DOF
+		// autofocus to measure the depth at the center of the view.
+		HotBite::Engine::ECS::Entity RaycastScene(HotBite::Engine::ECS::Coordinator* c,
+			const HotBite::Engine::float3& ray_origin,
+			const HotBite::Engine::float3& ray_dir,
+			float* out_distance = nullptr);
 	}
 }

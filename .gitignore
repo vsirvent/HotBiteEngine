@@ -897,3 +897,6 @@ Solution/x64/Release/AccumulatorCS.cso
 Solution/x64/Release/GameServer.exe
 Solution/x64/Debug/GameServer.exe
 *.exe
+/Engine/x64
+/Tools/SceneEditor/x64
+/Tools/SceneEditor/x64

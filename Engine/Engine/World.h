@@ -77,6 +77,7 @@ namespace HotBite {
 			uint64_t tick_period = 0;
 			bool lockstep_init = false;
 			bool lockstep_sync = false;
+			std::atomic<bool> physics_paused = false;
 			ECS::Event lockstep_tick_ev{ this, Network::LockStep::Command::EVENT_ID_NEW_SERVER_COMMAND };
 			
 			Core::VertexBuffer<Core::Vertex>* vertex_buffer = nullptr;
@@ -132,6 +133,13 @@ namespace HotBite {
 			virtual bool Release();
 			virtual void SetLockStepSync(bool enabled);
 			virtual bool GetLockStepSync(void);
+			// Pauses stepping of the physics simulation (and the body->Transform
+			// write-back) while every other system keeps running. Meant for editors:
+			// dynamic bodies must hold still while the scene is authored, or gravity
+			// keeps undoing hand-placed transforms. Bodies keep their poses; resuming
+			// continues the simulation from wherever they currently are.
+			virtual void SetPhysicsPause(bool paused);
+			virtual bool GetPhysicsPause(void) const;
 			virtual bool Load(const std::string& scene_file, float* progress = nullptr, std::function<void(float)> OnLoadProgress = nullptr, float progress_unit = 1.0f);
 			virtual void Init();
 			virtual void SetPostProcessPipeline(Core::PostProcess* pipeline);

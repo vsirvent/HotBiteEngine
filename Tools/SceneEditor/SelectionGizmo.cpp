@@ -215,7 +215,8 @@ namespace HotBiteEditor {
 		//are skipped so they can't shadow real hits — clicking open ground still
 		//selects the terrain through its collider, and a sky click hits nothing,
 		//which clears the selection.
-		static Entity Pick(Coordinator* c, const vector3d& ray_origin, const vector3d& ray_dir)
+		static Entity Pick(Coordinator* c, const vector3d& ray_origin, const vector3d& ray_dir,
+			float* out_distance = nullptr)
 		{
 			float3 o, d;
 			XMStoreFloat3(&o, ray_origin);
@@ -254,7 +255,27 @@ namespace HotBiteEditor {
 					}
 				}
 			}
+			if (best != INVALID_ENTITY_ID && out_distance != nullptr) {
+				*out_distance = best_dist;
+			}
 			return best;
+		}
+
+		Entity RaycastScene(Coordinator* c, const float3& ray_origin, const float3& ray_dir,
+			float* out_distance)
+		{
+			vector3d origin = XMLoadFloat3(&ray_origin);
+			vector3d dir = XMLoadFloat3(&ray_dir);
+			//A zero direction (e.g. a camera the CameraSystem hasn't updated yet)
+			//would normalize to NaN and trip BoundingBox::Intersects' unit-vector
+			//assert; there is nothing meaningful to hit anyway.
+			if (XMVectorGetX(XMVector3LengthSq(dir)) < 1e-8f) {
+				return INVALID_ENTITY_ID;
+			}
+			//Pick's collider/AABB distances are parameters along the direction, so it
+			//must be unit length for them to come out in world units.
+			dir = XMVector3Normalize(dir);
+			return Pick(c, origin, dir, out_distance);
 		}
 
 		void Draw(EditorState& state)

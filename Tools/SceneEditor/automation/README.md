@@ -45,9 +45,12 @@ directory so relative asset paths in level files resolve the same way the other 
 | `open_level <path>` | same as File/Open Level..., minus the file dialog (one level per session) |
 | `menus` | lists registered menu commands and whether they are enabled |
 | `menu <Menu/Item>` | executes a menu item, e.g. `menu "File/Save Level"` |
-| `list_entities` | outliner contents with ids and positions |
-| `select <name>` | selects an entity (same bookkeeping as clicking it in the Outliner) |
-| `focus` | frames the selected entity with the camera, same code path as double-clicking it in the Outliner |
+| `list_entities` | Entities panel contents with ids, positions and group membership |
+| `select <name>` | selects an entity (same bookkeeping as clicking it in the Entities panel) |
+| `focus` | frames the selected entity with the camera, same code path as double-clicking it in the Entities panel |
+| `create_group <name>` | creates an (empty) entity group in the Entities panel tree |
+| `set_group <entity> <group\|none>` | moves an entity into a group (`none` ungroups); an unknown group is created implicitly. Groups persist in the level JSON on save |
+| `list_groups` | lists all groups and their member entities |
 | `set_position x y z` | edits the selected entity's Transform like the Inspector fields |
 | `set_scale x y z` | ditto |
 | `set_rotation p y r` | Euler degrees, pitch/yaw/roll |
@@ -64,13 +67,17 @@ directory so relative asset paths in level files resolve the same way the other 
 | `camera_zoom steps` | simulates mouse-wheel steps (positive = toward the focus point, clamped before it) |
 | `camera_fly fwd right up` | moves camera + focus point by camera-relative world units, like the WASD/QE fly keys |
 | `render` | one-line JSON dump of the render settings (same keys as the Render menu) |
-| `render <key> <value>` | changes one render setting, e.g. `render aa 0`, `render rt_quality high` |
+| `render <key> <value>` | changes one render setting, e.g. `render aa 0`, `render rt_quality high`; `render dof_autofocus 0\|1` toggles Marbles-style autofocus — on camera movement, focus is re-set to the scene depth at the view center and amplitude to Marbles' distance-based aperture (macro blur up close, everything sharp beyond ~20 units). On by default; setting `dof_focus`/`dof_amplitude` switches it off |
 | `screenshot <png path>` | saves the backbuffer (scene + ImGui UI) as PNG at the end of the frame |
 | `quit` | closes the editor |
 | `debug_crash` | deliberate null write to exercise the crash pipeline; never responds (the process dies), so expect the driver to time out |
 
 Screenshots are captured after the UI is rendered into the backbuffer, so what the
 PNG shows is exactly what a user would see that frame.
+
+Physics simulation is paused while editing (dynamic bodies hold the pose they were
+authored/edited at, so transform edits and saves are exact); `menu "Edit/Simulate
+Physics"` toggles it for previewing how objects settle.
 
 The `camera_*` commands drive the same `EditorCamera` code paths as the interactive
 viewport controls (right-drag orbit, middle-drag pan, wheel dolly, WASD/arrows +

@@ -119,11 +119,55 @@ namespace HotBiteEditor {
 				}
 			}
 
+			//4) Entity groups (the Entities panel tree). Stored under a top-level
+			//   "editor" object that World::Load never reads, so it round-trips as
+			//   editor-only data. Assignments to entities that no longer exist are
+			//   dropped here rather than accumulating in the file.
+			json groups = json::object();
+			for (const auto& g : state.entity_groups) {
+				groups[g] = json::array();
+			}
+			for (const auto& [entity_name, group] : state.entity_group_of) {
+				if (groups.contains(group) && c->GetEntityByName(entity_name) != INVALID_ENTITY_ID) {
+					groups[group].push_back(entity_name);
+				}
+			}
+			level["editor"]["groups"] = groups;
+
 			std::ofstream out(state.current_level_path);
 			out << level.dump(4);
 			out.close();
 
 			state.status_message = "Saved: " + state.current_level_path;
+		}
+
+		void LoadEditorData(EditorState& state, const std::string& level_json_path)
+		{
+			state.entity_groups.clear();
+			state.entity_group_of.clear();
+
+			json level;
+			try {
+				level = json::parse(std::ifstream(level_json_path));
+			}
+			catch (std::exception&) {
+				return;
+			}
+			if (!level.contains("editor") || !level["editor"].contains("groups") ||
+				!level["editor"]["groups"].is_object()) {
+				return;
+			}
+			for (const auto& [group, members] : level["editor"]["groups"].items()) {
+				state.entity_groups.insert(group);
+				if (!members.is_array()) {
+					continue;
+				}
+				for (const auto& m : members) {
+					if (m.is_string()) {
+						state.entity_group_of[m.get<std::string>()] = group;
+					}
+				}
+			}
 		}
 
 	}

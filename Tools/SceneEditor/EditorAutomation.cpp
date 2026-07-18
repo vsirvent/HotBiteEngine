@@ -203,6 +203,10 @@ namespace HotBiteEditor {
 							const Transform& t = c->GetComponent<Transform>(entity);
 							os << " pos=(" << t.position.x << "," << t.position.y << "," << t.position.z << ")";
 						}
+						auto group_it = state.entity_group_of.find(name);
+						if (group_it != state.entity_group_of.end()) {
+							os << " group=" << group_it->second;
+						}
 						if (entity == state.selected_entity) {
 							os << " [selected]";
 						}
@@ -235,9 +239,48 @@ namespace HotBiteEditor {
 					}
 				}
 			}
+			else if (cmd == "create_group") {
+				if (args.size() < 2) {
+					response_lines.push_back("ERR usage: create_group <name>");
+				}
+				else if (Outliner::CreateGroup(state, args[1], error)) {
+					response_lines.push_back("OK group created: " + args[1]);
+				}
+				else {
+					response_lines.push_back("ERR " + error);
+				}
+			}
+			else if (cmd == "set_group") {
+				//`set_group <entity> none` ungroups; naming a new group creates it.
+				if (args.size() < 3) {
+					response_lines.push_back("ERR usage: set_group <entity name> <group|none>");
+				}
+				else {
+					std::string group = (args[2] == "none") ? "" : args[2];
+					if (Outliner::SetEntityGroup(state, args[1], group, error)) {
+						response_lines.push_back("OK " + args[1] + " -> " + (group.empty() ? "(none)" : group));
+					}
+					else {
+						response_lines.push_back("ERR " + error);
+					}
+				}
+			}
+			else if (cmd == "list_groups") {
+				response_lines.push_back("OK " + std::to_string(state.entity_groups.size()) + " groups");
+				for (const auto& g : state.entity_groups) {
+					std::ostringstream os;
+					os << g << ":";
+					for (const auto& [entity_name, group] : state.entity_group_of) {
+						if (group == g) {
+							os << " " << entity_name;
+						}
+					}
+					response_lines.push_back(os.str());
+				}
+			}
 			else if (cmd == "focus") {
 				//Frames the selected entity, exactly like double-clicking it in the
-				//Outliner (same FocusSelected code path).
+				//Entities panel (same FocusSelected code path).
 				if (Outliner::FocusSelected(state, app.GetEditorCamera(), error)) {
 					response_lines.push_back("OK focused entity " + std::to_string(state.selected_entity));
 				}
