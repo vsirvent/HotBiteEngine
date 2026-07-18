@@ -16,11 +16,18 @@ namespace HotBiteEditor {
 		// false with `error` set when there is no usable selection or camera.
 		bool FocusSelected(EditorState& state, EditorCamera& camera, std::string& error);
 
-		// Group bookkeeping shared by the panel UI and the automation channel
-		// (`create_group` / `set_group`). SetEntityGroup with an empty group name
-		// ungroups; a group named for the first time is created implicitly.
+		// Group bookkeeping shared by the panel UI (buttons, drag-and-drop, context
+		// menus) and the automation channel (`create_group` / `set_group`). Every
+		// successful call records one EditorHistory action, so keep new group
+		// mutations going through these instead of touching EditorState directly.
+		// SetEntityGroup with an empty group name ungroups; a group named for the
+		// first time is created implicitly. RenameGroup onto an existing name merges
+		// the two groups.
 		bool CreateGroup(EditorState& state, const std::string& name, std::string& error);
 		bool SetEntityGroup(EditorState& state, const std::string& entity_name,
 			const std::string& group, std::string& error);
+		bool RenameGroup(EditorState& state, const std::string& from,
+			const std::string& to, std::string& error);
+		bool DeleteGroup(EditorState& state, const std::string& name, std::string& error);
 	}
 }

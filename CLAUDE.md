@@ -62,6 +62,15 @@ Tools\SceneEditor\automation\editor-cli.ps1 -Dir $dir -Command 'quit'
 Menu items are registered in a `MenuCommand` registry (`SceneEditor.h`); new menu
 entries added there are automatically clickable in the UI *and* scriptable via
 `menu "<Menu>/<Item>"`, so keep using it instead of raw `ImGui::MenuItem` calls.
+
+**Undo/redo rule:** every editor command that mutates the scene or its editor
+bookkeeping MUST push an `EditorHistory::Action` right after the mutation succeeds,
+from whichever surface triggered it (panel widget, menu, automation). The full
+contract — closure rules (capture entity *names*, not ids), the LIFO guarantee,
+drag coalescing, and what is deliberately out of scope — is documented at the top
+of `Tools/SceneEditor/EditorHistory.h`; follow the existing helpers
+(`Inspector::ApplyTransform`, `Outliner::SetEntityGroup`,
+`AssetBrowser::PlaceTemplate`) as the pattern.
 Give screenshots a couple of frames after a state-changing command if the change
 must be visible in the render (the channel already executes commands pre-frame and
 captures post-frame, so single-batch `command + screenshot` is consistent).

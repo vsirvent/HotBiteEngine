@@ -34,6 +34,7 @@
     <ClCompile Include="AssetBrowser.cpp" />
     <ClCompile Include="SceneSerializer.cpp" />
     <ClCompile Include="EditorAutomation.cpp" />
+    <ClCompile Include="EditorHistory.cpp" />
     <ClCompile Include="EditorCamera.cpp" />
     <ClCompile Include="CrashHandler.cpp" />
     <ClCompile Include="RenderSettings.cpp" />
@@ -54,6 +55,7 @@
     <ClInclude Include="AssetBrowser.h" />
     <ClInclude Include="SceneSerializer.h" />
     <ClInclude Include="EditorAutomation.h" />
+    <ClInclude Include="EditorHistory.h" />
     <ClInclude Include="EditorCamera.h" />
     <ClInclude Include="CrashHandler.h" />
     <ClInclude Include="RenderSettings.h" />

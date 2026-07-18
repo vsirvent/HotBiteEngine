@@ -438,6 +438,16 @@ ECS::Entity World::SpawnInstance(const std::string& name, const std::string& tem
 
 	int part_index = 0;
 	for (ECS::Entity te : parts) {
+		//Skinned FBX templates can register non-renderable nodes (armatures, empties)
+		//alongside their meshes; those have no Mesh/Bounds to clone, and asking for
+		//them throws. Skip them - the part keeps its index so multi-part instance
+		//names stay stable regardless of where the non-mesh nodes sort.
+		if (!templates_coordinator->ContainsComponent<Components::Mesh>(te) ||
+			!templates_coordinator->ContainsComponent<Components::Bounds>(te) ||
+			!templates_coordinator->ContainsComponent<Components::Transform>(te)) {
+			++part_index;
+			continue;
+		}
 		const Components::Bounds& tbounds = templates_coordinator->GetConstComponent<Components::Bounds>(te);
 		const Components::Transform& tt = templates_coordinator->GetConstComponent<Components::Transform>(te);
 
@@ -487,6 +497,82 @@ ECS::Entity World::SpawnInstance(const std::string& name, const std::string& tem
 		++part_index;
 	}
 	return primary;
+}
+
+ECS::Entity World::CloneEntity(const std::string& new_name, const std::string& source_name)
+{
+	ECS::Entity src = coordinator->GetEntityByName(source_name);
+	if (src == ECS::INVALID_ENTITY_ID) {
+		printf("World::CloneEntity: source entity not found: %s\n", source_name.c_str());
+		return ECS::INVALID_ENTITY_ID;
+	}
+	if (coordinator->GetEntityByName(new_name) != ECS::INVALID_ENTITY_ID) {
+		printf("World::CloneEntity: entity name already exists: %s\n", new_name.c_str());
+		return ECS::INVALID_ENTITY_ID;
+	}
+	//Only mesh entities are clonable: lights, cameras and the sky own live GPU or
+	//system resources a plain component copy would alias.
+	if (!coordinator->ContainsComponent<Components::Base>(src) ||
+		!coordinator->ContainsComponent<Components::Transform>(src) ||
+		!coordinator->ContainsComponent<Components::Bounds>(src) ||
+		!coordinator->ContainsComponent<Components::Mesh>(src)) {
+		printf("World::CloneEntity: %s is not a mesh entity, not cloned.\n", source_name.c_str());
+		return ECS::INVALID_ENTITY_ID;
+	}
+
+	ECS::Entity e = coordinator->CreateEntity(new_name);
+
+	Components::Base base = coordinator->GetConstComponent<Components::Base>(src);
+	base.name = new_name;
+	base.id = e;
+	base.creation_time = Core::Scheduler::GetNanoSeconds();
+	coordinator->AddComponent<Components::Base>(e, base);
+
+	Components::Transform t = coordinator->GetConstComponent<Components::Transform>(src);
+	t.dirty = true;
+	coordinator->AddComponent<Components::Transform>(e, t);
+
+	const Components::Bounds& bounds = coordinator->GetConstComponent<Components::Bounds>(src);
+	coordinator->AddComponent<Components::Bounds>(e, bounds);
+
+	coordinator->AddComponent<Components::Mesh>(e);
+	coordinator->GetComponent<Components::Mesh>(e).SetData(coordinator->GetComponent<Components::Mesh>(src).GetData());
+
+	if (coordinator->ContainsComponent<Components::Material>(src)) {
+		coordinator->AddComponent<Components::Material>(e, coordinator->GetConstComponent<Components::Material>(src));
+	}
+	coordinator->AddComponent<Components::Lighted>(e);
+
+	//Mesh-shape colliders are looked up by the original FBX entity name; remember
+	//the clone's root source so Init() (for load-time clones) and the runtime path
+	//below resolve the same shape. Chains (clone of a clone) collapse to the root.
+	auto alias_it = clone_shape_alias.find(source_name);
+	const std::string& shape_name = (alias_it != clone_shape_alias.end()) ? alias_it->second : source_name;
+	clone_shape_alias[new_name] = shape_name;
+
+	if (coordinator->ContainsComponent<Components::Physics>(src)) {
+		const Components::Physics& sp = coordinator->GetConstComponent<Components::Physics>(src);
+		Components::Physics p;
+		p.type = sp.type;
+		p.shape = sp.shape;
+		p.bounce = sp.bounce;
+		p.friction = sp.friction;
+		p.air_friction = sp.air_friction;
+		coordinator->AddComponent<Components::Physics>(e, p);
+		if (scene_init) {
+			//Load-time clones get their body from the Init() pass like every other
+			//mesh entity; runtime clones must create theirs here.
+			Components::Physics& np = coordinator->GetComponent<Components::Physics>(e);
+			ShapeData* shape = nullptr;
+			if (np.type != reactphysics3d::BodyType::DYNAMIC) {
+				shape = shapes.Get(shape_name);
+			}
+			np.Init(phys_world, np.type, shape, bounds.bounding_box.Extents, t.position, t.scale, t.rotation, np.shape);
+		}
+	}
+
+	coordinator->NotifySignatureChange(e);
+	return e;
 }
 
 void World::LoadInstances(const nlohmann::json& instances_json) {
@@ -792,8 +878,61 @@ bool World::Load(const std::string& scene_file, float* progress, std::function<v
 						m.multi_material.LoadMultitexture(multi_textures_json.dump(), path, materials);
 					}
 				}
+				//Editor renames: the entry is keyed by the authored (FBX/lights) name,
+				//"rename" carries the name the user gave it. Exact names only - a
+				//wildcard rule renaming several entities to one name cannot work.
+				if (entity.contains("rename") && name.find('*') == std::string::npos) {
+					std::string new_name = entity["rename"];
+					if (!new_name.empty() && new_name != name &&
+						coordinator->GetEntityByName(new_name) == ECS::INVALID_ENTITY_ID) {
+						coordinator->ChangeEntityName(name, new_name);
+						coordinator->GetComponent<Components::Base>(e).name = new_name;
+						changed = true;
+					}
+				}
 				if (changed) {
 					coordinator->NotifySignatureChange(e);
+				}
+			}
+		}
+
+		//Editor-created entity copies: clones of already-loaded scene entities, with
+		//their own transform. Processed after "entities" so renames are already
+		//applied, and before "removed_entities" so a copy of a since-deleted entity
+		//can still clone it.
+		if (jw.contains("clones")) {
+			for (const auto& clone : jw["clones"]) {
+				std::string clone_name = clone["name"];
+				std::string source_name = clone["source"];
+				ECS::Entity e = CloneEntity(clone_name, source_name);
+				if (e == ECS::INVALID_ENTITY_ID) {
+					continue;
+				}
+				Components::Transform& t = coordinator->GetComponent<Components::Transform>(e);
+				if (clone.contains("position")) {
+					const auto& pos = clone["position"];
+					t.position = { pos["x"], pos["y"], pos["z"] };
+				}
+				if (clone.contains("rotation")) {
+					const auto& rot = clone["rotation"];
+					t.rotation = { rot["x"], rot["y"], rot["z"], rot["w"] };
+				}
+				if (clone.contains("scale")) {
+					const auto& scl = clone["scale"];
+					t.scale = { scl["x"], scl["y"], scl["z"] };
+				}
+				t.dirty = true;
+			}
+		}
+
+		//Entities the editor deleted (cut). Removed last so they were still available
+		//as clone sources above.
+		if (jw.contains("removed_entities")) {
+			for (const auto& removed : jw["removed_entities"]) {
+				std::string removed_name = removed;
+				ECS::Entity e = coordinator->GetEntityByName(removed_name);
+				if (e != ECS::INVALID_ENTITY_ID) {
+					coordinator->DestroyEntity(e);
 				}
 			}
 		}
@@ -875,6 +1014,13 @@ void World::Init() {
 			if (p.type != reactphysics3d::BodyType::DYNAMIC) {
 				//Dynamic bodies use capsules, can't use mesh shape
 				shape = shapes.Get(e.first);
+				if (shape == nullptr) {
+					//Load-time clones have no shape of their own; use their source's.
+					auto alias = clone_shape_alias.find(e.first);
+					if (alias != clone_shape_alias.end()) {
+						shape = shapes.Get(alias->second);
+					}
+				}
 			}
 			if (shape == nullptr) {
 				printf("No shape for mesh %s\n", e.first.c_str());
@@ -889,6 +1035,7 @@ void World::Init() {
 		bvh_buffer->Add(m.bvh.Root(), m.bvh.Size(), &m.bvhOffset);
 	}
 	bvh_buffer->Prepare();
+	scene_init = true;
 }
 
 void World::Run(int render_fps, int background_fps, int physics_fps, bool auto_render) {

@@ -88,6 +88,10 @@ namespace HotBite {
 			//Absolute path of assets location
 			std::string path;
 			std::unordered_map<std::string, std::set<ECS::Entity>> template_entities;
+			//Clone entity name -> root source entity name, so Init() can resolve the
+			//collision ShapeData of clones created during Load() (shapes are keyed by
+			//the original FBX entity name).
+			std::unordered_map<std::string, std::string> clone_shape_alias;
 			std::unordered_map<std::string, nlohmann::json> multi_materials;
 			Core::FlatMap<std::string, Core::MaterialData> materials{ ECS::MAX_ENTITIES };
 			Core::FlatMap<std::string, Core::MeshData> meshes{ ECS::MAX_ENTITIES };
@@ -109,6 +113,9 @@ namespace HotBite {
 			std::shared_ptr<Systems::AudioSystem> audio_system;
 			bool running = false;
 			bool init = false;
+			//Init() has run: entities created after this point (editor spawns/clones)
+			//must set up their own physics bodies instead of relying on the Init() pass.
+			bool scene_init = false;
 			std::unordered_map<std::string, std::shared_ptr<ECS::System>> systems_by_name;
 			std::list<int> run_timer_ids[Core::DXCore::NTHREADS];
 			std::set<std::string> loaded_files;
@@ -169,6 +176,14 @@ namespace HotBite {
 			virtual ECS::Entity SpawnInstance(const std::string& name, const std::string& template_name,
 							const float3& position, const float4& rotation, const float3& scale,
 							const std::string& material_name = "", const nlohmann::json* physics_json = nullptr);
+			// Creates a new entity named `new_name` as a copy of the existing scene
+			// entity `source_name`: Base flags, Transform, Bounds and the (shared)
+			// mesh/material data are copied; Physics parameters are copied and a fresh
+			// rigid body is created when the source has one. Only mesh entities
+			// (Base+Transform+Bounds+Mesh) can be cloned; lights/cameras/sky return
+			// INVALID_ENTITY_ID. Used by the "clones" section of Load() and by editor
+			// copy/paste at runtime.
+			virtual ECS::Entity CloneEntity(const std::string& new_name, const std::string& source_name);
 
 			template<typename T>
 			void RegisterComponent()

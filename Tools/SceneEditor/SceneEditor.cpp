@@ -1,4 +1,5 @@
 #include "SceneEditor.h"
+#include "EditorHistory.h"
 #include "EditorLayout.h"
 #include "ProjectBrowser.h"
 #include "Outliner.h"
@@ -111,6 +112,16 @@ namespace HotBiteEditor {
 			nullptr,
 			[this]() { Quit(); } });
 
+		//Edit: undo/redo of scene edits (see EditorHistory.h for what records and
+		//the rule every new command must follow). Also on Ctrl+Z / Ctrl+Y /
+		//Ctrl+Shift+Z (see Present) and the automation `undo`/`redo` commands.
+		menu_commands.push_back({ "Edit/Undo",
+			[this]() { return level_loaded && EditorHistory::CanUndo(); },
+			[this]() { std::string err; EditorHistory::Undo(state, err); } });
+		menu_commands.push_back({ "Edit/Redo",
+			[this]() { return level_loaded && EditorHistory::CanRedo(); },
+			[this]() { std::string err; EditorHistory::Redo(state, err); } });
+
 		//Edit: physics preview. Off by default (see SetPhysicsPause above); while
 		//checked, dynamic bodies simulate so the user can watch objects settle, then
 		//pause again to keep authoring from the settled state.
@@ -118,6 +129,21 @@ namespace HotBiteEditor {
 			[this]() { return level_loaded; },
 			[this]() { world.SetPhysicsPause(!world.GetPhysicsPause()); },
 			[this]() { return !world.GetPhysicsPause(); } });
+
+		//Edit: viewport gizmo tool. Also on the 1/2/3 keys (see SelectionGizmo::Draw);
+		//W/E/R would collide with the camera fly keys.
+		menu_commands.push_back({ "Edit/Gizmo: Translate",
+			[this]() { return level_loaded; },
+			[this]() { state.gizmo_mode = GizmoMode::Translate; },
+			[this]() { return state.gizmo_mode == GizmoMode::Translate; } });
+		menu_commands.push_back({ "Edit/Gizmo: Rotate",
+			[this]() { return level_loaded; },
+			[this]() { state.gizmo_mode = GizmoMode::Rotate; },
+			[this]() { return state.gizmo_mode == GizmoMode::Rotate; } });
+		menu_commands.push_back({ "Edit/Gizmo: Scale",
+			[this]() { return level_loaded; },
+			[this]() { state.gizmo_mode = GizmoMode::Scale; },
+			[this]() { return state.gizmo_mode == GizmoMode::Scale; } });
 
 		//View: panel visibility toggles (the Project panel always shows before a
 		//level loads, since it doubles as the project picker) and layout reset.
@@ -268,6 +294,18 @@ namespace HotBiteEditor {
 			ProjectBrowser::Draw(state, *this);
 		}
 		else {
+			//Undo/redo hotkeys, gated like the gizmo's 1/2/3 keys: inert while a
+			//text field owns the keyboard. Ctrl+Shift+Z is the usual redo alias.
+			ImGuiIO& io = ImGui::GetIO();
+			if (!io.WantTextInput && io.KeyCtrl) {
+				std::string err;
+				if (ImGui::IsKeyPressed(ImGuiKey_Z, false)) {
+					io.KeyShift ? EditorHistory::Redo(state, err) : EditorHistory::Undo(state, err);
+				}
+				else if (ImGui::IsKeyPressed(ImGuiKey_Y, false)) {
+					EditorHistory::Redo(state, err);
+				}
+			}
 			//The dockspace must be submitted before any window that docks into it.
 			EditorLayout::BeginDockspace(state);
 			if (state.show_project) {
@@ -454,6 +492,8 @@ namespace HotBiteEditor {
 		// RenderSystem::Update() instead of the bare Clear+Present used for the picker.
 		state.current_level_path = level_json_path;
 		level_loaded = true;
+		//A fresh level starts with an empty edit history.
+		EditorHistory::Clear();
 		state.status_message = "Loaded: " + level_json_path;
 		return true;
 	}

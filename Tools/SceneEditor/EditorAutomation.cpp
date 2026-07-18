@@ -1,4 +1,5 @@
 #include "EditorAutomation.h"
+#include "EditorHistory.h"
 #include "ProjectBrowser.h"
 #include "Inspector.h"
 #include "AssetBrowser.h"
@@ -111,6 +112,8 @@ namespace HotBiteEditor {
 			j["status"] = state.status_message;
 			j["selected_entity"] = (int)state.selected_entity;
 			j["selected_template"] = state.selected_template;
+			static const char* GIZMO_MODE_NAME[3] = { "translate", "rotate", "scale" };
+			j["gizmo_mode"] = GIZMO_MODE_NAME[(int)state.gizmo_mode];
 			j["placed_instances"] = state.placed_instances.size();
 			Coordinator* c = state.world->GetCoordinator();
 			j["entity_count"] = (c != nullptr) ? c->GetEntites().size() : 0;
@@ -479,6 +482,19 @@ namespace HotBiteEditor {
 				else {
 					app.GetEditorCamera().Fly(v[0], v[1], v[2]);
 					response_lines.push_back("OK");
+				}
+			}
+			else if (cmd == "undo" || cmd == "redo") {
+				//Same history the Edit menu and Ctrl+Z/Ctrl+Y drive; the status
+				//message carries the description of the step that was applied.
+				bool ok = (cmd == "undo")
+					? EditorHistory::Undo(state, error)
+					: EditorHistory::Redo(state, error);
+				if (ok) {
+					response_lines.push_back("OK " + state.status_message);
+				}
+				else {
+					response_lines.push_back("ERR " + error);
 				}
 			}
 			else if (cmd == "quit") {

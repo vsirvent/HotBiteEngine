@@ -1,5 +1,7 @@
 #include "AssetBrowser.h"
+#include "EditorHistory.h"
 #include "EditorLayout.h"
+#include "Inspector.h"
 
 #include "imgui.h"
 
@@ -119,6 +121,67 @@ namespace HotBiteEditor {
 			return true;
 		}
 
+		//Spawns `inst` into the world and registers the save/selection bookkeeping.
+		//Shared by the user-facing PlaceTemplate, paste (EntityOps) and the undo/redo
+		//closures of both, so every path runs exactly the original placement code.
+		bool SpawnRecordedInstance(EditorState& state, const PlacedInstance& inst, std::string& error)
+		{
+			ECS::Entity e = state.world->SpawnInstance(inst.name, inst.template_name,
+				inst.position, inst.rotation, inst.scale, inst.material_name);
+			if (e == ECS::INVALID_ENTITY_ID) {
+				error = "SpawnInstance failed for template: " + inst.template_name;
+				return false;
+			}
+			state.placed_instances.push_back(inst);
+			state.instance_entity_ids.insert(e);
+			state.selected_entity = e;
+			Inspector::RefreshEulerCache(state);
+			return true;
+		}
+
+		//Undo of a place / cut of an instance: destroys the instance's entities
+		//(every part of a multi-part template) and drops its bookkeeping. Placed
+		//instances never carry a Physics component, so DestroyEntity fully cleans
+		//them up.
+		void RemovePlacedInstance(EditorState& state, const std::string& instance_name)
+		{
+			auto record = state.placed_instances.end();
+			for (auto it = state.placed_instances.begin(); it != state.placed_instances.end(); ++it) {
+				if (it->name == instance_name) {
+					record = it;
+					break;
+				}
+			}
+			ECS::Coordinator* c = state.world->GetCoordinator();
+			if (record == state.placed_instances.end() || c == nullptr) {
+				return;
+			}
+			//SpawnInstance names multi-part instances "<name>_<index>" per part and
+			//single-part ones plain "<name>"; mirror that to find every entity.
+			size_t parts = state.world->GetTemplateEntities(record->template_name).size();
+			std::vector<std::string> part_names;
+			if (parts > 1) {
+				for (size_t i = 0; i < parts; ++i) {
+					part_names.push_back(instance_name + "_" + std::to_string(i));
+				}
+			}
+			else {
+				part_names.push_back(instance_name);
+			}
+			for (const auto& part : part_names) {
+				ECS::Entity e = c->GetEntityByName(part);
+				if (e == ECS::INVALID_ENTITY_ID) {
+					continue;
+				}
+				if (state.selected_entity == e) {
+					state.selected_entity = ECS::INVALID_ENTITY_ID;
+				}
+				state.instance_entity_ids.erase(e);
+				c->DestroyEntity(e);
+			}
+			state.placed_instances.erase(record);
+		}
+
 		bool PlaceTemplate(EditorState& state, const std::string& template_name, std::string& error)
 		{
 			bool known = false;
@@ -131,27 +194,23 @@ namespace HotBiteEditor {
 			}
 
 			static int place_counter = 0;
-			std::string instance_name = template_name + "_inst_" + std::to_string(place_counter++);
+			PlacedInstance inst;
+			inst.name = template_name + "_inst_" + std::to_string(place_counter++);
+			inst.template_name = template_name;
 
-			float3 position{ 0.0f, 0.0f, 0.0f };
-			float4 rotation{ 0.0f, 0.0f, 0.0f, 1.0f };
-			float3 scale{ 1.0f, 1.0f, 1.0f };
-
-			ECS::Entity e = state.world->SpawnInstance(instance_name, template_name, position, rotation, scale);
-			if (e == ECS::INVALID_ENTITY_ID) {
-				error = "SpawnInstance failed for template: " + template_name;
+			if (!SpawnRecordedInstance(state, inst, error)) {
 				return false;
 			}
-			PlacedInstance inst;
-			inst.name = instance_name;
-			inst.template_name = template_name;
-			inst.position = position;
-			inst.rotation = rotation;
-			inst.scale = scale;
-			state.placed_instances.push_back(inst);
-			state.instance_entity_ids.insert(e);
-			state.selected_entity = e;
-			state.status_message = "Placed: " + instance_name;
+			state.status_message = "Placed: " + inst.name;
+			EditorHistory::Push({
+				"place " + inst.name,
+				[inst](EditorState& s) {
+					RemovePlacedInstance(s, inst.name);
+				},
+				[inst](EditorState& s) {
+					std::string err;
+					SpawnRecordedInstance(s, inst, err);
+				} });
 			return true;
 		}
 

@@ -52,6 +52,43 @@ namespace HotBiteEditor {
 									  // templates discovered by scanning disk are already there)
 	};
 
+	// Which transform tool the viewport gizmo edits. Switched from the Edit menu
+	// (scriptable as `menu "Edit/Gizmo: Rotate"` etc.) or the 1/2/3 keys.
+	enum class GizmoMode { Translate = 0, Rotate, Scale };
+
+	// An entity created via copy/paste as a clone of another scene entity (as
+	// opposed to a template instance). Persisted to the level's "clones" JSON array
+	// on save and recreated by World::CloneEntity on the next load; `source` always
+	// tracks the *current* name of the source entity (EntityOps keeps it updated
+	// across renames/cuts so save can resolve what the loader will see).
+	struct ClonedEntity {
+		std::string name;   // the clone's entity name
+		std::string source; // current name of the entity it was cloned from
+	};
+
+	// What Edit/Copy (or Cut) captured. Either a placed-instance record (pasting
+	// spawns a fresh instance of the same template) or a reference to a scene
+	// entity to clone via World::CloneEntity, plus the display state captured at
+	// copy time (a cut source is hidden afterwards, so the paste must not inherit
+	// the hidden flags from it).
+	struct EntityClipboard {
+		enum class Kind { None, Instance, SceneEntity };
+		Kind kind = Kind::None;
+
+		PlacedInstance instance; // Kind::Instance: the record to respawn from
+
+		// Kind::SceneEntity:
+		std::string source_name;   // current entity name to clone from (EntityOps
+								   // keeps this updated across renames and cuts)
+		std::string display_name;  // name at copy time, base for "<name>_copy" names
+		HotBite::Engine::float3 position{ 0.0f, 0.0f, 0.0f };
+		HotBite::Engine::float4 rotation{ 0.0f, 0.0f, 0.0f, 1.0f };
+		HotBite::Engine::float3 scale{ 1.0f, 1.0f, 1.0f };
+		bool visible = true;
+		bool scene_visible = true;
+		bool cast_shadow = true;
+	};
+
 	// Shared, session-long editor state passed to every panel each frame. Owns the
 	// bookkeeping needed to save the scene back out (see SceneSerializer.h).
 	struct EditorState {
@@ -62,10 +99,21 @@ namespace HotBiteEditor {
 
 		HotBite::Engine::ECS::Entity selected_entity = HotBite::Engine::ECS::INVALID_ENTITY_ID;
 		HotBite::Engine::float3 inspector_euler_degrees{ 0.0f, 0.0f, 0.0f };
+		GizmoMode gizmo_mode = GizmoMode::Translate;
 
 		std::vector<PlacedInstance> placed_instances;
 		std::set<HotBite::Engine::ECS::Entity> instance_entity_ids; // entities backed by placed_instances
 		std::set<std::string> overridden_entities;                 // FBX-authored entities whose transform was edited
+
+		// Copy/cut/paste and rename bookkeeping (all maintained by EntityOps).
+		EntityClipboard clipboard;
+		std::vector<ClonedEntity> cloned_entities;  // paste-created clones, in creation
+													// order (sources precede dependents)
+		std::map<std::string, std::string> renamed_entities; // authored (load-time) name -> current name
+		std::set<std::string> removed_entities;     // authored entities deleted via cut
+		std::map<std::string, std::string> parked_entities;  // parked (cut) runtime name -> authored
+															 // name ("" when not persistable, i.e. a
+															 // cut clone)
 
 		std::vector<TemplateAsset> templates; // discovered/imported object templates
 		std::string selected_template;        // template name chosen in the Asset Browser

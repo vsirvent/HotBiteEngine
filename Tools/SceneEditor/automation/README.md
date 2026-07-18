@@ -40,7 +40,7 @@ directory so relative asset paths in level files resolve the same way the other 
 | Command | Effect |
 |---|---|
 | `ping` | liveness check, answers `OK pong` |
-| `state` | one-line JSON dump: project, level, selection, status message, entity/template counts |
+| `state` | one-line JSON dump: project, level, selection, gizmo mode, status message, entity/template counts |
 | `open_project <dir>` | same as choosing a project root |
 | `open_level <path>` | same as File/Open Level..., minus the file dialog (one level per session) |
 | `menus` | lists registered menu commands and whether they are enabled |
@@ -69,15 +69,28 @@ directory so relative asset paths in level files resolve the same way the other 
 | `render` | one-line JSON dump of the render settings (same keys as the Render menu) |
 | `render <key> <value>` | changes one render setting, e.g. `render aa 0`, `render rt_quality high`; `render dof_autofocus 0\|1` toggles Marbles-style autofocus — on camera movement, focus is re-set to the scene depth at the view center and amplitude to Marbles' distance-based aperture (macro blur up close, everything sharp beyond ~20 units). On by default; setting `dof_focus`/`dof_amplitude` switches it off |
 | `screenshot <png path>` | saves the backbuffer (scene + ImGui UI) as PNG at the end of the frame |
+| `undo` / `redo` | steps the editor's undo history (same stack as Edit/Undo, Edit/Redo and Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z); the `OK` line names the step applied, `ERR` when the stack is empty |
 | `quit` | closes the editor |
 | `debug_crash` | deliberate null write to exercise the crash pipeline; never responds (the process dies), so expect the driver to time out |
 
 Screenshots are captured after the UI is rendered into the backbuffer, so what the
 PNG shows is exactly what a user would see that frame.
 
+The viewport gizmo has translate/rotate/scale modes, switched via the Edit menu
+(`menu "Edit/Gizmo: Rotate"` etc., current mode in `state` as `gizmo_mode`) or the
+1/2/3 keys in the UI. Interactive drags edit the same Transform channels as
+`set_position`/`set_rotation`/`set_scale`.
+
 Physics simulation is paused while editing (dynamic bodies hold the pose they were
 authored/edited at, so transform edits and saves are exact); `menu "Edit/Simulate
 Physics"` toggles it for previewing how objects settle.
+
+Scene mutations (transform edits, `place`, group commands - from any surface: UI,
+menu, or automation) record into a single undo history; `undo`/`redo` walk it.
+Every *new* command that mutates the scene must record itself there too - the
+contract and the how-to live in `Tools/SceneEditor/EditorHistory.h`. Interactive
+drags (gizmo, Inspector fields) coalesce into one action per drag; selection,
+camera, render settings and `import` deliberately don't record (see the header).
 
 The `camera_*` commands drive the same `EditorCamera` code paths as the interactive
 viewport controls (right-drag orbit, middle-drag pan, wheel dolly, WASD/arrows +

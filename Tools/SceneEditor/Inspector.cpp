@@ -1,4 +1,5 @@
 #include "Inspector.h"
+#include "EditorHistory.h"
 #include "EditorLayout.h"
 
 #include "imgui.h"
@@ -18,6 +19,25 @@ using namespace HotBite::Engine::Components;
 namespace HotBiteEditor {
 	namespace Inspector {
 
+		//Manual quaternion -> Euler (pitch=X, yaw=Y, roll=Z) extraction, matching
+		//DirectX::XMQuaternionRotationRollPitchYaw's composition convention used by
+		//float3_to_quaternion (Defines.h) for the reverse direction on edit.
+		float3 QuaternionToEulerDegrees(const float4& q)
+		{
+			float sinp = 2.0f * (q.w * q.x - q.y * q.z);
+			float pitch = std::fabsf(sinp) >= 1.0f
+				? std::copysignf(DirectX::XM_PIDIV2, sinp)
+				: std::asinf(sinp);
+			float yaw = std::atan2f(2.0f * (q.w * q.y + q.z * q.x), 1.0f - 2.0f * (q.x * q.x + q.y * q.y));
+			float roll = std::atan2f(2.0f * (q.w * q.z + q.x * q.y), 1.0f - 2.0f * (q.x * q.x + q.z * q.z));
+
+			return {
+				DirectX::XMConvertToDegrees(pitch),
+				DirectX::XMConvertToDegrees(yaw),
+				DirectX::XMConvertToDegrees(roll)
+			};
+		}
+
 		void RefreshEulerCache(EditorState& state)
 		{
 			state.inspector_euler_degrees = { 0.0f, 0.0f, 0.0f };
@@ -29,28 +49,13 @@ namespace HotBiteEditor {
 				return;
 			}
 			const float4& q = c->GetComponent<Transform>(state.selected_entity).rotation;
-
-			//Manual quaternion -> Euler (pitch=X, yaw=Y, roll=Z) extraction, matching
-			//DirectX::XMQuaternionRotationRollPitchYaw's composition convention used by
-			//float3_to_quaternion (Defines.h) for the reverse direction on edit.
-			float sinp = 2.0f * (q.w * q.x - q.y * q.z);
-			float pitch = std::fabsf(sinp) >= 1.0f
-				? std::copysignf(DirectX::XM_PIDIV2, sinp)
-				: std::asinf(sinp);
-			float yaw = std::atan2f(2.0f * (q.w * q.y + q.z * q.x), 1.0f - 2.0f * (q.x * q.x + q.y * q.y));
-			float roll = std::atan2f(2.0f * (q.w * q.z + q.x * q.y), 1.0f - 2.0f * (q.x * q.x + q.z * q.z));
-
-			state.inspector_euler_degrees = {
-				DirectX::XMConvertToDegrees(pitch),
-				DirectX::XMConvertToDegrees(yaw),
-				DirectX::XMConvertToDegrees(roll)
-			};
+			state.inspector_euler_degrees = QuaternionToEulerDegrees(q);
 		}
 
 		//Shared post-edit bookkeeping for both the interactive (Draw) and programmatic
-		//(ApplyTransform) paths: marks the transform dirty and records what needs to be
-		//written back on save.
-		static void CommitTransformEdit(EditorState& state, const Base& base, Transform& t)
+		//(ApplyTransform/ApplySnapshot) paths: marks the transform dirty and records
+		//what needs to be written back on save.
+		static void CommitTransformEdit(EditorState& state, Entity entity, const Base& base, Transform& t)
 		{
 			t.dirty = true;
 
@@ -59,8 +64,8 @@ namespace HotBiteEditor {
 			//collider stays behind at the old spot and, the moment the simulation
 			//runs, PhysicsSystem snaps the entity right back to it.
 			Coordinator* c = state.world->GetCoordinator();
-			if (c->ContainsComponent<Physics>(state.selected_entity)) {
-				Physics& ph = c->GetComponent<Physics>(state.selected_entity);
+			if (c->ContainsComponent<Physics>(entity)) {
+				Physics& ph = c->GetComponent<Physics>(entity);
 				if (ph.body != nullptr) {
 					std::lock_guard<std::recursive_mutex> lock(Core::physics_mutex);
 					reactphysics3d::Transform bt(
@@ -77,7 +82,7 @@ namespace HotBiteEditor {
 				}
 			}
 
-			if (state.instance_entity_ids.count(state.selected_entity) != 0) {
+			if (state.instance_entity_ids.count(entity) != 0) {
 				//This entity is an editor-placed instance: update its bookkeeping
 				//entry directly so a save writes the new transform out.
 				for (auto& inst : state.placed_instances) {
@@ -100,7 +105,8 @@ namespace HotBiteEditor {
 			const float3* position,
 			const float3* scale,
 			const float3* euler_degrees,
-			std::string& error)
+			std::string& error,
+			bool record_history)
 		{
 			Coordinator* c = state.world->GetCoordinator();
 			if (c == nullptr || state.selected_entity == INVALID_ENTITY_ID) {
@@ -114,6 +120,7 @@ namespace HotBiteEditor {
 			}
 			const Base& base = c->GetComponent<Base>(state.selected_entity);
 			Transform& t = c->GetComponent<Transform>(state.selected_entity);
+			TransformSnapshot before{ t.position, t.rotation, t.scale };
 
 			if (position != nullptr) {
 				t.position = *position;
@@ -128,8 +135,78 @@ namespace HotBiteEditor {
 				state.inspector_euler_degrees = *euler_degrees;
 				t.rotation = float3_to_quaternion(state.inspector_euler_degrees);
 			}
-			CommitTransformEdit(state, base, t);
+			CommitTransformEdit(state, state.selected_entity, base, t);
+			if (record_history) {
+				RecordTransformEdit(state, base.name, before);
+			}
 			return true;
+		}
+
+		bool GetSnapshot(EditorState& state, const std::string& entity_name, TransformSnapshot& out)
+		{
+			Coordinator* c = state.world->GetCoordinator();
+			if (c == nullptr) {
+				return false;
+			}
+			Entity e = c->GetEntityByName(entity_name);
+			if (e == INVALID_ENTITY_ID || !c->ContainsComponent<Transform>(e)) {
+				return false;
+			}
+			const Transform& t = c->GetComponent<Transform>(e);
+			out = { t.position, t.rotation, t.scale };
+			return true;
+		}
+
+		bool ApplySnapshot(EditorState& state, const std::string& entity_name,
+			const TransformSnapshot& snapshot, std::string& error)
+		{
+			Coordinator* c = state.world->GetCoordinator();
+			Entity e = (c != nullptr) ? c->GetEntityByName(entity_name) : INVALID_ENTITY_ID;
+			if (e == INVALID_ENTITY_ID) {
+				error = "entity not found: " + entity_name;
+				return false;
+			}
+			if (!c->ContainsComponent<Base>(e) || !c->ContainsComponent<Transform>(e)) {
+				error = "entity has no Base/Transform component: " + entity_name;
+				return false;
+			}
+			const Base& base = c->GetComponent<Base>(e);
+			Transform& t = c->GetComponent<Transform>(e);
+			t.position = snapshot.position;
+			t.rotation = snapshot.rotation;
+			t.scale = snapshot.scale;
+			CommitTransformEdit(state, e, base, t);
+			if (e == state.selected_entity) {
+				RefreshEulerCache(state);
+			}
+			return true;
+		}
+
+		void RecordTransformEdit(EditorState& state, const std::string& entity_name,
+			const TransformSnapshot& before)
+		{
+			TransformSnapshot after;
+			if (!GetSnapshot(state, entity_name, after)) {
+				return;
+			}
+			auto same3 = [](const float3& a, const float3& b) {
+				return a.x == b.x && a.y == b.y && a.z == b.z;
+			};
+			if (same3(before.position, after.position) && same3(before.scale, after.scale) &&
+				before.rotation.x == after.rotation.x && before.rotation.y == after.rotation.y &&
+				before.rotation.z == after.rotation.z && before.rotation.w == after.rotation.w) {
+				return;
+			}
+			EditorHistory::Push({
+				"transform " + entity_name,
+				[entity_name, before](EditorState& s) {
+					std::string err;
+					ApplySnapshot(s, entity_name, before, err);
+				},
+				[entity_name, after](EditorState& s) {
+					std::string err;
+					ApplySnapshot(s, entity_name, after, err);
+				} });
 		}
 
 		static constexpr ImGuiTreeNodeFlags SECTION_FLAGS = ImGuiTreeNodeFlags_DefaultOpen;
@@ -171,13 +248,33 @@ namespace HotBiteEditor {
 			}
 			const Base& base = c->GetComponent<Base>(e);
 			Transform& t = c->GetComponent<Transform>(e);
+			//One history action per completed edit (a whole drag, or one typed
+			//value), not one per frame: the pre-edit snapshot is taken the frame a
+			//field activates and recorded when it deactivates. Only one field can be
+			//active at a time, so a single pending snapshot covers all three.
+			static TransformSnapshot pending_before;
+			TransformSnapshot frame_before{ t.position, t.rotation, t.scale };
 			bool changed = false;
+			bool activated = false;
+			bool finished = false;
 			changed |= ImGui::DragFloat3("Position", &t.position.x, 0.05f);
+			activated |= ImGui::IsItemActivated();
+			finished |= ImGui::IsItemDeactivatedAfterEdit();
 			changed |= ImGui::DragFloat3("Scale", &t.scale.x, 0.01f);
+			activated |= ImGui::IsItemActivated();
+			finished |= ImGui::IsItemDeactivatedAfterEdit();
 			changed |= ImGui::DragFloat3("Rotation (deg)", &state.inspector_euler_degrees.x, 0.5f);
+			activated |= ImGui::IsItemActivated();
+			finished |= ImGui::IsItemDeactivatedAfterEdit();
+			if (activated) {
+				pending_before = frame_before;
+			}
 			if (changed) {
 				t.rotation = float3_to_quaternion(state.inspector_euler_degrees);
-				CommitTransformEdit(state, base, t);
+				CommitTransformEdit(state, e, base, t);
+			}
+			if (finished) {
+				RecordTransformEdit(state, base.name, pending_before);
 			}
 		}
 

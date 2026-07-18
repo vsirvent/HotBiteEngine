@@ -1,4 +1,5 @@
 #include "Outliner.h"
+#include "EditorHistory.h"
 #include "Inspector.h"
 #include "EditorLayout.h"
 
@@ -59,6 +60,17 @@ namespace HotBiteEditor {
 				error = "group already exists: " + name;
 				return false;
 			}
+			//Undo can simply erase: history is LIFO, so by the time this action is
+			//undone every later membership change has been undone and the group is
+			//empty again.
+			EditorHistory::Push({
+				"create group " + name,
+				[name](EditorState& s) {
+					s.entity_groups.erase(name);
+				},
+				[name](EditorState& s) {
+					s.entity_groups.insert(name);
+				} });
 			return true;
 		}
 
@@ -70,6 +82,12 @@ namespace HotBiteEditor {
 				error = "entity not found: " + entity_name;
 				return false;
 			}
+			auto prev_it = state.entity_group_of.find(entity_name);
+			std::string prev_group = (prev_it != state.entity_group_of.end()) ? prev_it->second : "";
+			if (prev_group == group) {
+				return true; //no-op, nothing to record
+			}
+			bool group_created = !group.empty() && state.entity_groups.count(group) == 0;
 			if (group.empty()) {
 				state.entity_group_of.erase(entity_name);
 			}
@@ -77,6 +95,110 @@ namespace HotBiteEditor {
 				state.entity_groups.insert(group);
 				state.entity_group_of[entity_name] = group;
 			}
+			EditorHistory::Push({
+				"group " + entity_name + " -> " + (group.empty() ? "(none)" : group),
+				[entity_name, prev_group, group, group_created](EditorState& s) {
+					if (group_created) {
+						s.entity_groups.erase(group);
+					}
+					if (prev_group.empty()) {
+						s.entity_group_of.erase(entity_name);
+					}
+					else {
+						s.entity_group_of[entity_name] = prev_group;
+					}
+				},
+				[entity_name, group](EditorState& s) {
+					if (group.empty()) {
+						s.entity_group_of.erase(entity_name);
+					}
+					else {
+						s.entity_groups.insert(group);
+						s.entity_group_of[entity_name] = group;
+					}
+				} });
+			return true;
+		}
+
+		//Members of `group`, captured for the undo closures of rename/delete.
+		static std::vector<std::string> GroupMembers(const EditorState& state, const std::string& group)
+		{
+			std::vector<std::string> members;
+			for (const auto& [entity_name, g] : state.entity_group_of) {
+				if (g == group) {
+					members.push_back(entity_name);
+				}
+			}
+			return members;
+		}
+
+		bool RenameGroup(EditorState& state, const std::string& from,
+			const std::string& to, std::string& error)
+		{
+			if (to.empty()) {
+				error = "group name is empty";
+				return false;
+			}
+			if (state.entity_groups.count(from) == 0) {
+				error = "unknown group: " + from;
+				return false;
+			}
+			if (from == to) {
+				return true; //no-op, nothing to record
+			}
+			//Renaming onto an existing group merges into it; the member list captured
+			//here is what lets undo pull exactly the moved entities back out.
+			bool merged = state.entity_groups.count(to) != 0;
+			std::vector<std::string> members = GroupMembers(state, from);
+			auto apply = [from, to](EditorState& s) {
+				s.entity_groups.erase(from);
+				s.entity_groups.insert(to);
+				for (auto& [entity_name, g] : s.entity_group_of) {
+					if (g == from) {
+						g = to;
+					}
+				}
+			};
+			apply(state);
+			EditorHistory::Push({
+				"rename group " + from + " -> " + to,
+				[from, to, merged, members](EditorState& s) {
+					if (!merged) {
+						s.entity_groups.erase(to);
+					}
+					s.entity_groups.insert(from);
+					for (const auto& entity_name : members) {
+						s.entity_group_of[entity_name] = from;
+					}
+				},
+				apply });
+			return true;
+		}
+
+		bool DeleteGroup(EditorState& state, const std::string& name, std::string& error)
+		{
+			if (state.entity_groups.count(name) == 0) {
+				error = "unknown group: " + name;
+				return false;
+			}
+			std::vector<std::string> members = GroupMembers(state, name);
+			auto apply = [name](EditorState& s) {
+				s.entity_groups.erase(name);
+				//Members fall back to ungrouped.
+				for (auto it = s.entity_group_of.begin(); it != s.entity_group_of.end();) {
+					it = (it->second == name) ? s.entity_group_of.erase(it) : std::next(it);
+				}
+			};
+			apply(state);
+			EditorHistory::Push({
+				"delete group " + name,
+				[name, members](EditorState& s) {
+					s.entity_groups.insert(name);
+					for (const auto& entity_name : members) {
+						s.entity_group_of[entity_name] = name;
+					}
+				},
+				apply });
 			return true;
 		}
 
@@ -89,12 +211,8 @@ namespace HotBiteEditor {
 			}
 			if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(ENTITY_PAYLOAD)) {
 				std::string entity_name((const char*)payload->Data);
-				if (group.empty()) {
-					state.entity_group_of.erase(entity_name);
-				}
-				else {
-					state.entity_group_of[entity_name] = group;
-				}
+				std::string error;
+				SetEntityGroup(state, entity_name, group, error); //records undo history
 			}
 			ImGui::EndDragDropTarget();
 		}
@@ -121,15 +239,21 @@ namespace HotBiteEditor {
 			}
 			if (ImGui::BeginPopupContextItem()) {
 				if (ImGui::BeginMenu("Move to group")) {
+					//Copy the current group: SetEntityGroup mutates entity_group_of,
+					//which would invalidate an iterator held across the MenuItems.
 					auto it = state.entity_group_of.find(name);
-					bool grouped = (it != state.entity_group_of.end());
-					if (ImGui::MenuItem("(none)", nullptr, !grouped)) {
-						state.entity_group_of.erase(name);
+					std::string current_group = (it != state.entity_group_of.end()) ? it->second : "";
+					std::string error;
+					if (ImGui::MenuItem("(none)", nullptr, current_group.empty())) {
+						SetEntityGroup(state, name, "", error); //records undo history
 					}
-					for (const auto& g : state.entity_groups) {
-						bool checked = grouped && it->second == g;
-						if (ImGui::MenuItem(g.c_str(), nullptr, checked)) {
-							state.entity_group_of[name] = g;
+					//entity_groups is only mutated here through the same no-op-safe
+					//helper, and a click closes the popup; iterate over a copy anyway
+					//so a recorded merge/create can never invalidate the loop.
+					std::vector<std::string> groups(state.entity_groups.begin(), state.entity_groups.end());
+					for (const auto& g : groups) {
+						if (ImGui::MenuItem(g.c_str(), nullptr, g == current_group)) {
+							SetEntityGroup(state, name, g, error); //records undo history
 						}
 					}
 					ImGui::EndMenu();
@@ -165,7 +289,8 @@ namespace HotBiteEditor {
 				ImGui::SameLine();
 				commit |= ImGui::Button("Create");
 				if (commit && new_group_name[0] != '\0') {
-					state.entity_groups.insert(new_group_name);
+					std::string error;
+					CreateGroup(state, new_group_name, error); //records undo history
 					ImGui::CloseCurrentPopup();
 				}
 				ImGui::EndPopup();
@@ -263,24 +388,16 @@ namespace HotBiteEditor {
 				ImGui::SameLine();
 				commit |= ImGui::Button("Rename");
 				if (commit && rename_to[0] != '\0' && rename_from != rename_to) {
-					state.entity_groups.erase(rename_from);
-					state.entity_groups.insert(rename_to);
-					for (auto& [entity_name, g] : state.entity_group_of) {
-						if (g == rename_from) {
-							g = rename_to;
-						}
-					}
+					std::string error;
+					RenameGroup(state, rename_from, rename_to, error); //records undo history
 					ImGui::CloseCurrentPopup();
 				}
 				ImGui::EndPopup();
 			}
 
 			if (!delete_group.empty()) {
-				state.entity_groups.erase(delete_group);
-				//Members fall back to ungrouped.
-				for (auto it = state.entity_group_of.begin(); it != state.entity_group_of.end();) {
-					it = (it->second == delete_group) ? state.entity_group_of.erase(it) : std::next(it);
-				}
+				std::string error;
+				DeleteGroup(state, delete_group, error); //records undo history
 			}
 
 			ImGui::End();

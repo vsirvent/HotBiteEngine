@@ -24,5 +24,12 @@ namespace HotBiteEditor {
 		// of `template_name` at the origin, records it for save and selects it.
 		// Returns false with `error` set on failure.
 		bool PlaceTemplate(EditorState& state, const std::string& template_name, std::string& error);
+
+		// Spawns `inst` into the world with the full save/selection bookkeeping, and
+		// removes an instance (every part of a multi-part template) with the reverse
+		// bookkeeping. The primitives place/paste/cut and their undo closures are
+		// built from; they record no history themselves.
+		bool SpawnRecordedInstance(EditorState& state, const PlacedInstance& inst, std::string& error);
+		void RemovePlacedInstance(EditorState& state, const std::string& instance_name);
 	}
 }
