@@ -26,6 +26,13 @@ namespace HotBiteEditor {
 		bool CreateGroup(EditorState& state, const std::string& name, std::string& error);
 		bool SetEntityGroup(EditorState& state, const std::string& entity_name,
 			const std::string& group, std::string& error);
+
+		// Moves several entities into (or out of) `group` as ONE undoable action, so
+		// regrouping a multi-entity selection undoes in a single step rather than
+		// one per entity. Entities already in `group` are skipped. Returns false
+		// with `error` set only when nothing could be moved.
+		bool SetEntitiesGroup(EditorState& state, const std::vector<std::string>& entity_names,
+			const std::string& group, std::string& error);
 		bool RenameGroup(EditorState& state, const std::string& from,
 			const std::string& to, std::string& error);
 		bool DeleteGroup(EditorState& state, const std::string& name, std::string& error);

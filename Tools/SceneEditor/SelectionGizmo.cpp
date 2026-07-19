@@ -1,5 +1,8 @@
 #include "SelectionGizmo.h"
 #include "Inspector.h"
+#include "EditorHistory.h"
+#include "Selection.h"
+#include "ViewportOverlay.h"
 
 #include "imgui.h"
 #include <Components/Base.h>
@@ -21,6 +24,8 @@ namespace HotBiteEditor {
 	namespace SelectionGizmo {
 
 		static constexpr ImU32 COLOR_AABB = IM_COL32(255, 200, 40, 220);
+		//Non-primary members of a multi-entity selection: same hue, dimmer.
+		static constexpr ImU32 COLOR_AABB_SECONDARY = IM_COL32(255, 200, 40, 120);
 		static constexpr ImU32 COLOR_AXIS[3] = {
 			IM_COL32(235, 70, 70, 255),   // X
 			IM_COL32(90, 220, 90, 255),   // Y
@@ -41,52 +46,38 @@ namespace HotBiteEditor {
 		//plane, start transform) is captured in world space at mouse-down and stays
 		//fixed for the whole drag, so the entity tracks the mouse no matter how the
 		//projection foreshortens the gizmo or how the edit moves it.
+		//One entity taking part in a drag, with the transform it had when the drag
+		//started. Every frame of the drag re-derives that entity's transform from
+		//this pre-drag state and the gesture so far, never from its current one:
+		//accumulating frame-to-frame deltas would drift, and a rotation applied to
+		//an already-rotated entity would compound.
+		struct DragTarget {
+			std::string name;
+			Inspector::TransformSnapshot before;
+			vector3d start_pivot;   //world-space rendered pivot at mouse-down
+		};
+
 		struct DragState {
 			bool active = false;
 			GizmoMode mode = GizmoMode::Translate;
 			int axis = -1;          //0..2, or UNIFORM_HANDLE in scale mode
 			vector3d axis_dir;      //world-space axis direction, normalized
-			vector3d start_pivot;   //world-space pivot at mouse-down
-			float3 start_local;     //Transform.position at mouse-down (translate)
+			vector3d start_pivot;   //world-space gizmo pivot at mouse-down
 			float start_param;      //axis-line parameter under the mouse at mouse-down
-			float3 start_scale;     //Transform.scale at mouse-down (scale)
-			float4 start_rotation;  //Transform.rotation at mouse-down (rotate)
 			vector3d rotate_start;  //unit pivot->hit vector in the circle plane at mouse-down
 			ImVec2 start_mouse;     //mouse position at mouse-down (uniform scale)
 			float angle_deg = 0.0f; //last applied rotation delta, for the readout
-			//Undo bookkeeping: the whole drag records as ONE history action, so the
-			//per-frame ApplyTransform calls run with record_history=false and the
-			//pre-drag snapshot captured here is recorded once at mouse release.
-			std::string entity_name;
-			Inspector::TransformSnapshot before;
+			//Undo bookkeeping: the whole drag records as ONE history action covering
+			//every entity it moved, so the per-frame ApplyTransform calls run with
+			//record_history=false and the pre-drag snapshots captured here are
+			//recorded once at mouse release.
+			std::vector<DragTarget> targets;
 		};
 		static DragState drag;
 
-		//Projects a world position through the camera's view-projection into pixel
-		//coordinates. False when the point is behind (or grazing) the near plane;
-		//segments with such an endpoint are skipped rather than clipped, which is
-		//fine for an editor overlay.
-		static bool WorldToScreen(const matrix& view_proj, const ImVec2& display,
-			const vector3d& world, ImVec2& out)
-		{
-			vector3d clip = XMVector4Transform(XMVectorSetW(world, 1.0f), view_proj);
-			float w = XMVectorGetW(clip);
-			if (w < 0.05f) {
-				return false;
-			}
-			out.x = (XMVectorGetX(clip) / w * 0.5f + 0.5f) * display.x;
-			out.y = (0.5f - XMVectorGetY(clip) / w * 0.5f) * display.y;
-			return true;
-		}
-
-		static void DrawSegment(ImDrawList* dl, const matrix& view_proj, const ImVec2& display,
-			const vector3d& a, const vector3d& b, ImU32 color, float thickness)
-		{
-			ImVec2 pa, pb;
-			if (WorldToScreen(view_proj, display, a, pa) && WorldToScreen(view_proj, display, b, pb)) {
-				dl->AddLine(pa, pb, color, thickness);
-			}
-		}
+		//Projection shared with the collider overlay (see ViewportOverlay.h).
+		using ViewportOverlay::WorldToScreen;
+		using ViewportOverlay::DrawSegment;
 
 		static float DistancePointToSegment(const ImVec2& p, const ImVec2& a, const ImVec2& b)
 		{
@@ -233,26 +224,174 @@ namespace HotBiteEditor {
 			float max_extent = 0.0f;
 		};
 
-		static Geometry ComputeGeometry(Coordinator* c, Entity e)
+		//The gizmo for the current selection.
+		//  - One entity: at its rendered pivot, axes along its own local frame (so
+		//    the handles match how the mesh is oriented).
+		//  - Several: at the center of the combined world AABB, axes along the world
+		//    frame - the selected entities generally disagree about "local", and a
+		//    world-aligned gizmo is what makes a shared pivot predictable.
+		static Geometry ComputeGeometry(EditorState& state)
 		{
+			Coordinator* c = state.world->GetCoordinator();
 			Geometry g;
-			if (e == INVALID_ENTITY_ID ||
-				!c->ContainsComponent<Transform>(e) || !c->ContainsComponent<Base>(e)) {
+			if (c == nullptr || state.selected_entities.empty()) {
 				return g;
 			}
-			if (c->ContainsComponent<Bounds>(e)) {
-				const box& b = c->GetComponent<Bounds>(e).final_box;
-				g.max_extent = (std::max)({ b.Extents.x, b.Extents.y, b.Extents.z });
+
+			if (state.selected_entities.size() == 1) {
+				Entity e = state.selected_entity;
+				if (!c->ContainsComponent<Transform>(e) || !c->ContainsComponent<Base>(e)) {
+					return g;
+				}
+				if (c->ContainsComponent<Bounds>(e)) {
+					const box& b = c->GetComponent<Bounds>(e).final_box;
+					g.max_extent = (std::max)({ b.Extents.x, b.Extents.y, b.Extents.z });
+				}
+				//Sized against the AABB so the axes stay visible at any object scale.
+				g.axis_len = (std::max)(g.max_extent * 1.4f, 1.0f);
+				vector4d orientation;
+				GetWorldPivot(c, c->GetComponent<Base>(e), c->GetComponent<Transform>(e),
+					g.origin, orientation);
+				g.axis_dir[0] = XMVector3Rotate(XMVectorSet(1.0f, 0.0f, 0.0f, 0.0f), orientation);
+				g.axis_dir[1] = XMVector3Rotate(XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f), orientation);
+				g.axis_dir[2] = XMVector3Rotate(XMVectorSet(0.0f, 0.0f, 1.0f, 0.0f), orientation);
+				g.valid = true;
+				return g;
 			}
-			//Sized against the AABB so the axes stay visible at any object scale.
+
+			//Union of the selection's world AABBs, falling back to an entity's pivot
+			//when it has no Bounds, so the gizmo sits at the middle of everything.
+			float3 lo{ FLT_MAX, FLT_MAX, FLT_MAX };
+			float3 hi{ -FLT_MAX, -FLT_MAX, -FLT_MAX };
+			bool any = false;
+			for (Entity e : state.selected_entities) {
+				if (!c->ContainsComponent<Transform>(e) || !c->ContainsComponent<Base>(e)) {
+					continue;
+				}
+				float3 min_p, max_p;
+				if (c->ContainsComponent<Bounds>(e)) {
+					const box& b = c->GetComponent<Bounds>(e).final_box;
+					min_p = { b.Center.x - b.Extents.x, b.Center.y - b.Extents.y, b.Center.z - b.Extents.z };
+					max_p = { b.Center.x + b.Extents.x, b.Center.y + b.Extents.y, b.Center.z + b.Extents.z };
+				}
+				else {
+					vector3d pivot;
+					vector4d orientation;
+					GetWorldPivot(c, c->GetComponent<Base>(e), c->GetComponent<Transform>(e),
+						pivot, orientation);
+					XMStoreFloat3(&min_p, pivot);
+					max_p = min_p;
+				}
+				lo.x = (std::min)(lo.x, min_p.x); lo.y = (std::min)(lo.y, min_p.y); lo.z = (std::min)(lo.z, min_p.z);
+				hi.x = (std::max)(hi.x, max_p.x); hi.y = (std::max)(hi.y, max_p.y); hi.z = (std::max)(hi.z, max_p.z);
+				any = true;
+			}
+			if (!any) {
+				return g;
+			}
+			g.origin = XMVectorSet((lo.x + hi.x) * 0.5f, (lo.y + hi.y) * 0.5f, (lo.z + hi.z) * 0.5f, 1.0f);
+			g.max_extent = (std::max)({ (hi.x - lo.x), (hi.y - lo.y), (hi.z - lo.z) }) * 0.5f;
 			g.axis_len = (std::max)(g.max_extent * 1.4f, 1.0f);
-			vector4d orientation;
-			GetWorldPivot(c, c->GetComponent<Base>(e), c->GetComponent<Transform>(e), g.origin, orientation);
-			g.axis_dir[0] = XMVector3Rotate(XMVectorSet(1.0f, 0.0f, 0.0f, 0.0f), orientation);
-			g.axis_dir[1] = XMVector3Rotate(XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f), orientation);
-			g.axis_dir[2] = XMVector3Rotate(XMVectorSet(0.0f, 0.0f, 1.0f, 0.0f), orientation);
+			g.axis_dir[0] = XMVectorSet(1.0f, 0.0f, 0.0f, 0.0f);
+			g.axis_dir[1] = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
+			g.axis_dir[2] = XMVectorSet(0.0f, 0.0f, 1.0f, 0.0f);
 			g.valid = true;
 			return g;
+		}
+
+		//Captures the pre-drag state of every entity the gizmo will move. Entities
+		//without a Base/Transform (nothing to edit) are left out.
+		static std::vector<DragTarget> CaptureDragTargets(EditorState& state)
+		{
+			Coordinator* c = state.world->GetCoordinator();
+			std::vector<DragTarget> targets;
+			for (Entity e : state.selected_entities) {
+				if (!c->ContainsComponent<Base>(e) || !c->ContainsComponent<Transform>(e)) {
+					continue;
+				}
+				const Transform& t = c->GetComponent<Transform>(e);
+				DragTarget target;
+				target.name = c->GetComponent<Base>(e).name;
+				target.before = { t.position, t.rotation, t.scale };
+				vector4d orientation;
+				GetWorldPivot(c, c->GetComponent<Base>(e), t, target.start_pivot, orientation);
+				targets.push_back(target);
+			}
+			return targets;
+		}
+
+		//Writes `target`'s transform for a rendered pivot of `world_pivot` plus the
+		//given rotation/scale, running the same bookkeeping a manual Inspector edit
+		//does (instance sync, FBX override tracking, physics body and collider).
+		static void ApplyToTarget(EditorState& state, const DragTarget& target,
+			const vector3d& world_pivot, const float4& rotation, const float3& scale)
+		{
+			Coordinator* c = state.world->GetCoordinator();
+			Entity e = c->GetEntityByName(target.name);
+			if (e == INVALID_ENTITY_ID || !c->ContainsComponent<Base>(e)) {
+				return;
+			}
+			Inspector::TransformSnapshot snapshot;
+			snapshot.position = WorldPivotToLocal(c, c->GetComponent<Base>(e), world_pivot);
+			snapshot.rotation = rotation;
+			snapshot.scale = scale;
+			std::string error;
+			Inspector::ApplySnapshot(state, target.name, snapshot, error);
+		}
+
+		//Moves the whole drag along `axis_dir` by `distance` from where it started.
+		static void ApplyTranslate(EditorState& state, const vector3d& axis_dir, float distance)
+		{
+			for (const auto& target : drag.targets) {
+				ApplyToTarget(state, target, target.start_pivot + axis_dir * distance,
+					target.before.rotation, target.before.scale);
+			}
+		}
+
+		//Spins the drag by `angle` radians about `axis_dir` through the gizmo pivot:
+		//each entity turns on itself *and* orbits the shared pivot, which is what
+		//makes rotating a multi-entity selection behave like rotating one rigid
+		//object. With a single entity the pivot is its own, so the orbit vanishes and
+		//this is exactly a local-axis spin.
+		static void ApplyRotate(EditorState& state, const vector3d& axis_dir, float angle)
+		{
+			vector4d delta = XMQuaternionRotationNormal(axis_dir, angle);
+			for (const auto& target : drag.targets) {
+				vector3d offset = target.start_pivot - drag.start_pivot;
+				vector3d pivot = drag.start_pivot + XMVector3Rotate(offset, delta);
+				//"Turn by `delta` in world space, after whatever rotation the entity
+				//already had" - the world-space composition order.
+				float4 rotation;
+				XMStoreFloat4(&rotation, XMQuaternionMultiply(
+					XMLoadFloat4(&target.before.rotation), delta));
+				ApplyToTarget(state, target, pivot, rotation, target.before.scale);
+			}
+		}
+
+		//Scales the drag about the gizmo pivot. `factor` multiplies the entity's own
+		//scale (per-axis on `axis`, or every axis for the uniform handle) and, with
+		//several entities selected, the spacing between them - they spread out from
+		//the shared pivot instead of growing in place.
+		//Per-axis handles scale every axis of a *multi-entity* selection uniformly:
+		//the handles are world-aligned while each entity's scale is expressed in its
+		//own local frame, so a per-axis factor would shear a rotated entity.
+		static void ApplyScale(EditorState& state, int axis, float factor)
+		{
+			bool uniform = (axis == UNIFORM_HANDLE) || (drag.targets.size() > 1);
+			for (const auto& target : drag.targets) {
+				float3 scale = target.before.scale;
+				if (uniform) {
+					scale.x *= factor;
+					scale.y *= factor;
+					scale.z *= factor;
+				}
+				else {
+					(&scale.x)[axis] *= factor;
+				}
+				vector3d offset = target.start_pivot - drag.start_pivot;
+				vector3d pivot = drag.start_pivot + offset * factor;
+				ApplyToTarget(state, target, pivot, target.before.rotation, scale);
+			}
 		}
 
 		//k-th sample point of the rotation circle around axis `axis` (the circle lies
@@ -377,7 +516,7 @@ namespace HotBiteEditor {
 			dl->AddText(ImVec2(display.x * 0.5f - 30.0f, 28.0f),
 				IM_COL32(255, 255, 255, 170), MODE_LABEL[(int)mode]);
 
-			Geometry geom = ComputeGeometry(c, state.selected_entity);
+			Geometry geom = ComputeGeometry(state);
 			if (!geom.valid) {
 				drag.active = false;
 			}
@@ -435,18 +574,16 @@ namespace HotBiteEditor {
 				MouseRay(cam, display, io.MousePos, ray_origin, ray_dir);
 				if (hot_axis >= 0) {
 					//Grabbed a handle: capture the reference geometry for the drag.
-					const Transform& t = c->GetComponent<Transform>(state.selected_entity);
 					DragState d;
 					d.mode = mode;
 					d.axis = hot_axis;
 					d.axis_dir = (hot_axis < 3) ? geom.axis_dir[hot_axis] : XMVectorZero();
 					d.start_pivot = geom.origin;
-					d.start_local = t.position;
-					d.start_scale = t.scale;
-					d.start_rotation = t.rotation;
-					d.entity_name = c->GetComponent<Base>(state.selected_entity).name;
-					d.before = { t.position, t.rotation, t.scale };
-					if (mode == GizmoMode::Rotate) {
+					d.targets = CaptureDragTargets(state);
+					if (d.targets.empty()) {
+						//Nothing editable under the handle; fall through as a no-drag.
+					}
+					else if (mode == GizmoMode::Rotate) {
 						//Angle is measured against the pivot->grab-point direction in
 						//the circle's plane.
 						d.active = RayPlaneDir(geom.origin, d.axis_dir, ray_origin, ray_dir, d.rotate_start);
@@ -471,33 +608,42 @@ namespace HotBiteEditor {
 				else {
 					//Clicked the scene: select what's under the cursor (or clear
 					//the selection on empty space), like clicking in the Outliner.
+					//Ctrl extends the selection, so several objects can be gathered
+					//straight from the viewport; without it a click replaces it.
 					Entity picked = Pick(c, ray_origin, ray_dir);
-					if (picked != state.selected_entity) {
-						state.selected_entity = picked;
-						Inspector::RefreshEulerCache(state);
-						geom = ComputeGeometry(c, state.selected_entity);
-						hot_axis = -1;
+					if (io.KeyCtrl) {
+						if (picked != INVALID_ENTITY_ID) {
+							Selection::Toggle(state, picked);
+						}
 					}
+					else {
+						Selection::Set(state, picked);
+					}
+					geom = ComputeGeometry(state);
+					hot_axis = -1;
 				}
 			}
 
 			if (drag.active) {
 				if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
-					//Drag finished: record the whole gesture as one undo step.
-					Inspector::RecordTransformEdit(state, drag.entity_name, drag.before);
+					//Drag finished: record the whole gesture - every entity it moved -
+					//as one undo step.
+					std::vector<std::string> names;
+					std::vector<Inspector::TransformSnapshot> befores;
+					for (const auto& target : drag.targets) {
+						names.push_back(target.name);
+						befores.push_back(target.before);
+					}
+					Inspector::RecordTransformEdits(state, names, befores);
 					drag.active = false;
 				}
 				else {
 					vector3d ray_origin, ray_dir;
 					MouseRay(cam, display, io.MousePos, ray_origin, ray_dir);
-					std::string error;
 					if (drag.mode == GizmoMode::Translate) {
 						float param;
 						if (ClosestAxisParam(drag.start_pivot, drag.axis_dir, ray_origin, ray_dir, param)) {
-							vector3d new_pivot = drag.start_pivot + drag.axis_dir * (param - drag.start_param);
-							float3 new_local = WorldPivotToLocal(c,
-								c->GetComponent<Base>(state.selected_entity), new_pivot);
-							Inspector::ApplyTransform(state, &new_local, nullptr, nullptr, error, false);
+							ApplyTranslate(state, drag.axis_dir, param - drag.start_param);
 						}
 					}
 					else if (drag.mode == GizmoMode::Rotate) {
@@ -505,20 +651,7 @@ namespace HotBiteEditor {
 						if (RayPlaneDir(drag.start_pivot, drag.axis_dir, ray_origin, ray_dir, now)) {
 							float angle = SignedAngle(drag.axis_dir, drag.rotate_start, now);
 							drag.angle_deg = XMConvertToDegrees(angle);
-							//The grabbed circle is the entity's own axis in world
-							//space; spinning around it is exactly a local-axis
-							//rotation composed before the start rotation
-							//(R ∘ Rot(R(a),θ) = Rot(a,θ) ∘ R), so no parent-space
-							//math is needed.
-							vector3d local_axis = XMVectorSetW(XMVectorSetByIndex(
-								XMVectorZero(), 1.0f, drag.axis), 0.0f);
-							vector4d new_q = XMQuaternionMultiply(
-								XMQuaternionRotationNormal(local_axis, angle),
-								XMLoadFloat4(&drag.start_rotation));
-							float4 q;
-							XMStoreFloat4(&q, new_q);
-							float3 euler = Inspector::QuaternionToEulerDegrees(q);
-							Inspector::ApplyTransform(state, nullptr, nullptr, &euler, error, false);
+							ApplyRotate(state, drag.axis_dir, angle);
 						}
 					}
 					else { //GizmoMode::Scale
@@ -542,22 +675,14 @@ namespace HotBiteEditor {
 						if (have_factor) {
 							//No mirroring through the pivot: dragging past it clamps
 							//instead of flipping the mesh inside-out.
-							factor = (std::max)(factor, 0.01f);
-							float3 new_scale = drag.start_scale;
-							if (drag.axis == UNIFORM_HANDLE) {
-								new_scale.x *= factor;
-								new_scale.y *= factor;
-								new_scale.z *= factor;
-							}
-							else {
-								(&new_scale.x)[drag.axis] *= factor;
-							}
-							Inspector::ApplyTransform(state, nullptr, &new_scale, nullptr, error, false);
+							ApplyScale(state, drag.axis, (std::max)(factor, 0.01f));
 						}
 					}
 					//Redraw from the just-applied transform so the gizmo tracks the
-					//mouse this frame instead of lagging one frame behind.
-					geom = ComputeGeometry(c, state.selected_entity);
+					//mouse this frame instead of lagging one frame behind. The pivot
+					//is deliberately *not* recomputed mid-drag (drag.start_pivot stays
+					//fixed), so a rotate/scale keeps turning about where it started.
+					geom = ComputeGeometry(state);
 				}
 			}
 
@@ -565,9 +690,18 @@ namespace HotBiteEditor {
 				return;
 			}
 
-			//AABB: the 12 edges of the world-space bounding box.
-			if (c->ContainsComponent<Bounds>(state.selected_entity)) {
-				const box& b = c->GetComponent<Bounds>(state.selected_entity).final_box;
+			//AABB: the 12 edges of the world-space bounding box, for every selected
+			//entity, so a multi-entity selection shows exactly what the gizmo will
+			//move. The primary is drawn brighter, since it is the one the Components
+			//panel edits and the one single-entity commands act on.
+			for (Entity e : state.selected_entities) {
+				if (!c->ContainsComponent<Bounds>(e)) {
+					continue;
+				}
+				const box& b = c->GetComponent<Bounds>(e).final_box;
+				bool primary = (e == state.selected_entity);
+				ImU32 color = primary ? COLOR_AABB : COLOR_AABB_SECONDARY;
+				float thickness = primary ? 1.5f : 1.0f;
 				vector3d corners[8];
 				for (int i = 0; i < 8; ++i) {
 					corners[i] = XMVectorSet(
@@ -580,7 +714,7 @@ namespace HotBiteEditor {
 				for (int i = 0; i < 8; ++i) {
 					for (int bit = 1; bit < 8; bit <<= 1) {
 						if ((i & bit) == 0) {
-							DrawSegment(dl, view_proj, display, corners[i], corners[i | bit], COLOR_AABB, 1.5f);
+							DrawSegment(dl, view_proj, display, corners[i], corners[i | bit], color, thickness);
 						}
 					}
 				}
@@ -643,18 +777,27 @@ namespace HotBiteEditor {
 				}
 			}
 
+			//Numeric readout at the cursor. It reports the primary entity's values;
+			//with several selected they all moved by the same gesture, and the
+			//count says how many.
 			if (drag.active && c->ContainsComponent<Transform>(state.selected_entity)) {
 				const Transform& t = c->GetComponent<Transform>(state.selected_entity);
 				char buf[96];
+				char suffix[24] = "";
+				if (drag.targets.size() > 1) {
+					snprintf(suffix, sizeof(suffix), "  (%d)", (int)drag.targets.size());
+				}
 				if (drag.mode == GizmoMode::Rotate) {
-					snprintf(buf, sizeof(buf), "%s %+.1f%s", AXIS_LABEL[drag.axis],
-						drag.angle_deg, "\xC2\xB0");
+					snprintf(buf, sizeof(buf), "%s %+.1f%s%s", AXIS_LABEL[drag.axis],
+						drag.angle_deg, "\xC2\xB0", suffix);
 				}
 				else if (drag.mode == GizmoMode::Scale) {
-					snprintf(buf, sizeof(buf), "%.2f  %.2f  %.2f", t.scale.x, t.scale.y, t.scale.z);
+					snprintf(buf, sizeof(buf), "%.2f  %.2f  %.2f%s",
+						t.scale.x, t.scale.y, t.scale.z, suffix);
 				}
 				else {
-					snprintf(buf, sizeof(buf), "%.2f  %.2f  %.2f", t.position.x, t.position.y, t.position.z);
+					snprintf(buf, sizeof(buf), "%.2f  %.2f  %.2f%s",
+						t.position.x, t.position.y, t.position.z, suffix);
 				}
 				ImVec2 text_pos(io.MousePos.x + 14.0f, io.MousePos.y + 14.0f);
 				ImVec2 text_size = ImGui::CalcTextSize(buf);

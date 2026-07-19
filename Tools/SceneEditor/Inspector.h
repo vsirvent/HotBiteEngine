@@ -57,5 +57,18 @@ namespace HotBiteEditor {
 		// actually changed, so callers can invoke it unconditionally at edit end.
 		void RecordTransformEdit(EditorState& state, const std::string& entity_name,
 			const TransformSnapshot& before);
+
+		// The multi-entity form: one action covering an already-applied edit of
+		// several entities, so a gizmo drag on a whole selection undoes in a single
+		// step. `befores` is parallel to `entity_names`. Entities whose transform did
+		// not actually change are dropped, and nothing is pushed when none did.
+		void RecordTransformEdits(EditorState& state,
+			const std::vector<std::string>& entity_names,
+			const std::vector<TransformSnapshot>& befores);
+
+		// ApplySnapshot for a set of entities (used by the undo/redo closures of a
+		// multi-entity transform edit).
+		void ApplySnapshots(EditorState& state, const std::vector<std::string>& entity_names,
+			const std::vector<TransformSnapshot>& snapshots);
 	}
 }

@@ -1,9 +1,12 @@
 #include "SceneSerializer.h"
+#include "EntityOps.h"
 
 #include <Components/Base.h>
 #include <Core/Json.h>
 #include <filesystem>
 #include <fstream>
+#include <map>
+#include <set>
 
 using namespace nlohmann;
 using namespace HotBite::Engine;
@@ -20,6 +23,34 @@ namespace HotBiteEditor {
 
 		static json Float4ToJson(const float4& v) {
 			return json{ {"x", v.x}, {"y", v.y}, {"z", v.z}, {"w", v.w} };
+		}
+
+		//The name a clone's source will have during the level loader's "clones"
+		//phase, following clone->source links to the root and mapping any parked
+		//(cut) source back to its authored identity. Parked FBX/authored entities
+		//still exist during that phase (they are destroyed only in the later
+		//"removed_entities" phase); the repoint-on-cut invariant guarantees a live
+		//clone never points at a parked clone, so this always terminates at a
+		//loadable name. Returns "" if it somehow can't be resolved.
+		static std::string ResolvePersistentSource(const EditorState& state,
+			const std::string& source, int depth = 0)
+		{
+			if (depth > 4096) {
+				return "";
+			}
+			std::string name = source;
+			auto pit = state.parked_entities.find(name);
+			if (pit != state.parked_entities.end()) {
+				//Parked FBX/authored: use its authored name. Parked clone: unreachable
+				//given the repoint invariant, but bail rather than emit a dangling ref.
+				return pit->second.empty() ? std::string() : pit->second;
+			}
+			for (const auto& rec : state.cloned_entities) {
+				if (rec.name == name) {
+					return ResolvePersistentSource(state, rec.source, depth + 1);
+				}
+			}
+			return name; //a root authored/renamed entity present during the clones phase
 		}
 
 		void Save(EditorState& state)
@@ -41,31 +72,72 @@ namespace HotBiteEditor {
 
 			Coordinator* c = state.world->GetCoordinator();
 
-			//1) Transform overrides for existing, FBX-authored entities that were edited.
-			if (!state.overridden_entities.empty()) {
-				if (!jw.contains("entities")) {
-					jw["entities"] = json::array();
-				}
-				for (const std::string& name : state.overridden_entities) {
-					Entity e = c->GetEntityByName(name);
-					if (e == INVALID_ENTITY_ID || !c->ContainsComponent<Transform>(e)) {
-						continue;
-					}
-					const Transform& t = c->GetComponent<Transform>(e);
+			//Clone names never go in "entities" (they are written to "clones"); parked
+			//(cut) names never go anywhere except "removed_entities".
+			std::set<std::string> clone_names;
+			for (const auto& rec : state.cloned_entities) {
+				clone_names.insert(rec.name);
+			}
+			//current name -> authored (load-time) name, for the entries below.
+			std::map<std::string, std::string> authored_of;
+			for (const auto& [authored, current] : state.renamed_entities) {
+				authored_of[current] = authored;
+			}
 
-					json* target = nullptr;
-					for (auto& entry : jw["entities"]) {
-						if (entry.contains("name") && entry["name"] == name) {
-							target = &entry;
-							break;
-						}
+			//1) Per-entity overrides for existing (FBX/JSON-authored) entities that
+			//   were edited: transform changes and/or a rename. Keyed by the authored
+			//   name so the loader can still match the entity; "rename" carries the
+			//   name the user gave it.
+			if (!jw.contains("entities")) {
+				jw["entities"] = json::array();
+			}
+			//Drop stale "rename" keys left by earlier saves whose rename no longer
+			//holds (e.g. renamed back to the authored name since).
+			for (auto& entry : jw["entities"]) {
+				if (entry.contains("rename") && entry.contains("name") &&
+					state.renamed_entities.find(entry["name"].get<std::string>()) == state.renamed_entities.end()) {
+					entry.erase("rename");
+				}
+			}
+			//Every current name that needs an entry: transform-overridden or renamed,
+			//excluding clones and parked entities.
+			std::set<std::string> entity_entries;
+			for (const auto& name : state.overridden_entities) {
+				if (clone_names.count(name) == 0 && !EntityOps::IsParkedName(name)) {
+					entity_entries.insert(name);
+				}
+			}
+			for (const auto& [authored, current] : state.renamed_entities) {
+				if (clone_names.count(current) == 0 && !EntityOps::IsParkedName(current)) {
+					entity_entries.insert(current);
+				}
+			}
+			for (const std::string& current : entity_entries) {
+				Entity e = c->GetEntityByName(current);
+				if (e == INVALID_ENTITY_ID) {
+					continue;
+				}
+				auto ait = authored_of.find(current);
+				std::string authored = (ait != authored_of.end()) ? ait->second : current;
+
+				json* target = nullptr;
+				for (auto& entry : jw["entities"]) {
+					if (entry.contains("name") && entry["name"] == authored) {
+						target = &entry;
+						break;
 					}
-					if (target == nullptr) {
-						json new_entry;
-						new_entry["name"] = name;
-						jw["entities"].push_back(new_entry);
-						target = &jw["entities"].back();
-					}
+				}
+				if (target == nullptr) {
+					json new_entry;
+					new_entry["name"] = authored;
+					jw["entities"].push_back(new_entry);
+					target = &jw["entities"].back();
+				}
+				if (authored != current) {
+					(*target)["rename"] = current;
+				}
+				if (state.overridden_entities.count(current) != 0 && c->ContainsComponent<Transform>(e)) {
+					const Transform& t = c->GetComponent<Transform>(e);
 					(*target)["position"] = Float3ToJson(t.position);
 					(*target)["scale"] = Float3ToJson(t.scale);
 					(*target)["rotation"] = Float4ToJson(t.rotation);
@@ -89,6 +161,40 @@ namespace HotBiteEditor {
 				instances.push_back(entry);
 			}
 			jw["instances"] = instances;
+
+			//2b) Editor-created copies (clones of scene entities), fully replaced from
+			//    the session bookkeeping in creation order so a clone's source always
+			//    precedes it. Live transform is read back so gizmo moves are captured.
+			json clones = json::array();
+			for (const auto& rec : state.cloned_entities) {
+				Entity e = c->GetEntityByName(rec.name);
+				if (e == INVALID_ENTITY_ID || !c->ContainsComponent<Transform>(e)) {
+					continue;
+				}
+				std::string source = ResolvePersistentSource(state, rec.source);
+				if (source.empty()) {
+					//Source can't be reconstructed on load (a cut copy-of-a-copy); skip
+					//rather than emit a dangling reference.
+					continue;
+				}
+				const Transform& t = c->GetComponent<Transform>(e);
+				json entry;
+				entry["name"] = rec.name;
+				entry["source"] = source;
+				entry["position"] = Float3ToJson(t.position);
+				entry["rotation"] = Float4ToJson(t.rotation);
+				entry["scale"] = Float3ToJson(t.scale);
+				clones.push_back(entry);
+			}
+			jw["clones"] = clones;
+
+			//2c) Entities the user cut (deleted), by authored name; the loader removes
+			//    them after applying renames and clones.
+			json removed = json::array();
+			for (const auto& name : state.removed_entities) {
+				removed.push_back(name);
+			}
+			jw["removed_entities"] = removed;
 
 			//3) Newly imported templates: ensure they're listed so a future load pulls
 			//   them in automatically (existing/pre-existing ones are already present).
@@ -128,7 +234,8 @@ namespace HotBiteEditor {
 				groups[g] = json::array();
 			}
 			for (const auto& [entity_name, group] : state.entity_group_of) {
-				if (groups.contains(group) && c->GetEntityByName(entity_name) != INVALID_ENTITY_ID) {
+				if (groups.contains(group) && !EntityOps::IsParkedName(entity_name) &&
+					c->GetEntityByName(entity_name) != INVALID_ENTITY_ID) {
 					groups[group].push_back(entity_name);
 				}
 			}
@@ -145,6 +252,11 @@ namespace HotBiteEditor {
 		{
 			state.entity_groups.clear();
 			state.entity_group_of.clear();
+			state.renamed_entities.clear();
+			state.cloned_entities.clear();
+			state.removed_entities.clear();
+			state.parked_entities.clear();
+			state.clipboard = {};
 
 			json level;
 			try {
@@ -153,6 +265,40 @@ namespace HotBiteEditor {
 			catch (std::exception&) {
 				return;
 			}
+
+			//Re-derive the copy/rename/delete bookkeeping from what World::Load just
+			//applied to the scene, so a save that follows preserves it rather than
+			//dropping the previously persisted edits. These live under "world"
+			//alongside the data the engine loader reads.
+			if (level.contains("world")) {
+				const json& jw = level["world"];
+				if (jw.contains("entities")) {
+					for (const auto& entry : jw["entities"]) {
+						if (entry.contains("name") && entry.contains("rename")) {
+							std::string authored = entry["name"];
+							std::string current = entry["rename"];
+							if (!authored.empty() && !current.empty() && authored != current) {
+								state.renamed_entities[authored] = current;
+							}
+						}
+					}
+				}
+				if (jw.contains("clones")) {
+					for (const auto& entry : jw["clones"]) {
+						if (entry.contains("name") && entry.contains("source")) {
+							state.cloned_entities.push_back({ entry["name"], entry["source"] });
+						}
+					}
+				}
+				if (jw.contains("removed_entities")) {
+					for (const auto& name : jw["removed_entities"]) {
+						if (name.is_string()) {
+							state.removed_entities.insert(name.get<std::string>());
+						}
+					}
+				}
+			}
+
 			if (!level.contains("editor") || !level["editor"].contains("groups") ||
 				!level["editor"]["groups"].is_object()) {
 				return;

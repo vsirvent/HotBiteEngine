@@ -2,6 +2,7 @@
 #include "EditorHistory.h"
 #include "EditorLayout.h"
 #include "Inspector.h"
+#include "Selection.h"
 
 #include "imgui.h"
 
@@ -134,8 +135,7 @@ namespace HotBiteEditor {
 			}
 			state.placed_instances.push_back(inst);
 			state.instance_entity_ids.insert(e);
-			state.selected_entity = e;
-			Inspector::RefreshEulerCache(state);
+			Selection::Set(state, e);
 			return true;
 		}
 
@@ -173,9 +173,7 @@ namespace HotBiteEditor {
 				if (e == ECS::INVALID_ENTITY_ID) {
 					continue;
 				}
-				if (state.selected_entity == e) {
-					state.selected_entity = ECS::INVALID_ENTITY_ID;
-				}
+				Selection::Remove(state, e);
 				state.instance_entity_ids.erase(e);
 				c->DestroyEntity(e);
 			}

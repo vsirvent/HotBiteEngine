@@ -53,5 +53,15 @@ namespace HotBiteEditor {
 		// Whether the current selection is something CopySelected/CutSelected
 		// accepts (drives the Edit menu enabled state).
 		bool CanCopySelected(EditorState& state);
+
+		// Removes every deletable entity in the selection (mesh entities are parked
+		// like a cut, placed instances despawn) as ONE undoable action, leaving the
+		// clipboard alone. Entities the editor refuses to remove - lights, cameras,
+		// the sky - are skipped rather than failing the whole delete. Returns false
+		// with `error` set when nothing in the selection could be deleted.
+		// The Del key and the Entities panel both route here; confirming a
+		// multi-entity delete is the caller's job (SceneEditorApp::Present).
+		bool DeleteSelected(EditorState& state, std::string& error);
+		bool CanDeleteSelected(EditorState& state);
 	}
 }

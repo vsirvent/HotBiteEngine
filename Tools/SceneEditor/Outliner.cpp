@@ -2,6 +2,8 @@
 #include "EditorHistory.h"
 #include "Inspector.h"
 #include "EditorLayout.h"
+#include "EntityOps.h"
+#include "Selection.h"
 
 #include "imgui.h"
 #include <Components/Base.h>
@@ -120,6 +122,72 @@ namespace HotBiteEditor {
 			return true;
 		}
 
+		bool SetEntitiesGroup(EditorState& state, const std::vector<std::string>& entity_names,
+			const std::string& group, std::string& error)
+		{
+			Coordinator* c = state.world->GetCoordinator();
+			if (c == nullptr) {
+				error = "no scene loaded";
+				return false;
+			}
+			//Capture each entity's previous group before touching anything, so one
+			//undo closure can put every one of them back where it came from.
+			struct Move {
+				std::string entity_name;
+				std::string prev_group;
+			};
+			std::vector<Move> moves;
+			for (const auto& name : entity_names) {
+				if (c->GetEntityByName(name) == INVALID_ENTITY_ID) {
+					continue;
+				}
+				auto it = state.entity_group_of.find(name);
+				std::string prev = (it != state.entity_group_of.end()) ? it->second : "";
+				if (prev != group) {
+					moves.push_back({ name, prev });
+				}
+			}
+			if (moves.empty()) {
+				error = "no entities to move";
+				return false;
+			}
+			//A group named for the first time here is created by the move, so undo
+			//has to remove it again (matching SetEntityGroup's single-entity rule).
+			bool group_created = !group.empty() && state.entity_groups.count(group) == 0;
+			auto apply = [moves, group](EditorState& s) {
+				if (!group.empty()) {
+					s.entity_groups.insert(group);
+				}
+				for (const auto& m : moves) {
+					if (group.empty()) {
+						s.entity_group_of.erase(m.entity_name);
+					}
+					else {
+						s.entity_group_of[m.entity_name] = group;
+					}
+				}
+			};
+			apply(state);
+			EditorHistory::Push({
+				"group " + std::to_string(moves.size()) + " entities -> " +
+					(group.empty() ? "(none)" : group),
+				[moves, group, group_created](EditorState& s) {
+					for (const auto& m : moves) {
+						if (m.prev_group.empty()) {
+							s.entity_group_of.erase(m.entity_name);
+						}
+						else {
+							s.entity_group_of[m.entity_name] = m.prev_group;
+						}
+					}
+					if (group_created) {
+						s.entity_groups.erase(group);
+					}
+				},
+				apply });
+			return true;
+		}
+
 		//Members of `group`, captured for the undo closures of rename/delete.
 		static std::vector<std::string> GroupMembers(const EditorState& state, const std::string& group)
 		{
@@ -212,19 +280,75 @@ namespace HotBiteEditor {
 			if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(ENTITY_PAYLOAD)) {
 				std::string entity_name((const char*)payload->Data);
 				std::string error;
-				SetEntityGroup(state, entity_name, group, error); //records undo history
+				//Dragging a row that belongs to a multi-entity selection drags the
+				//whole selection (one undo step); dragging an unselected row moves
+				//only that row, leaving the selection alone.
+				Coordinator* c = state.world->GetCoordinator();
+				Entity dragged = (c != nullptr) ? c->GetEntityByName(entity_name) : INVALID_ENTITY_ID;
+				if (dragged != INVALID_ENTITY_ID && Selection::Contains(state, dragged) &&
+					Selection::Count(state) > 1) {
+					SetEntitiesGroup(state, Selection::Names(state), group, error);
+				}
+				else {
+					SetEntityGroup(state, entity_name, group, error);
+				}
 			}
 			ImGui::EndDragDropTarget();
+		}
+
+		//An entity-rename request raised from a row's context menu and consumed at
+		//window scope (the rename popup must be opened there, not inside the popup
+		//that spawned it), mirroring the group-rename deferral below.
+		static std::string entity_rename_from;
+		static char entity_rename_to[128] = "";
+		static bool open_entity_rename_popup = false;
+
+		//Rows in display order: `visible_rows` is filled as this frame's rows are
+		//submitted, `previous_rows` is the last completed frame. Shift-click ranges
+		//resolve against the *previous* frame because a click is handled while the
+		//list is still being built - the rows below the clicked one do not exist yet.
+		//The panel's layout is stable between frames, so the two agree.
+		static std::vector<Entity> visible_rows;
+		static std::vector<Entity> previous_rows;
+
+		//Selects everything between the primary selection and `entity` in display
+		//order, keeping what was already selected (shift-click semantics).
+		static void SelectRangeTo(EditorState& state, Entity entity)
+		{
+			auto to = std::find(previous_rows.begin(), previous_rows.end(), entity);
+			auto from = std::find(previous_rows.begin(), previous_rows.end(), state.selected_entity);
+			if (to == previous_rows.end() || from == previous_rows.end()) {
+				//No usable anchor (nothing selected, or it is not on screen): plain click.
+				Selection::Set(state, entity);
+				return;
+			}
+			if (from > to) {
+				std::swap(from, to);
+			}
+			for (auto it = from; it <= to; ++it) {
+				Selection::Add(state, *it);
+			}
+			//Add() made the end of the range primary; the clicked row should be.
+			Selection::Add(state, entity);
 		}
 
 		static void DrawEntityRow(EditorState& state, EditorCamera& camera,
 			const std::string& name, Entity entity)
 		{
-			bool is_selected = (entity == state.selected_entity);
+			visible_rows.push_back(entity);
+			bool is_selected = Selection::Contains(state, entity);
 			std::string label = name + "##" + std::to_string(entity);
 			if (ImGui::Selectable(label.c_str(), is_selected, ImGuiSelectableFlags_AllowDoubleClick)) {
-				state.selected_entity = entity;
-				Inspector::RefreshEulerCache(state);
+				ImGuiIO& io = ImGui::GetIO();
+				if (io.KeyCtrl) {
+					Selection::Toggle(state, entity);
+				}
+				else if (io.KeyShift) {
+					SelectRangeTo(state, entity);
+				}
+				else {
+					Selection::Set(state, entity);
+				}
 				if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
 					std::string error;
 					if (!FocusSelected(state, camera, error)) {
@@ -238,25 +362,77 @@ namespace HotBiteEditor {
 				ImGui::EndDragDropSource();
 			}
 			if (ImGui::BeginPopupContextItem()) {
-				if (ImGui::BeginMenu("Move to group")) {
-					//Copy the current group: SetEntityGroup mutates entity_group_of,
-					//which would invalidate an iterator held across the MenuItems.
-					auto it = state.entity_group_of.find(name);
-					std::string current_group = (it != state.entity_group_of.end()) ? it->second : "";
-					std::string error;
-					if (ImGui::MenuItem("(none)", nullptr, current_group.empty())) {
-						SetEntityGroup(state, name, "", error); //records undo history
+				//The row's operations act on this entity, so make it the selection
+				//first (matches right-click-then-act behaviour elsewhere) - unless it
+				//is already part of a multi-entity selection, which the menu's
+				//group/delete entries then act on as a whole.
+				if (!Selection::Contains(state, entity)) {
+					Selection::Set(state, entity);
+				}
+				std::string error;
+				if (ImGui::MenuItem("Rename...")) {
+					entity_rename_from = name;
+					strncpy_s(entity_rename_to, name.c_str(), sizeof(entity_rename_to) - 1);
+					open_entity_rename_popup = true;
+				}
+				bool can_copy = EntityOps::CanCopySelected(state);
+				if (ImGui::MenuItem("Copy", "Ctrl+C", false, can_copy)) {
+					if (!EntityOps::CopySelected(state, error)) {
+						state.status_message = "Copy failed: " + error;
 					}
-					//entity_groups is only mutated here through the same no-op-safe
-					//helper, and a click closes the popup; iterate over a copy anyway
-					//so a recorded merge/create can never invalidate the loop.
-					std::vector<std::string> groups(state.entity_groups.begin(), state.entity_groups.end());
-					for (const auto& g : groups) {
-						if (ImGui::MenuItem(g.c_str(), nullptr, g == current_group)) {
-							SetEntityGroup(state, name, g, error); //records undo history
+				}
+				if (ImGui::MenuItem("Cut", "Ctrl+X", false, can_copy)) {
+					if (!EntityOps::CutSelected(state, error)) {
+						state.status_message = "Cut failed: " + error;
+					}
+				}
+				if (ImGui::MenuItem("Paste", "Ctrl+V", false,
+					state.clipboard.kind != EntityClipboard::Kind::None)) {
+					if (!EntityOps::Paste(state, error)) {
+						state.status_message = "Paste failed: " + error;
+					}
+				}
+				ImGui::Separator();
+				//Group moves and delete act on the whole selection, which is why the
+				//labels count it: right-clicking one row of a multi-entity selection
+				//and picking a group moves all of them, in one undo step.
+				size_t selected_count = Selection::Count(state);
+				std::string move_label = (selected_count > 1)
+					? "Move " + std::to_string(selected_count) + " entities to group"
+					: std::string("Move to group");
+				if (ImGui::BeginMenu(move_label.c_str())) {
+					//Copy the current group: the move mutates entity_group_of, which
+					//would invalidate an iterator held across the MenuItems. With a
+					//multi-entity selection there is no single "current" group, so the
+					//checkmark is only meaningful for a lone entity.
+					auto it = state.entity_group_of.find(name);
+					std::string current_group = (selected_count > 1 || it == state.entity_group_of.end())
+						? "" : it->second;
+					bool mark_current = (selected_count == 1);
+					std::vector<std::string> targets(state.entity_groups.begin(), state.entity_groups.end());
+					targets.insert(targets.begin(), std::string()); //"(none)" = ungroup
+					std::vector<std::string> names = Selection::Names(state);
+					for (const auto& g : targets) {
+						const char* label = g.empty() ? "(none)" : g.c_str();
+						bool checked = mark_current && g == current_group;
+						if (ImGui::MenuItem(label, nullptr, checked)) {
+							std::string err;
+							if (!SetEntitiesGroup(state, names, g, err)) { //records undo history
+								state.status_message = "Move to group failed: " + err;
+							}
 						}
 					}
 					ImGui::EndMenu();
+				}
+				ImGui::Separator();
+				std::string delete_label = (selected_count > 1)
+					? "Delete " + std::to_string(selected_count) + " entities"
+					: std::string("Delete");
+				if (ImGui::MenuItem(delete_label.c_str(), "Del", false,
+					EntityOps::CanDeleteSelected(state))) {
+					//Confirmation for a multi-entity delete is the shared modal driven
+					//from the main loop, not this transient popup.
+					state.delete_requested = true;
 				}
 				ImGui::EndPopup();
 			}
@@ -303,7 +479,9 @@ namespace HotBiteEditor {
 			std::vector<std::pair<std::string, Entity>> sorted;
 			sorted.reserve(c->GetEntites().size());
 			for (const auto& [name, entity] : c->GetEntites()) {
-				if (c->ContainsComponent<Base>(entity)) {
+				//Parked (cut) entities still live in the world so a paste can clone
+				//them and an undo can revive them; they are hidden from the panel.
+				if (c->ContainsComponent<Base>(entity) && !EntityOps::IsParkedName(name)) {
 					sorted.emplace_back(name, entity);
 				}
 			}
@@ -327,6 +505,11 @@ namespace HotBiteEditor {
 				}
 			}
 
+			//Row order is rebuilt from scratch each frame; the frame just finished
+			//becomes the reference a shift-click range resolves against.
+			previous_rows = visible_rows;
+			visible_rows.clear();
+
 			//Structural edits (rename/delete) are deferred to after the iteration so
 			//the loop never mutates the containers it is walking.
 			static std::string rename_from;
@@ -338,11 +521,31 @@ namespace HotBiteEditor {
 				//"###" keeps the tree node's ID independent of the member count shown
 				//in the label.
 				std::string label = group + " (" + std::to_string(members.size()) + ")###grp_" + group;
-				bool open = ImGui::TreeNodeEx(label.c_str(),
-					ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick |
-					ImGuiTreeNodeFlags_SpanAvailWidth);
+				//A group is highlighted when every one of its (non-empty) members is
+				//selected: selecting a group *is* selecting the entities inside it.
+				bool group_selected = !members.empty();
+				for (const auto* item : members) {
+					if (!Selection::Contains(state, item->second)) {
+						group_selected = false;
+						break;
+					}
+				}
+				ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow |
+					ImGuiTreeNodeFlags_OpenOnDoubleClick | ImGuiTreeNodeFlags_SpanAvailWidth;
+				if (group_selected) {
+					flags |= ImGuiTreeNodeFlags_Selected;
+				}
+				bool open = ImGui::TreeNodeEx(label.c_str(), flags);
+				//OpenOnArrow means a click on the label itself is a selection, not a
+				//fold; Ctrl adds the group's entities to the current selection.
+				if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {
+					Selection::SelectGroup(state, group, ImGui::GetIO().KeyCtrl);
+				}
 				AcceptEntityDrop(state, group);
 				if (ImGui::BeginPopupContextItem()) {
+					if (ImGui::MenuItem("Select entities")) {
+						Selection::SelectGroup(state, group, false);
+					}
 					if (ImGui::MenuItem("Rename...")) {
 						rename_from = group;
 						strncpy_s(rename_to, group.c_str(), sizeof(rename_to) - 1);
@@ -398,6 +601,30 @@ namespace HotBiteEditor {
 			if (!delete_group.empty()) {
 				std::string error;
 				DeleteGroup(state, delete_group, error); //records undo history
+			}
+
+			//Entity rename popup, opened from a row's context menu (same window-scope
+			//deferral as the group rename above).
+			if (open_entity_rename_popup) {
+				ImGui::OpenPopup("##rename_entity");
+				open_entity_rename_popup = false;
+			}
+			if (ImGui::BeginPopup("##rename_entity")) {
+				if (ImGui::IsWindowAppearing()) {
+					ImGui::SetKeyboardFocusHere();
+				}
+				bool commit = ImGui::InputText("##ename", entity_rename_to, sizeof(entity_rename_to),
+					ImGuiInputTextFlags_EnterReturnsTrue);
+				ImGui::SameLine();
+				commit |= ImGui::Button("Rename");
+				if (commit && entity_rename_to[0] != '\0') {
+					std::string error;
+					if (!EntityOps::RenameEntity(state, entity_rename_from, entity_rename_to, error)) {
+						state.status_message = "Rename failed: " + error;
+					}
+					ImGui::CloseCurrentPopup();
+				}
+				ImGui::EndPopup();
 			}
 
 			ImGui::End();

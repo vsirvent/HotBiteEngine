@@ -221,6 +221,19 @@ namespace HotBite {
 			Core::FlatMap<std::string, std::shared_ptr<Core::Skeleton>>& GetSkeletons();
 			reactphysics3d::PhysicsWorld* GetPhysicsWorld();
 
+			// The collision mesh Init() gave (or would give) this entity's Physics
+			// component: its own FBX mesh shape, or its clone source's. Null when the
+			// entity has none, which is also the correct answer for dynamic bodies -
+			// they always get a primitive capsule/box/sphere instead. Callers that
+			// rebuild a collider (Physics::UpdateShape) must pass exactly this.
+			Core::ShapeData* GetEntityShape(const std::string& entity_name);
+
+			// Keeps GetEntityShape working across a rename: collision meshes are keyed
+			// by the name the entity was loaded under, so an editor that renames an
+			// entity must point the new name at the same shape. No-op when the old
+			// name has no shape of its own to inherit.
+			void AliasEntityShape(const std::string& old_name, const std::string& new_name);
+
 			template<class T>
 			std::shared_ptr<T>  GetSystem() {
 				std::shared_ptr<T> system;

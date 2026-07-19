@@ -4,12 +4,17 @@
 #include "Inspector.h"
 #include "AssetBrowser.h"
 #include "Outliner.h"
+#include "EntityOps.h"
+#include "Selection.h"
 #include "RenderSettings.h"
 #include "RenderDocIntegration.h"
 
 #include <Windows.h>
 #include <Components/Base.h>
+#include <Components/Physics.h>
 #include <Core/Json.h>
+#include <algorithm>
+#include <mutex>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -111,9 +116,13 @@ namespace HotBiteEditor {
 			j["level_loaded"] = app.IsLevelLoaded();
 			j["status"] = state.status_message;
 			j["selected_entity"] = (int)state.selected_entity;
+			j["selected_count"] = (int)Selection::Count(state);
+			j["selected_names"] = Selection::Names(state);
 			j["selected_template"] = state.selected_template;
 			static const char* GIZMO_MODE_NAME[3] = { "translate", "rotate", "scale" };
 			j["gizmo_mode"] = GIZMO_MODE_NAME[(int)state.gizmo_mode];
+			static const char* COLLIDER_VIEW_NAME[3] = { "off", "selection", "all" };
+			j["collider_view"] = COLLIDER_VIEW_NAME[(int)state.collider_view];
 			j["placed_instances"] = state.placed_instances.size();
 			Coordinator* c = state.world->GetCoordinator();
 			j["entity_count"] = (c != nullptr) ? c->GetEntites().size() : 0;
@@ -197,7 +206,8 @@ namespace HotBiteEditor {
 					size_t count = 0;
 					std::vector<std::string> lines;
 					for (const auto& [name, entity] : c->GetEntites()) {
-						if (!c->ContainsComponent<Base>(entity)) {
+						//Parked (cut) entities are hidden here just like in the panel.
+						if (!c->ContainsComponent<Base>(entity) || EntityOps::IsParkedName(name)) {
 							continue;
 						}
 						std::ostringstream os;
@@ -213,6 +223,9 @@ namespace HotBiteEditor {
 						if (entity == state.selected_entity) {
 							os << " [selected]";
 						}
+						else if (Selection::Contains(state, entity)) {
+							os << " [also selected]";
+						}
 						lines.push_back(os.str());
 						++count;
 					}
@@ -222,23 +235,200 @@ namespace HotBiteEditor {
 					}
 				}
 			}
-			else if (cmd == "select") {
+			else if (cmd == "select" || cmd == "add_select") {
+				//`select a b c` replaces the selection with all three (the last
+				//becomes primary, the one the Components panel edits); `add_select`
+				//extends the current selection instead, the scripted equivalent of
+				//Ctrl+clicking. `select` with no arguments clears the selection.
 				Coordinator* c = state.world->GetCoordinator();
-				if (args.size() < 2) {
-					response_lines.push_back("ERR usage: select <entity name>");
-				}
-				else if (c == nullptr) {
+				if (c == nullptr) {
 					response_lines.push_back("ERR no coordinator");
 				}
+				else if (args.size() < 2 && cmd == "add_select") {
+					response_lines.push_back("ERR usage: add_select <entity name> [<entity name> ...]");
+				}
 				else {
-					Entity e = c->GetEntityByName(args[1]);
-					if (e == INVALID_ENTITY_ID) {
-						response_lines.push_back("ERR entity not found: " + args[1]);
+					std::vector<Entity> entities;
+					std::string missing;
+					for (size_t i = 1; i < args.size(); ++i) {
+						Entity e = c->GetEntityByName(args[i]);
+						if (e == INVALID_ENTITY_ID) {
+							missing = args[i];
+							break;
+						}
+						entities.push_back(e);
+					}
+					if (!missing.empty()) {
+						//All-or-nothing: a typo must not leave a half-applied selection.
+						response_lines.push_back("ERR entity not found: " + missing);
 					}
 					else {
-						state.selected_entity = e;
-						Inspector::RefreshEulerCache(state);
-						response_lines.push_back("OK selected " + args[1] + " id=" + std::to_string(e));
+						if (cmd == "select") {
+							Selection::Set(state, entities);
+						}
+						else {
+							for (Entity e : entities) {
+								Selection::Add(state, e);
+							}
+						}
+						response_lines.push_back("OK " + std::to_string(Selection::Count(state)) +
+							" selected, primary id=" + std::to_string(state.selected_entity));
+					}
+				}
+			}
+			else if (cmd == "select_group") {
+				//Selecting a group selects the entities in it, like clicking the
+				//group header in the Entities panel.
+				if (args.size() < 2) {
+					response_lines.push_back("ERR usage: select_group <group name> [add]");
+				}
+				else if (state.entity_groups.count(args[1]) == 0) {
+					response_lines.push_back("ERR unknown group: " + args[1]);
+				}
+				else {
+					Selection::SelectGroup(state, args[1], args.size() > 2 && args[2] == "add");
+					response_lines.push_back("OK " + std::to_string(Selection::Count(state)) + " selected");
+				}
+			}
+			else if (cmd == "list_selection") {
+				response_lines.push_back("OK " + std::to_string(Selection::Count(state)) + " selected");
+				for (const auto& name : Selection::Names(state)) {
+					response_lines.push_back(name);
+				}
+			}
+			else if (cmd == "delete") {
+				//Deletes the selection. The interactive Del key confirms a
+				//multi-entity delete; a scripted delete is already explicit, so it
+				//goes straight through (same EntityOps call the modal's Delete button
+				//makes, so it is one undo step either way).
+				if (EntityOps::DeleteSelected(state, error)) {
+					response_lines.push_back("OK " + state.status_message);
+				}
+				else {
+					response_lines.push_back("ERR " + error);
+				}
+			}
+			else if (cmd == "colliders") {
+				//The collider wireframe overlay (View/Colliders in the menu bar).
+				if (args.size() < 2) {
+					response_lines.push_back("ERR usage: colliders off|selection|all");
+				}
+				else if (args[1] == "off") {
+					state.collider_view = ColliderView::Off;
+					response_lines.push_back("OK colliders off");
+				}
+				else if (args[1] == "selection") {
+					state.collider_view = ColliderView::Selection;
+					response_lines.push_back("OK colliders selection");
+				}
+				else if (args[1] == "all") {
+					state.collider_view = ColliderView::All;
+					response_lines.push_back("OK colliders all");
+				}
+				else {
+					response_lines.push_back("ERR usage: colliders off|selection|all");
+				}
+			}
+			else if (cmd == "physics_info") {
+				//Numeric counterpart of the collider overlay: for each selected
+				//entity, the collider's world AABB against the rendered mesh's, so a
+				//collider that does not match the mesh is a number rather than
+				//something to squint at in a screenshot.
+				Coordinator* c = state.world->GetCoordinator();
+				if (c == nullptr) {
+					response_lines.push_back("ERR no coordinator");
+				}
+				else if (state.selected_entities.empty()) {
+					response_lines.push_back("ERR nothing selected");
+				}
+				else {
+					std::lock_guard<std::recursive_mutex> lock(Core::physics_mutex);
+					response_lines.push_back("OK " + std::to_string(Selection::Count(state)) + " selected");
+					for (Entity e : state.selected_entities) {
+						if (!c->ContainsComponent<Base>(e)) {
+							continue;
+						}
+						const std::string& name = c->GetComponent<Base>(e).name;
+						std::ostringstream os;
+						os << name;
+						if (!c->ContainsComponent<Physics>(e)) {
+							response_lines.push_back(os.str() + " no Physics component");
+							continue;
+						}
+						Physics& ph = c->GetComponent<Physics>(e);
+						if (ph.body == nullptr || ph.collider == nullptr) {
+							response_lines.push_back(os.str() + " no body/collider");
+							continue;
+						}
+						static const char* BODY_TYPE[3] = { "static", "kinematic", "dynamic" };
+						os << " body=" << BODY_TYPE[(int)ph.type]
+							<< " active=" << (ph.body->isActive() ? "1" : "0");
+						const reactphysics3d::CollisionShape* shape = ph.collider->getCollisionShape();
+						if (shape != nullptr) {
+							os << " shape=" << (int)shape->getName();
+							if (shape->getName() == reactphysics3d::CollisionShapeName::TRIANGLE_MESH) {
+								//The scale the live shape is actually collided at - the
+								//number that decides whether the collider matches the mesh.
+								const reactphysics3d::Vector3& sc =
+									((const reactphysics3d::ConcaveShape*)shape)->getScale();
+								os << " live_shape_scale=(" << sc.x << "," << sc.y << "," << sc.z << ")";
+							}
+						}
+						if (c->ContainsComponent<Transform>(e)) {
+							const float3& s = c->GetComponent<Transform>(e).scale;
+							os << " entity_scale=(" << s.x << "," << s.y << "," << s.z << ")";
+						}
+						Core::ShapeData* data = state.world->GetEntityShape(name);
+						if (data != nullptr) {
+							const float3& a = data->authored_scale;
+							os << " shape_authored_scale=(" << a.x << "," << a.y << "," << a.z << ")";
+							//Whether this component built its own pre-scaled geometry
+							//rather than sharing the ShapeData's.
+							os << " private_shape=" << (ph.owned_shape != nullptr ? "1" : "0");
+						}
+						else {
+							os << " shape_data=none";
+						}
+						response_lines.push_back(os.str());
+
+						//The comparison that matters: collider extent vs mesh extent.
+						reactphysics3d::AABB cab = ph.collider->getWorldAABB();
+						reactphysics3d::Vector3 cmin = cab.getMin(), cmax = cab.getMax();
+						std::ostringstream cs;
+						cs << "  collider_aabb=(" << cmin.x << "," << cmin.y << "," << cmin.z
+							<< ")..(" << cmax.x << "," << cmax.y << "," << cmax.z << ")";
+						response_lines.push_back(cs.str());
+						if (c->ContainsComponent<Bounds>(e)) {
+							const box& b = c->GetComponent<Bounds>(e).final_box;
+							float3 mmin{ b.Center.x - b.Extents.x, b.Center.y - b.Extents.y, b.Center.z - b.Extents.z };
+							float3 mmax{ b.Center.x + b.Extents.x, b.Center.y + b.Extents.y, b.Center.z + b.Extents.z };
+							std::ostringstream ms;
+							ms << "  mesh_aabb=(" << mmin.x << "," << mmin.y << "," << mmin.z
+								<< ")..(" << mmax.x << "," << mmax.y << "," << mmax.z << ")";
+							response_lines.push_back(ms.str());
+							float dx = (mmax.x - mmin.x) - (cmax.x - cmin.x);
+							float dy = (mmax.y - mmin.y) - (cmax.y - cmin.y);
+							float dz = (mmax.z - mmin.z) - (cmax.z - cmin.z);
+							float worst = (std::max)({ dx, dy, dz });
+							float mesh_size = (std::max)({ mmax.x - mmin.x, mmax.y - mmin.y, mmax.z - mmin.z });
+							std::ostringstream vs;
+							vs << "  collider_smaller_than_mesh_by=(" << dx << "," << dy << "," << dz << ") ";
+							//Only a mesh collider is supposed to track the mesh: the
+							//primitive forms (the capsule every dynamic body gets, boxes,
+							//spheres) are deliberate approximations and will always
+							//differ, so flagging them would just be noise. For a mesh
+							//collider, being clearly SMALLER than the mesh is the failure
+							//that lets things fall through.
+							bool is_mesh_shape = shape != nullptr &&
+								shape->getName() == reactphysics3d::CollisionShapeName::TRIANGLE_MESH;
+							if (!is_mesh_shape) {
+								vs << "n/a (primitive shape approximates the mesh by design)";
+							}
+							else {
+								vs << ((mesh_size > 0.0f && worst > mesh_size * 0.02f) ? "SUSPECT" : "ok");
+							}
+							response_lines.push_back(vs.str());
+						}
 					}
 				}
 			}
@@ -306,6 +496,51 @@ namespace HotBiteEditor {
 					else {
 						response_lines.push_back("ERR " + error);
 					}
+				}
+			}
+			else if (cmd == "rename") {
+				//Renames an entity by name (not necessarily the selected one).
+				if (args.size() < 3) {
+					response_lines.push_back("ERR usage: rename <entity name> <new name>");
+				}
+				else if (EntityOps::RenameEntity(state, args[1], args[2], error)) {
+					response_lines.push_back("OK " + state.status_message);
+				}
+				else {
+					response_lines.push_back("ERR " + error);
+				}
+			}
+			else if (cmd == "copy" || cmd == "cut") {
+				//Operate on the current selection (like Ctrl+C/Ctrl+X); optional
+				//argument selects an entity first for convenience.
+				Coordinator* c = state.world->GetCoordinator();
+				if (args.size() >= 2) {
+					if (c == nullptr) {
+						response_lines.push_back("ERR no coordinator");
+						return;
+					}
+					Entity e = c->GetEntityByName(args[1]);
+					if (e == INVALID_ENTITY_ID) {
+						response_lines.push_back("ERR entity not found: " + args[1]);
+						return;
+					}
+					Selection::Set(state, e);
+				}
+				bool ok = (cmd == "copy") ? EntityOps::CopySelected(state, error)
+					: EntityOps::CutSelected(state, error);
+				if (ok) {
+					response_lines.push_back("OK " + state.status_message);
+				}
+				else {
+					response_lines.push_back("ERR " + error);
+				}
+			}
+			else if (cmd == "paste") {
+				if (EntityOps::Paste(state, error)) {
+					response_lines.push_back("OK " + state.status_message);
+				}
+				else {
+					response_lines.push_back("ERR " + error);
 				}
 			}
 			else if (cmd == "list_templates") {

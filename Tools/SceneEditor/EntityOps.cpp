@@ -2,9 +2,12 @@
 #include "EditorHistory.h"
 #include "Inspector.h"
 #include "AssetBrowser.h"
+#include "Selection.h"
 
 #include <Components/Base.h>
 #include <Components/Physics.h>
+#include <algorithm>
+#include <cctype>
 
 using namespace HotBite::Engine;
 using namespace HotBite::Engine::ECS;
@@ -54,6 +57,10 @@ namespace HotBiteEditor {
 		{
 			Coordinator* c = state.world->GetCoordinator();
 			c->ChangeEntityName(old_name, new_name);
+			//Collision meshes are keyed by the load-time entity name; carry the key
+			//over so a later scale edit can still find the shape to rebuild (and so
+			//a clone of this entity resolves the same one).
+			state.world->AliasEntityShape(old_name, new_name);
 			Entity e = c->GetEntityByName(new_name);
 			if (e != INVALID_ENTITY_ID && c->ContainsComponent<Base>(e)) {
 				c->GetComponent<Base>(e).name = new_name;
@@ -252,6 +259,11 @@ namespace HotBiteEditor {
 			ClonedEntity clone_record;// the removed clone record (clone cuts only)
 			size_t clone_record_index = 0;
 			bool is_clone = false;
+			//Clones that were cloned *from* this one, repointed to this one's own
+			//source when it is parked so no live clone ever depends on a parked
+			//entity (keeps the persisted "clones" chain resolvable). Undo restores
+			//their source to this entity's name.
+			std::vector<std::string> repointed_dependents;
 			bool visible = true;
 			bool scene_visible = true;
 			bool cast_shadow = true;
@@ -268,6 +280,14 @@ namespace HotBiteEditor {
 				return;
 			}
 			if (info.is_clone) {
+				//Repoint any clone made from this one onto this one's own source, so
+				//the surviving clone records never reference the entity we're about
+				//to park. Visually identical: clones share their root's mesh data.
+				for (auto& rec : state.cloned_entities) {
+					if (rec.source == info.name) {
+						rec.source = info.clone_record.source;
+					}
+				}
 				for (auto it = state.cloned_entities.begin(); it != state.cloned_entities.end(); ++it) {
 					if (it->name == info.name) {
 						state.cloned_entities.erase(it);
@@ -292,9 +312,7 @@ namespace HotBiteEditor {
 				std::lock_guard<std::recursive_mutex> lock(Core::physics_mutex);
 				c->GetComponent<Physics>(e).SetEnabled(false);
 			}
-			if (state.selected_entity == e) {
-				state.selected_entity = INVALID_ENTITY_ID;
-			}
+			Selection::Remove(state, e);
 		}
 
 		static void UnparkEntity(EditorState& state, const ParkInfo& info)
@@ -311,6 +329,14 @@ namespace HotBiteEditor {
 				//when the "clones" array is saved.
 				size_t at = (std::min)(info.clone_record_index, state.cloned_entities.size());
 				state.cloned_entities.insert(state.cloned_entities.begin() + at, info.clone_record);
+				//Re-point the dependents that ParkEntity moved onto this clone's source.
+				for (const auto& dep : info.repointed_dependents) {
+					for (auto& rec : state.cloned_entities) {
+						if (rec.name == dep) {
+							rec.source = info.name;
+						}
+					}
+				}
 			}
 			else {
 				state.removed_entities.erase(info.authored);
@@ -326,8 +352,53 @@ namespace HotBiteEditor {
 				std::lock_guard<std::recursive_mutex> lock(Core::physics_mutex);
 				c->GetComponent<Physics>(e).SetEnabled(true);
 			}
-			state.selected_entity = e;
-			Inspector::RefreshEulerCache(state);
+			//Undoing a cut brings the entity back selected, so the next edit acts on
+			//what just reappeared. Additive, so undoing a multi-entity delete restores
+			//the whole selection one entity at a time.
+			Selection::Add(state, e);
+		}
+
+		//Everything ParkEntity needs to hide `entity_name` and UnparkEntity needs to
+		//bring it back, read off the live entity. Shared by cut and delete; both
+		//park rather than destroy, so the mesh stays clonable and undo can restore
+		//the entity with its physics body intact (see the header).
+		static ParkInfo BuildParkInfo(EditorState& state, const std::string& entity_name)
+		{
+			Coordinator* c = state.world->GetCoordinator();
+			ParkInfo info;
+			info.name = entity_name;
+			const Base& base = c->GetComponent<Base>(c->GetEntityByName(entity_name));
+			info.visible = base.visible;
+			info.scene_visible = base.scene_visible;
+			info.cast_shadow = base.cast_shadow;
+			for (int n = 0;; ++n) {
+				info.parked_name = PARKED_PREFIX + info.name + (n > 0 ? "_" + std::to_string(n) : "");
+				if (c->GetEntityByName(info.parked_name) == INVALID_ENTITY_ID) {
+					break;
+				}
+			}
+			for (size_t i = 0; i < state.cloned_entities.size(); ++i) {
+				if (state.cloned_entities[i].name == info.name) {
+					info.is_clone = true;
+					info.clone_record = state.cloned_entities[i];
+					info.clone_record_index = i;
+					break;
+				}
+			}
+			if (info.is_clone) {
+				for (const auto& rec : state.cloned_entities) {
+					if (rec.source == info.name) {
+						info.repointed_dependents.push_back(rec.name);
+					}
+				}
+			}
+			else {
+				info.authored = AuthoredNameOf(state, info.name);
+				if (info.authored != info.name) {
+					info.renamed_from = info.authored;
+				}
+			}
+			return info;
 		}
 
 		bool CutSelected(EditorState& state, std::string& error)
@@ -355,32 +426,7 @@ namespace HotBiteEditor {
 				return true;
 			}
 
-			ParkInfo info;
-			info.name = state.clipboard.display_name;
-			info.visible = state.clipboard.visible;
-			info.scene_visible = state.clipboard.scene_visible;
-			info.cast_shadow = state.clipboard.cast_shadow;
-			for (int n = 0;; ++n) {
-				info.parked_name = PARKED_PREFIX + info.name + (n > 0 ? "_" + std::to_string(n) : "");
-				if (c->GetEntityByName(info.parked_name) == INVALID_ENTITY_ID) {
-					break;
-				}
-			}
-			for (size_t i = 0; i < state.cloned_entities.size(); ++i) {
-				if (state.cloned_entities[i].name == info.name) {
-					info.is_clone = true;
-					info.clone_record = state.cloned_entities[i];
-					info.clone_record_index = i;
-					break;
-				}
-			}
-			if (!info.is_clone) {
-				info.authored = AuthoredNameOf(state, info.name);
-				if (info.authored != info.name) {
-					info.renamed_from = info.authored;
-				}
-			}
-
+			ParkInfo info = BuildParkInfo(state, state.clipboard.display_name);
 			ParkEntity(state, info);
 			state.status_message = "Cut: " + info.name;
 			EditorHistory::Push({
@@ -390,6 +436,105 @@ namespace HotBiteEditor {
 				},
 				[info](EditorState& s) {
 					ParkEntity(s, info);
+				} });
+			return true;
+		}
+
+		//Whether one entity can be removed from the scene: the same set cut accepts
+		//(placed instances and mesh entities), since delete reuses cut's machinery.
+		static bool IsDeletable(EditorState& state, Entity e)
+		{
+			Coordinator* c = state.world->GetCoordinator();
+			if (c == nullptr || e == INVALID_ENTITY_ID || !c->ContainsComponent<Base>(e)) {
+				return false;
+			}
+			if (state.instance_entity_ids.count(e) != 0) {
+				return true;
+			}
+			return c->ContainsComponent<Transform>(e) && c->ContainsComponent<Bounds>(e) &&
+				c->ContainsComponent<Mesh>(e);
+		}
+
+		bool CanDeleteSelected(EditorState& state)
+		{
+			for (Entity e : state.selected_entities) {
+				if (IsDeletable(state, e)) {
+					return true;
+				}
+			}
+			return false;
+		}
+
+		bool DeleteSelected(EditorState& state, std::string& error)
+		{
+			Coordinator* c = state.world->GetCoordinator();
+			if (c == nullptr) {
+				error = "no scene loaded";
+				return false;
+			}
+			//Resolve the whole selection to names up front: parking renames entities
+			//as it goes, so ids and names captured mid-loop would go stale.
+			std::vector<std::string> names;
+			std::vector<PlacedInstance> instances; //instance records to despawn
+			for (Entity e : state.selected_entities) {
+				if (!IsDeletable(state, e)) {
+					continue; //lights, cameras, sky: nothing safe to remove
+				}
+				const std::string& name = c->GetComponent<Base>(e).name;
+				if (state.instance_entity_ids.count(e) != 0) {
+					PlacedInstance* rec = FindInstanceRecord(state, name);
+					//Every part of a multi-part instance maps to the same record;
+					//the instance is despawned once.
+					if (rec != nullptr && std::none_of(instances.begin(), instances.end(),
+						[rec](const PlacedInstance& i) { return i.name == rec->name; })) {
+						instances.push_back(*rec);
+					}
+				}
+				else {
+					names.push_back(name);
+				}
+			}
+			if (names.empty() && instances.empty()) {
+				error = "nothing in the selection can be deleted";
+				return false;
+			}
+
+			std::vector<ParkInfo> parked;
+			for (const auto& name : names) {
+				parked.push_back(BuildParkInfo(state, name));
+			}
+			for (const auto& info : parked) {
+				ParkEntity(state, info);
+			}
+			for (const auto& rec : instances) {
+				AssetBrowser::RemovePlacedInstance(state, rec.name);
+			}
+			size_t total = parked.size() + instances.size();
+			state.status_message = (total == 1)
+				? "Deleted: " + (parked.empty() ? instances[0].name : parked[0].name)
+				: "Deleted " + std::to_string(total) + " entities";
+
+			//One action for the whole delete, so a multi-entity delete undoes in a
+			//single step. Undo runs in reverse so the world passes back through the
+			//exact states it came from (clone sources before their dependents).
+			EditorHistory::Push({
+				"delete " + std::to_string(total) + " entities",
+				[parked, instances](EditorState& s) {
+					for (auto it = instances.rbegin(); it != instances.rend(); ++it) {
+						std::string err;
+						AssetBrowser::SpawnRecordedInstance(s, *it, err);
+					}
+					for (auto it = parked.rbegin(); it != parked.rend(); ++it) {
+						UnparkEntity(s, *it);
+					}
+				},
+				[parked, instances](EditorState& s) {
+					for (const auto& info : parked) {
+						ParkEntity(s, info);
+					}
+					for (const auto& rec : instances) {
+						AssetBrowser::RemovePlacedInstance(s, rec.name);
+					}
 				} });
 			return true;
 		}
@@ -420,8 +565,7 @@ namespace HotBiteEditor {
 			Inspector::TransformSnapshot snapshot{ clip.position, clip.rotation, clip.scale };
 			std::string err;
 			Inspector::ApplySnapshot(state, new_name, snapshot, err);
-			state.selected_entity = e;
-			Inspector::RefreshEulerCache(state);
+			Selection::Set(state, e);
 			return true;
 		}
 
@@ -441,9 +585,7 @@ namespace HotBiteEditor {
 				}
 			}
 			state.overridden_entities.erase(name);
-			if (state.selected_entity == e) {
-				state.selected_entity = INVALID_ENTITY_ID;
-			}
+			Selection::Remove(state, e);
 			c->DestroyEntity(e);
 		}
 

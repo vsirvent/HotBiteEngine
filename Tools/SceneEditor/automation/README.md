@@ -45,8 +45,16 @@ directory so relative asset paths in level files resolve the same way the other 
 | `open_level <path>` | same as File/Open Level..., minus the file dialog (one level per session) |
 | `menus` | lists registered menu commands and whether they are enabled |
 | `menu <Menu/Item>` | executes a menu item, e.g. `menu "File/Save Level"` |
-| `list_entities` | Entities panel contents with ids, positions and group membership |
-| `select <name>` | selects an entity (same bookkeeping as clicking it in the Entities panel) |
+| `list_entities` | Entities panel contents with ids, positions and group membership (cut/parked entities are hidden) |
+| `select [<name> ...]` | replaces the selection with the named entities (same bookkeeping as clicking, or Ctrl+clicking, them in the Entities panel). The last one becomes the primary — the entity the Components panel edits and the one `copy`/`cut`/`rename`/`focus` act on. No arguments clears the selection; an unknown name fails without changing anything |
+| `add_select <name> ...` | adds the named entities to the current selection, the scripted Ctrl+click |
+| `select_group <group> [add]` | selects every entity in a group, like clicking the group header; `add` extends the selection instead of replacing it |
+| `list_selection` | lists the selected entity names, primary last |
+| `delete` | deletes the selection — mesh entities are parked like a cut, placed instances despawn — as one undo step. The interactive Del key confirms first when several entities are selected; a scripted `delete` is already explicit and goes straight through |
+| `rename <name> <new name>` | renames an entity (same as editing its name in the Components panel); rejects empty/duplicate/reserved names |
+| `copy [<name>]` | copies the selection (or `<name>` if given) to the entity clipboard, like Ctrl+C |
+| `cut [<name>]` | copies then removes the entity, like Ctrl+X (undoable; a cut source can still be pasted) |
+| `paste` | creates a copy from the clipboard named `<original>_copy`, like Ctrl+V |
 | `focus` | frames the selected entity with the camera, same code path as double-clicking it in the Entities panel |
 | `create_group <name>` | creates an (empty) entity group in the Entities panel tree |
 | `set_group <entity> <group\|none>` | moves an entity into a group (`none` ungroups); an unknown group is created implicitly. Groups persist in the level JSON on save |
@@ -68,6 +76,8 @@ directory so relative asset paths in level files resolve the same way the other 
 | `camera_fly fwd right up` | moves camera + focus point by camera-relative world units, like the WASD/QE fly keys |
 | `render` | one-line JSON dump of the render settings (same keys as the Render menu) |
 | `render <key> <value>` | changes one render setting, e.g. `render aa 0`, `render rt_quality high`; `render dof_autofocus 0\|1` toggles Marbles-style autofocus — on camera movement, focus is re-set to the scene depth at the view center and amplitude to Marbles' distance-based aperture (macro blur up close, everything sharp beyond ~20 units). On by default; setting `dof_focus`/`dof_amplitude` switches it off |
+| `colliders off\|selection\|all` | physics collider wireframe overlay (View/Colliders in the menu). Draws each collider exactly as reactphysics3d holds it — through the collider's local-to-body transform and the body's world transform — so a wireframe that does not wrap the mesh *is* a collider scale/offset bug. `all` is capped at 60000 segments and says so on screen when it truncates |
+| `physics_info` | numeric counterpart of the overlay, for the selection: body type, active flag, collision shape, the entity's scale vs the scale baked into its collision mesh, and the collider's world AABB against the rendered mesh's — with an `ok`/`SUSPECT` verdict. The verdict only applies to mesh colliders; capsules/boxes/spheres approximate the mesh by design and report `n/a` |
 | `screenshot <png path>` | saves the backbuffer (scene + ImGui UI) as PNG at the end of the frame |
 | `undo` / `redo` | steps the editor's undo history (same stack as Edit/Undo, Edit/Redo and Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z); the `OK` line names the step applied, `ERR` when the stack is empty |
 | `quit` | closes the editor |
@@ -85,8 +95,19 @@ Physics simulation is paused while editing (dynamic bodies hold the pose they we
 authored/edited at, so transform edits and saves are exact); `menu "Edit/Simulate
 Physics"` toggles it for previewing how objects settle.
 
-Scene mutations (transform edits, `place`, group commands - from any surface: UI,
-menu, or automation) record into a single undo history; `undo`/`redo` walk it.
+Copy/cut/paste work on both editor-placed template instances (paste spawns a fresh
+instance of the same template) and mesh entities including FBX-authored ones (paste
+clones them via `World::CloneEntity`). Lights, cameras and the sky can't be copied.
+Renames, copies (`clones`) and deletions (`removed_entities`) persist on Save Level
+and are reconstructed on the next load. Cut does not destroy an authored entity
+immediately - it is *parked* (hidden, inert, filtered out of `list_entities`) so
+paste and undo keep working; it is genuinely gone after a save + reload.
+
+Scene mutations (transform edits, `place`, group commands, rename/copy/cut/paste,
+`delete` - from any surface: UI, menu, or automation) record into a single undo
+history; `undo`/`redo` walk it. Operations on a multi-entity selection - a gizmo
+drag, a group move, a delete - record *one* action covering all of them, so they
+undo in a single step rather than one per entity.
 Every *new* command that mutates the scene must record itself there too - the
 contract and the how-to live in `Tools/SceneEditor/EditorHistory.h`. Interactive
 drags (gizmo, Inspector fields) coalesce into one action per drag; selection,

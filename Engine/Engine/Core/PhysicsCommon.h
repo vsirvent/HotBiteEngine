@@ -35,6 +35,14 @@ namespace HotBite {
 
 			struct ShapeData {
 				reactphysics3d::CollisionShape* shape = nullptr;
+				//The scale already baked into `vertices` (the FBX node's global scale;
+				//see FBXLoader::LoadShapes). This is a property of the SHAPE, not of
+				//any entity using it: the entity the shape was authored from carries
+				//the same scale on its Transform, but a clone of that entity can be
+				//scaled to anything while still sharing this shape. Rescaling a mesh
+				//collider is therefore always relative to this, never to the scale the
+				//entity happened to have when its body was created.
+				float3 authored_scale{ 1.0f, 1.0f, 1.0f };
 				std::vector<float3> vertices;
 				std::vector<float3> normals;
 				std::vector<unsigned int> indices;

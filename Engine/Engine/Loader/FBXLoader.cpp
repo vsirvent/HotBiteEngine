@@ -478,6 +478,10 @@ int FBXLoader::LoadShapes(Core::FlatMap<std::string, Core::ShapeData>& shapes, F
 		FbxAMatrix& matrix = node->EvaluateGlobalTransform();
 		FbxVector4 s = matrix.GetS();
 		float3 scale = { abs((float)s.mData[0] / (RATIO)), abs((float)s.mData[1] / (RATIO)), abs((float)s.mData[2] / (RATIO)) };
+		//Recorded so consumers can tell what scale the baked vertices already carry.
+		//Computed identically to the entity's Transform.scale below, so an entity and
+		//its own shape always agree exactly.
+		shape->authored_scale = scale;
 		FbxMesh* fbxMesh = (FbxMesh*)node->GetNodeAttribute();
 		FbxVector4* controlPoints = fbxMesh->GetControlPoints();
 		int vertexCount = fbxMesh->GetControlPointsCount();

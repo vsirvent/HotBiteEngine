@@ -56,6 +56,10 @@ namespace HotBiteEditor {
 	// (scriptable as `menu "Edit/Gizmo: Rotate"` etc.) or the 1/2/3 keys.
 	enum class GizmoMode { Translate = 0, Rotate, Scale };
 
+	// Whether the viewport overlays physics collider wireframes, and for which
+	// entities (see PhysicsDebug.h). View state, so it records no undo history.
+	enum class ColliderView { Off = 0, Selection, All };
+
 	// An entity created via copy/paste as a clone of another scene entity (as
 	// opposed to a template instance). Persisted to the level's "clones" JSON array
 	// on save and recreated by World::CloneEntity on the next load; `source` always
@@ -97,9 +101,17 @@ namespace HotBiteEditor {
 		std::string project_root;       // folder containing config.json
 		std::string current_level_path; // absolute path to the currently open level.json
 
+		// The current selection. `selected_entity` is the *primary*: the entity the
+		// Components panel edits, the one single-entity commands (copy/cut/rename/
+		// focus) act on, and the anchor a shift-click range extends from.
+		// `selected_entities` is the whole selection in pick order, and always ends
+		// with the primary (both are empty/INVALID together). Never assign either
+		// directly - go through the Selection helpers, which keep them consistent.
 		HotBite::Engine::ECS::Entity selected_entity = HotBite::Engine::ECS::INVALID_ENTITY_ID;
+		std::vector<HotBite::Engine::ECS::Entity> selected_entities;
 		HotBite::Engine::float3 inspector_euler_degrees{ 0.0f, 0.0f, 0.0f };
 		GizmoMode gizmo_mode = GizmoMode::Translate;
+		ColliderView collider_view = ColliderView::Off;
 
 		std::vector<PlacedInstance> placed_instances;
 		std::set<HotBite::Engine::ECS::Entity> instance_entity_ids; // entities backed by placed_instances
@@ -125,6 +137,13 @@ namespace HotBiteEditor {
 		// JSON under a top-level "editor" object the engine loader never reads.
 		std::set<std::string> entity_groups;
 		std::map<std::string, std::string> entity_group_of; // entity name -> group name
+
+		// Raised by whichever surface asked to delete the selection (the Del key or
+		// the Entities panel's context menu) and consumed once per frame by the main
+		// loop, which deletes a lone entity outright and puts a confirmation modal in
+		// front of a multi-entity delete. Routed through the state rather than
+		// handled in place because the modal has to be driven from window scope.
+		bool delete_requested = false;
 
 		std::string status_message;
 
@@ -230,6 +249,7 @@ namespace HotBiteEditor {
 		bool dof_refocus_pending = true;
 
 		void DrawMenuBar();
+		void DrawDeleteRequest();
 		void UpdateDofAutofocus();
 	};
 

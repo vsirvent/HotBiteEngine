@@ -5,12 +5,15 @@
 #include "Outliner.h"
 #include "Inspector.h"
 #include "AssetBrowser.h"
+#include "EntityOps.h"
 #include "SceneSerializer.h"
 #include "EditorAutomation.h"
 #include "CrashHandler.h"
 #include "RenderSettings.h"
 #include "RenderDocIntegration.h"
 #include "SelectionGizmo.h"
+#include "Selection.h"
+#include "PhysicsDebug.h"
 
 #include <Core/PostProcess.h>
 
@@ -122,6 +125,27 @@ namespace HotBiteEditor {
 			[this]() { return level_loaded && EditorHistory::CanRedo(); },
 			[this]() { std::string err; EditorHistory::Redo(state, err); } });
 
+		//Edit: entity clipboard. Copy/Cut act on the selection, Paste on the
+		//clipboard; all three also on Ctrl+C / Ctrl+X / Ctrl+V (see Present) and the
+		//automation copy/cut/paste commands. A cut clones-then-hides its source so
+		//paste and undo still work (see EntityOps.h).
+		menu_commands.push_back({ "Edit/Copy",
+			[this]() { return level_loaded && EntityOps::CanCopySelected(state); },
+			[this]() { std::string err; if (!EntityOps::CopySelected(state, err)) { state.status_message = "Copy failed: " + err; } } });
+		menu_commands.push_back({ "Edit/Cut",
+			[this]() { return level_loaded && EntityOps::CanCopySelected(state); },
+			[this]() { std::string err; if (!EntityOps::CutSelected(state, err)) { state.status_message = "Cut failed: " + err; } } });
+		menu_commands.push_back({ "Edit/Paste",
+			[this]() { return level_loaded && state.clipboard.kind != EntityClipboard::Kind::None; },
+			[this]() { std::string err; if (!EntityOps::Paste(state, err)) { state.status_message = "Paste failed: " + err; } } });
+
+		//Edit: delete the selection (also on the Del key and in the Entities panel's
+		//context menu). Everything routes through delete_requested so a multi-entity
+		//delete gets the same confirmation whichever surface asked for it.
+		menu_commands.push_back({ "Edit/Delete",
+			[this]() { return level_loaded && EntityOps::CanDeleteSelected(state); },
+			[this]() { state.delete_requested = true; } });
+
 		//Edit: physics preview. Off by default (see SetPhysicsPause above); while
 		//checked, dynamic bodies simulate so the user can watch objects settle, then
 		//pause again to keep authoring from the settled state.
@@ -163,6 +187,25 @@ namespace HotBiteEditor {
 			[this]() { return level_loaded; },
 			[this]() { state.show_project = !state.show_project; },
 			[this]() { return state.show_project; } });
+		//View: physics collider wireframes (see PhysicsDebug.h). Two entries acting
+		//as a radio group - clicking the active one turns the overlay off - because
+		//"all" is expensive enough on a terrain-heavy scene to want the selection-only
+		//mode as the everyday choice.
+		menu_commands.push_back({ "View/Colliders: Selection",
+			[this]() { return level_loaded; },
+			[this]() {
+				state.collider_view = (state.collider_view == ColliderView::Selection)
+					? ColliderView::Off : ColliderView::Selection;
+			},
+			[this]() { return state.collider_view == ColliderView::Selection; } });
+		menu_commands.push_back({ "View/Colliders: All",
+			[this]() { return level_loaded; },
+			[this]() {
+				state.collider_view = (state.collider_view == ColliderView::All)
+					? ColliderView::Off : ColliderView::All;
+			},
+			[this]() { return state.collider_view == ColliderView::All; } });
+
 		menu_commands.push_back({ "View/Reset Layout",
 			nullptr,
 			[this]() { state.apply_default_layout = true; } });
@@ -297,6 +340,15 @@ namespace HotBiteEditor {
 			//Undo/redo hotkeys, gated like the gizmo's 1/2/3 keys: inert while a
 			//text field owns the keyboard. Ctrl+Shift+Z is the usual redo alias.
 			ImGuiIO& io = ImGui::GetIO();
+			//Entities can disappear behind the selection's back (an undo that
+			//destroys a pasted clone, say); drop those before any panel reads it.
+			Selection::Prune(state);
+			//Del deletes the selection, with the same gating as the other hotkeys so
+			//it never fires while a name is being typed into a text field.
+			if (!io.WantTextInput && !io.KeyCtrl &&
+				ImGui::IsKeyPressed(ImGuiKey_Delete, false)) {
+				state.delete_requested = true;
+			}
 			if (!io.WantTextInput && io.KeyCtrl) {
 				std::string err;
 				if (ImGui::IsKeyPressed(ImGuiKey_Z, false)) {
@@ -304,6 +356,23 @@ namespace HotBiteEditor {
 				}
 				else if (ImGui::IsKeyPressed(ImGuiKey_Y, false)) {
 					EditorHistory::Redo(state, err);
+				}
+				//Entity clipboard, same keys as the Edit menu. Failures land in the
+				//status message so the shortcut is never silently inert.
+				else if (ImGui::IsKeyPressed(ImGuiKey_C, false)) {
+					if (EntityOps::CanCopySelected(state) && !EntityOps::CopySelected(state, err)) {
+						state.status_message = "Copy failed: " + err;
+					}
+				}
+				else if (ImGui::IsKeyPressed(ImGuiKey_X, false)) {
+					if (EntityOps::CanCopySelected(state) && !EntityOps::CutSelected(state, err)) {
+						state.status_message = "Cut failed: " + err;
+					}
+				}
+				else if (ImGui::IsKeyPressed(ImGuiKey_V, false)) {
+					if (state.clipboard.kind != EntityClipboard::Kind::None && !EntityOps::Paste(state, err)) {
+						state.status_message = "Paste failed: " + err;
+					}
 				}
 			}
 			//The dockspace must be submitted before any window that docks into it.
@@ -320,7 +389,11 @@ namespace HotBiteEditor {
 			if (state.show_asset_browser) {
 				AssetBrowser::Draw(state);
 			}
+			//Under the gizmo, so the selection handles stay readable on top of a
+			//dense collider wireframe.
+			PhysicsDebug::Draw(state);
 			SelectionGizmo::Draw(state);
+			DrawDeleteRequest();
 		}
 		//A View/Reset Layout request has now been consumed by every visible panel.
 		state.apply_default_layout = false;
@@ -335,6 +408,56 @@ namespace HotBiteEditor {
 		EditorAutomation::OnFrameEnd(state, *this);
 
 		DXCore::Present();
+	}
+
+	//Consumes a pending delete request (Del key or the Entities panel's context
+	//menu). A single entity goes straight away - it is one Ctrl+Z from coming
+	//back - while deleting several asks first, since losing a whole selection by
+	//accident is the expensive mistake. The modal lives here, at window scope,
+	//because ImGui popups cannot be opened from inside the transient popup or the
+	//key handler that requested them.
+	void SceneEditorApp::DrawDeleteRequest()
+	{
+		static constexpr const char* CONFIRM_POPUP = "Delete entities?";
+		if (state.delete_requested) {
+			state.delete_requested = false;
+			if (!EntityOps::CanDeleteSelected(state)) {
+				state.status_message = "Nothing in the selection can be deleted.";
+			}
+			else if (Selection::Count(state) > 1) {
+				ImGui::OpenPopup(CONFIRM_POPUP);
+			}
+			else {
+				std::string err;
+				if (!EntityOps::DeleteSelected(state, err)) {
+					state.status_message = "Delete failed: " + err;
+				}
+			}
+		}
+		//Centered like a standard confirmation; Enter confirms, Esc/Cancel backs out.
+		ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+		ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+		if (ImGui::BeginPopupModal(CONFIRM_POPUP, nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+			ImGui::Text("Delete %d selected entities?", (int)Selection::Count(state));
+			ImGui::TextUnformatted("This can be undone with Ctrl+Z.");
+			ImGui::Separator();
+			bool confirm = ImGui::Button("Delete", ImVec2(90.0f, 0.0f));
+			confirm |= ImGui::IsKeyPressed(ImGuiKey_Enter, false);
+			ImGui::SameLine();
+			bool cancel = ImGui::Button("Cancel", ImVec2(90.0f, 0.0f));
+			cancel |= ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+			if (confirm) {
+				std::string err;
+				if (!EntityOps::DeleteSelected(state, err)) {
+					state.status_message = "Delete failed: " + err;
+				}
+				ImGui::CloseCurrentPopup();
+			}
+			else if (cancel) {
+				ImGui::CloseCurrentPopup();
+			}
+			ImGui::EndPopup();
+		}
 	}
 
 	Coordinator* SceneEditorApp::GetCoordinator()

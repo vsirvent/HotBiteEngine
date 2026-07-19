@@ -1,6 +1,7 @@
 #include "Inspector.h"
 #include "EditorHistory.h"
 #include "EditorLayout.h"
+#include "EntityOps.h"
 
 #include "imgui.h"
 #include <Components/Base.h>
@@ -11,6 +12,7 @@
 #include <Components/Sky.h>
 #include <DirectXMath.h>
 #include <cmath>
+#include <cstring>
 
 using namespace HotBite::Engine;
 using namespace HotBite::Engine::ECS;
@@ -54,8 +56,10 @@ namespace HotBiteEditor {
 
 		//Shared post-edit bookkeeping for both the interactive (Draw) and programmatic
 		//(ApplyTransform/ApplySnapshot) paths: marks the transform dirty and records
-		//what needs to be written back on save.
-		static void CommitTransformEdit(EditorState& state, Entity entity, const Base& base, Transform& t)
+		//what needs to be written back on save. `before` is the Transform as it was
+		//prior to this edit; it decides whether the physics collider has to be rebuilt.
+		static void CommitTransformEdit(EditorState& state, Entity entity, const Base& base,
+			Transform& t, const TransformSnapshot& before)
 		{
 			t.dirty = true;
 
@@ -79,6 +83,30 @@ namespace HotBiteEditor {
 					//Prime the change detector so a paused PhysicsSystem doesn't
 					//treat the teleport itself as pending body movement to sync back.
 					ph.last_body_transform = bt;
+
+					//The body's *pose* is now right, but its collision shape was sized
+					//and oriented from the Transform back when the body was created:
+					//a scale or rotation edit leaves the entity wearing the collider of
+					//its old shape (visibly wrong once Simulate Physics runs, and it
+					//also misdirects viewport click-picking, which raycasts colliders).
+					//Rebuild it whenever either channel actually moved.
+					bool same_scale = before.scale.x == t.scale.x &&
+						before.scale.y == t.scale.y && before.scale.z == t.scale.z;
+					bool same_rotation = before.rotation.x == t.rotation.x &&
+						before.rotation.y == t.rotation.y &&
+						before.rotation.z == t.rotation.z &&
+						before.rotation.w == t.rotation.w;
+					if (c->ContainsComponent<Bounds>(entity) &&
+						(!same_scale || !same_rotation)) {
+						//Dynamic bodies always carry a primitive shape; everything else
+						//may own the FBX mesh shape Init resolved for it.
+						Core::ShapeData* shape_data =
+							(ph.type != reactphysics3d::BodyType::DYNAMIC)
+							? state.world->GetEntityShape(base.name) : nullptr;
+						ph.UpdateShape(shape_data,
+							c->GetComponent<Bounds>(entity).bounding_box.Extents,
+							t.scale, t.rotation);
+					}
 				}
 			}
 
@@ -135,7 +163,7 @@ namespace HotBiteEditor {
 				state.inspector_euler_degrees = *euler_degrees;
 				t.rotation = float3_to_quaternion(state.inspector_euler_degrees);
 			}
-			CommitTransformEdit(state, state.selected_entity, base, t);
+			CommitTransformEdit(state, state.selected_entity, base, t, before);
 			if (record_history) {
 				RecordTransformEdit(state, base.name, before);
 			}
@@ -172,10 +200,11 @@ namespace HotBiteEditor {
 			}
 			const Base& base = c->GetComponent<Base>(e);
 			Transform& t = c->GetComponent<Transform>(e);
+			TransformSnapshot before{ t.position, t.rotation, t.scale };
 			t.position = snapshot.position;
 			t.rotation = snapshot.rotation;
 			t.scale = snapshot.scale;
-			CommitTransformEdit(state, e, base, t);
+			CommitTransformEdit(state, e, base, t, before);
 			if (e == state.selected_entity) {
 				RefreshEulerCache(state);
 			}
@@ -209,15 +238,84 @@ namespace HotBiteEditor {
 				} });
 		}
 
+		void ApplySnapshots(EditorState& state, const std::vector<std::string>& entity_names,
+			const std::vector<TransformSnapshot>& snapshots)
+		{
+			for (size_t i = 0; i < entity_names.size() && i < snapshots.size(); ++i) {
+				std::string err;
+				ApplySnapshot(state, entity_names[i], snapshots[i], err);
+			}
+		}
+
+		void RecordTransformEdits(EditorState& state,
+			const std::vector<std::string>& entity_names,
+			const std::vector<TransformSnapshot>& befores)
+		{
+			auto same3 = [](const float3& a, const float3& b) {
+				return a.x == b.x && a.y == b.y && a.z == b.z;
+			};
+			std::vector<std::string> names;
+			std::vector<TransformSnapshot> from, to;
+			for (size_t i = 0; i < entity_names.size() && i < befores.size(); ++i) {
+				TransformSnapshot after;
+				if (!GetSnapshot(state, entity_names[i], after)) {
+					continue; //entity is gone; nothing to restore it to
+				}
+				const TransformSnapshot& before = befores[i];
+				if (same3(before.position, after.position) && same3(before.scale, after.scale) &&
+					before.rotation.x == after.rotation.x && before.rotation.y == after.rotation.y &&
+					before.rotation.z == after.rotation.z && before.rotation.w == after.rotation.w) {
+					continue;
+				}
+				names.push_back(entity_names[i]);
+				from.push_back(before);
+				to.push_back(after);
+			}
+			if (names.empty()) {
+				return;
+			}
+			if (names.size() == 1) {
+				//Keep the single-entity description ("transform box1"), which the
+				//status line and the automation `undo` response report.
+				EditorHistory::Push({
+					"transform " + names[0],
+					[names, from](EditorState& s) { ApplySnapshots(s, names, from); },
+					[names, to](EditorState& s) { ApplySnapshots(s, names, to); } });
+				return;
+			}
+			EditorHistory::Push({
+				"transform " + std::to_string(names.size()) + " entities",
+				[names, from](EditorState& s) { ApplySnapshots(s, names, from); },
+				[names, to](EditorState& s) { ApplySnapshots(s, names, to); } });
+		}
+
 		static constexpr ImGuiTreeNodeFlags SECTION_FLAGS = ImGuiTreeNodeFlags_DefaultOpen;
 
-		static void DrawBase(Coordinator* c, Entity e)
+		static void DrawBase(EditorState& state, Coordinator* c, Entity e)
 		{
 			if (!ImGui::CollapsingHeader("Base", SECTION_FLAGS)) {
 				return;
 			}
 			Base& b = c->GetComponent<Base>(e);
-			ImGui::Text("Name: %s", b.name.c_str());
+
+			//Editable name. The rename is committed once, when the field loses focus
+			//after an edit (Enter or click-away); RenameEntity vetoes empty/duplicate/
+			//reserved names, leaving the entity's name unchanged. The buffer is
+			//reseeded from the live name on every frame the field is not being typed
+			//in (checked *after* InputText, when IsItemActive refers to it), so it
+			//follows selection changes, undo/redo and rejected renames.
+			static char name_buf[128] = "";
+			std::string prev_name = b.name;
+			ImGui::InputText("Name", name_buf, sizeof(name_buf), ImGuiInputTextFlags_EnterReturnsTrue);
+			if (ImGui::IsItemDeactivatedAfterEdit()) {
+				std::string error;
+				if (!EntityOps::RenameEntity(state, prev_name, name_buf, error)) {
+					state.status_message = "Rename failed: " + error;
+				}
+			}
+			if (!ImGui::IsItemActive()) {
+				strncpy_s(name_buf, b.name.c_str(), sizeof(name_buf) - 1);
+			}
 			ImGui::Text("Id: %u", (unsigned)b.id);
 			if (b.parent != INVALID_ENTITY_ID) {
 				ImGui::Text("Parent: %u", (unsigned)b.parent);
@@ -271,7 +369,7 @@ namespace HotBiteEditor {
 			}
 			if (changed) {
 				t.rotation = float3_to_quaternion(state.inspector_euler_degrees);
-				CommitTransformEdit(state, e, base, t);
+				CommitTransformEdit(state, e, base, t, frame_before);
 			}
 			if (finished) {
 				RecordTransformEdit(state, base.name, pending_before);
@@ -521,7 +619,7 @@ namespace HotBiteEditor {
 			//One section per component present on the entity, in a stable order.
 			//The ECS has no runtime component reflection, so this enumerates every
 			//type World::PreLoad registers explicitly.
-			DrawBase(c, e);
+			DrawBase(state, c, e);
 			if (c->ContainsComponent<Transform>(e)) {
 				DrawTransform(state, c, e);
 			}
@@ -566,7 +664,7 @@ namespace HotBiteEditor {
 
 			ImGui::PopItemWidth();
 			ImGui::Spacing();
-			ImGui::TextDisabled("Only transform edits persist on Save Level.");
+			ImGui::TextDisabled("Transforms, names, copies and deletions persist on Save Level.");
 
 			ImGui::End();
 		}

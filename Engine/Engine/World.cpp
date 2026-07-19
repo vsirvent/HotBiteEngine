@@ -163,6 +163,36 @@ World::GetShapes() {
 	return shapes;
 }
 
+Core::ShapeData*
+World::GetEntityShape(const std::string& entity_name) {
+	Core::ShapeData* shape = shapes.Get(entity_name);
+	if (shape == nullptr) {
+		//Clones have no shape of their own; they use their root source's.
+		auto alias = clone_shape_alias.find(entity_name);
+		if (alias != clone_shape_alias.end()) {
+			shape = shapes.Get(alias->second);
+		}
+	}
+	return shape;
+}
+
+void
+World::AliasEntityShape(const std::string& old_name, const std::string& new_name) {
+	if (old_name == new_name) {
+		return;
+	}
+	//Resolve through any existing alias so a chain of renames still lands on the
+	//FBX name the shape is actually stored under.
+	std::string shape_name = old_name;
+	auto alias = clone_shape_alias.find(old_name);
+	if (alias != clone_shape_alias.end()) {
+		shape_name = alias->second;
+	}
+	if (shapes.Get(shape_name) != nullptr) {
+		clone_shape_alias[new_name] = shape_name;
+	}
+}
+
 Core::FlatMap<std::string, std::shared_ptr<Core::Skeleton>>&
 World::GetSkeletons() {
 	return animations;
@@ -1013,14 +1043,7 @@ void World::Init() {
 			Components::Base& base = coordinator->GetComponent<Components::Base>(e.second);
 			if (p.type != reactphysics3d::BodyType::DYNAMIC) {
 				//Dynamic bodies use capsules, can't use mesh shape
-				shape = shapes.Get(e.first);
-				if (shape == nullptr) {
-					//Load-time clones have no shape of their own; use their source's.
-					auto alias = clone_shape_alias.find(e.first);
-					if (alias != clone_shape_alias.end()) {
-						shape = shapes.Get(alias->second);
-					}
-				}
+				shape = GetEntityShape(e.first);
 			}
 			if (shape == nullptr) {
 				printf("No shape for mesh %s\n", e.first.c_str());

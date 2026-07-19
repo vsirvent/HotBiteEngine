@@ -70,7 +70,15 @@ contract — closure rules (capture entity *names*, not ids), the LIFO guarantee
 drag coalescing, and what is deliberately out of scope — is documented at the top
 of `Tools/SceneEditor/EditorHistory.h`; follow the existing helpers
 (`Inspector::ApplyTransform`, `Outliner::SetEntityGroup`,
-`AssetBrowser::PlaceTemplate`) as the pattern.
+`AssetBrowser::PlaceTemplate`, `EntityOps::RenameEntity`) as the pattern.
+
+Entity rename and copy/cut/paste live in `Tools/SceneEditor/EntityOps.h` (read its
+header comment before touching them). Two things there are easy to break: entity
+*names* are the editor's stable key, so anything keyed by name in `EditorState` must
+also be updated in `RenameEverywhere`; and a cut entity is *parked* (hidden, inert,
+renamed with a `__cut_` prefix) rather than destroyed, so paste and undo keep working
+— parked entities must stay filtered out of any new UI listing or save path.
+
 Give screenshots a couple of frames after a state-changing command if the change
 must be visible in the render (the channel already executes commands pre-frame and
 captures post-frame, so single-batch `command + screenshot` is consistent).
