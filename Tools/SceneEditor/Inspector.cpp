@@ -1,9 +1,12 @@
-#include "Inspector.h"
+﻿#include "Inspector.h"
+#include "ComponentOps.h"
 #include "EditorHistory.h"
 #include "EditorLayout.h"
 #include "EntityOps.h"
 
 #include "imgui.h"
+#include <ECS/ComponentRegistry.h>
+#include <World.h>
 #include <Components/Base.h>
 #include <Components/Camera.h>
 #include <Components/Lights.h>
@@ -341,9 +344,6 @@ namespace HotBiteEditor {
 
 		static void DrawTransform(EditorState& state, Coordinator* c, Entity e)
 		{
-			if (!ImGui::CollapsingHeader("Transform", SECTION_FLAGS)) {
-				return;
-			}
 			const Base& base = c->GetComponent<Base>(e);
 			Transform& t = c->GetComponent<Transform>(e);
 			//One history action per completed edit (a whole drag, or one typed
@@ -378,9 +378,6 @@ namespace HotBiteEditor {
 
 		static void DrawBounds(Coordinator* c, Entity e)
 		{
-			if (!ImGui::CollapsingHeader("Bounds")) {
-				return;
-			}
 			const Bounds& b = c->GetConstComponent<Bounds>(e);
 			ImGui::Text("Local  center  %.2f %.2f %.2f", b.local_box.Center.x, b.local_box.Center.y, b.local_box.Center.z);
 			ImGui::Text("Local  extents %.2f %.2f %.2f", b.local_box.Extents.x, b.local_box.Extents.y, b.local_box.Extents.z);
@@ -390,9 +387,6 @@ namespace HotBiteEditor {
 
 		static void DrawMaterial(Coordinator* c, Entity e)
 		{
-			if (!ImGui::CollapsingHeader("Material", SECTION_FLAGS)) {
-				return;
-			}
 			Material& m = c->GetComponent<Material>(e);
 			if (m.data == nullptr) {
 				ImGui::TextDisabled("(no material data)");
@@ -434,9 +428,6 @@ namespace HotBiteEditor {
 
 		static void DrawMesh(Coordinator* c, Entity e)
 		{
-			if (!ImGui::CollapsingHeader("Mesh", SECTION_FLAGS)) {
-				return;
-			}
 			Mesh& mesh = c->GetComponent<Mesh>(e);
 			Core::MeshData* data = mesh.GetData();
 			if (data == nullptr) {
@@ -455,9 +446,6 @@ namespace HotBiteEditor {
 
 		static void DrawAmbientLight(Coordinator* c, Entity e)
 		{
-			if (!ImGui::CollapsingHeader("Ambient Light", SECTION_FLAGS)) {
-				return;
-			}
 			AmbientLight::Data& d = c->GetComponent<AmbientLight>(e).GetData();
 			ImGui::ColorEdit3("Color down", &d.colorDown.x);
 			ImGui::ColorEdit3("Color up", &d.colorUp.x);
@@ -465,9 +453,6 @@ namespace HotBiteEditor {
 
 		static void DrawDirectionalLight(Coordinator* c, Entity e)
 		{
-			if (!ImGui::CollapsingHeader("Directional Light", SECTION_FLAGS)) {
-				return;
-			}
 			DirectionalLight& l = c->GetComponent<DirectionalLight>(e);
 			DirectionalLight::Data& d = l.GetData();
 			bool changed = false;
@@ -504,9 +489,6 @@ namespace HotBiteEditor {
 
 		static void DrawPointLight(Coordinator* c, Entity e)
 		{
-			if (!ImGui::CollapsingHeader("Point Light", SECTION_FLAGS)) {
-				return;
-			}
 			PointLight& l = c->GetComponent<PointLight>(e);
 			PointLight::Data& d = l.GetData();
 			ImGui::ColorEdit3("Color", &d.color.x);
@@ -519,9 +501,6 @@ namespace HotBiteEditor {
 
 		static void DrawPhysics(Coordinator* c, Entity e)
 		{
-			if (!ImGui::CollapsingHeader("Physics", SECTION_FLAGS)) {
-				return;
-			}
 			Physics& ph = c->GetComponent<Physics>(e);
 			const char* type = "static";
 			if (ph.type == reactphysics3d::BodyType::DYNAMIC) {
@@ -549,9 +528,6 @@ namespace HotBiteEditor {
 
 		static void DrawCamera(Coordinator* c, Entity e)
 		{
-			if (!ImGui::CollapsingHeader("Camera", SECTION_FLAGS)) {
-				return;
-			}
 			const Camera& cam = c->GetConstComponent<Camera>(e);
 			ImGui::Text("Position:  %.2f %.2f %.2f", cam.world_position.x, cam.world_position.y, cam.world_position.z);
 			ImGui::Text("Direction: %.2f %.2f %.2f", cam.direction.x, cam.direction.y, cam.direction.z);
@@ -560,9 +536,6 @@ namespace HotBiteEditor {
 
 		static void DrawSky(Coordinator* c, Entity e)
 		{
-			if (!ImGui::CollapsingHeader("Sky", SECTION_FLAGS)) {
-				return;
-			}
 			Sky& sky = c->GetComponent<Sky>(e);
 			int hour = (int)(sky.second_of_day / 3600.0f) % 24;
 			int minute = (int)(sky.second_of_day / 60.0f) % 60;
@@ -577,22 +550,193 @@ namespace HotBiteEditor {
 
 		static void DrawParticles(Coordinator* c, Entity e)
 		{
-			if (!ImGui::CollapsingHeader("Particles", SECTION_FLAGS)) {
-				return;
-			}
 			Particles& p = c->GetComponent<Particles>(e);
 			ImGui::Text("Emitters: %d", (int)p.data.GetData().size());
 		}
 
 		static void DrawLighted(Coordinator* c, Entity e)
 		{
-			if (!ImGui::CollapsingHeader("Lighted")) {
-				return;
-			}
 			const Lighted& l = c->GetConstComponent<Lighted>(e);
 			ImGui::Text("Point lights: %d  Dir lights: %d",
 				(int)l.point_lights.size(), (int)l.dir_lights.size());
 			ImGui::Text("Shadow maps: %d", (int)(l.shadows.size() + l.dir_shadows.size()));
+		}
+
+		// Maps a registered component name to the hand-written editor for it. Drawing
+		// is the one part of a component's editor support that cannot live in the
+		// engine (which has no ImGui dependency), so it is bound here by the same name
+		// the registry uses. A component with no entry - anything a game registers -
+		// still gets a section, drawn by the generic property grid.
+		using ComponentDrawer = void(*)(EditorState&, Coordinator*, Entity);
+
+		static ComponentDrawer FindDrawer(const std::string& name)
+		{
+			struct Entry { const char* name; ComponentDrawer draw; };
+			static const Entry TABLE[] = {
+				{ Transform::NAME,        [](EditorState& s, Coordinator* c, Entity e) { DrawTransform(s, c, e); } },
+				{ Bounds::NAME,           [](EditorState& s, Coordinator* c, Entity e) { DrawBounds(c, e); } },
+				{ Mesh::NAME,             [](EditorState& s, Coordinator* c, Entity e) { DrawMesh(c, e); } },
+				{ Material::NAME,         [](EditorState& s, Coordinator* c, Entity e) { DrawMaterial(c, e); } },
+				{ AmbientLight::NAME,     [](EditorState& s, Coordinator* c, Entity e) { DrawAmbientLight(c, e); } },
+				{ DirectionalLight::NAME, [](EditorState& s, Coordinator* c, Entity e) { DrawDirectionalLight(c, e); } },
+				{ PointLight::NAME,       [](EditorState& s, Coordinator* c, Entity e) { DrawPointLight(c, e); } },
+				{ Physics::NAME,          [](EditorState& s, Coordinator* c, Entity e) { DrawPhysics(c, e); } },
+				{ Sky::NAME,              [](EditorState& s, Coordinator* c, Entity e) { DrawSky(c, e); } },
+				{ Lighted::NAME,          [](EditorState& s, Coordinator* c, Entity e) { DrawLighted(c, e); } },
+				{ Camera::NAME,           [](EditorState& s, Coordinator* c, Entity e) { DrawCamera(c, e); } },
+				{ Particles::NAME,        [](EditorState& s, Coordinator* c, Entity e) { DrawParticles(c, e); } },
+				{ Player::NAME,           [](EditorState& s, Coordinator* c, Entity e) {
+					ImGui::TextDisabled("(tag component, no properties)"); } },
+			};
+			for (const Entry& entry : TABLE) {
+				if (name == entry.name) {
+					return entry.draw;
+				}
+			}
+			return nullptr;
+		}
+
+		// Editable widgets for a component this binary has no type for, built from the
+		// shape of its JSON alone. Enough for the numbers, flags and names that make up
+		// most game components; nested objects/arrays are shown as text rather than
+		// guessed at. Returns true when something changed.
+		static bool DrawJsonGrid(nlohmann::json& value)
+		{
+			bool changed = false;
+			for (auto& [key, field] : value.items()) {
+				ImGui::PushID(key.c_str());
+				if (field.is_boolean()) {
+					bool v = field.get<bool>();
+					if (ImGui::Checkbox(key.c_str(), &v)) {
+						field = v;
+						changed = true;
+					}
+				}
+				else if (field.is_number_float()) {
+					float v = field.get<float>();
+					if (ImGui::DragFloat(key.c_str(), &v, 0.05f)) {
+						field = v;
+						changed = true;
+					}
+				}
+				else if (field.is_number_integer()) {
+					int v = field.get<int>();
+					if (ImGui::DragInt(key.c_str(), &v, 0.1f)) {
+						field = v;
+						changed = true;
+					}
+				}
+				else if (field.is_string()) {
+					char buf[256] = "";
+					strncpy_s(buf, field.get<std::string>().c_str(), sizeof(buf) - 1);
+					if (ImGui::InputText(key.c_str(), buf, sizeof(buf),
+						ImGuiInputTextFlags_EnterReturnsTrue)) {
+						field = std::string(buf);
+						changed = true;
+					}
+				}
+				else {
+					ImGui::LabelText(key.c_str(), "%s", field.dump().c_str());
+				}
+				ImGui::PopID();
+			}
+			return changed;
+		}
+
+		// One collapsing section for `desc`, with a remove button right-aligned in the
+		// header when the component may be removed.
+		static void DrawComponentSection(EditorState& state, Coordinator* c, Entity e,
+			const std::string& entity_name, const ComponentDesc& desc)
+		{
+			ImGui::PushID(desc.name.c_str());
+			const bool open = ImGui::CollapsingHeader(desc.name.c_str(),
+				ImGuiTreeNodeFlags_DefaultOpen);
+
+			if (desc.Removable()) {
+				//Right-aligned on the header's own line, so it reads as belonging to the
+				//header rather than to the first property.
+				ImGui::SameLine(ImGui::GetWindowWidth() - 30.0f);
+				if (ImGui::SmallButton("x")) {
+					std::string error;
+					if (!ComponentOps::RemoveComponent(state, entity_name, desc.name, error)) {
+						state.status_message = "Remove failed: " + error;
+					}
+					//The component is gone; nothing left to draw this frame.
+					ImGui::PopID();
+					return;
+				}
+				if (ImGui::IsItemHovered()) {
+					ImGui::SetTooltip("Remove %s from %s", desc.name.c_str(), entity_name.c_str());
+				}
+			}
+
+			if (open) {
+				ComponentDrawer drawer = FindDrawer(desc.name);
+				if (drawer != nullptr) {
+					drawer(state, c, e);
+				}
+				else {
+					//A game component: no hand-written editor, so show its serialized
+					//state through the generic grid.
+					ImGui::TextDisabled("(game component)");
+					nlohmann::json value = desc.serialize(state.world->MakeSerializeContext(), e);
+					if (DrawJsonGrid(value)) {
+						desc.apply(state.world->MakeSerializeContext(), e, value);
+						state.component_deltas[entity_name].added[desc.name] = value;
+					}
+				}
+			}
+			ImGui::PopID();
+		}
+
+		static void DrawOpaqueComponents(EditorState& state, const std::string& entity_name)
+		{
+			auto it = state.opaque_components.find(entity_name);
+			if (it == state.opaque_components.end() || it->second.empty()) {
+				return;
+			}
+			for (auto& [name, value] : it->second) {
+				ImGui::PushID(name.c_str());
+				if (ImGui::CollapsingHeader(name.c_str())) {
+					ImGui::TextDisabled("(defined by the game, not by the editor)");
+					//Read-only on purpose: the editor has no type behind this block, so
+					//it cannot tell a meaningful edit from a corrupting one. It is shown
+					//so the data is visible, and preserved byte-for-byte on save.
+					ImGui::TextUnformatted(value.dump(2).c_str());
+				}
+				ImGui::PopID();
+			}
+		}
+
+		static void DrawAddComponent(EditorState& state, const std::string& entity_name,
+			Coordinator* c, Entity e)
+		{
+			if (ImGui::Button("Add Component")) {
+				ImGui::OpenPopup("add_component_popup");
+			}
+			if (!ImGui::BeginPopup("add_component_popup")) {
+				return;
+			}
+			bool any = false;
+			for (const ComponentDesc& desc : ComponentRegistry::Instance().All()) {
+				if (!desc.Addable() || desc.has(c, e)) {
+					continue;
+				}
+				any = true;
+				if (ImGui::MenuItem(desc.name.c_str())) {
+					std::string error;
+					//An empty payload means "defaults": every FromJson treats missing
+					//keys as "leave alone", so this is the component as constructed.
+					if (!ComponentOps::AddComponent(state, entity_name, desc.name,
+						nlohmann::json::object(), error)) {
+						state.status_message = "Add failed: " + error;
+					}
+				}
+			}
+			if (!any) {
+				ImGui::TextDisabled("(nothing left to add)");
+			}
+			ImGui::EndPopup();
 		}
 
 		void Draw(EditorState& state)
@@ -616,55 +760,35 @@ namespace HotBiteEditor {
 			//narrow docked panel instead of being clipped by the window edge.
 			ImGui::PushItemWidth(-110.0f);
 
-			//One section per component present on the entity, in a stable order.
-			//The ECS has no runtime component reflection, so this enumerates every
-			//type World::PreLoad registers explicitly.
+			//Base is drawn first and unconditionally: it owns the entity's name, which
+			//is the header of the whole panel rather than one section among many.
 			DrawBase(state, c, e);
-			if (c->ContainsComponent<Transform>(e)) {
-				DrawTransform(state, c, e);
-			}
-			if (c->ContainsComponent<Bounds>(e)) {
-				DrawBounds(c, e);
-			}
-			if (c->ContainsComponent<Mesh>(e)) {
-				DrawMesh(c, e);
-			}
-			if (c->ContainsComponent<Material>(e)) {
-				DrawMaterial(c, e);
-			}
-			if (c->ContainsComponent<AmbientLight>(e)) {
-				DrawAmbientLight(c, e);
-			}
-			if (c->ContainsComponent<DirectionalLight>(e)) {
-				DrawDirectionalLight(c, e);
-			}
-			if (c->ContainsComponent<PointLight>(e)) {
-				DrawPointLight(c, e);
-			}
-			if (c->ContainsComponent<Physics>(e)) {
-				DrawPhysics(c, e);
-			}
-			if (c->ContainsComponent<Camera>(e)) {
-				DrawCamera(c, e);
-			}
-			if (c->ContainsComponent<Sky>(e)) {
-				DrawSky(c, e);
-			}
-			if (c->ContainsComponent<Particles>(e)) {
-				DrawParticles(c, e);
-			}
-			if (c->ContainsComponent<Lighted>(e)) {
-				DrawLighted(c, e);
-			}
-			if (c->ContainsComponent<Player>(e)) {
-				if (ImGui::CollapsingHeader("Player")) {
-					ImGui::TextDisabled("(tag component, no properties)");
+
+			//One section per component the entity actually has, driven by the ECS
+			//component registry rather than a hardcoded list - so a component a *game*
+			//registers appears here too, even though this binary has no compile-time
+			//knowledge of it (it falls through to the generic grid below).
+			const std::string entity_name = c->GetConstComponent<Base>(e).name;
+			for (const ComponentDesc& desc : ComponentRegistry::Instance().All()) {
+				if (desc.name == Base::NAME || !desc.has(c, e)) {
+					continue;
 				}
+				DrawComponentSection(state, c, e, entity_name, desc);
 			}
+
+			//Components carried by the level that this binary has no registered type
+			//for. Shown so they are visibly part of the entity rather than invisibly
+			//round-tripping, and removable, but read-only: without the type there is
+			//nothing to validate an edit against.
+			DrawOpaqueComponents(state, entity_name);
 
 			ImGui::PopItemWidth();
 			ImGui::Spacing();
-			ImGui::TextDisabled("Transforms, names, copies and deletions persist on Save Level.");
+			DrawAddComponent(state, entity_name, c, e);
+
+			ImGui::Spacing();
+			ImGui::TextDisabled("Component add/remove, transforms, names, copies and\n"
+				"deletions persist on Save Level.");
 
 			ImGui::End();
 		}

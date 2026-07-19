@@ -26,6 +26,7 @@ SOFTWARE.
 
 #include <Defines.h>
 #include <ECS/Types.h>
+#include <ECS/Serialization.h>
 #include <Core/Material.h>
 #include <Core/Particles.h>
 #include <Core/Utils.h>
@@ -39,11 +40,23 @@ namespace HotBite {
 			 * The component for entity particles. This component can contain several particle sources.
 			 */
 			struct Particles {
+				static constexpr const char* NAME = "Particles";
+
 				Particles() = default;
 				Particles(const std::string& name, std::shared_ptr<ParticlesData> p) {
 					data.Insert(name, p);
 				}
 				Core::FlatMap < std::string, std::shared_ptr<ParticlesData> > data;
+
+				//Emitter definitions come from the FBX/particle assets and cannot be
+				//rebuilt from JSON, so this reports the emitter count for display only
+				//and does not read anything back. Registered with ComponentPolicy::Locked
+				//for that reason: offering a "remove" here would discard emitters the
+				//editor has no way to restore.
+				nlohmann::json ToJson(const ECS::SerializeContext& ctx) const {
+					return nlohmann::json{ {"emitters", (int)data.GetData().size()} };
+				}
+				void FromJson(const nlohmann::json& j, const ECS::SerializeContext& ctx) {}
 			};
 		}
 	}

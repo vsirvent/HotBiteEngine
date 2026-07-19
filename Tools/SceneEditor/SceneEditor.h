@@ -93,6 +93,20 @@ namespace HotBiteEditor {
 		bool cast_shadow = true;
 	};
 
+	// Per-entity component edits made this session, to be written to the entity's
+	// record on save. This is what keeps component changes *per entity*: an entity
+	// created from a template (or covered by a wildcard "Cube*" rule) starts with
+	// whatever that template/rule gives it, and this delta is the difference for
+	// this one entity alone - so stripping Physics from one instance leaves its
+	// siblings untouched, across save and reload.
+	//
+	// `added` holds the component's serialized state rather than just its name, so
+	// the values the user then tweaked in the Inspector persist too.
+	struct ComponentDelta {
+		std::set<std::string> removed;
+		std::map<std::string, nlohmann::json> added;
+	};
+
 	// Shared, session-long editor state passed to every panel each frame. Owns the
 	// bookkeeping needed to save the scene back out (see SceneSerializer.h).
 	struct EditorState {
@@ -126,6 +140,22 @@ namespace HotBiteEditor {
 		std::map<std::string, std::string> parked_entities;  // parked (cut) runtime name -> authored
 															 // name ("" when not persistable, i.e. a
 															 // cut clone)
+
+		// Per-entity component add/remove edits, keyed by entity name. See
+		// ComponentDelta above; maintained by ComponentOps, written by SceneSerializer.
+		std::map<std::string, ComponentDelta> component_deltas;
+
+		// Component blocks read from the level that this binary has no registered
+		// component for, kept verbatim so they can be written straight back out:
+		// entity name -> component name -> its JSON.
+		//
+		// The editor is a different executable from the game, so a game's own
+		// components (Marbles' Ball/Star/Trigger, DemoGame's CreatureComponent) can
+		// never be in its registry. Without this they would be silently dropped the
+		// first time a designer opened a game level and saved it - the components
+		// would simply cease to exist in the file. Anything in here is displayed
+		// read-only (or through the generic grid) and round-trips untouched.
+		std::map<std::string, std::map<std::string, nlohmann::json>> opaque_components;
 
 		std::vector<TemplateAsset> templates; // discovered/imported object templates
 		std::string selected_template;        // template name chosen in the Asset Browser

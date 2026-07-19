@@ -22,6 +22,14 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+// Must come before anything that reaches Windows.h: this file includes World.h
+// (for the asset collections Material/Mesh deserialization resolves names
+// against), which pulls in reactphysics3d, whose headers use
+// std::numeric_limits<T>::max()/min() and break if the Windows min/max macros are
+// already defined when they are first parsed. Tools/SceneEditor/SceneEditor.h and
+// Tools/HotBiteTool/Tools.h follow the same include order for the same reason.
+#include <Core/PhysicsCommon.h>
+
 #include "Base.h"
 #include <cmath>
 #include <Core\Mesh.h>
@@ -29,6 +37,9 @@ SOFTWARE.
 #include <Core\SpinLock.h>
 #include <Core\Utils.h>
 #include <Core\Json.h>
+//Material/Mesh serialize as asset *names*, so resolving them needs the world's
+//material/mesh collections and its templates coordinator.
+#include <World.h>
 
 namespace HotBite {
 	namespace Engine {
@@ -311,6 +322,262 @@ namespace HotBite {
 
 			void Mesh::Unprepare(Core::SimpleVertexShader* vs) {
 				vs->SetInt(Core::SimpleShaderKeys::NJOINTS, 0);
+			}
+
+			// ---------------------------------------------------------------------------
+			// Serialization. See ECS/Serialization.h for the contract: authoring state
+			// only, and every key optional so a block applies as a delta.
+			// ---------------------------------------------------------------------------
+
+			using nlohmann::json;
+			using namespace HotBite::Engine::ECS::JsonUtil;
+
+			json Base::ToJson(const ECS::SerializeContext& ctx) const {
+				json j;
+				j["visible"] = visible;
+				j["scene_visible"] = scene_visible;
+				j["cast_shadow"] = cast_shadow;
+				j["draw_depth"] = draw_depth;
+				j["is_static"] = is_static;
+				j["draw_method"] = (draw_method == eDrawMethod::DRAW_ALWAYS) ? "always" : "screen";
+				j["pass"] = pass;
+				//Parents round-trip by name; ids are recycled between sessions. The name
+				//lives on the parent's own Base, which is where it is read from.
+				if (parent != ECS::INVALID_ENTITY_ID && ctx.coordinator != nullptr &&
+					ctx.coordinator->ContainsComponent<Base>(parent)) {
+					const std::string& parent_name = ctx.coordinator->GetConstComponent<Base>(parent).name;
+					if (!parent_name.empty()) {
+						j["parent"] = parent_name;
+						j["parent_position"] = parent_position;
+						j["parent_rotation"] = parent_rotation;
+					}
+				}
+				return j;
+			}
+
+			void Base::FromJson(const json& j, const ECS::SerializeContext& ctx) {
+				visible = j.value("visible", visible);
+				scene_visible = j.value("scene_visible", scene_visible);
+				cast_shadow = j.value("cast_shadow", cast_shadow);
+				draw_depth = j.value("draw_depth", draw_depth);
+				is_static = j.value("is_static", is_static);
+				pass = j.value("pass", pass);
+				parent_position = j.value("parent_position", parent_position);
+				parent_rotation = j.value("parent_rotation", parent_rotation);
+				if (j.contains("draw_method") && j["draw_method"].is_string()) {
+					draw_method = (j["draw_method"] == "always") ? eDrawMethod::DRAW_ALWAYS
+						: eDrawMethod::DRAW_SCREEN;
+				}
+				if (j.contains("parent") && j["parent"].is_string() && ctx.coordinator != nullptr) {
+					const std::string parent_name = j["parent"];
+					if (!parent_name.empty()) {
+						//A parent named but not yet loaded leaves the link unset rather than
+						//pointing at INVALID_ENTITY_ID, so a later pass can still fix it up.
+						ECS::Entity pe = ctx.coordinator->GetEntityByName(parent_name);
+						if (pe != ECS::INVALID_ENTITY_ID) {
+							parent = pe;
+						}
+						else {
+							printf("Base::FromJson: unknown parent entity '%s'.\n", parent_name.c_str());
+						}
+					}
+				}
+			}
+
+			json Transform::ToJson(const ECS::SerializeContext& ctx) const {
+				json j;
+				j["position"] = FromFloat3(position);
+				j["rotation"] = FromFloat4(rotation);
+				j["scale"] = FromFloat3(scale);
+				return j;
+			}
+
+			void Transform::FromJson(const json& j, const ECS::SerializeContext& ctx) {
+				ToFloat3(j, "position", position);
+				ToFloat4(j, "rotation", rotation);
+				ToFloat3(j, "scale", scale);
+				//Any of the three invalidates the cached world matrices.
+				dirty = true;
+			}
+
+			json Bounds::ToJson(const ECS::SerializeContext& ctx) const {
+				json j;
+				j["center"] = json{ {"x", local_box.Center.x}, {"y", local_box.Center.y}, {"z", local_box.Center.z} };
+				j["extents"] = json{ {"x", local_box.Extents.x}, {"y", local_box.Extents.y}, {"z", local_box.Extents.z} };
+				return j;
+			}
+
+			void Bounds::FromJson(const json& j, const ECS::SerializeContext& ctx) {
+				//box uses XMFLOAT3, not the 16-byte-aligned float3, so these are read
+				//field by field rather than through the float3 helpers.
+				if (j.contains("center") && j["center"].is_object()) {
+					const json& c = j["center"];
+					local_box.Center.x = c.value("x", local_box.Center.x);
+					local_box.Center.y = c.value("y", local_box.Center.y);
+					local_box.Center.z = c.value("z", local_box.Center.z);
+				}
+				if (j.contains("extents") && j["extents"].is_object()) {
+					const json& e = j["extents"];
+					local_box.Extents.x = e.value("x", local_box.Extents.x);
+					local_box.Extents.y = e.value("y", local_box.Extents.y);
+					local_box.Extents.z = e.value("z", local_box.Extents.z);
+				}
+				//A Bounds added from scratch has zero extents, which culls the entity
+				//away and gives any collider built from it a degenerate shape. Derive
+				//it from the entity's own mesh, which is what the FBX loader would have
+				//done, and fall back to a unit box when there is no mesh to measure.
+				if (local_box.Extents.x == 0.0f && local_box.Extents.y == 0.0f &&
+					local_box.Extents.z == 0.0f) {
+					const Core::MeshData* mesh_data = nullptr;
+					if (ctx.coordinator != nullptr && ctx.entity != ECS::INVALID_ENTITY_ID &&
+						ctx.coordinator->ContainsComponent<Mesh>(ctx.entity)) {
+						mesh_data = ctx.coordinator->GetComponent<Mesh>(ctx.entity).GetData();
+					}
+					if (mesh_data != nullptr) {
+						const float3& lo = mesh_data->minDimensions;
+						const float3& hi = mesh_data->maxDimensions;
+						local_box.Center = { (hi.x + lo.x) * 0.5f, (hi.y + lo.y) * 0.5f, (hi.z + lo.z) * 0.5f };
+						local_box.Extents = { (hi.x - lo.x) * 0.5f, (hi.y - lo.y) * 0.5f, (hi.z - lo.z) * 0.5f };
+					}
+					else {
+						local_box.Center = { 0.0f, 0.0f, 0.0f };
+						local_box.Extents = { 0.5f, 0.5f, 0.5f };
+					}
+					//The world-space boxes are recomputed from this by the transform
+					//pass; seed them so the entity is not culled on its very first frame.
+					final_box = local_box;
+					bounding_box.Center = local_box.Center;
+					bounding_box.Extents = local_box.Extents;
+				}
+			}
+
+			//The entity in the templates coordinator named by a "template" key, or
+			//INVALID_ENTITY_ID. Mesh and Material both accept the key, together
+			//reproducing what the old top-level "template" did (adopt a template's mesh
+			//*and* material) while letting a level adopt just one of the two.
+			static ECS::Entity ResolveTemplateEntity(const json& j, const ECS::SerializeContext& ctx) {
+				if (!j.contains("template") || !j["template"].is_string() || ctx.world == nullptr) {
+					return ECS::INVALID_ENTITY_ID;
+				}
+				const std::string template_name = j["template"];
+				if (template_name.empty()) {
+					return ECS::INVALID_ENTITY_ID;
+				}
+				ECS::Coordinator* tc = ctx.world->GetTemplatesCoordinator();
+				if (tc == nullptr) {
+					return ECS::INVALID_ENTITY_ID;
+				}
+				ECS::Entity te = tc->GetEntityByName(template_name);
+				if (te == ECS::INVALID_ENTITY_ID) {
+					printf("Component::FromJson: unknown template entity '%s'.\n", template_name.c_str());
+				}
+				return te;
+			}
+
+			json Material::ToJson(const ECS::SerializeContext& ctx) const {
+				json j;
+				if (data != nullptr) {
+					j["name"] = data->name;
+				}
+				return j;
+			}
+
+			void Material::FromJson(const json& j, const ECS::SerializeContext& ctx) {
+				if (ctx.world == nullptr) {
+					return;
+				}
+				ECS::Entity te = ResolveTemplateEntity(j, ctx);
+				if (te != ECS::INVALID_ENTITY_ID) {
+					ECS::Coordinator* tc = ctx.world->GetTemplatesCoordinator();
+					if (tc->ContainsComponent<Material>(te)) {
+						data = tc->GetConstComponent<Material>(te).data;
+					}
+				}
+				if (j.contains("name") && j["name"].is_string()) {
+					const std::string material_name = j["name"];
+					//An unknown material leaves the current one in place: rendering with
+					//the FBX-authored material is a far better failure than a null deref
+					//in the render system.
+					Core::MaterialData* found = ctx.world->GetMaterials().Get(material_name);
+					if (found == nullptr && material_name == World::DEFAULT_MATERIAL_NAME) {
+						//The editor's stand-in material is created on demand, so a scene
+						//that references it is simply the first thing asking for it.
+						found = ctx.world->GetDefaultMaterial();
+					}
+					if (found != nullptr) {
+						data = found;
+					}
+					else {
+						printf("Material::FromJson: unknown material '%s'.\n", material_name.c_str());
+					}
+				}
+				if (j.contains("multi_texture")) {
+					const json& mt = j["multi_texture"];
+					multi_material.LoadMultitexture(mt.dump(), ctx.world->GetAssetsPath(),
+						ctx.world->GetMaterials());
+				}
+				//Nothing named anything and no material to keep: this is a Material
+				//added from scratch, so give it the default rather than leaving a null
+				//pointer for the render system to trip over.
+				if (data == nullptr) {
+					data = ctx.world->GetDefaultMaterial();
+				}
+			}
+
+			json Mesh::ToJson(const ECS::SerializeContext& ctx) const {
+				json j;
+				if (data != nullptr) {
+					j["name"] = data->name;
+				}
+				const std::string anim = GetCurrentAnimationName();
+				if (!anim.empty()) {
+					j["animation"] = anim;
+					j["animation_loop"] = current_animation.loop;
+					j["animation_speed"] = current_animation.speed;
+				}
+				return j;
+			}
+
+			void Mesh::FromJson(const json& j, const ECS::SerializeContext& ctx) {
+				if (ctx.world == nullptr) {
+					return;
+				}
+				ECS::Entity te = ResolveTemplateEntity(j, ctx);
+				if (te != ECS::INVALID_ENTITY_ID) {
+					ECS::Coordinator* tc = ctx.world->GetTemplatesCoordinator();
+					if (tc->ContainsComponent<Mesh>(te)) {
+						SetData(tc->GetComponent<Mesh>(te).GetData());
+					}
+				}
+				if (j.contains("name") && j["name"].is_string()) {
+					const std::string mesh_name = j["name"];
+					Core::MeshData* found = ctx.world->GetMeshes().Get(mesh_name);
+					if (found == nullptr && mesh_name == World::DEFAULT_MESH_NAME) {
+						//As with the default material: built on demand, so a scene
+						//referencing it is just the first request for it.
+						found = ctx.world->GetDefaultMesh();
+					}
+					if (found != nullptr) {
+						SetData(found);
+					}
+					else {
+						printf("Mesh::FromJson: unknown mesh '%s'.\n", mesh_name.c_str());
+					}
+				}
+				//A Mesh added from scratch gets the default unit cube: visible in the
+				//viewport straight away, and swappable for a real mesh afterwards. A
+				//null MeshData would just be an invisible entity that crashes anything
+				//reaching for its geometry.
+				if (GetData() == nullptr) {
+					SetData(ctx.world->GetDefaultMesh());
+				}
+				if (j.contains("animation") && j["animation"].is_string()) {
+					const std::string anim = j["animation"];
+					if (!anim.empty()) {
+						SetAnimation(anim, j.value("animation_loop", true), false, -1.0f,
+							j.value("animation_speed", 1.0f));
+					}
+				}
 			}
 		}
 	}

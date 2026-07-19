@@ -36,6 +36,7 @@
     <ClCompile Include="EditorAutomation.cpp" />
     <ClCompile Include="EditorHistory.cpp" />
     <ClCompile Include="EntityOps.cpp" />
+    <ClCompile Include="ComponentOps.cpp" />
     <ClCompile Include="EditorCamera.cpp" />
     <ClCompile Include="CrashHandler.cpp" />
     <ClCompile Include="RenderSettings.cpp" />
@@ -60,6 +61,7 @@
     <ClInclude Include="EditorAutomation.h" />
     <ClInclude Include="EditorHistory.h" />
     <ClInclude Include="EntityOps.h" />
+    <ClInclude Include="ComponentOps.h" />
     <ClInclude Include="EditorCamera.h" />
     <ClInclude Include="CrashHandler.h" />
     <ClInclude Include="RenderSettings.h" />

@@ -83,146 +83,201 @@
                 }
             ]
         },
+        "clones": [],
         "entities": [
             {
-                "name": "Player",
-                "physics": {
-                    "type": "DYNAMIC"
-                }
+                "components": {
+                    "Physics": {
+                        "type": "DYNAMIC"
+                    }
+                },
+                "name": "Player"
             },
             {
-                "name": "Zombie*",
-                "physics": {
-                    "type": "DYNAMIC"
-                }
+                "components": {
+                    "Physics": {
+                        "type": "DYNAMIC"
+                    }
+                },
+                "name": "Zombie*"
             },
             {
-                "name": "Troll*",
-                "physics": {
-                    "type": "DYNAMIC"
-                }
+                "components": {
+                    "Physics": {
+                        "type": "DYNAMIC"
+                    }
+                },
+                "name": "Troll*"
             },
             {
-                "name": "Ball*",
-                "physics": {
-                    "shape": "SPHERE",
-                    "type": "DYNAMIC"
-                }
+                "components": {
+                    "Physics": {
+                        "shape": "SPHERE",
+                        "type": "DYNAMIC"
+                    }
+                },
+                "name": "Ball*"
             },
             {
-                "cast_shadow": false,
-                "name": "Water*",
-                "pass": 2
+                "components": {
+                    "Base": {
+                        "cast_shadow": false,
+                        "pass": 2
+                    }
+                },
+                "name": "Water*"
             },
             {
-                "cast_shadow": false,
-                "material": "Lava",
-                "name": "Lava*",
-                "pass": 2
+                "components": {
+                    "Base": {
+                        "cast_shadow": false,
+                        "pass": 2
+                    },
+                    "Material": {
+                        "name": "Lava"
+                    }
+                },
+                "name": "Lava*"
             },
             {
-                "name": "Camera",
-                "position": {
-                    "x": 0.0,
-                    "y": 15.0,
-                    "z": -20.0
-                }
+                "components": {
+                    "Transform": {
+                        "position": {
+                            "x": 0.0,
+                            "y": 15.0,
+                            "z": -20.0
+                        }
+                    }
+                },
+                "name": "Camera"
             },
             {
-                "material": "Floor",
+                "components": {
+                    "Material": {
+                        "name": "Floor"
+                    }
+                },
                 "name": "Terrain*"
             },
             {
-                "material": "Bricks",
+                "components": {
+                    "Material": {
+                        "name": "Bricks"
+                    }
+                },
                 "name": "Bricks*"
             },
             {
-                "material": "Marble",
+                "components": {
+                    "Material": {
+                        "name": "Marble"
+                    }
+                },
                 "name": "Cube*"
             },
             {
-                "material": "Cristal",
-                "name": "Cristal*",
-                "physics": {
-                    "shape": "SPHERE",
-                    "type": "DYNAMIC"
-                }
+                "components": {
+                    "Material": {
+                        "name": "Cristal"
+                    },
+                    "Physics": {
+                        "shape": "SPHERE",
+                        "type": "DYNAMIC"
+                    }
+                },
+                "name": "Cristal*"
             },
             {
-                "name": "Cristal",
-                "position": {
-                    "x": -60.17792892456055,
-                    "y": 22.064434051513672,
-                    "z": -107.17658233642578
+                "components": {
+                    "Transform": {
+                        "position": {
+                            "x": -60.17792892456055,
+                            "y": 22.064434051513672,
+                            "z": -107.17658233642578
+                        },
+                        "rotation": {
+                            "w": 0.6034677028656006,
+                            "x": 0.769283652305603,
+                            "y": -0.17462150752544403,
+                            "z": 0.11634773015975952
+                        },
+                        "scale": {
+                            "x": 1.0,
+                            "y": 1.0,
+                            "z": 1.0
+                        }
+                    }
                 },
-                "rotation": {
-                    "w": 0.6034677028656006,
-                    "x": 0.769283652305603,
-                    "y": -0.17462150752544403,
-                    "z": 0.11634773015975952
-                },
-                "scale": {
-                    "x": 1.0,
-                    "y": 1.0,
-                    "z": 1.0
-                }
+                "name": "Cristal"
             },
             {
-                "name": "Test.001.NoSmooth",
-                "position": {
-                    "x": -49.1337890625,
-                    "y": 16.702022552490234,
-                    "z": -104.92393493652344
+                "components": {
+                    "Transform": {
+                        "position": {
+                            "x": -49.1337890625,
+                            "y": 16.702022552490234,
+                            "z": -104.92393493652344
+                        },
+                        "rotation": {
+                            "w": -5.338507946817117e-08,
+                            "x": -5.338507236274381e-08,
+                            "y": 0.7071066498756409,
+                            "z": 0.70710688829422
+                        },
+                        "scale": {
+                            "x": 1.0,
+                            "y": 4.020570278167725,
+                            "z": 5.432567596435547
+                        }
+                    }
                 },
-                "rotation": {
-                    "w": -5.338507946817117e-08,
-                    "x": -5.338507236274381e-08,
-                    "y": 0.7071066498756409,
-                    "z": 0.70710688829422
-                },
-                "scale": {
-                    "x": 1.0,
-                    "y": 4.020570278167725,
-                    "z": 5.432567596435547
-                }
+                "name": "Test.001.NoSmooth"
             },
             {
-                "name": "Test.002.NoSmooth",
-                "position": {
-                    "x": -69.06522369384766,
-                    "y": 17.509233474731445,
-                    "z": -112.87857055664063
+                "components": {
+                    "Transform": {
+                        "position": {
+                            "x": -69.06522369384766,
+                            "y": 17.509233474731445,
+                            "z": -112.87857055664062
+                        },
+                        "rotation": {
+                            "w": -5.338507946817117e-08,
+                            "x": -5.338507236274381e-08,
+                            "y": 0.7071066498756409,
+                            "z": 0.70710688829422
+                        },
+                        "scale": {
+                            "x": 1.0,
+                            "y": 4.020570278167725,
+                            "z": 5.432567596435547
+                        }
+                    }
                 },
-                "rotation": {
-                    "w": -5.338507946817117e-08,
-                    "x": -5.338507236274381e-08,
-                    "y": 0.7071066498756409,
-                    "z": 0.70710688829422
-                },
-                "scale": {
-                    "x": 1.0,
-                    "y": 4.020570278167725,
-                    "z": 5.432567596435547
-                }
+                "name": "Test.002.NoSmooth"
             },
             {
-                "name": "Test.003.NoSmooth",
-                "position": {
-                    "x": -61.0882682800293,
-                    "y": 17.509231567382813,
-                    "z": -93.9963150024414
+                "components": {
+                    "Transform": {
+                        "position": {
+                            "x": -61.0882682800293,
+                            "y": 17.509231567382812,
+                            "z": -93.9963150024414
+                        },
+                        "rotation": {
+                            "w": -0.4980449378490448,
+                            "x": 0.49804219603538513,
+                            "y": 0.5019500851631165,
+                            "z": 0.5019475817680359
+                        },
+                        "scale": {
+                            "x": 0.9999999403953552,
+                            "y": 4.020570278167725,
+                            "z": 5.432567596435547
+                        }
+                    }
                 },
-                "rotation": {
-                    "w": -0.4980449378490448,
-                    "x": 0.49804219603538513,
-                    "y": 0.5019500851631165,
-                    "z": 0.5019475817680359
-                },
-                "scale": {
-                    "x": 0.9999999403953552,
-                    "y": 4.020570278167725,
-                    "z": 5.432567596435547
-                }
+                "name": "Test.003.NoSmooth"
             }
         ],
         "instances": [],
@@ -297,6 +352,7 @@
             }
         ],
         "path": "..\\..\\..\\Tests\\DemoGame\\",
+        "removed_entities": [],
         "sky": {
             "ambient": {
                 "color_down": "001001001",

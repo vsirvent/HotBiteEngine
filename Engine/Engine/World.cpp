@@ -1,4 +1,4 @@
-/*
+﻿/*
 The HotBite Game Engine
 
 Copyright(c) 2023 Vicente Sirvent Orts
@@ -70,6 +70,33 @@ void World::SetupCoordinator(ECS::Coordinator* c) {
 	c->RegisterComponent<Components::Lighted>();
 	c->RegisterComponent<Components::Particles>();
 	c->RegisterComponent<Components::Sky>();
+
+	//Serialization policies for the engine's own components. Registration is
+	//idempotent and the descriptors are stateless, so running this once per
+	//coordinator (scene and templates) is harmless.
+	using ECS::ComponentPolicy;
+	ECS::ComponentRegistry& registry = ECS::ComponentRegistry::Instance();
+	//Identity and placement: every entity has them, nothing may take them away.
+	registry.Register<Components::Base>(ComponentPolicy::Mandatory);
+	registry.Register<Components::Transform>(ComponentPolicy::Mandatory);
+	//Freely added and removed. Mesh and Material need an asset to exist at all, and
+	//get GetDefaultMesh()/GetDefaultMaterial() when added from scratch; Bounds
+	//measures itself from the entity's mesh. None of them is a one-way door.
+	registry.Register<Components::Physics>(ComponentPolicy::Full);
+	registry.Register<Components::Player>(ComponentPolicy::Full);
+	registry.Register<Components::AmbientLight>(ComponentPolicy::Full);
+	registry.Register<Components::DirectionalLight>(ComponentPolicy::Full);
+	registry.Register<Components::PointLight>(ComponentPolicy::Full);
+	registry.Register<Components::Sky>(ComponentPolicy::Full);
+	registry.Register<Components::Mesh>(ComponentPolicy::Full);
+	registry.Register<Components::Material>(ComponentPolicy::Full);
+	registry.Register<Components::Bounds>(ComponentPolicy::Full);
+	registry.Register<Components::Lighted>(ComponentPolicy::Full);
+	//Visible in the Inspector, but not editable by hand: Camera is entirely derived
+	//from its entity's Transform, and Particles owns emitter definitions that cannot
+	//be rebuilt from JSON (a "remove" would discard them irrecoverably).
+	registry.Register<Components::Camera>(ComponentPolicy::Locked);
+	registry.Register<Components::Particles>(ComponentPolicy::Locked);
 }
 
 bool World::PreLoad(Core::DXCore* dx) {
@@ -418,6 +445,147 @@ void World::RefreshMeshBuffers() {
 	bvh_buffer->Prepare();
 }
 
+Core::MaterialData* World::GetDefaultMaterial() {
+	if (Core::MaterialData* existing = materials.Get(DEFAULT_MATERIAL_NAME)) {
+		return existing;
+	}
+	//MaterialData's constructor already installs the standard render/shadow/depth
+	//shaders, so a plain white material needs nothing but its colour set.
+	//Insert first, Init second: MaterialData refuses to be copied once initialized,
+	//and Insert copies into the collection.
+	materials.Insert(DEFAULT_MATERIAL_NAME, Core::MaterialData{ DEFAULT_MATERIAL_NAME });
+	Core::MaterialData* material = materials.Get(DEFAULT_MATERIAL_NAME);
+	if (material == nullptr) {
+		return nullptr;
+	}
+	material->props.diffuseColor = { 1.0f, 1.0f, 1.0f, 1.0f };
+	material->props.ambientColor = { 0.1f, 0.1f, 0.1f, 1.0f };
+	material->props.specIntensity = 0.2f;
+	material->props.opacity = 1.0f;
+	material->Init();
+	return material;
+}
+
+Core::MeshData* World::GetDefaultMesh() {
+	if (Core::MeshData* existing = meshes.Get(DEFAULT_MESH_NAME)) {
+		return existing;
+	}
+	if (vertex_buffer == nullptr) {
+		return nullptr;
+	}
+
+	//A unit cube centred on the origin: 24 vertices rather than 8, because each face
+	//needs its own normal, tangent and UVs.
+	std::vector<Core::Vertex> vertices;
+	std::vector<uint32_t> indices;
+	const float h = 0.5f;
+	struct Face { float3 normal; float3 tangent; float3 corners[4]; };
+	const Face faces[6] = {
+		{ { 0, 0,-1}, {1,0,0}, { {-h,-h,-h}, {-h, h,-h}, { h, h,-h}, { h,-h,-h} } }, //back
+		{ { 0, 0, 1}, {-1,0,0}, { { h,-h, h}, { h, h, h}, {-h, h, h}, {-h,-h, h} } }, //front
+		{ {-1, 0, 0}, {0,0,1}, { {-h,-h, h}, {-h, h, h}, {-h, h,-h}, {-h,-h,-h} } }, //left
+		{ { 1, 0, 0}, {0,0,-1}, { { h,-h,-h}, { h, h,-h}, { h, h, h}, { h,-h, h} } }, //right
+		{ { 0,-1, 0}, {1,0,0}, { {-h,-h, h}, {-h,-h,-h}, { h,-h,-h}, { h,-h, h} } }, //bottom
+		{ { 0, 1, 0}, {1,0,0}, { {-h, h,-h}, {-h, h, h}, { h, h, h}, { h, h,-h} } }, //top
+	};
+	const float2 uvs[4] = { {0.0f, 1.0f}, {0.0f, 0.0f}, {1.0f, 0.0f}, {1.0f, 1.0f} };
+	for (const Face& face : faces) {
+		uint32_t base = (uint32_t)vertices.size();
+		for (int i = 0; i < 4; ++i) {
+			Core::Vertex v;
+			v.Position = face.corners[i];
+			v.Normal = face.normal;
+			v.Tangent = face.tangent;
+			//Bitangent completes the frame: normal x tangent.
+			v.Bitangent = {
+				face.normal.y * face.tangent.z - face.normal.z * face.tangent.y,
+				face.normal.z * face.tangent.x - face.normal.x * face.tangent.z,
+				face.normal.x * face.tangent.y - face.normal.y * face.tangent.x
+			};
+			v.UV = uvs[i];
+			v.MeshUV = uvs[i];
+			vertices.push_back(v);
+		}
+		indices.insert(indices.end(), { base, base + 1, base + 2, base, base + 2, base + 3 });
+	}
+
+	//Insert before Init for the same reason as the material above.
+	meshes.Insert(DEFAULT_MESH_NAME, Core::MeshData{});
+	Core::MeshData* mesh = meshes.Get(DEFAULT_MESH_NAME);
+	if (mesh == nullptr) {
+		return nullptr;
+	}
+	mesh->Init(vertex_buffer, DEFAULT_MESH_NAME, vertices, indices, nullptr);
+	//The GPU vertex/BVH buffers were uploaded once during Init(); a mesh created
+	//after that (which is every default mesh, since it is made on demand) is not in
+	//them yet and would draw as nothing.
+	if (scene_init) {
+		RefreshMeshBuffers();
+	}
+	return mesh;
+}
+
+bool World::IsComponentRemoved(ECS::Entity e, const std::string& component) const {
+	auto it = removed_components.find(e);
+	return it != removed_components.end() && it->second.count(component) != 0;
+}
+
+ECS::SerializeContext World::MakeSerializeContext() {
+	ECS::SerializeContext ctx;
+	ctx.world = this;
+	ctx.coordinator = coordinator;
+	return ctx;
+}
+
+void World::ApplyComponents(ECS::Entity e, const nlohmann::json& entry) {
+	if (e == ECS::INVALID_ENTITY_ID) {
+		return;
+	}
+	ECS::SerializeContext ctx = MakeSerializeContext();
+	const ECS::ComponentRegistry& registry = ECS::ComponentRegistry::Instance();
+
+	if (entry.contains("remove") && entry["remove"].is_array()) {
+		for (const auto& name_json : entry["remove"]) {
+			if (!name_json.is_string()) {
+				continue;
+			}
+			const std::string name = name_json;
+			const ECS::ComponentDesc* desc = registry.Find(name);
+			if (desc == nullptr) {
+				printf("World::ApplyComponents: unknown component '%s' in \"remove\", skipping.\n",
+					name.c_str());
+				continue;
+			}
+			if (!desc->Removable()) {
+				//Base/Transform are what make an entity addressable and placeable;
+				//honouring this would leave the scene with an entity nothing can find
+				//or draw.
+				printf("World::ApplyComponents: component '%s' cannot be removed, skipping.\n",
+					name.c_str());
+				continue;
+			}
+			desc->remove(ctx, e);
+			//Remembered so the default-component passes in Init() do not hand it
+			//straight back.
+			removed_components[e].insert(name);
+		}
+	}
+
+	if (entry.contains("components") && entry["components"].is_object()) {
+		for (const auto& [name, value] : entry["components"].items()) {
+			const ECS::ComponentDesc* desc = registry.Find(name);
+			if (desc == nullptr) {
+				//Expected whenever a level is opened by a binary that doesn't define the
+				//component (the Scene Editor on a game level). The editor preserves these
+				//blocks verbatim on save, so skipping here loses nothing.
+				printf("World::ApplyComponents: unknown component '%s', skipping.\n", name.c_str());
+				continue;
+			}
+			desc->apply(ctx, e, value);
+		}
+	}
+}
+
 void World::ParsePhysicsJson(const nlohmann::json& physics_json, Components::Physics& physics) {
 	physics.type = reactphysics3d::BodyType::STATIC;
 	if (physics_json.contains("type")) {
@@ -460,7 +628,8 @@ void World::ParsePhysicsJson(const nlohmann::json& physics_json, Components::Phy
 
 ECS::Entity World::SpawnInstance(const std::string& name, const std::string& template_name,
 	const float3& position, const float4& rotation, const float3& scale,
-	const std::string& material_name, const nlohmann::json* physics_json)
+	const std::string& material_name, const nlohmann::json* physics_json,
+	std::vector<ECS::Entity>* out_parts)
 {
 	ECS::Entity primary = ECS::INVALID_ENTITY_ID;
 	const std::set<ECS::Entity>& parts = GetTemplateEntities(template_name);
@@ -521,6 +690,9 @@ ECS::Entity World::SpawnInstance(const std::string& name, const std::string& tem
 
 		coordinator->NotifySignatureChange(e);
 
+		if (out_parts != nullptr) {
+			out_parts->push_back(e);
+		}
 		if (primary == ECS::INVALID_ENTITY_ID) {
 			primary = e;
 		}
@@ -628,7 +800,16 @@ void World::LoadInstances(const nlohmann::json& instances_json) {
 		std::string material_name = instance.value("material", "");
 		const nlohmann::json* physics_json = instance.contains("physics") ? &instance["physics"] : nullptr;
 
-		SpawnInstance(name, template_name, position, rotation, scale, material_name, physics_json);
+		//Per-instance component overrides are what keep two instances of one template
+		//independent: the template decides the component set every instance starts
+		//with, and this block is the delta for *this* one. Applied to every part, so a
+		//multi-part template's override does not land on part 0 alone.
+		std::vector<ECS::Entity> parts;
+		SpawnInstance(name, template_name, position, rotation, scale, material_name,
+			physics_json, &parts);
+		for (ECS::Entity part : parts) {
+			ApplyComponents(part, instance);
+		}
 	}
 }
 
@@ -795,133 +976,51 @@ bool World::Load(const std::string& scene_file, float* progress, std::function<v
 		}
 		if (OnLoadProgress != nullptr) { OnLoadProgress(*progress += 10.0f * progress_unit); }
 
-		//Complete entities information
-		for (auto& entity : jw["entities"]) {
-			std::string name = entity["name"];
-			std::list<ECS::Entity> entity_list = coordinator->GetEntitiesByName(name);
-			if (entity_list.empty()) {
-				//Not fatal: an "entities" rule matching nothing is already silently
-				//tolerated in Release builds (this used to be a hard assert here, live
-				//only in Debug); log it instead so Debug builds behave the same way,
-				// just visibly instead of invisibly.
-				printf("World::Load: warning: no entity matches name pattern '%s', skipping rule.\n", name.c_str());
-				continue;
-			}
-			for (ECS::Entity e : entity_list) {
-				assert(e != ECS::INVALID_ENTITY_ID && "Unknown entity.");
-				bool changed = false;
-				if (entity.contains("cast_shadow")) {
-					Components::Base& base = coordinator->GetComponent<Components::Base>(e);
-					base.cast_shadow = entity["cast_shadow"];
-					changed = true;
-				}					
-				if (entity.contains("pass")) {
-					Components::Base& base = coordinator->GetComponent<Components::Base>(e);
-					base.pass = entity["pass"];
-					changed = true;
+		//Complete entities information.
+		//
+		//Entries are keyed by name, and GetEntitiesByName pattern-matches, so
+		//{"name": "Cube*"} is a rule covering every entity whose name starts with
+		//"Cube". That is how a level gives a whole family of entities the same
+		//material or physics in one line - but it also means a rule cannot, on its
+		//own, express "all of them except this one".
+		//
+		//Hence two passes: every wildcard rule is applied first, then every
+		//exact-name entry, regardless of the order they appear in the file. An exact
+		//entry therefore always wins over the wildcard rules that also matched its
+		//entity, which is what makes per-entity overrides work - a
+		//{"name": "Cube.001", "remove": ["Physics"]} entry strips what "Cube*" just
+		//granted, and touches no other Cube.
+		for (int pass = 0; pass < 2; ++pass) {
+			const bool wildcard_pass = (pass == 0);
+			for (auto& entity : jw["entities"]) {
+				std::string name = entity["name"];
+				if ((name.find('*') != std::string::npos) != wildcard_pass) {
+					continue;
 				}
-				if (entity.contains("player")) {
-					bool player = entity["player"];
-					if (player) {
-						coordinator->AddComponent<Components::Player>(e, Components::Player{});
-						changed = true;
-					}
+				std::list<ECS::Entity> entity_list = coordinator->GetEntitiesByName(name);
+				if (entity_list.empty()) {
+					//Not fatal: an "entities" rule matching nothing is already silently
+					//tolerated in Release builds (this used to be a hard assert here, live
+					//only in Debug); log it instead so Debug builds behave the same way,
+					// just visibly instead of invisibly.
+					printf("World::Load: warning: no entity matches name pattern '%s', skipping rule.\n", name.c_str());
+					continue;
 				}
-				if (entity.contains("parent")) {
-					std::string parent_name = entity["parent"];
-					if (!parent_name.empty()) {
-						ECS::Entity pe = coordinator->GetEntityByName(parent_name);
-						assert(pe != ECS::INVALID_ENTITY_ID && "Unknown parent.");
-						Components::Base& base = coordinator->GetComponent<Components::Base>(e);
-						base.parent = pe;
-						changed = true;
-					}
-				}
-				if (entity.contains("position")) {
-					json& pos = entity["position"];
-					Components::Transform& t = coordinator->GetComponent<Components::Transform>(e);
-					t.position.x = pos["x"];
-					t.position.y = pos["y"];
-					t.position.z = pos["z"];
-					t.dirty = true;
-					changed = true;
-				}
-				if (entity.contains("scale")) {
-					json& scl = entity["scale"];
-					Components::Transform& t = coordinator->GetComponent<Components::Transform>(e);
-					t.scale.x = scl["x"];
-					t.scale.y = scl["y"];
-					t.scale.z = scl["z"];
-					t.dirty = true;
-					changed = true;
-				}
-				if (entity.contains("rotation")) {
-					json& rot = entity["rotation"];
-					Components::Transform& t = coordinator->GetComponent<Components::Transform>(e);
-					t.rotation.x = rot["x"];
-					t.rotation.y = rot["y"];
-					t.rotation.z = rot["z"];
-					t.rotation.w = rot["w"];
-					t.dirty = true;
-					changed = true;
-				}
-				if (entity.contains("physics")) {
-					Components::Physics physics;
-					ParsePhysicsJson(entity["physics"], physics);
-					coordinator->AddComponent<Components::Physics>(e, std::move(physics));
-					changed = true;
-				}
-				if (entity.contains("template")) {
-					std::string template_entity_name = entity["template"];
-					if (!template_entity_name.empty()) {
-						ECS::Entity te = templates_coordinator->GetEntityByName(template_entity_name);
-						if (te != ECS::INVALID_ENTITY_ID) {
-							Components::Mesh& tmesh = templates_coordinator->GetComponent<Components::Mesh>(te);
-							Components::Material& tmat = templates_coordinator->GetComponent<Components::Material>(te);
-
-							Components::Mesh& mesh = coordinator->GetComponent<Components::Mesh>(e);
-							Components::Material& mat = coordinator->GetComponent<Components::Material>(e);
-
-							mesh.SetData(tmesh.GetData());
-							mat.data = tmat.data;
-							changed = true;
+				for (ECS::Entity e : entity_list) {
+					assert(e != ECS::INVALID_ENTITY_ID && "Unknown entity.");
+					ApplyComponents(e, entity);
+					//Editor renames: the entry is keyed by the authored (FBX/lights) name,
+					//"rename" carries the name the user gave it. Exact names only - a
+					//wildcard rule renaming several entities to one name cannot work.
+					if (entity.contains("rename") && !wildcard_pass) {
+						std::string new_name = entity["rename"];
+						if (!new_name.empty() && new_name != name &&
+							coordinator->GetEntityByName(new_name) == ECS::INVALID_ENTITY_ID) {
+							coordinator->ChangeEntityName(name, new_name);
+							coordinator->GetComponent<Components::Base>(e).name = new_name;
+							coordinator->NotifySignatureChange(e);
 						}
 					}
-				}
-				if (entity.contains("material")) {
-					auto& material = entity["material"];
-					Components::Material& m = coordinator->GetComponent<Components::Material>(e);
-					auto mat = GetMaterials().Get(material);
-					if (mat != nullptr) {
-						m.data = mat;
-					}
-				}
-				if (entity.contains("multi_texture")) {
-					auto& multi_textures_json = entity["multi_texture"];
-					Components::Material &m = coordinator->GetComponent<Components::Material>(e);
-					std::string name = multi_textures_json["name"];
-					const auto mt = multi_materials.find(name);
-					if (mt != multi_materials.end()) {
-						m.multi_material.LoadMultitexture(mt->second, path, materials);
-					}
-					else {
-						m.multi_material.LoadMultitexture(multi_textures_json.dump(), path, materials);
-					}
-				}
-				//Editor renames: the entry is keyed by the authored (FBX/lights) name,
-				//"rename" carries the name the user gave it. Exact names only - a
-				//wildcard rule renaming several entities to one name cannot work.
-				if (entity.contains("rename") && name.find('*') == std::string::npos) {
-					std::string new_name = entity["rename"];
-					if (!new_name.empty() && new_name != name &&
-						coordinator->GetEntityByName(new_name) == ECS::INVALID_ENTITY_ID) {
-						coordinator->ChangeEntityName(name, new_name);
-						coordinator->GetComponent<Components::Base>(e).name = new_name;
-						changed = true;
-					}
-				}
-				if (changed) {
-					coordinator->NotifySignatureChange(e);
 				}
 			}
 		}
@@ -952,6 +1051,9 @@ bool World::Load(const std::string& scene_file, float* progress, std::function<v
 					t.scale = { scl["x"], scl["y"], scl["z"] };
 				}
 				t.dirty = true;
+				//Per-clone component overrides, applied after the transform so a
+				//"components": {"Transform": ...} block still has the last word.
+				ApplyComponents(e, clone);
 			}
 		}
 
@@ -1034,6 +1136,12 @@ void World::Init() {
 				continue;
 			}
 			if (!coordinator->ContainsComponent<Components::Physics>(e.second)) {
+				//Mesh entities get a static body by default - unless the level said to
+				//take it away. Without this check the default would quietly reverse
+				//every "remove": ["Physics"] the loader had just applied.
+				if (IsComponentRemoved(e.second, Components::Physics::NAME)) {
+					continue;
+				}
 				coordinator->AddComponent(e.second, Components::Physics{});
 				coordinator->NotifySignatureChange(e.second);
 			}

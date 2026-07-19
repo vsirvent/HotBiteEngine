@@ -3,6 +3,8 @@
 
 #include <Components/Base.h>
 #include <Core/Json.h>
+#include <ECS/ComponentRegistry.h>
+#include <World.h>
 #include <filesystem>
 #include <fstream>
 #include <map>
@@ -51,6 +53,64 @@ namespace HotBiteEditor {
 				}
 			}
 			return name; //a root authored/renamed entity present during the clones phase
+		}
+
+		//Writes an entity's component delta into its level record, merging with
+		//whatever the record already carried rather than replacing it: a record can
+		//hold blocks this binary never registered (a game's own components), and those
+		//must survive untouched.
+		//
+		//Added components are re-serialized from the LIVE component rather than from
+		//the payload they were added with, so values the user then edited in the
+		//Inspector are what get written.
+		static void WriteComponentDelta(EditorState& state, Coordinator* c,
+			const std::string& entity_name, json& target)
+		{
+			auto opaque = state.opaque_components.find(entity_name);
+			if (opaque != state.opaque_components.end()) {
+				for (const auto& [name, value] : opaque->second) {
+					target["components"][name] = value;
+				}
+			}
+
+			auto it = state.component_deltas.find(entity_name);
+			if (it == state.component_deltas.end()) {
+				return;
+			}
+			const ComponentDelta& delta = it->second;
+			Entity e = c->GetEntityByName(entity_name);
+
+			for (const auto& [name, fallback] : delta.added) {
+				const ECS::ComponentDesc* desc = ECS::ComponentRegistry::Instance().Find(name);
+				json value = fallback;
+				if (desc != nullptr && e != INVALID_ENTITY_ID && desc->has(c, e)) {
+					try {
+						value = desc->serialize(state.world->MakeSerializeContext(), e);
+					}
+					catch (const std::exception&) {
+						//Fall back to what it was added with rather than losing the entry.
+					}
+				}
+				target["components"][name] = value;
+			}
+
+			if (!delta.removed.empty()) {
+				json removed = json::array();
+				for (const std::string& name : delta.removed) {
+					//A component that was removed must not also be re-added by a
+					//"components" block left over from an earlier save.
+					if (target.contains("components")) {
+						target["components"].erase(name);
+					}
+					removed.push_back(name);
+				}
+				target["remove"] = removed;
+			}
+			else {
+				//Nothing removed any more (an undo, or a re-add): drop a stale key from
+				//a previous save rather than leaving it to strip the component again.
+				target.erase("remove");
+			}
 		}
 
 		void Save(EditorState& state)
@@ -107,6 +167,19 @@ namespace HotBiteEditor {
 					entity_entries.insert(name);
 				}
 			}
+			//Component add/remove is on its own an edit worth an entry, even for an
+			//entity whose transform was never touched.
+			for (const auto& [name, delta] : state.component_deltas) {
+				if (clone_names.count(name) == 0 && !EntityOps::IsParkedName(name) &&
+					c->GetEntityByName(name) != INVALID_ENTITY_ID) {
+					entity_entries.insert(name);
+				}
+			}
+			for (const auto& [name, blocks] : state.opaque_components) {
+				if (clone_names.count(name) == 0 && !EntityOps::IsParkedName(name)) {
+					entity_entries.insert(name);
+				}
+			}
 			for (const auto& [authored, current] : state.renamed_entities) {
 				if (clone_names.count(current) == 0 && !EntityOps::IsParkedName(current)) {
 					entity_entries.insert(current);
@@ -138,10 +211,12 @@ namespace HotBiteEditor {
 				}
 				if (state.overridden_entities.count(current) != 0 && c->ContainsComponent<Transform>(e)) {
 					const Transform& t = c->GetComponent<Transform>(e);
-					(*target)["position"] = Float3ToJson(t.position);
-					(*target)["scale"] = Float3ToJson(t.scale);
-					(*target)["rotation"] = Float4ToJson(t.rotation);
+					json& transform = (*target)["components"][Transform::NAME];
+					transform["position"] = Float3ToJson(t.position);
+					transform["scale"] = Float3ToJson(t.scale);
+					transform["rotation"] = Float4ToJson(t.rotation);
 				}
+				WriteComponentDelta(state, c, current, *target);
 			}
 
 			//2) Editor-placed instances: fully replace the "instances" array with the
@@ -158,6 +233,9 @@ namespace HotBiteEditor {
 				if (!inst.material_name.empty()) {
 					entry["material"] = inst.material_name;
 				}
+				//Per-instance component overrides. Two instances of the same template
+				//each carry their own, which is what keeps them independent.
+				WriteComponentDelta(state, c, inst.name, entry);
 				instances.push_back(entry);
 			}
 			jw["instances"] = instances;
@@ -184,6 +262,7 @@ namespace HotBiteEditor {
 				entry["position"] = Float3ToJson(t.position);
 				entry["rotation"] = Float4ToJson(t.rotation);
 				entry["scale"] = Float3ToJson(t.scale);
+				WriteComponentDelta(state, c, rec.name, entry);
 				clones.push_back(entry);
 			}
 			jw["clones"] = clones;
@@ -256,6 +335,8 @@ namespace HotBiteEditor {
 			state.cloned_entities.clear();
 			state.removed_entities.clear();
 			state.parked_entities.clear();
+			state.component_deltas.clear();
+			state.opaque_components.clear();
 			state.clipboard = {};
 
 			json level;
@@ -294,6 +375,48 @@ namespace HotBiteEditor {
 					for (const auto& name : jw["removed_entities"]) {
 						if (name.is_string()) {
 							state.removed_entities.insert(name.get<std::string>());
+						}
+					}
+				}
+
+				//Component blocks already in the file, re-derived so a save that follows
+				//preserves them instead of dropping them.
+				//
+				//The split matters: a block this binary has a registered component for
+				//was applied to the live entity by World::Load, so it will be
+				//re-serialized from there and needs no bookkeeping. A block it does NOT
+				//recognize - any component belonging to the game rather than the engine -
+				//was skipped by the loader and exists nowhere but the file, so it is held
+				//here verbatim. Without that, opening a game's level in the editor and
+				//saving would quietly delete every one of its own components.
+				for (const char* section : { "entities", "instances", "clones" }) {
+					if (!jw.contains(section) || !jw[section].is_array()) {
+						continue;
+					}
+					for (const auto& record : jw[section]) {
+						if (!record.contains("name") || !record["name"].is_string() ||
+							!record.contains("components") || !record["components"].is_object()) {
+							continue;
+						}
+						const std::string name = record["name"];
+						for (const auto& [component, value] : record["components"].items()) {
+							if (ECS::ComponentRegistry::Instance().Find(component) == nullptr) {
+								state.opaque_components[name][component] = value;
+							}
+						}
+					}
+					//"remove" lists are re-derived too, so an entity whose component was
+					//stripped in a previous session keeps it stripped on the next save.
+					for (const auto& record : jw[section]) {
+						if (!record.contains("name") || !record["name"].is_string() ||
+							!record.contains("remove") || !record["remove"].is_array()) {
+							continue;
+						}
+						const std::string name = record["name"];
+						for (const auto& component : record["remove"]) {
+							if (component.is_string()) {
+								state.component_deltas[name].removed.insert(component.get<std::string>());
+							}
 						}
 					}
 				}

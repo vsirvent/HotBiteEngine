@@ -109,6 +109,9 @@ namespace HotBite {
                 
             public:
                 std::vector<T>& GetData() { return data; }
+                //const overload, so a const method (a component's ToJson) can read the
+                //contents without casting the constness away.
+                const std::vector<T>& GetData() const { return data; }
 
                 FlatMap() {
                 }

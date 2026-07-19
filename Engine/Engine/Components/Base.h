@@ -26,6 +26,7 @@ SOFTWARE.
 
 #include <Defines.h>
 #include <ECS/Types.h>
+#include <ECS/Serialization.h>
 #include <Core/Material.h>
 #include <Core/Mesh.h>
 #include <Core/Utils.h>
@@ -52,6 +53,8 @@ namespace HotBite {
 			 * The base component, every entity has this component
 			 */
 			struct Base {
+				static constexpr const char* NAME = "Base";
+
 				std::string name;
 				//Entity Id
 				ECS::Entity id = ECS::INVALID_ENTITY_ID;
@@ -77,12 +80,19 @@ namespace HotBite {
 				bool is_static = false;
 				//Creation time
 				int64_t creation_time = Core::Scheduler::GetNanoSeconds();
+
+				//`name`, `id` and `creation_time` are identity/runtime state, not authoring
+				//data: the entity's name is the key of the record this block lives in, and
+				//ids are recycled across sessions. `parent` round-trips by name.
+				nlohmann::json ToJson(const ECS::SerializeContext& ctx) const;
+				void FromJson(const nlohmann::json& j, const ECS::SerializeContext& ctx);
 			};
 
 			/**
 			 * The transform component: Includes all the position, roation, scale information of the entity.
 			 */
 			struct Transform {
+				static constexpr const char* NAME = "Transform";
 				//Event triggered when transform is changed
 				static inline ECS::EventId EVENT_ID_TRANSFORM_CHANGED = ECS::GetEventId<Transform>(0x00);
 				//The cached last parent position to check if parent has changed
@@ -107,6 +117,12 @@ namespace HotBite {
 				//True if the world matrix is dirty and needs to be recalculated
 				bool dirty = true;
 
+				//Only position/rotation/scale are authoring data. The world matrices, the
+				//cached parent pose and `dirty` are all recomputed by the transform system
+				//from those three, so writing them would just be a stale duplicate.
+				nlohmann::json ToJson(const ECS::SerializeContext& ctx) const;
+				void FromJson(const nlohmann::json& j, const ECS::SerializeContext& ctx);
+
 				static void Rotate(struct Transform& t, const float3& axis, float value) {
 					static float rot_val = 0.0f;
 					auto rot = DirectX::XMMatrixRotationAxis({ axis.x, axis.y, axis.z }, rot_val);
@@ -124,12 +140,19 @@ namespace HotBite {
 			 * The component that contains the entity bounds.
 			 */
 			struct Bounds {
+				static constexpr const char* NAME = "Bounds";
+
 				//The entity bounding box in local space
 				box local_box = {};
 				//The entity x,y,z aligned bounding box in world space and after transformations
 				box final_box = {};
 				//The entity oriented bounding box in world space and after transformations
 				orientedBox bounding_box = {};
+
+				//Only the local box is authored; the world-space boxes are derived from it
+				//and the Transform every frame.
+				nlohmann::json ToJson(const ECS::SerializeContext& ctx) const;
+				void FromJson(const nlohmann::json& j, const ECS::SerializeContext& ctx);
 			};
 
 			struct MultiMaterial {
@@ -171,10 +194,20 @@ namespace HotBite {
 				#define TEXT_UV_NOISE   (1 << 12)
 				#define TEXT_MASK_NOISE   (1 << 13)
 
+				static constexpr const char* NAME = "Material";
+
 				//We can reuse a material in several components
 				Core::MaterialData* data;
 				//Multimaterial data painted over main "data" material
 				MultiMaterial multi_material;
+
+				//Serializes as the material's *name* ("floor"), resolved against the world's
+				//material collection on load - a MaterialData pointer is shared between
+				//every entity using it and means nothing across sessions. Also accepts
+				//"template": <template entity name>, which adopts that template's material,
+				//the behaviour the old top-level "template" key had.
+				nlohmann::json ToJson(const ECS::SerializeContext& ctx) const;
+				void FromJson(const nlohmann::json& j, const ECS::SerializeContext& ctx);
 			};
 
 			/**
@@ -185,6 +218,7 @@ namespace HotBite {
 			 */
 			class Mesh : public ECS::IEventSender {
 			public:
+				static constexpr const char* NAME = "Mesh";
 				//Event triggered when animation ends
 				static inline ECS::EventId EVENT_ID_ANIMATION_END = ECS::GetEventId<Mesh>(0x01);
 				static inline ECS::EventId EVENT_ID_ANIMATION_FRAME_EVENT = ECS::GetEventId<Mesh>(0x02);
@@ -251,10 +285,26 @@ namespace HotBite {
 				void Update(int64_t elapsed_nsec, int64_t total_nsec);
 				void Prepare(Core::SimpleVertexShader* vs);
 				void Unprepare(Core::SimpleVertexShader* vs);
-				const std::vector<matrix>& GetJoints() { return joint_cpu_data; }				
+				const std::vector<matrix>& GetJoints() { return joint_cpu_data; }
+
+				//Serializes as the mesh asset's name plus the current animation, resolved
+				//against the world's mesh collection on load. Joint buffers, offsets and
+				//timing are runtime state rebuilt from the asset. Also accepts
+				//"template": <template entity name> to adopt a template's mesh, matching
+				//the old top-level "template" key.
+				nlohmann::json ToJson(const ECS::SerializeContext& ctx) const;
+				void FromJson(const nlohmann::json& j, const ECS::SerializeContext& ctx);
 			};
 
 			struct Player {
+				static constexpr const char* NAME = "Player";
+
+				//A tag component: presence is the whole payload, so it serializes as an
+				//empty object. FromJson still has to exist for the concept to match.
+				nlohmann::json ToJson(const ECS::SerializeContext& ctx) const {
+					return nlohmann::json::object();
+				}
+				void FromJson(const nlohmann::json& j, const ECS::SerializeContext& ctx) {}
 			};
 		}
 	}

@@ -28,6 +28,7 @@ SOFTWARE.
 #include <reactphysics3d\body\CollisionBody.h>
 #include <Defines.h>
 #include <Core/PhysicsCommon.h>
+#include <ECS/Serialization.h>
 #include <map>
 
 namespace HotBite {
@@ -35,6 +36,8 @@ namespace HotBite {
 		namespace Components {
 
 			struct Physics {
+				static constexpr const char* NAME = "Physics";
+
 				enum eShapeForm {
 					SHAPE_NONE,
 					SHAPE_CAPSULE,
@@ -96,6 +99,18 @@ namespace HotBite {
 					const float3& s, const float4& r);
 
 				reactphysics3d::Material* GetMaterial();
+
+				// Only the authored body parameters (type, shape, bounce, friction,
+				// air_friction) are written; the rigid body, collider and last transform
+				// are live reactphysics3d state.
+				//
+				// FromJson creates the rigid body when there isn't one yet, deriving the
+				// collision shape from the entity's sibling Bounds and Transform (reached
+				// through SerializeContext::entity), exactly as SpawnInstance and World::Init
+				// do. Without that, a Physics component added from a level file or from the
+				// editor would be inert - correct parameters, no body in the world.
+				nlohmann::json ToJson(const ECS::SerializeContext& ctx) const;
+				void FromJson(const nlohmann::json& j, const ECS::SerializeContext& ctx);
 
 				// The triangles a mesh collider actually collides with, when this
 				// component built its own pre-scaled copy of them. Null means it shares

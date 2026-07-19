@@ -1,4 +1,4 @@
-/*
+﻿/*
 The HotBite Game Engine
 
 Copyright(c) 2023 Vicente Sirvent Orts

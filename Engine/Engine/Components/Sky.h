@@ -26,6 +26,7 @@ SOFTWARE.
 
 #include <Defines.h>
 #include <ECS/Types.h>
+#include <ECS/Serialization.h>
 #include <Core/Material.h>
 #include <Core/Mesh.h>
 #include <Components/Lights.h>
@@ -39,6 +40,7 @@ namespace HotBite {
 			 * The sky component, used by the Renderer to add Sky to the scene.
 			 */
 			struct Sky {
+				static constexpr const char* NAME = "Sky";
 
 				Core::MeshData* space_mesh = nullptr;
 				Core::MaterialData* space_material = nullptr;
@@ -63,7 +65,31 @@ namespace HotBite {
 				}
 
 				void SetTimeOfDay(int hour, int minutes, int seconds) {
-					second_of_day = (float)(hour * 60 * 60 + minutes * 60 + seconds);					
+					second_of_day = (float)(hour * 60 * 60 + minutes * 60 + seconds);
+				}
+
+				//Only the sky's own dials round-trip. The space mesh/material and the
+				//linked sun are assets and entities wired up by World::LoadSky from the
+				//level's "sky" section; `current_backcolor` and `current_minute` are
+				//recomputed from second_of_day every tick.
+				nlohmann::json ToJson(const ECS::SerializeContext& ctx) const {
+					return nlohmann::json{
+						{"cloud_density", cloud_density},
+						{"second_of_day", second_of_day},
+						{"second_speed", second_speed},
+						{"day_backcolor", ECS::JsonUtil::FromFloat3(day_backcolor)},
+						{"mid_backcolor", ECS::JsonUtil::FromFloat3(mid_backcolor)},
+						{"night_backcolor", ECS::JsonUtil::FromFloat3(night_backcolor)},
+					};
+				}
+
+				void FromJson(const nlohmann::json& j, const ECS::SerializeContext& ctx) {
+					cloud_density = j.value("cloud_density", cloud_density);
+					second_of_day = j.value("second_of_day", second_of_day);
+					second_speed = j.value("second_speed", second_speed);
+					ECS::JsonUtil::ToFloat3(j, "day_backcolor", day_backcolor);
+					ECS::JsonUtil::ToFloat3(j, "mid_backcolor", mid_backcolor);
+					ECS::JsonUtil::ToFloat3(j, "night_backcolor", night_backcolor);
 				}
 			};
 		}

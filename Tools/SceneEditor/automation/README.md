@@ -52,6 +52,9 @@ directory so relative asset paths in level files resolve the same way the other 
 | `list_selection` | lists the selected entity names, primary last |
 | `delete` | deletes the selection — mesh entities are parked like a cut, placed instances despawn — as one undo step. The interactive Del key confirms first when several entities are selected; a scripted `delete` is already explicit and goes straight through |
 | `rename <name> <new name>` | renames an entity (same as editing its name in the Components panel); rejects empty/duplicate/reserved names |
+| `components <name>` | lists the components on an entity, in registry order; game components the editor cannot link are listed too (see below) |
+| `add_component <name> <Component>` | adds a component with default values, like the Components panel's Add Component button. Fails for a component that is not registered, is already present, or cannot be constructed without picking an asset first (`Mesh`, `Material`, `Bounds`, `Lighted`) |
+| `remove_component <name> <Component>` | removes a component, like the `x` on its Components panel section. Fails for `Base`/`Transform` (required) and `Camera`/`Particles` (engine-managed). Undoable, and restores the component's values, not defaults |
 | `copy [<name>]` | copies the selection (or `<name>` if given) to the entity clipboard, like Ctrl+C |
 | `cut [<name>]` | copies then removes the entity, like Ctrl+X (undoable; a cut source can still be pasted) |
 | `paste` | creates a copy from the clipboard named `<original>_copy`, like Ctrl+V |

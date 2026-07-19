@@ -25,6 +25,7 @@ SOFTWARE.
 #pragma once
 
 #include <Defines.h>
+#include <ECS/Serialization.h>
 
 namespace HotBite {
 	namespace Engine {
@@ -32,6 +33,22 @@ namespace HotBite {
 
 			struct Camera
 			{
+				static constexpr const char* NAME = "Camera";
+
+				//Registered so the Inspector can show it, but every field here is
+				//derived: the camera system rebuilds the whole set of matrices from the
+				//entity's Transform each frame. Nothing to author, so ToJson reports the
+				//current pose for display and FromJson does nothing. Registered with
+				//ComponentPolicy::Locked - neither added nor removed by hand.
+				nlohmann::json ToJson(const ECS::SerializeContext& ctx) const {
+					return nlohmann::json{
+						{"position", ECS::JsonUtil::FromFloat3(world_position)},
+						{"direction", ECS::JsonUtil::FromFloat3(direction)},
+						{"rotation", ECS::JsonUtil::FromFloat3(rotation)},
+					};
+				}
+				void FromJson(const nlohmann::json& j, const ECS::SerializeContext& ctx) {}
+
 				/**
 				* The Camera view matrix is used to transform from
 				* world 3d coords to the camera 3d coords.

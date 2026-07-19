@@ -5,6 +5,7 @@
 #include "AssetBrowser.h"
 #include "Outliner.h"
 #include "EntityOps.h"
+#include "ComponentOps.h"
 #include "Selection.h"
 #include "RenderSettings.h"
 #include "RenderDocIntegration.h"
@@ -508,6 +509,39 @@ namespace HotBiteEditor {
 				}
 				else {
 					response_lines.push_back("ERR " + error);
+				}
+			}
+			else if (cmd == "add_component" || cmd == "remove_component") {
+				if (args.size() < 3) {
+					response_lines.push_back("ERR usage: " + cmd + " <entity name> <Component>");
+				}
+				else {
+					const bool adding = (cmd == "add_component");
+					//Defaults for an add: every FromJson treats a missing key as "leave
+					//alone", so an empty object is the component as constructed.
+					bool ok = adding
+						? ComponentOps::AddComponent(state, args[1], args[2],
+							nlohmann::json::object(), error)
+						: ComponentOps::RemoveComponent(state, args[1], args[2], error);
+					response_lines.push_back(ok ? ("OK " + state.status_message) : ("ERR " + error));
+				}
+			}
+			else if (cmd == "components") {
+				if (args.size() < 2) {
+					response_lines.push_back("ERR usage: components <entity name>");
+				}
+				else {
+					std::vector<std::string> names = ComponentOps::ListComponents(state, args[1]);
+					if (names.empty()) {
+						response_lines.push_back("ERR unknown entity '" + args[1] + "'");
+					}
+					else {
+						response_lines.push_back("OK " + std::to_string(names.size()) +
+							" components on " + args[1]);
+						for (const std::string& name : names) {
+							response_lines.push_back(name);
+						}
+					}
 				}
 			}
 			else if (cmd == "copy" || cmd == "cut") {

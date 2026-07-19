@@ -86,6 +86,21 @@ namespace HotBiteEditor {
 				state.clipboard.source_name == old_name) {
 				state.clipboard.source_name = new_name;
 			}
+			//Component bookkeeping is keyed by entity name too, so it has to move with
+			//the rename or the edits would be written under a name the loader will
+			//never match - silently losing them on the next load.
+			auto dit = state.component_deltas.find(old_name);
+			if (dit != state.component_deltas.end()) {
+				ComponentDelta delta = std::move(dit->second);
+				state.component_deltas.erase(dit);
+				state.component_deltas[new_name] = std::move(delta);
+			}
+			auto oit = state.opaque_components.find(old_name);
+			if (oit != state.opaque_components.end()) {
+				std::map<std::string, nlohmann::json> blocks = std::move(oit->second);
+				state.opaque_components.erase(oit);
+				state.opaque_components[new_name] = std::move(blocks);
+			}
 		}
 
 		static bool IsCloneRecordName(EditorState& state, const std::string& name)

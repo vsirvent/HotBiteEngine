@@ -32,6 +32,7 @@ SOFTWARE.
 #include <set>
 #include <Loader\FBXLoader.h>
 #include <ECS/Coordinator.h>
+#include <ECS/ComponentRegistry.h>
 #include <Systems\CameraSystem.h>
 #include <Systems\DirectionalLightSystem.h>
 #include <Systems\PhysicsSystem.h>
@@ -93,6 +94,12 @@ namespace HotBite {
 			//the original FBX entity name).
 			std::unordered_map<std::string, std::string> clone_shape_alias;
 			std::unordered_map<std::string, nlohmann::json> multi_materials;
+			// Components a level record explicitly stripped from an entity, by entity id.
+			// Init() hands every mesh entity a Physics component when it has none, which
+			// would silently undo a "remove": ["Physics"] the loader had just honoured -
+			// so it asks here first. Keyed by id rather than name because renames are
+			// applied in the same pass that records these.
+			std::unordered_map<ECS::Entity, std::set<std::string>> removed_components;
 			Core::FlatMap<std::string, Core::MaterialData> materials{ ECS::MAX_ENTITIES };
 			Core::FlatMap<std::string, Core::MeshData> meshes{ ECS::MAX_ENTITIES };
 			Core::FlatMap<std::string, Core::ShapeData> shapes{ ECS::MAX_ENTITIES };
@@ -173,9 +180,14 @@ namespace HotBite {
 			// Spawns a new, persistable entity (or set of entities, for multi-part templates)
 			// cloned from a named template, at the given base transform. Used both by the
 			// "instances" section of Load() and by editor tooling that places objects at runtime.
+			// `out_parts`, when given, receives every entity created - a multi-part
+			// template produces one per FBX node, of which only the first is returned.
+			// Callers applying per-instance data (component overrides) need all of them,
+			// or the override would silently land on part 0 alone.
 			virtual ECS::Entity SpawnInstance(const std::string& name, const std::string& template_name,
 							const float3& position, const float4& rotation, const float3& scale,
-							const std::string& material_name = "", const nlohmann::json* physics_json = nullptr);
+							const std::string& material_name = "", const nlohmann::json* physics_json = nullptr,
+							std::vector<ECS::Entity>* out_parts = nullptr);
 			// Creates a new entity named `new_name` as a copy of the existing scene
 			// entity `source_name`: Base flags, Transform, Bounds and the (shared)
 			// mesh/material data are copied; Physics parameters are copied and a fresh
@@ -185,10 +197,18 @@ namespace HotBite {
 			// copy/paste at runtime.
 			virtual ECS::Entity CloneEntity(const std::string& new_name, const std::string& source_name);
 
+			// Registers T with the ECS and, when T declares the serialization members
+			// (see ECS/Serialization.h), with the component registry as well - so a
+			// game's own components become level-authorable and editor-visible without
+			// touching the engine or any central list. Components that don't declare
+			// them are registered with the ECS exactly as before.
 			template<typename T>
-			void RegisterComponent()
+			void RegisterComponent(ECS::ComponentPolicy policy = ECS::ComponentPolicy::Full)
 			{
 				coordinator->RegisterComponent<T>();
+				if constexpr (ECS::SerializableComponent<T>) {
+					ECS::ComponentRegistry::Instance().Register<T>(policy);
+				}
 			}
 
 			template<typename T>
@@ -215,6 +235,56 @@ namespace HotBite {
 				return ret;
 			}
 			
+			// Absolute path of the assets folder this world loaded from. Needed by
+			// components that resolve file references during deserialization.
+			const std::string& GetAssetsPath() const { return path; }
+
+			// Stand-in assets for a Mesh or Material component created from nothing -
+			// added in the editor, or a level record carrying an empty block.
+			//
+			// They exist so that adding a component is the exact inverse of removing
+			// one: a component that can be taken away but never put back is a dead end
+			// for whoever is authoring the scene. A newly added Mesh is a unit cube and
+			// a newly added Material is plain white, so the entity is immediately
+			// visible in the viewport and can then be pointed at a real asset.
+			//
+			// Created on first use and cached, under "__default_*" names that cannot
+			// collide with anything an FBX or .mat file brings in. Null only if the
+			// render device is not up yet.
+			Core::MaterialData* GetDefaultMaterial();
+			Core::MeshData* GetDefaultMesh();
+
+			// The names the two above are registered under. A saved scene references
+			// them like any other asset, so deserialization has to recognize them and
+			// create the asset on demand rather than reporting it missing.
+			static constexpr const char* DEFAULT_MATERIAL_NAME = "__default_material";
+			static constexpr const char* DEFAULT_MESH_NAME = "__default_mesh";
+
+			// The context handed to component ToJson/FromJson, bound to this world's
+			// scene coordinator.
+			ECS::SerializeContext MakeSerializeContext();
+
+			// Applies one level record's component blocks to `e`:
+			//
+			//     "remove":     ["Physics", ...]        - applied first
+			//     "components": {"Physics": {...}, ...} - add-or-update, applied second
+			//
+			// Removals run first so a record can replace a component wholesale, and so
+			// that "strip what the template gave me, then add my own" reads in the order
+			// it executes. Unknown component names are reported and skipped rather than
+			// aborting the load - a level authored against a game that registers more
+			// components than the current binary (the Scene Editor opening a Marbles
+			// level) must still load everything it does understand.
+			//
+			// Shared by the "entities", "instances" and "clones" phases of Load, and by
+			// editor tooling applying the same blocks at runtime.
+			void ApplyComponents(ECS::Entity e, const nlohmann::json& entry);
+
+			// Whether a level record explicitly removed `component` from this entity.
+			// Anything that would otherwise add a component by default must consult
+			// this, or the removal silently does not stick.
+			bool IsComponentRemoved(ECS::Entity e, const std::string& component) const;
+
 			Core::FlatMap<std::string, Core::MaterialData>& GetMaterials();
 			Core::FlatMap<std::string, Core::MeshData>& GetMeshes();
 			Core::FlatMap<std::string, Core::ShapeData>& GetShapes();

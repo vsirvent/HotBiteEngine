@@ -28,6 +28,7 @@ SOFTWARE.
 #include <Core/Texture.h>
 #include <Core/Update.h>
 #include <ECS/Coordinator.h>
+#include <ECS/Serialization.h>
 
 #define MAX_LIGHTS 8
 #define MAX_OBJECTS 100
@@ -77,9 +78,14 @@ namespace HotBite {
 				struct Data data;
 
 			public:
+				static constexpr const char* NAME = "AmbientLight";
+
 				AmbientLight();
 				AmbientLight(const float3& color_down, const float3& color_up);
 				struct Data& GetData();
+
+				nlohmann::json ToJson(const ECS::SerializeContext& ctx) const;
+				void FromJson(const nlohmann::json& j, const ECS::SerializeContext& ctx);
 			};
 
 			/**
@@ -107,6 +113,9 @@ namespace HotBite {
 
 				bool init = false;
 				int texture_resolution_ratio = 8;
+				//Kept only so the light can be written back out as it was authored: Init
+				//consumes it to size the shadow map but never stores it otherwise.
+				int shadow_resolution_divisor = 1;
 				Core::DepthTexture2D static_texture;
 				Core::DepthTexture2D texture;
 				ECS::Entity parent = ECS::INVALID_ENTITY_ID;
@@ -122,6 +131,10 @@ namespace HotBite {
 				D3D11_VIEWPORT shadow_vp = {};
 
 			public:
+				static constexpr const char* NAME = "DirectionalLight";
+
+				nlohmann::json ToJson(const ECS::SerializeContext& ctx) const;
+				void FromJson(const nlohmann::json& j, const ECS::SerializeContext& ctx);
 
 				DirectionalLight();
 				DirectionalLight(const DirectionalLight& other) :DirectionalLight() {
@@ -201,8 +214,15 @@ namespace HotBite {
 				float4x4 projectionMatrix = {};
 				D3D11_VIEWPORT shadow_vp;
 				bool init = false;
+				//See DirectionalLight::shadow_resolution_divisor.
+				int shadow_resolution_divisor = 1;
 
 			public:
+				static constexpr const char* NAME = "PointLight";
+
+				nlohmann::json ToJson(const ECS::SerializeContext& ctx) const;
+				void FromJson(const nlohmann::json& j, const ECS::SerializeContext& ctx);
+
 				PointLight();
 				PointLight(const PointLight& other) :PointLight() {
 					assert(!other.init && "Non copyable after init.");
@@ -231,6 +251,17 @@ namespace HotBite {
 			 * Used as a standard class in the RenderSystem to have global illumation
 			 */
 			struct Lighted {
+				static constexpr const char* NAME = "Lighted";
+
+				//Pure runtime state: the lighting systems rebuild every one of these lists
+				//each frame from the lights actually reaching the entity. Serializing it
+				//would be meaningless, so the block is empty and only presence matters -
+				//which is exactly what a designer toggles ("is this entity lit?").
+				nlohmann::json ToJson(const ECS::SerializeContext& ctx) const {
+					return nlohmann::json::object();
+				}
+				void FromJson(const nlohmann::json& j, const ECS::SerializeContext& ctx) {}
+
 				std::vector<PointLight::Data> point_lights;
 				std::vector<DirectionalLight::Data> dir_lights;
 				std::vector<ID3D11ShaderResourceView*> dir_shadows;

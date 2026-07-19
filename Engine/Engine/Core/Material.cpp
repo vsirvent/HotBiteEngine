@@ -121,6 +121,12 @@ namespace HotBite {
 				if (init) {
 					Release();
 				}
+				//The name is part of the material's identity: it is how an entity
+				//references it when a scene is saved and reloaded. Every existing caller
+				//happened to call Load() right after copying, which reassigns the name,
+				//so omitting it here went unnoticed - but a material built in code and
+				//never Load()ed would end up nameless and impossible to resolve.
+				this->name = other.name;
 				this->props = other.props;
 				this->texture_names = other.texture_names;
 				this->shaders = other.shaders;

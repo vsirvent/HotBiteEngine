@@ -22,6 +22,13 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 #include <Core/PhysicsCommon.h>
+// Must come before the FBX SDK headers below: fbxarch.h does `#define snprintf
+// _snprintf` and fbxmath.h `#define isnan _isnan`, and nlohmann's json calls
+// std::snprintf/std::isnan - which those macros turn into std::_snprintf and
+// std::_isnan, neither of which exists. Json.h arrives here indirectly (component
+// headers pull it in for ToJson/FromJson), so it is included up front where the
+// macros are not defined yet rather than left to whichever header gets there first.
+#include <Core/Json.h>
 #include "Defines.h"
 #include "FBXUtil.h"
 #include "FBXLoader.h"

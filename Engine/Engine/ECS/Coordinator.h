@@ -154,17 +154,28 @@ namespace HotBite {
 				template<typename T>
 				void RemoveComponent(Entity entity)
 				{
-					Entity e = component_manager->RemoveComponent<T>(entity);
-					//We need to refresh all the entities that 
-					//are internally moved from one index to another
-					//so the systems can refresh cached references to the components
-					system_manager->EntitySignatureChanged(e, entity_manager->GetSignature(e));
+					Entity moved = component_manager->RemoveComponent<T>(entity);
 
+					//Clear the bit and de-register BEFORE refreshing anything else.
+					//Notifying while the signature still claims T makes every system
+					//matching that signature re-register the entity and immediately
+					//dereference the component that was just deleted.
 					auto signature = entity_manager->GetSignature(entity);
 					signature.set(component_manager->GetComponentType<T>(), false);
 					entity_manager->SetSignature(entity, signature);
 					system_manager->EntitySignatureChanged(entity, signature);
 
+					//The dense array back-fills the freed slot with its last element, so
+					//whichever entity was moved needs a refresh for systems to re-cache
+					//their component references at the new index.
+					//
+					//When the removed entity WAS the last element there is no such
+					//entity - ComponentArray::RemoveData reports the removed entity
+					//itself - and refreshing it here would undo the de-registration
+					//above and crash on the missing component.
+					if (moved != entity && moved != INVALID_ENTITY_ID) {
+						system_manager->EntitySignatureChanged(moved, entity_manager->GetSignature(moved));
+					}
 				}
 
 				template<typename T>

@@ -162,6 +162,7 @@
     <ClCompile Include="Engine\Components\Camera.cpp" />
     <ClCompile Include="Engine\Components\Lights.cpp" />
     <ClCompile Include="Engine\Components\Physics.cpp" />
+    <ClCompile Include="Engine\Components\PhysicsSerialization.cpp" />
     <ClCompile Include="Engine\Core\Audio.cpp" />
     <ClCompile Include="Engine\Core\BVH.cpp" />
     <ClCompile Include="Engine\Core\DXCore.cpp" />
@@ -225,7 +226,9 @@
     <ClInclude Include="Engine\Defines.h" />
     <ClInclude Include="Engine\ECS\ComponentArray.h" />
     <ClInclude Include="Engine\ECS\ComponentManager.h" />
+    <ClInclude Include="Engine\ECS\ComponentRegistry.h" />
     <ClInclude Include="Engine\ECS\Coordinator.h" />
+    <ClInclude Include="Engine\ECS\Serialization.h" />
     <ClInclude Include="Engine\ECS\EntityManager.h" />
     <ClInclude Include="Engine\ECS\EntityVector.h" />
     <ClInclude Include="Engine\ECS\Event.h" />
