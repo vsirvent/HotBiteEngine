@@ -59,6 +59,17 @@ Tools\SceneEditor\automation\editor-cli.ps1 -Dir $dir -Command 'quit'
 - `debug_crash` automation command deliberately crashes the editor to validate this
   pipeline (never responds — the driver times out by design).
 
+### GPU profiling
+
+`Tools/SceneEditor/automation/profiling/` captures frames via RenderDoc and prints a
+per-pass GPU timing table — `capture-frames.ps1` then `analyze-captures.ps1`, full docs
+in that folder's README. Two things that invalidate results if ignored: profile the
+**Release** build, and **close the editor before replaying** (a running editor competes
+for the GPU and distorts passes unevenly enough to reorder the ranking). Passes are named
+by matching shader bytecode hashes to the built `.cso` files, because the engine emits no
+debug markers and every shader's entry point is `main` — so analyze against the same
+configuration you captured.
+
 Menu items are registered in a `MenuCommand` registry (`SceneEditor.h`); new menu
 entries added there are automatically clickable in the UI *and* scriptable via
 `menu "<Menu>/<Item>"`, so keep using it instead of raw `ImGui::MenuItem` calls.
@@ -71,6 +82,53 @@ drag coalescing, and what is deliberately out of scope — is documented at the 
 of `Tools/SceneEditor/EditorHistory.h`; follow the existing helpers
 (`Inspector::ApplyTransform`, `Outliner::SetEntityGroup`,
 `AssetBrowser::PlaceTemplate`, `EntityOps::RenameEntity`) as the pattern.
+
+**Edit/Simulate Physics is a preview, not an edit** (`Tools/SceneEditor/PhysicsPreview.h`):
+switching it on snapshots every non-static body's transform, switching it off rewinds
+the scene to those snapshots, and a transform edited *while* it runs retargets its own
+snapshot so the rewind lands on the edited pose. The consequence for any new code that
+writes a `Transform`: do it under `Core::physics_mutex`, held from before the first
+field is written until the commit is done (`Inspector::EditTransformLock`). While the
+simulation is live the physics thread writes body poses into those same Transforms, and
+an unlocked read-modify-write intermittently latches a mid-fall pose as the rewind
+target — the failure is rare and looks like "disabling physics moved my object".
+
+**Materials** are authored in the Materials panel (`Tools/SceneEditor/MaterialPanel.h`)
+and live in `.mat` files, which are shared assets referenced by a level rather than
+part of it — so they save through File/Save Materials (`save_materials`), *not*
+File/Save Level, and `World` tracks which `.mat` each material came from. Two traps:
+`MaterialData::Save` round-trips the keys `Load` ignores via `source_json`, so don't
+rebuild the JSON from scratch; and `RemoveMaterial` retires a material instead of
+erasing it, because `FlatMap` removal relocates another element and would dangle every
+`Material::data` pointing at it. Material property editing has exactly one
+implementation, `MaterialPanel::DrawMaterialProperties`, reused by the Components
+panel — edit values through it or the change is neither undoable nor ever saved.
+
+Materials carry their own shader set (`MaterialShaderNames`), editable per stage in the
+panel's Shaders section. Two constraints: the shader picker is a fixed list built from
+the `*VS.cso`/`*PS.cso`/… naming convention, never free text, because
+`ShaderFactory::GetShader` caches a shader under its name *before* checking it loaded as
+the requested stage — one wrong entry poisons that name for the session; and changing
+shaders in place must go through `World::SetMaterialShaders`, which calls
+`RenderSystem::RefreshDrawable` on every user, because the draw trees are keyed by shader
+tuple and `AddDrawable`'s own cleanup only evicts buckets whose *material* differs (so a
+same-material key change would leave the entity drawing twice).
+
+**ImGui gotchas, both seen in `Inspector::DrawComponentSection`:**
+- Don't put a `SmallButton` over a `CollapsingHeader` with `SameLine` — the header spans
+  the full width and eats the click, so the button looks inert and the section just
+  collapses. Use the header's own `p_visible` close button.
+- A widget whose label equals its component's name collides with the section header:
+  `PushID("Material")` + `CollapsingHeader("Material")` + `BeginCombo("Material")` all
+  hash to one ID, the header owns it, and the combo draws and hovers but never opens.
+  The body is therefore wrapped in its own `PushID("body")` scope — keep it that way, and
+  suspect ID collisions whenever a control renders and highlights but won't activate.
+
+When driving the UI with synthetic clicks, note the backbuffer/screenshot size is not
+always the client size — scale screenshot coords by `client/backbuffer` before
+`ClientToScreen`. And never tap ALT at a window that is already foreground to break the
+foreground lock: it opens the system menu, whose modal loop inside `DefWindowProc` hangs
+the editor's message pump (shows up as `uxtheme!OnDwpSysCommand` in `stacks.ps1`).
 
 Entity rename and copy/cut/paste live in `Tools/SceneEditor/EntityOps.h` (read its
 header comment before touching them). Two things there are easy to break: entity

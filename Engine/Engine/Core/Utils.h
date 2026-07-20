@@ -50,6 +50,12 @@ namespace HotBite {
             float3 parseColorStringF3(const std::string& colorString);
             float4 parseColorStringF4(const std::string& colorString);
 
+            //Inverses of the two above, so a colour read from a file round-trips back
+            //into it unchanged. Always emit the 9-character "#RRGGBBAA" form (the F3
+            //variant writes AA as FF), which is the only form these files are authored in.
+            std::string colorStringFromF3(const float3& color);
+            std::string colorStringFromF4(const float4& color);
+
             void SetFlag(uint32_t& bitset, uint32_t flag);
             void ClearFlag(uint32_t& bitset, uint32_t flag);
             void UpdateFlag(uint32_t& bitset, uint32_t flag, bool active);

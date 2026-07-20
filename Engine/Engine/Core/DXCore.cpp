@@ -178,14 +178,35 @@ HRESULT DXCore::InitWindow(HWND parent)
 		LONG style = GetWindowLong(wnd, GWL_STYLE);
 		style &= ~(WS_CAPTION | WS_THICKFRAME | WS_MINIMIZE | WS_MAXIMIZE | WS_SYSMENU);
 		if (windowed) {
-			style |= WS_CAPTION | WS_THICKFRAME | CS_DBLCLKS;
+			//WS_SYSMENU plus the two box styles are what actually draw the minimize and
+			//maximize buttons in the title bar; without them a window that is already
+			//resizable (WS_THICKFRAME) still offers no way to minimize or maximize it,
+			//and has no system menu either.
+			style |= WS_CAPTION | WS_THICKFRAME | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | CS_DBLCLKS;
 		}
 		SetWindowLong(wnd, GWL_STYLE, style);
 
 		LONG_PTR class_style = GetClassLongPtr(wnd, GCL_STYLE) | CS_DBLCLKS;
 		SetClassLongPtr(wnd, GCL_STYLE, class_style);
 
-		if (windowed) {
+		if (windowed && start_maximized) {
+			//The window was created centered on the primary monitor, so maximizing
+			//fills that monitor's work area (staying clear of the taskbar).
+			ShowWindow(wnd, SW_SHOWMAXIMIZED);
+
+			//Adopt the maximized client area as the render size. There is no WM_SIZE
+			//handling in this engine - the swap chain is created once, from these
+			//members, by InitDirectX - so they have to be correct BEFORE that runs or
+			//the back buffer would keep the requested size and be stretched across a
+			//larger window, taking the UI's hit-testing out of step with what is drawn.
+			RECT clientArea;
+			GetClientRect(wnd, &clientArea);
+			if (clientArea.right > 0 && clientArea.bottom > 0) {
+				width = (unsigned int)clientArea.right;
+				height = (unsigned int)clientArea.bottom;
+			}
+		}
+		else if (windowed) {
 			ShowWindow(wnd, SW_SHOW);
 			// Get the width and height of the screen
 			int screenWidth = GetSystemMetrics(SM_CXSCREEN);

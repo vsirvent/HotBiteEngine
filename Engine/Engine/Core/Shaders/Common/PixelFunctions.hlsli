@@ -45,7 +45,7 @@ Texture2D highTexture;
 
 Texture2D<float> depthTexture;
 Texture2D<float> DirShadowMapTexture[MAX_LIGHTS];
-//Texture2D<float> DirStaticShadowMapTexture[MAX_LIGHTS];
+Texture2D<float> DirStaticShadowMapTexture[MAX_LIGHTS];
 TextureCube<float> PointShadowMapTexture[MAX_LIGHTS];
 
 //Packed array
@@ -110,6 +110,48 @@ float DirShadowPCF(float4 position, DirLight light, int index)
 	return saturate(att1);
 }
 
+//Static casters are rendered into their own map on a slow refresh cycle, under the
+//light's view matrix as it stood at that refresh - hence DirStaticPerspectiveMatrix
+//rather than DirPerspectiveMatrix. Outside the map footprint we return 1.0f (lit), not
+//0.5f: this result is min()'d with the dynamic one, so "no data here" must not darken.
+float DirStaticShadowPCF(float4 position, DirLight light, int index)
+{
+	if (!(light.flags & DIR_LIGHT_FLAG_STATIC_SHADOW)) {
+		return 1.0f;
+	}
+	float4 p = mul(position, DirStaticPerspectiveMatrix[index]);
+	p.x = (p.x + 1.0f) / 2.0f;
+	p.y = 1.0f - ((p.y + 1.0f) / 2.0f);
+	if (p.x < 0.0f || p.x > 1.0f || p.y < 0.0f || p.y > 1.0f) {
+		return 1.0f;
+	}
+	float w;
+	float h;
+	DirStaticShadowMapTexture[index].GetDimensions(w, h);
+	float2 delta = 0.5f / float2(w, h);
+	float2 kernel = delta * 5.0f;
+	float att1 = 0.0f;
+	float count = 0.00001f;
+
+	for (float x = -kernel.x; x <= kernel.x; x += delta.x) {
+		for (float y = -kernel.y; y <= kernel.y; y += delta.y) {
+			float4 val = DirStaticShadowMapTexture[index].GatherCmp(PCFSampler, float2(p.x + x, p.y + y), p.z);
+			att1 += dot(val, float4(0.25, 0.25, 0.25, 0.25));
+			count++;
+		}
+	}
+	att1 /= count;
+	return saturate(att1);
+}
+
+//Combined attenuation of both caster sets. Shadowing is occlusion, so the darker of
+//the two wins.
+float DirShadowPCFAll(float4 position, DirLight light, int index)
+{
+	return min(DirShadowPCF(position, light, index),
+	           DirStaticShadowPCF(position, light, index));
+}
+
 float DirShadowPCFFAST(float4 position, DirLight light, int index)
 {
 	float4 p = mul(position, DirPerspectiveMatrix[index]);
@@ -121,6 +163,28 @@ float DirShadowPCFFAST(float4 position, DirLight light, int index)
 	float4 val = DirShadowMapTexture[index].GatherCmp(PCFSampler, float2(p.x, p.y), p.z);
     float att1 = dot(val, float4(0.25, 0.25, 0.25, 0.25));
 	return saturate(att1);
+}
+
+float DirStaticShadowPCFFAST(float4 position, DirLight light, int index)
+{
+	if (!(light.flags & DIR_LIGHT_FLAG_STATIC_SHADOW)) {
+		return 1.0f;
+	}
+	float4 p = mul(position, DirStaticPerspectiveMatrix[index]);
+	p.x = (p.x + 1.0f) / 2.0f;
+	p.y = 1.0f - ((p.y + 1.0f) / 2.0f);
+	if (p.x < 0.0f || p.x > 1.0f || p.y < 0.0f || p.y > 1.0f) {
+		return 1.0f;
+	}
+	float4 val = DirStaticShadowMapTexture[index].GatherCmp(PCFSampler, float2(p.x, p.y), p.z);
+	float att1 = dot(val, float4(0.25, 0.25, 0.25, 0.25));
+	return saturate(att1);
+}
+
+float DirShadowPCFFASTAll(float4 position, DirLight light, int index)
+{
+	return min(DirShadowPCFFAST(position, light, index),
+	           DirStaticShadowPCFFAST(position, light, index));
 }
 
 float PointShadowPCF(float3 ToPixel, PointLight light, int index)
@@ -200,7 +264,7 @@ float3 CalcDirectional(float3 normal, float4 position, float2 uv, MaterialColor 
 #endif
 	float shadow = 1.0f;
 	if (light.cast_shadow) {
-		shadow = (DirShadowPCF(position, light, index));
+		shadow = (DirShadowPCFAll(position, light, index));
 		if (cloud_density > 0.0f) {
 			shadow -= CloudPCF(position, light, cloud_density);
 		}
@@ -219,7 +283,7 @@ float3 CalcDirectionalWithoutNormal(float4 position, MaterialColor material, Dir
 
 	float shadow = 1.0f;
 	if (light.cast_shadow) {
-		shadow = (DirShadowPCF(position, light, index));
+		shadow = (DirShadowPCFAll(position, light, index));
 		if (cloud_density > 0.0f) {
 			shadow -= CloudPCF(position, light, cloud_density);
 		}
@@ -311,7 +375,7 @@ float3 DirVolumetricLight(float4 position, DirLight light, int index, float time
 				fog = clamp(30.0f * (n - 0.2f), -1.0f, 30.0f);
 			}
 			if (light.cast_shadow) {
-				shadow = DirShadowPCFFAST(position, light, index);
+				shadow = DirShadowPCFFASTAll(position, light, index);
 				if (cloud_density > 0.0f) {
 					shadow -= CloudPCF(position, light, cloud_density);
 				}

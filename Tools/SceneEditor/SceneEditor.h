@@ -52,6 +52,17 @@ namespace HotBiteEditor {
 									  // templates discovered by scanning disk are already there)
 	};
 
+	// A full copy of an entity's Transform channels, the unit the undo history
+	// stores (entities are addressed by name because ids get recycled across a
+	// place-undo/redo cycle). Also the physics preview's rewind baseline. Named
+	// Inspector::TransformSnapshot everywhere it is used; it lives here only
+	// because EditorState has to hold some.
+	struct TransformSnapshot {
+		HotBite::Engine::float3 position{ 0.0f, 0.0f, 0.0f };
+		HotBite::Engine::float4 rotation{ 0.0f, 0.0f, 0.0f, 1.0f };
+		HotBite::Engine::float3 scale{ 1.0f, 1.0f, 1.0f };
+	};
+
 	// Which transform tool the viewport gizmo edits. Switched from the Edit menu
 	// (scriptable as `menu "Edit/Gizmo: Rotate"` etc.) or the 1/2/3 keys.
 	enum class GizmoMode { Translate = 0, Rotate, Scale };
@@ -160,6 +171,18 @@ namespace HotBiteEditor {
 		std::vector<TemplateAsset> templates; // discovered/imported object templates
 		std::string selected_template;        // template name chosen in the Asset Browser
 
+		// Materials panel state. `selected_material` is the material whose properties
+		// the panel is editing, by name (the editor's stable key for materials, exactly
+		// as entity names are for entities).
+		//
+		// `dirty_material_files` holds the .mat files edited since the last save, so
+		// File/Save Materials rewrites only what changed and the panel can mark unsaved
+		// work. Material edits are NOT part of the level file - saving the level does
+		// not save them, and vice versa - because a .mat is shared by every level that
+		// references it.
+		std::string selected_material;
+		std::set<std::string> dirty_material_files;
+
 		// Entity grouping shown as a tree in the Entities panel: every group name
 		// (kept even while empty) plus the group each entity name belongs to
 		// (entities absent from the map are ungrouped). Keyed by entity *name*
@@ -167,6 +190,21 @@ namespace HotBiteEditor {
 		// JSON under a top-level "editor" object the engine loader never reads.
 		std::set<std::string> entity_groups;
 		std::map<std::string, std::string> entity_group_of; // entity name -> group name
+
+		// Edit/Simulate Physics is a *preview*, not an edit: whatever the bodies do
+		// while it runs is thrown away when it is switched off, and the scene rewinds
+		// to the authored transforms. This holds the pose every simulated entity
+		// rewinds to, by name, captured when the preview was switched on (empty while
+		// it is off - see PhysicsPreview.h, which owns both maps).
+		//
+		// Transform edits made *during* a preview retarget the rewind: the entry is
+		// overwritten (by Inspector's CommitTransformEdit), so switching the preview
+		// off lands on the edited pose, not the one from before the edit. That is what
+		// makes it possible to author while watching bodies settle.
+		// Keyed by entity name like every other editor map, so EntityOps'
+		// RenameEverywhere re-keys it too.
+		std::map<std::string, TransformSnapshot> physics_preview_baseline;
+		bool physics_preview_active = false;
 
 		// Raised by whichever surface asked to delete the selection (the Del key or
 		// the Entities panel's context menu) and consumed once per frame by the main
@@ -183,6 +221,7 @@ namespace HotBiteEditor {
 		bool show_outliner = true;
 		bool show_inspector = true;
 		bool show_asset_browser = true;
+		bool show_material_panel = false;
 		bool show_project = false;
 
 		// Set by View/Reset Layout: for one frame every panel re-applies its

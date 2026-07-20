@@ -30,6 +30,7 @@ SOFTWARE.
 #include "Defines.h"
 #include <memory>
 #include <set>
+#include <map>
 #include <Loader\FBXLoader.h>
 #include <ECS/Coordinator.h>
 #include <ECS/ComponentRegistry.h>
@@ -101,6 +102,19 @@ namespace HotBite {
 			// applied in the same pass that records these.
 			std::unordered_map<ECS::Entity, std::set<std::string>> removed_components;
 			Core::FlatMap<std::string, Core::MaterialData> materials{ ECS::MAX_ENTITIES };
+			//Where each material came from, so an editor can write it back to the file
+			//that declared it instead of guessing. `material_files` is keyed by the .mat
+			//path as the level referenced it (relative to the assets path), because that
+			//is the form the level's "material_files" array round-trips; the value is the
+			//texture root that file declares, needed to make texture paths relative again.
+			//Materials with no entry here came from an FBX or from code and belong to no
+			//file until something assigns them one.
+			std::map<std::string, std::string> material_files;
+			std::map<std::string, std::string> material_origin; //material name -> .mat path
+			//Materials retired via RemoveMaterial. Their data is deliberately still in
+			//`materials` (see RemoveMaterial) but they must stay out of every listing and
+			//every saved file.
+			std::set<std::string> removed_materials;
 			Core::FlatMap<std::string, Core::MeshData> meshes{ ECS::MAX_ENTITIES };
 			Core::FlatMap<std::string, Core::ShapeData> shapes{ ECS::MAX_ENTITIES };
 			Core::FlatMap<std::string, std::shared_ptr<Core::Skeleton>> animations{ ECS::MAX_ENTITIES };
@@ -286,6 +300,47 @@ namespace HotBite {
 			bool IsComponentRemoved(ECS::Entity e, const std::string& component) const;
 
 			Core::FlatMap<std::string, Core::MaterialData>& GetMaterials();
+
+			// --- Material authoring -------------------------------------------------
+			// The .mat files this world loaded: level-relative path -> texture root.
+			const std::map<std::string, std::string>& GetMaterialFiles() const { return material_files; }
+			// The .mat file `material_name` was loaded from, or "" when it came from an
+			// FBX or from code and has never been assigned one.
+			std::string GetMaterialOrigin(const std::string& material_name) const;
+			// Assigns (or reassigns) a material to a .mat file. `mat_file` must already be
+			// known to GetMaterialFiles(); returns false otherwise, since writing a
+			// material into a file whose texture root is unknown would produce paths the
+			// next load cannot resolve.
+			bool SetMaterialOrigin(const std::string& material_name, const std::string& mat_file);
+			// Creates an empty white material under `name`, registered against `mat_file`.
+			// Returns null when the name is taken, the file is unknown, or the render
+			// device is not up. The material is Init()ed and immediately assignable.
+			Core::MaterialData* CreateMaterial(const std::string& name, const std::string& mat_file);
+			// Retires a material: it stops being listed, stops being saved, and can no
+			// longer be assigned - but its MaterialData stays alive (see the comment on
+			// the implementation for why erasing it would dangle an *unrelated*
+			// material). Callers are responsible for having already repointed every
+			// entity that used it; this does not touch entities.
+			bool RemoveMaterial(const std::string& name);
+			bool IsMaterialRemoved(const std::string& name) const;
+			// Un-retires a material and reassigns it to a file. The undo of
+			// RemoveMaterial, and the reason removal keeps the data alive.
+			bool RestoreMaterial(const std::string& name, const std::string& mat_file);
+			// Rewrites `mat_file` from the in-memory state of every material assigned to
+			// it, preserving the file's "root" declaration and the keys Load() ignores
+			// (see MaterialData::source_json). Returns false if the file is unknown or
+			// cannot be written.
+			bool SaveMaterialFile(const std::string& mat_file);
+			// Repoints an entity's Material component at the named material and
+			// re-registers it with the render system, which keys its draw trees by
+			// MaterialData pointer - assigning the pointer alone leaves the entity drawing
+			// with the old material until something forces a signature change.
+			bool SetEntityMaterial(ECS::Entity e, const std::string& material_name);
+			// Rebinds a material's shader stages and re-registers every entity using it
+			// with the render system. Returns false (changing nothing) when the material
+			// is unknown or any name does not load as the stage it was given for.
+			bool SetMaterialShaders(const std::string& material_name,
+									const Core::MaterialShaderNames& names);
 			Core::FlatMap<std::string, Core::MeshData>& GetMeshes();
 			Core::FlatMap<std::string, Core::ShapeData>& GetShapes();
 			Core::FlatMap<std::string, std::shared_ptr<Core::Skeleton>>& GetSkeletons();

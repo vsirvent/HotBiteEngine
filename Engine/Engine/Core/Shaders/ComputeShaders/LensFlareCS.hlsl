@@ -54,15 +54,18 @@ cbuffer externalData : register(b0)
     uint pointLightsCount;
 
     matrix DirPerspectiveMatrix[MAX_LIGHTS];
+    matrix DirStaticPerspectiveMatrix[MAX_LIGHTS];
     uint dirLightsCount;
 }
 
 Texture2D<float> DirShadowMapTexture[MAX_LIGHTS];
+Texture2D<float> DirStaticShadowMapTexture[MAX_LIGHTS];
 TextureCube<float> PointShadowMapTexture[MAX_LIGHTS];
 
 //Packed array
 static float2 lps[MAX_LIGHTS] = (float2[MAX_LIGHTS])LightPerspectiveValues;
 
+#define HAS_STATIC_DIR_SHADOWS
 #include "../Common/SimpleLight.hlsli"
 #include "../Common/RGBANoise.hlsli"
 

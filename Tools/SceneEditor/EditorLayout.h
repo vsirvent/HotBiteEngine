@@ -12,6 +12,10 @@ namespace HotBiteEditor {
 		inline constexpr const char* OUTLINER_WINDOW = "Entities";
 		inline constexpr const char* ASSET_BROWSER_WINDOW = "Asset Browser";
 		inline constexpr const char* INSPECTOR_WINDOW = "Components";
+		// The Materials panel is a floating window rather than a docked one: it is
+		// opened for a material-authoring session and closed again, and it needs more
+		// width than the side docks give it (thumbnail list plus a property column).
+		inline constexpr const char* MATERIALS_WINDOW = "Materials";
 
 		// Fullscreen dockspace over the main viewport's work area with a transparent
 		// pass-through central node: the 3D scene (already rendered into the

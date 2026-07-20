@@ -80,6 +80,8 @@ Texture2D<float4> motion_texture : register(t8);
 Texture2D<float4> prev_position_map : register(t9);
 
 Texture2D<float4> DiffuseTextures[MAX_OBJECTS];
+//No DirStaticShadowMapTexture here: DiffuseTextures[MAX_OBJECTS] leaves no room for
+//another MAX_LIGHTS array within the 128 texture registers (X4565). See SimpleLight.hlsli.
 Texture2D<float> DirShadowMapTexture[MAX_LIGHTS];
 TextureCube<float> PointShadowMapTexture[MAX_LIGHTS];
 

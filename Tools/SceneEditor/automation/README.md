@@ -62,6 +62,14 @@ directory so relative asset paths in level files resolve the same way the other 
 | `create_group <name>` | creates an (empty) entity group in the Entities panel tree |
 | `set_group <entity> <group\|none>` | moves an entity into a group (`none` ungroups); an unknown group is created implicitly. Groups persist in the level JSON on save |
 | `list_groups` | lists all groups and their member entities |
+| `materials` | lists every material: its `.mat` file (or `(none)` for an FBX-authored one), whether that file has unsaved edits, how many entities use it, and which one is selected |
+| `select_material <name>` | selects a material and opens the Materials panel on it |
+| `create_material <name> <mat file>` | creates a white material in one of the level's `.mat` files (use the `file=` value from `materials`) |
+| `remove_material <name>` | retires a material; every entity using it is reassigned to the default white material. Undoable, users included |
+| `set_material <entity> <material>` | repoints one entity at a different material, like the Components panel's Material combo |
+| `shaders <material>` | prints the material's nine shader stages (`draw_vs` … `depth_ps`) |
+| `set_shader <material> <slot> <file.cso>` | rebinds one stage. Slots: `draw_vs` `draw_hs` `draw_ds` `draw_gs` `draw_ps` `shadow_vs` `shadow_gs` `depth_vs` `depth_ps`. Fails without changing anything if the file will not load as that stage. Undoable |
+| `save_materials` | writes every `.mat` file with unsaved edits. Materials are **not** saved by `save` - a `.mat` is a shared asset, not part of the level |
 | `set_position x y z` | edits the selected entity's Transform like the Inspector fields |
 | `set_scale x y z` | ditto |
 | `set_rotation p y r` | Euler degrees, pitch/yaw/roll |
@@ -82,6 +90,8 @@ directory so relative asset paths in level files resolve the same way the other 
 | `colliders off\|selection\|all` | physics collider wireframe overlay (View/Colliders in the menu). Draws each collider exactly as reactphysics3d holds it — through the collider's local-to-body transform and the body's world transform — so a wireframe that does not wrap the mesh *is* a collider scale/offset bug. `all` is capped at 60000 segments and says so on screen when it truncates |
 | `physics_info` | numeric counterpart of the overlay, for the selection: body type, active flag, collision shape, the entity's scale vs the scale baked into its collision mesh, and the collider's world AABB against the rendered mesh's — with an `ok`/`SUSPECT` verdict. The verdict only applies to mesh colliders; capsules/boxes/spheres approximate the mesh by design and report `n/a` |
 | `screenshot <png path>` | saves the backbuffer (scene + ImGui UI) as PNG at the end of the frame |
+| `rdoc_capture` | queues a RenderDoc capture of the frame being rendered; needs `--renderdoc` at launch. The `.rdc` is finalized after present, so poll `rdoc_last` for its path |
+| `rdoc_last` | number of captures this session and the path of the newest one |
 | `undo` / `redo` | steps the editor's undo history (same stack as Edit/Undo, Edit/Redo and Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z); the `OK` line names the step applied, `ERR` when the stack is empty |
 | `quit` | closes the editor |
 | `debug_crash` | deliberate null write to exercise the crash pipeline; never responds (the process dies), so expect the driver to time out |

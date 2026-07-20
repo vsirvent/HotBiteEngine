@@ -138,6 +138,17 @@ void RenderSystem::OnEntityDestroyed(ECS::Entity entity) {
 	RemoveParticle(entity, particle_tree);
 }
 
+void RenderSystem::RefreshDrawable(ECS::Entity entity) {
+	std::scoped_lock l(mutex);
+	//Remove first, then let the normal registration path put it back under whatever
+	//keys its components now produce.
+	RemoveDrawable(entity, render_pass2_tree);
+	RemoveDrawable(entity, render_tree);
+	RemoveDrawable(entity, depth_tree);
+	RemoveDrawable(entity, shadow_tree);
+	OnEntitySignatureChanged(entity, coordinator->GetEntitySignature(entity));
+}
+
 void RenderSystem::OnEntitySignatureChanged(ECS::Entity entity, const Signature& entity_signature) {
 	if ((entity_signature & sky_signature) == sky_signature)
 	{
@@ -663,6 +674,30 @@ void RenderSystem::DrawDepth(int w, int h, const float3& camera_position, const 
 		e.SetType(EVENT_ID_DEPTH_UNPREPARE_SHADER);
 		coordinator->SendEvent(e);
 	}
+}
+
+uint64_t RenderSystem::StaticShadowSignature() {
+	uint64_t sig = 1469598103934665603ULL;
+	auto mix = [&sig](uint64_t v) {
+		sig = (sig ^ v) * 1099511628211ULL;
+	};
+	for (auto& shaders : shadow_tree) {
+		for (auto& mat : shaders.second) {
+			for (const DrawableEntity& de : mat.second.second.GetData()) {
+				if (!de.base->is_static || !de.base->cast_shadow || !de.base->visible) {
+					continue;
+				}
+				mix(de.base->id);
+				//Position only: a static caster that is being moved is what we need to
+				//notice, and float bits make the compare exact without an epsilon.
+				const float3& p = de.transform->position;
+				mix(*reinterpret_cast<const uint32_t*>(&p.x));
+				mix(*reinterpret_cast<const uint32_t*>(&p.y));
+				mix(*reinterpret_cast<const uint32_t*>(&p.z));
+			}
+		}
+	}
+	return sig;
 }
 
 void RenderSystem::CastShadows(int w, int h, const float3& camera_position, const matrix& view, const matrix& projection, bool static_shadows) {
@@ -2289,6 +2324,12 @@ void RenderSystem::PrepareLights(Core::ISimpleShader* s) {
 		s->SetData(DIR_PERSPECTIVE_VALUES, scene_lighting.dir_shadows_perspectives.data(), (int)(sizeof(float4x4) * scene_lighting.dir_shadows_perspectives.size()));
 		s->SetShaderResourceViewArray(DIR_SHADOW_MAP_TEXTURE, scene_lighting.dir_shadows.data(), (int)(scene_lighting.dir_shadows.size()));
 	}
+	//Static casters live in their own map, refreshed only every STATIC_SHADOW_REFRESH_PERIOD
+	//frames, so it carries its own view matrix (the light may have drifted since).
+	if (!scene_lighting.dir_static_shadows.empty()) {
+		s->SetData(DIR_STATIC_PERSPECTIVE_VALUES, scene_lighting.dir_static_shadows_perspectives.data(), (int)(sizeof(float4x4) * scene_lighting.dir_static_shadows_perspectives.size()));
+		s->SetShaderResourceViewArray(DIR_STATIC_SHADOW_MAP_TEXTURE, scene_lighting.dir_static_shadows.data(), (int)(scene_lighting.dir_static_shadows.size()));
+	}
 }
 
 void RenderSystem::UnprepareLights(Core::ISimpleShader* s) {
@@ -2298,6 +2339,10 @@ void RenderSystem::UnprepareLights(Core::ISimpleShader* s) {
 	}
 	if (!scene_lighting.dir_shadows.empty()) {
 		s->SetShaderResourceViewArray(DIR_SHADOW_MAP_TEXTURE, no_data, MAX_LIGHTS);
+	}
+	//Must be released before the next CastShadows(static) binds it as a depth target.
+	if (!scene_lighting.dir_static_shadows.empty()) {
+		s->SetShaderResourceViewArray(DIR_STATIC_SHADOW_MAP_TEXTURE, no_data, MAX_LIGHTS);
 	}
 }
 
@@ -2609,11 +2654,16 @@ void RenderSystem::Draw() {
 
 		CheckSceneVisibility(render_tree);
 		static int count = 0;
-		//Only one every 100 frames we refresh static shadows (directional light can change location due to sky component)
+		//Only one every STATIC_SHADOW_REFRESH_PERIOD frames we refresh static shadows (directional light can change location due to sky component)
 		//but this is fine to just make the overhead of casting shadow of static objects almost zero (cost reduced by /STATIC_SHADOW_REFRESH_PERIOD)
-		//if ((count++ % STATIC_SHADOW_REFRESH_PERIOD) == 0) {
-		//	CastShadows(w, h, camera_position, view, projection, true);
-		//}		
+		//...plus immediately whenever the set of static casters or their positions change,
+		//so an edit shows up now instead of up to a whole period later.
+		const uint64_t static_shadow_signature = StaticShadowSignature();
+		if ((count++ % STATIC_SHADOW_REFRESH_PERIOD) == 0 ||
+			static_shadow_signature != last_static_shadow_signature) {
+			last_static_shadow_signature = static_shadow_signature;
+			CastShadows(w, h, camera_position, view, projection, true);
+		}
 		if (dof_effect) dof_effect->SetEnabled(dof_enabled);
 
 		current_light_map = &light_map[0];

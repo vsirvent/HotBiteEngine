@@ -95,6 +95,14 @@ namespace HotBiteEditor {
 				state.component_deltas.erase(dit);
 				state.component_deltas[new_name] = std::move(delta);
 			}
+			//A rename (or a park) during a physics preview must not orphan the pose the
+			//entity has to rewind to when the preview is switched off.
+			auto pit = state.physics_preview_baseline.find(old_name);
+			if (pit != state.physics_preview_baseline.end()) {
+				TransformSnapshot snapshot = pit->second;
+				state.physics_preview_baseline.erase(pit);
+				state.physics_preview_baseline[new_name] = snapshot;
+			}
 			auto oit = state.opaque_components.find(old_name);
 			if (oit != state.opaque_components.end()) {
 				std::map<std::string, nlohmann::json> blocks = std::move(oit->second);

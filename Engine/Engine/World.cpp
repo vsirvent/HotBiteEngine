@@ -388,6 +388,10 @@ void  World::LoadMaterialFiles(const nlohmann::json& materials_info, const std::
 		auto c = GetCoordinator();
 		std::scoped_lock l(c->GetSystem<RenderSystem>()->mutex);
 
+		//Remember the file and the texture root it declares, so an editor can write
+		//these materials back where they came from.
+		material_files[file] = root;
+
 		auto& materials = GetMaterials();
 		for (const auto& m : scene["materials"]) {
 			std::string name = m["name"];
@@ -397,8 +401,175 @@ void  World::LoadMaterialFiles(const nlohmann::json& materials_info, const std::
 				mdata = materials.Get(name);
 			}
 			mdata->Load(root, m.dump());
+			material_origin[name] = file;
 		}
 	}
+}
+
+std::string World::GetMaterialOrigin(const std::string& material_name) const {
+	auto it = material_origin.find(material_name);
+	return it != material_origin.end() ? it->second : std::string();
+}
+
+bool World::SetMaterialOrigin(const std::string& material_name, const std::string& mat_file) {
+	if (material_files.find(mat_file) == material_files.end()) {
+		return false;
+	}
+	if (materials.Get(material_name) == nullptr) {
+		return false;
+	}
+	material_origin[material_name] = mat_file;
+	return true;
+}
+
+Core::MaterialData* World::CreateMaterial(const std::string& name, const std::string& mat_file) {
+	if (name.empty()) {
+		return nullptr;
+	}
+	if (material_files.find(mat_file) == material_files.end()) {
+		return nullptr;
+	}
+	//A retired name is free to reuse: its MaterialData is still there (RemoveMaterial
+	//never erases it), so revive that entry rather than colliding with it.
+	const bool reviving = IsMaterialRemoved(name);
+	if (!reviving && materials.Get(name) != nullptr) {
+		return nullptr;
+	}
+	if (reviving) {
+		removed_materials.erase(name);
+	}
+	else {
+		//Insert first, Init second: MaterialData refuses to be copied once initialized
+		//and Insert copies into the collection (same order as GetDefaultMaterial).
+		materials.Insert(name, Core::MaterialData{ name });
+	}
+	Core::MaterialData* material = materials.Get(name);
+	if (material == nullptr) {
+		return nullptr;
+	}
+	material->source_json = nlohmann::json::object();
+	material->texture_names = Core::MaterialTextures{};
+	material->props.diffuseColor = { 1.0f, 1.0f, 1.0f, 1.0f };
+	material->props.ambientColor = { 0.1f, 0.1f, 0.1f, 1.0f };
+	material->props.specIntensity = 0.2f;
+	material->props.opacity = 1.0f;
+	material->Init();
+	material_origin[name] = mat_file;
+	return material;
+}
+
+bool World::RemoveMaterial(const std::string& name) {
+	if (materials.Get(name) == nullptr || IsMaterialRemoved(name)) {
+		return false;
+	}
+	//Retired, not erased. MaterialData lives in a FlatMap, which fills the hole left
+	//by a removal with the collection's last element - so physically removing one
+	//material relocates another, and every Material component and render-tree key
+	//still pointing at the moved one becomes a dangling pointer. Since callers have
+	//only repointed the entities that used *this* material, that would corrupt an
+	//unrelated one. Keeping the data alive and marking the name retired costs one
+	//unused material per removal and cannot dangle; the same reasoning is why the
+	//editor parks cut entities instead of destroying them.
+	removed_materials.insert(name);
+	material_origin.erase(name);
+	return true;
+}
+
+bool World::IsMaterialRemoved(const std::string& name) const {
+	return removed_materials.find(name) != removed_materials.end();
+}
+
+bool World::RestoreMaterial(const std::string& name, const std::string& mat_file) {
+	if (!IsMaterialRemoved(name) || materials.Get(name) == nullptr) {
+		return false;
+	}
+	if (material_files.find(mat_file) == material_files.end()) {
+		return false;
+	}
+	removed_materials.erase(name);
+	material_origin[name] = mat_file;
+	return true;
+}
+
+bool World::SaveMaterialFile(const std::string& mat_file) {
+	auto file_it = material_files.find(mat_file);
+	if (file_it == material_files.end()) {
+		return false;
+	}
+	const std::string& root = file_it->second;
+	const std::string file_path = path + mat_file;
+
+	nlohmann::json out;
+	//"root" is stored relative to the assets path, exactly as the file declared it.
+	out["root"] = root.compare(0, path.size(), path) == 0 ? root.substr(path.size()) : root;
+	out["materials"] = nlohmann::json::array();
+	//Sorted by name so the file has a stable order and diffs stay readable, rather
+	//than following the material collection's internal layout.
+	std::vector<std::string> names;
+	for (const auto& origin : material_origin) {
+		if (origin.second == mat_file) {
+			names.push_back(origin.first);
+		}
+	}
+	std::sort(names.begin(), names.end());
+	for (const std::string& name : names) {
+		Core::MaterialData* m = materials.Get(name);
+		if (m != nullptr) {
+			out["materials"].push_back(m->Save(root));
+		}
+	}
+
+	std::ofstream stream(file_path);
+	if (!stream.is_open()) {
+		printf("World::SaveMaterialFile: cannot write %s\n", file_path.c_str());
+		return false;
+	}
+	stream << out.dump(4);
+	return stream.good();
+}
+
+bool World::SetMaterialShaders(const std::string& material_name,
+	const Core::MaterialShaderNames& names) {
+	auto c = GetCoordinator();
+	Core::MaterialData* material = materials.Get(material_name);
+	if (c == nullptr || material == nullptr) {
+		return false;
+	}
+	auto rs = c->GetSystem<RenderSystem>();
+	std::scoped_lock l(rs->mutex);
+	if (!material->SetShaders(names)) {
+		return false;
+	}
+	//Every entity drawing with this material is filed in the render trees under the
+	//old shader tuple; leaving them there would draw each one twice (see
+	//RenderSystem::RefreshDrawable).
+	for (const auto& entry : c->GetEntites()) {
+		const ECS::Entity e = entry.second;
+		if (c->ContainsComponent<Components::Material>(e) &&
+			c->GetComponent<Components::Material>(e).data == material) {
+			rs->RefreshDrawable(e);
+		}
+	}
+	return true;
+}
+
+bool World::SetEntityMaterial(ECS::Entity e, const std::string& material_name) {
+	auto c = GetCoordinator();
+	if (c == nullptr || !c->ContainsComponent<Components::Material>(e)) {
+		return false;
+	}
+	Core::MaterialData* data = materials.Get(material_name);
+	if (data == nullptr) {
+		return false;
+	}
+	std::scoped_lock l(c->GetSystem<RenderSystem>()->mutex);
+	c->GetComponent<Components::Material>(e).data = data;
+	//The render system keys its draw trees by MaterialData pointer, so assigning the
+	//pointer is not enough - the entity has to be re-registered under the new key.
+	//AddDrawable evicts it from every other material bucket as it goes, so this both
+	//adds the new entry and drops the stale one.
+	c->NotifySignatureChange(e);
+	return true;
 }
 
 void World::LoadMultiMaterial(const std::string& name, const nlohmann::json& multi_material_info) {

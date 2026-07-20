@@ -56,6 +56,9 @@ struct DirLight
 {
 #define DIR_LIGHT_FLAG_FOG 1
 #define DIR_LIGHT_FLAG_INVERSE 2
+	//Mirrors DIR_LIGHT_FLAG_STATIC_SHADOW in Components/Lights.h: the static shadow
+	//map for this light has been rendered and bound at least once.
+#define DIR_LIGHT_FLAG_STATIC_SHADOW 4
 	float3 Color;
 	float  intensity;
 	float3 DirToLight;

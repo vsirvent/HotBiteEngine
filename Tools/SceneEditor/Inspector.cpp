@@ -1,8 +1,9 @@
-﻿#include "Inspector.h"
+#include "Inspector.h"
 #include "ComponentOps.h"
 #include "EditorHistory.h"
 #include "EditorLayout.h"
 #include "EntityOps.h"
+#include "MaterialPanel.h"
 
 #include "imgui.h"
 #include <ECS/ComponentRegistry.h>
@@ -57,11 +58,19 @@ namespace HotBiteEditor {
 			state.inspector_euler_degrees = QuaternionToEulerDegrees(q);
 		}
 
-		//Shared post-edit bookkeeping for both the interactive (Draw) and programmatic
-		//(ApplyTransform/ApplySnapshot) paths: marks the transform dirty and records
-		//what needs to be written back on save. `before` is the Transform as it was
-		//prior to this edit; it decides whether the physics collider has to be rebuilt.
-		static void CommitTransformEdit(EditorState& state, Entity entity, const Base& base,
+		//Held by every path that writes a Transform, from before the first field is
+		//touched until the commit is done. It is uncontended in the normal (paused)
+		//editor; it matters while a physics preview runs, where an unlocked read-modify-
+		//write of a Transform races the physics thread writing body poses into that very
+		//Transform (see CommitTransformEdit).
+		using EditTransformLock = std::lock_guard<std::recursive_mutex>;
+
+		//Pushes a just-written Transform out to the renderer and the physics body.
+		//Shared by every write path, including the physics preview's rewind, which
+		//needs exactly this and none of the save bookkeeping below. `before` is the
+		//Transform as it was prior to the write; it decides whether the physics
+		//collider has to be rebuilt.
+		static void SyncTransformTargets(EditorState& state, Entity entity, const Base& base,
 			Transform& t, const TransformSnapshot& before)
 		{
 			t.dirty = true;
@@ -113,6 +122,33 @@ namespace HotBiteEditor {
 				}
 			}
 
+		}
+
+		//Shared post-edit bookkeeping for both the interactive (Draw) and programmatic
+		//(ApplyTransform/ApplySnapshot) paths: syncs the edit out and records what
+		//needs to be written back on save.
+		static void CommitTransformEdit(EditorState& state, Entity entity, const Base& base,
+			Transform& t, const TransformSnapshot& before)
+		{
+			SyncTransformTargets(state, entity, base, t, before);
+
+			//While the physics preview runs, an edit is authoring against the pose the
+			//scene will rewind to, not against whatever the simulation happens to have
+			//moved this body to - so retarget the rewind (see PhysicsPreview.h). Without
+			//this, switching the preview off would silently undo the edit.
+			//
+			//Reading it back out of the Transform is only sound because every caller
+			//holds the physics lock across its write and this commit (see
+			//EditTransformLock): with the simulation live, an unlocked edit can have a
+			//physics tick overwrite the Transform in between, and the rewind would then
+			//latch the *simulated* pose - so switching the preview off would leave the
+			//entity wherever it happened to be mid-fall, which is precisely what an
+			//unlocked version did in testing.
+			auto baseline = state.physics_preview_baseline.find(base.name);
+			if (baseline != state.physics_preview_baseline.end()) {
+				baseline->second = { t.position, t.rotation, t.scale };
+			}
+
 			if (state.instance_entity_ids.count(entity) != 0) {
 				//This entity is an editor-placed instance: update its bookkeeping
 				//entry directly so a save writes the new transform out.
@@ -151,6 +187,7 @@ namespace HotBiteEditor {
 			}
 			const Base& base = c->GetComponent<Base>(state.selected_entity);
 			Transform& t = c->GetComponent<Transform>(state.selected_entity);
+			EditTransformLock lock(Core::physics_mutex);
 			TransformSnapshot before{ t.position, t.rotation, t.scale };
 
 			if (position != nullptr) {
@@ -203,11 +240,39 @@ namespace HotBiteEditor {
 			}
 			const Base& base = c->GetComponent<Base>(e);
 			Transform& t = c->GetComponent<Transform>(e);
+			EditTransformLock lock(Core::physics_mutex);
 			TransformSnapshot before{ t.position, t.rotation, t.scale };
 			t.position = snapshot.position;
 			t.rotation = snapshot.rotation;
 			t.scale = snapshot.scale;
 			CommitTransformEdit(state, e, base, t, before);
+			if (e == state.selected_entity) {
+				RefreshEulerCache(state);
+			}
+			return true;
+		}
+
+		bool RestoreSnapshot(EditorState& state, const std::string& entity_name,
+			const TransformSnapshot& snapshot, std::string& error)
+		{
+			Coordinator* c = state.world->GetCoordinator();
+			Entity e = (c != nullptr) ? c->GetEntityByName(entity_name) : INVALID_ENTITY_ID;
+			if (e == INVALID_ENTITY_ID) {
+				error = "entity not found: " + entity_name;
+				return false;
+			}
+			if (!c->ContainsComponent<Base>(e) || !c->ContainsComponent<Transform>(e)) {
+				error = "entity has no Base/Transform component: " + entity_name;
+				return false;
+			}
+			const Base& base = c->GetComponent<Base>(e);
+			Transform& t = c->GetComponent<Transform>(e);
+			EditTransformLock lock(Core::physics_mutex);
+			TransformSnapshot before{ t.position, t.rotation, t.scale };
+			t.position = snapshot.position;
+			t.rotation = snapshot.rotation;
+			t.scale = snapshot.scale;
+			SyncTransformTargets(state, e, base, t, before);
 			if (e == state.selected_entity) {
 				RefreshEulerCache(state);
 			}
@@ -351,6 +416,10 @@ namespace HotBiteEditor {
 			//field activates and recorded when it deactivates. Only one field can be
 			//active at a time, so a single pending snapshot covers all three.
 			static TransformSnapshot pending_before;
+			//Covers the widgets too, not just the commit: they edit t in place, so with
+			//a physics preview running the drag would otherwise read a pose the physics
+			//thread is concurrently rewriting.
+			EditTransformLock lock(Core::physics_mutex);
 			TransformSnapshot frame_before{ t.position, t.rotation, t.scale };
 			bool changed = false;
 			bool activated = false;
@@ -385,7 +454,7 @@ namespace HotBiteEditor {
 			ImGui::Text("World  extents %.2f %.2f %.2f", b.final_box.Extents.x, b.final_box.Extents.y, b.final_box.Extents.z);
 		}
 
-		static void DrawMaterial(Coordinator* c, Entity e)
+		static void DrawMaterial(EditorState& state, Coordinator* c, Entity e)
 		{
 			Material& m = c->GetComponent<Material>(e);
 			if (m.data == nullptr) {
@@ -393,34 +462,33 @@ namespace HotBiteEditor {
 				return;
 			}
 			Core::MaterialData& md = *m.data;
-			ImGui::Text("Name: %s", md.name.c_str());
-			Core::MaterialProps& p = md.props;
-			ImGui::ColorEdit4("Diffuse", &p.diffuseColor.x);
-			ImGui::ColorEdit4("Ambient", &p.ambientColor.x);
-			ImGui::DragFloat("Specular", &p.specIntensity, 0.01f, 0.0f, 16.0f);
-			ImGui::SliderFloat("Opacity", &p.opacity, 0.0f, 1.0f);
-			ImGui::DragFloat("Emission", &p.emission, 0.01f, 0.0f, 100.0f);
-			ImGui::ColorEdit3("Emissive", &p.emission_color.x);
-			ImGui::DragFloat("Bloom", &p.bloom_scale, 0.01f, 0.0f, 10.0f);
-			ImGui::DragFloat("RT reflex", &p.rt_reflex, 0.01f, 0.0f, 1.0f);
-			ImGui::DragFloat("Parallax", &p.parallax_scale, 0.01f);
-			ImGui::DragFloat("Displace", &md.displacement_scale, 0.01f);
-			ImGui::DragFloat("Tessellate", &md.tessellation_factor, 0.1f, 0.0f, 64.0f);
 
-			const auto& tn = md.texture_names;
-			auto texture_row = [](const char* label, const std::string& file) {
-				if (!file.empty()) {
-					ImGui::Text("%s: %s", label, file.c_str());
+			//Which of the level's materials this entity uses. Note how this differs
+			//from everything below it: the combo repoints *this entity*, while the
+			//property editor changes the material itself and so affects every entity
+			//sharing it (which the editor's "Used by" list spells out).
+			const std::vector<std::string> materials = MaterialOps::ListMaterials(state);
+			if (ImGui::BeginCombo("Material", md.name.c_str())) {
+				for (const std::string& name : materials) {
+					if (ImGui::Selectable(name.c_str(), name == md.name) && name != md.name) {
+						std::string error;
+						const std::string entity_name = c->ContainsComponent<Base>(e)
+							? c->GetComponent<Base>(e).name : std::string();
+						if (!MaterialOps::AssignMaterial(state, entity_name, name, error)) {
+							state.status_message = "Assign material failed: " + error;
+						}
+					}
 				}
-			};
-			texture_row("Diffuse map", tn.diffuse_texname);
-			texture_row("Normal map", tn.normal_textname);
-			texture_row("Height map", tn.high_textname);
-			texture_row("Specular map", tn.spec_textname);
-			texture_row("AO map", tn.ao_textname);
-			texture_row("ARM map", tn.arm_textname);
-			texture_row("Emission map", tn.emission_textname);
-			texture_row("Opacity map", tn.opacity_textname);
+				ImGui::EndCombo();
+			}
+			ImGui::Separator();
+
+			//The Materials panel's property editor, reused verbatim: a material edited
+			//from here is undoable and marks its .mat file dirty exactly as it does
+			//there. The thumbnail is suppressed - this panel is narrow, and the
+			//Materials panel is where you go to look at the sphere.
+			MaterialPanel::DrawMaterialProperties(state, md.name, false);
+
 			if (m.multi_material.multi_texture_count > 0) {
 				ImGui::Text("Multi-texture layers: %u", m.multi_material.multi_texture_count);
 			}
@@ -576,7 +644,7 @@ namespace HotBiteEditor {
 				{ Transform::NAME,        [](EditorState& s, Coordinator* c, Entity e) { DrawTransform(s, c, e); } },
 				{ Bounds::NAME,           [](EditorState& s, Coordinator* c, Entity e) { DrawBounds(c, e); } },
 				{ Mesh::NAME,             [](EditorState& s, Coordinator* c, Entity e) { DrawMesh(c, e); } },
-				{ Material::NAME,         [](EditorState& s, Coordinator* c, Entity e) { DrawMaterial(c, e); } },
+				{ Material::NAME,         [](EditorState& s, Coordinator* c, Entity e) { DrawMaterial(s, c, e); } },
 				{ AmbientLight::NAME,     [](EditorState& s, Coordinator* c, Entity e) { DrawAmbientLight(c, e); } },
 				{ DirectionalLight::NAME, [](EditorState& s, Coordinator* c, Entity e) { DrawDirectionalLight(c, e); } },
 				{ PointLight::NAME,       [](EditorState& s, Coordinator* c, Entity e) { DrawPointLight(c, e); } },
@@ -649,14 +717,24 @@ namespace HotBiteEditor {
 			const std::string& entity_name, const ComponentDesc& desc)
 		{
 			ImGui::PushID(desc.name.c_str());
-			const bool open = ImGui::CollapsingHeader(desc.name.c_str(),
-				ImGuiTreeNodeFlags_DefaultOpen);
 
-			if (desc.Removable()) {
-				//Right-aligned on the header's own line, so it reads as belonging to the
-				//header rather than to the first property.
-				ImGui::SameLine(ImGui::GetWindowWidth() - 30.0f);
-				if (ImGui::SmallButton("x")) {
+			//The remove affordance is CollapsingHeader's own close button (the p_visible
+			//overload), not a SmallButton placed over the header with SameLine.
+			//
+			//A hand-placed button does not work here: the header is one item spanning the
+			//full window width, so it claims the click for the pixels the button is drawn
+			//on and the only visible effect is the header collapsing - the exact symptom
+			//of the bug this replaced. ImGui lays this button out inside the header,
+			//reserves the space for it, and handles the overlap itself.
+			bool visible = true;
+			const bool removable = desc.Removable();
+			const bool open = ImGui::CollapsingHeader(desc.name.c_str(),
+				removable ? &visible : nullptr, ImGuiTreeNodeFlags_DefaultOpen);
+			if (removable) {
+				if (ImGui::IsItemHovered()) {
+					ImGui::SetTooltip("Remove %s from %s", desc.name.c_str(), entity_name.c_str());
+				}
+				if (!visible) {
 					std::string error;
 					if (!ComponentOps::RemoveComponent(state, entity_name, desc.name, error)) {
 						state.status_message = "Remove failed: " + error;
@@ -665,12 +743,18 @@ namespace HotBiteEditor {
 					ImGui::PopID();
 					return;
 				}
-				if (ImGui::IsItemHovered()) {
-					ImGui::SetTooltip("Remove %s from %s", desc.name.c_str(), entity_name.c_str());
-				}
 			}
 
 			if (open) {
+				//The body gets its own ID scope, distinct from the header's.
+				//
+				//Without it, a widget whose label equals the component name collides with
+				//the header itself: both hash the same string under the same PushID, so
+				//they share one ImGui ID, and the header - submitted first - owns it. The
+				//widget still draws and still highlights on hover (that is positional),
+				//but can never activate. That is exactly what happened to the Material
+				//section's "Material" combo, which rendered but refused to open.
+				ImGui::PushID("body");
 				ComponentDrawer drawer = FindDrawer(desc.name);
 				if (drawer != nullptr) {
 					drawer(state, c, e);
@@ -685,6 +769,7 @@ namespace HotBiteEditor {
 						state.component_deltas[entity_name].added[desc.name] = value;
 					}
 				}
+				ImGui::PopID();
 			}
 			ImGui::PopID();
 		}

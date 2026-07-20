@@ -392,6 +392,16 @@ namespace HotBite {
 
 				void DrawSky(int w, int h, const float3& camera_position, const matrix& view, const matrix& projection);
 				void CastShadows(int w, int h, const float3& camera_position, const matrix& view, const matrix& projection, bool static_shadows);
+				//Cheap fingerprint of everything the static shadow map depends on: which
+				//entities are static casters and where they sit. The static map is only
+				//re-rendered every STATIC_SHADOW_REFRESH_PERIOD frames, which is far too
+				//coarse to react to an edit - toggling "Static" or dragging a static object
+				//would otherwise leave a stale (or missing) shadow on screen for the rest of
+				//the period, which reads exactly like static shadows being broken. Comparing
+				//this per frame costs a walk over the shadow tree, cheap next to redrawing it.
+				//Not const: EntityVector::GetData() is a non-const accessor.
+				uint64_t StaticShadowSignature();
+				uint64_t last_static_shadow_signature = 0;
 				void DrawDepth(int w, int h, const float3& camera_position, const matrix& view, const matrix& projection);
 				void DrawScene(int w, int h, const float3& camera_position, const matrix& view, const matrix& projection,
 					ID3D11ShaderResourceView* prev_pass_texture,
@@ -448,6 +458,17 @@ namespace HotBite {
 				//Render parameters
 				void EnableTessellation(bool enabled);
 				bool IsEnabledTessellation() const;
+				// Pulls an entity out of every draw tree and registers it again from its
+				// current components.
+				//
+				// Needed when a material's *shaders* change: the trees are keyed by shader
+				// tuple, and AddDrawable's own cleanup only evicts buckets whose material
+				// differs - so re-adding under a new shader key while the material stays
+				// the same leaves the old entry in place and the entity draws twice, once
+				// with each shader. Assigning a different material does not need this
+				// (that cleanup covers it); changing shaders in place does.
+				void RefreshDrawable(ECS::Entity entity);
+
 				void EnableNormalMaterialMapping(bool enabled);
 				bool IsEnabledEnableNormalMaterialMapping() const;
 				void EnableNormalMeshMapping(bool enabled);

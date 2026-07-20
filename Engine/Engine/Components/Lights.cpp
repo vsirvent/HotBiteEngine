@@ -124,6 +124,9 @@ HRESULT DirectionalLight::Release() {
 
 void DirectionalLight::RefreshStaticViewMatrix() {
 	static_viewMatrix = viewMatrix;
+	//The static map is about to be rendered under this matrix, so from here on it is
+	//safe for shaders to sample it.
+	data.flags |= DIR_LIGHT_FLAG_STATIC_SHADOW;
 }
 
 const float4x4* DirectionalLight::GetViewMatrix() const {

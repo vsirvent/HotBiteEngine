@@ -5,6 +5,8 @@
 #include "Outliner.h"
 #include "Inspector.h"
 #include "AssetBrowser.h"
+#include "MaterialPanel.h"
+#include "MaterialPreview.h"
 #include "EntityOps.h"
 #include "SceneSerializer.h"
 #include "EditorAutomation.h"
@@ -14,6 +16,7 @@
 #include "SelectionGizmo.h"
 #include "Selection.h"
 #include "PhysicsDebug.h"
+#include "PhysicsPreview.h"
 
 #include <Core/PostProcess.h>
 
@@ -46,6 +49,12 @@ namespace HotBiteEditor {
 	SceneEditorApp::SceneEditorApp(HINSTANCE hInstance)
 		: DXCore(hInstance, "HotBite Scene Editor", 1600, 900, true, true)
 	{
+		//Open filling the screen. The 1600x900 above is only the fallback for a
+		//display too small to maximize into; the editor's docked panels (the
+		//Components panel in particular) are taller than that, so a fixed window
+		//pushes their lower half - including the Add Component button - past the
+		//bottom edge where it cannot be reached.
+		SetStartMaximized(true);
 		InitWindow();
 		InitDirectX();
 
@@ -111,6 +120,16 @@ namespace HotBiteEditor {
 		menu_commands.push_back({ "File/Save Level",
 			[this]() { return level_loaded; },
 			[this]() { SceneSerializer::Save(state); } });
+		//Materials live in .mat files shared between levels, so they save separately
+		//from the level (see MaterialPanel.h). Enabled only when something is dirty.
+		menu_commands.push_back({ "File/Save Materials",
+			[this]() { return level_loaded && MaterialOps::HasUnsavedMaterials(state); },
+			[this]() {
+				std::string error;
+				if (!MaterialOps::SaveMaterials(state, error)) {
+					state.status_message = "Save materials failed: " + error;
+				}
+			} });
 		menu_commands.push_back({ "File/Exit",
 			nullptr,
 			[this]() { Quit(); } });
@@ -147,12 +166,13 @@ namespace HotBiteEditor {
 			[this]() { state.delete_requested = true; } });
 
 		//Edit: physics preview. Off by default (see SetPhysicsPause above); while
-		//checked, dynamic bodies simulate so the user can watch objects settle, then
-		//pause again to keep authoring from the settled state.
+		//checked, dynamic bodies simulate so the user can watch objects settle.
+		//Switching it back off rewinds them to the transforms they were authored
+		//with - the simulation is a preview, not an edit (see PhysicsPreview.h).
 		menu_commands.push_back({ "Edit/Simulate Physics",
 			[this]() { return level_loaded; },
-			[this]() { world.SetPhysicsPause(!world.GetPhysicsPause()); },
-			[this]() { return !world.GetPhysicsPause(); } });
+			[this]() { PhysicsPreview::SetEnabled(state, !PhysicsPreview::IsEnabled(state)); },
+			[this]() { return PhysicsPreview::IsEnabled(state); } });
 
 		//Edit: viewport gizmo tool. Also on the 1/2/3 keys (see SelectionGizmo::Draw);
 		//W/E/R would collide with the camera fly keys.
@@ -183,6 +203,10 @@ namespace HotBiteEditor {
 			[this]() { return level_loaded; },
 			[this]() { state.show_asset_browser = !state.show_asset_browser; },
 			[this]() { return state.show_asset_browser; } });
+		menu_commands.push_back({ "View/Materials",
+			[this]() { return level_loaded; },
+			[this]() { state.show_material_panel = !state.show_material_panel; },
+			[this]() { return state.show_material_panel; } });
 		menu_commands.push_back({ "View/Project",
 			[this]() { return level_loaded; },
 			[this]() { state.show_project = !state.show_project; },
@@ -213,6 +237,9 @@ namespace HotBiteEditor {
 
 	SceneEditorApp::~SceneEditorApp()
 	{
+		//Before the ImGui backend goes away: the material thumbnails are D3D textures
+		//ImGui is still holding texture ids for.
+		MaterialPreview::Shutdown();
 		ImGui_ImplDX11_Shutdown();
 		ImGui_ImplWin32_Shutdown();
 		ImGui::DestroyContext();
@@ -388,6 +415,9 @@ namespace HotBiteEditor {
 			}
 			if (state.show_asset_browser) {
 				AssetBrowser::Draw(state);
+			}
+			if (state.show_material_panel) {
+				MaterialPanel::Draw(state);
 			}
 			//Under the gizmo, so the selection handles stay readable on top of a
 			//dense collider wireframe.

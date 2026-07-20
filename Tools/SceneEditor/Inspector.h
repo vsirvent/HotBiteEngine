@@ -35,12 +35,9 @@ namespace HotBiteEditor {
 
 		// A full copy of an entity's Transform channels, the unit the undo history
 		// stores (entities are addressed by name because ids get recycled across a
-		// place-undo/redo cycle).
-		struct TransformSnapshot {
-			HotBite::Engine::float3 position{ 0.0f, 0.0f, 0.0f };
-			HotBite::Engine::float4 rotation{ 0.0f, 0.0f, 0.0f, 1.0f };
-			HotBite::Engine::float3 scale{ 1.0f, 1.0f, 1.0f };
-		};
+		// place-undo/redo cycle). Declared in SceneEditor.h so EditorState can hold
+		// some; this is the name the rest of the editor knows it by.
+		using TransformSnapshot = HotBiteEditor::TransformSnapshot;
 
 		// Captures `entity_name`'s current Transform. False when the entity is gone
 		// or has no Transform.
@@ -50,6 +47,15 @@ namespace HotBiteEditor {
 		// the Euler cache refresh when the entity is selected). No history is
 		// recorded: this is the primitive undo/redo closures are built from.
 		bool ApplySnapshot(EditorState& state, const std::string& entity_name,
+			const TransformSnapshot& snapshot, std::string& error);
+
+		// ApplySnapshot without any of the save bookkeeping: the Transform and the
+		// physics body move, but the entity is not marked as edited (no FBX override,
+		// no placed-instance sync) and the preview baseline is left alone. This is the
+		// physics preview's rewind (PhysicsPreview.h) - putting the scene back exactly
+		// where it was is not an authoring change, and routing it through
+		// ApplySnapshot would mark every simulated entity dirty for save.
+		bool RestoreSnapshot(EditorState& state, const std::string& entity_name,
 			const TransformSnapshot& snapshot, std::string& error);
 
 		// Pushes one undo action for an already-applied transform edit of

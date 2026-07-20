@@ -28,6 +28,7 @@ SOFTWARE.
 #include <sstream>
 #include <iostream>
 #include <iomanip>
+#include <cmath>
 
 using namespace DirectX;
 
@@ -63,6 +64,23 @@ namespace HotBite {
 				b = (float)std::stoi(bb, nullptr, 16) / 255.0f;
 				a = (float)std::stoi(aa, nullptr, 16) / 255.0f;
 				return { r, g, b, a };
+			}
+
+			std::string colorStringFromF3(const float3& color) {
+				return colorStringFromF4({ color.x, color.y, color.z, 1.0f });
+			}
+
+			std::string colorStringFromF4(const float4& color) {
+				auto channel = [](float v) -> int {
+					//Colours are authored in 0..1 but editing widgets and HDR-ish values
+					//can push outside it; clamping keeps the hex well-formed.
+					int i = (int)std::lround(v * 255.0f);
+					return i < 0 ? 0 : (i > 255 ? 255 : i);
+				};
+				char buffer[10];
+				snprintf(buffer, sizeof(buffer), "#%02X%02X%02X%02X",
+					channel(color.x), channel(color.y), channel(color.z), channel(color.w));
+				return std::string(buffer);
 			}
 
 			void SetFlag(uint32_t& bitset, uint32_t flag) {

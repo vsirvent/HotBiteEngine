@@ -26,6 +26,7 @@ SOFTWARE.
 
 #include "SimpleShader.h"
 #include "Texture.h"
+#include "Json.h"
 
 namespace HotBite {
 	namespace Engine {
@@ -74,6 +75,24 @@ namespace HotBite {
 				Core::SimplePixelShader* ps = nullptr;
 			};
 
+			//The .cso file names behind MaterialShaders. The resolved pointers alone
+			//cannot answer "which shader is this material using?" - ShaderFactory hands
+			//out shared instances and keeps no reverse mapping - so an editor that wants
+			//to show or change a material's shaders needs the names kept alongside them.
+			//These are the defaults MaterialData's constructor installs; Load() overwrites
+			//them from the file and Save() writes them back.
+			struct MaterialShaderNames {
+				std::string draw_vs = "MainRenderVS.cso";
+				std::string draw_hs = "MainRenderHS.cso";
+				std::string draw_ds = "MainRenderDS.cso";
+				std::string draw_gs = "MainRenderGS.cso";
+				std::string draw_ps = "MainRenderPS.cso";
+				std::string shadow_vs = "ShadowVS.cso";
+				std::string shadow_gs = "ShadowMapCubeGS.cso";
+				std::string depth_vs = "DepthVS.cso";
+				std::string depth_ps = "DepthPS.cso";
+			};
+
 			struct MaterialTextures {
 				std::string diffuse_texname;
 				std::string normal_textname;
@@ -102,23 +121,49 @@ namespace HotBite {
 				ID3D11ShaderResourceView* opacity = nullptr;
 
 				MaterialProps props;
+				//Absolute paths (root + file), not the bare file names the .mat carries.
+				//Save() turns them back into root-relative names.
 				MaterialTextures texture_names;
 				MaterialShaders shaders;
 				MaterialShaders shadow_shaders;
 				MaterialShaders depth_shaders;
+				MaterialShaderNames shader_names;
 				int tessellation_type = 0;
 				float tessellation_factor = 0.0f;
 				float displacement_scale = 0.0f;
 				float bloom_scale = 0.0f;
 
 				bool init = false;
-				
+
+				//The JSON record this material was loaded from, kept verbatim so Save()
+				//can write back the keys Load() does not consume - "ambient_color", the
+				//legacy empty "vs"/"hs"/"ds"/"gs"/"ps" entries, "normal_map_enabled", and
+				//any key a future engine version adds. Without it, opening a .mat in the
+				//editor and saving it would quietly drop or zero those fields. Empty for a
+				//material created in code or in the editor, which then saves defaults only.
+				nlohmann::json source_json;
+
 				MaterialData();
 				MaterialData(const std::string& name);
 				MaterialData(const MaterialData& other);
 				MaterialData& operator=(const MaterialData& other);
 				~MaterialData();
 				void Load(const std::string& root, const std::string& mat);
+				//The inverse of Load: the material as a .mat "materials" array entry.
+				//`root` is the texture folder the file declares; texture paths are written
+				//relative to it, so a material whose textures live outside `root` keeps its
+				//absolute path rather than silently pointing at the wrong file.
+				nlohmann::json Save(const std::string& root) const;
+
+				// Re-resolves every shader stage from `names` and, on success, adopts
+				// them. All-or-nothing: if any name fails to load as the stage it was
+				// asked for, nothing is changed and false is returned, so a bad pick can
+				// never leave the material half-rebound and undrawable.
+				//
+				// Callers must re-register the entities using this material with the
+				// render system afterwards (World::SetMaterialShaders does): its draw
+				// trees are keyed by shader tuple, and nothing else notices the change.
+				bool SetShaders(const MaterialShaderNames& names);
 				bool Init();
 				void Release();
 			};

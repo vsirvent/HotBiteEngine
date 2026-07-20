@@ -32,6 +32,8 @@
     <ClCompile Include="Outliner.cpp" />
     <ClCompile Include="Inspector.cpp" />
     <ClCompile Include="AssetBrowser.cpp" />
+    <ClCompile Include="MaterialPanel.cpp" />
+    <ClCompile Include="MaterialPreview.cpp" />
     <ClCompile Include="SceneSerializer.cpp" />
     <ClCompile Include="EditorAutomation.cpp" />
     <ClCompile Include="EditorHistory.cpp" />
@@ -44,6 +46,7 @@
     <ClCompile Include="SelectionGizmo.cpp" />
     <ClCompile Include="Selection.cpp" />
     <ClCompile Include="PhysicsDebug.cpp" />
+    <ClCompile Include="PhysicsPreview.cpp" />
     <ClCompile Include="imgui\imgui.cpp" />
     <ClCompile Include="imgui\imgui_draw.cpp" />
     <ClCompile Include="imgui\imgui_tables.cpp" />
@@ -57,6 +60,8 @@
     <ClInclude Include="Outliner.h" />
     <ClInclude Include="Inspector.h" />
     <ClInclude Include="AssetBrowser.h" />
+    <ClInclude Include="MaterialPanel.h" />
+    <ClInclude Include="MaterialPreview.h" />
     <ClInclude Include="SceneSerializer.h" />
     <ClInclude Include="EditorAutomation.h" />
     <ClInclude Include="EditorHistory.h" />
@@ -69,6 +74,7 @@
     <ClInclude Include="SelectionGizmo.h" />
     <ClInclude Include="Selection.h" />
     <ClInclude Include="PhysicsDebug.h" />
+    <ClInclude Include="PhysicsPreview.h" />
     <ClInclude Include="ViewportOverlay.h" />
     <ClInclude Include="EditorLayout.h" />
     <ClInclude Include="renderdoc_app.h" />

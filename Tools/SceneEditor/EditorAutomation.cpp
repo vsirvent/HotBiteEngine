@@ -3,6 +3,7 @@
 #include "ProjectBrowser.h"
 #include "Inspector.h"
 #include "AssetBrowser.h"
+#include "MaterialPanel.h"
 #include "Outliner.h"
 #include "EntityOps.h"
 #include "ComponentOps.h"
@@ -431,6 +432,146 @@ namespace HotBiteEditor {
 							response_lines.push_back(vs.str());
 						}
 					}
+				}
+			}
+			//--- Materials (see MaterialPanel.h). Materials are keyed by name and are
+			//saved separately from the level, so `save_materials` is its own command
+			//rather than part of `save`.
+			else if (cmd == "materials") {
+				const std::vector<std::string> names = MaterialOps::ListMaterials(state);
+				response_lines.push_back("OK " + std::to_string(names.size()) + " materials");
+				for (const std::string& name : names) {
+					std::ostringstream os;
+					const std::string file = state.world->GetMaterialOrigin(name);
+					os << name << " file=" << (file.empty() ? "(none)" : file);
+					if (state.dirty_material_files.count(file) != 0) {
+						os << " unsaved";
+					}
+					const std::vector<std::string> users = MaterialOps::FindUsers(state, name);
+					os << " users=" << users.size();
+					if (name == state.selected_material) {
+						os << " selected";
+					}
+					response_lines.push_back(os.str());
+				}
+			}
+			else if (cmd == "select_material") {
+				if (args.size() < 2) {
+					response_lines.push_back("ERR usage: select_material <material name>");
+				}
+				else if (state.world->GetMaterials().Get(args[1]) == nullptr ||
+					state.world->IsMaterialRemoved(args[1])) {
+					response_lines.push_back("ERR material not found: " + args[1]);
+				}
+				else {
+					state.selected_material = args[1];
+					//Selecting a material is how a script gets the panel to show it, so
+					//open the panel too rather than requiring a separate menu command.
+					state.show_material_panel = true;
+					response_lines.push_back("OK selected material: " + args[1]);
+				}
+			}
+			else if (cmd == "create_material") {
+				if (args.size() < 3) {
+					response_lines.push_back("ERR usage: create_material <name> <mat file>");
+				}
+				else if (MaterialOps::CreateMaterial(state, args[1], args[2], error)) {
+					response_lines.push_back("OK material created: " + args[1] + " in " + args[2]);
+				}
+				else {
+					response_lines.push_back("ERR " + error);
+				}
+			}
+			else if (cmd == "remove_material") {
+				if (args.size() < 2) {
+					response_lines.push_back("ERR usage: remove_material <name>");
+				}
+				else if (MaterialOps::RemoveMaterial(state, args[1], error)) {
+					response_lines.push_back("OK material removed: " + args[1]);
+				}
+				else {
+					response_lines.push_back("ERR " + error);
+				}
+			}
+			else if (cmd == "set_material") {
+				if (args.size() < 3) {
+					response_lines.push_back("ERR usage: set_material <entity name> <material name>");
+				}
+				else if (MaterialOps::AssignMaterial(state, args[1], args[2], error)) {
+					response_lines.push_back("OK " + args[1] + " -> " + args[2]);
+				}
+				else {
+					response_lines.push_back("ERR " + error);
+				}
+			}
+			else if (cmd == "shaders") {
+				if (args.size() < 2) {
+					response_lines.push_back("ERR usage: shaders <material name>");
+				}
+				else {
+					Core::MaterialData* m = state.world->GetMaterials().Get(args[1]);
+					if (m == nullptr || state.world->IsMaterialRemoved(args[1])) {
+						response_lines.push_back("ERR material not found: " + args[1]);
+					}
+					else {
+						const Core::MaterialShaderNames& s = m->shader_names;
+						response_lines.push_back("OK shaders for " + args[1]);
+						response_lines.push_back("draw_vs=" + s.draw_vs);
+						response_lines.push_back("draw_hs=" + s.draw_hs);
+						response_lines.push_back("draw_ds=" + s.draw_ds);
+						response_lines.push_back("draw_gs=" + s.draw_gs);
+						response_lines.push_back("draw_ps=" + s.draw_ps);
+						response_lines.push_back("shadow_vs=" + s.shadow_vs);
+						response_lines.push_back("shadow_gs=" + s.shadow_gs);
+						response_lines.push_back("depth_vs=" + s.depth_vs);
+						response_lines.push_back("depth_ps=" + s.depth_ps);
+					}
+				}
+			}
+			else if (cmd == "set_shader") {
+				if (args.size() < 4) {
+					response_lines.push_back("ERR usage: set_shader <material> <slot> <file.cso>"
+						" (slots: draw_vs draw_hs draw_ds draw_gs draw_ps shadow_vs shadow_gs"
+						" depth_vs depth_ps)");
+				}
+				else {
+					Core::MaterialData* m = state.world->GetMaterials().Get(args[1]);
+					if (m == nullptr || state.world->IsMaterialRemoved(args[1])) {
+						response_lines.push_back("ERR material not found: " + args[1]);
+					}
+					else {
+						Core::MaterialShaderNames names = m->shader_names;
+						const std::string& slot = args[2];
+						bool known = true;
+						if (slot == "draw_vs") { names.draw_vs = args[3]; }
+						else if (slot == "draw_hs") { names.draw_hs = args[3]; }
+						else if (slot == "draw_ds") { names.draw_ds = args[3]; }
+						else if (slot == "draw_gs") { names.draw_gs = args[3]; }
+						else if (slot == "draw_ps") { names.draw_ps = args[3]; }
+						else if (slot == "shadow_vs") { names.shadow_vs = args[3]; }
+						else if (slot == "shadow_gs") { names.shadow_gs = args[3]; }
+						else if (slot == "depth_vs") { names.depth_vs = args[3]; }
+						else if (slot == "depth_ps") { names.depth_ps = args[3]; }
+						else { known = false; }
+
+						if (!known) {
+							response_lines.push_back("ERR unknown shader slot: " + slot);
+						}
+						else if (MaterialOps::SetShaders(state, args[1], names, error)) {
+							response_lines.push_back("OK " + args[1] + " " + slot + " -> " + args[3]);
+						}
+						else {
+							response_lines.push_back("ERR " + error);
+						}
+					}
+				}
+			}
+			else if (cmd == "save_materials") {
+				if (MaterialOps::SaveMaterials(state, error)) {
+					response_lines.push_back("OK " + state.status_message);
+				}
+				else {
+					response_lines.push_back("ERR " + error);
 				}
 			}
 			else if (cmd == "create_group") {

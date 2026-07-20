@@ -96,6 +96,12 @@ namespace HotBite {
 			public:
 #define DIR_LIGHT_FLAG_FOG 1
 #define DIR_LIGHT_FLAG_INVERSE 2
+				//Set by RefreshStaticViewMatrix once the static shadow map holds a rendered
+				//frame. Shaders must not sample DirStaticShadowMapTexture without it: an
+				//unwritten/unbound depth SRV compares as fully occluded and blacks the scene.
+				//Runtime-only, never serialized (see ToJson/FromJson, which persist the
+				//individual flags rather than the raw value).
+#define DIR_LIGHT_FLAG_STATIC_SHADOW 4
 				struct Data {
 					float3 color{};
 					float  intensity = 1.0f;

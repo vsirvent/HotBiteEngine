@@ -127,11 +127,13 @@ namespace HotBite {
 				//so omitting it here went unnoticed - but a material built in code and
 				//never Load()ed would end up nameless and impossible to resolve.
 				this->name = other.name;
+				this->source_json = other.source_json;
 				this->props = other.props;
 				this->texture_names = other.texture_names;
 				this->shaders = other.shaders;
 				this->shadow_shaders = other.shadow_shaders;
 				this->depth_shaders = other.depth_shaders;
+				this->shader_names = other.shader_names;
 
 				this->tessellation_type = other.tessellation_type;
 				this->tessellation_factor = other.tessellation_factor;
@@ -179,6 +181,7 @@ namespace HotBite {
 
 			void MaterialData::Load(const std::string& root, const std::string& mat) {
 				nlohmann::json j = nlohmann::json::parse(mat);
+				source_json = j;
 				name = j["name"];
 
 				props.diffuseColor = parseColorStringF4(j.value("diffuse_color", "#FFFFFFFF"));
@@ -219,20 +222,144 @@ namespace HotBite {
 				SetTexture(emission, texture_names.emission_textname, root, j.value("emission_textname", ""));
 				SetTexture(opacity, texture_names.opacity_textname, root, j.value("opacity_textname", ""));
 
-				shaders.vs = ShaderFactory::Get()->GetShader<SimpleVertexShader>(j.value("draw_vs", "MainRenderVS.cso"));
-				shaders.hs = ShaderFactory::Get()->GetShader<SimpleHullShader>(j.value("draw_hs", "MainRenderHS.cso"));
-				shaders.ds = ShaderFactory::Get()->GetShader<SimpleDomainShader>(j.value("draw_ds", "MainRenderDS.cso"));
-				shaders.gs = ShaderFactory::Get()->GetShader<SimpleGeometryShader>(j.value("draw_gs", "MainRenderGS.cso"));
-				shaders.ps = ShaderFactory::Get()->GetShader<SimplePixelShader>(j.value("draw_ps", "MainRenderPS.cso"));
+				//Remember the names as well as the resolved pointers, so the material can
+				//report and change its own shaders later (see MaterialShaderNames).
+				shader_names.draw_vs = j.value("draw_vs", shader_names.draw_vs);
+				shader_names.draw_hs = j.value("draw_hs", shader_names.draw_hs);
+				shader_names.draw_ds = j.value("draw_ds", shader_names.draw_ds);
+				shader_names.draw_gs = j.value("draw_gs", shader_names.draw_gs);
+				shader_names.draw_ps = j.value("draw_ps", shader_names.draw_ps);
+				shader_names.shadow_vs = j.value("shadow_vs", shader_names.shadow_vs);
+				shader_names.shadow_gs = j.value("shadow_gs", shader_names.shadow_gs);
+				shader_names.depth_vs = j.value("depth_vs", shader_names.depth_vs);
+				shader_names.depth_ps = j.value("depth_ps", shader_names.depth_ps);
 
-				shadow_shaders.vs = ShaderFactory::Get()->GetShader<SimpleVertexShader>(j.value("shadow_vs", "ShadowVS.cso"));
-				shadow_shaders.gs = ShaderFactory::Get()->GetShader<SimpleGeometryShader>(j.value("shadow_gs", "ShadowMapCubeGS.cso"));
+				shaders.vs = ShaderFactory::Get()->GetShader<SimpleVertexShader>(shader_names.draw_vs);
+				shaders.hs = ShaderFactory::Get()->GetShader<SimpleHullShader>(shader_names.draw_hs);
+				shaders.ds = ShaderFactory::Get()->GetShader<SimpleDomainShader>(shader_names.draw_ds);
+				shaders.gs = ShaderFactory::Get()->GetShader<SimpleGeometryShader>(shader_names.draw_gs);
+				shaders.ps = ShaderFactory::Get()->GetShader<SimplePixelShader>(shader_names.draw_ps);
 
-				depth_shaders.vs = ShaderFactory::Get()->GetShader<SimpleVertexShader>(j.value("depth_vs", "DepthVS.cso"));
-				depth_shaders.ps = ShaderFactory::Get()->GetShader<SimplePixelShader>(j.value("depth_ps", "DepthPS.cso"));
+				shadow_shaders.vs = ShaderFactory::Get()->GetShader<SimpleVertexShader>(shader_names.shadow_vs);
+				shadow_shaders.gs = ShaderFactory::Get()->GetShader<SimpleGeometryShader>(shader_names.shadow_gs);
+
+				depth_shaders.vs = ShaderFactory::Get()->GetShader<SimpleVertexShader>(shader_names.depth_vs);
+				depth_shaders.ps = ShaderFactory::Get()->GetShader<SimplePixelShader>(shader_names.depth_ps);
 
 				UpdateFlags();
 				init = true;
+			}
+
+			bool MaterialData::SetShaders(const MaterialShaderNames& names) {
+				//Resolve everything into locals first. ShaderFactory::GetShader returns
+				//null when a name does not load as the stage requested, and a material
+				//with a null draw shader is undrawable - so nothing is adopted until the
+				//whole set is known good.
+				MaterialShaders draw;
+				MaterialShaders shadow;
+				MaterialShaders depth;
+				ShaderFactory* factory = ShaderFactory::Get();
+
+				draw.vs = factory->GetShader<SimpleVertexShader>(names.draw_vs);
+				draw.hs = factory->GetShader<SimpleHullShader>(names.draw_hs);
+				draw.ds = factory->GetShader<SimpleDomainShader>(names.draw_ds);
+				draw.gs = factory->GetShader<SimpleGeometryShader>(names.draw_gs);
+				draw.ps = factory->GetShader<SimplePixelShader>(names.draw_ps);
+				shadow.vs = factory->GetShader<SimpleVertexShader>(names.shadow_vs);
+				shadow.gs = factory->GetShader<SimpleGeometryShader>(names.shadow_gs);
+				depth.vs = factory->GetShader<SimpleVertexShader>(names.depth_vs);
+				depth.ps = factory->GetShader<SimplePixelShader>(names.depth_ps);
+
+				if (draw.vs == nullptr || draw.hs == nullptr || draw.ds == nullptr ||
+					draw.gs == nullptr || draw.ps == nullptr || shadow.vs == nullptr ||
+					shadow.gs == nullptr || depth.vs == nullptr || depth.ps == nullptr) {
+					printf("MaterialData::SetShaders: %s - one or more shaders failed to "
+						"load as the requested stage; material left unchanged\n", name.c_str());
+					return false;
+				}
+
+				shaders = draw;
+				shadow_shaders = shadow;
+				depth_shaders = depth;
+				shader_names = names;
+				return true;
+			}
+
+			nlohmann::json MaterialData::Save(const std::string& root) const {
+				//Start from whatever this material was loaded with, so keys Load() ignores
+				//survive the round trip untouched, then overwrite everything Load() reads.
+				nlohmann::json j = source_json.is_object() ? source_json : nlohmann::json::object();
+
+				//SetTexture built these as root + "\" + file; undo exactly that. A path
+				//that does not sit under root is written as-is - wrong is better than
+				//silently repointing the material at a file that happens to share a name.
+				const std::string prefix = root + std::string("\\");
+				auto relative = [&prefix](const std::string& full) -> std::string {
+					if (full.empty()) {
+						return std::string();
+					}
+					if (full.size() > prefix.size() && full.compare(0, prefix.size(), prefix) == 0) {
+						return full.substr(prefix.size());
+					}
+					return full;
+				};
+
+				j["name"] = name;
+				j["diffuse_color"] = colorStringFromF4(props.diffuseColor);
+				j["bloom_scale"] = props.bloom_scale;
+				j["parallax_scale"] = props.parallax_scale;
+				j["parallax_steps"] = props.parallax_steps;
+				j["parallax_angle_steps"] = props.parallax_angle_steps;
+				j["parallax_shadow_scale"] = props.parallax_shadow_scale;
+				j["specular"] = props.specIntensity;
+				j["emission"] = props.emission;
+				//emission_color is an RGB value, but the files carry it in the 8-digit
+				//"#RRGGBBAA" form and parseColorStringF3 throws the alpha away. Writing a
+				//synthesized alpha would rewrite this key for every material in the file
+				//on the first save, so keep whatever alpha came in (and match how these
+				//files are authored - "00" - for a material that had none).
+				{
+					const std::string previous = j.value("emission_color", "");
+					const std::string alpha = (previous.size() == 9) ? previous.substr(7, 2) : "00";
+					std::string emission_rgb = colorStringFromF3(props.emission_color);
+					j["emission_color"] = emission_rgb.substr(0, 7) + alpha;
+				}
+				j["opacity"] = props.opacity;
+				j["density"] = props.density;
+				j["rt_reflex"] = props.rt_reflex;
+
+				j["tess_type"] = tessellation_type;
+				j["tess_factor"] = tessellation_factor;
+				j["displacement_scale"] = displacement_scale;
+
+				//Only the four flags Load() sets from the file are written back; the rest
+				//of props.flags is derived from which texture maps are present and is
+				//recomputed by UpdateFlags() on load.
+				j["raytrace"] = (props.flags & RAY_TRACING_ENABLED_FLAG) != 0;
+				j["alpha_enabled"] = (props.flags & ALPHA_ENABLED_FLAG) != 0;
+				j["blend_enabled"] = (props.flags & BLEND_ENABLED_FLAG) != 0;
+				j["parallax_shadows"] = (props.flags & PARALLAX_SHADOW_ENABLED_FLAG) != 0;
+
+				j["diffuse_textname"] = relative(texture_names.diffuse_texname);
+				j["high_textname"] = relative(texture_names.high_textname);
+				j["normal_textname"] = relative(texture_names.normal_textname);
+				j["spec_textname"] = relative(texture_names.spec_textname);
+				j["ao_textname"] = relative(texture_names.ao_textname);
+				j["arm_textname"] = relative(texture_names.arm_textname);
+				j["emission_textname"] = relative(texture_names.emission_textname);
+				j["opacity_textname"] = relative(texture_names.opacity_textname);
+
+				j["draw_vs"] = shader_names.draw_vs;
+				j["draw_hs"] = shader_names.draw_hs;
+				j["draw_ds"] = shader_names.draw_ds;
+				j["draw_gs"] = shader_names.draw_gs;
+				j["draw_ps"] = shader_names.draw_ps;
+				j["shadow_vs"] = shader_names.shadow_vs;
+				j["shadow_gs"] = shader_names.shadow_gs;
+				j["depth_vs"] = shader_names.depth_vs;
+				j["depth_ps"] = shader_names.depth_ps;
+
+				return j;
 			}
 
 			void MaterialData::UpdateFlags() {

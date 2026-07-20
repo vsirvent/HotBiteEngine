@@ -105,6 +105,17 @@ namespace HotBite {
 				LRESULT ProcessMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 				std::vector<IDXGIAdapter*> EnumerateAdapters();
+
+				// Open the window maximized on the primary monitor rather than at the
+				// client size passed to the constructor. Must be called before
+				// InitWindow: the maximized client area becomes the render target size,
+				// and that has to be settled before InitDirectX creates the swap chain.
+				//
+				// Meant for tool windows, whose panels want all the vertical space the
+				// screen has; a fixed request like 1600x900 overflows its own panels on
+				// a smaller display and wastes room on a larger one.
+				void SetStartMaximized(bool enabled) { start_maximized = enabled; }
+
 				// Initialization and game-loop related methods
 				HRESULT InitWindow(HWND parent = NULL);
 				HRESULT InitDirectX();
@@ -179,6 +190,7 @@ namespace HotBite {
 				std::string titleBarText;	// Custom text in window's title bar
 				bool		titleBarStats;	// Show extra stats in title bar?
 				bool windowed;
+				bool start_maximized = false;
 				float2 screen_dimensions = {};
 				// DirectX related objects and variables
 				D3D_FEATURE_LEVEL dxFeatureLevel;

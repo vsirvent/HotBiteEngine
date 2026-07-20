@@ -70,6 +70,45 @@ float DirShadowPCFFAST(float4 position, DirLight light, int index)
     return saturate(att1);
 }
 
+//Static casters render into their own map on a slow refresh cycle, sampled through the
+//view matrix captured at that refresh. Returns 1.0f (lit) when the map holds no data
+//for this pixel, since the result is min()'d with the dynamic attenuation.
+//
+//Opt-in: the includer must declare DirStaticShadowMapTexture[MAX_LIGHTS] +
+//DirStaticPerspectiveMatrix[MAX_LIGHTS] and #define HAS_STATIC_DIR_SHADOWS before the
+//include. It is not unconditional because the array costs MAX_LIGHTS texture registers,
+//and shaders carrying DiffuseTextures[MAX_OBJECTS] (GIRayTraceCS, RayTraceCS) blow the
+//128-register cs_5_0 limit with it (error X4565). Those keep static casters out of their
+//shadow term; they are indirect/secondary passes where the dynamic map is enough.
+#ifdef HAS_STATIC_DIR_SHADOWS
+float DirStaticShadowPCFFAST(float4 position, DirLight light, int index)
+{
+    if (!(light.flags & DIR_LIGHT_FLAG_STATIC_SHADOW)) {
+        return 1.0f;
+    }
+    float4 p = mul(position, DirStaticPerspectiveMatrix[index]);
+    p /= p.w;
+    p.x = (p.x + 1.0f) / 2.0f;
+    p.y = 1.0f - ((p.y + 1.0f) / 2.0f);
+    if (p.x < 0.0f || p.x > 1.0f || p.y < 0.0f || p.y > 1.0f) {
+        return 1.0f;
+    }
+    float att1 = DirStaticShadowMapTexture[index].SampleCmpLevelZero(PCFSampler, float2(p.x, p.y), p.z).r;
+    return saturate(att1);
+}
+
+float DirShadowPCFFASTAll(float4 position, DirLight light, int index)
+{
+    return min(DirShadowPCFFAST(position, light, index),
+               DirStaticShadowPCFFAST(position, light, index));
+}
+#else
+float DirShadowPCFFASTAll(float4 position, DirLight light, int index)
+{
+    return DirShadowPCFFAST(position, light, index);
+}
+#endif
+
 float3 CalcAmbient(float3 normal)
 {
     // Convert from [-1, 1] to [0, 1]
@@ -96,7 +135,7 @@ float3 CalcDirectional(float3 normal, float3 position, DirLight light, int index
     float NDotL = dot(light.DirToLight, normal);
     float3 finalColor = color * saturate(NDotL);
     if (light.cast_shadow) {
-        float shadow = DirShadowPCFFAST(float4(position, 1.0f), light, index);
+        float shadow = DirShadowPCFFASTAll(float4(position, 1.0f), light, index);
         finalColor *= shadow;
     }
     return finalColor;

@@ -50,6 +50,7 @@ cbuffer externalData : register(b0)
 	int screenH;
 	float4 LightPerspectiveValues[MAX_LIGHTS / 2];
 	matrix DirPerspectiveMatrix[MAX_LIGHTS];
+	matrix DirStaticPerspectiveMatrix[MAX_LIGHTS];
 	matrix spot_view;
 	float time;
 	float cloud_density;
@@ -80,7 +81,7 @@ float3 CalcLavaDirectional(float3 normal, float4 position, float2 uv, DirLight l
 	float3 spec_color = { 0.f, 0.f, 0.f };
 	
 	float shadow = 1.0f;
-	shadow = (DirShadowPCF(position, light, index));
+	shadow = (DirShadowPCFAll(position, light, index));
 	shadow = saturate(shadow);
 	
 	return finalColor * shadow;

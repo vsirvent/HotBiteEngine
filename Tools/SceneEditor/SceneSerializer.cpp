@@ -1,5 +1,6 @@
 #include "SceneSerializer.h"
 #include "EntityOps.h"
+#include "PhysicsPreview.h"
 
 #include <Components/Base.h>
 #include <Core/Json.h>
@@ -119,6 +120,16 @@ namespace HotBiteEditor {
 				state.status_message = "No level open, nothing to save.";
 				return;
 			}
+
+			//Saving ends any physics preview first. A Transform holds exactly one pose,
+			//and while the preview runs that pose is the *simulated* one - the entity
+			//and clone sections below read it live, so saving mid-preview would persist
+			//wherever gravity had dropped things. Pausing alone would not help: it
+			//freezes the simulated pose rather than restoring the authored one. Ending
+			//the preview rewinds every body to its baseline (PhysicsPreview.h), which is
+			//what the user authored and what belongs in the file. Done here rather than
+			//at the menu item so every save surface - menu, Ctrl+S, automation - gets it.
+			PhysicsPreview::SetEnabled(state, false);
 
 			json level;
 			try {
