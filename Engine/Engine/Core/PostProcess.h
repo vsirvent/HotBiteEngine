@@ -203,10 +203,67 @@ namespace HotBite {
 				}
 			};
 
+			/**
+			 * Physical camera artifacts: chromatic aberration and vignetting from the
+			 * lens, grain from the film behind it. Belongs late in the chain - after
+			 * depth of field, since a real lens disperses and shades the image it has
+			 * already focused, and before the GUI stage so the interface is not
+			 * fringed and shaken along with the scene.
+			 *
+			 * Each amount runs 0 (off) to 1 (strongest tasteful setting); the shader
+			 * owns what "1" means physically so the three dials stay comparable.
+			 */
+			class LensEffect : public HotBite::Engine::Core::GenericPostProcess
+			{
+			private:
+				bool enabled = true;
+				float aberration = 0.0f;
+				float grain = 0.0f;
+				float vignette = 0.0f;
+
+				static float Clamp01(float v) {
+					return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v);
+				}
+
+			public:
+
+				LensEffect(ID3D11DeviceContext* dxcontext,
+					int width, int height, HotBite::Engine::ECS::Coordinator* c) :
+					GenericPostProcess(dxcontext, width, height, c, "PostMainVS.cso", "PostLensPS.cso")
+				{}
+
+				virtual ~LensEffect() {}
+
+				void SetEnabled(bool val) { enabled = val; }
+				bool GetEnabled() const { return enabled; }
+
+				void SetAberration(float val) { aberration = Clamp01(val); }
+				float GetAberration() const { return aberration; }
+
+				void SetGrain(float val) { grain = Clamp01(val); }
+				float GetGrain() const { return grain; }
+
+				void SetVignette(float val) { vignette = Clamp01(val); }
+				float GetVignette() const { return vignette; }
+
+				void Render() override {
+					//Zeroing the amounts rather than skipping the stage: the pass is
+					//also what carries the image to the next target, so it always has
+					//to run. At zero the shader takes its one branch-free path and
+					//costs a single tap, like the plain copy it stands in for.
+					ps->SetFloat("aberration", enabled ? aberration : 0.0f);
+					ps->SetFloat("grain", enabled ? grain : 0.0f);
+					ps->SetFloat("vignette", enabled ? vignette : 0.0f);
+					ps->CopyAllBufferData();
+					PostProcess::Render();
+				}
+			};
+
 			class BaseDOFProcess: public HotBite::Engine::Core::GenericPostProcess
 			{
 			protected:
 				bool enabled = false;
+				bool autofocus = false;
 				float focus = 0.0f;
 				float amplitude = 0.0f;
 			public:
@@ -217,12 +274,26 @@ namespace HotBite {
 
 				virtual ~BaseDOFProcess() {}
 
+				//Manual focal distance, in world units from the camera. Ignored while
+				//autofocus is on: the shader then reads the distance RenderSystem's
+				//AutoFocusCS measured from the depth buffer instead.
 				void SetFocus(float val) {
 					focus = val;
 				}
 
 				float GetFocus() const {
 					return focus;
+				}
+
+				//When set, the focal distance comes from the GPU autofocus texel
+				//(scene depth at the center of the view) rather than from SetFocus.
+				//Driven by RenderSystem::SetDofAutofocus.
+				void SetAutofocus(bool val) {
+					autofocus = val;
+				}
+
+				bool GetAutofocus() const {
+					return autofocus;
 				}
 
 				void SetAmplitude(float val) {
@@ -266,6 +337,7 @@ namespace HotBite {
 					ID3D11RenderTargetView* rv[1] = { temp.RenderTarget() };
 					context->OMSetRenderTargets(1, rv, TargetDepthView());
 					ps->SetInt("dopActive", enabled);
+					ps->SetInt("autofocusActive", autofocus);
 					ps->SetFloat("focusZ", focus);
 					ps->SetFloat("amplitude", amplitude);
 					ps->SetInt("type", 1);
@@ -337,6 +409,7 @@ namespace HotBite {
 					context->OMSetRenderTargets(1, rv, TargetDepthView());
 					ps->SetInt("kernel_size", KERNEL_SIZE);
 					ps->SetInt("dopActive", enabled);
+					ps->SetInt("autofocusActive", autofocus);
 					ps->SetFloat("focusZ", focus);
 					ps->SetFloat("amplitude", amplitude);
 					ps->SetInt("type", 1);

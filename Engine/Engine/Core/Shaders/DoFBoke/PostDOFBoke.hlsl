@@ -27,6 +27,9 @@ SOFTWARE.
 Texture2D renderTexture;
 Texture2D depthTexture;
 Texture2D kernels;
+//Single texel written by AutoFocusCS: the scene depth at the center of the view,
+//which is the focal distance when autofocus is on (see GetFocus).
+Texture2D<float> autofocusTexture;
 
 SamplerState basicSampler : register(s0);
 
@@ -39,11 +42,19 @@ SamplerState basicSampler : register(s0);
 
 cbuffer externalData : register(b0)
 {
-    int dopActive;    
+    int dopActive;
     float focusZ;
     float amplitude;
     uint type;
     uint kernel_size;
+    int autofocusActive;
+}
+
+//Focal distance in world units: measured on the GPU from the depth buffer when
+//autofocus is on, otherwise the distance the application authored in focusZ.
+float GetFocus()
+{
+    return autofocusActive ? autofocusTexture[uint2(0, 0)] : focusZ;
 }
 
 void GetOfsset(in Texture2D k, uint position, out float o0, out float o1)
@@ -63,13 +74,15 @@ void GetKernelValue(in Texture2D k, uint i, uint position, out complex c0, out c
     c1.img = data.a;
 };
 
-//Get the row value in the kernel based on the variance
-uint GetPosition(float2 pixel, float2 ratio, uint max_positions)
+//Get the row value in the kernel based on the variance. focus is passed in rather
+//than read here because this runs once per kernel tap - the autofocus texel is
+//fetched once per pixel in main() instead.
+uint GetPosition(float2 pixel, float2 ratio, uint max_positions, float focus)
 {
     uint position = 0;
     if (dopActive) {
         float z0 = depthTexture[pixel * ratio].r;
-        float dispersion = abs(focusZ - z0) * amplitude * 0.1f;
+        float dispersion = abs(focus - z0) * amplitude * 0.1f;
         position = clamp(dispersion * 100.0f - 10.0f, 0, max_positions - 1);
     }
     return position;
@@ -91,10 +104,11 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
     InitComplexColor(ccolor);
     InitComplexColor(ccolor2);
     int near_focus = max_positions / 20;
+    float focus = GetFocus();
     if (type == VERTICAL) {
 
         float2 p = pixel;
-        int position = GetPosition(p, ratio, max_positions);
+        int position = GetPosition(p, ratio, max_positions, focus);
         if (position == 0) {
 #ifndef TEST
             float4 color = renderTexture[p];
@@ -131,7 +145,7 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
 #ifdef GHOST
                 //Ghosting is very noticiable when there is a big gap of depth distance and object is near focus
                 //in that case, we avoid adding that pixel and compensate later to add extra weight
-                int tmp_pos = GetPosition(p, ratio, max_positions);
+                int tmp_pos = GetPosition(p, ratio, max_positions, focus);
 #else
                 int tmp_pos = position;
 #endif
@@ -151,7 +165,7 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
     }
     else {
         float2 p = pixel;
-        int position = GetPosition(p, ratio, max_positions);
+        int position = GetPosition(p, ratio, max_positions, focus);
         if (position == 0) {
             PackedComplex2ColorToComplexColor(renderTexture[p], ccolor, ccolor2);
         } else {
@@ -172,7 +186,7 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
 #ifdef GHOST
                 //Ghosting is very noticiable when there is a big gap of depth distance and object is near focus
                 //in that case, we avoid adding that pixel and compensate later to add extra weight
-                int tmp_pos = GetPosition(p, ratio, max_positions);
+                int tmp_pos = GetPosition(p, ratio, max_positions, focus);
 #else
                 int tmp_pos = position;
 #endif

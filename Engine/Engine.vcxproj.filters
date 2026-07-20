@@ -495,6 +495,9 @@
     <FxCompile Include="Engine\Core\Shaders\PostProcess\PostCopyPS.hlsl">
       <Filter>Engine\Core\Shaders\PostProcess</Filter>
     </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\PostProcess\PostLensPS.hlsl">
+      <Filter>Engine\Core\Shaders\PostProcess</Filter>
+    </FxCompile>
     <FxCompile Include="Engine\Core\Shaders\Effects\Water\WaterGS.hlsl">
       <Filter>Engine\Core\Shaders\Effects</Filter>
     </FxCompile>
@@ -571,6 +574,9 @@
       <Filter>Engine\Core\Shaders\ComputeShaders</Filter>
     </FxCompile>
     <FxCompile Include="Engine\Core\Shaders\ComputeShaders\AntiAliasCS.hlsl">
+      <Filter>Engine\Core\Shaders\ComputeShaders</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\ComputeShaders\AutoFocusCS.hlsl">
       <Filter>Engine\Core\Shaders\ComputeShaders</Filter>
     </FxCompile>
     <FxCompile Include="Engine\Core\Shaders\ComputeShaders\MotionCS.hlsl">

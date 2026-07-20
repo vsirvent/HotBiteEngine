@@ -30,6 +30,9 @@ SOFTWARE.
 RWTexture2D<float4> output : register(u0);
 RWTexture2D<float> depthTextureUAV : register(u1);
 Texture2D<uint> vol_data: register(t0);
+//Single texel written by AutoFocusCS: the scene depth at the center of the view,
+//which is the focal distance when autofocus is on.
+Texture2D<float> autofocusTexture : register(t1);
 
 cbuffer externalData : register(b0)
 {
@@ -39,6 +42,7 @@ cbuffer externalData : register(b0)
 
     float focusZ;
     float amplitude;
+    int autofocusActive;
 
     AmbientLight ambientLight;
     DirLight dirLights[MAX_LIGHTS];
@@ -166,9 +170,10 @@ void main(uint3 DTid : SV_DispatchThreadID)
                 light_screen_pos.x > 0.0 && light_screen_pos.x < dimensions.x &&
                 light_screen_pos.y > 0.0 && light_screen_pos.y < dimensions.y) {
                 
+                float focus_z = autofocusActive ? autofocusTexture[uint2(0, 0)] : focusZ;
                 float focus = 1.0f;
-                if (focusZ > 0.0f) {
-                    focus = 1.0f - saturate(pow((focusZ - z0), 2.0f) * amplitude * 0.001f) + 0.1f;
+                if (focus_z > 0.0f) {
+                    focus = 1.0f - saturate(pow((focus_z - z0), 2.0f) * amplitude * 0.001f) + 0.1f;
                 }
 
                 float4 color = EmitPoint(pixel, light_screen_pos, dimensions, pointLights[i], focus);

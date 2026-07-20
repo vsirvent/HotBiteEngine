@@ -94,6 +94,7 @@ namespace HotBite {
 				static const std::string MATERIAL;
 				static const std::string DIFFUSE_TEXTURE;
 				static const std::string DEPTH_TEXTURE;
+				static const std::string AUTOFOCUS_TEXTURE;
 				static const std::string CAMERA_POSITION;
 				static const std::string CAMERA_DIRECTION;
 				static const std::string TESS_ENABLED;
@@ -355,6 +356,28 @@ namespace HotBite {
 				Core::SimpleComputeShader* lens_flare = nullptr;
 				Core::BaseDOFProcess* dof_effect = nullptr;
 
+				//Lens/film artifact stage, found in the post-process chain the same way
+				//dof_effect is. Null when the application installed no such stage, in
+				//which case the settings below are simply remembered and never used.
+				Core::LensEffect* lens_effect = nullptr;
+				bool lens_enabled = true;
+				float lens_aberration = 0.0f;
+				float lens_grain = 0.0f;
+				float lens_vignette = 0.0f;
+
+				//Depth of field autofocus. AutoFocusCS reads the scene depth at the
+				//center of the view out of depth_map (which stores world distance
+				//from the camera) and keeps the smoothed focal distance in this 1x1
+				//texture, which the DOF and lens flare shaders sample. The whole
+				//measurement stays on the GPU - nothing is read back to the CPU.
+				Core::RenderTexture2D autofocus_map;
+				Core::SimpleComputeShader* autofocus_shader = nullptr;
+				bool dof_autofocus = true;
+				//Set for the first dispatch (and whenever autofocus is re-enabled) so
+				//the measurement is adopted immediately instead of being smoothed in
+				//from a stale distance.
+				bool autofocus_reset = true;
+
 				//Volumetric lights
 				Core::SimpleComputeShader* vol_shader = nullptr;
 				Core::SimpleComputeShader* blur_shader = nullptr;
@@ -419,6 +442,7 @@ namespace HotBite {
 				void ProcessMotionBlur();
 				void ProcessMix();
 				void ProcessAntiAlias();
+				void ProcessAutoFocus();
 
 				void DrawParticles(int w, int h, const float3& camera_position, const matrix& view, const matrix& projection, RenderParticleTree& tree);
 				bool IsVisible(const float3& camera_pos, const DrawableEntity& drawable, const matrix& view_projection, int w, int h) const;
@@ -492,6 +516,35 @@ namespace HotBite {
 				bool GetMotionBlur() const;
 				void SetDOF(bool enabled);
 				bool GetDOF() const;
+				//Depth of field autofocus (on by default). The focal distance is
+				//measured every frame on the GPU as the scene depth at the center of
+				//the view - the distance from the camera to whatever it is aimed at -
+				//and smoothed over time so it does not snap as the view sweeps across
+				//near geometry. Turn it off to drive the distance manually through
+				//BaseDOFProcess::SetFocus. The aperture (SetAmplitude) is never
+				//touched by autofocus.
+				void SetDofAutofocus(bool enabled);
+				bool GetDofAutofocus() const;
+
+				// Physical camera artifacts, applied by the Core::LensEffect stage of
+				// the post-process chain (nothing happens if the application did not
+				// install one). Each amount is 0 (off) to 1 (strongest), and values
+				// outside that range are clamped:
+				//  - aberration: radial colour fringing, zero at the center of the
+				//    frame and growing towards the corners, as a real lens disperses.
+				//  - grain: animated monochrome film grain, weighted towards the
+				//    darker parts of the image the way emulsion grain behaves.
+				//  - vignette: brightness falloff towards the corners.
+				// The master switch zeroes all three without disturbing them, so a
+				// look can be toggled for comparison and switched back on intact.
+				void SetLensEffects(bool enabled);
+				bool GetLensEffects() const;
+				void SetLensAberration(float amount);
+				float GetLensAberration() const;
+				void SetLensGrain(float amount);
+				float GetLensGrain() const;
+				void SetLensVignette(float amount);
+				float GetLensVignette() const;
 				void SetRTDebug(uint32_t debug);
 				uint32_t GetRTDebug() const;
 				void SetSceneEnabled(bool enabled);

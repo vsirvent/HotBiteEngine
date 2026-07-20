@@ -27,6 +27,12 @@ namespace HotBiteEditor {
 			rs->SetMotionBlur(true);
 			rs->SetDOF(false);
 			rs->SetLensFlare(true);
+			//Camera artifacts start neutral: the editor shows the render as it is,
+			//and a look is something the user dials in deliberately.
+			rs->SetLensEffects(true);
+			rs->SetLensAberration(0.0f);
+			rs->SetLensGrain(0.0f);
+			rs->SetLensVignette(0.0f);
 			rs->SetWireframe(false);
 		}
 
@@ -75,31 +81,60 @@ namespace HotBiteEditor {
 			if (ImGui::Checkbox("Depth of field", &dof)) {
 				rs->SetDOF(dof);
 			}
-			bool autofocus = app.GetDofAutofocus();
+			bool autofocus = rs->GetDofAutofocus();
 			if (ImGui::Checkbox("DOF autofocus", &autofocus)) {
-				app.SetDofAutofocus(autofocus);
+				rs->SetDofAutofocus(autofocus);
+			}
+			if (ImGui::IsItemHovered()) {
+				ImGui::SetTooltip("Focal distance is measured on the GPU from the depth\n"
+					"buffer: the distance to whatever is at the center of the view.");
 			}
 			Core::BaseDOFProcess* dof_effect = app.GetDofEffect();
 			if (dof_effect != nullptr) {
 				float focus = dof_effect->GetFocus();
 				ImGui::SetNextItemWidth(120.0f);
-				//While autofocus drives the focal distance every frame, the slider
-				//just displays it; editing it only makes sense in manual mode.
+				//Under autofocus the live distance never reaches the CPU - it is
+				//measured and consumed entirely on the GPU - so this slider holds
+				//only the manual value, inert until autofocus is switched off.
 				ImGui::BeginDisabled(autofocus);
 				if (ImGui::SliderFloat("DOF focus", &focus, 1.0f, 200.0f) && !autofocus) {
 					dof_effect->SetFocus(focus);
 				}
 				ImGui::EndDisabled();
+				//The aperture is authored by hand in both modes; autofocus only ever
+				//touches the focal distance.
 				float amplitude = dof_effect->GetAmplitude();
 				ImGui::SetNextItemWidth(120.0f);
-				//Autofocus owns the amplitude too (Marbles' distance-based aperture),
-				//so like the focus slider this is display-only until manual mode.
-				ImGui::BeginDisabled(autofocus);
-				if (ImGui::SliderFloat("DOF amplitude", &amplitude, 0.0f, 20.0f) && !autofocus) {
+				if (ImGui::SliderFloat("DOF amplitude", &amplitude, 0.0f, 20.0f)) {
 					dof_effect->SetAmplitude(amplitude);
 				}
-				ImGui::EndDisabled();
 			}
+
+			ImGui::Separator();
+
+			//Physical camera artifacts. All three are 0..1 amounts; the master
+			//checkbox zeroes them for an A/B without losing the settings.
+			bool lens = rs->GetLensEffects();
+			if (ImGui::Checkbox("Lens effects", &lens)) {
+				rs->SetLensEffects(lens);
+			}
+			ImGui::BeginDisabled(!lens);
+			float aberration = rs->GetLensAberration();
+			ImGui::SetNextItemWidth(120.0f);
+			if (ImGui::SliderFloat("Chromatic aberration", &aberration, 0.0f, 1.0f)) {
+				rs->SetLensAberration(aberration);
+			}
+			float grain = rs->GetLensGrain();
+			ImGui::SetNextItemWidth(120.0f);
+			if (ImGui::SliderFloat("Film grain", &grain, 0.0f, 1.0f)) {
+				rs->SetLensGrain(grain);
+			}
+			float vignette = rs->GetLensVignette();
+			ImGui::SetNextItemWidth(120.0f);
+			if (ImGui::SliderFloat("Vignette", &vignette, 0.0f, 1.0f)) {
+				rs->SetLensVignette(vignette);
+			}
+			ImGui::EndDisabled();
 
 			ImGui::Separator();
 
@@ -147,20 +182,32 @@ namespace HotBiteEditor {
 				rs->SetRayTracing(reflections, refractions, indirect);
 				return true;
 			}
-			if (key == "aa" || key == "motion_blur" || key == "dof" || key == "lens_flare" || key == "wireframe") {
+			if (key == "aa" || key == "motion_blur" || key == "dof" || key == "lens_flare" ||
+				key == "lens" || key == "wireframe") {
 				bool enabled;
 				if (!ParseBool(value, enabled)) { error = key + " must be 0|1"; return false; }
 				if (key == "aa") { rs->SetAA(enabled); }
 				else if (key == "motion_blur") { rs->SetMotionBlur(enabled); }
 				else if (key == "dof") { rs->SetDOF(enabled); }
 				else if (key == "lens_flare") { rs->SetLensFlare(enabled); }
+				else if (key == "lens") { rs->SetLensEffects(enabled); }
 				else { rs->SetWireframe(enabled); }
+				return true;
+			}
+			if (key == "lens_aberration" || key == "lens_grain" || key == "lens_vignette") {
+				float v;
+				try { v = std::stof(value); }
+				catch (...) { error = key + " must be a float"; return false; }
+				if (v < 0.0f || v > 1.0f) { error = key + " must be within 0..1"; return false; }
+				if (key == "lens_aberration") { rs->SetLensAberration(v); }
+				else if (key == "lens_grain") { rs->SetLensGrain(v); }
+				else { rs->SetLensVignette(v); }
 				return true;
 			}
 			if (key == "dof_autofocus") {
 				bool enabled;
 				if (!ParseBool(value, enabled)) { error = key + " must be 0|1"; return false; }
-				app.SetDofAutofocus(enabled);
+				rs->SetDofAutofocus(enabled);
 				return true;
 			}
 			if (key == "dof_focus" || key == "dof_amplitude") {
@@ -169,10 +216,13 @@ namespace HotBiteEditor {
 				float v;
 				try { v = std::stof(value); }
 				catch (...) { error = key + " must be a float"; return false; }
-				//Setting either value manually is an implicit switch to manual mode;
-				//autofocus drives both and would overwrite them next camera move.
-				app.SetDofAutofocus(false);
-				if (key == "dof_focus") { dof_effect->SetFocus(v); }
+				if (key == "dof_focus") {
+					//Setting the distance by hand is an implicit switch to manual
+					//mode; autofocus would otherwise override it every frame. The
+					//aperture is independent and leaves the mode alone.
+					rs->SetDofAutofocus(false);
+					dof_effect->SetFocus(v);
+				}
 				else { dof_effect->SetAmplitude(v); }
 				return true;
 			}
@@ -195,8 +245,12 @@ namespace HotBiteEditor {
 				j["aa"] = rs->GetAA();
 				j["motion_blur"] = rs->GetMotionBlur();
 				j["dof"] = rs->GetDOF();
-				j["dof_autofocus"] = app.GetDofAutofocus();
+				j["dof_autofocus"] = rs->GetDofAutofocus();
 				j["lens_flare"] = rs->GetLensFlare();
+				j["lens"] = rs->GetLensEffects();
+				j["lens_aberration"] = rs->GetLensAberration();
+				j["lens_grain"] = rs->GetLensGrain();
+				j["lens_vignette"] = rs->GetLensVignette();
 				j["wireframe"] = rs->GetWireframe();
 				Core::BaseDOFProcess* dof_effect = app.GetDofEffect();
 				if (dof_effect != nullptr) {

@@ -27,15 +27,19 @@ SOFTWARE.
 
 Texture2D renderTexture : register(t0);
 Texture2D depthTexture: register(t1);
+//Single texel written by AutoFocusCS: the scene depth at the center of the view,
+//which is the focal distance when autofocus is on.
+Texture2D<float> autofocusTexture : register(t2);
 
 SamplerState basicSampler : register(s0);
 
 cbuffer externalData : register(b0)
 {
-    int dopActive;    
+    int dopActive;
     float focusZ;
     float amplitude;
     int type;
+    int autofocusActive;
 }
 
 #define EPSILON 1e-6
@@ -105,8 +109,11 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
     }
 
     if (dopActive) {
+        //Focal distance in world units: measured on the GPU from the depth buffer
+        //when autofocus is on, otherwise whatever the application authored.
+        float focus = autofocusActive ? autofocusTexture[uint2(0, 0)] : focusZ;
         float z0 = depthTexture.Sample(basicSampler, tpos).r;
-        dispersion = pow((focusZ - z0), 2.0f) * amplitude / 100.0f;
+        dispersion = pow((focus - z0), 2.0f) * amplitude / 100.0f;
     }
     return getColor(pos.xy, w, h, dir, dispersion);
 }

@@ -67,6 +67,7 @@ const std::string RenderSystem::SPEC_TEXTURE = "specularTexture";
 const std::string RenderSystem::MATERIAL = "material";
 const std::string RenderSystem::DIFFUSE_TEXTURE = "diffuseTexture";
 const std::string RenderSystem::DEPTH_TEXTURE = "depthTexture";
+const std::string RenderSystem::AUTOFOCUS_TEXTURE = "autofocusTexture";
 const std::string RenderSystem::CAMERA_POSITION = "cameraPosition";
 const std::string RenderSystem::CAMERA_DIRECTION = "cameraDirection";
 const std::string RenderSystem::TESS_ENABLED = "tessEnabled";
@@ -321,6 +322,16 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		if (FAILED(vol_data.Init(16, 16, DXGI_FORMAT::DXGI_FORMAT_R32_UINT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("vol_data.Init failed");
 		}
+		//A single texel holding the autofocus distance. R32_FLOAT because the
+		//shader reads the previous frame's value back out of the UAV to smooth
+		//against it, and typed UAV loads are only guaranteed for the 32 bit formats.
+		if (FAILED(autofocus_map.Init(1, 1, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+			throw std::exception("autofocus_map.Init failed");
+		}
+		autofocus_shader = ShaderFactory::Get()->GetShader<SimpleComputeShader>("AutoFocusCS.cso");
+		if (autofocus_shader == nullptr) {
+			throw std::exception("autofocus shader.Init failed");
+		}
 		lens_flare = ShaderFactory::Get()->GetShader<SimpleComputeShader>("LensFlareCS.cso");
 		if (lens_flare == nullptr) {
 			throw std::exception("lens_flare shader.Init failed");
@@ -438,6 +449,7 @@ RenderSystem::~RenderSystem() {
 	rgba_noise_texture.Release();
 	motion_texture.Release();
 	depth_map.Release();
+	autofocus_map.Release();
 
 	for (int i = 0; i < RT_NTEXTURES; ++i) {
 		for (int x = 0; x < 2; ++x) {
@@ -1594,6 +1606,39 @@ void RenderSystem::ProcessDust() {
 	}
 }
 
+//Depth of field autofocus: measures the focal distance on the GPU as the scene
+//depth at the center of the view. depth_map already stores the world distance from
+//the camera to each visible surface (DepthPS writes length(worldPos - cameraPosition)),
+//so the center texel is the distance to whatever the camera is aimed at - no
+//projection maths, no raycast and, most importantly, no CPU readback: the result is
+//left in a 1x1 texture that the DOF pass samples later in the same frame.
+//
+//Runs right after DrawDepth, the only point where depth_map is complete and not
+//simultaneously bound as a UAV by the dust / lens flare passes.
+void RenderSystem::ProcessAutoFocus() {
+	if (!dof_autofocus || autofocus_shader == nullptr || autofocus_map.UAV() == nullptr) {
+		return;
+	}
+	//Fraction of the way to the new measurement per frame. Low enough that a
+	//camera sweeping past a near object racks focus smoothly instead of snapping,
+	//high enough to settle within a few frames once the camera stops.
+	autofocus_shader->SetFloat("smoothFactor", 0.15f);
+	//Only used until something has been in view at all.
+	autofocus_shader->SetFloat("defaultFocus", 20.0f);
+	//9x9 depth texels around the center.
+	autofocus_shader->SetInt("radius", 4);
+	autofocus_shader->SetInt("reset", autofocus_reset);
+	autofocus_shader->SetShaderResourceView("depthTexture", depth_map.SRV());
+	autofocus_shader->SetUnorderedAccessView("focusOutput", autofocus_map.UAV());
+	autofocus_shader->CopyAllBufferData();
+	autofocus_shader->SetShader();
+	dxcore->context->Dispatch(1, 1, 1);
+	autofocus_shader->SetShaderResourceView("depthTexture", nullptr);
+	autofocus_shader->SetUnorderedAccessView("focusOutput", nullptr);
+	autofocus_shader->CopyAllBufferData();
+	autofocus_reset = false;
+}
+
 void RenderSystem::ProcessLensFlare() {
 	if (lens_flare_enabled && lens_flare_map.UAV() != nullptr) {
 		lens_flare_map.Clear(zero);
@@ -1616,6 +1661,7 @@ void RenderSystem::ProcessLensFlare() {
 		lens_flare->SetMatrix4x4(VIEW, cam_entity.camera->view);
 		lens_flare->SetFloat("focusZ", dof_effect ? dof_effect->GetFocus() : -1.0f);
 		lens_flare->SetFloat("amplitude", dof_effect ? dof_effect->GetAmplitude() : -1.0f);
+		lens_flare->SetInt("autofocusActive", dof_autofocus);
 		lens_flare->SetMatrix4x4("inverse_view", cam_entity.camera->inverse_view);
 		lens_flare->SetMatrix4x4(PROJECTION, cam_entity.camera->projection);
 		lens_flare->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
@@ -1627,6 +1673,7 @@ void RenderSystem::ProcessLensFlare() {
 		lens_flare->SetUnorderedAccessView("depthTextureUAV", depth_map.UAV());
 		lens_flare->SetShaderResourceView("rgbaNoise", rgba_noise_texture.SRV());
 		lens_flare->SetShaderResourceView("vol_data", vol_data.SRV());
+		lens_flare->SetShaderResourceView("autofocusTexture", autofocus_map.SRV());
 		lens_flare->CopyAllBufferData();
 		lens_flare->SetShader();
 		dxcore->context->Dispatch(groupsX, groupsY, 1);
@@ -1634,6 +1681,7 @@ void RenderSystem::ProcessLensFlare() {
 		lens_flare->SetUnorderedAccessView("depthTextureUAV", nullptr);
 		lens_flare->SetShaderResourceView("rgbaNoise", nullptr);
 		lens_flare->SetShaderResourceView("vol_data", nullptr);
+		lens_flare->SetShaderResourceView("autofocusTexture", nullptr);
 		UnprepareLights(lens_flare);
 	}
 }
@@ -2530,6 +2578,10 @@ void RenderSystem::SetPostProcessPipeline(Core::PostProcess* pipeline) {
 			if (tmp != nullptr) {
 				dof_effect = tmp;
 			}
+			LensEffect* lens = dynamic_cast<LensEffect*>(last);
+			if (lens != nullptr) {
+				lens_effect = lens;
+			}
 			last = last->GetNext();
 		}
 		last->SetTarget(dxcore, dxcore);
@@ -2664,13 +2716,23 @@ void RenderSystem::Draw() {
 			last_static_shadow_signature = static_shadow_signature;
 			CastShadows(w, h, camera_position, view, projection, true);
 		}
-		if (dof_effect) dof_effect->SetEnabled(dof_enabled);
+		if (dof_effect) {
+			dof_effect->SetEnabled(dof_enabled);
+			dof_effect->SetAutofocus(dof_autofocus);
+		}
+		if (lens_effect) {
+			lens_effect->SetEnabled(lens_enabled);
+			lens_effect->SetAberration(lens_aberration);
+			lens_effect->SetGrain(lens_grain);
+			lens_effect->SetVignette(lens_vignette);
+		}
 
 		current_light_map = &light_map[0];
 		prev_light_map = nullptr;
 
 		CastShadows(w, h, camera_position, view, projection, false);
 		DrawDepth(w, h, camera_position, view, projection);
+		ProcessAutoFocus();
 		DrawSky(w, h, camera_position, view, projection);
 		DrawScene(w, h, camera_position, view, projection, nullptr, first_pass_target, render_tree);
 		if (second_pass_target != nullptr && !render_pass2_tree.empty()) {
@@ -2690,6 +2752,7 @@ void RenderSystem::Draw() {
 
 		if (post_process_pipeline != nullptr) {
 			post_process_pipeline->SetShaderResourceView(DEPTH_TEXTURE, depth_map.SRV());
+			post_process_pipeline->SetShaderResourceView(AUTOFOCUS_TEXTURE, autofocus_map.SRV());
 			post_process_pipeline->SetView(*(cam_entity.camera));
 		}
 		
@@ -2848,6 +2911,57 @@ void RenderSystem::SetDOF(bool enabled) {
 
 bool RenderSystem::GetDOF() const {
 	return dof_enabled;
+}
+
+void RenderSystem::SetDofAutofocus(bool enabled) {
+	//Re-enabling after a spell of manual focus (or of no measurement at all) leaves
+	//a stale distance in the texture; adopt the next measurement outright rather
+	//than smoothing away from it.
+	autofocus_reset = autofocus_reset || (enabled && !dof_autofocus);
+	dof_autofocus = enabled;
+}
+
+bool RenderSystem::GetDofAutofocus() const {
+	return dof_autofocus;
+}
+
+//The amounts are held here rather than only on the stage so they survive a chain
+//that has not been installed yet (or has been swapped), and are pushed to it every
+//frame from Update() alongside the DOF settings.
+static float ClampLensAmount(float v) {
+	return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v);
+}
+
+void RenderSystem::SetLensEffects(bool enabled) {
+	lens_enabled = enabled;
+}
+
+bool RenderSystem::GetLensEffects() const {
+	return lens_enabled;
+}
+
+void RenderSystem::SetLensAberration(float amount) {
+	lens_aberration = ClampLensAmount(amount);
+}
+
+float RenderSystem::GetLensAberration() const {
+	return lens_aberration;
+}
+
+void RenderSystem::SetLensGrain(float amount) {
+	lens_grain = ClampLensAmount(amount);
+}
+
+float RenderSystem::GetLensGrain() const {
+	return lens_grain;
+}
+
+void RenderSystem::SetLensVignette(float amount) {
+	lens_vignette = ClampLensAmount(amount);
+}
+
+float RenderSystem::GetLensVignette() const {
+	return lens_vignette;
 }
 
 void RenderSystem::SetRTDebug(uint32_t debug) {
