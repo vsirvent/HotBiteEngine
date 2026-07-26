@@ -6,15 +6,21 @@ namespace HotBiteEditor {
 	namespace AssetBrowser {
 		void Draw(EditorState& state);
 
-		// Scans the project's Assets/Objects folder for .fbx files and loads any
-		// not-yet-loaded ones into the World. These are not imported *as* objects any
-		// more - importing means importing a template (see TemplateOps::ImportTemplate)
-		// - but the scan stays, because it is how a project's FBX meshes, materials and
-		// animation sets become available for a template to point at, and because a
-		// level may still list an .fbx template that instances refer to.
-		// Draw calls this lazily on project change; automation calls it before template
-		// commands so both see the same list.
-		void EnsureTemplatesScanned(EditorState& state);
+		// Brings the project's asset layers into `state`: the .fbx files under
+		// Assets/Objects (and any the level itself loaded) as *models*, and the .tpl
+		// files under Assets/Templates as templates. Loading a model registers its
+		// meshes, materials and animation clips with the World and places nothing -
+		// making a template is the separate, explicit step.
+		// Draw calls this lazily on project change; automation calls it before model
+		// and template commands so both see the same lists.
+		void EnsureAssetsScanned(EditorState& state);
+
+		// Imports one .fbx as a model: copies it into Assets/Objects when it comes
+		// from outside the project, loads it and selects it. This is File/Import
+		// Model...; it deliberately creates no template (TemplateOps::CreateFromModel
+		// is the next step, one click away in the panel).
+		bool ImportModel(EditorState& state, const std::string& fbx_path, std::string& error);
+		void ImportModelWithDialog(EditorState& state);
 
 		// Spawns an instance of `template_name`, records it for save and selects it.
 		// `mode` decides where it lands (see PlacementMode). Returns false with `error`

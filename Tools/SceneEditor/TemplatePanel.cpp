@@ -4,6 +4,7 @@
 #include "EditorLayout.h"
 #include "Inspector.h"
 #include "MaterialPanel.h"
+#include "ModelPreview.h"
 
 #include "imgui.h"
 #include <World.h>
@@ -67,7 +68,6 @@ namespace HotBiteEditor {
 				asset->name = name;
 				asset->file_path = TemplateFilePath(state, name);
 				asset->loaded = true;
-				asset->authored = true;
 			}
 
 			void UnregisterAsset(EditorState& state, const std::string& name) {
@@ -106,17 +106,6 @@ namespace HotBiteEditor {
 		std::vector<std::string> ListAuthored(const EditorState& state) {
 			std::vector<std::string> names;
 			for (const TemplateAsset& t : state.templates) {
-				if (t.authored) {
-					names.push_back(t.name);
-				}
-			}
-			std::sort(names.begin(), names.end());
-			return names;
-		}
-
-		std::vector<std::string> ListPlaceable(const EditorState& state) {
-			std::vector<std::string> names;
-			for (const TemplateAsset& t : state.templates) {
 				names.push_back(t.name);
 			}
 			std::sort(names.begin(), names.end());
@@ -137,36 +126,80 @@ namespace HotBiteEditor {
 			return names;
 		}
 
-		std::vector<std::string> ListAnimationSets(const EditorState& state) {
+		std::vector<AvailableClip> ListAvailableClips(const EditorState& state) {
+			std::vector<AvailableClip> clips;
 			if (state.world == nullptr) {
-				return {};
+				return clips;
 			}
-			//Keyed by the stem of the FBX each set was loaded from, which is also the
-			//name its animations carry unless the file was loaded with animation names
-			//of its own - so these read as "troll_idle", "troll_walk", ...
-			std::vector<std::string> names = state.world->GetSkeletons().Keys();
-			std::sort(names.begin(), names.end());
-			return names;
+			//Walked model by model rather than set by set: which file an animation came
+			//from is the only grouping that means anything to whoever is choosing one,
+			//and an animation set is an implementation detail of that file.
+			for (const ModelAsset& model : state.models) {
+				const World::ModelAssets* assets = state.world->GetModelAssets(model.name);
+				if (assets == nullptr) {
+					continue;
+				}
+				for (const std::string& set : assets->animation_sets) {
+					for (const std::string& clip : state.world->GetAnimationSetClips(set)) {
+						clips.push_back({ model.name, clip });
+					}
+				}
+			}
+			std::sort(clips.begin(), clips.end(), [](const AvailableClip& a, const AvailableClip& b) {
+				return (a.model != b.model) ? (a.model < b.model) : (a.clip < b.clip);
+				});
+			clips.erase(std::unique(clips.begin(), clips.end(),
+				[](const AvailableClip& a, const AvailableClip& b) {
+					return a.model == b.model && a.clip == b.clip;
+				}), clips.end());
+			return clips;
 		}
 
-		std::vector<std::string> ListTemplateAnimations(const EditorState& state,
-			const std::string& name) {
+		//Which model carries `clip`, for display. Goes through the world's set lookup
+		//and then back to the model that brought that set in, so a clip whose file is
+		//no longer listed reads as unresolved rather than as belonging to nothing in
+		//particular.
+		static std::string ModelOfClip(const EditorState& state, const std::string& clip) {
 			if (state.world == nullptr) {
 				return {};
 			}
-			//Read off the template entity rather than off the mesh asset by name: the
-			//entity is where the attachments actually landed, so this answers "what can
-			//this template play right now" including sets attached a moment ago.
-			Coordinator* tc = state.world->GetTemplatesCoordinator();
-			Entity te = state.world->GetTemplateEntity(name);
-			if (te == INVALID_ENTITY_ID || !tc->ContainsComponent<Mesh>(te)) {
+			const std::string set = state.world->FindAnimationSet(clip);
+			if (set.empty()) {
 				return {};
 			}
-			Core::MeshData* data = tc->GetComponent<Mesh>(te).GetData();
-			if (data == nullptr) {
-				return {};
+			for (const ModelAsset& model : state.models) {
+				const World::ModelAssets* assets = state.world->GetModelAssets(model.name);
+				if (assets == nullptr) {
+					continue;
+				}
+				if (std::find(assets->animation_sets.begin(), assets->animation_sets.end(), set) !=
+					assets->animation_sets.end()) {
+					return model.name;
+				}
 			}
-			return state.world->GetMeshAnimations(data->name);
+			return set;
+		}
+
+		std::vector<TemplateClip> ListClips(const EditorState& state, const std::string& name) {
+			std::vector<TemplateClip> result;
+			const nlohmann::json block = GetComponent(state, name, Mesh::NAME);
+			if (!block.contains("clips") || !block["clips"].is_object()) {
+				return result;
+			}
+			const std::string current = block.value("animation", std::string());
+			for (auto it = block["clips"].begin(); it != block["clips"].end(); ++it) {
+				if (!it.value().is_string()) {
+					continue;
+				}
+				TemplateClip entry;
+				entry.name = it.key();
+				entry.clip = it.value();
+				entry.model = ModelOfClip(state, entry.clip);
+				entry.resolved = !entry.model.empty();
+				entry.is_default = (entry.name == current);
+				result.push_back(entry);
+			}
+			return result;
 		}
 
 		nlohmann::json GetComponent(const EditorState& state, const std::string& name,
@@ -337,7 +370,7 @@ namespace HotBiteEditor {
 			std::string& error) {
 			TemplateSnapshot before;
 			if (!GetSnapshot(state, name, before) || !before.exists) {
-				error = "not an authored template: " + name;
+				error = "unknown template: " + name;
 				return false;
 			}
 			if (before.inline_in_level == inline_in_level) {
@@ -439,6 +472,108 @@ namespace HotBiteEditor {
 			return true;
 		}
 
+		std::string UniqueTemplateName(const EditorState& state, const std::string& base) {
+			if (state.world == nullptr) {
+				return base;
+			}
+			std::string candidate = base;
+			int suffix = 2;
+			while (state.world->IsTemplateLoaded(candidate)) {
+				candidate = base + std::to_string(suffix++);
+			}
+			return candidate;
+		}
+
+		bool CreateFromModel(EditorState& state, const std::string& model_name,
+			const std::string& template_name, std::string& error) {
+			if (state.world == nullptr) {
+				error = "no world";
+				return false;
+			}
+			const World::ModelAssets* assets = state.world->GetModelAssets(model_name);
+			if (assets == nullptr) {
+				error = "unknown model: " + model_name;
+				return false;
+			}
+			if (template_name.empty() || state.world->IsTemplateLoaded(template_name)) {
+				error = "a template named '" + template_name + "' already exists";
+				return false;
+			}
+			//The first renderable node of the model: an .fbx registers armatures and
+			//empties alongside its meshes, and a template is built from geometry.
+			Coordinator* tc = state.world->GetTemplatesCoordinator();
+			Entity source = INVALID_ENTITY_ID;
+			for (Entity e : state.world->GetModelEntities(model_name)) {
+				if (tc != nullptr && tc->ContainsComponent<Mesh>(e) &&
+					tc->ContainsComponent<Transform>(e)) {
+					source = e;
+					break;
+				}
+			}
+			if (source == INVALID_ENTITY_ID) {
+				//An animation-only .fbx is a perfectly good model and a perfectly
+				//impossible object; say which of the two this is rather than failing
+				//with something generic.
+				error = model_name + " has no mesh - it is an animation-only model, so "
+					"there is nothing to build an object out of. Add its clips to a "
+					"template that does have a mesh.";
+				return false;
+			}
+
+			nlohmann::json components = nlohmann::json::object();
+			SerializeContext ctx;
+			ctx.world = state.world;
+			ctx.coordinator = tc;
+			//Mesh and Material read off the node, so a multi-material .fbx keeps the
+			//pairing the artist exported rather than the first material in the file.
+			try {
+				components[Mesh::NAME] = ComponentRegistry::Instance().Find(Mesh::NAME)->serialize(ctx, source);
+			}
+			catch (const std::exception&) {
+			}
+			//Only the mesh name is wanted here: whatever animation the node happens to
+			//have landed on is not a decision this template has made yet.
+			if (components.contains(Mesh::NAME)) {
+				components[Mesh::NAME].erase("animation");
+				components[Mesh::NAME].erase("animation_loop");
+				components[Mesh::NAME].erase("animation_speed");
+				components[Mesh::NAME].erase("skeletons");
+				components[Mesh::NAME].erase("clips");
+			}
+			if (tc->ContainsComponent<Material>(source)) {
+				try {
+					components[Material::NAME] =
+						ComponentRegistry::Instance().Find(Material::NAME)->serialize(ctx, source);
+				}
+				catch (const std::exception&) {
+				}
+			}
+			//The node's own rotation and scale: an .fbx exported in centimetres carries
+			//its 0.025 there, and a template that dropped it would place objects forty
+			//times too big. The position is not kept - where an object goes is what
+			//placing an instance decides.
+			const Transform& t = tc->GetConstComponent<Transform>(source);
+			components[Transform::NAME] = nlohmann::json{
+				{"position", {{"x", 0.0f}, {"y", 0.0f}, {"z", 0.0f}}},
+				{"rotation", {{"x", t.rotation.x}, {"y", t.rotation.y}, {"z", t.rotation.z},
+							  {"w", t.rotation.w}}},
+				{"scale", {{"x", t.scale.x}, {"y", t.scale.y}, {"z", t.scale.z}}} };
+
+			if (!MutateTemplate(state, template_name, components, false, error)) {
+				return false;
+			}
+			state.selected_template = template_name;
+			const size_t parts = state.world->GetModelEntities(model_name).size();
+			state.status_message = "Created template '" + template_name + "' from model " + model_name;
+			if (parts > 1) {
+				//Said plainly rather than silently taking part 0: a multi-node .fbx is
+				//several objects, and which ones belong together is the author's call.
+				state.status_message += " (used its first mesh node; the model has " +
+					std::to_string(parts) + " nodes)";
+			}
+			return true;
+		}
+
 		bool DuplicateTemplate(EditorState& state, const std::string& source,
 			const std::string& new_name, std::string& error) {
 			if (state.world == nullptr) {
@@ -447,7 +582,7 @@ namespace HotBiteEditor {
 			}
 			const nlohmann::json* components = state.world->GetTemplateComponents(source);
 			if (components == nullptr) {
-				error = "not an authored template: " + source;
+				error = "unknown template: " + source;
 				return false;
 			}
 			if (new_name.empty() || state.world->IsTemplateLoaded(new_name)) {
@@ -464,7 +599,7 @@ namespace HotBiteEditor {
 
 		bool RemoveTemplate(EditorState& state, const std::string& name, std::string& error) {
 			if (!IsAuthored(state, name)) {
-				error = "not an authored template: " + name;
+				error = "unknown template: " + name;
 				return false;
 			}
 			const size_t placed = FindInstances(state, name).size();
@@ -487,7 +622,7 @@ namespace HotBiteEditor {
 			}
 			const nlohmann::json* current = state.world->GetTemplateComponents(name);
 			if (current == nullptr) {
-				error = "not an authored template: " + name;
+				error = "unknown template: " + name;
 				return false;
 			}
 			nlohmann::json components = *current;
@@ -506,7 +641,7 @@ namespace HotBiteEditor {
 				return false;
 			}
 			if (!before.exists) {
-				error = "not an authored template: " + name;
+				error = "unknown template: " + name;
 				return false;
 			}
 			if (!ApplyComponent(state, name, component, value, error)) {
@@ -524,7 +659,7 @@ namespace HotBiteEditor {
 			}
 			TemplateSnapshot before;
 			if (!GetSnapshot(state, name, before) || !before.exists) {
-				error = "not an authored template: " + name;
+				error = "unknown template: " + name;
 				return false;
 			}
 			if (!before.components.contains(component)) {
@@ -540,56 +675,16 @@ namespace HotBiteEditor {
 			return true;
 		}
 
-		//The animation names one loaded animation set brings, walked the same way
-		//Mesh::SetAnimation resolves a name.
-		static std::vector<std::string> SkeletonAnimations(EditorState& state,
-			const std::string& skeleton_name) {
-			std::vector<std::string> names;
-			std::shared_ptr<Core::Skeleton>* skl =
-				state.world->GetSkeletons().Get(skeleton_name);
-			if (skl == nullptr || *skl == nullptr) {
-				return names;
-			}
-			for (const Core::JointCpuData& joint : (*skl)->CpuData()) {
-				for (const Core::JointAnim& animation : joint.animations) {
-					if (!animation.name.empty() && !animation.key_frames.empty()) {
-						names.push_back(animation.name);
-					}
-				}
-			}
-			return names;
-		}
-
 		bool SetMesh(EditorState& state, const std::string& name,
 			const std::string& mesh_name, std::string& error) {
 			nlohmann::json block = GetComponent(state, name, Mesh::NAME);
 			block["name"] = mesh_name;
-			//The animation belonged to the previous mesh. A name the new one cannot
-			//offer is silently ignored by Mesh::SetAnimation, which would leave the
-			//template claiming an animation it never plays - so it is dropped as part
-			//of the same edit rather than as a second one the user would have to undo
-			//separately. What the new mesh can offer is what it already carries plus
-			//whatever the template's own animation sets will attach to it.
-			const std::string animation = block.value("animation", std::string());
-			if (!animation.empty()) {
-				std::vector<std::string> available = state.world->GetMeshAnimations(mesh_name);
-				if (block.contains("skeletons") && block["skeletons"].is_array()) {
-					for (const auto& entry : block["skeletons"]) {
-						if (!entry.is_string()) {
-							continue;
-						}
-						for (const std::string& from_set :
-							SkeletonAnimations(state, entry.get<std::string>())) {
-							available.push_back(from_set);
-						}
-					}
-				}
-				if (std::find(available.begin(), available.end(), animation) == available.end()) {
-					block.erase("animation");
-					block.erase("animation_loop");
-					block.erase("animation_speed");
-				}
-			}
+			//The animation library survives a mesh swap on purpose. A library entry is
+			//a role this object plays, and the clips are attached to whatever mesh the
+			//template ends up with - swapping a character's mesh for a re-export is
+			//precisely the case where re-authoring "idle"/"walk"/"attack" by hand would
+			//be pure loss. Clips that the new rig cannot play show as unresolved in the
+			//Animations section rather than being silently dropped.
 			return SetComponent(state, name, Mesh::NAME, block, error);
 		}
 
@@ -600,62 +695,109 @@ namespace HotBiteEditor {
 			return SetComponent(state, name, Material::NAME, block, error);
 		}
 
-		bool SetAnimationSet(EditorState& state, const std::string& name,
-			const std::string& skeleton_name, bool attached, std::string& error) {
-			if (state.world == nullptr || state.world->GetSkeletons().Get(skeleton_name) == nullptr) {
-				error = "unknown animation set: " + skeleton_name;
+		bool AddClip(EditorState& state, const std::string& name, const std::string& logical,
+			const std::string& clip, std::string& error) {
+			if (state.world == nullptr) {
+				error = "no world";
+				return false;
+			}
+			if (logical.empty()) {
+				error = "animation name is empty";
+				return false;
+			}
+			if (state.world->FindAnimationSet(clip).empty()) {
+				error = "no imported model offers the clip '" + clip + "'";
 				return false;
 			}
 			nlohmann::json block = GetComponent(state, name, Mesh::NAME);
-			std::vector<std::string> sets;
-			if (block.contains("skeletons") && block["skeletons"].is_array()) {
-				for (const auto& entry : block["skeletons"]) {
-					if (entry.is_string() && entry.get<std::string>() != skeleton_name) {
-						sets.push_back(entry.get<std::string>());
-					}
-				}
+			nlohmann::json library = (block.contains("clips") && block["clips"].is_object())
+				? block["clips"] : nlohmann::json::object();
+			const bool first = library.empty();
+			library[logical] = clip;
+			block["clips"] = library;
+			//A library of one with nothing selected is a template that has an animation
+			//and stands still, which is never what adding the first one meant.
+			if (first && block.value("animation", std::string()).empty()) {
+				block["animation"] = logical;
+				block["animation_loop"] = true;
+				block["animation_speed"] = 1.0f;
 			}
-			if (attached) {
-				sets.push_back(skeleton_name);
-			}
-			else if (block.value("animation", std::string()).rfind(skeleton_name, 0) == 0) {
-				//The chosen animation came from the set being detached; leaving it
-				//named would have the template claim an animation it cannot play.
-				block.erase("animation");
-				block.erase("animation_loop");
-				block.erase("animation_speed");
-			}
-			if (sets.empty()) {
-				block.erase("skeletons");
-			}
-			else {
-				block["skeletons"] = sets;
-			}
-			//Detaching only stops the template *declaring* the set. The set itself
-			//stays on the shared MeshData for this session, because other entities may
-			//be playing it; the declaration is what a reload rebuilds from.
 			return SetComponent(state, name, Mesh::NAME, block, error);
 		}
 
-		bool SetAnimation(EditorState& state, const std::string& name,
-			const std::string& animation, bool loop, float speed, std::string& error) {
+		bool RemoveClip(EditorState& state, const std::string& name, const std::string& logical,
+			std::string& error) {
 			nlohmann::json block = GetComponent(state, name, Mesh::NAME);
-			if (animation.empty()) {
+			if (!block.contains("clips") || !block["clips"].is_object() ||
+				!block["clips"].contains(logical)) {
+				error = name + " has no animation named '" + logical + "'";
+				return false;
+			}
+			block["clips"].erase(logical);
+			if (block["clips"].empty()) {
+				block.erase("clips");
+			}
+			//The default pointed at the entry being removed: an "animation" naming
+			//nothing would leave the template claiming an animation it cannot play.
+			if (block.value("animation", std::string()) == logical) {
 				block.erase("animation");
 				block.erase("animation_loop");
 				block.erase("animation_speed");
 			}
+			return SetComponent(state, name, Mesh::NAME, block, error);
+		}
+
+		bool RenameClip(EditorState& state, const std::string& name, const std::string& logical,
+			const std::string& new_logical, std::string& error) {
+			if (new_logical.empty()) {
+				error = "animation name is empty";
+				return false;
+			}
+			if (new_logical == logical) {
+				return true;
+			}
+			nlohmann::json block = GetComponent(state, name, Mesh::NAME);
+			if (!block.contains("clips") || !block["clips"].is_object() ||
+				!block["clips"].contains(logical)) {
+				error = name + " has no animation named '" + logical + "'";
+				return false;
+			}
+			if (block["clips"].contains(new_logical)) {
+				error = name + " already has an animation named '" + new_logical + "'";
+				return false;
+			}
+			block["clips"][new_logical] = block["clips"][logical];
+			block["clips"].erase(logical);
+			//The default is stored as a logical name, so renaming one has to carry it.
+			if (block.value("animation", std::string()) == logical) {
+				block["animation"] = new_logical;
+			}
+			return SetComponent(state, name, Mesh::NAME, block, error);
+		}
+
+		bool SetDefaultClip(EditorState& state, const std::string& name,
+			const std::string& logical, bool loop, float speed, std::string& error) {
+			nlohmann::json block = GetComponent(state, name, Mesh::NAME);
+			if (logical.empty()) {
+				//Stand still. Written as an explicit empty name rather than by dropping
+				//the key: Mesh::FromJson reads "" as StopAnimation and a missing key as
+				//"whatever the mesh defaults to", and those are different templates.
+				block["animation"] = "";
+				block.erase("animation_loop");
+				block.erase("animation_speed");
+			}
 			else {
-				block["animation"] = animation;
+				const bool known = block.contains("clips") && block["clips"].is_object() &&
+					block["clips"].contains(logical);
+				if (!known) {
+					error = name + " has no animation named '" + logical + "'";
+					return false;
+				}
+				block["animation"] = logical;
 				block["animation_loop"] = loop;
 				block["animation_speed"] = speed;
 			}
 			return SetComponent(state, name, Mesh::NAME, block, error);
-		}
-
-		bool PlaceTemplate(EditorState& state, const std::string& name, PlacementMode mode,
-			std::string& error) {
-			return AssetBrowser::PlaceTemplate(state, name, mode, error);
 		}
 
 		bool ImportTemplate(EditorState& state, const std::string& tpl_path, std::string& error) {
@@ -797,10 +939,6 @@ namespace HotBiteEditor {
 							continue;
 						}
 					}
-					else if (!state.world->IsAuthoredTemplate(name)) {
-						//An .fbx already owns this name; the .tpl beside it is unusable.
-						continue;
-					}
 					//Deliberately RegisterAsset and not ApplySnapshot: discovering a
 					//template on disk is not an edit, so it must not mark the file dirty.
 					RegisterAsset(state, name);
@@ -808,10 +946,8 @@ namespace HotBiteEditor {
 			}
 
 			//Templates the level's own "templates" array pulled in live only in the
-			//World until now: the .fbx scan finds them only when they happen to sit in
-			//Assets/Objects, so a level referencing an .fbx from anywhere else had a
-			//template that could not be listed, selected or placed. List them all, so
-			//"what this level can place" is one answer rather than two.
+			//World until now (an inline one, or a .tpl kept outside Assets/Templates).
+			//List them all, so "what this level can place" is one answer rather than two.
 			for (const std::string& name : state.world->ListTemplates()) {
 				if (FindAsset(state, name) != nullptr) {
 					continue;
@@ -819,10 +955,7 @@ namespace HotBiteEditor {
 				TemplateAsset asset;
 				asset.name = name;
 				asset.loaded = true;
-				asset.authored = state.world->IsAuthoredTemplate(name);
-				if (asset.authored) {
-					asset.file_path = TemplateFilePath(state, name);
-				}
+				asset.file_path = TemplateFilePath(state, name);
 				state.templates.push_back(asset);
 			}
 		}
@@ -936,79 +1069,278 @@ namespace HotBiteEditor {
 					ImGui::EndCombo();
 				}
 
-				//Which animation sets this template attaches to its mesh. A mesh can only
-				//play animations belonging to a set attached to it, so this comes before
-				//the animation picker - and is why that picker is empty on a level that
-				//has not attached any.
-				const std::vector<std::string> sets = TemplateOps::ListAnimationSets(state);
-				if (!sets.empty() && ImGui::TreeNode("Animation sets")) {
-					std::set<std::string> declared;
-					if (block.contains("skeletons") && block["skeletons"].is_array()) {
-						for (const auto& entry : block["skeletons"]) {
-							if (entry.is_string()) {
-								declared.insert(entry.get<std::string>());
-							}
-						}
-					}
-					for (const std::string& set : sets) {
-						bool on = declared.count(set) != 0;
-						if (ImGui::Checkbox(set.c_str(), &on)) {
-							std::string error;
-							if (!TemplateOps::SetAnimationSet(state, name, set, on, error)) {
-								state.status_message = "Animation set failed: " + error;
-							}
-						}
-					}
-					ImGui::TextDisabled("Attaching a set makes its animations available on\n"
-						"this mesh - and on every entity sharing the mesh, which\n"
-						"is how the engine has always attached them.");
-					ImGui::TreePop();
+				//The animations live in their own section above rather than in here.
+				//They are a list with names, sources and a default - a table's worth of
+				//authoring - and burying that under "Mesh" is what made animations feel
+				//like a property of the imported file instead of part of the object.
+				const int clip_count = (int)TemplateOps::ListClips(state, name).size();
+				if (clip_count == 0) {
+					ImGui::TextDisabled("No animations yet - see the Animations section above.");
+				}
+				else {
+					ImGui::TextDisabled("%d animation(s) - see the Animations section above.",
+						clip_count);
+				}
+			}
+
+			//== The Animations screen ==========================================
+			//
+			//A template's animation library: the names this object answers to, the
+			//imported clip behind each one, which is the default, and a way to hear
+			//what a clip actually looks like before committing to it.
+			//
+			//It is a section of the Templates panel rather than a panel of its own
+			//because an animation is not an asset you manage - it is part of what the
+			//object *is*, and it is only meaningful next to the mesh it plays on.
+
+			//Which clip the preview is auditioning, and for which template. Panel
+			//state, not template data: auditioning must not edit anything.
+			std::string audition_template;
+			std::string audition_clip;
+
+			//The Add popup's staging: which clip is picked and what it will be called.
+			std::string add_clip_source;
+			char add_clip_name[64] = "";
+
+			//"troll_walk" under the model "troll_walk" is worth nothing as a name; the
+			//part that distinguishes it is. Seeds the name field so the common case is
+			//"click clip, press Add".
+			std::string SuggestClipName(const std::string& clip, const std::string& model) {
+				std::string suggestion = clip;
+				//Trim a shared prefix with the model name ("troll_walk" under model
+				//"troll_tpose" -> "walk"), which is how these files are named in
+				//practice: <character>_<action>.fbx.
+				size_t common = 0;
+				while (common < suggestion.size() && common < model.size() &&
+					suggestion[common] == model[common]) {
+					++common;
+				}
+				//Only at a separator, so "troll_attack"/"troll_tpose" does not become
+				//"ttack".
+				while (common > 0 && suggestion[common - 1] != '_' && suggestion[common - 1] != '-') {
+					--common;
+				}
+				if (common > 0 && common < suggestion.size()) {
+					suggestion = suggestion.substr(common);
+				}
+				return suggestion;
+			}
+
+			void DrawAddClipPopup(EditorState& state, const std::string& name) {
+				if (!ImGui::BeginPopup("add_template_clip")) {
+					return;
+				}
+				const std::vector<TemplateOps::AvailableClip> available =
+					TemplateOps::ListAvailableClips(state);
+				if (available.empty()) {
+					ImGui::TextDisabled("No imported model carries any animation.");
+					ImGui::TextDisabled("Import one with File/Import Model...");
+					ImGui::EndPopup();
+					return;
 				}
 
-				//Animations come from the sets attached to the chosen mesh, so a mesh
-				//with none simply offers nothing rather than a free-text field that
-				//would silently never match.
-				const std::vector<std::string> animations =
-					TemplateOps::ListTemplateAnimations(state, name);
-				const std::string animation = block.value("animation", std::string());
-				bool loop = block.value("animation_loop", true);
-				float speed = block.value("animation_speed", 1.0f);
-				ImGui::BeginDisabled(animations.empty());
-				if (ImGui::BeginCombo("Animation", animation.empty() ? "(none)" : animation.c_str())) {
-					if (ImGui::Selectable("(none)", animation.empty()) && !animation.empty()) {
-						std::string error;
-						TemplateOps::SetAnimation(state, name, "", loop, speed, error);
-					}
-					for (const std::string& option : animations) {
-						if (ImGui::Selectable(option.c_str(), option == animation) &&
-							option != animation) {
-							std::string error;
-							if (!TemplateOps::SetAnimation(state, name, option, loop, speed, error)) {
-								state.status_message = "Set animation failed: " + error;
+				ImGui::TextUnformatted("Animation to add:");
+				if (ImGui::BeginChild("##clip_list", ImVec2(320.0f, 220.0f), ImGuiChildFlags_Border)) {
+					std::string current_model;
+					bool model_open = false;
+					for (const TemplateOps::AvailableClip& entry : available) {
+						if (entry.model != current_model) {
+							if (model_open) {
+								ImGui::TreePop();
 							}
+							current_model = entry.model;
+							model_open = ImGui::TreeNodeEx(current_model.c_str(),
+								ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth);
 						}
+						if (!model_open) {
+							continue;
+						}
+						ImGui::PushID(entry.clip.c_str());
+						if (ImGui::Selectable(entry.clip.c_str(), entry.clip == add_clip_source)) {
+							add_clip_source = entry.clip;
+							strncpy_s(add_clip_name, SuggestClipName(entry.clip, entry.model).c_str(),
+								sizeof(add_clip_name) - 1);
+						}
+						ImGui::PopID();
 					}
-					ImGui::EndCombo();
+					if (model_open) {
+						ImGui::TreePop();
+					}
+				}
+				ImGui::EndChild();
+
+				ImGui::SetNextItemWidth(200.0f);
+				ImGui::InputText("Call it", add_clip_name, sizeof(add_clip_name));
+				if (ImGui::IsItemHovered()) {
+					ImGui::SetTooltip("The name this object knows the animation by.\n"
+						"Game code plays it with SetAnimation(\"%s\").",
+						add_clip_name[0] != '\0' ? add_clip_name : "walk");
+				}
+				ImGui::BeginDisabled(add_clip_source.empty() || add_clip_name[0] == '\0');
+				if (ImGui::Button("Add", ImVec2(90.0f, 0.0f))) {
+					std::string error;
+					if (!TemplateOps::AddClip(state, name, add_clip_name, add_clip_source, error)) {
+						state.status_message = "Add animation failed: " + error;
+					}
+					else {
+						state.status_message = "Added animation '" + std::string(add_clip_name) +
+							"' (" + add_clip_source + ") to " + name;
+						add_clip_source.clear();
+						add_clip_name[0] = '\0';
+						ImGui::CloseCurrentPopup();
+					}
 				}
 				ImGui::EndDisabled();
-				if (animations.empty()) {
-					ImGui::TextDisabled(sets.empty()
-						? "(this level loaded no animation sets)"
-						: "(attach an animation set above to choose an animation)");
+				ImGui::SameLine();
+				if (ImGui::Button("Close", ImVec2(90.0f, 0.0f))) {
+					ImGui::CloseCurrentPopup();
+				}
+				ImGui::EndPopup();
+			}
+
+			void DrawAnimationsSection(EditorState& state, const std::string& name) {
+				ImGui::PushID("Animations");
+				if (!ImGui::CollapsingHeader("Animations", ImGuiTreeNodeFlags_DefaultOpen)) {
+					ImGui::PopID();
+					return;
+				}
+				ImGui::PushID("body");
+
+				const std::vector<TemplateOps::TemplateClip> clips =
+					TemplateOps::ListClips(state, name);
+				const nlohmann::json mesh_block = TemplateOps::GetComponent(state, name, Mesh::NAME);
+				bool loop = mesh_block.value("animation_loop", true);
+				float speed = mesh_block.value("animation_speed", 1.0f);
+				const std::string current = mesh_block.value("animation", std::string());
+
+				if (clips.empty()) {
+					ImGui::TextWrapped("This template has no animations. Add one and it becomes "
+						"part of the object: instances play it, and game code asks for it by "
+						"the name you give it here.");
+				}
+				else if (ImGui::BeginTable("##clips", 5,
+					ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_BordersInnerV |
+					ImGuiTableFlags_RowBg)) {
+					ImGui::TableSetupColumn("Plays", ImGuiTableColumnFlags_WidthFixed, 44.0f);
+					ImGui::TableSetupColumn("Name");
+					ImGui::TableSetupColumn("Clip");
+					ImGui::TableSetupColumn("From model");
+					ImGui::TableSetupColumn("##actions", ImGuiTableColumnFlags_WidthFixed, 96.0f);
+					ImGui::TableHeadersRow();
+
+					for (const TemplateOps::TemplateClip& clip : clips) {
+						ImGui::PushID(clip.name.c_str());
+						ImGui::TableNextRow();
+
+						//Audition: play this clip in the preview without touching the
+						//template. The default is set by the radio in the Name column,
+						//so hearing a clip and choosing it stay separate acts.
+						ImGui::TableSetColumnIndex(0);
+						const bool auditioning = (audition_template == name &&
+							audition_clip == clip.name);
+						if (ImGui::SmallButton(auditioning ? "Stop" : "Play")) {
+							audition_template = name;
+							audition_clip = auditioning ? std::string() : clip.name;
+						}
+
+						ImGui::TableSetColumnIndex(1);
+						//Rename in place: the logical name is the whole point of the
+						//library, and it is the field most likely to be got wrong first.
+						char buffer[64];
+						strncpy_s(buffer, clip.name.c_str(), sizeof(buffer) - 1);
+						ImGui::SetNextItemWidth(-FLT_MIN);
+						if (ImGui::InputText("##name", buffer, sizeof(buffer),
+							ImGuiInputTextFlags_EnterReturnsTrue) && buffer[0] != '\0') {
+							std::string error;
+							if (!TemplateOps::RenameClip(state, name, clip.name, buffer, error)) {
+								state.status_message = "Rename animation failed: " + error;
+							}
+						}
+
+						ImGui::TableSetColumnIndex(2);
+						if (clip.resolved) {
+							ImGui::TextUnformatted(clip.clip.c_str());
+						}
+						else {
+							//Broken rather than absent: the clip is still in the file,
+							//and the fix is usually to import the model that carries it.
+							ImGui::TextColored(ImVec4(0.9f, 0.5f, 0.35f, 1.0f), "%s (missing)",
+								clip.clip.c_str());
+							if (ImGui::IsItemHovered()) {
+								ImGui::SetTooltip("No imported model offers this clip.\n"
+									"Import the .fbx it came from and it resolves itself.");
+							}
+						}
+
+						ImGui::TableSetColumnIndex(3);
+						ImGui::TextDisabled("%s", clip.resolved ? clip.model.c_str() : "-");
+
+						ImGui::TableSetColumnIndex(4);
+						bool is_default = clip.is_default;
+						if (ImGui::RadioButton("Default", is_default) && !is_default) {
+							std::string error;
+							if (!TemplateOps::SetDefaultClip(state, name, clip.name, loop, speed, error)) {
+								state.status_message = "Set default animation failed: " + error;
+							}
+						}
+						if (ImGui::IsItemHovered()) {
+							ImGui::SetTooltip("What an instance of this template starts playing");
+						}
+						ImGui::SameLine();
+						if (ImGui::SmallButton("X")) {
+							std::string error;
+							if (!TemplateOps::RemoveClip(state, name, clip.name, error)) {
+								state.status_message = "Remove animation failed: " + error;
+							}
+							else if (audition_template == name && audition_clip == clip.name) {
+								audition_clip.clear();
+							}
+						}
+						ImGui::PopID();
+					}
+					ImGui::EndTable();
 				}
 
-				if (!animation.empty()) {
+				if (ImGui::Button("Add Animation...")) {
+					add_clip_source.clear();
+					add_clip_name[0] = '\0';
+					ImGui::OpenPopup("add_template_clip");
+				}
+				DrawAddClipPopup(state, name);
+
+				if (!clips.empty()) {
+					ImGui::SameLine();
+					//"Stands still" is a real authoring choice (an idle prop built from
+					//an animated rig), distinct from having no animations at all.
+					ImGui::BeginDisabled(current.empty());
+					if (ImGui::Button("None by default")) {
+						std::string error;
+						if (!TemplateOps::SetDefaultClip(state, name, "", loop, speed, error)) {
+							state.status_message = "Set default animation failed: " + error;
+						}
+					}
+					ImGui::EndDisabled();
+
+					ImGui::Separator();
+					ImGui::TextDisabled("Default playback");
+					ImGui::BeginDisabled(current.empty());
 					if (ImGui::Checkbox("Loop", &loop)) {
 						std::string error;
-						TemplateOps::SetAnimation(state, name, animation, loop, speed, error);
+						TemplateOps::SetDefaultClip(state, name, current, loop, speed, error);
 					}
-					bool changed = ImGui::DragFloat("Speed", &speed, 0.01f, 0.0f, 10.0f);
-					bool activated = ImGui::IsItemActivated();
-					bool finished = ImGui::IsItemDeactivatedAfterEdit();
-					nlohmann::json edited = block;
-					edited["animation_speed"] = speed;
-					CommitBlock(state, name, Mesh::NAME, edited, changed, activated, finished);
+					ImGui::SetNextItemWidth(160.0f);
+					const bool changed = ImGui::DragFloat("Speed", &speed, 0.01f, 0.0f, 10.0f);
+					const bool activated = ImGui::IsItemActivated();
+					const bool finished = ImGui::IsItemDeactivatedAfterEdit();
+					if (!current.empty()) {
+						nlohmann::json edited = mesh_block;
+						edited["animation_speed"] = speed;
+						CommitBlock(state, name, Mesh::NAME, edited, changed, activated, finished);
+					}
+					ImGui::EndDisabled();
 				}
+				ImGui::PopID();
+				ImGui::PopID();
 			}
 
 			void DrawMaterialSection(EditorState& state, const std::string& name) {
@@ -1362,14 +1694,8 @@ namespace HotBiteEditor {
 				return confirmed;
 			}
 
-			//A name not already taken by a template, derived from `base`.
 			std::string UniqueName(const EditorState& state, const std::string& base) {
-				std::string candidate = base;
-				int suffix = 2;
-				while (state.world->IsTemplateLoaded(candidate)) {
-					candidate = base + std::to_string(suffix++);
-				}
-				return candidate;
+				return TemplateOps::UniqueTemplateName(state, base);
 			}
 
 			void DrawToolbar(EditorState& state) {
@@ -1503,81 +1829,93 @@ namespace HotBiteEditor {
 				}
 			}
 
-			void DrawDetails(EditorState& state, const std::string& name) {
-				ImGui::Text("%s", name.c_str());
-				const bool authored = TemplateOps::IsAuthored(state, name);
-				if (!authored) {
-					ImGui::TextDisabled("Imported object (.fbx) - its components come from "
-						"the file.");
-				}
+			//The model viewport at the top of the details pane. One View for the panel
+			//rather than one per template: the angle you last looked from is the angle
+			//you want when you click the next template, and carrying it across makes
+			//two templates directly comparable.
+			void DrawPreview(EditorState& state, const std::string& name) {
+				static ModelPreview::View view;
+				static bool collapsed = false;
 
-				if (ImGui::Button("Add to Scene")) {
-					std::string error;
-					if (!TemplateOps::PlaceTemplate(state, name, PlacementMode::ViewCenter, error)) {
-						state.status_message = "Place failed: " + error;
-					}
-				}
-				if (ImGui::IsItemHovered()) {
-					ImGui::SetTooltip("Drop %s on whatever the middle of the view is "
-						"looking at", name.c_str());
-				}
-				ImGui::SameLine();
-				if (ImGui::Button("At Origin")) {
-					std::string error;
-					if (!TemplateOps::PlaceTemplate(state, name, PlacementMode::Origin, error)) {
-						state.status_message = "Place failed: " + error;
-					}
-				}
+				//Roughly 16:9 of the details pane, floored so a narrow panel still shows
+				//a usable viewport and capped so it never crowds out the components.
+				const float width = ImGui::GetContentRegionAvail().x;
+				const float height = std::clamp(width * 0.56f, 120.0f, 260.0f);
 
-				if (authored) {
-					//Where the definition lives. Two radio buttons rather than a
-					//checkbox, because "stored in the level" and "stored in a file" are
-					//both first-class answers and the label has to say which file.
-					const bool is_inline = TemplateOps::IsInline(state, name);
-					ImGui::TextUnformatted("Stored in:");
-					ImGui::SameLine();
-					if (ImGui::RadioButton(TemplateOps::TemplateReference(name).c_str(), !is_inline) &&
-						is_inline) {
-						std::string error;
-						if (!TemplateOps::SetStorage(state, name, false, error)) {
-							state.status_message = "Storage change failed: " + error;
-						}
+				if (collapsed) {
+					if (ImGui::SmallButton("Show preview")) {
+						collapsed = false;
 					}
-					ImGui::SameLine();
-					if (ImGui::RadioButton("this level", is_inline) && !is_inline) {
-						std::string error;
-						if (!TemplateOps::SetStorage(state, name, true, error)) {
-							state.status_message = "Storage change failed: " + error;
-						}
-					}
-					if (!is_inline && state.dirty_templates.count(name) != 0) {
-						ImGui::SameLine();
-						ImGui::TextDisabled("(unsaved)");
-					}
-				}
-				ImGui::Separator();
-
-				if (!authored) {
-					//An imported template's components are whatever the FBX produced;
-					//they are shown so the two kinds of template read alike, but editing
-					//them would have nowhere to be saved.
-					Coordinator* tc = state.world->GetTemplatesCoordinator();
-					const std::set<Entity>& parts = state.world->GetTemplateEntities(name);
-					ImGui::Text("Parts: %d", (int)parts.size());
-					for (Entity part : parts) {
-						if (tc == nullptr || !tc->ContainsComponent<Base>(part)) {
-							continue;
-						}
-						ImGui::BulletText("%s", tc->GetConstComponent<Base>(part).name.c_str());
-					}
-					ImGui::Spacing();
-					ImGui::TextWrapped("To author components, use \"From Selection\" on an "
-						"instance of this object: that captures its components into a "
-						"template you can edit.");
 					return;
 				}
 
+				//An audition from the Animations section overrides what the template
+				//says it plays, for as long as it is running: seeing a clip before
+				//committing to it is the point, so it must not be an edit.
+				view.clip_override = (audition_template == name) ? audition_clip : std::string();
+
+				ModelPreview::Draw(state, name, view, ImVec2(width, height));
+				if (ImGui::IsItemHovered()) {
+					ImGui::SetTooltip("Drag to orbit, wheel to zoom, double-click to reset");
+				}
+				if (!view.clip_override.empty()) {
+					ImGui::TextDisabled("Playing '%s' (preview only)", view.clip_override.c_str());
+				}
+
+				ImGui::Checkbox("Animate", &view.play);
+				ImGui::SameLine();
+				if (ImGui::SmallButton("Reset view")) {
+					const bool play = view.play;
+					view = ModelPreview::View{};
+					view.play = play;
+				}
+				ImGui::SameLine();
+				if (ImGui::SmallButton("Hide")) {
+					collapsed = true;
+				}
+			}
+
+			void DrawDetails(EditorState& state, const std::string& name) {
+				ImGui::Text("%s", name.c_str());
+
+				//Before the buttons and the component list: what the template *is* is
+				//the first thing to establish, and it is what tells you whether the
+				//mesh and material names below point at what you meant.
+				DrawPreview(state, name);
+				ImGui::Spacing();
+
+				//Where the definition lives. Two radio buttons rather than a checkbox,
+				//because "stored in the level" and "stored in a file" are both
+				//first-class answers and the label has to say which file.
+				const bool is_inline = TemplateOps::IsInline(state, name);
+				ImGui::TextUnformatted("Stored in:");
+				ImGui::SameLine();
+				if (ImGui::RadioButton(TemplateOps::TemplateReference(name).c_str(), !is_inline) &&
+					is_inline) {
+					std::string error;
+					if (!TemplateOps::SetStorage(state, name, false, error)) {
+						state.status_message = "Storage change failed: " + error;
+					}
+				}
+				ImGui::SameLine();
+				if (ImGui::RadioButton("this level", is_inline) && !is_inline) {
+					std::string error;
+					if (!TemplateOps::SetStorage(state, name, true, error)) {
+						state.status_message = "Storage change failed: " + error;
+					}
+				}
+				if (!is_inline && state.dirty_templates.count(name) != 0) {
+					ImGui::SameLine();
+					ImGui::TextDisabled("(unsaved)");
+				}
+				ImGui::Separator();
+
 				ImGui::PushItemWidth(-140.0f);
+				//Above the components, directly under the preview: the animations are
+				//what the object *does*, they are the section with the most authoring in
+				//it, and their Play buttons drive the viewport a few lines up. Stored in
+				//the Mesh block all the same - that section points here.
+				DrawAnimationsSection(state, name);
 				for (const std::string& component : TemplateOps::ListComponents(state, name)) {
 					DrawComponentSection(state, name, component);
 				}
@@ -1609,17 +1947,18 @@ namespace HotBiteEditor {
 				return;
 			}
 			//Same scan the Asset Browser runs, so opening either panel first shows the
-			//same set of templates.
-			AssetBrowser::EnsureTemplatesScanned(state);
+			//same set of models and templates.
+			AssetBrowser::EnsureAssetsScanned(state);
 
 			DrawToolbar(state);
 			ImGui::Separator();
 
-			const std::vector<std::string> names = TemplateOps::ListPlaceable(state);
+			const std::vector<std::string> names = TemplateOps::ListAuthored(state);
 			if (names.empty()) {
 				ImGui::TextDisabled("This project has no templates yet.");
 				ImGui::TextDisabled("Use \"New...\" to build one, \"From Selection\" to make one\n"
-					"out of a scene entity, or File/Import Object... for an .fbx.");
+					"out of a scene entity, or pick a model in the Asset Browser and\n"
+					"\"Create Template\".");
 				ImGui::End();
 				return;
 			}
@@ -1627,24 +1966,16 @@ namespace HotBiteEditor {
 			const float list_width = ImGui::GetContentRegionAvail().x * 0.32f;
 			if (ImGui::BeginChild("##template_list", ImVec2(list_width, 0.0f), ImGuiChildFlags_Border)) {
 				for (const std::string& name : names) {
-					const bool authored = TemplateOps::IsAuthored(state, name);
 					std::string label = name;
-					if (!authored) {
-						label += "  (.fbx)";
-					}
-					else if (state.dirty_templates.count(name) != 0) {
+					if (state.dirty_templates.count(name) != 0) {
 						label += "  *";
 					}
+					//Selecting is all this list does: clicking a template here opens it
+					//for editing and nothing else. Putting one *into* the scene is the
+					//Asset Browser's job - see the panel header for why the two are
+					//separate.
 					if (ImGui::Selectable(label.c_str(), name == state.selected_template)) {
 						state.selected_template = name;
-					}
-					//Double-click places it in view, which is the shortest path from "I
-					//want this object" to having one where you are working.
-					if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
-						std::string error;
-						if (!TemplateOps::PlaceTemplate(state, name, PlacementMode::ViewCenter, error)) {
-							state.status_message = "Place failed: " + error;
-						}
 					}
 				}
 			}

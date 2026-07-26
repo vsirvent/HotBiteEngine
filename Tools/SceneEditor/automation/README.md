@@ -57,7 +57,7 @@ directory so relative asset paths in level files resolve the same way the other 
 | `remove_component <name> <Component>` | removes a component, like the `x` on its Components panel section. Fails for `Base`/`Transform` (required) and `Camera`/`Particles` (engine-managed). Undoable, and restores the component's values, not defaults |
 | `component <name> <Component>` | one component's serialized state as JSON — what the Components panel edits, and the shape `set_component` takes back |
 | `set_component <name> <Component> <json>` | edits the fields of a component the entity already has: the automation form of every picker and drag in the Components panel (`{'shape':'BOX'}`, `{'animation':'troll_walk'}`, `{'name':'troll'}` for a mesh swap). Keys left out keep their values. Applied live — a `Physics` type/shape change rebuilds the rigid body — undoable, and written to *this entity's* record on save. **Write the JSON with single quotes**, as with `template_set` |
-| `animations <name>` | the animations the entity's mesh can play, marking the current one. Empty until an animation set is attached to that mesh (`set_component <name> Mesh "{'skeletons':['troll_walk']}"`) |
+| `animations <name>` | the animation clips the entity's mesh can play, marking the current one. An instance of a template usually plays by *library* name instead (`set_component troll_inst_0 Mesh "{'animation':'walk'}"`) — see `template_animations` |
 | `copy [<name>]` | copies the selection (or `<name>` if given) to the entity clipboard, like Ctrl+C |
 | `cut [<name>]` | copies then removes the entity, like Ctrl+X (undoable; a cut source can still be pasted) |
 | `paste` | creates a copy from the clipboard named `<original>_copy`, like Ctrl+V |
@@ -76,22 +76,30 @@ directory so relative asset paths in level files resolve the same way the other 
 | `set_position x y z` | edits the selected entity's Transform like the Inspector fields |
 | `set_scale x y z` | ditto |
 | `set_rotation p y r` | Euler degrees, pitch/yaw/roll |
-| `list_templates` | every placeable template, marked `fbx` (from an imported object) or `authored` (built in the Templates panel), with `in=file`/`in=level` for the authored ones plus `unsaved` and `[selected]` |
+| `list_templates` | every template (all of them placeable, all of them editable), with `in=file`/`in=level`, plus `unsaved` and `[selected]` |
+| `list_models` | every imported model (`.fbx`), with how many meshes, materials and animation clips each brought in, and `[selected]`. Models are assets, not objects: nothing here can be placed |
+| `model_info <name>` | one model's contents, one asset per line (`mesh` / `material` / `animation`) |
+| `import_model <.fbx path>` | same as File/Import Model...: copies the file into `<assets>/Objects/`, loads its assets, creates no template |
+| `select_model <name>` | selects a model in the Asset Browser's Models section |
+| `create_template_from_model <model> [template name]` | builds a template out of the model's first mesh node — its mesh, its material and its own rotation/scale. The path from an imported file to something placeable; fails for an animation-only model, which has no mesh |
 | `select_template <name>` | selects a template |
 | `place <template> [origin\|view]` | spawns an instance. `origin` (the default, and what a scripted place wants because it is reproducible) puts it at the world origin; `view` drops it on the first thing the middle of the view is looking at — the same raycast a viewport click uses — sitting it *on* that surface using its own bounding box, and falls back to 15 units down the view ray when the center hits nothing. The `OK` line reports the position it landed at |
-| `import_template <.tpl path>` | same as File/Import Template..., minus the file dialog: copies the `.tpl` into `<assets>/Templates/` and registers it. There is no FBX import — an object worth placing is a template now |
+| `import_template <.tpl path>` | same as File/Import Template..., minus the file dialog: copies the `.tpl` into `<assets>/Templates/` and registers it. Importing an `.fbx` is the other import, `import_model` |
 | `template_storage <name> file\|level` | moves a template between its own `.tpl` file and an inline definition in the level's `templates` array. Moving to `level` unlinks the `.tpl` at the next save; moving to `file` writes one |
-| `template_info <name>` | the template's component blocks as JSON, one per line (or the part count, for an imported `.fbx` one) |
+| `template_info <name>` | the template's component blocks as JSON, one per line |
 | `create_template <name>` | a new authored template: default cube, white material, immediately placeable |
 | `template_from_entity <entity> <template>` | builds a template from a scene entity's components — the "make a prefab out of this" path, and the fastest way to get an imported object's components into something editable |
 | `duplicate_template <source> <new name>` | copies an authored template |
 | `remove_template <name>` | unregisters it. Objects already placed stay for the session but will not reload; the `.tpl` file is unlinked only when templates are saved, so this is undoable until then |
 | `list_meshes` | the mesh assets a template's Mesh can point at, with the animations each already offers |
-| `animation_sets` | the animation sets (skeletons) the level loaded, by the name of the FBX they came from |
-| `template_mesh <template> <mesh>` | points the template at a mesh. Drops the animation if the new mesh cannot play it |
+| `list_animations` | every animation clip the imported models carry, with the model each came from — what `template_add_animation` picks from |
+| `template_mesh <template> <mesh>` | points the template at a mesh. The animation library is kept: a re-exported rig plays the same roles |
 | `template_material <template> <material>` | points the template at a material |
-| `template_animation_set <template> <set> [0\|1]` | attaches (`1`, the default) or detaches an animation set. A mesh can only play animations from a set attached to it, so this comes *before* `template_animation` |
-| `template_animation <template> [name] [loop 0\|1] [speed]` | sets the animation instances start in; no name clears it |
+| `template_animations <template>` | the template's animation library: the name this object knows each animation by, the imported clip behind it, the model it came from, and which one is `[default]` |
+| `template_add_animation <template> <name> <clip>` | adds an animation to the library — `template_add_animation troll walk troll_walk`. The set holding the clip is attached for you; the first one added becomes the default |
+| `template_remove_animation <template> <name>` | drops one (and the default with it, if that is what it was) |
+| `template_rename_animation <template> <name> <new name>` | renames a library entry, carrying the default over |
+| `template_default_animation <template> [name] [loop 0\|1] [speed]` | what an instance starts playing, by library name; no name means it stands still |
 | `template_add_component <template> <Component>` | adds a component with default values |
 | `template_remove_component <template> <Component>` | removes one. `Base`/`Transform`/`Mesh`/`Material`/`Bounds` are refused: they are what makes a template placeable |
 | `template_set <template> <Component> <json>` | add-or-update a whole component block. **Write the JSON with single quotes** (`"{'type':'DYNAMIC'}"`) — the tokenizer treats a double quote as an argument delimiter and strips it |
@@ -128,15 +136,31 @@ Physics simulation is paused while editing (dynamic bodies hold the pose they we
 authored/edited at, so transform edits and saves are exact); `menu "Edit/Simulate
 Physics"` toggles it for previewing how objects settle.
 
-Templates come in two kinds and place identically. An *imported* one is an `.fbx`
-the level lists or that sits in `Assets/Objects/`; an *authored* one is a component
-block written in the Templates panel. Authoring one is `create_template` (or
-`template_from_entity` to capture a scene entity), then `template_mesh` /
-`template_material` / `template_animation_set` + `template_animation` /
+The project has three asset layers, and they are separate on purpose:
+
+- a **model** is an imported `.fbx` — the meshes, materials and animation clips it
+  carries. It is not an object: `list_models` shows them, nothing places them.
+- a **template** is one concept ("troll"): a component block with values, built out
+  of those assets. It is the only placeable thing.
+- an **instance** is a template placed in this level.
+
+The path from a file to something in the scene is therefore
+`import_model` → `create_template_from_model` → `place`. Building a template by
+hand instead is `create_template` (or `template_from_entity` to capture a scene
+entity), then `template_mesh` / `template_material` / `template_add_animation` /
 `template_add_component` + `template_set`, then `place` — which spawns an entity
 carrying every component the template declares, not just its mesh and material.
 
-An authored template is stored one of two ways, swappable with `template_storage`:
+A template owns its **animation library**: the names this object answers to and the
+imported clip behind each one, e.g. `template_add_animation troll walk troll_walk`,
+which the level file stores as `"clips": {"walk": "troll_walk"}` in the template's
+Mesh block. Game code plays a role rather than a file name —
+`mesh.SetAnimation("walk")` — and re-exporting the clip changes one library entry
+instead of every caller. The animation *set* holding a clip is attached for you, so
+nothing outside the engine has to know that sets exist. `template_default_animation`
+picks what an instance starts in.
+
+A template is stored one of two ways, swappable with `template_storage`:
 
 - **In its own `.tpl`** under `<assets>/Templates/`, referenced from the level's
   `templates` array as `{"file": "Templates\\x.tpl"}`. A shared asset like a `.mat`,
@@ -148,19 +172,22 @@ An authored template is stored one of two ways, swappable with `template_storage
   Right for a template only this level uses; it is saved (and undone) with the level
   and leaves no file behind. The engine reads both forms identically.
 
-The `Assets/Objects/` folder is still scanned so a project's FBX meshes, materials
-and animation sets are available for templates to point at — but importing means
-importing a template (`import_template`), not an FBX.
+`Assets/Objects/` is scanned for `.fbx` files on open, so everything already in the
+project is listed as a model without being imported again. A level records its
+models in a `"models"` array and its templates in `"templates"`. A level written
+before the two were separate lists its `.fbx` files under `"templates"`; it still
+loads (instances naming one resolve through the model registry), and saving from the
+editor moves those entries into `"models"`.
 
 A template decides what its instances *start* as; `set_component` is how one
 instance then differs from its siblings. The edit is written to that instance's own
 record, so two objects placed from the same troll template can play different
-animations (`set_component troll_inst_0 Mesh "{'animation':'troll_walk'}"`, and
-`'animation':''` for none), carry different collider shapes
-(`set_component troll_inst_0 Physics "{'shape':'BOX'}"`) or draw a different mesh
-entirely. Note what is *not* per-entity: attaching an animation set (a `skeletons`
-entry) attaches it to the shared mesh asset, so it becomes available to every entity
-using that mesh — that is how the engine has always loaded them.
+animations (`set_component troll_inst_0 Mesh "{'animation':'walk'}"` — a name from
+the template's library — and `'animation':''` for none), carry different collider
+shapes (`set_component troll_inst_0 Physics "{'shape':'BOX'}"`) or draw a different
+mesh entirely. Note what is *not* per-entity: the clips themselves are attached to
+the shared mesh asset, so they become available to every entity using that mesh —
+that is how the engine has always loaded them.
 
 An instance's `position`/`rotation`/`scale` in the level file are in *spawn space*:
 `World::SpawnInstance` composes them with the template's own base transform. The

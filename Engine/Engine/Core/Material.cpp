@@ -138,7 +138,6 @@ namespace HotBite {
 				this->tessellation_type = other.tessellation_type;
 				this->tessellation_factor = other.tessellation_factor;
 				this->displacement_scale = other.displacement_scale;
-				this->bloom_scale = other.bloom_scale;
 
 				this->init = other.init;
 
@@ -289,6 +288,17 @@ namespace HotBite {
 				//Start from whatever this material was loaded with, so keys Load() ignores
 				//survive the round trip untouched, then overwrite everything Load() reads.
 				nlohmann::json j = source_json.is_object() ? source_json : nlohmann::json::object();
+
+				//...except the properties the engine no longer has. These were never read
+				//by Load (so they have had no effect on how anything renders for a long
+				//time) and nothing writes them any more; carrying them forward would keep
+				//advertising material fields that do not exist. "alhpa_*" are the
+				//misspelled twins of "alpha_*" found in hand-authored levels - dead for the
+				//same reason, and worth removing so a typo does not read as a real setting.
+				for (const char* retired : { "ambient_color", "alpha_color", "alhpa_color",
+					"alhpa_enabled" }) {
+					j.erase(retired);
+				}
 
 				//SetTexture built these as root + "\" + file; undo exactly that. A path
 				//that does not sit under root is written as-is - wrong is better than

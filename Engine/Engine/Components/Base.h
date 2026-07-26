@@ -34,6 +34,8 @@ SOFTWARE.
 #include <Core/Scheduler.h>
 #include <DirectXMath.h>
 #include <d3d11.h>
+#include <map>
+#include <string>
 
 namespace HotBite {
 	namespace Engine {
@@ -249,6 +251,21 @@ namespace HotBite {
 				Animation current_animation;
 				Animation previous_animation;
 
+				//The mesh's animation library: the logical name this entity knows an
+				//animation by -> the clip that actually plays, e.g. "idle" -> "troll_idle".
+				//
+				//This is what makes an animation belong to the *object* rather than to the
+				//file it was imported from. A template names the roles its instances play
+				//("idle", "walk", "attack"); which clip fills a role is an asset decision
+				//that can change - re-export the walk cycle from another FBX and only the
+				//library entry moves. Game code then reads as
+				//SetAnimation("walk") instead of SetAnimation("troll_walk"), and the same
+				//code drives a troll, a zombie or an archer.
+				//
+				//Empty is the old behaviour exactly: every SetAnimation name is a clip
+				//name, resolved against the sets attached to the mesh.
+				std::map<std::string, std::string> clips;
+
 				float animation_change_current_time = 1000.0f;
 				float animation_default_change_time = 250.0f;
 				float animation_change_time = animation_default_change_time;
@@ -275,8 +292,19 @@ namespace HotBite {
 				void SetData(Core::MeshData* data);
 				Core::MeshData* GetData();
 				void SetCoordinatorInfo(ECS::Entity e, ECS::Coordinator* c);
+				// Plays `name`, which is either a logical name from `clips` or a clip name
+				// directly - the library is consulted first, so an object that publishes
+				// "walk" keeps working when the clip behind it is re-imported under a new
+				// name. What the mesh reports afterwards (GetCurrentAnimationName, and
+				// therefore what gets serialized) is the name it was *asked* for, so the
+				// vocabulary an entity was authored with round-trips.
 				bool SetAnimation(const std::string& name, bool loop = true, bool sync = false,
 					              float transition_time = -1.0f, float speed = 1.0f, bool force = false);
+				// The clip `name` resolves to: the library entry when there is one, `name`
+				// itself otherwise. Anything looking an animation up in the mesh data
+				// (a preview, an editor listing) has to go through this or it will search
+				// for a logical name no skeleton has ever heard of.
+				std::string ResolveClip(const std::string& name) const;
 				// Stops whatever is playing: the mesh falls back to its bind pose and
 				// stays there until something sets an animation again. The attached
 				// skeletons are left alone, so this is reversible with SetAnimation.
@@ -307,6 +335,12 @@ namespace HotBite {
 				//"animation" mean anything - SetAnimation only searches the sets attached
 				//to the MeshData - and, exactly as in that section, the attachment is to
 				//the *shared* mesh asset and so is visible to every entity using it.
+				//
+				//"clips" is the animation library ({"idle": "troll_idle", ...}), and it
+				//carries its own attachment: whichever set owns a clip is attached when the
+				//library names it, so an object that lists its animations never has to list
+				//the files they came from as well. "skeletons" stays for the case with no
+				//library - and for attaching a set whose clips are only chosen at runtime.
 				nlohmann::json ToJson(const ECS::SerializeContext& ctx) const;
 				void FromJson(const nlohmann::json& j, const ECS::SerializeContext& ctx);
 			};

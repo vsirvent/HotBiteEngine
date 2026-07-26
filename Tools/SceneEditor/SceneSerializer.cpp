@@ -8,6 +8,7 @@
 #include <Core/Json.h>
 #include <ECS/ComponentRegistry.h>
 #include <World.h>
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <map>
@@ -304,14 +305,18 @@ namespace HotBiteEditor {
 			}
 			jw["removed_entities"] = removed;
 
-			//3) Templates a future load has to pull in: newly imported .fbx objects and
-			//   every authored .tpl (pre-existing imports are already present). The
-			//   authored ones are also *removed* from the list here when the session
-			//   deleted them - this array is the only place a removal is persisted.
+			//3) The asset files a future load has to pull in, and the templates built
+			//   out of them. Two arrays for two layers: "models" holds the .fbx
+			//   imports (meshes, materials, animation clips) and "templates" holds the
+			//   objects. A level written before the split has its .fbx entries under
+			//   "templates"; they are moved here, which is the whole of the migration.
 			if (!jw.contains("templates")) {
 				jw["templates"] = json::array();
 			}
-			auto list_template = [&jw](const std::string& reference, bool authored) {
+			if (!jw.contains("models")) {
+				jw["models"] = json::array();
+			}
+			auto list_template = [&jw](const std::string& reference) {
 				for (auto& entry : jw["templates"]) {
 					if (entry.contains("file") && entry["file"] == reference) {
 						return;
@@ -319,11 +324,28 @@ namespace HotBiteEditor {
 				}
 				json entry;
 				entry["file"] = reference;
-				if (!authored) {
-					//"triangulate" is an FBX import option; it means nothing to a .tpl.
-					entry["triangulate"] = false;
-				}
 				jw["templates"].push_back(entry);
+			};
+			//The reference is made relative to the *world's* assets path, because that
+			//is what World::Load resolves it against - which is not always "<project
+			//root>/Assets" (a hand-written level may point "path" at the project root).
+			auto model_reference = [&state](const std::string& file_path) {
+				std::error_code ec;
+				fs::path rel = fs::relative(file_path, fs::path(state.world->GetAssetsPath()), ec);
+				return (ec || rel.empty())
+					? (std::string("Objects\\") + fs::path(file_path).filename().string())
+					: rel.string();
+				};
+			auto list_model = [&jw](const std::string& reference, bool triangulate) {
+				for (auto& entry : jw["models"]) {
+					if (entry.contains("file") && entry["file"] == reference) {
+						return;
+					}
+				}
+				json entry;
+				entry["file"] = reference;
+				entry["triangulate"] = triangulate;
+				jw["models"].push_back(entry);
 			};
 			//An inline template's definition lives here rather than in a file, so its
 			//entry is rewritten from the live definition every save - unlike a file
@@ -347,41 +369,106 @@ namespace HotBiteEditor {
 				(*target)["name"] = name;
 				(*target)["components"] = *components;
 			};
-			//Which templates this level actually places something from. It decides
-			//whether an .fbx template the editor merely *discovered* (the Assets/Objects
-			//scan finds every file in the folder) earns an entry: listing all of them
-			//would fill the level with references to objects it does not use, and
-			//listing none would break a placed instance whose template the level never
-			//mentioned.
-			std::set<std::string> templates_in_use;
-			for (const auto& inst : state.placed_instances) {
-				templates_in_use.insert(inst.template_name);
-			}
+			//Templates are always listed: they are this project's own content, and one
+			//with no instances yet is still worth keeping.
 			for (const auto& t : state.templates) {
-				if (t.authored) {
-					//Authored templates are always listed: they are this project's own
-					//content, and one with no instances yet is still worth keeping.
-					if (TemplateOps::IsInline(state, t.name)) {
-						write_inline_template(t.name);
+				if (TemplateOps::IsInline(state, t.name)) {
+					write_inline_template(t.name);
+				}
+				else {
+					list_template(TemplateOps::TemplateReference(t.name));
+				}
+			}
+
+			//Which models this level actually needs. The Assets/Objects scan finds
+			//every file in the folder, and listing all of them would make every level
+			//load every asset the project owns - so a model earns its entry by being
+			//named: by a template's mesh, material or animation clips, or by an
+			//instance placed straight off it (a pre-split level - see
+			//World::GetTemplateEntities).
+			std::set<std::string> models_in_use;
+			auto contains = [](const std::vector<std::string>& names, const std::string& name) {
+				return std::find(names.begin(), names.end(), name) != names.end();
+				};
+			//The model that supplies `asset_name`: a mesh or material by name, or - for
+			//an animation clip - the model whose set holds it.
+			auto use_model_of = [&](const std::string& asset_name, bool animation_clip) {
+				if (asset_name.empty()) {
+					return;
+				}
+				const std::string set = animation_clip
+					? state.world->FindAnimationSet(asset_name) : std::string();
+				if (animation_clip && set.empty()) {
+					return;
+				}
+				for (const auto& m : state.models) {
+					const World::ModelAssets* assets = state.world->GetModelAssets(m.name);
+					if (assets == nullptr) {
+						continue;
 					}
-					else {
-						list_template(TemplateOps::TemplateReference(t.name), true);
+					const bool supplies = animation_clip
+						? contains(assets->animation_sets, set)
+						: (contains(assets->meshes, asset_name) ||
+						   contains(assets->materials, asset_name));
+					if (supplies) {
+						models_in_use.insert(m.name);
+						return;
 					}
+				}
+				};
+			for (const auto& t : state.templates) {
+				const json* components = state.world->GetTemplateComponents(t.name);
+				if (components == nullptr) {
 					continue;
 				}
-				if (t.file_path.empty() || templates_in_use.count(t.name) == 0) {
+				if (components->contains(Mesh::NAME)) {
+					const json& mesh = (*components)[Mesh::NAME];
+					use_model_of(mesh.value("name", std::string()), false);
+					if (mesh.contains("clips") && mesh["clips"].is_object()) {
+						for (auto it = mesh["clips"].begin(); it != mesh["clips"].end(); ++it) {
+							if (it.value().is_string()) {
+								use_model_of(it.value().get<std::string>(), true);
+							}
+						}
+					}
+				}
+				if (components->contains(Material::NAME)) {
+					use_model_of((*components)[Material::NAME].value("name", std::string()), false);
+				}
+			}
+			for (const auto& inst : state.placed_instances) {
+				if (state.world->IsModelLoaded(inst.template_name)) {
+					models_in_use.insert(inst.template_name);
+				}
+			}
+			//Plus whatever the level already listed: a level that loads a model for a
+			//reason the editor cannot see (a game attaches its clips in code, an .fbx
+			//supplies the sky's geometry) must not have it dropped from under it.
+			for (const auto& m : state.models) {
+				const World::ModelAssets* assets = state.world->GetModelAssets(m.name);
+				const bool listed_before = assets != nullptr && !assets->file.empty() &&
+					!fs::path(assets->file).is_absolute();
+				if (!listed_before && models_in_use.count(m.name) == 0) {
 					continue;
 				}
-				//The reference is made relative to the *world's* assets path, because
-				//that is what World::Load resolves it against - which is not always
-				//"<project root>/Assets" (a hand-written level may point "path" at the
-				//project root instead).
-				std::error_code ec;
-				fs::path rel = fs::relative(t.file_path, fs::path(state.world->GetAssetsPath()), ec);
-				std::string rel_str = (ec || rel.empty())
-					? (std::string("Objects\\") + fs::path(t.file_path).filename().string())
-					: rel.string();
-				list_template(rel_str, false);
+				const std::string reference = (assets != nullptr && !assets->file.empty() &&
+					!fs::path(assets->file).is_absolute())
+					? assets->file : model_reference(m.file_path);
+				list_model(reference, assets != nullptr && assets->triangulate);
+			}
+			//Every .fbx that used to sit in "templates" now lives in "models", so the
+			//old entries go. Their assets are still loaded - by the array above - and
+			//instances that named one still resolve through the model registry.
+			{
+				json kept = json::array();
+				for (auto& entry : jw["templates"]) {
+					const bool is_fbx = entry.contains("file") && entry["file"].is_string() &&
+						fs::path(entry["file"].get<std::string>()).extension() != ".tpl";
+					if (!is_fbx) {
+						kept.push_back(entry);
+					}
+				}
+				jw["templates"] = kept;
 			}
 			//A template that stopped being inline (it moved into a .tpl) must lose its
 			//stale inline entry, or the next load would register the old definition on
@@ -580,9 +667,18 @@ namespace HotBiteEditor {
 							continue;
 						}
 						const std::string name = record["name"];
+						//An "instances" record is the exception to "needs no bookkeeping"
+						//above: Save rewrites that array wholesale from placed_instances,
+						//so a block not in the deltas is not merged - it is dropped. The
+						//delta re-serializes from the live entity, so what gets written
+						//back is this instance's actual state, override included.
+						const bool rewritten_wholesale = (std::string(section) == "instances");
 						for (const auto& [component, value] : record["components"].items()) {
 							if (ECS::ComponentRegistry::Instance().Find(component) == nullptr) {
 								state.opaque_components[name][component] = value;
+							}
+							else if (rewritten_wholesale) {
+								state.component_deltas[name].added[component] = value;
 							}
 						}
 					}

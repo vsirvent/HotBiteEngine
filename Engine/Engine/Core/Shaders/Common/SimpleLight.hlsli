@@ -30,13 +30,31 @@ float PointShadowPCF(float3 ToPixel, PointLight light, int index)
     return saturate(att1);
 }
 
+//A directional shadow map only covers a slice of the world: an XY footprint, and the
+//near/far slab its depth encodes. Outside that the map holds nothing to test against,
+//and the only sane answer is "lit". Sampling anyway does not fail quietly - the
+//comparison sampler clamps to an edge texel in XY, and a p.z past the far plane
+//compares greater than every stored depth - so both read as *occluded*, which is what
+//a camera flying out of the map looked like: the world going dark. The static-caster
+//variant has always returned lit here; the dynamic ones returned 0.5f, half-darkening
+//everything beyond the footprint.
+#ifndef __DIR_SHADOW_FOOTPRINT__
+#define __DIR_SHADOW_FOOTPRINT__
+bool OutsideShadowMap(float3 p)
+{
+    return p.x < 0.0f || p.x > 1.0f ||
+           p.y < 0.0f || p.y > 1.0f ||
+           p.z < 0.0f || p.z > 1.0f;
+}
+#endif
+
 float DirShadowPCF(float4 position, DirLight light, int index)
 {
     float4 p = mul(position, DirPerspectiveMatrix[index]);
     p.x = (p.x + 1.0f) / 2.0f;
     p.y = 1.0f - ((p.y + 1.0f) / 2.0f);
-    if (p.x < 0.0f || p.x > 1.0f || p.y < 0.0f || p.y > 1.0f) {
-        return 0.5f;
+    if (OutsideShadowMap(p.xyz)) {
+        return 1.0f;
     }
     float w;
     float h;
@@ -63,8 +81,8 @@ float DirShadowPCFFAST(float4 position, DirLight light, int index)
     p /= p.w;
     p.x = (p.x + 1.0f) / 2.0f;
     p.y = 1.0f - ((p.y + 1.0f) / 2.0f);
-    if (p.x < 0.0f || p.x > 1.0f || p.y < 0.0f || p.y > 1.0f) {
-        return 0.5f;
+    if (OutsideShadowMap(p.xyz)) {
+        return 1.0f;
     }
     float att1 = DirShadowMapTexture[index].SampleCmpLevelZero(PCFSampler, float2(p.x, p.y), p.z).r;
     return saturate(att1);
@@ -90,7 +108,7 @@ float DirStaticShadowPCFFAST(float4 position, DirLight light, int index)
     p /= p.w;
     p.x = (p.x + 1.0f) / 2.0f;
     p.y = 1.0f - ((p.y + 1.0f) / 2.0f);
-    if (p.x < 0.0f || p.x > 1.0f || p.y < 0.0f || p.y > 1.0f) {
+    if (OutsideShadowMap(p.xyz)) {
         return 1.0f;
     }
     float att1 = DirStaticShadowMapTexture[index].SampleCmpLevelZero(PCFSampler, float2(p.x, p.y), p.z).r;

@@ -28,7 +28,7 @@ Pixel stage of the Scene Editor's material thumbnail pass.
 This is a *representative* shading of a material, not a preview of how the
 material will actually look in the level. It models the maps and constants that
 identify a material at a glance - albedo, normal, specular/ARM, AO, emission and
-opacity - under a fixed three-light studio rig, and deliberately models nothing
+opacity - under a three-light studio rig, and deliberately models nothing
 that depends on the scene: no shadows, no GI or ray-traced reflection, no
 parallax or tessellation, no fog. Two materials that differ only in those
 scene-dependent properties therefore produce identical thumbnails, which is the
@@ -37,6 +37,12 @@ re-rendered when the level changes.
 
 `material` is bound with the same MaterialColor layout the main render path uses
 (PixelCommon.hlsli), so it stays in step with Core::MaterialProps for free.
+
+The rig's three directions arrive as constants rather than being fixed here,
+because they are anchored to the camera and the model viewport's camera orbits -
+see PreviewPass::MakeLightRig, which is what both previews build them with. Their
+*colours* stay fixed below: which light is the warm key and which is the cool fill
+is the look of the rig, not something a caller chooses.
 */
 
 #include "../Common/PixelCommon.hlsli"
@@ -46,6 +52,13 @@ cbuffer externalData : register(b0)
 	MaterialColor material;
 	float3 cameraPosition;
 	float  padding;
+	//Directions from the surface *towards* each light, in world space, normalized.
+	float3 keyDir;
+	float  keyPadding;
+	float3 fillDir;
+	float  fillPadding;
+	float3 backDir;
+	float  backPadding;
 };
 
 Texture2D diffuseTexture   : register(t0);
@@ -66,12 +79,9 @@ struct PreviewVertexToPixel
 	float3 bitangent  : POSITION2;
 };
 
-//A fixed studio rig in world space: a warm key from the upper front-left, a cool
-//fill from the right to keep the terminator readable, and a dim back light that
-//separates the sphere from the panel background.
-static const float3 KEY_DIR   = normalize(float3(-0.5f, 0.7f, -0.8f));
-static const float3 FILL_DIR  = normalize(float3(0.9f, 0.1f, -0.4f));
-static const float3 BACK_DIR  = normalize(float3(0.2f, -0.4f, 1.0f));
+//A studio rig: a warm key, a cool fill that keeps the terminator readable, and a
+//dim back light that separates the subject from the panel background. Where each
+//one sits is the caller's (see the cbuffer above).
 static const float3 KEY_COLOR  = float3(1.0f, 0.96f, 0.90f) * 1.10f;
 static const float3 FILL_COLOR = float3(0.55f, 0.62f, 0.80f) * 0.40f;
 static const float3 BACK_COLOR = float3(0.60f, 0.60f, 0.70f) * 0.25f;
@@ -120,7 +130,7 @@ float4 main(PreviewVertexToPixel input) : SV_TARGET
 	float shininess = lerp(120.0f, 8.0f, saturate(roughness));
 
 	float3 lit = float3(0.0f, 0.0f, 0.0f);
-	float3 light_dirs[3] = { KEY_DIR, FILL_DIR, BACK_DIR };
+	float3 light_dirs[3] = { keyDir, fillDir, backDir };
 	float3 light_colors[3] = { KEY_COLOR, FILL_COLOR, BACK_COLOR };
 	[unroll]
 	for (int i = 0; i < 3; ++i) {

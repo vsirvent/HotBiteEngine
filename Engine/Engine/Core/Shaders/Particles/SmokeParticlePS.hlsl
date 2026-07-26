@@ -69,7 +69,9 @@ RenderTarget main(GSParticleOutput input)
 	RenderTarget output;
 	float4 lightColor = { 0.0f, 0.0f, 0.0f, 0.0f };
 	float alpha = pow(abs(input.life), 3.2f);
-	float4 finalColor = material.ambientColor* alpha + material.diffuseColor*(1.0f - alpha);
+	//Fades to black over the particle's life. The old form blended towards
+	//material.ambientColor, which nothing ever wrote - it was zero for every material.
+	float4 finalColor = material.diffuseColor * (1.0f - alpha);
 	float border = 1.0f - pow(length(abs(input.uv * 2.0f - 1.0f)), 2.0f);
 	float4 wpos = input.worldPos;
 	float fade_in = saturate((1.0f - input.life) / 0.1f);

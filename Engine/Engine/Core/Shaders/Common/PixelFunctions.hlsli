@@ -83,11 +83,32 @@ float CloudPCF(float4 position, DirLight light, float cloud_density)
 	return n;
 }
 
+//A directional shadow map only covers a slice of the world: an XY footprint, and the
+//near/far slab its depth encodes. Outside that the map holds nothing to test against,
+//and the only sane answer is "lit". Sampling anyway does not fail quietly - the
+//comparison sampler clamps to an edge texel in XY, and a p.z past the far plane
+//compares greater than every stored depth - so both read as *occluded*, which is what
+//a camera flying out of the map looked like: the world going dark. The static-caster
+//variants have always returned lit here; the dynamic ones returned 0.5f, half-darkening
+//everything beyond the footprint, and the slow path did not check at all.
+#ifndef __DIR_SHADOW_FOOTPRINT__
+#define __DIR_SHADOW_FOOTPRINT__
+bool OutsideShadowMap(float3 p)
+{
+	return p.x < 0.0f || p.x > 1.0f ||
+	       p.y < 0.0f || p.y > 1.0f ||
+	       p.z < 0.0f || p.z > 1.0f;
+}
+#endif
+
 float DirShadowPCF(float4 position, DirLight light, int index)
 {
 	float4 p = mul(position, DirPerspectiveMatrix[index]);
 	p.x = (p.x + 1.0f) / 2.0f;
 	p.y = 1.0f - ((p.y + 1.0f) / 2.0f);
+	if (OutsideShadowMap(p.xyz)) {
+		return 1.0f;
+	}
 	float w;
 	float h;
 	DirShadowMapTexture[index].GetDimensions(w, h);
@@ -112,8 +133,8 @@ float DirShadowPCF(float4 position, DirLight light, int index)
 
 //Static casters are rendered into their own map on a slow refresh cycle, under the
 //light's view matrix as it stood at that refresh - hence DirStaticPerspectiveMatrix
-//rather than DirPerspectiveMatrix. Outside the map footprint we return 1.0f (lit), not
-//0.5f: this result is min()'d with the dynamic one, so "no data here" must not darken.
+//rather than DirPerspectiveMatrix. Outside the map footprint we return 1.0f (lit):
+//this result is min()'d with the dynamic one, so "no data here" must not darken.
 float DirStaticShadowPCF(float4 position, DirLight light, int index)
 {
 	if (!(light.flags & DIR_LIGHT_FLAG_STATIC_SHADOW)) {
@@ -122,7 +143,7 @@ float DirStaticShadowPCF(float4 position, DirLight light, int index)
 	float4 p = mul(position, DirStaticPerspectiveMatrix[index]);
 	p.x = (p.x + 1.0f) / 2.0f;
 	p.y = 1.0f - ((p.y + 1.0f) / 2.0f);
-	if (p.x < 0.0f || p.x > 1.0f || p.y < 0.0f || p.y > 1.0f) {
+	if (OutsideShadowMap(p.xyz)) {
 		return 1.0f;
 	}
 	float w;
@@ -157,8 +178,8 @@ float DirShadowPCFFAST(float4 position, DirLight light, int index)
 	float4 p = mul(position, DirPerspectiveMatrix[index]);
 	p.x = (p.x + 1.0f) / 2.0f;
 	p.y = 1.0f - ((p.y + 1.0f) / 2.0f);
-	if (p.x < 0.0f || p.x > 1.0f || p.y < 0.0f || p.y > 1.0f) {
-		return 0.5f;
+	if (OutsideShadowMap(p.xyz)) {
+		return 1.0f;
 	}
 	float4 val = DirShadowMapTexture[index].GatherCmp(PCFSampler, float2(p.x, p.y), p.z);
     float att1 = dot(val, float4(0.25, 0.25, 0.25, 0.25));
@@ -173,7 +194,7 @@ float DirStaticShadowPCFFAST(float4 position, DirLight light, int index)
 	float4 p = mul(position, DirStaticPerspectiveMatrix[index]);
 	p.x = (p.x + 1.0f) / 2.0f;
 	p.y = 1.0f - ((p.y + 1.0f) / 2.0f);
-	if (p.x < 0.0f || p.x > 1.0f || p.y < 0.0f || p.y > 1.0f) {
+	if (OutsideShadowMap(p.xyz)) {
 		return 1.0f;
 	}
 	float4 val = DirStaticShadowMapTexture[index].GatherCmp(PCFSampler, float2(p.x, p.y), p.z);

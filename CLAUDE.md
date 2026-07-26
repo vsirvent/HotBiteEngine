@@ -155,6 +155,17 @@ erasing it, because `FlatMap` removal relocates another element and would dangle
 implementation, `MaterialPanel::DrawMaterialProperties`, reused by the Components
 panel — edit values through it or the change is neither undoable nor ever saved.
 
+`Core::MaterialProps` is uploaded raw — as the `material` cbuffer and as the
+`objectMaterials[]` array the ray tracers index — so it is mirrored field for field by
+`MaterialColor` in `Shaders/Common/PixelCommon.hlsli`, and adding or removing a
+property means editing both plus the trailing padding that keeps `sizeof()` equal to
+the row-padded size HLSL strides the array by. There is no ambient term and no alpha
+colour key: both were fields that no loader ever wrote, so every material had them at
+zero and the shaders read a constant (`ALPHA_ENABLED_FLAG` colour-keys against black,
+which is what it always did). `Save` drops those retired keys from `source_json`
+rather than round-tripping them forever — that erase list is where a removed property
+goes so it stops appearing in `.mat` files.
+
 Materials carry their own shader set (`MaterialShaderNames`), editable per stage in the
 panel's Shaders section. Two constraints: the shader picker is a fixed list built from
 the `*VS.cso`/`*PS.cso`/… naming convention, never free text, because
@@ -164,6 +175,43 @@ shaders in place must go through `World::SetMaterialShaders`, which calls
 `RenderSystem::RefreshDrawable` on every user, because the draw trees are keyed by shader
 tuple and `AddDrawable`'s own cleanup only evicts buckets whose *material* differs (so a
 same-material key change would leave the entity drawing twice).
+
+**Asset previews are their own forward pass, not the engine renderer**
+(`Tools/SceneEditor/PreviewPass.h`). The material thumbnails (`MaterialPreview.h`) and
+the Templates panel's model viewport (`ModelPreview.h`) both render offscreen through
+it. Rendering a second *view* through `RenderSystem` was considered and rejected: it
+owns ~40 backbuffer-sized targets (deferred light maps, GI, ReSTIR/RT, bloom, motion,
+DOF, autofocus), a background ray-tracing thread and draw trees bound to one
+coordinator, all sized and scheduled for exactly one view per frame — multi-view means
+hoisting every one of those into a per-view context, i.e. a renderer rewrite, to get a
+thumbnail. So a preview binds its own target, draws a few meshes and restores what was
+bound. Both previews share `MaterialPreviewPS` (it is mesh-agnostic), so a material
+looks the same in the swatch and on the model. They also share its three-light rig,
+which is built *around the camera* (`PreviewPass::MakeLightRig`, directions passed in
+as constants) rather than fixed in world space: the model viewport orbits, and a
+world-fixed key left the model lit from behind over half the angles you can turn it
+to.
+
+Three things that path must respect. It runs *inside* the editor's ImGui frame, so
+every binding it touches is saved and restored by `PreviewPass::ScopedState` — which
+also unbinds the pixel-stage SRVs (material textures are bound as render outputs
+elsewhere, and leaving them read-bound trips D3D's hazard detection) and switches off
+HS/DS/GS. A `MeshData` owns no GPU buffers, only an offset pair into the world's single
+`VertexBuffer` (`World::GetVertexBuffer()`), so drawing one means binding that and
+using `indexOffset`/`vertexOffset` exactly as `RenderSystem` does. And template
+transforms must be composed by hand: the templates coordinator runs no systems, so
+`Transform::world_matrix` there is never computed and is still zeros.
+
+**Framing a skinned mesh cannot use `MeshData::minDimensions/maxDimensions`** — those
+measure the vertex positions as stored, which is the space *before* skinning. For a rig
+whose bind pose sits away from where the animation puts it, that box is several times
+the model's on-screen size; framing on it rendered the demo troll as a speck in an empty
+viewport. `ModelPreview::MeasureSkinnedBounds` runs the same blend the vertex shader
+does, once per animator rather than per frame (framing that tracked the pose would make
+the model breathe in and out as it played). The preview also drives its *own*
+`Components::Mesh` rather than the template entity's, because that component is what
+`SpawnInstance` clones — advancing its clock would leave every instance spawned
+afterwards starting mid-stride.
 
 **ImGui gotchas, both seen in `Inspector::DrawComponentSection`:**
 - Don't put a `SmallButton` over a `CollapsingHeader` with `SameLine` — the header spans
@@ -181,44 +229,78 @@ always the client size — scale screenshot coords by `client/backbuffer` before
 foreground lock: it opens the system menu, whose modal loop inside `DefWindowProc` hangs
 the editor's message pump (shows up as `uxtheme!OnDwpSysCommand` in `stacks.ps1`).
 
-**Templates** are the placeable objects the Asset Browser lists, and there are two
-kinds behind one registry key space: an imported `.fbx` (listed by the level or found
-in `Assets/Objects/`), and an *authored* one — a component block written in the
-Templates panel (`Tools/SceneEditor/TemplatePanel.h`). `World::CreateTemplate` (see
-the contract in `World.h`) keeps an authored template in two halves on purpose: a
-template *entity* in the templates coordinator holding only what `SpawnInstance`
-clones (Base/Transform/Bounds/Mesh/Material/Lighted), and the full component JSON,
-which `SpawnInstance` applies to each spawned entity. Physics must stay off the
-template entity — applying it there would create a rigid body for something that is
-not in the scene. A template's mandatory components (`TemplateOps::IsMandatory`)
+**Three asset layers, and they must not be mixed** — this is the spine of both the
+level format and the editor's asset UI:
+
+| layer | what it is | where it lives | placeable? |
+| --- | --- | --- | --- |
+| **model** | an imported `.fbx`: meshes, materials, collision shapes, animation clips | level's `"models"` array, `Assets/Objects/` | no |
+| **template** | one concept ("troll"): a component block with values | level's `"templates"` array, `<assets>/Templates/*.tpl` | yes — the only one |
+| **instance** | a template placed in this level | level's `"instances"` array | — |
+
+An `.fbx` is a bag of assets, not an object: a character mesh comes out of one file and
+its walk cycle out of another, so importing a file used to fill the Asset Browser with
+"objects" called `troll_walk` and `space` that spawn nothing. `World::LoadModel` now
+registers a file in its own registry (`model_entities` / `model_assets`, keyed by file
+stem) and creates no template; `World::GetModelAssets` reports what it contributed,
+which is what the Asset Browser's Models section lists and what "Create Template"
+(`TemplateOps::CreateFromModel`) reads. Backwards compatibility is one line:
+`World::GetTemplateEntities` falls back to the model registry, so a pre-split level
+whose instances name an `.fbx` still loads, and saving migrates those entries into
+`"models"`.
+
+`World::CreateTemplate` (see the contract in `World.h`) keeps a template in two halves
+on purpose: a template *entity* in the templates coordinator holding only what
+`SpawnInstance` clones (Base/Transform/Bounds/Mesh/Material/Lighted), and the full
+component JSON, which `SpawnInstance` applies to each spawned entity. Physics must stay
+off the template entity — applying it there would create a rigid body for something that
+is not in the scene. A template's mandatory components (`TemplateOps::IsMandatory`)
 cannot be removed, since a template that cannot be spawned is not a template.
 
-An authored template is stored either in its own `.tpl` under `<assets>/Templates/`
+**The Templates panel authors templates and does not place them.** An edit there
+changes the *definition* — what a "troll" is — while placing one changes the level,
+and with both on one panel a click meant for the first routinely produced the second.
+Putting an object in the scene is the Asset Browser's Place buttons (or the `place`
+automation command), which is the one surface for it.
+
+A template is stored either in its own `.tpl` under `<assets>/Templates/`
 (referenced from the level's `templates` array) or inline in that array as
 `{"name", "components"}`; `TemplateOps::SetStorage` moves it between the two and
 `EditorState::inline_templates` records which is which. `.tpl` files save through
 File/Save Templates, *but* File/Save Level flushes them first (unlike materials),
 because the level names the files. `Tests/DemoGame/Templates/troll.tpl` is the
-worked example: mesh, four animation sets, material, scale and a dynamic collider.
+worked example: mesh, four named animations, material, scale and a dynamic collider.
 
-Two traps in the same area. `World::Load` creates authored templates *after* the
-materials and meshes sections, not in the templates phase — their blocks name
-materials and animation sets that do not exist yet up there, and creating them early
-silently resolves every material to the default white one. And authored template
-entities are registered under `World::TEMPLATE_ENTITY_PREFIX`, because template
-entities of every kind share one coordinator and a template named after the object it
-represents ("troll") would otherwise overwrite the FBX node of that name.
+Two traps in the same area. `World::Load` creates templates *after* the materials and
+meshes sections, not in the templates phase — their blocks name materials and animation
+clips that do not exist yet up there, and creating them early silently resolves every
+material to the default white one. And template entities are registered under
+`World::TEMPLATE_ENTITY_PREFIX`, because templates and models share one coordinator and
+a template named after the object it represents ("troll") would otherwise overwrite the
+FBX node of that name.
 
-Animations are only playable once an *animation set* is attached to the mesh. Sets live
-in `World::GetSkeletons()` (one per FBX the level loaded skeletons from) and used to be
-attachable only from a level's `"meshes"` section; `Components::Mesh`'s `"skeletons"`
-key is the per-entity form of exactly that, which is what makes the Templates panel's
-animation picker have anything in it. The attachment is to the *shared* `MeshData`, so
-it is visible to every entity using that mesh — same as it always was. A template can
-therefore carry several animation sets and name one of them as the animation its
-instances start in; each instance then picks its own from the Components panel's Mesh
-section (or `set_component <entity> Mesh "{'animation':'...'}"`), which is a per-entity
-override and does not touch the template.
+**A template owns its animations.** `Components::Mesh::clips` is the object's animation
+library — logical name → imported clip, `{"idle": "troll_idle", "walk": "troll_walk"}` —
+and `Mesh::SetAnimation` resolves through it before falling back to a raw clip name, so
+game code plays a *role* (`SetAnimation("walk")`) and re-exporting the clip changes one
+library entry instead of every caller. What the mesh reports afterwards is the name it
+was asked for, so a template's vocabulary round-trips through save/load.
+
+The animation *set* holding a clip (`World::GetSkeletons()`, one per FBX that carried
+skeletons) is still what makes a clip playable, but nothing above the engine has to know
+that: `Mesh::FromJson` looks the set up from the clip name (`World::FindAnimationSet`)
+and attaches it. `"skeletons"` still works and is still the way to attach a set whose
+clips are only chosen at runtime. The attachment is to the *shared* `MeshData`, so it is
+visible to every entity using that mesh — same as it always was.
+
+The editor surface is the Templates panel's **Animations** section
+(`TemplatePanel::DrawAnimationsSection`, ops in `TemplateOps::AddClip`/`RemoveClip`/
+`RenameClip`/`SetDefaultClip`): a table of name / clip / source model / default, an Add
+picker grouped by model, and a Play button per row that auditions the clip through
+`ModelPreview::View::clip_override` — a viewer-side override, never an edit. An instance
+then picks its own out of the library from the Components panel (or
+`set_component <entity> Mesh "{'animation':'walk'}"`), which is a per-entity override
+and does not touch the template.
 
 Entity rename and copy/cut/paste live in `Tools/SceneEditor/EntityOps.h` (read its
 header comment before touching them). Two things there are easy to break: entity
@@ -230,3 +312,10 @@ renamed with a `__cut_` prefix) rather than destroyed, so paste and undo keep wo
 Give screenshots a couple of frames after a state-changing command if the change
 must be visible in the render (the channel already executes commands pre-frame and
 captures post-frame, so single-batch `command + screenshot` is consistent).
+
+That "couple of frames" is not optional for anything that changes the *ImGui layout* —
+opening a panel, View/Reset Layout, or the first frame after an `imgui.ini` is restored.
+ImGui needs a frame to settle a window into its dock node, and a batch of
+`menu "View/Templates"` + `screenshot` captures the settling frame, in which the panels
+render as nothing at all. A blank editor in a screenshot is that, not a crash: send the
+screenshot as its own batch afterwards.

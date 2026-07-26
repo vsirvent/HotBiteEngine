@@ -157,7 +157,10 @@ RenderTargetRT MainRenderPS(GSOutput input)
 			text_color = diffuseTexture.Sample(basicSampler, input.uv).rgb;
 		}
 		if (material.flags & ALPHA_ENABLED_FLAG) {
-			if (length(material.alphaColor - text_color) > 0.4f) {
+			//Colour key against black. This used to subtract material.alphaColor, but
+			//nothing ever wrote that field - it was zero for every material ever loaded,
+			//so black is what the test has always compared against.
+			if (length(text_color) > 0.4f) {
 				finalColor.rgb = text_color;
 			}
 			else {

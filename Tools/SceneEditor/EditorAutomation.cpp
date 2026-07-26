@@ -806,14 +806,12 @@ namespace HotBiteEditor {
 				}
 			}
 			else if (cmd == "list_templates") {
-				AssetBrowser::EnsureTemplatesScanned(state);
+				AssetBrowser::EnsureAssetsScanned(state);
 				response_lines.push_back("OK " + std::to_string(state.templates.size()) + " templates");
 				for (auto& t : state.templates) {
 					std::ostringstream os;
-					os << t.name << (t.authored ? " authored" : " fbx");
-					if (t.authored) {
-						os << (TemplateOps::IsInline(state, t.name) ? " in=level" : " in=file");
-					}
+					os << t.name
+						<< (TemplateOps::IsInline(state, t.name) ? " in=level" : " in=file");
 					if (state.dirty_templates.count(t.name) != 0) {
 						os << " unsaved";
 					}
@@ -821,6 +819,97 @@ namespace HotBiteEditor {
 						os << " [selected]";
 					}
 					response_lines.push_back(os.str());
+				}
+			}
+			else if (cmd == "list_models") {
+				//The other half of the asset list: what has been imported, and what each
+				//file brought with it. Nothing here is placeable - create_template_from_model
+				//is the step between a model and an object.
+				AssetBrowser::EnsureAssetsScanned(state);
+				response_lines.push_back("OK " + std::to_string(state.models.size()) + " models");
+				for (const auto& m : state.models) {
+					std::ostringstream os;
+					os << m.name;
+					const World::ModelAssets* assets = state.world->GetModelAssets(m.name);
+					if (assets != nullptr) {
+						os << " meshes=" << assets->meshes.size()
+							<< " materials=" << assets->materials.size();
+						size_t clips = 0;
+						for (const std::string& set : assets->animation_sets) {
+							clips += state.world->GetAnimationSetClips(set).size();
+						}
+						os << " animations=" << clips;
+					}
+					if (m.name == state.selected_model) {
+						os << " [selected]";
+					}
+					response_lines.push_back(os.str());
+				}
+			}
+			else if (cmd == "model_info") {
+				AssetBrowser::EnsureAssetsScanned(state);
+				const World::ModelAssets* assets = (args.size() >= 2)
+					? state.world->GetModelAssets(args[1]) : nullptr;
+				if (args.size() < 2) {
+					response_lines.push_back("ERR usage: model_info <model name>");
+				}
+				else if (assets == nullptr) {
+					response_lines.push_back("ERR unknown model: " + args[1]);
+				}
+				else {
+					response_lines.push_back("OK model " + args[1] + " from " + assets->file);
+					for (const std::string& mesh : assets->meshes) {
+						response_lines.push_back("mesh " + mesh);
+					}
+					for (const std::string& material : assets->materials) {
+						response_lines.push_back("material " + material);
+					}
+					for (const std::string& set : assets->animation_sets) {
+						for (const std::string& clip : state.world->GetAnimationSetClips(set)) {
+							response_lines.push_back("animation " + clip);
+						}
+					}
+				}
+			}
+			else if (cmd == "import_model") {
+				if (args.size() < 2) {
+					response_lines.push_back("ERR usage: import_model <path to .fbx>");
+				}
+				else if (AssetBrowser::ImportModel(state, args[1], error)) {
+					response_lines.push_back("OK " + state.status_message);
+				}
+				else {
+					response_lines.push_back("ERR " + error);
+				}
+			}
+			else if (cmd == "create_template_from_model") {
+				AssetBrowser::EnsureAssetsScanned(state);
+				if (args.size() < 2) {
+					response_lines.push_back("ERR usage: create_template_from_model"
+						" <model name> [template name]");
+				}
+				else {
+					const std::string template_name = (args.size() >= 3) ? args[2]
+						: TemplateOps::UniqueTemplateName(state, args[1]);
+					if (TemplateOps::CreateFromModel(state, args[1], template_name, error)) {
+						response_lines.push_back("OK " + state.status_message);
+					}
+					else {
+						response_lines.push_back("ERR " + error);
+					}
+				}
+			}
+			else if (cmd == "select_model") {
+				AssetBrowser::EnsureAssetsScanned(state);
+				if (args.size() < 2) {
+					response_lines.push_back("ERR usage: select_model <name>");
+				}
+				else if (!state.world->IsModelLoaded(args[1])) {
+					response_lines.push_back("ERR unknown model: " + args[1]);
+				}
+				else {
+					state.selected_model = args[1];
+					response_lines.push_back("OK");
 				}
 			}
 			else if (cmd == "list_meshes") {
@@ -892,11 +981,6 @@ namespace HotBiteEditor {
 				else if (!state.world->IsTemplateLoaded(args[1])) {
 					response_lines.push_back("ERR unknown template: " + args[1]);
 				}
-				else if (!TemplateOps::IsAuthored(state, args[1])) {
-					response_lines.push_back("OK " + args[1] + " is an imported .fbx template, "
-						"with " + std::to_string(state.world->GetTemplateEntities(args[1]).size()) +
-						" part(s)");
-				}
 				else {
 					const std::vector<std::string> components =
 						TemplateOps::ListComponents(state, args[1]);
@@ -920,11 +1004,72 @@ namespace HotBiteEditor {
 						: ("ERR " + error));
 				}
 			}
-			else if (cmd == "template_animation") {
-				//An empty name clears the animation, matching the panel's "(none)".
+			else if (cmd == "template_animations") {
+				//The template's own animation library: what this object can play, by the
+				//names it knows them under.
 				if (args.size() < 2) {
-					response_lines.push_back("ERR usage: template_animation <template name>"
-						" [animation] [loop 0|1] [speed]");
+					response_lines.push_back("ERR usage: template_animations <template name>");
+				}
+				else if (!TemplateOps::IsAuthored(state, args[1])) {
+					response_lines.push_back("ERR unknown template: " + args[1]);
+				}
+				else {
+					const std::vector<TemplateOps::TemplateClip> clips =
+						TemplateOps::ListClips(state, args[1]);
+					response_lines.push_back("OK " + std::to_string(clips.size()) +
+						" animations on template " + args[1]);
+					for (const TemplateOps::TemplateClip& clip : clips) {
+						std::ostringstream os;
+						os << clip.name << " clip=" << clip.clip
+							<< " model=" << (clip.resolved ? clip.model : "(missing)");
+						if (clip.is_default) {
+							os << " [default]";
+						}
+						response_lines.push_back(os.str());
+					}
+				}
+			}
+			else if (cmd == "template_add_animation") {
+				if (args.size() < 4) {
+					response_lines.push_back("ERR usage: template_add_animation"
+						" <template name> <name> <imported clip>");
+				}
+				else if (TemplateOps::AddClip(state, args[1], args[2], args[3], error)) {
+					response_lines.push_back("OK " + args[1] + " " + args[2] + " -> " + args[3]);
+				}
+				else {
+					response_lines.push_back("ERR " + error);
+				}
+			}
+			else if (cmd == "template_remove_animation") {
+				if (args.size() < 3) {
+					response_lines.push_back("ERR usage: template_remove_animation"
+						" <template name> <name>");
+				}
+				else if (TemplateOps::RemoveClip(state, args[1], args[2], error)) {
+					response_lines.push_back("OK " + args[1] + " - " + args[2]);
+				}
+				else {
+					response_lines.push_back("ERR " + error);
+				}
+			}
+			else if (cmd == "template_rename_animation") {
+				if (args.size() < 4) {
+					response_lines.push_back("ERR usage: template_rename_animation"
+						" <template name> <name> <new name>");
+				}
+				else if (TemplateOps::RenameClip(state, args[1], args[2], args[3], error)) {
+					response_lines.push_back("OK " + args[1] + " " + args[2] + " -> " + args[3]);
+				}
+				else {
+					response_lines.push_back("ERR " + error);
+				}
+			}
+			else if (cmd == "template_default_animation") {
+				//An empty name is "stands still", matching the panel's "None by default".
+				if (args.size() < 2) {
+					response_lines.push_back("ERR usage: template_default_animation"
+						" <template name> [name] [loop 0|1] [speed]");
 				}
 				else {
 					const std::string animation = (args.size() >= 3) ? args[2] : std::string();
@@ -934,8 +1079,8 @@ namespace HotBiteEditor {
 						try { speed = std::stof(args[4]); }
 						catch (...) { speed = 1.0f; }
 					}
-					if (TemplateOps::SetAnimation(state, args[1], animation, loop, speed, error)) {
-						response_lines.push_back("OK " + args[1] + " animation -> " +
+					if (TemplateOps::SetDefaultClip(state, args[1], animation, loop, speed, error)) {
+						response_lines.push_back("OK " + args[1] + " default animation -> " +
 							(animation.empty() ? "(none)" : animation));
 					}
 					else {
@@ -943,27 +1088,15 @@ namespace HotBiteEditor {
 					}
 				}
 			}
-			else if (cmd == "template_animation_set") {
-				if (args.size() < 3) {
-					response_lines.push_back("ERR usage: template_animation_set"
-						" <template name> <animation set> [0|1]");
-				}
-				else {
-					const bool attach = (args.size() < 4) || (args[3] != "0");
-					if (TemplateOps::SetAnimationSet(state, args[1], args[2], attach, error)) {
-						response_lines.push_back("OK " + args[1] +
-							(attach ? " + " : " - ") + args[2]);
-					}
-					else {
-						response_lines.push_back("ERR " + error);
-					}
-				}
-			}
-			else if (cmd == "animation_sets") {
-				const std::vector<std::string> sets = TemplateOps::ListAnimationSets(state);
-				response_lines.push_back("OK " + std::to_string(sets.size()) + " animation sets");
-				for (const std::string& set : sets) {
-					response_lines.push_back(set);
+			else if (cmd == "list_animations") {
+				//Every clip the imported models offer, which is what a script picks from
+				//when calling template_add_animation.
+				AssetBrowser::EnsureAssetsScanned(state);
+				const std::vector<TemplateOps::AvailableClip> clips =
+					TemplateOps::ListAvailableClips(state);
+				response_lines.push_back("OK " + std::to_string(clips.size()) + " animations");
+				for (const TemplateOps::AvailableClip& clip : clips) {
+					response_lines.push_back(clip.clip + " model=" + clip.model);
 				}
 			}
 			else if (cmd == "template_add_component" || cmd == "template_remove_component") {
@@ -1027,7 +1160,7 @@ namespace HotBiteEditor {
 				}
 			}
 			else if (cmd == "select_template") {
-				AssetBrowser::EnsureTemplatesScanned(state);
+				AssetBrowser::EnsureAssetsScanned(state);
 				if (args.size() < 2) {
 					response_lines.push_back("ERR usage: select_template <name>");
 				}
@@ -1046,7 +1179,7 @@ namespace HotBiteEditor {
 				}
 			}
 			else if (cmd == "place") {
-				AssetBrowser::EnsureTemplatesScanned(state);
+				AssetBrowser::EnsureAssetsScanned(state);
 				if (args.size() < 2) {
 					response_lines.push_back("ERR usage: place <template name> [origin|view]");
 				}

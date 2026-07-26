@@ -479,6 +479,32 @@
                 "name": "Space"
             }
         ],
+        "models": [
+            {
+                "file": ".\\Assets\\Sky\\space.fbx",
+                "triangulate": false
+            },
+            {
+                "file": ".\\Assets\\troll\\troll_tpose.fbx",
+                "triangulate": false
+            },
+            {
+                "file": ".\\Assets\\troll\\troll_idle.fbx",
+                "triangulate": false
+            },
+            {
+                "file": ".\\Assets\\troll\\troll_walk.fbx",
+                "triangulate": false
+            },
+            {
+                "file": ".\\Assets\\troll\\troll_attack.fbx",
+                "triangulate": false
+            },
+            {
+                "file": ".\\Assets\\troll\\troll_death.fbx",
+                "triangulate": false
+            }
+        ],
         "path": "..\\..\\..\\Tests\\DemoGame\\",
         "removed_entities": [],
         "sky": {
@@ -509,30 +535,6 @@
             "triangulate": false
         },
         "templates": [
-            {
-                "file": ".\\Assets\\Sky\\space.fbx",
-                "triangulate": false
-            },
-            {
-                "file": ".\\Assets\\troll\\troll_tpose.fbx",
-                "triangulate": false
-            },
-            {
-                "file": ".\\Assets\\troll\\troll_idle.fbx",
-                "triangulate": false
-            },
-            {
-                "file": ".\\Assets\\troll\\troll_walk.fbx",
-                "triangulate": false
-            },
-            {
-                "file": ".\\Assets\\troll\\troll_attack.fbx",
-                "triangulate": false
-            },
-            {
-                "file": ".\\Assets\\troll\\troll_death.fbx",
-                "triangulate": false
-            },
             {
                 "file": "Templates\\troll.tpl"
             }

@@ -68,14 +68,6 @@ float4 getColor1(RaySource ray)
 	return float4(ray.normal, w);
 }
 
-float4 getPropsColor(float dispersion) {
-	return float4(dispersion, 0.0f, 0.0f, 0.0f);
-}
-
-float getDispersion(float4 color) {
-	return color.r;
-}
-
 struct VolumetricLightData
 {
 	uint globalIllumination;

@@ -647,31 +647,6 @@ namespace HotBiteEditor {
 			}
 		}
 
-		//The animation sets currently attached to `data`, by the names the level loaded
-		//them under. The MeshData holds them as unnamed shared pointers, exactly as
-		//Mesh::ToJson finds out, so the names have to come back from the world.
-		static std::set<std::string> AttachedAnimationSets(EditorState& state, Core::MeshData* data)
-		{
-			std::set<std::string> attached;
-			if (data == nullptr) {
-				return attached;
-			}
-			auto& named = state.world->GetSkeletons();
-			for (const std::string& name : named.Keys()) {
-				std::shared_ptr<Core::Skeleton>* skl = named.Get(name);
-				if (skl == nullptr) {
-					continue;
-				}
-				for (const auto& in_use : data->skeletons) {
-					if (in_use == *skl) {
-						attached.insert(name);
-						break;
-					}
-				}
-			}
-			return attached;
-		}
-
 		static void DrawMesh(EditorState& state, Coordinator* c, Entity e)
 		{
 			Mesh& mesh = c->GetComponent<Mesh>(e);
@@ -720,46 +695,18 @@ namespace HotBiteEditor {
 			}
 			ImGui::Text("Vertices: %u  Indices: %u", data->vertexCount, data->indexCount);
 
-			//Which animation sets are attached to the mesh. This has to come before the
-			//animation picker, because a mesh can only play animations belonging to a set
-			//attached to it - and it is why that picker is empty on a level that attached
-			//none. Note the attachment is to the *shared* MeshData, so it is visible to
-			//every entity using this mesh; that is how the engine has always done it.
-			const std::vector<std::string> sets = TemplateOps::ListAnimationSets(state);
-			if (!sets.empty() && ImGui::TreeNode("Animation sets")) {
-				const std::set<std::string> attached = AttachedAnimationSets(state, data);
-				for (const std::string& set : sets) {
-					bool on = attached.count(set) != 0;
-					if (ImGui::Checkbox(set.c_str(), &on)) {
-						nlohmann::json block = ComponentOps::GetValue(state, entity_name, Mesh::NAME);
-						std::vector<std::string> declared;
-						for (const std::string& existing : attached) {
-							if (existing != set) {
-								declared.push_back(existing);
-							}
-						}
-						if (on) {
-							declared.push_back(set);
-						}
-						block["skeletons"] = declared;
-						std::string error;
-						if (!ComponentOps::SetValue(state, entity_name, Mesh::NAME, block, error)) {
-							state.status_message = "Animation set failed: " + error;
-						}
-					}
-				}
-				ImGui::TextDisabled("Detaching only stops this entity declaring the set;\n"
-					"the set stays on the shared mesh for this session.");
-				ImGui::TreePop();
-			}
-
-			//The animation this entity plays, out of everything its mesh offers. A
-			//template can bring several (one per set attached to its mesh) and each
-			//entity picks its own, which is what makes two instances of one creature able
-			//to idle and walk side by side.
-			const std::vector<std::string> animations = state.world->GetMeshAnimations(mesh_name);
+			//What this entity can play. Two sources, in the order that matters:
+			//
+			//  - the animation library it inherited from its template ("idle", "walk"):
+			//    the names the object publishes, which is what an instance should be
+			//    choosing between. Which clips those are is the template's business,
+			//    edited in the Templates panel's Animations section.
+			//  - the raw clips its mesh carries, for an entity that is not an instance
+			//    of any template (a mesh out of the level's own .fbx).
+			const std::vector<std::string> clips = state.world->GetMeshAnimations(mesh_name);
 			const std::string animation = mesh.GetCurrentAnimationName();
-			ImGui::BeginDisabled(animations.empty());
+			const bool has_library = !mesh.clips.empty();
+			ImGui::BeginDisabled(clips.empty() && !has_library);
 			if (ImGui::BeginCombo("Animation", animation.empty() ? "(none)" : animation.c_str())) {
 				auto choose = [&](const std::string& option) {
 					nlohmann::json block = ComponentOps::GetValue(state, entity_name, Mesh::NAME);
@@ -777,7 +724,18 @@ namespace HotBiteEditor {
 				if (ImGui::Selectable("(none)", animation.empty()) && !animation.empty()) {
 					choose("");
 				}
-				for (const std::string& option : animations) {
+				if (has_library) {
+					ImGui::SeparatorText("From this object");
+					for (const auto& [logical, clip] : mesh.clips) {
+						std::string label = logical + "  (" + clip + ")";
+						if (ImGui::Selectable(label.c_str(), logical == animation) &&
+							logical != animation) {
+							choose(logical);
+						}
+					}
+					ImGui::SeparatorText("Imported clips");
+				}
+				for (const std::string& option : clips) {
 					if (ImGui::Selectable(option.c_str(), option == animation) &&
 						option != animation) {
 						choose(option);
@@ -786,10 +744,9 @@ namespace HotBiteEditor {
 				ImGui::EndCombo();
 			}
 			ImGui::EndDisabled();
-			if (animations.empty()) {
-				ImGui::TextDisabled(sets.empty()
-					? "(this level loaded no animation sets)"
-					: "(attach an animation set above to choose an animation)");
+			if (clips.empty() && !has_library) {
+				ImGui::TextDisabled("(this mesh has no animations - a template gives an\n"
+					"object its own, in the Templates panel)");
 			}
 
 			if (!animation.empty()) {

@@ -67,7 +67,9 @@ RenderTarget main(GSParticleOutput input)
 	RenderTarget output;
 	float4 lightColor = { 0.0f, 0.0f, 0.0f, 0.0f };
 	float alpha = pow(abs(input.life), 3.2f);
-	float4 finalColor = material.ambientColor * alpha + material.diffuseColor * (1.0f - alpha);
+	//Fades to black over the particle's life. The old form blended towards
+	//material.ambientColor, which nothing ever wrote - it was zero for every material.
+	float4 finalColor = material.diffuseColor * (1.0f - alpha);
 	float border = 1.0f - pow(length(abs(input.uv * 2.0f - 1.0f)), 2.0f);
 	float4 wpos = input.worldPos;
 	float fade_in = saturate((1.0f - input.life) / 0.1f);
@@ -100,7 +102,7 @@ RenderTarget main(GSParticleOutput input)
 		case 2: uv.x = 1.0f - uv.x; uv.y = 1.0f - uv.y; break;
 		}
 		float3 text_color = diffuseTexture.Sample(basicSampler, uv).rgb;
-		float alpha_value = length(material.alphaColor - text_color);
+		float alpha_value = length(text_color);
 		if (material.flags & ALPHA_ENABLED_FLAG) {
 			if (alpha_value > 1.0f) {
 				finalColor.rgb *= text_color;

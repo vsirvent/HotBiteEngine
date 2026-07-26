@@ -286,7 +286,6 @@ namespace HotBite {
 				Core::TBVH tbvh{ MAX_OBJECTS };
 				Core::SimpleComputeShader* rt_di_shader = nullptr;
 				Core::SimpleComputeShader* rt_di_denoiser = nullptr;
-				Core::SimpleComputeShader* rt_disp = nullptr;
 
 				Core::SimpleComputeShader* gi_shader = nullptr;
 				Core::SimpleComputeShader* gi_average = nullptr;
@@ -321,7 +320,6 @@ namespace HotBite {
 				Core::RenderTexture2D* rt_texture_gi_tmp[2];
 				Core::RenderTexture2D* rt_texture_gi_trace = nullptr;
 
-				Core::RenderTexture2D rt_texture_props;
 				Core::RenderTexture2D rt_ray_sources0;
 				Core::RenderTexture2D rt_ray_sources1;
 				Core::ExtBVHBuffer tbvh_buffer;

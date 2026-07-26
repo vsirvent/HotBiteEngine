@@ -162,7 +162,6 @@ public:
 	{
 		props["name"] = std::make_shared<Prop<std::string>>("material");
 		props["diffuse_color"] = std::make_shared<Prop<std::string>>("#FFFFFFFF");
-		props["ambient_color"] = std::make_shared<Prop<std::string>>("#FFFFFFFF");
 		props["specular"] = std::make_shared<Prop<float>>(0.5f);
 		props["rt_reflex"] = std::make_shared<Prop<float>>(0.2f);
 		props["emission"] = std::make_shared<Prop<float>>(0.0f);
@@ -210,7 +209,6 @@ public:
 		try {
 			props["name"]->SetValue<std::string>(js.value("name", ""));
 			props["diffuse_color"]->SetValue<std::string>(js.value("diffuse_color", "#FFFFFFFF"));
-			props["ambient_color"]->SetValue<std::string>(js.value("ambient_color", "#FFFFFFFF"));
 			props["parallax_scale"]->SetValue<float>(js.value("parallax_scale", 0.0f));
 			props["parallax_steps"]->SetValue<float>(js.value("parallax_steps", 0.0f));
 			props["parallax_angle_steps"]->SetValue<float>(js.value("parallax_angle_steps", 0.0f));

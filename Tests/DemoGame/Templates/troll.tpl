@@ -4,16 +4,16 @@
             "name": "TrollMaterial"
         },
         "Mesh": {
-            "animation": "troll_idle",
+            "animation": "idle",
             "animation_loop": true,
             "animation_speed": 1.0,
-            "name": "troll",
-            "skeletons": [
-                "troll_idle",
-                "troll_walk",
-                "troll_attack",
-                "troll_death"
-            ]
+            "clips": {
+                "attack": "troll_attack",
+                "death": "troll_death",
+                "idle": "troll_idle",
+                "walk": "troll_walk"
+            },
+            "name": "troll"
         },
         "Physics": {
             "shape": "CAPSULE",

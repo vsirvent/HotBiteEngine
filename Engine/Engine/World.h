@@ -70,6 +70,20 @@ namespace HotBite {
 			static inline ECS::EventId EVENT_ID_UPDATE_BACKGROUND3 = ECS::GetEventId<World>(0x07);
 			static inline ECS::EventId EVENT_ID_UPDATE_PHYSICS = ECS::GetEventId<World>(0x08);
 
+			// What one imported asset file brought into the world, by the names those
+			// assets are registered under. This is the inventory an editor lists under
+			// a model, and the reason a model is worth being a thing of its own: an
+			// .fbx is a *source of assets*, and which assets it contributed is not
+			// otherwise recoverable once everything has been merged into the world's
+			// flat mesh/material/skeleton collections.
+			struct ModelAssets {
+				std::string file;                        // as loaded, level-relative or absolute
+				bool triangulate = false;
+				std::vector<std::string> meshes;
+				std::vector<std::string> materials;
+				std::vector<std::string> animation_sets; // skeletons, i.e. clip sets
+			};
+
 		protected:
 			std::atomic<uint64_t> current_server_nsec = 0;
 			std::atomic<uint64_t> current_background_thread_nsec = 0;
@@ -90,6 +104,10 @@ namespace HotBite {
 			//Absolute path of assets location
 			std::string path;
 			std::unordered_map<std::string, std::set<ECS::Entity>> template_entities;
+			//Imported asset files, by model name (the file stem). See the Models block
+			//in the public section for what a model is and why it is not a template.
+			std::unordered_map<std::string, std::set<ECS::Entity>> model_entities;
+			std::map<std::string, ModelAssets> model_assets;
 			//Component blocks of the templates that were authored rather than loaded
 			//from an FBX, by template name. See CreateTemplate for what this holds and
 			//why it is kept beside the template entity instead of on it.
@@ -182,21 +200,56 @@ namespace HotBite {
 			// render tick on its own schedule instead, without waiting on Load()/Init().
 			virtual void Run(int render_fps, int background_fps = 0, int physics_fps = 0, bool auto_render = true);
 			virtual void Stop();
+			// --- Models ---------------------------------------------------------------
+			//
+			// A model is an imported asset file (.fbx): the meshes, materials, collision
+			// shapes and animation clips it carries. It is an *asset*, not an object -
+			// loading one places nothing in the scene and creates no template.
+			//
+			// That separation is the whole point. An .fbx is not one concept: an artist
+			// exports a character mesh from one file and its walk cycle from another, and
+			// a level's asset list ends up holding meshes, animation-only files and sky
+			// geometry side by side. Treating each of them as a placeable object (which
+			// is what LoadTemplate used to do) meant "walk" and "sky" showed up as things
+			// you could drop into the world, most of which spawn nothing at all.
+			//
+			// So: models bring assets in, templates name a *kind of object* built out of
+			// those assets (see the block below), and instances are templates placed in a
+			// scene. The three are separate registries, and a level file lists models in
+			// "models" and templates in "templates".
+			virtual void LoadModel(const std::string& model_file, bool triangulate, bool relative,
+							bool use_animation_names = false);
+			virtual bool IsModelLoaded(const std::string& name) const;
+			// Every loaded model name (the file stem), sorted.
+			virtual std::vector<std::string> ListModels() const;
+			// What `name` brought in, or null when no such model was loaded.
+			virtual const ModelAssets* GetModelAssets(const std::string& name) const;
+			// The entities an imported model registered in the templates coordinator -
+			// one per FBX node. They are what a legacy level's instances resolve to (see
+			// GetTemplateEntities) and what "make a template out of this model" reads.
+			virtual const std::set<ECS::Entity>& GetModelEntities(const std::string& name);
+			// Kept for games that load their own asset files. Exactly LoadModel, under
+			// the name it had when an imported file was also a template.
 			virtual void LoadTemplate(const std::string& template_file, bool triangulate, bool relative, bool use_animation_names = false);
 			virtual void LoadMaterialFiles(const nlohmann::json& materials_info, const std::string& path);
 			virtual void LoadMaterialsNode(const nlohmann::json& materials_info,
 										  const std::string& texture_path);
 			virtual void LoadMultiMaterial(const std::string& name, const nlohmann::json& multi_material_info);
+			// The entities behind a template name. A name that is not a template but is
+			// a loaded *model* resolves to that model's entities: a level written before
+			// models and templates were separate places instances directly from an .fbx,
+			// and this is what keeps those levels loading (and what makes an editor
+			// migrate them by saving). New content never relies on it - the editor's
+			// "Create Template" turns a model into a real template first.
 			virtual const std::set<ECS::Entity>& GetTemplateEntities(const std::string& template_name);
 			virtual bool IsTemplateLoaded(const std::string& template_name);
 
-			// --- Authored templates -------------------------------------------------
+			// --- Templates ----------------------------------------------------------
 			//
-			// A template does not have to come out of an FBX. An *authored* template is
-			// a named component block - mesh, material, animation, physics, a game's own
-			// components - registered in the same template registry the FBX ones use, so
-			// SpawnInstance, the level's "instances" section and any editor placing
-			// objects treat both kinds identically.
+			// A template is one concept: a named entity definition - a component block
+			// with values (mesh, material, animation library, physics, a game's own
+			// components) - that SpawnInstance stamps into a scene as often as needed.
+			// It is the only placeable kind of thing.
 			//
 			// It is stored in two halves, and they deliberately hold different things:
 			//
@@ -212,9 +265,11 @@ namespace HotBite {
 			//     instance, and it is applied *before* the instance's own overrides so a
 			//     per-instance block still wins.
 			//
-			// Creating a template under a name that already names an authored one
-			// replaces its definition; the name of an FBX template is refused, since the
-			// two would fight over one registry key.
+			// Creating a template under a name that already names one replaces its
+			// definition. A model of the same name is not a conflict - the two live in
+			// separate registries, and "the troll template built from the troll model"
+			// is the normal case - but the template wins wherever a name is resolved as
+			// a placeable thing.
 			virtual bool CreateTemplate(const std::string& name, const nlohmann::json& components,
 							std::string& error);
 			// Destroys the template entity and forgets the definition. Entities already
@@ -272,6 +327,15 @@ namespace HotBite {
 			// Walks the skeletons the same way Mesh::SetAnimation resolves a name, so
 			// everything listed here is something SetAnimation will accept.
 			virtual std::vector<std::string> GetMeshAnimations(const std::string& mesh_name);
+			// The clips one loaded animation set holds, sorted. An animation set is what
+			// a skeleton is called once it is being chosen from rather than skinned with:
+			// the clips an .fbx contributed, keyed by that file's stem.
+			virtual std::vector<std::string> GetAnimationSetClips(const std::string& set_name) const;
+			// The animation set holding `clip`, or "" when no loaded set does. This is
+			// how naming a clip is enough to play it: the set that owns it is found and
+			// attached rather than being named a second time (Mesh::FromJson, and every
+			// editor surface that adds an animation to a template).
+			virtual std::string FindAnimationSet(const std::string& clip) const;
 			// Rebuilds the GPU vertex/BVH buffers from the current CPU-side mesh data.
 			// Init() uploads them exactly once, so meshes added by LoadTemplate/LoadFBX
 			// calls made after Init() (e.g. an editor importing objects into a running
@@ -429,6 +493,12 @@ namespace HotBite {
 			bool SetMaterialShaders(const std::string& material_name,
 									const Core::MaterialShaderNames& names);
 			Core::FlatMap<std::string, Core::MeshData>& GetMeshes();
+			// The single vertex/index buffer every mesh this world loaded lives in.
+			// A MeshData does not own GPU buffers of its own - it holds an offset pair
+			// into this one - so anything drawing a mesh outside the RenderSystem (an
+			// editor preview pass, a debug overlay) has to bind this and then draw with
+			// the mesh's indexOffset/vertexOffset, exactly as RenderSystem does.
+			Core::VertexBuffer<Core::Vertex>* GetVertexBuffer() { return vertex_buffer; }
 			Core::FlatMap<std::string, Core::ShapeData>& GetShapes();
 			Core::FlatMap<std::string, std::shared_ptr<Core::Skeleton>>& GetSkeletons();
 			reactphysics3d::PhysicsWorld* GetPhysicsWorld();

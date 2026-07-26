@@ -177,8 +177,19 @@ namespace HotBite {
 				return animation_default_change_time;
 			}
 
+			std::string Mesh::ResolveClip(const std::string& name) const {
+				auto it = clips.find(name);
+				return (it != clips.end() && !it->second.empty()) ? it->second : name;
+			}
+
 			bool Mesh::SetAnimation(const std::string& name, bool loop, bool sync, float transition_time, float speed, bool force) {
 				bool ret = false;
+				//What is searched for is the clip; what is remembered is the name the
+				//caller used. An entity asked for "walk" reports "walk" - that is the
+				//name its authoring data holds, and writing the clip back instead would
+				//quietly rewrite a template's vocabulary into the file names it was
+				//built to hide.
+				const std::string clip = ResolveClip(name);
 				if (current_animation.name != name || force) {
 					for (auto& skl : data->skeletons) {
 						std::vector<Core::JointCpuData>& cpu_data = skl->CpuData();
@@ -187,7 +198,7 @@ namespace HotBite {
 							if (!cpu_data[i].animations.empty()) {
 								for (int j = 0; j < cpu_data[i].animations.size(); ++j) {
 									const Core::JointAnim& animation = cpu_data[i].animations[j];
-									if (animation.name == name) {
+									if (animation.name == clip) {
 										skeleton_mutex->lock();
 										animation_change_current_time = 0.0f;
 										previous_animation = current_animation;
@@ -232,6 +243,17 @@ namespace HotBite {
 
 			matrix Mesh::GetAnimationMatrix(int64_t elapsed_nsec, int64_t total_nsec, std::vector<Core::JointCpuData>* cpu_data, int joint_id, Animation& anim) {
 				matrix ret = DirectX::XMMatrixIdentity();
+				//An Animation that is not playing carries id -1 (StopAnimation, or one
+				//that never resolved a name), and a joint of another skeleton need not
+				//have as many animations as that id assumes. Either way there is no
+				//matrix to build, and identity is the bind pose - which is exactly what
+				//a mesh with no animation must show. Indexing anyway is how "(none)"
+				//followed by any animation crashed: the transition blend reads the
+				//stopped animation as the pose it is coming from.
+				if (joint_id < 0 || joint_id >= (int)cpu_data->size() || anim.id < 0 ||
+					anim.id >= (int)(*cpu_data)[joint_id].animations.size()) {
+					return ret;
+				}
 				Core::JointAnim* animation = &((*cpu_data)[joint_id].animations[anim.id]);
 				if (animation != nullptr && animation->key_frames.size() > 0) {
 
@@ -274,7 +296,14 @@ namespace HotBite {
 					if (anim.key_frame != k0) {
 						anim.key_frame = k0;
 						Core::AutoLock l(animation->lock);
-						if (const auto it = animation->frame_events.find(k0); it != animation->frame_events.cend()) {
+						//Null coordinator is a Mesh that belongs to no scene - the Scene
+						//Editor's model preview drives one of its own so that previewing
+						//an animation leaves no state on the template being cloned. The
+						//end-of-animation send above already guards this; this one did
+						//not, so any animation carrying a frame event crashed the moment
+						//it reached that frame.
+						if (const auto it = animation->frame_events.find(k0);
+							it != animation->frame_events.cend() && coordinator != nullptr) {
 							ECS::Event frame_event(this, entity, EVENT_ID_ANIMATION_FRAME_EVENT);			
 							frame_event.SetParam(EVENT_PARAM_ANIMATION_NAME, anim.name);
 							frame_event.SetParam(EVENT_PARAM_ANIMATION_FRAME, it->first);
@@ -296,7 +325,12 @@ namespace HotBite {
 					}
 					float w0 = animation_change_time > 0.0f?(animation_change_time - animation_change_current_time) / (animation_change_time):0.0f;
 					float w1 = 1.0f - w0;
-					if (prev_cpu_data == nullptr || prev_cpu_data->size() < current_cpu_data->size()) {
+					//Nothing to blend from when the previous animation is not one: coming
+					//out of StopAnimation the mesh was in its bind pose, so the new
+					//animation starts at full weight instead of fading in from a pose
+					//that does not exist.
+					if (prev_cpu_data == nullptr || previous_animation.id < 0 ||
+						prev_cpu_data->size() < current_cpu_data->size()) {
 						animation_change_current_time = animation_change_time;
 						w0 = 0.0f;
 					}
@@ -572,6 +606,13 @@ namespace HotBite {
 						}
 					}
 				}
+				if (!clips.empty()) {
+					json library = json::object();
+					for (const auto& [logical, clip] : clips) {
+						library[logical] = clip;
+					}
+					j["clips"] = library;
+				}
 				const std::string anim = GetCurrentAnimationName();
 				if (!anim.empty()) {
 					j["animation"] = anim;
@@ -635,30 +676,52 @@ namespace HotBite {
 				//what makes an animation nameable at all: Mesh::SetAnimation only ever
 				//searches the sets attached to the mesh.
 				bool attached_any = false;
+				auto attach_set = [&](const std::string& skeleton_name) {
+					std::shared_ptr<Core::Skeleton>* skl =
+						ctx.world->GetSkeletons().Get(skeleton_name);
+					if (skl == nullptr) {
+						printf("Mesh::FromJson: unknown animation set '%s'.\n",
+							skeleton_name.c_str());
+						return;
+					}
+					for (const auto& existing : target->skeletons) {
+						if (existing == *skl) {
+							return;
+						}
+					}
+					target->AddSkeleton(*skl);
+					attached_any = true;
+				};
 				if (target != nullptr && j.contains("skeletons") && j["skeletons"].is_array()) {
 					for (const auto& entry : j["skeletons"]) {
-						if (!entry.is_string()) {
+						if (entry.is_string()) {
+							attach_set(entry.get<std::string>());
+						}
+					}
+				}
+				//The animation library, and the sets it implies. A library entry names a
+				//clip, and a clip is only playable once the set holding it is attached -
+				//so the set is looked up from the clip rather than asked for a second
+				//time. That is the whole point of the library: an object lists the
+				//animations it has, not the files they arrived in.
+				if (target != nullptr && j.contains("clips") && j["clips"].is_object()) {
+					clips.clear();
+					for (auto it = j["clips"].begin(); it != j["clips"].end(); ++it) {
+						if (!it.value().is_string()) {
 							continue;
 						}
-						const std::string skeleton_name = entry;
-						std::shared_ptr<Core::Skeleton>* skl =
-							ctx.world->GetSkeletons().Get(skeleton_name);
-						if (skl == nullptr) {
-							printf("Mesh::FromJson: unknown animation set '%s'.\n",
-								skeleton_name.c_str());
+						const std::string clip = it.value();
+						if (it.key().empty() || clip.empty()) {
 							continue;
 						}
-						bool already = false;
-						for (const auto& existing : target->skeletons) {
-							if (existing == *skl) {
-								already = true;
-								break;
-							}
+						clips[it.key()] = clip;
+						const std::string set = ctx.world->FindAnimationSet(clip);
+						if (set.empty()) {
+							printf("Mesh::FromJson: no loaded animation set holds clip '%s'.\n",
+								clip.c_str());
+							continue;
 						}
-						if (!already) {
-							target->AddSkeleton(*skl);
-							attached_any = true;
-						}
+						attach_set(set);
 					}
 				}
 				//Re-seating identical data would reset the running animation for nothing;

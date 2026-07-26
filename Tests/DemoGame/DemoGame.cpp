@@ -148,58 +148,58 @@ public:
 			progress += 10.0f;
 			render->Update();
 
-			//Load the player animations as templates
-			world.LoadTemplate("Assets\\archer\\archer.fbx", false, true);
+			//Load the player mesh and animation clips as models
+			world.LoadModel("Assets\\archer\\archer.fbx", false, true);
 			progress += 3.0f;
 			render->Update();
-			world.LoadTemplate("Assets\\archer\\archer_idle.fbx", false, true);
+			world.LoadModel("Assets\\archer\\archer_idle.fbx", false, true);
 			progress += 3.0f;
 			render->Update();
-			world.LoadTemplate("Assets\\archer\\archer_jump.fbx", false, true);
+			world.LoadModel("Assets\\archer\\archer_jump.fbx", false, true);
 			progress += 3.0f;
 			render->Update();
-			world.LoadTemplate("Assets\\archer\\archer_walk.fbx", false, true);
+			world.LoadModel("Assets\\archer\\archer_walk.fbx", false, true);
 			progress += 3.0f;
 			render->Update();
-			world.LoadTemplate("Assets\\archer\\archer_run.fbx", false, true);
+			world.LoadModel("Assets\\archer\\archer_run.fbx", false, true);
 			progress += 3.0f;
 			render->Update();
-			world.LoadTemplate("Assets\\archer\\archer_attack.fbx", false, true);
+			world.LoadModel("Assets\\archer\\archer_attack.fbx", false, true);
 			progress += 3.0f;
 			render->Update();
-			world.LoadTemplate("Assets\\archer\\archer_death.fbx", false, true);
+			world.LoadModel("Assets\\archer\\archer_death.fbx", false, true);
 			progress += 3.0f;
 			render->Update();
-			//Load zombie assets as templates
-			world.LoadTemplate("Assets\\zombie\\zombie_tpose.fbx", false, true);
+			//Load zombie assets as models
+			world.LoadModel("Assets\\zombie\\zombie_tpose.fbx", false, true);
 			progress += 3.0f;
 			render->Update();
-			world.LoadTemplate("Assets\\zombie\\zombie_idle.fbx", false, true);
+			world.LoadModel("Assets\\zombie\\zombie_idle.fbx", false, true);
 			progress += 3.0f;
 			render->Update();
-			world.LoadTemplate("Assets\\zombie\\zombie_walk.fbx", false, true);
+			world.LoadModel("Assets\\zombie\\zombie_walk.fbx", false, true);
 			progress += 3.0f;
 			render->Update();
-			world.LoadTemplate("Assets\\zombie\\zombie_death.fbx", false, true);
+			world.LoadModel("Assets\\zombie\\zombie_death.fbx", false, true);
 			progress += 3.0f;
 			render->Update();
-			world.LoadTemplate("Assets\\zombie\\zombie_attack.fbx", false, true);
+			world.LoadModel("Assets\\zombie\\zombie_attack.fbx", false, true);
 			progress += 3.0f;
 			render->Update();
-			//Load troll assets as templates
-			world.LoadTemplate("Assets\\troll\\troll_tpose.fbx", false, true);
+			//Load troll assets as models
+			world.LoadModel("Assets\\troll\\troll_tpose.fbx", false, true);
 			progress += 3.0f;
 			render->Update();
-			world.LoadTemplate("Assets\\troll\\troll_idle.fbx", false, true);
+			world.LoadModel("Assets\\troll\\troll_idle.fbx", false, true);
 			progress += 3.0f;
 			render->Update();
-			world.LoadTemplate("Assets\\troll\\troll_walk.fbx", false, true);
+			world.LoadModel("Assets\\troll\\troll_walk.fbx", false, true);
 			progress += 3.0f;
 			render->Update();
-			world.LoadTemplate("Assets\\troll\\troll_death.fbx", false, true);
+			world.LoadModel("Assets\\troll\\troll_death.fbx", false, true);
 			progress += 3.0f;
 			render->Update();
-			world.LoadTemplate("Assets\\troll\\troll_attack.fbx", false, true);
+			world.LoadModel("Assets\\troll\\troll_attack.fbx", false, true);
 			progress += 3.0f;
 			render->Update();
 			//Init the world

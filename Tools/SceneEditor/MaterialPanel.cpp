@@ -642,7 +642,6 @@ namespace HotBiteEditor {
 			};
 
 			track(ImGui::ColorEdit4("Diffuse", &p.diffuseColor.x));
-			track(ImGui::ColorEdit4("Ambient", &p.ambientColor.x));
 			track(ImGui::DragFloat("Specular", &p.specIntensity, 0.01f, 0.0f, 16.0f));
 			track(ImGui::SliderFloat("Opacity", &p.opacity, 0.0f, 1.0f));
 			track(ImGui::DragFloat("Density", &p.density, 0.01f, 0.0f, 10.0f));

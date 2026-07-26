@@ -452,7 +452,6 @@ Core::MaterialData* World::CreateMaterial(const std::string& name, const std::st
 	material->source_json = nlohmann::json::object();
 	material->texture_names = Core::MaterialTextures{};
 	material->props.diffuseColor = { 1.0f, 1.0f, 1.0f, 1.0f };
-	material->props.ambientColor = { 0.1f, 0.1f, 0.1f, 1.0f };
 	material->props.specIntensity = 0.2f;
 	material->props.opacity = 1.0f;
 	material->Init();
@@ -595,6 +594,27 @@ void World::LoadMaterialsNode(const nlohmann::json& materials_info,
 	}
 }
 
+//The names in a world collection, and the ones a load added to it. Used to work
+//out what one imported file contributed (see LoadModel).
+template<class T>
+static std::set<std::string> KeySet(const Core::FlatMap<std::string, T>& map) {
+	std::vector<std::string> keys = map.Keys();
+	return std::set<std::string>(keys.begin(), keys.end());
+}
+
+template<class T>
+static std::vector<std::string> NewKeys(const std::set<std::string>& before,
+	const Core::FlatMap<std::string, T>& after) {
+	std::vector<std::string> added;
+	for (const std::string& key : after.Keys()) {
+		if (before.count(key) == 0) {
+			added.push_back(key);
+		}
+	}
+	std::sort(added.begin(), added.end());
+	return added;
+}
+
 const std::set<ECS::Entity>& World::GetTemplateEntities(const std::string& template_name) {
 	//Deliberately not operator[]: asking about a template that does not exist must
 	//not register an empty one under that name, or a single typo in a level's
@@ -602,26 +622,79 @@ const std::set<ECS::Entity>& World::GetTemplateEntities(const std::string& templ
 	//template in IsTemplateLoaded and ListTemplates from then on.
 	static const std::set<ECS::Entity> none;
 	auto it = template_entities.find(template_name);
-	return (it != template_entities.end()) ? it->second : none;
+	if (it != template_entities.end()) {
+		return it->second;
+	}
+	//Legacy compatibility, and only that: before models and templates were separate
+	//things, importing an .fbx registered it as a placeable template, so a level of
+	//that vintage has instances naming a model. Resolving those to the model's own
+	//entities keeps such a level loading exactly as it did (see the header).
+	auto model = model_entities.find(template_name);
+	return (model != model_entities.end()) ? model->second : none;
 }
 
 bool World::IsTemplateLoaded(const std::string& template_name) {
 	return template_entities.find(template_name) != template_entities.end();
 }
 
-void World::LoadTemplate(const std::string& template_file, bool triangulate, bool relative, bool use_animation_names) {
-	const std::string name = std::filesystem::path(template_file).filename().replace_extension().string();
-	std::set<ECS::Entity> entities = LoadFBX(template_file, triangulate, relative, materials, meshes,
+void World::LoadModel(const std::string& model_file, bool triangulate, bool relative,
+	bool use_animation_names) {
+	const std::string name = std::filesystem::path(model_file).filename().replace_extension().string();
+	//What the model contributed is the difference the load makes to the world's
+	//collections. They are flat and shared - every file merges into the same three
+	//maps - so this is the only moment the provenance of an asset is knowable, and
+	//it is what lets an editor show a model's meshes and animations under it.
+	const std::set<std::string> meshes_before = KeySet(meshes);
+	const std::set<std::string> materials_before = KeySet(materials);
+	const std::set<std::string> animations_before = KeySet(animations);
+
+	std::set<ECS::Entity> entities = LoadFBX(model_file, triangulate, relative, materials, meshes,
 		shapes, templates_coordinator, vertex_buffer, use_animation_names);
 	//LoadFBX dedups by path and returns nothing at all the second time a file is
-	//asked for, so registering that empty result would *unregister* a template the
-	//first call had loaded. A game that loads its own templates after opening a
+	//asked for, so registering that empty result would *unregister* a model the
+	//first call had loaded. A game that loads its own asset files after opening a
 	//level which already listed them (DemoGame does exactly this for its troll and
 	//zombie animation files) must not lose them to the second call.
-	if (entities.empty() && IsTemplateLoaded(name)) {
+	if (entities.empty() && IsModelLoaded(name)) {
 		return;
 	}
-	template_entities[name] = std::move(entities);
+	ModelAssets assets;
+	assets.file = model_file;
+	assets.triangulate = triangulate;
+	assets.meshes = NewKeys(meshes_before, meshes);
+	assets.materials = NewKeys(materials_before, materials);
+	assets.animation_sets = NewKeys(animations_before, animations);
+	model_assets[name] = std::move(assets);
+	model_entities[name] = std::move(entities);
+}
+
+void World::LoadTemplate(const std::string& template_file, bool triangulate, bool relative, bool use_animation_names) {
+	LoadModel(template_file, triangulate, relative, use_animation_names);
+}
+
+bool World::IsModelLoaded(const std::string& name) const {
+	return model_entities.find(name) != model_entities.end();
+}
+
+std::vector<std::string> World::ListModels() const {
+	std::vector<std::string> names;
+	names.reserve(model_entities.size());
+	for (const auto& [name, entities] : model_entities) {
+		names.push_back(name);
+	}
+	std::sort(names.begin(), names.end());
+	return names;
+}
+
+const World::ModelAssets* World::GetModelAssets(const std::string& name) const {
+	auto it = model_assets.find(name);
+	return (it != model_assets.end()) ? &it->second : nullptr;
+}
+
+const std::set<ECS::Entity>& World::GetModelEntities(const std::string& name) {
+	static const std::set<ECS::Entity> none;
+	auto it = model_entities.find(name);
+	return (it != model_entities.end()) ? it->second : none;
 }
 
 bool World::IsAuthoredTemplate(const std::string& name) const {
@@ -633,6 +706,8 @@ const nlohmann::json* World::GetTemplateComponents(const std::string& name) cons
 	return (it != authored_templates.end()) ? &it->second : nullptr;
 }
 
+//Templates only - models are their own registry (ListModels), and an imported
+//asset file has not been a placeable thing since they were separated.
 std::vector<std::string> World::ListTemplates() const {
 	std::vector<std::string> names;
 	names.reserve(template_entities.size());
@@ -821,7 +896,7 @@ bool World::LoadTemplateFile(const std::string& file, bool relative, std::string
 bool World::SaveTemplateFile(const std::string& name, const std::string& file, std::string& error) {
 	const nlohmann::json* components = GetTemplateComponents(name);
 	if (components == nullptr) {
-		error = "not an authored template: " + name;
+		error = "unknown template: " + name;
 		return false;
 	}
 	nlohmann::json definition;
@@ -866,6 +941,41 @@ std::vector<std::string> World::GetMeshAnimations(const std::string& mesh_name) 
 	return names;
 }
 
+std::vector<std::string> World::GetAnimationSetClips(const std::string& set_name) const {
+	std::vector<std::string> names;
+	const std::shared_ptr<Core::Skeleton>* skl = animations.Get(set_name);
+	if (skl == nullptr || *skl == nullptr) {
+		return names;
+	}
+	//Same walk as GetMeshAnimations, over one set: a clip is an animation some joint
+	//of the skeleton carries key frames for, and the joints do not all carry all of
+	//them - so the union over joints is the set's clip list.
+	std::set<std::string> unique;
+	for (const Core::JointCpuData& joint : (*skl)->CpuData()) {
+		for (const Core::JointAnim& animation : joint.animations) {
+			if (!animation.name.empty() && !animation.key_frames.empty()) {
+				unique.insert(animation.name);
+			}
+		}
+	}
+	names.assign(unique.begin(), unique.end());
+	return names;
+}
+
+std::string World::FindAnimationSet(const std::string& clip) const {
+	if (clip.empty()) {
+		return {};
+	}
+	for (const std::string& set_name : animations.Keys()) {
+		for (const std::string& name : GetAnimationSetClips(set_name)) {
+			if (name == clip) {
+				return set_name;
+			}
+		}
+	}
+	return {};
+}
+
 void World::RefreshMeshBuffers() {
 	vertex_buffer->Unprepare();
 	vertex_buffer->Prepare();
@@ -891,7 +1001,6 @@ Core::MaterialData* World::GetDefaultMaterial() {
 		return nullptr;
 	}
 	material->props.diffuseColor = { 1.0f, 1.0f, 1.0f, 1.0f };
-	material->props.ambientColor = { 0.1f, 0.1f, 0.1f, 1.0f };
 	material->props.specIntensity = 0.2f;
 	material->props.opacity = 1.0f;
 	material->Init();
@@ -1292,29 +1401,44 @@ bool World::Load(const std::string& scene_file, float* progress, std::function<v
 		}
 		if (OnLoadProgress != nullptr) { OnLoadProgress(*progress += 5.0f * progress_unit); }
 
+		//Load models: the asset files this level draws on ({"file": "....fbx"}),
+		//bringing in meshes, materials, collision shapes and animation clips. They
+		//come first because everything below names the assets they carry.
+		if (jw.contains("models")) {
+			for (json& m : jw["models"]) {
+				if (!m.contains("file") || !m["file"].is_string()) {
+					printf("World::Load: model entry without a \"file\", skipping.\n");
+					continue;
+				}
+				LoadModel(m["file"], m.value("triangulate", false), true);
+			}
+		}
+
 		//Load templates.
 		//
-		//Three forms share this list, and everything downstream - instances, a
+		//Two forms share this list, and everything downstream - instances, a
 		//component's "template" key, editor placement - is indifferent to which one a
-		//template name came from:
+		//template came from:
 		//
-		//  {"file": "....fbx"}                - an imported object: the FBX's meshes,
-		//                                       materials and animation sets, which
-		//                                       authored templates then refer to.
-		//  {"file": "....tpl"}                - an authored template kept in its own
-		//                                       file, shared between levels.
+		//  {"file": "....tpl"}                - a template kept in its own file,
+		//                                       shared between levels.
 		//  {"name": ..., "components": {...}} - the same definition written inline,
 		//                                       for a template belonging to this level
 		//                                       alone. Both forms are equally valid;
 		//                                       the editor can move a template between
 		//                                       them.
 		//
-		//The FBX ones load here, because everything else names the assets they bring
-		//in. The authored ones are *deferred* to just below the materials and meshes
-		//sections: their component blocks name materials and animation sets by name,
-		//and those are only complete once those sections have run. Creating them here
-		//would resolve every material to the default white one instead - silently, and
-		//for every instance of the template.
+		//A third form is accepted and no longer written: {"file": "....fbx"}, from
+		//before models and templates were separate registries. It loads as a model,
+		//which is what it always really was, and a level that places instances
+		//straight off it keeps working through GetTemplateEntities' model fallback.
+		//Saving from the editor moves the entry into "models".
+		//
+		//Templates are *deferred* to just below the materials and meshes sections:
+		//their component blocks name materials and animation clips by name, and those
+		//are only complete once those sections have run. Creating them here would
+		//resolve every material to the default white one instead - silently, and for
+		//every instance of the template.
 		std::vector<std::pair<std::string, json>> authored_templates_to_create;
 		if (jw.contains("templates")) {
 			auto& template_files = jw["templates"];
@@ -1348,7 +1472,7 @@ bool World::Load(const std::string& scene_file, float* progress, std::function<v
 					}
 				}
 				else {
-					LoadTemplate(file, t.value("triangulate", false), true);
+					LoadModel(file, t.value("triangulate", false), true);
 				}
 			}
 			if (OnLoadProgress != nullptr) { OnLoadProgress(*progress += 10.0f * progress_unit); }

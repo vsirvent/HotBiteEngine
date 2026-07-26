@@ -461,7 +461,8 @@ int FBXLoader::LoadMaterials(Core::FlatMap<std::string, Core::MaterialData>& mat
 		if (sm != nullptr && materials.Get(name) == nullptr) {
 			MaterialData* m = materials.Create(name);
 			m->name = name;
-			m->props.ambientColor = GetMaterialProperty(sm, FbxSurfaceMaterial::sAmbient, FbxSurfaceMaterial::sAmbientFactor, nullptr);
+			//Only the diffuse channel is imported: the engine's material model has no
+			//ambient term, so an FBX sAmbient had nowhere to go.
 			m->props.diffuseColor = GetMaterialProperty(sm, FbxSurfaceMaterial::sDiffuse, FbxSurfaceMaterial::sDiffuseFactor, &(m->texture_names.diffuse_texname));
 			m->props.specIntensity = 0.0f;
 			printf("FBXLoader::Added material %s\n", name.c_str());

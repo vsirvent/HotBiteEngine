@@ -7,6 +7,7 @@
 #include "AssetBrowser.h"
 #include "MaterialPanel.h"
 #include "MaterialPreview.h"
+#include "ModelPreview.h"
 #include "TemplatePanel.h"
 #include "EntityOps.h"
 #include "SceneSerializer.h"
@@ -122,9 +123,12 @@ namespace HotBiteEditor {
 		menu_commands.push_back({ "File/Open Level...",
 			[this]() { return !level_loaded; },
 			[this]() { ProjectBrowser::OpenLevelWithDialog(state, *this); } });
-		//Importing means importing a *template* now: an object worth placing is a
-		//template, and the meshes one points at come from the level's own FBX assets
-		//rather than from importing an FBX as an object of its own.
+		//Two imports for two layers, and the distinction is the point: a model is an
+		//.fbx of assets (meshes, materials, animation clips) and places nothing; a
+		//template is an object built out of them, and is what a scene is filled with.
+		menu_commands.push_back({ "File/Import Model...",
+			[this]() { return level_loaded; },
+			[this]() { AssetBrowser::ImportModelWithDialog(state); } });
 		menu_commands.push_back({ "File/Import Template...",
 			[this]() { return level_loaded; },
 			[this]() { TemplateOps::ImportTemplateWithDialog(state); } });
@@ -275,9 +279,10 @@ namespace HotBiteEditor {
 
 	SceneEditorApp::~SceneEditorApp()
 	{
-		//Before the ImGui backend goes away: the material thumbnails are D3D textures
-		//ImGui is still holding texture ids for.
+		//Before the ImGui backend goes away: the preview passes' targets are D3D
+		//textures ImGui is still holding texture ids for.
 		MaterialPreview::Shutdown();
+		ModelPreview::Shutdown();
 		ImGui_ImplDX11_Shutdown();
 		ImGui_ImplWin32_Shutdown();
 		ImGui::DestroyContext();
@@ -667,7 +672,7 @@ namespace HotBiteEditor {
 		auto stage_after = [](float units) -> const char* {
 			if (units < 5.0f)  { return "Reading level file..."; }
 			if (units < 10.0f) { return "Loading scene geometry..."; }
-			if (units < 20.0f) { return "Loading templates..."; }
+			if (units < 20.0f) { return "Loading models and templates..."; }
 			if (units < 30.0f) { return "Loading materials..."; }
 			if (units < 40.0f) { return "Loading meshes, instances and sky..."; }
 			if (units < 50.0f) { return "Loading lights..."; }

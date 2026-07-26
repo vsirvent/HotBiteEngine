@@ -31,10 +31,15 @@ SOFTWARE.
 namespace HotBite {
 	namespace Engine {
 		namespace Core {
+			//Mirrored field for field by MaterialColor in Shaders/Common/PixelCommon.hlsli
+			//and uploaded raw (RenderSystem binds it as the "material" cbuffer and as the
+			//objectMaterials[] array the ray tracers index), so the layout has to obey HLSL
+			//constant packing: no member may straddle a 16-byte row, and the trailing
+			//padding keeps sizeof() equal to the row-padded size the shader array strides by.
+			//Adding or removing a field here means editing MaterialColor to match.
 			struct MaterialProps {
-				float4 ambientColor = {};
 				float4 diffuseColor = {};
-				
+
 				float specIntensity = {};
 				float parallax_scale = 0.0f;
 				float parallax_steps = 4.0f;
@@ -49,9 +54,6 @@ namespace HotBite {
 				float3 emission_color = {};
 
 				float rt_reflex = 0.2f;
-				float3 padding;
-
-				float3 alphaColor = {};				
 #define NORMAL_MAP_ENABLED_FLAG 1
 #define PARALLAX_MAP_ENABLED_FLAG (1 << 1)
 #define DIFFUSSE_MAP_ENABLED_FLAG (1 << 2)
@@ -65,6 +67,7 @@ namespace HotBite {
 #define PARALLAX_SHADOW_ENABLED_FLAG (1 << 11)
 #define RAY_TRACING_ENABLED_FLAG (1 << 12)
 				unsigned int flags = RAY_TRACING_ENABLED_FLAG;
+				float2 padding = {};
 			};
 
 			struct MaterialShaders {
@@ -131,16 +134,17 @@ namespace HotBite {
 				int tessellation_type = 0;
 				float tessellation_factor = 0.0f;
 				float displacement_scale = 0.0f;
-				float bloom_scale = 0.0f;
 
 				bool init = false;
 
 				//The JSON record this material was loaded from, kept verbatim so Save()
-				//can write back the keys Load() does not consume - "ambient_color", the
-				//legacy empty "vs"/"hs"/"ds"/"gs"/"ps" entries, "normal_map_enabled", and
-				//any key a future engine version adds. Without it, opening a .mat in the
-				//editor and saving it would quietly drop or zero those fields. Empty for a
-				//material created in code or in the editor, which then saves defaults only.
+				//can write back the keys Load() does not consume - the legacy empty
+				//"vs"/"hs"/"ds"/"gs"/"ps" entries, "normal_map_enabled", and any key a
+				//future engine version adds. Without it, opening a .mat in the editor and
+				//saving it would quietly drop or zero those fields. Empty for a material
+				//created in code or in the editor, which then saves defaults only.
+				//Keys of properties the engine has *retired* are dropped by Save() on
+				//purpose (see the erase list there) rather than carried forever.
 				nlohmann::json source_json;
 
 				MaterialData();

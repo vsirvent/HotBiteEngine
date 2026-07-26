@@ -1,5 +1,7 @@
 #include "MaterialPreview.h"
 
+#include "PreviewPass.h"
+
 #include <Core/DXCore.h>
 #include <Core/SimpleShader.h>
 #include <Core/Vertex.h>
@@ -22,10 +24,12 @@ namespace HotBiteEditor {
 			constexpr int SPHERE_SLICES = 32;
 			constexpr int SPHERE_STACKS = 24;
 
-			//The material constants the preview pixel shader consumes, laid out to match
-			//its `externalData` cbuffer. Core::MaterialProps is copied in wholesale (the
-			//shader binds it as the same MaterialColor layout the main render path uses),
-			//followed by the camera position the specular term needs.
+			//The material half of what the preview pixel shader consumes, laid out to
+			//match the head of its `externalData` cbuffer. Core::MaterialProps is copied
+			//in wholesale (the shader binds it as the same MaterialColor layout the main
+			//render path uses), followed by the camera position the specular term needs.
+			//The rest of that cbuffer is the light rig, which comes from the camera
+			//rather than from the material and is bound by PreviewPass::BindLightRig.
 			struct PreviewConstants {
 				Core::MaterialProps props;
 				float3 camera_position;
@@ -33,12 +37,7 @@ namespace HotBiteEditor {
 			};
 
 			struct Thumbnail {
-				ID3D11Texture2D* texture = nullptr;
-				ID3D11RenderTargetView* rtv = nullptr;
-				ID3D11ShaderResourceView* srv = nullptr;
-				ID3D11Texture2D* depth_texture = nullptr;
-				ID3D11DepthStencilView* dsv = nullptr;
-				int size = 0;
+				PreviewPass::Target target;
 				bool dirty = true;
 			};
 
@@ -61,15 +60,6 @@ namespace HotBiteEditor {
 			State& Get_() {
 				static State state;
 				return state;
-			}
-
-			void ReleaseThumbnail(Thumbnail& t) {
-				RELEASE_PTR(t.srv);
-				RELEASE_PTR(t.rtv);
-				RELEASE_PTR(t.texture);
-				RELEASE_PTR(t.dsv);
-				RELEASE_PTR(t.depth_texture);
-				t.size = 0;
 			}
 
 			//A UV sphere in Core::Vertex form, so the preview vertex shader can declare
@@ -161,68 +151,19 @@ namespace HotBiteEditor {
 				return true;
 			}
 
-			bool EnsureTarget(ID3D11Device* device, Thumbnail& t, int size) {
-				if (t.texture != nullptr && t.size == size) {
-					return true;
-				}
-				ReleaseThumbnail(t);
-
-				D3D11_TEXTURE2D_DESC desc{};
-				desc.Width = (UINT)size;
-				desc.Height = (UINT)size;
-				desc.MipLevels = 1;
-				desc.ArraySize = 1;
-				desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-				desc.SampleDesc.Count = 1;
-				desc.Usage = D3D11_USAGE_DEFAULT;
-				desc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
-				if (FAILED(device->CreateTexture2D(&desc, nullptr, &t.texture)) ||
-					FAILED(device->CreateRenderTargetView(t.texture, nullptr, &t.rtv)) ||
-					FAILED(device->CreateShaderResourceView(t.texture, nullptr, &t.srv))) {
-					ReleaseThumbnail(t);
-					return false;
-				}
-
-				D3D11_TEXTURE2D_DESC depth_desc = desc;
-				depth_desc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
-				depth_desc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
-				if (FAILED(device->CreateTexture2D(&depth_desc, nullptr, &t.depth_texture)) ||
-					FAILED(device->CreateDepthStencilView(t.depth_texture, nullptr, &t.dsv))) {
-					ReleaseThumbnail(t);
-					return false;
-				}
-				t.size = size;
-				t.dirty = true;
-				return true;
-			}
-
 			void RenderThumbnail(Core::MaterialData* material, Thumbnail& t) {
 				State& s = Get_();
 				Core::DXCore* dx = Core::DXCore::Get();
 				ID3D11DeviceContext* context = dx->context;
 
 				//This runs while a panel is building its UI, in the middle of the editor's
-				//own frame - save every pipeline binding it touches and put it back, so a
+				//own frame - every pipeline binding it touches is saved and put back, so a
 				//thumbnail redraw can never perturb the scene or ImGui draw that follow.
-				ID3D11RenderTargetView* prev_rtv = nullptr;
-				ID3D11DepthStencilView* prev_dsv = nullptr;
-				context->OMGetRenderTargets(1, &prev_rtv, &prev_dsv);
-				UINT prev_viewport_count = 1;
-				D3D11_VIEWPORT prev_viewport{};
-				context->RSGetViewports(&prev_viewport_count, &prev_viewport);
-
-				D3D11_VIEWPORT viewport{};
-				viewport.Width = (float)t.size;
-				viewport.Height = (float)t.size;
-				viewport.MaxDepth = 1.0f;
-				context->RSSetViewports(1, &viewport);
-				context->OMSetRenderTargets(1, &t.rtv, t.dsv);
-
+				PreviewPass::ScopedState scoped;
 				//Transparent clear: the panel composites the sphere over its own
 				//background, so opacity is visible as actual transparency.
 				const float clear[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-				context->ClearRenderTargetView(t.rtv, clear);
-				context->ClearDepthStencilView(t.dsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+				t.target.Bind(clear);
 
 				//A fixed three-quarter view of a unit sphere, framed to just fill the tile.
 				const float3 camera_position = { 0.0f, 0.9f, -2.6f };
@@ -249,9 +190,16 @@ namespace HotBiteEditor {
 				constants.props = material->props;
 				constants.camera_position = camera_position;
 
+				//The same rig the model viewport builds, from this thumbnail's fixed
+				//camera - which is what makes a material read the same in its swatch as
+				//it does on a model (PreviewPass.h).
+				const PreviewPass::LightRig rig =
+					PreviewPass::MakeLightRig(camera_position, float3(0.0f, 0.0f, 0.0f));
+
 				s.ps->SetShader();
 				s.ps->SetData("material", &constants.props, sizeof(Core::MaterialProps));
 				s.ps->SetFloat3("cameraPosition", constants.camera_position);
+				PreviewPass::BindLightRig(s.ps, rig);
 				s.ps->SetSamplerState("basicSampler", dx->basic_sampler);
 				s.ps->SetShaderResourceView("diffuseTexture", material->diffuse);
 				s.ps->SetShaderResourceView("normalTexture", material->normal);
@@ -261,12 +209,6 @@ namespace HotBiteEditor {
 				s.ps->SetShaderResourceView("emissionTexture", material->emission);
 				s.ps->SetShaderResourceView("opacityTexture", material->opacity);
 				s.ps->CopyAllBufferData();
-
-				//No hull/domain/geometry stage: the preview mesh is never tessellated, and
-				//whatever the scene left bound would otherwise still be running.
-				context->HSSetShader(nullptr, nullptr, 0);
-				context->DSSetShader(nullptr, nullptr, 0);
-				context->GSSetShader(nullptr, nullptr, 0);
 
 				context->OMSetBlendState(dx->no_blend, nullptr, 0xFFFFFFFF);
 				context->OMSetDepthStencilState(dx->normal_depth, 0);
@@ -278,19 +220,6 @@ namespace HotBiteEditor {
 				context->IASetIndexBuffer(s.index_buffer, DXGI_FORMAT_R32_UINT, 0);
 				context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 				context->DrawIndexed(s.index_count, 0, 0);
-
-				//Unbind the material textures before handing the target back: the same
-				//textures may be bound as render inputs elsewhere, and leaving SRVs on the
-				//pixel stage trips D3D's read/write hazard warnings.
-				ID3D11ShaderResourceView* null_srvs[7] = {};
-				context->PSSetShaderResources(0, 7, null_srvs);
-
-				context->OMSetRenderTargets(1, &prev_rtv, prev_dsv);
-				if (prev_viewport_count > 0) {
-					context->RSSetViewports(1, &prev_viewport);
-				}
-				RELEASE_PTR(prev_rtv);
-				RELEASE_PTR(prev_dsv);
 
 				t.dirty = false;
 			}
@@ -310,13 +239,14 @@ namespace HotBiteEditor {
 
 			State& s = Get_();
 			Thumbnail& t = s.thumbnails[{ material->name, size }];
-			if (!EnsureTarget(dx->device, t, size)) {
+			const bool resized = (t.target.width != size);
+			if (!t.target.Ensure(size, size)) {
 				return (ImTextureID)nullptr;
 			}
-			if (t.dirty) {
+			if (t.dirty || resized) {
 				RenderThumbnail(material, t);
 			}
-			return (ImTextureID)t.srv;
+			return t.target.Handle();
 		}
 
 		void Invalidate(const std::string& material_name) {
@@ -338,7 +268,7 @@ namespace HotBiteEditor {
 		void Shutdown() {
 			State& s = Get_();
 			for (auto& entry : s.thumbnails) {
-				ReleaseThumbnail(entry.second);
+				entry.second.target.Release();
 			}
 			s.thumbnails.clear();
 			RELEASE_PTR(s.vertex_buffer);

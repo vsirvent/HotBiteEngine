@@ -81,9 +81,10 @@ struct PointLight
 	float2 padding;
 };
 
+//Mirrors Core::MaterialProps (Core/Material.h) field for field - it is memcpy'd into
+//this cbuffer layout, so the two must be edited together.
 struct MaterialColor
 {
-	float4 ambientColor;
 	float4 diffuseColor;
 
 	float specIntensity;
@@ -100,9 +101,6 @@ struct MaterialColor
 	float3 emission_color;
 
 	float rt_reflex;
-	float3 padding;
-
-	float3 alphaColor;	
 #define NORMAL_MAP_ENABLED_FLAG 1 << 0
 #define PARALLAX_MAP_ENABLED_FLAG 1 << 1
 #define DIFFUSSE_MAP_ENABLED_FLAG 1	<< 2
@@ -116,6 +114,7 @@ struct MaterialColor
 #define PARALLAX_SHADOW_ENABLED_FLAG 1 << 11
 #define RAYTRACING_ENABLED 1 << 12
 	uint flags;
+	float2 padding;
 };
 
 struct AmbientLight

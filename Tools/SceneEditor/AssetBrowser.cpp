@@ -9,8 +9,13 @@
 #include "imgui.h"
 
 #include <Systems/CameraSystem.h>
+#include <Windows.h>
+#include <commdlg.h>
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
+
+#pragma comment(lib, "comdlg32.lib")
 
 namespace fs = std::filesystem;
 using namespace HotBite::Engine;
@@ -18,44 +23,35 @@ using namespace HotBite::Engine;
 namespace HotBiteEditor {
 	namespace AssetBrowser {
 
-		static void ScanObjectsFolder(EditorState& state)
+		static ModelAsset* FindModel(EditorState& state, const std::string& name)
 		{
-			fs::path objects_dir = fs::path(state.project_root) / "Assets" / "Objects";
-			if (!fs::exists(objects_dir)) {
-				return;
+			for (ModelAsset& m : state.models) {
+				if (m.name == name) {
+					return &m;
+				}
 			}
-			for (auto& entry : fs::directory_iterator(objects_dir)) {
-				if (!entry.is_regular_file() || entry.path().extension() != ".fbx") {
+			return nullptr;
+		}
+
+		//Loads every model listed in `state.models` that is not in the World yet.
+		//Models the level.json already loaded (their World registry key is the file
+		//stem, same as our ModelAsset name) must NOT be loaded again: World's dedup is
+		//by path string, and re-loading under our absolute path replaces the registered
+		//entities and meshes with copies whose vertex data was never uploaded to the GPU
+		//(Init() ran before this scan), which makes everything using them render as
+		//nothing.
+		static void LoadPendingModels(EditorState& state)
+		{
+			bool loaded_any = false;
+			for (ModelAsset& m : state.models) {
+				if (m.loaded) {
 					continue;
 				}
-				std::string name = entry.path().filename().replace_extension().string();
-				bool already_known = false;
-				for (auto& t : state.templates) {
-					if (t.name == name) { already_known = true; break; }
+				if (!state.world->IsModelLoaded(m.name) && !m.file_path.empty()) {
+					state.world->LoadModel(m.file_path, false, false);
+					loaded_any = true;
 				}
-				if (!already_known) {
-					TemplateAsset asset;
-					asset.name = name;
-					asset.file_path = entry.path().string();
-					state.templates.push_back(asset);
-				}
-			}
-			//Make every discovered template immediately usable for placement this session.
-			//Templates the level.json already loaded (their World registry key is the
-			//filename stem, same as our TemplateAsset name) must NOT be loaded again:
-			//World's dedup is by path string, and re-loading under our absolute path
-			//replaces the registered template entities/meshes with copies whose vertex
-			//data was never uploaded to the GPU (Init() ran before this scan), which
-			//makes every instance placed from them render as nothing.
-			bool loaded_any = false;
-			for (auto& t : state.templates) {
-				if (!t.loaded) {
-					if (!state.world->IsTemplateLoaded(t.name)) {
-						state.world->LoadTemplate(t.file_path, false, false);
-						loaded_any = true;
-					}
-					t.loaded = true;
-				}
+				m.loaded = true;
 			}
 			if (loaded_any) {
 				//Scan runs after World::Init has already uploaded the GPU buffers.
@@ -63,16 +59,131 @@ namespace HotBiteEditor {
 			}
 		}
 
-		void EnsureTemplatesScanned(EditorState& state)
+		static void ScanModelsFolder(EditorState& state)
+		{
+			fs::path objects_dir = fs::path(state.project_root) / "Assets" / "Objects";
+			std::error_code ec;
+			if (fs::exists(objects_dir, ec)) {
+				for (auto& entry : fs::directory_iterator(objects_dir, ec)) {
+					if (!entry.is_regular_file() || entry.path().extension() != ".fbx") {
+						continue;
+					}
+					const std::string name = entry.path().filename().replace_extension().string();
+					if (FindModel(state, name) != nullptr) {
+						continue;
+					}
+					ModelAsset asset;
+					asset.name = name;
+					asset.file_path = entry.path().string();
+					state.models.push_back(asset);
+				}
+			}
+			LoadPendingModels(state);
+
+			//Models the level's own "models" array (or a pre-split "templates" array)
+			//pulled in live only in the World until now: the folder scan finds them only
+			//when they happen to sit in Assets/Objects, so a level loading an .fbx from
+			//anywhere else had assets nothing could account for. List them all, so "what
+			//this project has imported" is one answer rather than two.
+			for (const std::string& name : state.world->ListModels()) {
+				if (FindModel(state, name) != nullptr) {
+					continue;
+				}
+				ModelAsset asset;
+				asset.name = name;
+				asset.loaded = true;
+				const World::ModelAssets* assets = state.world->GetModelAssets(name);
+				if (assets != nullptr && !assets->file.empty()) {
+					//As the level referenced it, which is relative to the assets path.
+					fs::path file(assets->file);
+					asset.file_path = file.is_absolute()
+						? file.string()
+						: (fs::path(state.world->GetAssetsPath()) / file).lexically_normal().string();
+				}
+				state.models.push_back(asset);
+			}
+			std::sort(state.models.begin(), state.models.end(),
+				[](const ModelAsset& a, const ModelAsset& b) { return a.name < b.name; });
+		}
+
+		void EnsureAssetsScanned(EditorState& state)
 		{
 			static std::string scanned_root;
 			if (!state.project_root.empty() && scanned_root != state.project_root) {
-				ScanObjectsFolder(state);
-				//Authored templates (.tpl) are the project's other kind of placeable
-				//object; both scans run together so every surface listing templates -
-				//this panel, the Templates panel, `list_templates` - sees one set.
+				ScanModelsFolder(state);
+				//Templates second: a .tpl names meshes and animation clips, and those
+				//only exist once the models carrying them are loaded.
 				TemplateOps::ScanTemplatesFolder(state);
 				scanned_root = state.project_root;
+			}
+		}
+
+		bool ImportModel(EditorState& state, const std::string& fbx_path, std::string& error)
+		{
+			if (state.world == nullptr || state.project_root.empty()) {
+				error = "no project open";
+				return false;
+			}
+			std::error_code ec;
+			if (!fs::exists(fbx_path, ec)) {
+				error = "file not found: " + fbx_path;
+				return false;
+			}
+			const std::string name = fs::path(fbx_path).filename().replace_extension().string();
+			if (state.world->IsModelLoaded(name)) {
+				error = "a model named '" + name + "' is already imported";
+				return false;
+			}
+
+			//Brought into the project rather than referenced where it lies: a level that
+			//points outside the project cannot be opened on another machine. Skipped when
+			//the file already is the project's copy (browsing to Assets/Objects itself).
+			fs::path dest = fs::path(state.project_root) / "Assets" / "Objects" /
+				fs::path(fbx_path).filename();
+			fs::create_directories(dest.parent_path(), ec);
+			if (!fs::exists(dest, ec) || !fs::equivalent(fs::path(fbx_path), dest, ec)) {
+				fs::copy_file(fbx_path, dest, fs::copy_options::overwrite_existing, ec);
+				if (ec) {
+					error = "could not copy into " + dest.string() + ": " + ec.message();
+					return false;
+				}
+			}
+
+			ModelAsset asset;
+			asset.name = name;
+			asset.file_path = dest.string();
+			state.models.push_back(asset);
+			LoadPendingModels(state);
+			std::sort(state.models.begin(), state.models.end(),
+				[](const ModelAsset& a, const ModelAsset& b) { return a.name < b.name; });
+			state.selected_model = name;
+
+			const World::ModelAssets* assets = state.world->GetModelAssets(name);
+			state.status_message = "Imported model: " + name;
+			if (assets != nullptr) {
+				state.status_message += " (" + std::to_string(assets->meshes.size()) + " mesh(es), " +
+					std::to_string(assets->animation_sets.size()) + " animation set(s))";
+			}
+			return true;
+		}
+
+		void ImportModelWithDialog(EditorState& state)
+		{
+			char file[MAX_PATH] = {};
+			OPENFILENAMEA ofn = {};
+			ofn.lStructSize = sizeof(ofn);
+			ofn.hwndOwner = nullptr;
+			ofn.lpstrFilter = "FBX models\0*.fbx\0All files\0*.*\0";
+			ofn.lpstrFile = file;
+			ofn.nMaxFile = sizeof(file);
+			ofn.lpstrTitle = "Import Model";
+			ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+			if (!GetOpenFileNameA(&ofn)) {
+				return;
+			}
+			std::string error;
+			if (!ImportModel(state, file, error)) {
+				state.status_message = "Import failed: " + error;
 			}
 		}
 
@@ -279,6 +390,91 @@ namespace HotBiteEditor {
 			return true;
 		}
 
+		//The Models half of the panel: what this project has imported, and what each
+		//file brought with it. A model is not placeable, so it has no Place button -
+		//"Create Template" is the whole path from an imported file to an object, and
+		//having it here is what makes the separation workable rather than a chore.
+		static void DrawModels(EditorState& state)
+		{
+			if (state.models.empty()) {
+				ImGui::TextDisabled("No models imported.");
+				ImGui::TextDisabled("File/Import Model... brings an .fbx in, or drop one\n"
+					"into Assets/Objects.");
+				return;
+			}
+			for (const ModelAsset& m : state.models) {
+				ImGui::PushID(m.name.c_str());
+				const World::ModelAssets* assets = state.world->GetModelAssets(m.name);
+				ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_SpanAvailWidth;
+				if (m.name == state.selected_model) {
+					flags |= ImGuiTreeNodeFlags_Selected;
+				}
+				const bool open = ImGui::TreeNodeEx("##model", flags, "%s", m.name.c_str());
+				if (ImGui::IsItemClicked()) {
+					state.selected_model = m.name;
+				}
+				if (open) {
+					auto list = [](const char* label, const std::vector<std::string>& names) {
+						if (names.empty()) {
+							return;
+						}
+						if (ImGui::TreeNodeEx(label, ImGuiTreeNodeFlags_SpanAvailWidth,
+							"%s (%d)", label, (int)names.size())) {
+							for (const std::string& n : names) {
+								ImGui::BulletText("%s", n.c_str());
+							}
+							ImGui::TreePop();
+						}
+						};
+					if (assets == nullptr) {
+						ImGui::TextDisabled("(not loaded yet)");
+					}
+					else {
+						list("Meshes", assets->meshes);
+						list("Materials", assets->materials);
+						//Clips rather than sets: a set is a file, and the file is the
+						//node this sits under. What matters here is which animations
+						//it can give a template.
+						std::vector<std::string> clips;
+						for (const std::string& set : assets->animation_sets) {
+							for (const std::string& clip : state.world->GetAnimationSetClips(set)) {
+								clips.push_back(clip);
+							}
+						}
+						list("Animations", clips);
+						if (assets->meshes.empty() && assets->materials.empty() && clips.empty()) {
+							ImGui::TextDisabled("(brought in nothing this level uses)");
+						}
+					}
+					ImGui::TreePop();
+				}
+				ImGui::PopID();
+			}
+
+			ImGui::Separator();
+			ImGui::BeginDisabled(state.selected_model.empty());
+			if (ImGui::Button("Create Template")) {
+				std::string error;
+				if (!TemplateOps::CreateFromModel(state, state.selected_model,
+					TemplateOps::UniqueTemplateName(state, state.selected_model), error)) {
+					state.status_message = "Create template failed: " + error;
+				}
+				else {
+					state.show_template_panel = true;
+				}
+			}
+			ImGui::EndDisabled();
+			if (ImGui::IsItemHovered() && !state.selected_model.empty()) {
+				ImGui::SetTooltip("Make a placeable object out of %s: its mesh, its material\n"
+					"and its own transform, ready to have animations and physics added",
+					state.selected_model.c_str());
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Import Model...")) {
+				ImportModelWithDialog(state);
+			}
+		}
+
 		void Draw(EditorState& state)
 		{
 			ImGui::Begin(EditorLayout::ASSET_BROWSER_WINDOW);
@@ -289,26 +485,26 @@ namespace HotBiteEditor {
 				return;
 			}
 
-			EnsureTemplatesScanned(state);
+			EnsureAssetsScanned(state);
 
+			//Templates first: they are what a level is built out of. Models are below,
+			//as the assets those templates are built from.
 			ImGui::SeparatorText("Templates");
+			if (state.templates.empty()) {
+				ImGui::TextDisabled("No templates yet - pick a model below and\n"
+					"\"Create Template\", or use the Templates panel.");
+			}
 			for (auto& t : state.templates) {
 				bool is_selected = (t.name == state.selected_template);
-				//Authored templates are marked so it is obvious which ones the
-				//Templates panel can edit and which came out of an .fbx.
 				std::string label = t.name;
-				if (t.authored) {
-					label += "  [tpl]";
-					if (state.dirty_templates.count(t.name) != 0) {
-						label += " *";
-					}
+				if (state.dirty_templates.count(t.name) != 0) {
+					label += "  *";
 				}
 				if (ImGui::Selectable(label.c_str(), is_selected)) {
 					state.selected_template = t.name;
 				}
 			}
 
-			ImGui::Separator();
 			ImGui::BeginDisabled(state.selected_template.empty());
 			//"In View" first: dropping an object where you are already looking is the
 			//everyday action, and the origin is often nowhere near the work.
@@ -333,6 +529,10 @@ namespace HotBiteEditor {
 			if (ImGui::Button("Edit Templates...")) {
 				state.show_template_panel = true;
 			}
+
+			ImGui::Spacing();
+			ImGui::SeparatorText("Models");
+			DrawModels(state);
 
 			ImGui::End();
 		}

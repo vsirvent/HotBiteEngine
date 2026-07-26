@@ -368,10 +368,6 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		if (rt_di_denoiser == nullptr) {
 			throw std::exception("DenoiserCS shader.Init failed");
 		}
-		rt_disp = ShaderFactory::Get()->GetShader<SimpleComputeShader>("DispersionCS.cso");
-		if (rt_disp == nullptr) {
-			throw std::exception("DispersionCS shader.Init failed");
-		}
 		gi_average = ShaderFactory::Get()->GetShader<SimpleComputeShader>("GIAverageCS.cso");
 		if (gi_average == nullptr) {
 			throw std::exception("GIAverageCS shader.Init failed");
@@ -468,7 +464,6 @@ RenderSystem::~RenderSystem() {
 	restir_w.Release();
 	texture_tmp.Release();
 
-	rt_texture_props.Release();
 	rt_ray_sources0.Release();
 	rt_ray_sources1.Release();
 	vol_data.Release();
@@ -517,11 +512,6 @@ void RenderSystem::LoadRTResources() {
 	texture_tmp.Release();
 	if (FAILED(texture_tmp.Init(w / RT_TEXTURE_RESOLUTION_DIVIDER, h / RT_TEXTURE_RESOLUTION_DIVIDER, DXGI_FORMAT::DXGI_FORMAT_R11G11B10_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 		throw std::exception("texture_tmp.Init failed");
-	}
-
-	rt_texture_props.Release();
-	if (FAILED(rt_texture_props.Init(w / RT_TEXTURE_RESOLUTION_DIVIDER, h / RT_TEXTURE_RESOLUTION_DIVIDER, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
-		throw std::exception("rt_texture_props.Init failed");
 	}
 
 	ResetRTBBuffers();
@@ -1853,7 +1843,6 @@ void RenderSystem::ProcessGI() {
 		gi_shader->SetShaderResourceView("prev_position_map", prev_position_map.SRV());
 		gi_shader->SetShaderResourceView("ray0", rt_ray_sources0.SRV());
 		gi_shader->SetShaderResourceView("ray1", rt_ray_sources1.SRV());
-		gi_shader->SetUnorderedAccessView("props", rt_texture_props.UAV());
 
 		float3 dir;
 		XMStoreFloat3(&dir, cam_entity.camera->xm_direction);
@@ -1895,7 +1884,6 @@ void RenderSystem::ProcessGI() {
 		gi_shader->SetShaderResourceView("motion_texture", nullptr);
 		gi_shader->SetShaderResourceView("ray0", nullptr);
 		gi_shader->SetShaderResourceView("ray1", nullptr);
-		gi_shader->SetUnorderedAccessView("props", nullptr);
 		gi_shader->SetShaderResourceView("prev_position_map", nullptr);
 
 		UnprepareLights(gi_shader);
@@ -2037,7 +2025,6 @@ void RenderSystem::ProcessRT() {
 			rt_di_shader->SetShaderResourceView("depth_map", depth_map.SRV());
 			rt_di_shader->SetShaderResourceView("motion_texture", motion_texture.SRV());
 			rt_di_shader->SetUnorderedAccessView("bloom", rt_texture_di_curr[RT_TEXTURE_EMISSION].UAV());
-			rt_di_shader->SetUnorderedAccessView("props", rt_texture_props.UAV());
 			rt_di_shader->SetShaderResourceView("ray0", rt_ray_sources0.SRV());
 			rt_di_shader->SetShaderResourceView("ray1", rt_ray_sources1.SRV());
 			rt_di_shader->SetShaderResourceView("rgbaNoise", rgba_noise_texture.SRV());
@@ -2072,9 +2059,7 @@ void RenderSystem::ProcessRT() {
 			rt_di_shader->SetShaderResourceView("ray0", nullptr);
 			rt_di_shader->SetShaderResourceView("ray1", nullptr);
 			rt_di_shader->SetUnorderedAccessView("bloom", nullptr);
-			rt_di_shader->SetUnorderedAccessView("props", nullptr);
 			rt_di_shader->SetShaderResourceView("rgbaNoise", nullptr);
-			rt_di_shader->SetUnorderedAccessView("dispersion", nullptr);
 			rt_di_shader->SetUnorderedAccessView("tiles_output", nullptr);
 
 			UnprepareLights(rt_di_shader);
@@ -2131,7 +2116,6 @@ void RenderSystem::ProcessRT() {
 			rt_di_denoiser->SetShaderResourceView("positions", nullptr);
 			rt_di_denoiser->SetShaderResourceView("motion_texture", nullptr);
 			rt_di_denoiser->SetShaderResourceView("prev_position_map", nullptr);
-			rt_di_denoiser->SetShaderResourceView("dispersion", nullptr);
 			rt_di_denoiser->SetShaderResourceView("tiles_output", nullptr);
 
 			rt_di_denoiser->CopyAllBufferData();
@@ -2571,7 +2555,6 @@ void RenderSystem::SetPostProcessPipeline(Core::PostProcess* pipeline) {
 		pipeline->SetShaderResourceView("bloomTexture", bloom_map.SRV());
 		pipeline->SetShaderResourceView("dustTexture", dust_render_map.SRV());
 		pipeline->SetShaderResourceView("lensFlareTexture", lens_flare_map.SRV());
-		pipeline->SetShaderResourceView("motionBlur", motion_blur_map.SRV());
 
 		while (last->GetNext() != nullptr) {
 			BaseDOFProcess* tmp = dynamic_cast<BaseDOFProcess*>(last);

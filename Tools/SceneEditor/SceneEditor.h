@@ -41,18 +41,36 @@ namespace HotBiteEditor {
 		HotBite::Engine::float3 scale{ 1.0f, 1.0f, 1.0f };
 	};
 
-	// A template the editor can place: either an imported object (an .fbx under the
-	// project's Assets/Objects/) or an authored one (a .tpl under Assets/Templates/,
-	// a component block written in the Templates panel - see TemplatePanel.h). Both
-	// live in the same World registry and place identically; `authored` is what
-	// decides whether the Templates panel may edit this one.
+	// The project's three asset layers, and the one rule that keeps them apart:
+	//
+	//   Model     an imported .fbx. It contributes meshes, materials and animation
+	//             clips, and nothing else - it is not an object and cannot be placed.
+	//   Template  a named entity definition: components with values, one concept
+	//             ("troll"), built out of the assets models brought in. The only
+	//             placeable kind of thing.
+	//   Instance  a template placed in this level (see PlacedInstance).
+	//
+	// Everything below follows from that. See World.h for the engine's half.
+
+	// An imported asset file. `name` is the file stem, which is the key World's model
+	// registry uses; what the file actually brought in is asked of the World
+	// (GetModelAssets) rather than cached here, so the panel and the engine cannot
+	// disagree about it.
+	struct ModelAsset {
+		std::string name;
+		std::string file_path; // absolute path of the .fbx
+		bool loaded = false;   // has this been passed to World::LoadModel this session
+	};
+
+	// A template the editor can place: a component block authored in the Templates
+	// panel, stored either in its own .tpl under Assets/Templates/ or inline in the
+	// level (see TemplatePanel.h).
 	struct TemplateAsset {
 		std::string name;      // template key, matches World::GetTemplateEntities' key
-		std::string file_path; // the .fbx it came from, or the .tpl an authored one
-							   // lives in (or would live in, while it is stored
-							   // inline in the level instead - see inline_templates)
-		bool loaded = false;   // has this been passed to World::LoadTemplate this session
-		bool authored = false; // authored in the editor rather than coming from an .fbx
+		std::string file_path; // the .tpl it lives in (or would live in, while it is
+							   // stored inline in the level instead - see
+							   // inline_templates)
+		bool loaded = false;   // registered with the World this session
 	};
 
 	// A full copy of an entity's Transform channels, the unit the undo history
@@ -187,10 +205,16 @@ namespace HotBiteEditor {
 		// read-only (or through the generic grid) and round-trips untouched.
 		std::map<std::string, std::map<std::string, nlohmann::json>> opaque_components;
 
-		std::vector<TemplateAsset> templates; // discovered/imported object templates
+		std::vector<TemplateAsset> templates; // the project's placeable templates
 		std::string selected_template;        // template name chosen in the Asset Browser
 											  // or the Templates panel (they share it, so
 											  // selecting in one shows it in the other)
+
+		// The imported asset files this project has loaded, and the one selected in
+		// the Asset Browser's Models section. A model is never placed - it is picked
+		// to inspect what it brought in, or to build a template out of.
+		std::vector<ModelAsset> models;
+		std::string selected_model;
 
 		// Templates panel state (see TemplatePanel.h). An authored template lives in
 		// its own .tpl file under Assets/Templates/, a shared asset the level merely

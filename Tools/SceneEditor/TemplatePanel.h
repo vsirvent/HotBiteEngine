@@ -9,10 +9,12 @@ namespace HotBiteEditor {
 
 	// Authoring templates: the "Templates" panel plus the operations behind it.
 	//
-	// A template is the thing the Asset Browser places into the scene. Until now the
-	// only way to get one was to import an .fbx; this is the other way - build one
-	// out of component blocks (mesh, material, animation, physics, a game's own
-	// components) and place instances of it exactly as if it had come from a file.
+	// A template is one concept - "troll", "crate", "torch" - written as a component
+	// block with values, and it is the only thing the Asset Browser can place into a
+	// scene. Importing an .fbx does not produce one: a file is a bag of assets (see
+	// ModelAsset in SceneEditor.h), and which of them make up an object, with which
+	// material, which physics body and which animations, is exactly the decision a
+	// template records. CreateFromModel is the one-click version of that decision.
 	//
 	// == Where a template lives ==
 	// A template is stored one of two ways, and can be moved between them at any time
@@ -60,10 +62,10 @@ namespace HotBiteEditor {
 		// never removable: a template that cannot be spawned is not a template.
 		bool IsMandatory(const std::string& component);
 
-		// Names of the authored templates, sorted. `ListPlaceable` is every template
-		// including the imported ones, which is what the panel's list shows.
+		// The project's template names, sorted - what this panel offers for editing.
+		// Every template is authored, there being no other kind since models became
+		// their own layer.
 		std::vector<std::string> ListAuthored(const EditorState& state);
-		std::vector<std::string> ListPlaceable(const EditorState& state);
 		bool IsAuthored(const EditorState& state, const std::string& name);
 
 		bool GetSnapshot(EditorState& state, const std::string& name, TemplateSnapshot& out);
@@ -90,14 +92,27 @@ namespace HotBiteEditor {
 		bool CreateFromEntity(EditorState& state, const std::string& entity_name,
 			const std::string& template_name, std::string& error);
 
+		// A template built from an imported model - the "I want this .fbx in my scene"
+		// path, and the only one there is, since a model is not placeable itself. The
+		// template takes the model's first renderable node: its mesh, its material and
+		// its own rotation and scale (which is how an .fbx's authoring units survive),
+		// starting at the origin. Animations are *not* taken: which clips this object
+		// has is the next decision, made in the Animations section, and a model of
+		// animation clips alone has no mesh to give.
+		bool CreateFromModel(EditorState& state, const std::string& model_name,
+			const std::string& template_name, std::string& error);
+
+		// A template name not already taken, derived from `base`. Used by every "make
+		// a template" surface so none of them can propose a name that will be refused.
+		std::string UniqueTemplateName(const EditorState& state, const std::string& base);
+
 		bool DuplicateTemplate(EditorState& state, const std::string& source,
 			const std::string& new_name, std::string& error);
 
 		// Brings a .tpl authored elsewhere into this project: copies it into
 		// <assets>/Templates/, registers it and selects it. This is what File/Import
-		// Template does; there is no FBX import any more, because an object worth
-		// placing is a template now, and the meshes a template points at come from the
-		// level's own FBX assets (see AssetBrowser::EnsureTemplatesScanned).
+		// Template does. Importing an .fbx is the *other* import (File/Import Model,
+		// AssetBrowser::ImportModel): it adds assets, not an object.
 		bool ImportTemplate(EditorState& state, const std::string& tpl_path, std::string& error);
 		void ImportTemplateWithDialog(EditorState& state);
 
@@ -131,36 +146,66 @@ namespace HotBiteEditor {
 		nlohmann::json GetComponent(const EditorState& state, const std::string& name,
 			const std::string& component);
 
-		// The three asset pickers, as thin wrappers over SetComponent so an asset swap
-		// is one undoable step. An empty animation name clears the template's animation.
+		// The asset pickers, as thin wrappers over SetComponent so an asset swap is one
+		// undoable step.
 		bool SetMesh(EditorState& state, const std::string& name,
 			const std::string& mesh_name, std::string& error);
 		bool SetMaterial(EditorState& state, const std::string& name,
 			const std::string& material_name, std::string& error);
-		bool SetAnimation(EditorState& state, const std::string& name,
-			const std::string& animation, bool loop, float speed, std::string& error);
 
-		// Attaches / detaches a named animation set on the template's mesh, one
-		// undoable step. Animation sets are the FBX files the level loaded skeletons
-		// from; a mesh can only play an animation belonging to a set attached to it,
-		// which is why this exists at all rather than the animation picker being the
-		// whole story.
-		bool SetAnimationSet(EditorState& state, const std::string& name,
-			const std::string& skeleton_name, bool attached, std::string& error);
+		// == A template's animations ==============================================
+		//
+		// A template owns an animation library: the names this object answers to
+		// ("idle", "walk", "attack") and which imported clip plays for each. It is
+		// stored in the template's Mesh block as {"clips": {"idle": "troll_idle"}},
+		// serialized by Components::Mesh, and it is what makes an animation belong to
+		// the object rather than to the file it arrived in - the clip behind a name
+		// can be re-imported or swapped without a single caller changing.
+		//
+		// Attaching the animation *set* a clip lives in is not a separate step: the
+		// engine finds the set that owns a named clip and attaches it (Mesh::FromJson).
+		// The editor never asks the user to think about sets.
+		//
+		// One clip in the library is the template's default - what an instance starts
+		// playing - which is the Mesh block's "animation"/"animation_loop"/
+		// "animation_speed", named by its logical name.
+
+		// One entry of the library, resolved for display.
+		struct TemplateClip {
+			std::string name;      // logical name, e.g. "walk"
+			std::string clip;      // imported clip it plays, e.g. "troll_walk"
+			std::string model;     // model the clip came from ("" when unresolved)
+			bool is_default = false;
+			bool resolved = false; // false when no loaded model offers `clip` - shown
+								   // as broken rather than silently doing nothing
+		};
+
+		std::vector<TemplateClip> ListClips(const EditorState& state, const std::string& name);
+		// Adds (or repoints) a logical name. `clip` must be a clip some loaded model
+		// carries. The first clip added to an empty library becomes the default, since
+		// a template with animations and no default would just stand still.
+		bool AddClip(EditorState& state, const std::string& name, const std::string& logical,
+			const std::string& clip, std::string& error);
+		bool RemoveClip(EditorState& state, const std::string& name,
+			const std::string& logical, std::string& error);
+		bool RenameClip(EditorState& state, const std::string& name, const std::string& logical,
+			const std::string& new_logical, std::string& error);
+		// The clip an instance starts in, by logical name; "" for "stand still", which
+		// is a real choice and serializes as an explicit empty animation.
+		bool SetDefaultClip(EditorState& state, const std::string& name,
+			const std::string& logical, bool loop, float speed, std::string& error);
+
+		// Every clip the project's models offer, as (model, clip) pairs sorted by
+		// model then clip - what the "Add animation" picker lists.
+		struct AvailableClip {
+			std::string model;
+			std::string clip;
+		};
+		std::vector<AvailableClip> ListAvailableClips(const EditorState& state);
 
 		// Names of the mesh assets the level has loaded, sorted, excluding the
-		// internal "__default_*" stand-in, and of every animation set it loaded.
+		// internal "__default_*" stand-in.
 		std::vector<std::string> ListMeshes(const EditorState& state);
-		std::vector<std::string> ListAnimationSets(const EditorState& state);
-		// The animation names the template can currently choose from: everything its
-		// mesh already offers plus everything its attached sets bring.
-		std::vector<std::string> ListTemplateAnimations(const EditorState& state,
-			const std::string& name);
-
-		// Spawns an instance of `name`, with the placement bookkeeping and undo history
-		// of the Asset Browser's Place buttons (it is the same call).
-		bool PlaceTemplate(EditorState& state, const std::string& name, PlacementMode mode,
-			std::string& error);
 
 		// Names of the objects currently placed from a template. Worth asking before
 		// removing one: those objects stay in the scene for the session but cannot be
@@ -183,13 +228,19 @@ namespace HotBiteEditor {
 
 		// Loads the .tpl files under Assets/Templates/ that are not registered yet, so
 		// templates authored in another level of the same project are available here
-		// too. Called by AssetBrowser::EnsureTemplatesScanned alongside the .fbx scan.
+		// too. Called by AssetBrowser::EnsureAssetsScanned after the model scan.
 		void ScanTemplatesFolder(EditorState& state);
 	}
 
 	// The "Templates" panel: the list of templates on the left, and the selected
 	// one's components on the right - the same component-section shape the Components
 	// panel uses, but editing a template's stored JSON rather than a live entity.
+	//
+	// It authors templates and does not place them. Every edit here changes the
+	// *definition* - what a "troll" is - while placing one is a change to the level,
+	// and having both on one panel made a click meant for the first routinely produce
+	// the second. Putting an object in the scene is the Asset Browser's Place buttons
+	// (or the `place` automation command), which is the one surface for it.
 	namespace TemplatePanel {
 		void Draw(EditorState& state);
 
