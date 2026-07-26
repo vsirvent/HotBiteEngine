@@ -61,6 +61,8 @@ void Physics::AddCollider(ShapeData* shape_data, const float3& extends,
 	owned_shape = nullptr;
 	owned_mesh = nullptr;
 	if (shape_data == NULL) {
+		//`extends` is the local box, so the entity scale is applied here; callers must
+		//not hand over Bounds::bounding_box, which the transform pass already scaled.
 		float3 e = MULT_F3_F3(extends, s);
 		vector4d xm_r = XMVectorSet(r.x, r.y, r.z, r.w);
 		vector3d xm_e = XMVectorSet(e.x, e.y, e.z, 1.0f);

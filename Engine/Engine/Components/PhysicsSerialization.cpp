@@ -79,6 +79,11 @@ namespace HotBite {
 			}
 
 			void Physics::FromJson(const json& j, const SerializeContext& ctx) {
+				//Kept to tell an edit of the body's *form* from an edit of its material:
+				//the first has to be rebuilt in the physics world, the second is a
+				//setter on a collider that is already there.
+				const reactphysics3d::BodyType previous_type = type;
+				const eShapeForm previous_shape = shape;
 				if (j.contains("type") && j["type"].is_string()) {
 					const std::string t = j["type"];
 					if (t == "DYNAMIC") {
@@ -117,7 +122,44 @@ namespace HotBite {
 				air_friction = j.value("air_friction", air_friction);
 
 				if (body != nullptr) {
-					//Already in the physics world: push the material/damping changes at it.
+					//Already in the physics world: push the changes at it rather than
+					//leaving the component describing a body that does not match.
+					//
+					//Body type and shape are the two that need more than a setter: the
+					//collision shape was built from the Transform (and from the body type,
+					//which decides whether a mesh collider is allowed at all) when the body
+					//was created, so both are rebuilt through UpdateShape. Without this an
+					//editor could change either and see nothing happen - the values would
+					//round-trip through the file and only take effect on the next load.
+					if (type != previous_type) {
+						std::lock_guard<std::recursive_mutex> lock(Core::physics_mutex);
+						body->setType(type);
+						if (type == reactphysics3d::BodyType::DYNAMIC) {
+							//Whatever a kinematic/static body was carrying is not a velocity
+							//the user asked for.
+							body->setLinearVelocity({ 0.0f, 0.0f, 0.0f });
+							body->setAngularVelocity({ 0.0f, 0.0f, 0.0f });
+						}
+					}
+					if ((type != previous_type || shape != previous_shape) &&
+						ctx.coordinator != nullptr && ctx.entity != ECS::INVALID_ENTITY_ID &&
+						ctx.coordinator->ContainsComponent<Bounds>(ctx.entity) &&
+						ctx.coordinator->ContainsComponent<Transform>(ctx.entity)) {
+						const Bounds& bounds = ctx.coordinator->GetConstComponent<Bounds>(ctx.entity);
+						const Transform& transform =
+							ctx.coordinator->GetConstComponent<Transform>(ctx.entity);
+						//Same rule the create path below follows: a static body collides
+						//against its own mesh when it has one, everything else uses the
+						//primitive form.
+						Core::ShapeData* shape_data = nullptr;
+						if (type == reactphysics3d::BodyType::STATIC && ctx.world != nullptr &&
+							ctx.coordinator->ContainsComponent<Base>(ctx.entity)) {
+							shape_data = ctx.world->GetEntityShape(
+								ctx.coordinator->GetConstComponent<Base>(ctx.entity).name);
+						}
+						UpdateShape(shape_data, bounds.local_box.Extents, transform.scale,
+							transform.rotation);
+					}
 					//Values below zero mean "leave the engine default alone".
 					if (collider != nullptr) {
 						if (bounce >= 0.0f) {
@@ -158,7 +200,8 @@ namespace HotBite {
 					shape_data = ctx.world->GetEntityShape(
 						ctx.coordinator->GetConstComponent<Base>(ctx.entity).name);
 				}
-				Init(ctx.world->GetPhysicsWorld(), type, shape_data, bounds.bounding_box.Extents,
+				//The local box, not bounding_box: Init applies transform.scale itself.
+				Init(ctx.world->GetPhysicsWorld(), type, shape_data, bounds.local_box.Extents,
 					transform.position, transform.scale, transform.rotation, shape);
 			}
 		}

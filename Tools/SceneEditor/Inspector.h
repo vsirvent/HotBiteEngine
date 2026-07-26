@@ -76,5 +76,17 @@ namespace HotBiteEditor {
 		// multi-entity transform edit).
 		void ApplySnapshots(EditorState& state, const std::vector<std::string>& entity_names,
 			const std::vector<TransformSnapshot>& snapshots);
+
+		// Editable widgets for a component this binary has no hand-written editor for,
+		// built from the shape of its serialized JSON alone: numbers, flags and names,
+		// with nested objects and arrays shown as text rather than guessed at. Returns
+		// true when something changed, and sets `finished` when the change is complete
+		// (a committed text field or a checkbox click, as opposed to a drag in
+		// progress) so callers can coalesce a drag into one undo action.
+		//
+		// Shared with the Templates panel, which edits component blocks that have no
+		// live entity behind them at all - the grid needs nothing but the JSON, which
+		// is exactly why it is the fallback in both places.
+		bool DrawJsonGrid(nlohmann::json& value, bool* finished = nullptr);
 	}
 }

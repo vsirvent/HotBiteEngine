@@ -1,6 +1,8 @@
 #include "SceneSerializer.h"
+#include "AssetBrowser.h"
 #include "EntityOps.h"
 #include "PhysicsPreview.h"
+#include "TemplatePanel.h"
 
 #include <Components/Base.h>
 #include <Core/Json.h>
@@ -130,6 +132,22 @@ namespace HotBiteEditor {
 			//what the user authored and what belongs in the file. Done here rather than
 			//at the menu item so every save surface - menu, Ctrl+S, automation - gets it.
 			PhysicsPreview::SetEnabled(state, false);
+
+			//Authored templates are written first, for one reason: the "templates"
+			//array below names their .tpl files, and a level that references a file
+			//which was never written cannot be reloaded. This is where templates differ
+			//from materials - a .mat is only ever referenced by name from data the level
+			//already carries, so leaving one unsaved costs nothing but the edit.
+			//Taken before the save, which clears it: dropping a removed template from
+			//the level's "templates" array below still has to know which ones went.
+			const std::set<std::string> removed_templates = state.removed_templates;
+			if (TemplateOps::HasUnsavedTemplates(state)) {
+				std::string template_error;
+				if (!TemplateOps::SaveTemplates(state, template_error)) {
+					state.status_message = "Save failed: could not write templates: " + template_error;
+					return;
+				}
+			}
 
 			json level;
 			try {
@@ -286,33 +304,109 @@ namespace HotBiteEditor {
 			}
 			jw["removed_entities"] = removed;
 
-			//3) Newly imported templates: ensure they're listed so a future load pulls
-			//   them in automatically (existing/pre-existing ones are already present).
+			//3) Templates a future load has to pull in: newly imported .fbx objects and
+			//   every authored .tpl (pre-existing imports are already present). The
+			//   authored ones are also *removed* from the list here when the session
+			//   deleted them - this array is the only place a removal is persisted.
 			if (!jw.contains("templates")) {
 				jw["templates"] = json::array();
 			}
-			for (const auto& t : state.templates) {
-				if (!t.newly_imported) {
-					continue;
-				}
-				fs::path assets_root = fs::path(state.project_root) / "Assets";
-				std::error_code ec;
-				fs::path rel = fs::relative(t.file_path, assets_root, ec);
-				std::string rel_str = ec ? (std::string("Objects\\") + fs::path(t.file_path).filename().string()) : rel.string();
-
-				bool already_listed = false;
+			auto list_template = [&jw](const std::string& reference, bool authored) {
 				for (auto& entry : jw["templates"]) {
-					if (entry.contains("file") && entry["file"] == rel_str) {
-						already_listed = true;
+					if (entry.contains("file") && entry["file"] == reference) {
+						return;
+					}
+				}
+				json entry;
+				entry["file"] = reference;
+				if (!authored) {
+					//"triangulate" is an FBX import option; it means nothing to a .tpl.
+					entry["triangulate"] = false;
+				}
+				jw["templates"].push_back(entry);
+			};
+			//An inline template's definition lives here rather than in a file, so its
+			//entry is rewritten from the live definition every save - unlike a file
+			//reference, which is just a name and never changes.
+			auto write_inline_template = [&jw, &state](const std::string& name) {
+				const json* components = state.world->GetTemplateComponents(name);
+				if (components == nullptr) {
+					return;
+				}
+				json* target = nullptr;
+				for (auto& entry : jw["templates"]) {
+					if (entry.contains("name") && entry["name"] == name && entry.contains("components")) {
+						target = &entry;
 						break;
 					}
 				}
-				if (!already_listed) {
-					json entry;
-					entry["file"] = rel_str;
-					entry["triangulate"] = false;
-					jw["templates"].push_back(entry);
+				if (target == nullptr) {
+					jw["templates"].push_back(json::object());
+					target = &jw["templates"].back();
 				}
+				(*target)["name"] = name;
+				(*target)["components"] = *components;
+			};
+			//Which templates this level actually places something from. It decides
+			//whether an .fbx template the editor merely *discovered* (the Assets/Objects
+			//scan finds every file in the folder) earns an entry: listing all of them
+			//would fill the level with references to objects it does not use, and
+			//listing none would break a placed instance whose template the level never
+			//mentioned.
+			std::set<std::string> templates_in_use;
+			for (const auto& inst : state.placed_instances) {
+				templates_in_use.insert(inst.template_name);
+			}
+			for (const auto& t : state.templates) {
+				if (t.authored) {
+					//Authored templates are always listed: they are this project's own
+					//content, and one with no instances yet is still worth keeping.
+					if (TemplateOps::IsInline(state, t.name)) {
+						write_inline_template(t.name);
+					}
+					else {
+						list_template(TemplateOps::TemplateReference(t.name), true);
+					}
+					continue;
+				}
+				if (t.file_path.empty() || templates_in_use.count(t.name) == 0) {
+					continue;
+				}
+				//The reference is made relative to the *world's* assets path, because
+				//that is what World::Load resolves it against - which is not always
+				//"<project root>/Assets" (a hand-written level may point "path" at the
+				//project root instead).
+				std::error_code ec;
+				fs::path rel = fs::relative(t.file_path, fs::path(state.world->GetAssetsPath()), ec);
+				std::string rel_str = (ec || rel.empty())
+					? (std::string("Objects\\") + fs::path(t.file_path).filename().string())
+					: rel.string();
+				list_template(rel_str, false);
+			}
+			//A template that stopped being inline (it moved into a .tpl) must lose its
+			//stale inline entry, or the next load would register the old definition on
+			//top of the file's.
+			{
+				json kept = json::array();
+				for (auto& entry : jw["templates"]) {
+					const bool stale_inline = entry.contains("components") && entry.contains("name") &&
+						entry["name"].is_string() &&
+						!TemplateOps::IsInline(state, entry["name"].get<std::string>());
+					if (!stale_inline) {
+						kept.push_back(entry);
+					}
+				}
+				jw["templates"] = kept;
+			}
+			for (const std::string& gone : removed_templates) {
+				const std::string reference = TemplateOps::TemplateReference(gone);
+				json kept = json::array();
+				for (auto& entry : jw["templates"]) {
+					if (!entry.contains("file") || entry["file"] != reference) {
+						kept.push_back(entry);
+					}
+				}
+				jw["templates"] = kept;
 			}
 
 			//4) Entity groups (the Entities panel tree). Stored under a top-level
@@ -338,6 +432,26 @@ namespace HotBiteEditor {
 			state.status_message = "Saved: " + state.current_level_path;
 		}
 
+		//The inverse of Float3ToJson/Float4ToJson, for re-deriving instance records.
+		static float3 JsonToFloat3(const json& j, const char* key, const float3& fallback)
+		{
+			if (!j.contains(key) || !j[key].is_object()) {
+				return fallback;
+			}
+			const json& v = j[key];
+			return { v.value("x", fallback.x), v.value("y", fallback.y), v.value("z", fallback.z) };
+		}
+
+		static float4 JsonToFloat4(const json& j, const char* key, const float4& fallback)
+		{
+			if (!j.contains(key) || !j[key].is_object()) {
+				return fallback;
+			}
+			const json& v = j[key];
+			return { v.value("x", fallback.x), v.value("y", fallback.y),
+				v.value("z", fallback.z), v.value("w", fallback.w) };
+		}
+
 		void LoadEditorData(EditorState& state, const std::string& level_json_path)
 		{
 			state.entity_groups.clear();
@@ -348,6 +462,11 @@ namespace HotBiteEditor {
 			state.parked_entities.clear();
 			state.component_deltas.clear();
 			state.opaque_components.clear();
+			state.placed_instances.clear();
+			state.instance_entity_ids.clear();
+			state.dirty_templates.clear();
+			state.removed_templates.clear();
+			state.inline_templates.clear();
 			state.clipboard = {};
 
 			json level;
@@ -380,6 +499,57 @@ namespace HotBiteEditor {
 						if (entry.contains("name") && entry.contains("source")) {
 							state.cloned_entities.push_back({ entry["name"], entry["source"] });
 						}
+					}
+				}
+
+				//Which templates this level stores inline rather than referencing by
+				//file. Re-derived so a save writes each one back the way it came in;
+				//without it every inline template would silently migrate into a .tpl.
+				if (jw.contains("templates") && jw["templates"].is_array()) {
+					for (const auto& entry : jw["templates"]) {
+						if (entry.contains("components") && entry.contains("name") &&
+							entry["name"].is_string()) {
+							state.inline_templates.insert(entry["name"].get<std::string>());
+						}
+					}
+				}
+
+				//Editor-placed instances, re-derived from the records World::LoadInstances
+				//has just spawned from. Without this the bookkeeping would start empty
+				//while the entities are in the scene, and Save - which rewrites
+				//"instances" wholesale from it - would silently delete every object the
+				//level had placed. It also puts each instance's entities back in
+				//`instance_entity_ids`, which is what makes a later move update the
+				//instance record instead of writing a bogus "entities" override for a
+				//name that only exists as an instance.
+				if (jw.contains("instances") && jw["instances"].is_array()) {
+					Coordinator* c = state.world->GetCoordinator();
+					for (const auto& entry : jw["instances"]) {
+						if (!entry.contains("name") || !entry["name"].is_string() ||
+							!entry.contains("template") || !entry["template"].is_string()) {
+							continue;
+						}
+						PlacedInstance inst;
+						inst.name = entry["name"];
+						inst.template_name = entry["template"];
+						inst.material_name = entry.value("material", std::string());
+						inst.position = JsonToFloat3(entry, "position", inst.position);
+						inst.rotation = JsonToFloat4(entry, "rotation", inst.rotation);
+						inst.scale = JsonToFloat3(entry, "scale", inst.scale);
+						//A record whose template is gone spawned nothing; keeping it would
+						//re-emit a reference the next load cannot resolve either.
+						if (c == nullptr ||
+							!state.world->IsTemplateLoaded(inst.template_name)) {
+							continue;
+						}
+						for (const std::string& part : AssetBrowser::InstancePartNames(
+							state, inst.name, inst.template_name)) {
+							Entity e = c->GetEntityByName(part);
+							if (e != INVALID_ENTITY_ID) {
+								state.instance_entity_ids.insert(e);
+							}
+						}
+						state.placed_instances.push_back(inst);
 					}
 				}
 				if (jw.contains("removed_entities")) {

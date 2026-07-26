@@ -22,7 +22,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+#include <algorithm>
 #include <filesystem>
+#include <fstream>
 #include "World.h"
 #include <Network/LockStepClient.h>
 #include <Core/PhysicsCommon.h>
@@ -594,7 +596,13 @@ void World::LoadMaterialsNode(const nlohmann::json& materials_info,
 }
 
 const std::set<ECS::Entity>& World::GetTemplateEntities(const std::string& template_name) {
-	return template_entities[template_name];
+	//Deliberately not operator[]: asking about a template that does not exist must
+	//not register an empty one under that name, or a single typo in a level's
+	//"instances" section would make the name show up as a real (but unusable)
+	//template in IsTemplateLoaded and ListTemplates from then on.
+	static const std::set<ECS::Entity> none;
+	auto it = template_entities.find(template_name);
+	return (it != template_entities.end()) ? it->second : none;
 }
 
 bool World::IsTemplateLoaded(const std::string& template_name) {
@@ -602,7 +610,260 @@ bool World::IsTemplateLoaded(const std::string& template_name) {
 }
 
 void World::LoadTemplate(const std::string& template_file, bool triangulate, bool relative, bool use_animation_names) {
-	template_entities[std::filesystem::path(template_file).filename().replace_extension().string()] = LoadFBX(template_file, triangulate, relative, materials, meshes, shapes, templates_coordinator, vertex_buffer, use_animation_names);
+	const std::string name = std::filesystem::path(template_file).filename().replace_extension().string();
+	std::set<ECS::Entity> entities = LoadFBX(template_file, triangulate, relative, materials, meshes,
+		shapes, templates_coordinator, vertex_buffer, use_animation_names);
+	//LoadFBX dedups by path and returns nothing at all the second time a file is
+	//asked for, so registering that empty result would *unregister* a template the
+	//first call had loaded. A game that loads its own templates after opening a
+	//level which already listed them (DemoGame does exactly this for its troll and
+	//zombie animation files) must not lose them to the second call.
+	if (entities.empty() && IsTemplateLoaded(name)) {
+		return;
+	}
+	template_entities[name] = std::move(entities);
+}
+
+bool World::IsAuthoredTemplate(const std::string& name) const {
+	return authored_templates.find(name) != authored_templates.end();
+}
+
+const nlohmann::json* World::GetTemplateComponents(const std::string& name) const {
+	auto it = authored_templates.find(name);
+	return (it != authored_templates.end()) ? &it->second : nullptr;
+}
+
+std::vector<std::string> World::ListTemplates() const {
+	std::vector<std::string> names;
+	names.reserve(template_entities.size());
+	for (const auto& [name, entities] : template_entities) {
+		names.push_back(name);
+	}
+	std::sort(names.begin(), names.end());
+	return names;
+}
+
+//The components a template *entity* carries, in the order they must be applied.
+//
+//This is exactly the set SpawnInstance reads off the template when it clones one,
+//and nothing else: everything a template can hold beyond this is applied to the
+//spawned entity instead (see the CreateTemplate contract in World.h).
+//
+//Order matters twice over. Mesh precedes Bounds because a Bounds block with no
+//extents measures itself from the entity's mesh, and Material precedes nothing but
+//is kept next to Mesh so an asset swap reads as one step. Base and Transform come
+//first because a component may reach for them (nothing in this set does today,
+//but Physics-style siblings-lookups are the norm elsewhere).
+static const char* TEMPLATE_ENTITY_COMPONENTS[] = {
+	Components::Base::NAME,
+	Components::Transform::NAME,
+	Components::Mesh::NAME,
+	Components::Material::NAME,
+	Components::Bounds::NAME,
+};
+
+bool World::CreateTemplate(const std::string& name, const nlohmann::json& components,
+	std::string& error) {
+	if (name.empty()) {
+		error = "template name is empty";
+		return false;
+	}
+	if (!components.is_object()) {
+		error = "template components must be a JSON object";
+		return false;
+	}
+	//An FBX template already owns this registry key, and its entities came out of a
+	//file we cannot rebuild - replacing it would leave the level unable to reload.
+	if (IsTemplateLoaded(name) && !IsAuthoredTemplate(name)) {
+		error = "template name already used by an imported object: " + name;
+		return false;
+	}
+
+	//Redefining an authored template reuses its entity rather than recreating it:
+	//the entity only ever holds the fixed set above, all of which are add-or-update,
+	//and keeping it alive means nothing that resolved the template by name (a level
+	//record's "template" key) is invalidated by an edit. Looked up through the
+	//registry rather than by entity name, because the entity is registered under
+	//TEMPLATE_ENTITY_PREFIX + name (see the header for why).
+	ECS::Entity e = GetTemplateEntity(name);
+	const bool fresh = (e == ECS::INVALID_ENTITY_ID);
+	if (fresh) {
+		e = templates_coordinator->CreateEntity(TEMPLATE_ENTITY_PREFIX + name);
+		if (e == ECS::INVALID_ENTITY_ID) {
+			error = "could not create template entity: " + name;
+			return false;
+		}
+		templates_coordinator->AddComponent<Components::Base>(e,
+			Components::Base{ .name = name, .id = e, .draw_method = Components::eDrawMethod::DRAW_SCREEN });
+		templates_coordinator->AddComponent<Components::Transform>(e, Components::Transform{});
+		templates_coordinator->AddComponent<Components::Bounds>(e, Components::Bounds{});
+		templates_coordinator->AddComponent<Components::Mesh>(e);
+		templates_coordinator->AddComponent<Components::Material>(e);
+		templates_coordinator->AddComponent<Components::Lighted>(e);
+	}
+
+	//Applied against the templates coordinator, not the scene one: MakeSerializeContext
+	//is bound to the scene and would build the template's mesh/material onto whatever
+	//scene entity happens to share this id.
+	ECS::SerializeContext ctx;
+	ctx.world = this;
+	ctx.coordinator = templates_coordinator;
+	const ECS::ComponentRegistry& registry = ECS::ComponentRegistry::Instance();
+	for (const char* component : TEMPLATE_ENTITY_COMPONENTS) {
+		const ECS::ComponentDesc* desc = registry.Find(component);
+		if (desc == nullptr) {
+			continue;
+		}
+		const bool authored_block = components.contains(component);
+		//A template whose bounds are not authored measures them from its mesh, and
+		//has to do so again every time the mesh is swapped. Zero extents is the
+		//signal Bounds::FromJson takes as "measure me"; without clearing them first,
+		//a redefinition would keep the *previous* mesh's box and cull or mis-collide
+		//every instance placed afterwards.
+		if (!authored_block && std::string(component) == Components::Bounds::NAME) {
+			templates_coordinator->GetComponent<Components::Bounds>(e).local_box.Extents =
+				{ 0.0f, 0.0f, 0.0f };
+		}
+		//An absent block is still applied, as an empty one: Mesh and Material turn
+		//that into the default cube / white material, which is what makes a template
+		//with nothing authored yet immediately placeable.
+		desc->apply(ctx, e, authored_block ? components[component] : nlohmann::json::object());
+	}
+
+	template_entities[name] = { e };
+	authored_templates[name] = components;
+	return true;
+}
+
+bool World::RemoveTemplate(const std::string& name) {
+	if (!IsAuthoredTemplate(name)) {
+		//FBX templates are not removable: their entities, meshes and materials came
+		//from a file the level still lists, and would come straight back on reload.
+		return false;
+	}
+	for (ECS::Entity e : GetTemplateEntities(name)) {
+		templates_coordinator->DestroyEntity(e);
+	}
+	template_entities.erase(name);
+	authored_templates.erase(name);
+	return true;
+}
+
+ECS::Entity World::GetTemplateEntity(const std::string& name) {
+	ECS::Entity fallback = ECS::INVALID_ENTITY_ID;
+	for (ECS::Entity e : GetTemplateEntities(name)) {
+		if (fallback == ECS::INVALID_ENTITY_ID) {
+			fallback = e;
+		}
+		//The renderable part, i.e. the one SpawnInstance treats as primary: an FBX
+		//can register armatures and empties alongside its meshes.
+		if (templates_coordinator->ContainsComponent<Components::Mesh>(e) &&
+			templates_coordinator->ContainsComponent<Components::Bounds>(e) &&
+			templates_coordinator->ContainsComponent<Components::Transform>(e)) {
+			return e;
+		}
+	}
+	return fallback;
+}
+
+bool World::GetTemplateBaseTransform(const std::string& name, float3& position,
+	float4& rotation, float3& scale) {
+	position = { 0.0f, 0.0f, 0.0f };
+	rotation = { 0.0f, 0.0f, 0.0f, 1.0f };
+	scale = { 1.0f, 1.0f, 1.0f };
+	ECS::Entity te = GetTemplateEntity(name);
+	if (te == ECS::INVALID_ENTITY_ID ||
+		!templates_coordinator->ContainsComponent<Components::Transform>(te)) {
+		return false;
+	}
+	//The primary part's transform, which is the one SpawnInstance composes into a
+	//single-part instance - and into part 0 of a multi-part one.
+	const Components::Transform& t =
+		templates_coordinator->GetConstComponent<Components::Transform>(te);
+	position = t.position;
+	rotation = t.rotation;
+	scale = t.scale;
+	return true;
+}
+
+bool World::ReadTemplateFile(const std::string& file, bool relative, std::string& name,
+	nlohmann::json& components, std::string& error) {
+	std::string full_path = file;
+	if (relative && file.find(":") == std::string::npos) {
+		full_path = path + file;
+	}
+	nlohmann::json definition;
+	try {
+		definition = nlohmann::json::parse(std::ifstream(full_path));
+	}
+	catch (const std::exception& ex) {
+		error = std::string("could not read template file ") + full_path + ": " + ex.what();
+		return false;
+	}
+	name = definition.value("name", std::string());
+	if (name.empty()) {
+		name = std::filesystem::path(full_path).filename().replace_extension().string();
+	}
+	components = (definition.contains("components") && definition["components"].is_object())
+		? definition["components"] : nlohmann::json::object();
+	return true;
+}
+
+bool World::LoadTemplateFile(const std::string& file, bool relative, std::string& error) {
+	std::string name;
+	nlohmann::json components;
+	if (!ReadTemplateFile(file, relative, name, components, error)) {
+		return false;
+	}
+	return CreateTemplate(name, components, error);
+}
+
+bool World::SaveTemplateFile(const std::string& name, const std::string& file, std::string& error) {
+	const nlohmann::json* components = GetTemplateComponents(name);
+	if (components == nullptr) {
+		error = "not an authored template: " + name;
+		return false;
+	}
+	nlohmann::json definition;
+	definition["name"] = name;
+	definition["components"] = *components;
+
+	std::error_code ec;
+	std::filesystem::create_directories(std::filesystem::path(file).parent_path(), ec);
+	std::ofstream out(file);
+	if (!out.is_open()) {
+		error = "could not write " + file;
+		return false;
+	}
+	out << definition.dump(4);
+	out.close();
+	return true;
+}
+
+std::vector<std::string> World::GetMeshAnimations(const std::string& mesh_name) {
+	std::vector<std::string> names;
+	Core::MeshData* mesh = meshes.Get(mesh_name);
+	if (mesh == nullptr) {
+		return names;
+	}
+	//Mesh::SetAnimation looks a name up by scanning every skeleton, every joint and
+	//every animation on it, so that is what is enumerated here - anything found this
+	//way is guaranteed to be settable.
+	std::set<std::string> unique;
+	for (const std::shared_ptr<Core::Skeleton>& skeleton : mesh->skeletons) {
+		if (skeleton == nullptr) {
+			continue;
+		}
+		for (const Core::JointCpuData& joint : skeleton->CpuData()) {
+			for (const Core::JointAnim& animation : joint.animations) {
+				if (!animation.name.empty() && !animation.key_frames.empty()) {
+					unique.insert(animation.name);
+				}
+			}
+		}
+	}
+	names.assign(unique.begin(), unique.end());
+	return names;
 }
 
 void World::RefreshMeshBuffers() {
@@ -804,7 +1065,14 @@ ECS::Entity World::SpawnInstance(const std::string& name, const std::string& tem
 {
 	ECS::Entity primary = ECS::INVALID_ENTITY_ID;
 	const std::set<ECS::Entity>& parts = GetTemplateEntities(template_name);
-	assert(!parts.empty() && "SpawnInstance: unknown template name.");
+	if (parts.empty()) {
+		//Reported rather than asserted: a level can name a template whose file has
+		//gone missing, and losing one instance is a far better outcome than aborting
+		//the whole load (in the editor, than taking the editor down with it).
+		printf("World::SpawnInstance: unknown template '%s', instance '%s' not spawned.\n",
+			template_name.c_str(), name.c_str());
+		return ECS::INVALID_ENTITY_ID;
+	}
 
 	int part_index = 0;
 	for (ECS::Entity te : parts) {
@@ -856,10 +1124,30 @@ ECS::Entity World::SpawnInstance(const std::string& name, const std::string& tem
 			ParsePhysicsJson(*physics_json, physics);
 			coordinator->AddComponent<Components::Physics>(e, physics);
 			Components::Physics& p = coordinator->GetComponent<Components::Physics>(e);
-			p.Init(phys_world, p.type, nullptr, tbounds.bounding_box.Extents, t.position, t.scale, t.rotation, p.shape);
+			//The template's LOCAL box: Init scales it by t.scale itself (which already
+			//carries the template's own scale, composed above).
+			p.Init(phys_world, p.type, nullptr, tbounds.local_box.Extents, t.position, t.scale, t.rotation, p.shape);
 		}
 
 		coordinator->NotifySignatureChange(e);
+
+		//An authored template carries its own component set (see CreateTemplate):
+		//apply it so the instance starts out as the template describes it, rather
+		//than as the fixed mesh/material clone above. This is what gives an instance
+		//the template's Physics, its selected animation, and any component the engine
+		//itself knows nothing about.
+		//
+		//Transform is excluded deliberately: the instance's pose was just composed
+		//from the template's base transform and the spawn transform, and re-applying
+		//the template's own would throw that composition away and stack every
+		//instance at the same spot.
+		auto authored = authored_templates.find(template_name);
+		if (authored != authored_templates.end()) {
+			nlohmann::json record;
+			record["components"] = authored->second;
+			record["components"].erase(Components::Transform::NAME);
+			ApplyComponents(e, record);
+		}
 
 		if (out_parts != nullptr) {
 			out_parts->push_back(e);
@@ -940,7 +1228,7 @@ ECS::Entity World::CloneEntity(const std::string& new_name, const std::string& s
 			if (np.type != reactphysics3d::BodyType::DYNAMIC) {
 				shape = shapes.Get(shape_name);
 			}
-			np.Init(phys_world, np.type, shape, bounds.bounding_box.Extents, t.position, t.scale, t.rotation, np.shape);
+			np.Init(phys_world, np.type, shape, bounds.local_box.Extents, t.position, t.scale, t.rotation, np.shape);
 		}
 	}
 
@@ -1004,27 +1292,67 @@ bool World::Load(const std::string& scene_file, float* progress, std::function<v
 		}
 		if (OnLoadProgress != nullptr) { OnLoadProgress(*progress += 5.0f * progress_unit); }
 
-		//Load templates
+		//Load templates.
+		//
+		//Three forms share this list, and everything downstream - instances, a
+		//component's "template" key, editor placement - is indifferent to which one a
+		//template name came from:
+		//
+		//  {"file": "....fbx"}                - an imported object: the FBX's meshes,
+		//                                       materials and animation sets, which
+		//                                       authored templates then refer to.
+		//  {"file": "....tpl"}                - an authored template kept in its own
+		//                                       file, shared between levels.
+		//  {"name": ..., "components": {...}} - the same definition written inline,
+		//                                       for a template belonging to this level
+		//                                       alone. Both forms are equally valid;
+		//                                       the editor can move a template between
+		//                                       them.
+		//
+		//The FBX ones load here, because everything else names the assets they bring
+		//in. The authored ones are *deferred* to just below the materials and meshes
+		//sections: their component blocks name materials and animation sets by name,
+		//and those are only complete once those sections have run. Creating them here
+		//would resolve every material to the default white one instead - silently, and
+		//for every instance of the template.
+		std::vector<std::pair<std::string, json>> authored_templates_to_create;
 		if (jw.contains("templates")) {
 			auto& template_files = jw["templates"];
 			for (json& t : template_files) {
-				LoadTemplate(t["file"], t["triangulate"], true);
+				if (t.contains("components") && t["components"].is_object()) {
+					const std::string name = t.value("name", std::string());
+					if (name.empty()) {
+						printf("World::Load: inline template without a \"name\", skipping.\n");
+						continue;
+					}
+					authored_templates_to_create.push_back({ name, t["components"] });
+					continue;
+				}
+				if (!t.contains("file") || !t["file"].is_string()) {
+					printf("World::Load: template entry with neither \"file\" nor \"components\", skipping.\n");
+					continue;
+				}
+				const std::string file = t["file"];
+				if (std::filesystem::path(file).extension() == ".tpl") {
+					std::string name;
+					json components;
+					std::string error;
+					if (ReadTemplateFile(file, true, name, components, error)) {
+						authored_templates_to_create.push_back({ name, components });
+					}
+					else {
+						//A missing or malformed template must not abort the level: the
+						//instances referencing it are skipped by SpawnInstance's own
+						//guard, and everything else in the scene still loads.
+						printf("World::Load: %s\n", error.c_str());
+					}
+				}
+				else {
+					LoadTemplate(file, t.value("triangulate", false), true);
+				}
 			}
-			coordinator->SendEvent(this, EVENT_ID_TEMPLATES_LOADED);
 			if (OnLoadProgress != nullptr) { OnLoadProgress(*progress += 10.0f * progress_unit); }
 		}
-
-		//Load editor-placed object instances (entities cloned from templates at load time,
-		//as opposed to "entities" below which only modifies already-existing named entities)
-		if (jw.contains("instances")) {
-			LoadInstances(jw["instances"]);
-		}
-
-		//Load sky
-		if (jw.contains("sky")) {
-			LoadSky(jw["sky"]);
-		}
-		if (OnLoadProgress != nullptr) { OnLoadProgress(*progress += 10.0f * progress_unit); }
 
 		//Complete materials information
 		if (jw.contains("materials")) {
@@ -1069,6 +1397,31 @@ bool World::Load(const std::string& scene_file, float* progress, std::function<v
 					}
 				}
 			}
+		}
+		//Authored templates, now that the materials and animation sets their component
+		//blocks name by are all in place (see the templates phase above for why this is
+		//not done up there).
+		for (auto& [name, components] : authored_templates_to_create) {
+			std::string error;
+			if (!CreateTemplate(name, components, error)) {
+				printf("World::Load: %s\n", error.c_str());
+			}
+		}
+		if (jw.contains("templates")) {
+			coordinator->SendEvent(this, EVENT_ID_TEMPLATES_LOADED);
+		}
+
+		//Load editor-placed object instances (entities cloned from templates at load
+		//time, as opposed to "entities" below which only modifies already-existing
+		//named entities). After the templates phase completes, and after materials, so
+		//an instance's own "material" override resolves too.
+		if (jw.contains("instances")) {
+			LoadInstances(jw["instances"]);
+		}
+
+		//Load sky
+		if (jw.contains("sky")) {
+			LoadSky(jw["sky"]);
 		}
 		if (OnLoadProgress != nullptr) { OnLoadProgress(*progress += 10.0f * progress_unit); }
 
@@ -1327,7 +1680,25 @@ void World::Init() {
 			if (shape == nullptr) {
 				printf("No shape for mesh %s\n", e.first.c_str());
 			}
-			p.Init(phys_world, p.type, shape, b.bounding_box.Extents, t.position, t.scale, t.rotation, p.shape);
+			if (p.body != nullptr) {
+				//A body its own component block already created (Physics::FromJson builds
+				//one so that a Physics block in a level record is not inert). Init-ing
+				//again would leave that first body in the physics world with nothing
+				//referencing it - a ghost collider the scene keeps colliding with.
+				//
+				//It is re-seated instead, because the block may well have been applied
+				//before the Transform override in the same record: component blocks are
+				//applied in key order, and "Physics" sorts before "Transform".
+				std::lock_guard<std::recursive_mutex> lock(physics_mutex);
+				reactphysics3d::Transform bt(
+					{ t.position.x, t.position.y, t.position.z },
+					{ t.rotation.x, t.rotation.y, t.rotation.z, t.rotation.w });
+				p.body->setTransform(bt);
+				p.last_body_transform = bt;
+				p.UpdateShape(shape, b.local_box.Extents, t.scale, t.rotation);
+				continue;
+			}
+			p.Init(phys_world, p.type, shape, b.local_box.Extents, t.position, t.scale, t.rotation, p.shape);
 			
 		}
 	}	

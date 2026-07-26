@@ -4,6 +4,7 @@
 #include "Inspector.h"
 #include "AssetBrowser.h"
 #include "MaterialPanel.h"
+#include "TemplatePanel.h"
 #include "Outliner.h"
 #include "EntityOps.h"
 #include "ComponentOps.h"
@@ -137,6 +138,8 @@ namespace HotBiteEditor {
 				templates.push_back(t.name);
 			}
 			j["templates"] = templates;
+			j["unsaved_templates"] = (int)(state.dirty_templates.size() +
+				state.removed_templates.size());
 			return j.dump();
 		}
 
@@ -685,6 +688,90 @@ namespace HotBiteEditor {
 					}
 				}
 			}
+			else if (cmd == "component") {
+				//The serialized state of one component, which is both what the Components
+				//panel edits and the shape set_component expects back.
+				if (args.size() < 3) {
+					response_lines.push_back("ERR usage: component <entity name> <Component>");
+				}
+				else {
+					const nlohmann::json value = ComponentOps::GetValue(state, args[1], args[2]);
+					if (value.empty()) {
+						response_lines.push_back("ERR " + args[1] + " has no " + args[2] +
+							" (or it does not serialize)");
+					}
+					else {
+						response_lines.push_back("OK " + args[1] + " " + args[2]);
+						response_lines.push_back(value.dump());
+					}
+				}
+			}
+			else if (cmd == "set_component") {
+				//Edits the fields of a component the entity already has - the automation
+				//form of every picker and drag in the Components panel. Written with
+				//single quotes for the same reason template_set is: the tokenizer strips
+				//double quotes, so a double-quoted JSON object never arrives intact.
+				if (args.size() < 4) {
+					response_lines.push_back("ERR usage: set_component <entity name>"
+						" <Component> <json object, single-quoted keys/values>");
+				}
+				else {
+					std::string source = args[3];
+					std::replace(source.begin(), source.end(), '\'', '"');
+					json value;
+					bool parsed = true;
+					try {
+						value = json::parse(source);
+					}
+					catch (const std::exception& ex) {
+						parsed = false;
+						response_lines.push_back(std::string("ERR bad JSON: ") + ex.what());
+					}
+					if (parsed && !value.is_object()) {
+						parsed = false;
+						response_lines.push_back("ERR component value must be a JSON object");
+					}
+					if (parsed) {
+						std::lock_guard<std::recursive_mutex> lock(Core::physics_mutex);
+						if (ComponentOps::SetValue(state, args[1], args[2], value, error)) {
+							response_lines.push_back("OK " + args[1] + " " + args[2] + " = " +
+								ComponentOps::GetValue(state, args[1], args[2]).dump());
+						}
+						else {
+							response_lines.push_back("ERR " + error);
+						}
+					}
+				}
+			}
+			else if (cmd == "animations") {
+				//What the entity's mesh can play, and what it is playing now - the list
+				//behind the Components panel's animation picker.
+				if (args.size() < 2) {
+					response_lines.push_back("ERR usage: animations <entity name>");
+				}
+				else {
+					Coordinator* c = state.world->GetCoordinator();
+					Entity e = (c != nullptr) ? c->GetEntityByName(args[1]) : INVALID_ENTITY_ID;
+					if (e == INVALID_ENTITY_ID || !c->ContainsComponent<Mesh>(e)) {
+						response_lines.push_back("ERR no mesh entity named '" + args[1] + "'");
+					}
+					else {
+						Mesh& mesh = c->GetComponent<Mesh>(e);
+						Core::MeshData* data = mesh.GetData();
+						const std::string mesh_name = (data != nullptr) ? data->name : std::string();
+						const std::vector<std::string> animations =
+							state.world->GetMeshAnimations(mesh_name);
+						const std::string current = mesh.GetCurrentAnimationName();
+						response_lines.push_back("OK " + std::to_string(animations.size()) +
+							" animations on mesh " + mesh_name + ", current: " +
+							(current.empty() ? "(none)" : current));
+						for (const std::string& animation : animations) {
+							response_lines.push_back(animation +
+								(animation == current ? " [current]" : ""));
+						}
+					}
+				}
+			}
 			else if (cmd == "copy" || cmd == "cut") {
 				//Operate on the current selection (like Ctrl+C/Ctrl+X); optional
 				//argument selects an entity first for convenience.
@@ -722,7 +809,221 @@ namespace HotBiteEditor {
 				AssetBrowser::EnsureTemplatesScanned(state);
 				response_lines.push_back("OK " + std::to_string(state.templates.size()) + " templates");
 				for (auto& t : state.templates) {
-					response_lines.push_back(t.name + (t.name == state.selected_template ? " [selected]" : ""));
+					std::ostringstream os;
+					os << t.name << (t.authored ? " authored" : " fbx");
+					if (t.authored) {
+						os << (TemplateOps::IsInline(state, t.name) ? " in=level" : " in=file");
+					}
+					if (state.dirty_templates.count(t.name) != 0) {
+						os << " unsaved";
+					}
+					if (t.name == state.selected_template) {
+						os << " [selected]";
+					}
+					response_lines.push_back(os.str());
+				}
+			}
+			else if (cmd == "list_meshes") {
+				//The mesh names a template's Mesh component can be pointed at, which is
+				//what a script needs before it can call template_mesh.
+				const std::vector<std::string> meshes = TemplateOps::ListMeshes(state);
+				response_lines.push_back("OK " + std::to_string(meshes.size()) + " meshes");
+				for (const std::string& mesh : meshes) {
+					std::ostringstream os;
+					os << mesh;
+					const std::vector<std::string> animations = state.world->GetMeshAnimations(mesh);
+					if (!animations.empty()) {
+						os << " animations=";
+						for (size_t i = 0; i < animations.size(); ++i) {
+							os << (i == 0 ? "" : ",") << animations[i];
+						}
+					}
+					response_lines.push_back(os.str());
+				}
+			}
+			else if (cmd == "create_template") {
+				if (args.size() < 2) {
+					response_lines.push_back("ERR usage: create_template <name>");
+				}
+				else if (TemplateOps::CreateTemplate(state, args[1], error)) {
+					response_lines.push_back("OK " + state.status_message);
+				}
+				else {
+					response_lines.push_back("ERR " + error);
+				}
+			}
+			else if (cmd == "template_from_entity") {
+				if (args.size() < 3) {
+					response_lines.push_back("ERR usage: template_from_entity <entity name> <template name>");
+				}
+				else if (TemplateOps::CreateFromEntity(state, args[1], args[2], error)) {
+					response_lines.push_back("OK " + state.status_message);
+				}
+				else {
+					response_lines.push_back("ERR " + error);
+				}
+			}
+			else if (cmd == "duplicate_template") {
+				if (args.size() < 3) {
+					response_lines.push_back("ERR usage: duplicate_template <source> <new name>");
+				}
+				else if (TemplateOps::DuplicateTemplate(state, args[1], args[2], error)) {
+					response_lines.push_back("OK " + state.status_message);
+				}
+				else {
+					response_lines.push_back("ERR " + error);
+				}
+			}
+			else if (cmd == "remove_template") {
+				if (args.size() < 2) {
+					response_lines.push_back("ERR usage: remove_template <name>");
+				}
+				else if (TemplateOps::RemoveTemplate(state, args[1], error)) {
+					response_lines.push_back("OK " + state.status_message);
+				}
+				else {
+					response_lines.push_back("ERR " + error);
+				}
+			}
+			else if (cmd == "template_info") {
+				if (args.size() < 2) {
+					response_lines.push_back("ERR usage: template_info <name>");
+				}
+				else if (!state.world->IsTemplateLoaded(args[1])) {
+					response_lines.push_back("ERR unknown template: " + args[1]);
+				}
+				else if (!TemplateOps::IsAuthored(state, args[1])) {
+					response_lines.push_back("OK " + args[1] + " is an imported .fbx template, "
+						"with " + std::to_string(state.world->GetTemplateEntities(args[1]).size()) +
+						" part(s)");
+				}
+				else {
+					const std::vector<std::string> components =
+						TemplateOps::ListComponents(state, args[1]);
+					response_lines.push_back("OK " + std::to_string(components.size()) +
+						" components on template " + args[1]);
+					for (const std::string& component : components) {
+						response_lines.push_back(component + " " +
+							TemplateOps::GetComponent(state, args[1], component).dump());
+					}
+				}
+			}
+			else if (cmd == "template_mesh" || cmd == "template_material") {
+				if (args.size() < 3) {
+					response_lines.push_back("ERR usage: " + cmd + " <template name> <asset name>");
+				}
+				else {
+					const bool ok = (cmd == "template_mesh")
+						? TemplateOps::SetMesh(state, args[1], args[2], error)
+						: TemplateOps::SetMaterial(state, args[1], args[2], error);
+					response_lines.push_back(ok ? ("OK " + args[1] + " -> " + args[2])
+						: ("ERR " + error));
+				}
+			}
+			else if (cmd == "template_animation") {
+				//An empty name clears the animation, matching the panel's "(none)".
+				if (args.size() < 2) {
+					response_lines.push_back("ERR usage: template_animation <template name>"
+						" [animation] [loop 0|1] [speed]");
+				}
+				else {
+					const std::string animation = (args.size() >= 3) ? args[2] : std::string();
+					const bool loop = (args.size() >= 4) ? (args[3] != "0") : true;
+					float speed = 1.0f;
+					if (args.size() >= 5) {
+						try { speed = std::stof(args[4]); }
+						catch (...) { speed = 1.0f; }
+					}
+					if (TemplateOps::SetAnimation(state, args[1], animation, loop, speed, error)) {
+						response_lines.push_back("OK " + args[1] + " animation -> " +
+							(animation.empty() ? "(none)" : animation));
+					}
+					else {
+						response_lines.push_back("ERR " + error);
+					}
+				}
+			}
+			else if (cmd == "template_animation_set") {
+				if (args.size() < 3) {
+					response_lines.push_back("ERR usage: template_animation_set"
+						" <template name> <animation set> [0|1]");
+				}
+				else {
+					const bool attach = (args.size() < 4) || (args[3] != "0");
+					if (TemplateOps::SetAnimationSet(state, args[1], args[2], attach, error)) {
+						response_lines.push_back("OK " + args[1] +
+							(attach ? " + " : " - ") + args[2]);
+					}
+					else {
+						response_lines.push_back("ERR " + error);
+					}
+				}
+			}
+			else if (cmd == "animation_sets") {
+				const std::vector<std::string> sets = TemplateOps::ListAnimationSets(state);
+				response_lines.push_back("OK " + std::to_string(sets.size()) + " animation sets");
+				for (const std::string& set : sets) {
+					response_lines.push_back(set);
+				}
+			}
+			else if (cmd == "template_add_component" || cmd == "template_remove_component") {
+				if (args.size() < 3) {
+					response_lines.push_back("ERR usage: " + cmd + " <template name> <Component>");
+				}
+				else {
+					const bool ok = (cmd == "template_add_component")
+						? TemplateOps::SetComponent(state, args[1], args[2],
+							nlohmann::json::object(), error)
+						: TemplateOps::RemoveComponent(state, args[1], args[2], error);
+					response_lines.push_back(ok ? ("OK " + args[1] + " " + args[2])
+						: ("ERR " + error));
+				}
+			}
+			else if (cmd == "template_set") {
+				//The general form behind the focused commands above: add-or-update one
+				//component block from JSON.
+				//
+				//Written with single quotes, because the tokenizer treats a double quote
+				//as an argument grouping character and strips it - so a double-quoted
+				//JSON object never reaches here intact. Single quotes are translated
+				//below, which also spares the caller from escaping quotes through the
+				//shell that writes command.txt.
+				if (args.size() < 4) {
+					response_lines.push_back("ERR usage: template_set <template name>"
+						" <Component> <json object, single-quoted keys/values>");
+				}
+				else {
+					std::string source = args[3];
+					std::replace(source.begin(), source.end(), '\'', '"');
+					json value;
+					bool parsed = true;
+					try {
+						value = json::parse(source);
+					}
+					catch (const std::exception& ex) {
+						parsed = false;
+						response_lines.push_back(std::string("ERR bad JSON: ") + ex.what());
+					}
+					if (parsed && !value.is_object()) {
+						parsed = false;
+						response_lines.push_back("ERR component value must be a JSON object");
+					}
+					if (parsed) {
+						if (TemplateOps::SetComponent(state, args[1], args[2], value, error)) {
+							response_lines.push_back("OK " + args[1] + " " + args[2] + " = " + value.dump());
+						}
+						else {
+							response_lines.push_back("ERR " + error);
+						}
+					}
+				}
+			}
+			else if (cmd == "save_templates") {
+				if (TemplateOps::SaveTemplates(state, error)) {
+					response_lines.push_back("OK " + state.status_message);
+				}
+				else {
+					response_lines.push_back("ERR " + error);
 				}
 			}
 			else if (cmd == "select_template") {
@@ -747,20 +1048,52 @@ namespace HotBiteEditor {
 			else if (cmd == "place") {
 				AssetBrowser::EnsureTemplatesScanned(state);
 				if (args.size() < 2) {
-					response_lines.push_back("ERR usage: place <template name>");
+					response_lines.push_back("ERR usage: place <template name> [origin|view]");
 				}
-				else if (AssetBrowser::PlaceTemplate(state, args[1], error)) {
+				else {
+					//"origin" stays the default for a scripted place: it is the
+					//reproducible one, where "view" depends on where the camera happens
+					//to be pointing.
+					PlacementMode mode = PlacementMode::Origin;
+					bool known_mode = true;
+					if (args.size() >= 3) {
+						if (args[2] == "view") { mode = PlacementMode::ViewCenter; }
+						else if (args[2] != "origin") { known_mode = false; }
+					}
+					if (!known_mode) {
+						response_lines.push_back("ERR unknown placement '" + args[2] +
+							"' (expected origin or view)");
+					}
+					else {
+						float3 position{};
+						if (AssetBrowser::PlaceTemplate(state, args[1], mode, error, &position)) {
+							std::ostringstream os;
+							os << "OK " << state.status_message << " at "
+								<< position.x << " " << position.y << " " << position.z;
+							response_lines.push_back(os.str());
+						}
+						else {
+							response_lines.push_back("ERR " + error);
+						}
+					}
+				}
+			}
+			else if (cmd == "import_template") {
+				if (args.size() < 2) {
+					response_lines.push_back("ERR usage: import_template <.tpl path>");
+				}
+				else if (TemplateOps::ImportTemplate(state, args[1], error)) {
 					response_lines.push_back("OK " + state.status_message);
 				}
 				else {
 					response_lines.push_back("ERR " + error);
 				}
 			}
-			else if (cmd == "import") {
-				if (args.size() < 2) {
-					response_lines.push_back("ERR usage: import <fbx path>");
+			else if (cmd == "template_storage") {
+				if (args.size() < 3 || (args[2] != "file" && args[2] != "level")) {
+					response_lines.push_back("ERR usage: template_storage <name> file|level");
 				}
-				else if (AssetBrowser::ImportObject(state, args[1], error)) {
+				else if (TemplateOps::SetStorage(state, args[1], args[2] == "level", error)) {
 					response_lines.push_back("OK " + state.status_message);
 				}
 				else {

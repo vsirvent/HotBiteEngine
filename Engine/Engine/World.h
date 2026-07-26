@@ -90,6 +90,10 @@ namespace HotBite {
 			//Absolute path of assets location
 			std::string path;
 			std::unordered_map<std::string, std::set<ECS::Entity>> template_entities;
+			//Component blocks of the templates that were authored rather than loaded
+			//from an FBX, by template name. See CreateTemplate for what this holds and
+			//why it is kept beside the template entity instead of on it.
+			std::map<std::string, nlohmann::json> authored_templates;
 			//Clone entity name -> root source entity name, so Init() can resolve the
 			//collision ShapeData of clones created during Load() (shapes are keyed by
 			//the original FBX entity name).
@@ -185,6 +189,89 @@ namespace HotBite {
 			virtual void LoadMultiMaterial(const std::string& name, const nlohmann::json& multi_material_info);
 			virtual const std::set<ECS::Entity>& GetTemplateEntities(const std::string& template_name);
 			virtual bool IsTemplateLoaded(const std::string& template_name);
+
+			// --- Authored templates -------------------------------------------------
+			//
+			// A template does not have to come out of an FBX. An *authored* template is
+			// a named component block - mesh, material, animation, physics, a game's own
+			// components - registered in the same template registry the FBX ones use, so
+			// SpawnInstance, the level's "instances" section and any editor placing
+			// objects treat both kinds identically.
+			//
+			// It is stored in two halves, and they deliberately hold different things:
+			//
+			//   - a template *entity* in the templates coordinator, carrying only what
+			//     SpawnInstance clones (Base/Transform/Bounds/Mesh/Material/Lighted).
+			//     Components that own engine resources are kept off it on purpose: a
+			//     Physics block applied to a template entity would create a rigid body
+			//     in the physics world for something that is not in the scene at all.
+			//
+			//   - the full component JSON, applied by SpawnInstance to every entity
+			//     spawned from the template. That is what carries Physics, the selected
+			//     animation and unknown-to-the-engine game components through to the
+			//     instance, and it is applied *before* the instance's own overrides so a
+			//     per-instance block still wins.
+			//
+			// Creating a template under a name that already names an authored one
+			// replaces its definition; the name of an FBX template is refused, since the
+			// two would fight over one registry key.
+			virtual bool CreateTemplate(const std::string& name, const nlohmann::json& components,
+							std::string& error);
+			// Destroys the template entity and forgets the definition. Entities already
+			// spawned from it are untouched - they own their own components.
+			virtual bool RemoveTemplate(const std::string& name);
+			virtual bool IsAuthoredTemplate(const std::string& name) const;
+			// The entity in the templates coordinator that stands for `name`: an
+			// authored template's single entity, or the first renderable part of an
+			// imported one. Anything reading a template's mesh, material or bounds goes
+			// through this rather than through the coordinator's name lookup, because an
+			// authored template's entity is deliberately not registered under the
+			// template's own name (see TEMPLATE_ENTITY_PREFIX).
+			virtual ECS::Entity GetTemplateEntity(const std::string& name);
+
+			// The template's own base transform: the pose SpawnInstance *composes* into
+			// every instance it spawns (position added, rotation multiplied, scale
+			// multiplied). False - and the identity transform - for an unknown template.
+			//
+			// Anything that stores an instance's pose back into its record needs this,
+			// because a record is in spawn space, not world space: writing the live
+			// transform into it as-is makes the next spawn compose the base a second
+			// time, which shrinks (and offsets, and re-rotates) the object on every
+			// paste and every reload.
+			virtual bool GetTemplateBaseTransform(const std::string& name, float3& position,
+							float4& rotation, float3& scale);
+
+			// Authored template entities are registered under this prefix. Template
+			// entities of every kind share one coordinator, so without it a template
+			// named after the object it represents ("troll") would collide with the FBX
+			// node of that name and overwrite the mapping the imported template needs.
+			// Naming a template after its subject is the natural thing to do, so the
+			// prefix exists rather than the collision being forbidden.
+			static constexpr const char* TEMPLATE_ENTITY_PREFIX = "__template_";
+			// The component block of an authored template, or null for an unknown or
+			// FBX-loaded one.
+			virtual const nlohmann::json* GetTemplateComponents(const std::string& name) const;
+			// Every registered template name, authored and FBX alike, sorted.
+			virtual std::vector<std::string> ListTemplates() const;
+			// Reads / writes the file form of an authored template, a .tpl holding
+			// {"name": ..., "components": {...}}. `relative` resolves `file` against the
+			// assets path exactly as LoadTemplate does; the name defaults to the file
+			// stem when the JSON does not carry one.
+			//
+			// LoadTemplateFile reads and registers in one go, which is what an editor
+			// importing a template wants. Load() splits the two (ReadTemplateFile, then
+			// CreateTemplate later) because an authored template has to be created
+			// *after* the level's materials and animation sets exist - see the comment
+			// on the templates phase there.
+			virtual bool ReadTemplateFile(const std::string& file, bool relative,
+							std::string& name, nlohmann::json& components, std::string& error);
+			virtual bool LoadTemplateFile(const std::string& file, bool relative, std::string& error);
+			virtual bool SaveTemplateFile(const std::string& name, const std::string& file,
+							std::string& error);
+			// The animation names a mesh asset offers, for an editor's animation picker.
+			// Walks the skeletons the same way Mesh::SetAnimation resolves a name, so
+			// everything listed here is something SetAnimation will accept.
+			virtual std::vector<std::string> GetMeshAnimations(const std::string& mesh_name);
 			// Rebuilds the GPU vertex/BVH buffers from the current CPU-side mesh data.
 			// Init() uploads them exactly once, so meshes added by LoadTemplate/LoadFBX
 			// calls made after Init() (e.g. an editor importing objects into a running

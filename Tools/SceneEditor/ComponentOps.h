@@ -47,6 +47,48 @@ namespace HotBiteEditor {
 		bool RemoveComponent(EditorState& state, const std::string& entity_name,
 			const std::string& component, std::string& error);
 
+		// == Editing the values of a component the entity already has ==
+		//
+		// Adding and removing are not the only per-entity component edits: changing a
+		// field (a Physics shape, the mesh an entity draws, the animation it plays) is
+		// one too, and has the same three jobs. It also has a fourth trap of its own -
+		// an edit that only touched the live component would look right until the level
+		// was saved, at which point it would simply not be in the file. Everything
+		// written through these helpers lands in the entity's own record, next to the
+		// added/removed components, and so survives the round trip.
+		//
+		// `GetValue` is the component's serialized state, which is the thing to edit and
+		// hand back: every FromJson treats a missing key as "leave alone", so passing a
+		// partial block is allowed but rarely what an editor wants.
+		nlohmann::json GetValue(EditorState& state, const std::string& entity_name,
+			const std::string& component);
+
+		// Applies `payload` to the component and records it for save, with NO history:
+		// for a widget mid-drag, which applies every frame and records once at release
+		// (see RecordEdit). Fails when the entity or component is unknown, or when the
+		// entity does not have that component - this edits, it never adds.
+		bool ApplyValue(EditorState& state, const std::string& entity_name,
+			const std::string& component, const nlohmann::json& payload,
+			std::string& error);
+
+		// Apply + record in one step, for a discrete edit (a combo, a checkbox).
+		bool SetValue(EditorState& state, const std::string& entity_name,
+			const std::string& component, const nlohmann::json& payload,
+			std::string& error);
+
+		// Records one undoable step from `before` (what GetValue returned prior to the
+		// edit) to the component's current state. A no-op change records nothing. Call
+		// after the mutation, exactly like Inspector::RecordTransformEdit.
+		void RecordEdit(EditorState& state, const std::string& entity_name,
+			const std::string& component, const nlohmann::json& before);
+
+		// For a widget that edited the live component *in place* (the light and sky
+		// sections write straight into the component): records the component's current
+		// state for save, without re-applying anything. `RecordEdit` still provides the
+		// history entry.
+		void MarkEdited(EditorState& state, const std::string& entity_name,
+			const std::string& component);
+
 		// The component names currently on `entity_name`, in registry order, plus any
 		// the editor is holding for it opaquely (a game component this binary does not
 		// define - see EditorState::opaque_components). Used by the Inspector and by

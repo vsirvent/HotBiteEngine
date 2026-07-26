@@ -41,15 +41,18 @@ namespace HotBiteEditor {
 		HotBite::Engine::float3 scale{ 1.0f, 1.0f, 1.0f };
 	};
 
-	// A discovered object template (an .fbx file under the project's Assets/Objects/).
+	// A template the editor can place: either an imported object (an .fbx under the
+	// project's Assets/Objects/) or an authored one (a .tpl under Assets/Templates/,
+	// a component block written in the Templates panel - see TemplatePanel.h). Both
+	// live in the same World registry and place identically; `authored` is what
+	// decides whether the Templates panel may edit this one.
 	struct TemplateAsset {
 		std::string name;      // template key, matches World::GetTemplateEntities' key
-		std::string file_path; // absolute path to the .fbx file
-		bool loaded = false;        // has this been passed to World::LoadTemplate this session
-		bool newly_imported = false; // added via the Asset Browser's Import button this
-									  // session, so SceneSerializer needs to add it to the
-									  // level's "templates" array on save (pre-existing
-									  // templates discovered by scanning disk are already there)
+		std::string file_path; // the .fbx it came from, or the .tpl an authored one
+							   // lives in (or would live in, while it is stored
+							   // inline in the level instead - see inline_templates)
+		bool loaded = false;   // has this been passed to World::LoadTemplate this session
+		bool authored = false; // authored in the editor rather than coming from an .fbx
 	};
 
 	// A full copy of an entity's Transform channels, the unit the undo history
@@ -61,6 +64,18 @@ namespace HotBiteEditor {
 		HotBite::Engine::float3 position{ 0.0f, 0.0f, 0.0f };
 		HotBite::Engine::float4 rotation{ 0.0f, 0.0f, 0.0f, 1.0f };
 		HotBite::Engine::float3 scale{ 1.0f, 1.0f, 1.0f };
+	};
+
+	// Where a newly placed template instance lands.
+	enum class PlacementMode {
+		// The world origin. Predictable and scriptable, and the only sensible answer
+		// when there is no camera yet.
+		Origin,
+		// Resting on the first thing the middle of the view is looking at: the
+		// object's own bounding box is used to sit it *on* that surface rather than
+		// through it. Falls back to a fixed distance in front of the camera when the
+		// view center hits nothing (sky, or an empty scene).
+		ViewCenter,
 	};
 
 	// Which transform tool the viewport gizmo edits. Switched from the Edit menu
@@ -112,7 +127,11 @@ namespace HotBiteEditor {
 	// siblings untouched, across save and reload.
 	//
 	// `added` holds the component's serialized state rather than just its name, so
-	// the values the user then tweaked in the Inspector persist too.
+	// the values the user then tweaked in the Inspector persist too - and, by the
+	// same mechanism, it holds components the entity always had whose *fields* were
+	// edited (ComponentOps::ApplyValue). Both end up as one block in the entity's
+	// record, which is what the loader applies on top of whatever the FBX or the
+	// template gave it.
 	struct ComponentDelta {
 		std::set<std::string> removed;
 		std::map<std::string, nlohmann::json> added;
@@ -170,6 +189,26 @@ namespace HotBiteEditor {
 
 		std::vector<TemplateAsset> templates; // discovered/imported object templates
 		std::string selected_template;        // template name chosen in the Asset Browser
+											  // or the Templates panel (they share it, so
+											  // selecting in one shows it in the other)
+
+		// Templates panel state (see TemplatePanel.h). An authored template lives in
+		// its own .tpl file under Assets/Templates/, a shared asset the level merely
+		// references - so, like materials, template edits are written by File/Save
+		// Templates rather than by saving the level.
+		//
+		// `dirty_templates` holds the ones edited since the last save; `removed_templates`
+		// holds the ones deleted this session whose .tpl file is still on disk, so the
+		// file is only unlinked when the removal is actually saved (which keeps undo of
+		// a removal from having to restore a deleted file).
+		//
+		// `inline_templates` holds the ones stored *in this level* instead - written
+		// into the level's own "templates" array as a {"name", "components"} object, so
+		// they are saved (and undone) with the level and never appear in the two sets
+		// above. A template can be moved between the two storage forms at any time.
+		std::set<std::string> dirty_templates;
+		std::set<std::string> removed_templates;
+		std::set<std::string> inline_templates;
 
 		// Materials panel state. `selected_material` is the material whose properties
 		// the panel is editing, by name (the editor's stable key for materials, exactly
@@ -215,14 +254,13 @@ namespace HotBiteEditor {
 
 		std::string status_message;
 
-		// Panel visibility, driven by the View menu. The Project panel doubles as
-		// the pre-level project picker, so it is always drawn until a level loads;
-		// afterwards it stays hidden unless re-opened from View.
+		// Panel visibility, driven by the View menu. Nothing is drawn until a level
+		// is open (see SceneEditorApp::Present).
 		bool show_outliner = true;
 		bool show_inspector = true;
 		bool show_asset_browser = true;
 		bool show_material_panel = false;
-		bool show_project = false;
+		bool show_template_panel = false;
 
 		// Set by View/Reset Layout: for one frame every panel re-applies its
 		// default position/size unconditionally instead of ImGuiCond_FirstUseEver.
@@ -252,7 +290,20 @@ namespace HotBiteEditor {
 		HotBite::Engine::ECS::Coordinator* GetCoordinator() override;
 
 		void OpenProject(const std::string& project_root);
+
+		// Loads a level, drawing the loading overlay from World::Load's own progress
+		// callback (see SceneEditor.cpp). Blocks the calling thread for the whole load
+		// and renders frames of its own, so it must NOT be called from inside an ImGui
+		// frame - anything running from a menu action or a panel goes through
+		// RequestOpenLevel instead.
 		bool OpenLevel(const std::string& level_json_path);
+
+		// Queues a level to be opened at the top of the next render tick, before the
+		// frame's ImGui pass begins. This is what the File menu (and anything else
+		// drawing UI) must use: OpenLevel renders its own progress frames and a nested
+		// frame would trip ImGui's Begin/End balance.
+		void RequestOpenLevel(const std::string& level_json_path);
+
 		void CloseLevel();
 
 		bool IsLevelLoaded() const { return level_loaded; }
@@ -292,8 +343,24 @@ namespace HotBiteEditor {
 		HotBite::Engine::Core::LensEffect* lens_effect = nullptr;
 		UI::GUI* gui = nullptr;
 
+		// Loading overlay state. A level load blocks the thread that drives rendering,
+		// so the progress bar can only advance if the load itself paints frames: these
+		// are filled in from World::Load's OnLoadProgress callback (the same hook the
+		// demo game passes to World::Load) and drawn by RenderLoadingFrame.
+		float loading_progress = 0.0f; // 0..1
+		std::string loading_stage;     // what the load is doing right now
+		std::string loading_level;     // level file being loaded, shown as the caption
+
+		// Set by RequestOpenLevel, consumed by the render tick (see the constructor).
+		std::string pending_level_path;
+
 		void DrawMenuBar();
 		void DrawDeleteRequest();
+
+		// Updates the overlay and paints one frame of it. Called for every phase
+		// World::Load reports plus the editor-side steps that follow it.
+		void ShowLoadingProgress(float fraction, const std::string& stage);
+		void RenderLoadingFrame();
 	};
 
 }

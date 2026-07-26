@@ -140,6 +140,19 @@ namespace HotBite {
                     return Get(k);
                 }
 
+                //The keys currently in the map, in key order. Lookup by name is what
+                //this container is for, but anything that has to *offer* the names as
+                //a choice - an editor's asset picker - needs to enumerate them, and the
+                //values do not always carry their own key.
+                std::vector<K> Keys() const {
+                    std::vector<K> keys;
+                    keys.reserve(indexes.size());
+                    for (const auto& entry : indexes) {
+                        keys.push_back(entry.first);
+                    }
+                    return keys;
+                }
+
                 //Get value by key
                 T* Get(const K& k) const {
                     T* ret = nullptr;

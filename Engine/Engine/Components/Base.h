@@ -277,6 +277,15 @@ namespace HotBite {
 				void SetCoordinatorInfo(ECS::Entity e, ECS::Coordinator* c);
 				bool SetAnimation(const std::string& name, bool loop = true, bool sync = false,
 					              float transition_time = -1.0f, float speed = 1.0f, bool force = false);
+				// Stops whatever is playing: the mesh falls back to its bind pose and
+				// stays there until something sets an animation again. The attached
+				// skeletons are left alone, so this is reversible with SetAnimation.
+				//
+				// Distinct from "never chose an animation", which SetData leaves behind
+				// (the first animation of the first skeleton, playing): this is the
+				// deliberate "none", and it is what a per-entity override needs to turn
+				// off an animation its template started.
+				void StopAnimation();
 				void SetAnimationDefaultTransitionTime(float time);
 				float GetAnimationDefaultTransitionTime() const;
 				int GetCurrentAnimationId() const;
@@ -287,11 +296,17 @@ namespace HotBite {
 				void Unprepare(Core::SimpleVertexShader* vs);
 				const std::vector<matrix>& GetJoints() { return joint_cpu_data; }
 
-				//Serializes as the mesh asset's name plus the current animation, resolved
-				//against the world's mesh collection on load. Joint buffers, offsets and
-				//timing are runtime state rebuilt from the asset. Also accepts
-				//"template": <template entity name> to adopt a template's mesh, matching
-				//the old top-level "template" key.
+				//Serializes as the mesh asset's name, the animation sets attached to it
+				//and the current animation, all resolved against the world's collections
+				//on load. Joint buffers, offsets and timing are runtime state rebuilt
+				//from the asset. Also accepts "template": <template entity name> to adopt
+				//a template's mesh, matching the old top-level "template" key.
+				//
+				//"skeletons" is the per-entity form of the level's "meshes" section: the
+				//named animation sets to attach to this mesh. It is what makes
+				//"animation" mean anything - SetAnimation only searches the sets attached
+				//to the MeshData - and, exactly as in that section, the attachment is to
+				//the *shared* mesh asset and so is visible to every entity using it.
 				nlohmann::json ToJson(const ECS::SerializeContext& ctx) const;
 				void FromJson(const nlohmann::json& j, const ECS::SerializeContext& ctx);
 			};

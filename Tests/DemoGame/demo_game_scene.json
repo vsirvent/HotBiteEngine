@@ -1,6 +1,81 @@
 {
     "editor": {
-        "groups": {}
+        "groups": {
+            "Enemies": [
+                "Troll.002",
+                "Zombie.024",
+                "Zombie.025",
+                "Zombie.026",
+                "Zombie.027",
+                "Zombie.028",
+                "Zombie.029",
+                "Zombie.030",
+                "Zombie.031",
+                "Zombie.032",
+                "Zombie.033",
+                "Zombie.034",
+                "Zombie.035",
+                "Zombie.036",
+                "Zombie.037",
+                "Zombie.038",
+                "Zombie.039",
+                "Zombie.040",
+                "Zombie.041"
+            ],
+            "Lights": [
+                "Light",
+                "Light.001"
+            ],
+            "Liquids": [
+                "Lava",
+                "Lava.001",
+                "Water",
+                "Water.001"
+            ],
+            "Player": [
+                "Player"
+            ],
+            "Props": [
+                "Ball",
+                "Bricks01.NoSmooth",
+                "Bricks02.NoSmooth",
+                "Cristal",
+                "Cube.001.NoSmooth",
+                "Cube.002.NoSmooth",
+                "Cube.003.NoSmooth",
+                "Cube.004.NoSmooth",
+                "Test.001.NoSmooth",
+                "Test.002.NoSmooth",
+                "Test.003.NoSmooth"
+            ],
+            "Scene": [
+                "Camera",
+                "Sky"
+            ],
+            "Terrain": [
+                "Terrain",
+                "Terrain.001",
+                "Terrain.002",
+                "Terrain.003",
+                "Terrain.004",
+                "Terrain.005",
+                "Terrain.006",
+                "Terrain.007",
+                "Terrain.008",
+                "Terrain.009",
+                "Terrain.010",
+                "Terrain.011",
+                "Terrain.012",
+                "Terrain.013",
+                "Terrain.014",
+                "Terrain.015",
+                "Terrain.016",
+                "Terrain.017",
+                "Terrain.018",
+                "Terrain.019",
+                "Terrain.020"
+            ]
+        }
     },
     "world": {
         "audio": {
@@ -281,9 +356,59 @@
                     }
                 },
                 "name": "Test.003.NoSmooth"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "name": "Ball",
+                        "skeletons": [
+                            "troll_attack",
+                            "troll_death",
+                            "troll_idle",
+                            "troll_walk"
+                        ]
+                    }
+                },
+                "name": "Zombie.024"
+            },
+            {
+                "components": {
+                    "Physics": {
+                        "shape": "BOX",
+                        "type": "DYNAMIC"
+                    }
+                },
+                "name": "troll_inst_9"
             }
         ],
-        "instances": [],
+        "instances": [
+            {
+                "components": {
+                    "Physics": {
+                        "shape": "BOX",
+                        "type": "DYNAMIC"
+                    }
+                },
+                "name": "troll_inst_9",
+                "position": {
+                    "x": -145.55377197265625,
+                    "y": 10.569929122924805,
+                    "z": -53.50557327270508
+                },
+                "rotation": {
+                    "w": 0.9999998807907104,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "scale": {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 1.0
+                },
+                "template": "troll"
+            }
+        ],
         "level": {
             "file": ".\\Assets\\particle_test.fbx",
             "triangulate": false
@@ -387,6 +512,29 @@
             {
                 "file": ".\\Assets\\Sky\\space.fbx",
                 "triangulate": false
+            },
+            {
+                "file": ".\\Assets\\troll\\troll_tpose.fbx",
+                "triangulate": false
+            },
+            {
+                "file": ".\\Assets\\troll\\troll_idle.fbx",
+                "triangulate": false
+            },
+            {
+                "file": ".\\Assets\\troll\\troll_walk.fbx",
+                "triangulate": false
+            },
+            {
+                "file": ".\\Assets\\troll\\troll_attack.fbx",
+                "triangulate": false
+            },
+            {
+                "file": ".\\Assets\\troll\\troll_death.fbx",
+                "triangulate": false
+            },
+            {
+                "file": "Templates\\troll.tpl"
             }
         ]
     }

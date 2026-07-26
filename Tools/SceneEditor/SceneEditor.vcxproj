@@ -34,6 +34,7 @@
     <ClCompile Include="AssetBrowser.cpp" />
     <ClCompile Include="MaterialPanel.cpp" />
     <ClCompile Include="MaterialPreview.cpp" />
+    <ClCompile Include="TemplatePanel.cpp" />
     <ClCompile Include="SceneSerializer.cpp" />
     <ClCompile Include="EditorAutomation.cpp" />
     <ClCompile Include="EditorHistory.cpp" />
@@ -62,6 +63,7 @@
     <ClInclude Include="AssetBrowser.h" />
     <ClInclude Include="MaterialPanel.h" />
     <ClInclude Include="MaterialPreview.h" />
+    <ClInclude Include="TemplatePanel.h" />
     <ClInclude Include="SceneSerializer.h" />
     <ClInclude Include="EditorAutomation.h" />
     <ClInclude Include="EditorHistory.h" />

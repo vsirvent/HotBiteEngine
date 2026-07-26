@@ -7,6 +7,7 @@
 #include "AssetBrowser.h"
 #include "MaterialPanel.h"
 #include "MaterialPreview.h"
+#include "TemplatePanel.h"
 #include "EntityOps.h"
 #include "SceneSerializer.h"
 #include "EditorAutomation.h"
@@ -28,6 +29,7 @@
 #include <shellapi.h>
 
 #include <crtdbg.h>
+#include <cfloat>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -79,8 +81,8 @@ namespace HotBiteEditor {
 		//Start physics/audio/background ticking immediately, but with auto_render=false:
 		//RenderSystem::Update() (Clear/Draw/Present) must not run before World::Init() has
 		//prepared the vertex/BVH buffers, which only happens once a level is loaded. Until
-		//then we drive our own minimal Clear+Present tick below so the ImGui project picker
-		//still renders on an otherwise-empty window.
+		//then we drive our own minimal Clear+Present tick below so the menu bar (File >
+		//Open Level..., the only thing on screen pre-level) still renders.
 		world.Run(60, 60, 60, false);
 		//The editor authors a scene, it doesn't play it: with the simulation live,
 		//gravity re-settles every dynamic body (Ball, Cristal, ...) right after each
@@ -90,6 +92,13 @@ namespace HotBiteEditor {
 		//for previewing.
 		world.SetPhysicsPause(true);
 		Scheduler::Get(DXCore::MAIN_THREAD)->RegisterTimer(1000000000 / 60, [this](const Scheduler::TimerData& t) {
+			//A level queued from UI code (the File menu) is loaded here, outside of any
+			//ImGui frame: OpenLevel paints its own progress frames while it blocks.
+			if (!pending_level_path.empty()) {
+				std::string path = pending_level_path;
+				pending_level_path.clear();
+				OpenLevel(path);
+			}
 			//Remote-control commands run before the frame renders, so their effects
 			//(and any screenshot taken at the end of this same frame) are consistent.
 			EditorAutomation::ProcessCommands(state, *this);
@@ -113,9 +122,12 @@ namespace HotBiteEditor {
 		menu_commands.push_back({ "File/Open Level...",
 			[this]() { return !level_loaded; },
 			[this]() { ProjectBrowser::OpenLevelWithDialog(state, *this); } });
-		menu_commands.push_back({ "File/Import Object...",
+		//Importing means importing a *template* now: an object worth placing is a
+		//template, and the meshes one points at come from the level's own FBX assets
+		//rather than from importing an FBX as an object of its own.
+		menu_commands.push_back({ "File/Import Template...",
 			[this]() { return level_loaded; },
-			[this]() { AssetBrowser::ImportObjectWithDialog(state); } });
+			[this]() { TemplateOps::ImportTemplateWithDialog(state); } });
 		menu_commands.push_back({ "File/Save Level",
 			[this]() { return level_loaded; },
 			[this]() { SceneSerializer::Save(state); } });
@@ -127,6 +139,18 @@ namespace HotBiteEditor {
 				std::string error;
 				if (!MaterialOps::SaveMaterials(state, error)) {
 					state.status_message = "Save materials failed: " + error;
+				}
+			} });
+		//Authored templates are .tpl files shared between levels, saved like materials
+		//(see TemplatePanel.h). Unlike materials, saving the *level* flushes these too
+		//- the level's "templates" array names the .tpl file, so writing that reference
+		//while the file did not exist yet would produce a level that cannot reload.
+		menu_commands.push_back({ "File/Save Templates",
+			[this]() { return level_loaded && TemplateOps::HasUnsavedTemplates(state); },
+			[this]() {
+				std::string error;
+				if (!TemplateOps::SaveTemplates(state, error)) {
+					state.status_message = "Save templates failed: " + error;
 				}
 			} });
 		menu_commands.push_back({ "File/Exit",
@@ -164,6 +188,21 @@ namespace HotBiteEditor {
 			[this]() { return level_loaded && EntityOps::CanDeleteSelected(state); },
 			[this]() { state.delete_requested = true; } });
 
+		//Edit: turn the selected entity into a placeable template. The naming happens
+		//in the Templates panel's modal, so this opens the panel with the request
+		//pending rather than inventing a name of its own.
+		menu_commands.push_back({ "Edit/Create Template from Selection",
+			[this]() {
+				Coordinator* c = world.GetCoordinator();
+				return level_loaded && c != nullptr &&
+					state.selected_entity != INVALID_ENTITY_ID &&
+					c->ContainsComponent<Components::Mesh>(state.selected_entity);
+			},
+			[this]() {
+				state.show_template_panel = true;
+				TemplatePanel::RequestTemplateFromSelection(state);
+			} });
+
 		//Edit: physics preview. Off by default (see SetPhysicsPause above); while
 		//checked, dynamic bodies simulate so the user can watch objects settle.
 		//Switching it back off rewinds them to the transforms they were authored
@@ -188,8 +227,8 @@ namespace HotBiteEditor {
 			[this]() { state.gizmo_mode = GizmoMode::Scale; },
 			[this]() { return state.gizmo_mode == GizmoMode::Scale; } });
 
-		//View: panel visibility toggles (the Project panel always shows before a
-		//level loads, since it doubles as the project picker) and layout reset.
+		//View: panel visibility toggles and layout reset. All of them need a level:
+		//before one is open the editor is just the menu bar over an empty viewport.
 		menu_commands.push_back({ "View/Entities",
 			[this]() { return level_loaded; },
 			[this]() { state.show_outliner = !state.show_outliner; },
@@ -206,10 +245,10 @@ namespace HotBiteEditor {
 			[this]() { return level_loaded; },
 			[this]() { state.show_material_panel = !state.show_material_panel; },
 			[this]() { return state.show_material_panel; } });
-		menu_commands.push_back({ "View/Project",
+		menu_commands.push_back({ "View/Templates",
 			[this]() { return level_loaded; },
-			[this]() { state.show_project = !state.show_project; },
-			[this]() { return state.show_project; } });
+			[this]() { state.show_template_panel = !state.show_template_panel; },
+			[this]() { return state.show_template_panel; } });
 		//View: physics collider wireframes (see PhysicsDebug.h). Two entries acting
 		//as a radio group - clicking the active one turns the overlay off - because
 		//"all" is expensive enough on a terrain-heavy scene to want the selection-only
@@ -289,18 +328,21 @@ namespace HotBiteEditor {
 		//the client area on present. The win32 backend just set DisplaySize to
 		//the client rect; force it back to the backbuffer size (mouse input is
 		//remapped correspondingly in ForwardWindowMessage).
-		ImGui::GetIO().DisplaySize = ImVec2((float)GetWidth(), (float)GetHeight());
+		ImGuiIO& io = ImGui::GetIO();
+		io.DisplaySize = ImVec2((float)GetWidth(), (float)GetHeight());
+		//Loading paints several frames inside a single tick (see RenderLoadingFrame),
+		//which can leave the win32 backend measuring a zero delta between two of them -
+		//ImGui asserts on that ("Need a positive DeltaTime!").
+		if (io.DeltaTime <= 0.0f) {
+			io.DeltaTime = 1.0f / 60.0f;
+		}
 		ImGui::NewFrame();
 	}
 
 	void SceneEditorApp::Present()
 	{
 		DrawMenuBar();
-		if (!level_loaded) {
-			//Pre-level, the Project panel is the project/level picker.
-			ProjectBrowser::Draw(state, *this);
-		}
-		else {
+		if (level_loaded) {
 			//Undo/redo hotkeys, gated like the gizmo's 1/2/3 keys: inert while a
 			//text field owns the keyboard. Ctrl+Shift+Z is the usual redo alias.
 			ImGuiIO& io = ImGui::GetIO();
@@ -341,9 +383,6 @@ namespace HotBiteEditor {
 			}
 			//The dockspace must be submitted before any window that docks into it.
 			EditorLayout::BeginDockspace(state);
-			if (state.show_project) {
-				ProjectBrowser::Draw(state, *this);
-			}
 			if (state.show_outliner) {
 				Outliner::Draw(state, editor_camera);
 			}
@@ -355,6 +394,9 @@ namespace HotBiteEditor {
 			}
 			if (state.show_material_panel) {
 				MaterialPanel::Draw(state);
+			}
+			if (state.show_template_panel) {
+				TemplatePanel::Draw(state);
 			}
 			//Under the gizmo, so the selection handles stay readable on top of a
 			//dense collider wireframe.
@@ -548,18 +590,110 @@ namespace HotBiteEditor {
 		state.status_message = "Project: " + project_root;
 	}
 
+	//Paints the loading overlay: a bare Clear + one ImGui frame + Present, driven from
+	//inside the load rather than from the render tick, because the load owns the thread
+	//that would otherwise be drawing. Balanced (it opens and closes its own frame), so
+	//the tick that called into the load continues normally afterwards.
+	void SceneEditorApp::RenderLoadingFrame()
+	{
+		//Keep the window alive while a long load blocks the message loop: without this
+		//Windows declares it unresponsive and covers our frames with a ghost copy.
+		MSG msg;
+		while (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)) {
+			if (msg.message == WM_QUIT) {
+				//Not ours to consume - hand it back to DXCore::Run's loop.
+				PostQuitMessage((int)msg.wParam);
+				break;
+			}
+			TranslateMessage(&msg);
+			DispatchMessage(&msg);
+		}
+
+		float color[4] = { 0.05f, 0.05f, 0.08f, 1.0f };
+		ClearScreen(color);
+
+		const ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+		ImGui::SetNextWindowPos(center, ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+		//A zero height auto-fits the content; the width is fixed so the bar does not
+		//jump around as the stage labels change length.
+		ImGui::SetNextWindowSize(ImVec2(560.0f, 0.0f), ImGuiCond_Always);
+		if (ImGui::Begin("Loading level", nullptr,
+			ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
+			ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoDocking)) {
+			ImGui::TextUnformatted(loading_level.c_str());
+			ImGui::Spacing();
+			char overlay[32];
+			snprintf(overlay, sizeof(overlay), "%.0f%%", loading_progress * 100.0f);
+			ImGui::ProgressBar(loading_progress, ImVec2(-FLT_MIN, 0.0f), overlay);
+			ImGui::Spacing();
+			ImGui::TextDisabled("%s", loading_stage.c_str());
+		}
+		ImGui::End();
+
+		ImGui::Render();
+		ID3D11RenderTargetView* rtv = RenderTarget();
+		context->OMSetRenderTargets(1, &rtv, nullptr);
+		ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+		DXCore::Present();
+	}
+
+	void SceneEditorApp::ShowLoadingProgress(float fraction, const std::string& stage)
+	{
+		loading_progress = fraction < 0.0f ? 0.0f : (fraction > 1.0f ? 1.0f : fraction);
+		loading_stage = stage;
+		RenderLoadingFrame();
+	}
+
+	void SceneEditorApp::RequestOpenLevel(const std::string& level_json_path)
+	{
+		pending_level_path = level_json_path;
+	}
+
 	bool SceneEditorApp::OpenLevel(const std::string& level_json_path)
 	{
 		if (level_loaded) {
 			state.status_message = "A level is already open in this session; restart the editor to open a different one.";
 			return false;
 		}
-		if (!world.Load(level_json_path)) {
+
+		//World::Load reports its progress through the callback the demo game passes it
+		//(World.h: Load(file, progress, OnLoadProgress, unit)). The accumulator it feeds
+		//adds up to LOAD_UNITS across eight phases, in this order; the callback fires
+		//*after* each one, so the label attached to a value names what comes next.
+		static constexpr float LOAD_UNITS = 70.0f;
+		//Share of the bar the engine load owns; the rest covers the editor-side steps
+		//below it (World::Init, editor data, post-process pipeline).
+		static constexpr float LOAD_SHARE = 0.8f;
+		auto stage_after = [](float units) -> const char* {
+			if (units < 5.0f)  { return "Reading level file..."; }
+			if (units < 10.0f) { return "Loading scene geometry..."; }
+			if (units < 20.0f) { return "Loading templates..."; }
+			if (units < 30.0f) { return "Loading materials..."; }
+			if (units < 40.0f) { return "Loading meshes, instances and sky..."; }
+			if (units < 50.0f) { return "Loading lights..."; }
+			if (units < 60.0f) { return "Loading entities..."; }
+			return "Loading audio...";
+			};
+
+		loading_level = level_json_path;
+		//One frame at 0% so the overlay is on screen before the first (potentially very
+		//long) phase - reading the level file and its FBX - begins.
+		ShowLoadingProgress(0.0f, stage_after(0.0f));
+
+		float units = 0.0f;
+		bool loaded = world.Load(level_json_path, &units,
+			[this, &stage_after](float done) {
+				ShowLoadingProgress(LOAD_SHARE * done / LOAD_UNITS, stage_after(done));
+			}, 1.0f);
+		if (!loaded) {
 			state.status_message = "Failed to load level: " + level_json_path;
 			return false;
 		}
+		ShowLoadingProgress(LOAD_SHARE, "Preparing scene buffers...");
 		world.Init();
+		ShowLoadingProgress(0.9f, "Restoring editor data...");
 		SceneSerializer::LoadEditorData(state, level_json_path);
+		ShowLoadingProgress(0.95f, "Building render pipeline...");
 
 		//Install the full post-process pipeline, mirroring Marbles' setup
 		//(MainEffect -> DOF -> Lens -> GUI -> backbuffer; RenderSystem finds the DOF
@@ -589,6 +723,9 @@ namespace HotBiteEditor {
 		level_loaded = true;
 		//A fresh level starts with an empty edit history.
 		EditorHistory::Clear();
+		//Last overlay frame at 100%, then back to the normal render tick, which now
+		//draws the scene instead.
+		ShowLoadingProgress(1.0f, "Ready");
 		state.status_message = "Loaded: " + level_json_path;
 		return true;
 	}

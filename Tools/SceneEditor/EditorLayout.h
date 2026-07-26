@@ -16,6 +16,10 @@ namespace HotBiteEditor {
 		// opened for a material-authoring session and closed again, and it needs more
 		// width than the side docks give it (thumbnail list plus a property column).
 		inline constexpr const char* MATERIALS_WINDOW = "Materials";
+		// The Templates panel is floating for the same reasons as the Materials one:
+		// it is opened for an authoring session, and it needs a template list beside a
+		// component column.
+		inline constexpr const char* TEMPLATES_WINDOW = "Templates";
 
 		// Fullscreen dockspace over the main viewport's work area with a transparent
 		// pass-through central node: the 3D scene (already rendered into the
@@ -65,17 +69,6 @@ namespace HotBiteEditor {
 			}
 			ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_PassthruCentralNode);
 			ImGui::End();
-		}
-
-		// The Project panel doubles as the pre-level project picker and stays a
-		// floating window; center it the first time it appears (or on Reset Layout).
-		inline void PlaceProject(const EditorState& state)
-		{
-			const ImGuiViewport* vp = ImGui::GetMainViewport();
-			ImGuiCond cond = state.apply_default_layout ? ImGuiCond_Always : ImGuiCond_FirstUseEver;
-			ImGui::SetNextWindowPos(
-				ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.30f, vp->WorkPos.y + vp->WorkSize.y * 0.20f), cond);
-			ImGui::SetNextWindowSize(ImVec2(vp->WorkSize.x * 0.40f, vp->WorkSize.y * 0.50f), cond);
 		}
 	}
 }

@@ -188,6 +188,110 @@ namespace HotBiteEditor {
 			return true;
 		}
 
+		nlohmann::json GetValue(EditorState& state, const std::string& entity_name,
+			const std::string& component)
+		{
+			std::string error;
+			Entity e = Resolve(state, entity_name, error);
+			const ComponentDesc* desc = FindDesc(component);
+			if (e == INVALID_ENTITY_ID || desc == nullptr ||
+				!desc->has(state.world->GetCoordinator(), e)) {
+				return nlohmann::json::object();
+			}
+			try {
+				return desc->serialize(MakeContext(state), e);
+			}
+			catch (const std::exception& ex) {
+				printf("ComponentOps: could not serialize %s on %s (%s).\n", component.c_str(),
+					entity_name.c_str(), ex.what());
+				return nlohmann::json::object();
+			}
+		}
+
+		//The one place an edited component is written into the entity's delta. It goes
+		//in `added` because that is the map SceneSerializer turns into the record's
+		//"components" block - which is exactly where an edit belongs, whether the
+		//component was added this session or came with the entity.
+		static void RecordValueForSave(EditorState& state, const std::string& entity_name,
+			const std::string& component)
+		{
+			ComponentDelta& delta = state.component_deltas[entity_name];
+			delta.removed.erase(component);
+			delta.added[component] = GetValue(state, entity_name, component);
+		}
+
+		void MarkEdited(EditorState& state, const std::string& entity_name,
+			const std::string& component)
+		{
+			std::string error;
+			if (Resolve(state, entity_name, error) == INVALID_ENTITY_ID) {
+				return;
+			}
+			RecordValueForSave(state, entity_name, component);
+		}
+
+		bool ApplyValue(EditorState& state, const std::string& entity_name,
+			const std::string& component, const nlohmann::json& payload, std::string& error)
+		{
+			Entity e = Resolve(state, entity_name, error);
+			if (e == INVALID_ENTITY_ID) {
+				return false;
+			}
+			const ComponentDesc* desc = FindDesc(component);
+			if (desc == nullptr) {
+				error = "unknown component '" + component + "'";
+				return false;
+			}
+			if (!desc->has(state.world->GetCoordinator(), e)) {
+				error = entity_name + " has no " + component;
+				return false;
+			}
+			try {
+				desc->apply(MakeContext(state), e, payload);
+			}
+			catch (const std::exception& ex) {
+				error = std::string("could not apply ") + component + ": " + ex.what();
+				return false;
+			}
+			RecordValueForSave(state, entity_name, component);
+			return true;
+		}
+
+		void RecordEdit(EditorState& state, const std::string& entity_name,
+			const std::string& component, const nlohmann::json& before)
+		{
+			const nlohmann::json after = GetValue(state, entity_name, component);
+			if (after == before) {
+				return;
+			}
+			//Entity NAME, never the id, and the payloads by value: an undo may run after
+			//the entity has been destroyed and re-created (see EditorHistory.h).
+			const std::string name = entity_name;
+			const std::string comp = component;
+			EditorHistory::Push({
+				"edit " + comp + " of " + name,
+				[name, comp, before](EditorState& s) {
+					std::string ignored;
+					ApplyValue(s, name, comp, before, ignored);
+				},
+				[name, comp, after](EditorState& s) {
+					std::string ignored;
+					ApplyValue(s, name, comp, after, ignored);
+				} });
+		}
+
+		bool SetValue(EditorState& state, const std::string& entity_name,
+			const std::string& component, const nlohmann::json& payload, std::string& error)
+		{
+			const nlohmann::json before = GetValue(state, entity_name, component);
+			if (!ApplyValue(state, entity_name, component, payload, error)) {
+				return false;
+			}
+			RecordEdit(state, entity_name, component, before);
+			state.status_message = "Edited " + component + " of " + entity_name;
+			return true;
+		}
+
 		std::vector<std::string> ListComponents(EditorState& state,
 			const std::string& entity_name)
 		{

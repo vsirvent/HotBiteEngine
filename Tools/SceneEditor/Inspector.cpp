@@ -4,6 +4,7 @@
 #include "EditorLayout.h"
 #include "EntityOps.h"
 #include "MaterialPanel.h"
+#include "TemplatePanel.h"
 
 #include "imgui.h"
 #include <ECS/ComponentRegistry.h>
@@ -15,8 +16,10 @@
 #include <Components/Particles.h>
 #include <Components/Sky.h>
 #include <DirectXMath.h>
+#include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <set>
 
 using namespace HotBite::Engine;
 using namespace HotBite::Engine::ECS;
@@ -116,12 +119,44 @@ namespace HotBiteEditor {
 							(ph.type != reactphysics3d::BodyType::DYNAMIC)
 							? state.world->GetEntityShape(base.name) : nullptr;
 						ph.UpdateShape(shape_data,
-							c->GetComponent<Bounds>(entity).bounding_box.Extents,
+							c->GetComponent<Bounds>(entity).local_box.Extents,
 							t.scale, t.rotation);
 					}
 				}
 			}
 
+		}
+
+		//Writes a placed instance's live pose back into its record, in the space the
+		//record is actually in.
+		//
+		//A record is *not* the object's world transform: World::SpawnInstance composes
+		//it with the template's own base transform (position added, rotation multiplied,
+		//scale multiplied), so the record has to be the live pose with that composition
+		//taken back out. Storing the live pose as-is means every respawn - a paste, the
+		//undo of a place, the next load of the level - composes the base a second time.
+		//For the troll template, whose base scale is 0.01, that is exactly the reported
+		//"my copy came out at 0.01": the edited scale went into the record and the
+		//template's own scale was multiplied in again on top of it.
+		static void StoreInstanceTransform(EditorState& state, PlacedInstance& inst,
+			const Transform& t)
+		{
+			float3 base_position;
+			float4 base_rotation;
+			float3 base_scale;
+			state.world->GetTemplateBaseTransform(inst.template_name, base_position,
+				base_rotation, base_scale);
+			inst.position = SUB_F3_F3(t.position, base_position);
+			//q_live = q_record * q_base, so q_record = q_live * conj(q_base) - which is
+			//what express_rotation_with_respect_to computes.
+			inst.rotation = express_rotation_with_respect_to(t.rotation, base_rotation);
+			//A zero base scale has no ratio to undo; keep the live value on that axis
+			//rather than dividing by zero (the instance is degenerate either way).
+			inst.scale = {
+				(base_scale.x != 0.0f) ? t.scale.x / base_scale.x : t.scale.x,
+				(base_scale.y != 0.0f) ? t.scale.y / base_scale.y : t.scale.y,
+				(base_scale.z != 0.0f) ? t.scale.z / base_scale.z : t.scale.z,
+			};
 		}
 
 		//Shared post-edit bookkeeping for both the interactive (Draw) and programmatic
@@ -154,9 +189,7 @@ namespace HotBiteEditor {
 				//entry directly so a save writes the new transform out.
 				for (auto& inst : state.placed_instances) {
 					if (inst.name == base.name) {
-						inst.position = t.position;
-						inst.rotation = t.rotation;
-						inst.scale = t.scale;
+						StoreInstanceTransform(state, inst, t);
 						break;
 					}
 				}
@@ -359,6 +392,111 @@ namespace HotBiteEditor {
 
 		static constexpr ImGuiTreeNodeFlags SECTION_FLAGS = ImGuiTreeNodeFlags_DefaultOpen;
 
+		//== Making a section's widgets an undoable, saved edit ==
+		//
+		//Most sections below edit their component in place (a DragFloat writes straight
+		//into the light's Data), so there is nothing to "apply" - what is missing is the
+		//other two thirds of an editor edit: the value has to reach the entity's record
+		//so a save writes it, and the whole drag has to become ONE history action.
+		//
+		//This is the same shape DrawTransform has always used, generalized: serialize the
+		//component as the frame starts, latch that as the "before" when a widget is
+		//activated, mark the component for save on every frame that changes anything, and
+		//record one action when the drag ends. A discrete widget (a checkbox) activates
+		//and deactivates in the same frame and so lands as one action too.
+		//
+		//Combos are NOT tracked this way: their change happens inside a popup, where the
+		//activation of the combo itself says nothing about the edit. Those call
+		//ComponentOps::SetValue directly, which applies and records in one step.
+		namespace {
+
+			//The pre-edit snapshot of a drag in progress. One at a time is enough - ImGui
+			//has a single active widget - but it must remember *which* component it
+			//belongs to, so switching sections mid-drag records what it did instead of
+			//attributing it to the next one.
+			nlohmann::json pending_before;
+			std::string pending_entity;
+			std::string pending_component;
+			bool pending_valid = false;
+
+			class SectionEdit {
+			public:
+				SectionEdit(EditorState& state, const std::string& entity_name,
+					const std::string& component)
+					: state(state), entity_name(entity_name), component(component),
+					frame_before(ComponentOps::GetValue(state, entity_name, component)) {
+				}
+
+				//Accumulates one widget's return value together with ImGui's activation
+				//state, which is only valid for the item just submitted.
+				void Track(bool widget_changed) {
+					changed |= widget_changed;
+					activated |= ImGui::IsItemActivated();
+					finished |= ImGui::IsItemDeactivatedAfterEdit();
+				}
+
+				//A widget that is complete the instant it changes (a dropdown, whose value
+				//is picked inside a popup and which therefore never reports the
+				//activate/deactivate pair a drag does).
+				void Discrete(bool widget_changed) {
+					if (widget_changed) {
+						changed = activated = finished = true;
+					}
+				}
+
+				//The generic property grid, which is a row of independent widgets with no
+				//single activation moment: the first frame that changes anything opens the
+				//edit, and the grid reports its own completion.
+				void Grid(bool grid_changed, bool grid_finished) {
+					changed |= grid_changed;
+					activated |= grid_changed;
+					finished |= grid_finished;
+				}
+
+				//Call once, after the section's last widget.
+				void Commit() {
+					if (!changed && !activated && !finished) {
+						return;
+					}
+					if (pending_valid && (pending_entity != entity_name ||
+						pending_component != component)) {
+						//A drag whose end was never seen (the selection changed under it):
+						//record what it did rather than losing it from the history.
+						ComponentOps::RecordEdit(state, pending_entity, pending_component,
+							pending_before);
+						pending_valid = false;
+					}
+					if (!pending_valid && (activated || changed)) {
+						pending_before = frame_before;
+						pending_entity = entity_name;
+						pending_component = component;
+						pending_valid = true;
+					}
+					if (changed) {
+						ComponentOps::MarkEdited(state, entity_name, component);
+					}
+					if (finished && pending_valid) {
+						ComponentOps::RecordEdit(state, entity_name, component, pending_before);
+						pending_valid = false;
+					}
+				}
+
+			private:
+				EditorState& state;
+				std::string entity_name;
+				std::string component;
+				nlohmann::json frame_before;
+				bool changed = false;
+				bool activated = false;
+				bool finished = false;
+			};
+
+			std::string EntityName(Coordinator* c, Entity e) {
+				return c->ContainsComponent<Base>(e) ? c->GetConstComponent<Base>(e).name
+					: std::string();
+			}
+		}
+
 		static void DrawBase(EditorState& state, Coordinator* c, Entity e)
 		{
 			if (!ImGui::CollapsingHeader("Base", SECTION_FLAGS)) {
@@ -385,26 +523,35 @@ namespace HotBiteEditor {
 				strncpy_s(name_buf, b.name.c_str(), sizeof(name_buf) - 1);
 			}
 			ImGui::Text("Id: %u", (unsigned)b.id);
+			SectionEdit edit(state, b.name, Base::NAME);
 			if (b.parent != INVALID_ENTITY_ID) {
 				ImGui::Text("Parent: %u", (unsigned)b.parent);
-				ImGui::Checkbox("Parent position", &b.parent_position);
-				ImGui::Checkbox("Parent rotation", &b.parent_rotation);
+				edit.Track(ImGui::Checkbox("Parent position", &b.parent_position));
+				edit.Track(ImGui::Checkbox("Parent rotation", &b.parent_rotation));
 			}
-			ImGui::Checkbox("Visible", &b.visible);
+			edit.Track(ImGui::Checkbox("Visible", &b.visible));
 			ImGui::SameLine();
-			ImGui::Checkbox("Scene visible", &b.scene_visible);
-			ImGui::Checkbox("Cast shadow", &b.cast_shadow);
+			edit.Track(ImGui::Checkbox("Scene visible", &b.scene_visible));
+			edit.Track(ImGui::Checkbox("Cast shadow", &b.cast_shadow));
 			ImGui::SameLine();
-			ImGui::Checkbox("Draw depth", &b.draw_depth);
-			ImGui::Checkbox("Static", &b.is_static);
+			edit.Track(ImGui::Checkbox("Draw depth", &b.draw_depth));
+			edit.Track(ImGui::Checkbox("Static", &b.is_static));
 			int draw_method = (int)b.draw_method;
-			if (ImGui::Combo("Draw mode", &draw_method, "Always\0Screen only\0")) {
+			const bool method_changed = ImGui::Combo("Draw mode", &draw_method,
+				"Always\0Screen only\0");
+			if (method_changed) {
 				b.draw_method = (eDrawMethod)draw_method;
 			}
+			//A dropdown picks its value in a popup, so it never reports the
+			//activate/deactivate pair a drag does: it is one complete edit as it happens.
+			edit.Discrete(method_changed);
 			int pass = (int)b.pass;
-			if (ImGui::DragInt("Pass", &pass, 0.1f, 0, 16) && pass >= 0) {
+			const bool pass_changed = ImGui::DragInt("Pass", &pass, 0.1f, 0, 16);
+			if (pass_changed && pass >= 0) {
 				b.pass = (uint32_t)pass;
 			}
+			edit.Track(pass_changed);
+			edit.Commit();
 		}
 
 		static void DrawTransform(EditorState& state, Coordinator* c, Entity e)
@@ -452,6 +599,12 @@ namespace HotBiteEditor {
 			ImGui::Text("Local  extents %.2f %.2f %.2f", b.local_box.Extents.x, b.local_box.Extents.y, b.local_box.Extents.z);
 			ImGui::Text("World  center  %.2f %.2f %.2f", b.final_box.Center.x, b.final_box.Center.y, b.final_box.Center.z);
 			ImGui::Text("World  extents %.2f %.2f %.2f", b.final_box.Extents.x, b.final_box.Extents.y, b.final_box.Extents.z);
+			//Deliberately a readout, not fields: StaticMeshSystem::Update re-measures a
+			//mesh entity's local box from its mesh every time the transform is dirty, so
+			//a typed value would be silently overwritten within a frame or two. (A
+			//*template's* bounds are a different thing - those are authored JSON the
+			//spawner clones, and the Templates panel does let you override them.)
+			ImGui::TextDisabled("Measured from the mesh each time the transform changes.");
 		}
 
 		static void DrawMaterial(EditorState& state, Coordinator* c, Entity e)
@@ -494,104 +647,304 @@ namespace HotBiteEditor {
 			}
 		}
 
-		static void DrawMesh(Coordinator* c, Entity e)
+		//The animation sets currently attached to `data`, by the names the level loaded
+		//them under. The MeshData holds them as unnamed shared pointers, exactly as
+		//Mesh::ToJson finds out, so the names have to come back from the world.
+		static std::set<std::string> AttachedAnimationSets(EditorState& state, Core::MeshData* data)
+		{
+			std::set<std::string> attached;
+			if (data == nullptr) {
+				return attached;
+			}
+			auto& named = state.world->GetSkeletons();
+			for (const std::string& name : named.Keys()) {
+				std::shared_ptr<Core::Skeleton>* skl = named.Get(name);
+				if (skl == nullptr) {
+					continue;
+				}
+				for (const auto& in_use : data->skeletons) {
+					if (in_use == *skl) {
+						attached.insert(name);
+						break;
+					}
+				}
+			}
+			return attached;
+		}
+
+		static void DrawMesh(EditorState& state, Coordinator* c, Entity e)
 		{
 			Mesh& mesh = c->GetComponent<Mesh>(e);
+			const std::string entity_name = EntityName(c, e);
 			Core::MeshData* data = mesh.GetData();
+			const std::string mesh_name = (data != nullptr) ? data->name : std::string();
+
+			//Which mesh asset this entity draws. Same picker the Templates panel has, and
+			//the same reason it is a picker rather than a text field: the name has to
+			//resolve against the level's loaded meshes or the entity would end up holding
+			//the default cube.
+			const std::vector<std::string> meshes = TemplateOps::ListMeshes(state);
+			if (ImGui::BeginCombo("Mesh", mesh_name.empty() ? "(none)" : mesh_name.c_str())) {
+				for (const std::string& option : meshes) {
+					if (ImGui::Selectable(option.c_str(), option == mesh_name) &&
+						option != mesh_name) {
+						nlohmann::json block = ComponentOps::GetValue(state, entity_name, Mesh::NAME);
+						block["name"] = option;
+						//The animation belonged to the old mesh. Mesh::SetAnimation
+						//silently ignores a name the new one cannot play, which would
+						//leave the entity claiming an animation it never runs - so it is
+						//dropped as part of the same edit.
+						const std::string animation = block.value("animation", std::string());
+						if (!animation.empty()) {
+							const std::vector<std::string> available =
+								state.world->GetMeshAnimations(option);
+							if (std::find(available.begin(), available.end(), animation) ==
+								available.end()) {
+								block["animation"] = "";
+							}
+						}
+						std::string error;
+						if (!ComponentOps::SetValue(state, entity_name, Mesh::NAME, block, error)) {
+							state.status_message = "Set mesh failed: " + error;
+						}
+					}
+				}
+				if (meshes.empty()) {
+					ImGui::TextDisabled("(this level has no mesh assets)");
+				}
+				ImGui::EndCombo();
+			}
 			if (data == nullptr) {
 				ImGui::TextDisabled("(no mesh data)");
 				return;
 			}
-			ImGui::Text("Name: %s", data->name.c_str());
 			ImGui::Text("Vertices: %u  Indices: %u", data->vertexCount, data->indexCount);
-			ImGui::Text("Skeletons: %d", (int)data->skeletons.size());
-			std::string anim = mesh.GetCurrentAnimationName();
-			if (!anim.empty()) {
-				ImGui::Text("Animation: %s (frame %d)", anim.c_str(), mesh.GetCurrentFrame());
-				ImGui::DragFloat("Anim speed", &mesh.current_animation.speed, 0.01f, 0.0f, 10.0f);
+
+			//Which animation sets are attached to the mesh. This has to come before the
+			//animation picker, because a mesh can only play animations belonging to a set
+			//attached to it - and it is why that picker is empty on a level that attached
+			//none. Note the attachment is to the *shared* MeshData, so it is visible to
+			//every entity using this mesh; that is how the engine has always done it.
+			const std::vector<std::string> sets = TemplateOps::ListAnimationSets(state);
+			if (!sets.empty() && ImGui::TreeNode("Animation sets")) {
+				const std::set<std::string> attached = AttachedAnimationSets(state, data);
+				for (const std::string& set : sets) {
+					bool on = attached.count(set) != 0;
+					if (ImGui::Checkbox(set.c_str(), &on)) {
+						nlohmann::json block = ComponentOps::GetValue(state, entity_name, Mesh::NAME);
+						std::vector<std::string> declared;
+						for (const std::string& existing : attached) {
+							if (existing != set) {
+								declared.push_back(existing);
+							}
+						}
+						if (on) {
+							declared.push_back(set);
+						}
+						block["skeletons"] = declared;
+						std::string error;
+						if (!ComponentOps::SetValue(state, entity_name, Mesh::NAME, block, error)) {
+							state.status_message = "Animation set failed: " + error;
+						}
+					}
+				}
+				ImGui::TextDisabled("Detaching only stops this entity declaring the set;\n"
+					"the set stays on the shared mesh for this session.");
+				ImGui::TreePop();
+			}
+
+			//The animation this entity plays, out of everything its mesh offers. A
+			//template can bring several (one per set attached to its mesh) and each
+			//entity picks its own, which is what makes two instances of one creature able
+			//to idle and walk side by side.
+			const std::vector<std::string> animations = state.world->GetMeshAnimations(mesh_name);
+			const std::string animation = mesh.GetCurrentAnimationName();
+			ImGui::BeginDisabled(animations.empty());
+			if (ImGui::BeginCombo("Animation", animation.empty() ? "(none)" : animation.c_str())) {
+				auto choose = [&](const std::string& option) {
+					nlohmann::json block = ComponentOps::GetValue(state, entity_name, Mesh::NAME);
+					block["animation"] = option;
+					block["animation_loop"] = mesh.current_animation.loop;
+					block["animation_speed"] = (mesh.current_animation.speed > 0.0f)
+						? mesh.current_animation.speed : 1.0f;
+					std::string error;
+					if (!ComponentOps::SetValue(state, entity_name, Mesh::NAME, block, error)) {
+						state.status_message = "Set animation failed: " + error;
+					}
+				};
+				//"(none)" is an explicit choice, not the absence of one: it is how an
+				//instance stands still while its template animates (Mesh::StopAnimation).
+				if (ImGui::Selectable("(none)", animation.empty()) && !animation.empty()) {
+					choose("");
+				}
+				for (const std::string& option : animations) {
+					if (ImGui::Selectable(option.c_str(), option == animation) &&
+						option != animation) {
+						choose(option);
+					}
+				}
+				ImGui::EndCombo();
+			}
+			ImGui::EndDisabled();
+			if (animations.empty()) {
+				ImGui::TextDisabled(sets.empty()
+					? "(this level loaded no animation sets)"
+					: "(attach an animation set above to choose an animation)");
+			}
+
+			if (!animation.empty()) {
+				ImGui::Text("Frame: %d", mesh.GetCurrentFrame());
+				SectionEdit edit(state, entity_name, Mesh::NAME);
+				bool loop = mesh.current_animation.loop;
+				const bool loop_changed = ImGui::Checkbox("Loop", &loop);
+				if (loop_changed) {
+					mesh.current_animation.loop = loop;
+				}
+				edit.Track(loop_changed);
+				edit.Track(ImGui::DragFloat("Speed", &mesh.current_animation.speed, 0.01f,
+					0.0f, 10.0f));
+				edit.Commit();
 			}
 		}
 
-		static void DrawAmbientLight(Coordinator* c, Entity e)
+		static void DrawAmbientLight(EditorState& state, Coordinator* c, Entity e)
 		{
 			AmbientLight::Data& d = c->GetComponent<AmbientLight>(e).GetData();
-			ImGui::ColorEdit3("Color down", &d.colorDown.x);
-			ImGui::ColorEdit3("Color up", &d.colorUp.x);
+			SectionEdit edit(state, EntityName(c, e), AmbientLight::NAME);
+			edit.Track(ImGui::ColorEdit3("Color down", &d.colorDown.x));
+			edit.Track(ImGui::ColorEdit3("Color up", &d.colorUp.x));
+			edit.Commit();
 		}
 
-		static void DrawDirectionalLight(Coordinator* c, Entity e)
+		static void DrawDirectionalLight(EditorState& state, Coordinator* c, Entity e)
 		{
 			DirectionalLight& l = c->GetComponent<DirectionalLight>(e);
 			DirectionalLight::Data& d = l.GetData();
+			SectionEdit edit(state, EntityName(c, e), DirectionalLight::NAME);
 			bool changed = false;
-			changed |= ImGui::ColorEdit3("Color", &d.color.x);
-			changed |= ImGui::DragFloat("Intensity", &d.intensity, 0.05f, 0.0f, MAX_INTENSITY);
-			if (ImGui::DragFloat3("Direction", &d.direction.x, 0.01f, -1.0f, 1.0f)) {
+			auto track = [&](bool widget_changed) {
+				changed |= widget_changed;
+				edit.Track(widget_changed);
+			};
+			track(ImGui::ColorEdit3("Color", &d.color.x));
+			track(ImGui::DragFloat("Intensity", &d.intensity, 0.05f, 0.0f, MAX_INTENSITY));
+			bool aimed = ImGui::DragFloat3("Direction", &d.direction.x, 0.01f, -1.0f, 1.0f);
+			if (aimed) {
 				//Keep the light direction normalized; a zero vector would break the
 				//shadow view matrix, so ignore edits that pass through it.
 				float len = std::sqrtf(d.direction.x * d.direction.x + d.direction.y * d.direction.y + d.direction.z * d.direction.z);
 				if (len > 1e-4f) {
 					d.direction = { d.direction.x / len, d.direction.y / len, d.direction.z / len };
-					changed = true;
+				}
+				else {
+					aimed = false;
 				}
 			}
-			changed |= ImGui::DragFloat3("Position", &d.position.x, 0.05f);
-			changed |= ImGui::DragFloat("Range", &d.range, 0.1f, 0.0f, 10000.0f);
-			changed |= ImGui::DragFloat("Fog density", &d.density, 0.001f, 0.0f, 10.0f);
+			track(aimed);
+			track(ImGui::DragFloat3("Position", &d.position.x, 0.05f));
+			track(ImGui::DragFloat("Range", &d.range, 0.1f, 0.0f, 10000.0f));
+			track(ImGui::DragFloat("Fog density", &d.density, 0.001f, 0.0f, 10.0f));
 			bool fog = (d.flags & DIR_LIGHT_FLAG_FOG) != 0;
-			if (ImGui::Checkbox("Fog", &fog)) {
+			const bool fog_changed = ImGui::Checkbox("Fog", &fog);
+			if (fog_changed) {
 				l.SetFog(fog);
-				changed = true;
 			}
+			track(fog_changed);
 			ImGui::SameLine();
 			bool inverse = (d.flags & DIR_LIGHT_FLAG_INVERSE) != 0;
-			if (ImGui::Checkbox("Inverse", &inverse)) {
+			const bool inverse_changed = ImGui::Checkbox("Inverse", &inverse);
+			if (inverse_changed) {
 				l.SetInverse(inverse);
-				changed = true;
 			}
+			track(inverse_changed);
 			ImGui::Text("Casts shadow: %s", l.CastShadow() ? "yes" : "no");
 			if (changed) {
 				l.SetDirty();
 			}
+			edit.Commit();
 		}
 
-		static void DrawPointLight(Coordinator* c, Entity e)
+		static void DrawPointLight(EditorState& state, Coordinator* c, Entity e)
 		{
 			PointLight& l = c->GetComponent<PointLight>(e);
 			PointLight::Data& d = l.GetData();
-			ImGui::ColorEdit3("Color", &d.color.x);
-			ImGui::DragFloat3("Position", &d.position.x, 0.05f);
-			ImGui::DragFloat("Range", &d.range, 0.1f, 0.0f, 10000.0f);
-			ImGui::DragFloat("Fog density", &d.density, 0.001f, 0.0f, 10.0f);
-			ImGui::DragFloat("Tilt ratio", &d.tilt_ratio, 0.1f);
+			SectionEdit edit(state, EntityName(c, e), PointLight::NAME);
+			edit.Track(ImGui::ColorEdit3("Color", &d.color.x));
+			edit.Track(ImGui::DragFloat3("Position", &d.position.x, 0.05f));
+			edit.Track(ImGui::DragFloat("Range", &d.range, 0.1f, 0.0f, 10000.0f));
+			edit.Track(ImGui::DragFloat("Fog density", &d.density, 0.001f, 0.0f, 10.0f));
+			edit.Track(ImGui::DragFloat("Tilt ratio", &d.tilt_ratio, 0.1f));
 			ImGui::Text("Casts shadow: %s", l.CastShadow() ? "yes" : "no");
+			edit.Commit();
 		}
 
-		static void DrawPhysics(Coordinator* c, Entity e)
+		static void DrawPhysics(EditorState& state, Coordinator* c, Entity e)
 		{
 			Physics& ph = c->GetComponent<Physics>(e);
-			const char* type = "static";
-			if (ph.type == reactphysics3d::BodyType::DYNAMIC) {
-				type = "dynamic";
+			const std::string entity_name = EntityName(c, e);
+
+			//Body type and shape go through the component's own serialization rather than
+			//being poked into the struct: both need the rigid body rebuilt in the physics
+			//world to mean anything (Physics::FromJson does that), and both have to reach
+			//the entity's record or the change would vanish on the next load.
+			static const char* TYPES[] = { "STATIC", "KINEMATIC", "DYNAMIC" };
+			static const char* SHAPES[] = { "NONE", "CAPSULE", "BOX", "SPHERE" };
+			auto enum_combo = [&](const char* label, const char* key,
+				const char* const* options, int count, const char* current) {
+					if (!ImGui::BeginCombo(label, current)) {
+						return;
+					}
+					for (int i = 0; i < count; ++i) {
+						if (ImGui::Selectable(options[i], std::strcmp(current, options[i]) == 0) &&
+							std::strcmp(current, options[i]) != 0) {
+							nlohmann::json block =
+								ComponentOps::GetValue(state, entity_name, Physics::NAME);
+							block[key] = options[i];
+							std::string error;
+							//Under the physics lock: the rebuild swaps the collider out
+							//from under whatever the physics thread is doing with it, and a
+							//preview may well be running.
+							std::lock_guard<std::recursive_mutex> lock(Core::physics_mutex);
+							if (!ComponentOps::SetValue(state, entity_name, Physics::NAME,
+								block, error)) {
+								state.status_message = "Set physics failed: " + error;
+							}
+						}
+					}
+					ImGui::EndCombo();
+				};
+			const char* type = (ph.type == reactphysics3d::BodyType::DYNAMIC) ? "DYNAMIC"
+				: (ph.type == reactphysics3d::BodyType::KINEMATIC) ? "KINEMATIC" : "STATIC";
+			const int shape_index = (int)ph.shape;
+			const char* shape = (shape_index >= 0 && shape_index < 4) ? SHAPES[shape_index] : "NONE";
+			enum_combo("Body", "type", TYPES, 3, type);
+			enum_combo("Shape", "shape", SHAPES, 4, shape);
+			//A non-dynamic body collides against its own FBX mesh when the level brought
+			//one in, and then the primitive above is not what is in the physics world.
+			//Say so rather than leaving the combo looking inert.
+			if (ph.type != reactphysics3d::BodyType::DYNAMIC &&
+				state.world->GetEntityShape(entity_name) != nullptr) {
+				ImGui::TextDisabled("Using this object's mesh collider; the shape above\n"
+					"applies when the body is dynamic.");
 			}
-			else if (ph.type == reactphysics3d::BodyType::KINEMATIC) {
-				type = "kinematic";
-			}
-			static const char* SHAPE_NAMES[] = { "none", "capsule", "box", "sphere" };
-			int shape = (int)ph.shape;
-			ImGui::Text("Body: %s  Shape: %s", type,
-				(shape >= 0 && shape < 4) ? SHAPE_NAMES[shape] : "?");
-			//bounce/friction < 0 mean "engine default": editing them here only takes
-			//effect on the live collider material when one exists.
-			if (ImGui::DragFloat("Bounce", &ph.bounce, 0.01f, 0.0f, 1.0f) && ph.collider != nullptr) {
+
+			//bounce/friction < 0 mean "engine default"; the drags start there and the
+			//value is only written once one is actually set, matching Physics::ToJson.
+			SectionEdit edit(state, entity_name, Physics::NAME);
+			edit.Track(ImGui::DragFloat("Bounce", &ph.bounce, 0.01f, -1.0f, 1.0f, "%.2f"));
+			if (ph.collider != nullptr && ph.bounce >= 0.0f) {
 				ph.collider->getMaterial().setBounciness(ph.bounce);
 			}
-			if (ImGui::DragFloat("Friction", &ph.friction, 0.01f, 0.0f, 1.0f) && ph.collider != nullptr) {
+			edit.Track(ImGui::DragFloat("Friction", &ph.friction, 0.01f, -1.0f, 1.0f, "%.2f"));
+			if (ph.collider != nullptr && ph.friction >= 0.0f) {
 				ph.collider->getMaterial().setFrictionCoefficient(ph.friction);
 			}
-			if (ImGui::DragFloat("Air friction", &ph.air_friction, 0.01f, 0.0f, 1.0f) && ph.body != nullptr) {
+			edit.Track(ImGui::DragFloat("Air friction", &ph.air_friction, 0.01f, -1.0f, 1.0f, "%.2f"));
+			if (ph.body != nullptr && ph.air_friction >= 0.0f) {
 				ph.body->setLinearDamping(ph.air_friction);
 			}
+			edit.Commit();
+			ImGui::TextDisabled("-1 leaves the engine default alone.");
 		}
 
 		static void DrawCamera(Coordinator* c, Entity e)
@@ -602,18 +955,20 @@ namespace HotBiteEditor {
 			ImGui::Text("Rotation:  %.2f %.2f %.2f", cam.rotation.x, cam.rotation.y, cam.rotation.z);
 		}
 
-		static void DrawSky(Coordinator* c, Entity e)
+		static void DrawSky(EditorState& state, Coordinator* c, Entity e)
 		{
 			Sky& sky = c->GetComponent<Sky>(e);
 			int hour = (int)(sky.second_of_day / 3600.0f) % 24;
 			int minute = (int)(sky.second_of_day / 60.0f) % 60;
 			ImGui::Text("Time of day: %02d:%02d", hour, minute);
-			ImGui::DragFloat("Second of day", &sky.second_of_day, 60.0f, 0.0f, 86400.0f);
-			ImGui::DragFloat("Time speed", &sky.second_speed, 0.1f, 0.0f, 10000.0f);
-			ImGui::SliderFloat("Cloud density", &sky.cloud_density, 0.0f, 1.0f);
-			ImGui::ColorEdit3("Day color", &sky.day_backcolor.x);
-			ImGui::ColorEdit3("Mid color", &sky.mid_backcolor.x);
-			ImGui::ColorEdit3("Night color", &sky.night_backcolor.x);
+			SectionEdit edit(state, EntityName(c, e), Sky::NAME);
+			edit.Track(ImGui::DragFloat("Second of day", &sky.second_of_day, 60.0f, 0.0f, 86400.0f));
+			edit.Track(ImGui::DragFloat("Time speed", &sky.second_speed, 0.1f, 0.0f, 10000.0f));
+			edit.Track(ImGui::SliderFloat("Cloud density", &sky.cloud_density, 0.0f, 1.0f));
+			edit.Track(ImGui::ColorEdit3("Day color", &sky.day_backcolor.x));
+			edit.Track(ImGui::ColorEdit3("Mid color", &sky.mid_backcolor.x));
+			edit.Track(ImGui::ColorEdit3("Night color", &sky.night_backcolor.x));
+			edit.Commit();
 		}
 
 		static void DrawParticles(Coordinator* c, Entity e)
@@ -643,13 +998,13 @@ namespace HotBiteEditor {
 			static const Entry TABLE[] = {
 				{ Transform::NAME,        [](EditorState& s, Coordinator* c, Entity e) { DrawTransform(s, c, e); } },
 				{ Bounds::NAME,           [](EditorState& s, Coordinator* c, Entity e) { DrawBounds(c, e); } },
-				{ Mesh::NAME,             [](EditorState& s, Coordinator* c, Entity e) { DrawMesh(c, e); } },
+				{ Mesh::NAME,             [](EditorState& s, Coordinator* c, Entity e) { DrawMesh(s, c, e); } },
 				{ Material::NAME,         [](EditorState& s, Coordinator* c, Entity e) { DrawMaterial(s, c, e); } },
-				{ AmbientLight::NAME,     [](EditorState& s, Coordinator* c, Entity e) { DrawAmbientLight(c, e); } },
-				{ DirectionalLight::NAME, [](EditorState& s, Coordinator* c, Entity e) { DrawDirectionalLight(c, e); } },
-				{ PointLight::NAME,       [](EditorState& s, Coordinator* c, Entity e) { DrawPointLight(c, e); } },
-				{ Physics::NAME,          [](EditorState& s, Coordinator* c, Entity e) { DrawPhysics(c, e); } },
-				{ Sky::NAME,              [](EditorState& s, Coordinator* c, Entity e) { DrawSky(c, e); } },
+				{ AmbientLight::NAME,     [](EditorState& s, Coordinator* c, Entity e) { DrawAmbientLight(s, c, e); } },
+				{ DirectionalLight::NAME, [](EditorState& s, Coordinator* c, Entity e) { DrawDirectionalLight(s, c, e); } },
+				{ PointLight::NAME,       [](EditorState& s, Coordinator* c, Entity e) { DrawPointLight(s, c, e); } },
+				{ Physics::NAME,          [](EditorState& s, Coordinator* c, Entity e) { DrawPhysics(s, c, e); } },
+				{ Sky::NAME,              [](EditorState& s, Coordinator* c, Entity e) { DrawSky(s, c, e); } },
 				{ Lighted::NAME,          [](EditorState& s, Coordinator* c, Entity e) { DrawLighted(c, e); } },
 				{ Camera::NAME,           [](EditorState& s, Coordinator* c, Entity e) { DrawCamera(c, e); } },
 				{ Particles::NAME,        [](EditorState& s, Coordinator* c, Entity e) { DrawParticles(c, e); } },
@@ -664,13 +1019,17 @@ namespace HotBiteEditor {
 			return nullptr;
 		}
 
-		// Editable widgets for a component this binary has no type for, built from the
-		// shape of its JSON alone. Enough for the numbers, flags and names that make up
-		// most game components; nested objects/arrays are shown as text rather than
-		// guessed at. Returns true when something changed.
-		static bool DrawJsonGrid(nlohmann::json& value)
+		// See Inspector.h. Enough for the numbers, flags and names that make up most
+		// game components; nested objects/arrays are shown as text rather than guessed
+		// at.
+		bool DrawJsonGrid(nlohmann::json& value, bool* finished)
 		{
 			bool changed = false;
+			auto commit = [&](bool discrete) {
+				if (finished != nullptr && (discrete || ImGui::IsItemDeactivatedAfterEdit())) {
+					*finished = true;
+				}
+			};
 			for (auto& [key, field] : value.items()) {
 				ImGui::PushID(key.c_str());
 				if (field.is_boolean()) {
@@ -678,6 +1037,7 @@ namespace HotBiteEditor {
 					if (ImGui::Checkbox(key.c_str(), &v)) {
 						field = v;
 						changed = true;
+						commit(true); //a checkbox is one discrete edit, not a drag
 					}
 				}
 				else if (field.is_number_float()) {
@@ -686,6 +1046,7 @@ namespace HotBiteEditor {
 						field = v;
 						changed = true;
 					}
+					commit(false);
 				}
 				else if (field.is_number_integer()) {
 					int v = field.get<int>();
@@ -693,6 +1054,7 @@ namespace HotBiteEditor {
 						field = v;
 						changed = true;
 					}
+					commit(false);
 				}
 				else if (field.is_string()) {
 					char buf[256] = "";
@@ -701,6 +1063,7 @@ namespace HotBiteEditor {
 						ImGuiInputTextFlags_EnterReturnsTrue)) {
 						field = std::string(buf);
 						changed = true;
+						commit(true); //committed with Enter, so it is already complete
 					}
 				}
 				else {
@@ -761,13 +1124,22 @@ namespace HotBiteEditor {
 				}
 				else {
 					//A game component: no hand-written editor, so show its serialized
-					//state through the generic grid.
+					//state through the generic grid. It edits, saves and undoes exactly
+					//like the hand-written sections - the editor does not need to know
+					//what the fields mean to do that.
 					ImGui::TextDisabled("(game component)");
-					nlohmann::json value = desc.serialize(state.world->MakeSerializeContext(), e);
-					if (DrawJsonGrid(value)) {
-						desc.apply(state.world->MakeSerializeContext(), e, value);
-						state.component_deltas[entity_name].added[desc.name] = value;
+					nlohmann::json value = ComponentOps::GetValue(state, entity_name, desc.name);
+					SectionEdit edit(state, entity_name, desc.name);
+					bool finished = false;
+					const bool grid_changed = DrawJsonGrid(value, &finished);
+					if (grid_changed) {
+						std::string error;
+						if (!ComponentOps::ApplyValue(state, entity_name, desc.name, value, error)) {
+							state.status_message = "Edit failed: " + error;
+						}
 					}
+					edit.Grid(grid_changed, finished);
+					edit.Commit();
 				}
 				ImGui::PopID();
 			}

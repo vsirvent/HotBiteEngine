@@ -82,6 +82,12 @@ namespace HotBite {
 				Physics& operator=(const Physics& other);
 				Physics& operator=(Physics&& other);
 				void SetEnabled(bool enabled);
+
+				// `extends` is the entity's half extents in LOCAL space - Bounds::local_box,
+				// never Bounds::bounding_box. The collision shape is sized here by
+				// multiplying them with `s`, so passing the world-space box (which the
+				// transform pass already scaled) applies the scale twice: a troll at scale
+				// 0.025 gets a capsule 40x too small to stand on anything.
 				bool Init(reactphysics3d::PhysicsWorld* w, reactphysics3d::BodyType body_type,
 					Core::ShapeData* shape_data, const float3& extends,
 					const float3& p, const float3& s, const float4& r, eShapeForm form = SHAPE_CAPSULE);
@@ -93,8 +99,9 @@ namespace HotBite {
 				// born with. Editors must call it after changing Transform.scale or
 				// Transform.rotation; a pure translation only needs
 				// RigidBody::setTransform. `shape_data` must be the one Init received
-				// (null for the primitive capsule/box/sphere forms). Returns false
-				// when there is no body to update.
+				// (null for the primitive capsule/box/sphere forms), and `extends` the
+				// same local-space half extents Init takes. Returns false when there is
+				// no body to update.
 				bool UpdateShape(Core::ShapeData* shape_data, const float3& extends,
 					const float3& s, const float4& r);
 

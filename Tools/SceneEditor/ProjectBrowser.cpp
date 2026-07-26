@@ -1,7 +1,4 @@
 #include "ProjectBrowser.h"
-#include "EditorLayout.h"
-
-#include "imgui.h"
 
 #include <Windows.h>
 #include <commdlg.h>
@@ -25,9 +22,12 @@ namespace HotBiteEditor {
 			OPENFILENAMEA ofn = {};
 			ofn.lStructSize = sizeof(ofn);
 			ofn.hwndOwner = owner;
-			ofn.lpstrFilter = "level.json\0level.json\0All files\0*.*\0";
+			//A level is any .json the editor can load, not necessarily one named
+			//"level.json" - DemoGame's levels are demo.json, marbles' are level.json.
+			ofn.lpstrFilter = "JSON files (*.json)\0*.json\0All files\0*.*\0";
 			ofn.lpstrFile = file;
 			ofn.nMaxFile = sizeof(file);
+			ofn.lpstrDefExt = "json";
 			ofn.lpstrTitle = "Open Level";
 			ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
 			if (GetOpenFileNameA(&ofn)) {
@@ -109,49 +109,15 @@ namespace HotBiteEditor {
 			level_out.close();
 		}
 
-		static void ListLevelsFromConfig(const std::string& project_root, std::vector<std::pair<std::string, std::string>>& out_levels)
-		{
-			out_levels.clear();
-			fs::path config_path = fs::path(project_root) / "config.json";
-			if (fs::exists(config_path)) {
-				try {
-					json config = json::parse(std::ifstream(config_path.string()));
-					if (config.contains("solo") && config["solo"].contains("levels") && config["solo"].contains("root")) {
-						std::string levels_root = config["solo"]["root"];
-						for (auto& lvl : config["solo"]["levels"]) {
-							std::string id = std::to_string((int)lvl["id"]);
-							std::string name = lvl.value("name", ("Level " + id));
-							fs::path level_json = fs::path(project_root) / levels_root / id / "level.json";
-							if (fs::exists(level_json)) {
-								out_levels.push_back({ name, level_json.string() });
-							}
-						}
-					}
-				}
-				catch (...) {
-					//Fall through to the filesystem scan below.
-				}
-			}
-			if (out_levels.empty()) {
-				//No usable config.json level list: fall back to scanning for any level.json
-				//under Assets/Levels, so the browser still works against ad hoc layouts.
-				fs::path levels_dir = fs::path(project_root) / "Assets" / "Levels";
-				if (fs::exists(levels_dir)) {
-					for (auto& entry : fs::recursive_directory_iterator(levels_dir)) {
-						if (entry.is_regular_file() && entry.path().filename() == "level.json") {
-							out_levels.push_back({ entry.path().parent_path().filename().string(), entry.path().string() });
-						}
-					}
-				}
-			}
-		}
-
 		void OpenLevelWithDialog(EditorState& state, SceneEditorApp& app)
 		{
 			std::string path = OpenLevelFileDialog(app.wnd);
 			if (!path.empty()) {
 				state.project_root = DeriveProjectRoot(path);
-				app.OpenLevel(path);
+				//Queued rather than loaded here: this runs from the File menu, i.e.
+				//inside an ImGui frame, and the load paints progress frames of its own
+				//(see SceneEditorApp::OpenLevel).
+				app.RequestOpenLevel(path);
 			}
 		}
 
@@ -162,40 +128,9 @@ namespace HotBiteEditor {
 				std::string level_path;
 				ScaffoldNewProject(base, level_path);
 				state.project_root = base;
-				app.OpenLevel(level_path);
+				//Same as OpenLevelWithDialog: deferred out of the menu's ImGui frame.
+				app.RequestOpenLevel(level_path);
 			}
-		}
-
-		void Draw(EditorState& state, SceneEditorApp& app)
-		{
-			EditorLayout::PlaceProject(state);
-			ImGui::Begin("Project");
-
-			if (!state.project_root.empty()) {
-				ImGui::TextWrapped("Project: %s", state.project_root.c_str());
-			}
-			else {
-				ImGui::TextUnformatted("No project open.");
-				ImGui::TextUnformatted("Use File > Open Level... or File > New Project... to get started.");
-			}
-			if (!state.current_level_path.empty()) {
-				ImGui::TextWrapped("Level: %s", state.current_level_path.c_str());
-			}
-
-			if (!state.project_root.empty()) {
-				std::vector<std::pair<std::string, std::string>> levels;
-				ListLevelsFromConfig(state.project_root, levels);
-				if (!levels.empty()) {
-					ImGui::SeparatorText("Levels");
-					for (auto& [name, path] : levels) {
-						if (ImGui::Button(name.c_str())) {
-							app.OpenLevel(path);
-						}
-					}
-				}
-			}
-
-			ImGui::End();
 		}
 
 	}

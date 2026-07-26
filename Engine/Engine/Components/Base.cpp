@@ -156,6 +156,19 @@ namespace HotBite {
 				end_animation_event.SetEntity(e);
 			}			
 				
+			void Mesh::StopAnimation() {
+				skeleton_mutex->lock();
+				//id < 0 is what Prepare() reads as "no skinning for this mesh", so the
+				//joints stop being uploaded and the mesh draws in its bind pose. The
+				//skeleton pointer stays: it is the mesh's, not the animation's.
+				previous_animation = current_animation;
+				current_animation.name.clear();
+				current_animation.id = -1;
+				current_animation.key_frame = -1;
+				animation_change_current_time = animation_change_time;
+				skeleton_mutex->unlock();
+			}
+
 			void Mesh::SetAnimationDefaultTransitionTime(float time) {
 				animation_default_change_time = time;
 			}
@@ -467,7 +480,14 @@ namespace HotBite {
 				if (tc == nullptr) {
 					return ECS::INVALID_ENTITY_ID;
 				}
-				ECS::Entity te = tc->GetEntityByName(template_name);
+				//An authored template is registered under a prefixed entity name so it
+				//cannot collide with an FBX node (World::TEMPLATE_ENTITY_PREFIX), and it
+				//is checked first: it is the thing a user deliberately created under
+				//that name, where a bare FBX node just happens to be called that.
+				ECS::Entity te = tc->GetEntityByName(World::TEMPLATE_ENTITY_PREFIX + template_name);
+				if (te == ECS::INVALID_ENTITY_ID) {
+					te = tc->GetEntityByName(template_name);
+				}
 				if (te == ECS::INVALID_ENTITY_ID) {
 					printf("Component::FromJson: unknown template entity '%s'.\n", template_name.c_str());
 				}
@@ -528,12 +548,43 @@ namespace HotBite {
 				json j;
 				if (data != nullptr) {
 					j["name"] = data->name;
+					//The animation sets attached to this mesh, under the names they were
+					//loaded with. The MeshData holds them as unnamed shared pointers, so
+					//the names have to be recovered from the world's skeleton collection
+					//- without them, an attachment could be made but never written back.
+					if (ctx.world != nullptr && !data->skeletons.empty()) {
+						json skeletons = json::array();
+						auto& named = ctx.world->GetSkeletons();
+						for (const std::string& name : named.Keys()) {
+							std::shared_ptr<Core::Skeleton>* skl = named.Get(name);
+							if (skl == nullptr) {
+								continue;
+							}
+							for (const auto& attached : data->skeletons) {
+								if (attached == *skl) {
+									skeletons.push_back(name);
+									break;
+								}
+							}
+						}
+						if (!skeletons.empty()) {
+							j["skeletons"] = skeletons;
+						}
+					}
 				}
 				const std::string anim = GetCurrentAnimationName();
 				if (!anim.empty()) {
 					j["animation"] = anim;
 					j["animation_loop"] = current_animation.loop;
 					j["animation_speed"] = current_animation.speed;
+				}
+				else if (data != nullptr && !data->skeletons.empty() && current_animation.id < 0) {
+					//StopAnimation was called on a mesh that *can* animate: an explicit
+					//"none", which is authoring data - it is how an entity turns off the
+					//animation its template or its mesh's default would otherwise play.
+					//A mesh that simply never chose one (SetData leaves id 0) writes no
+					//key at all and keeps that default.
+					j["animation"] = "";
 				}
 				return j;
 			}
@@ -542,11 +593,17 @@ namespace HotBite {
 				if (ctx.world == nullptr) {
 					return;
 				}
+				//Resolved first and installed once at the end, because attaching an
+				//animation set has to happen *before* SetData: SetData caches the first
+				//skeleton and sizes the joint buffers from it, so a set attached
+				//afterwards would leave the entity holding an animation it cannot play
+				//until something else re-set its mesh data.
+				Core::MeshData* target = GetData();
 				ECS::Entity te = ResolveTemplateEntity(j, ctx);
 				if (te != ECS::INVALID_ENTITY_ID) {
 					ECS::Coordinator* tc = ctx.world->GetTemplatesCoordinator();
 					if (tc->ContainsComponent<Mesh>(te)) {
-						SetData(tc->GetComponent<Mesh>(te).GetData());
+						target = tc->GetComponent<Mesh>(te).GetData();
 					}
 				}
 				if (j.contains("name") && j["name"].is_string()) {
@@ -558,7 +615,7 @@ namespace HotBite {
 						found = ctx.world->GetDefaultMesh();
 					}
 					if (found != nullptr) {
-						SetData(found);
+						target = found;
 					}
 					else {
 						printf("Mesh::FromJson: unknown mesh '%s'.\n", mesh_name.c_str());
@@ -568,14 +625,59 @@ namespace HotBite {
 				//viewport straight away, and swappable for a real mesh afterwards. A
 				//null MeshData would just be an invisible entity that crashes anything
 				//reaching for its geometry.
-				if (GetData() == nullptr) {
-					SetData(ctx.world->GetDefaultMesh());
+				if (target == nullptr) {
+					target = ctx.world->GetDefaultMesh();
 				}
+
+				//Animation sets are attached to the (shared) MeshData, which is how the
+				//level's own "meshes" section has always done it - so this is the same
+				//global act, just expressible per entity and therefore authorable. It is
+				//what makes an animation nameable at all: Mesh::SetAnimation only ever
+				//searches the sets attached to the mesh.
+				bool attached_any = false;
+				if (target != nullptr && j.contains("skeletons") && j["skeletons"].is_array()) {
+					for (const auto& entry : j["skeletons"]) {
+						if (!entry.is_string()) {
+							continue;
+						}
+						const std::string skeleton_name = entry;
+						std::shared_ptr<Core::Skeleton>* skl =
+							ctx.world->GetSkeletons().Get(skeleton_name);
+						if (skl == nullptr) {
+							printf("Mesh::FromJson: unknown animation set '%s'.\n",
+								skeleton_name.c_str());
+							continue;
+						}
+						bool already = false;
+						for (const auto& existing : target->skeletons) {
+							if (existing == *skl) {
+								already = true;
+								break;
+							}
+						}
+						if (!already) {
+							target->AddSkeleton(*skl);
+							attached_any = true;
+						}
+					}
+				}
+				//Re-seating identical data would reset the running animation for nothing;
+				//a new attachment is exactly the case where it must be done.
+				if (target != GetData() || attached_any) {
+					SetData(target);
+				}
+
 				if (j.contains("animation") && j["animation"].is_string()) {
 					const std::string anim = j["animation"];
 					if (!anim.empty()) {
 						SetAnimation(anim, j.value("animation_loop", true), false, -1.0f,
 							j.value("animation_speed", 1.0f));
+					}
+					else {
+						//An explicit empty name is "play nothing" (see ToJson), which is a
+						//real instruction: an instance of an animated template has no other
+						//way to say it should stand still.
+						StopAnimation();
 					}
 				}
 			}
