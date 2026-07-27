@@ -711,6 +711,61 @@ const nlohmann::json* World::GetTemplateComponents(const std::string& name) cons
 	return (it != authored_templates.end()) ? &it->second : nullptr;
 }
 
+const nlohmann::json* World::GetTemplateParts(const std::string& name) const {
+	auto it = template_parts.find(name);
+	return (it != template_parts.end()) ? &it->second : nullptr;
+}
+
+bool World::IsComposedTemplate(const std::string& name) const {
+	const nlohmann::json* parts = GetTemplateParts(name);
+	return parts != nullptr && parts->is_array() && !parts->empty();
+}
+
+//The template a part entry points at, or "" for a malformed entry. One place, because
+//every walk of the part tree below has to agree on what a part references.
+static std::string PartTemplate(const nlohmann::json& part) {
+	if (!part.is_object() || !part.contains("template") || !part["template"].is_string()) {
+		return std::string();
+	}
+	return part["template"];
+}
+
+bool World::CanComposeTemplate(const std::string& name, const std::string& part_template) const {
+	if (name.empty() || part_template.empty()) {
+		return false;
+	}
+	if (name == part_template) {
+		return false;
+	}
+	//Would `part_template` reach `name` again through its own parts? Depth-first over
+	//the part graph, with a visited set so a cycle that does not involve `name` (which
+	//cannot exist, but a hand-edited file can still describe one) terminates too.
+	std::set<std::string> visited;
+	std::vector<std::string> pending{ part_template };
+	while (!pending.empty()) {
+		const std::string current = pending.back();
+		pending.pop_back();
+		if (!visited.insert(current).second) {
+			continue;
+		}
+		const nlohmann::json* parts = GetTemplateParts(current);
+		if (parts == nullptr || !parts->is_array()) {
+			continue;
+		}
+		for (const auto& part : *parts) {
+			const std::string referenced = PartTemplate(part);
+			if (referenced.empty()) {
+				continue;
+			}
+			if (referenced == name) {
+				return false;
+			}
+			pending.push_back(referenced);
+		}
+	}
+	return true;
+}
+
 //Templates only - models are their own registry (ListModels), and an imported
 //asset file has not been a placeable thing since they were separated.
 std::vector<std::string> World::ListTemplates() const {
@@ -741,6 +796,20 @@ static const char* TEMPLATE_ENTITY_COMPONENTS[] = {
 	Components::Material::NAME,
 	Components::Bounds::NAME,
 };
+
+bool World::CreateTemplate(const std::string& name, const nlohmann::json& components,
+	const nlohmann::json& parts, std::string& error) {
+	if (!CreateTemplate(name, components, error)) {
+		return false;
+	}
+	if (parts.is_array() && !parts.empty()) {
+		template_parts[name] = parts;
+	}
+	else {
+		template_parts.erase(name);
+	}
+	return true;
+}
 
 bool World::CreateTemplate(const std::string& name, const nlohmann::json& components,
 	std::string& error) {
@@ -826,6 +895,7 @@ bool World::RemoveTemplate(const std::string& name) {
 	}
 	template_entities.erase(name);
 	authored_templates.erase(name);
+	template_parts.erase(name);
 	return true;
 }
 
@@ -867,7 +937,7 @@ bool World::GetTemplateBaseTransform(const std::string& name, float3& position,
 }
 
 bool World::ReadTemplateFile(const std::string& file, bool relative, std::string& name,
-	nlohmann::json& components, std::string& error) {
+	nlohmann::json& components, nlohmann::json& parts, std::string& error) {
 	std::string full_path = file;
 	if (relative && file.find(":") == std::string::npos) {
 		full_path = path + file;
@@ -886,16 +956,19 @@ bool World::ReadTemplateFile(const std::string& file, bool relative, std::string
 	}
 	components = (definition.contains("components") && definition["components"].is_object())
 		? definition["components"] : nlohmann::json::object();
+	parts = (definition.contains("parts") && definition["parts"].is_array())
+		? definition["parts"] : nlohmann::json::array();
 	return true;
 }
 
 bool World::LoadTemplateFile(const std::string& file, bool relative, std::string& error) {
 	std::string name;
 	nlohmann::json components;
-	if (!ReadTemplateFile(file, relative, name, components, error)) {
+	nlohmann::json parts;
+	if (!ReadTemplateFile(file, relative, name, components, parts, error)) {
 		return false;
 	}
-	return CreateTemplate(name, components, error);
+	return CreateTemplate(name, components, parts, error);
 }
 
 bool World::SaveTemplateFile(const std::string& name, const std::string& file, std::string& error) {
@@ -907,6 +980,9 @@ bool World::SaveTemplateFile(const std::string& name, const std::string& file, s
 	nlohmann::json definition;
 	definition["name"] = name;
 	definition["components"] = *components;
+	if (const nlohmann::json* parts = GetTemplateParts(name); parts != nullptr && !parts->empty()) {
+		definition["parts"] = *parts;
+	}
 
 	std::error_code ec;
 	std::filesystem::create_directories(std::filesystem::path(file).parent_path(), ec);
@@ -1172,7 +1248,265 @@ void World::ParsePhysicsJson(const nlohmann::json& physics_json, Components::Phy
 	}
 }
 
+//A part entry's own transform, defaulted so a part that only names a template lands on
+//its root.
+static void ReadPartTransform(const nlohmann::json& part, float3& position, float4& rotation,
+	float3& scale) {
+	position = { 0.0f, 0.0f, 0.0f };
+	rotation = { 0.0f, 0.0f, 0.0f, 1.0f };
+	scale = { 1.0f, 1.0f, 1.0f };
+	if (part.contains("position")) {
+		const auto& p = part["position"];
+		position = { p.value("x", 0.0f), p.value("y", 0.0f), p.value("z", 0.0f) };
+	}
+	if (part.contains("rotation")) {
+		const auto& r = part["rotation"];
+		rotation = { r.value("x", 0.0f), r.value("y", 0.0f), r.value("z", 0.0f), r.value("w", 1.0f) };
+	}
+	if (part.contains("scale")) {
+		const auto& s = part["scale"];
+		scale = { s.value("x", 1.0f), s.value("y", 1.0f), s.value("z", 1.0f) };
+	}
+}
+
+//How far a spawn may descend through parts of parts. The cycle guard already refuses a
+//template that reaches itself; this catches a chain that is merely absurd before it
+//spawns thousands of entities.
+static constexpr int MAX_COMPOSED_DEPTH = 8;
+
+bool World::ComposedWorldPose(ECS::Entity e, float3& position, float4& rotation) const {
+	if (!coordinator->ContainsComponent<Components::Transform>(e)) {
+		return false;
+	}
+	const Components::Transform& t = coordinator->GetConstComponent<Components::Transform>(e);
+	position = t.position;
+	rotation = t.rotation;
+	if (!coordinator->ContainsComponent<Components::Base>(e)) {
+		return false;
+	}
+	//Only the position/rotation chain, because that is the only kind of parent a body
+	//can hang off: a bone-attached part never has one (its pose changes every frame, so
+	//a collider made from it would be stale immediately), which is what makes walking
+	//parents here equivalent to what StaticMeshSystem computes.
+	bool composed = false;
+	ECS::Entity parent = coordinator->GetConstComponent<Components::Base>(e).parent;
+	for (int depth = 0; parent != ECS::INVALID_ENTITY_ID && depth < MAX_COMPOSED_DEPTH; ++depth) {
+		if (!coordinator->ContainsComponent<Components::Transform>(parent) ||
+			!coordinator->ContainsComponent<Components::Base>(parent)) {
+			break;
+		}
+		const Components::Base& parent_base = coordinator->GetConstComponent<Components::Base>(parent);
+		const Components::Transform& pt = coordinator->GetConstComponent<Components::Transform>(parent);
+		vector3d offset = DirectX::XMVector3Transform(
+			DirectX::XMVectorSet(position.x, position.y, position.z, 1.0f),
+			DirectX::XMMatrixRotationQuaternion(XMLoadFloat4(&pt.rotation)));
+		DirectX::XMStoreFloat3(&position, offset);
+		position = ADD_F3_F3(pt.position, position);
+		rotation = quaternion_multiply(pt.rotation, rotation);
+		composed = true;
+		parent = parent_base.parent;
+	}
+	return composed;
+}
+
+void World::CollectInstanceNames(const std::string& instance_name, const std::string& template_name,
+	std::set<std::string>& chain, int depth, std::vector<std::string>& out)
+{
+	//Mirrors SpawnTemplateEntities' naming: a multi-part FBX template suffixes every
+	//node with its index (including the non-renderable ones it skips, so the indices of
+	//the entities that do exist never shift), a single-part one uses the name as given.
+	const size_t nodes = GetTemplateEntities(template_name).size();
+	if (nodes > 1) {
+		for (size_t i = 0; i < nodes; ++i) {
+			out.push_back(instance_name + "_" + std::to_string(i));
+		}
+	}
+	else {
+		out.push_back(instance_name);
+	}
+	const nlohmann::json* parts = GetTemplateParts(template_name);
+	if (parts == nullptr || !parts->is_array() || depth >= MAX_COMPOSED_DEPTH) {
+		return;
+	}
+	chain.insert(template_name);
+	for (const auto& part : *parts) {
+		const std::string part_name = part.value("name", std::string());
+		const std::string part_template = PartTemplate(part);
+		if (part_name.empty() || part_template.empty() || chain.count(part_template) != 0) {
+			continue;
+		}
+		CollectInstanceNames(instance_name + PART_NAME_SEPARATOR + part_name, part_template,
+			chain, depth + 1, out);
+	}
+	chain.erase(template_name);
+}
+
+std::vector<std::string> World::InstanceEntityNames(const std::string& instance_name,
+	const std::string& template_name)
+{
+	std::vector<std::string> names;
+	std::set<std::string> chain;
+	CollectInstanceNames(instance_name, template_name, chain, 0, names);
+	return names;
+}
+
 ECS::Entity World::SpawnInstance(const std::string& name, const std::string& template_name,
+	const float3& position, const float4& rotation, const float3& scale,
+	const std::string& material_name, const nlohmann::json* physics_json,
+	std::vector<ECS::Entity>* out_parts)
+{
+	std::set<std::string> chain;
+	return SpawnComposed(name, template_name, position, rotation, scale, material_name,
+		physics_json, out_parts, chain, 0);
+}
+
+ECS::Entity World::SpawnComposed(const std::string& name, const std::string& template_name,
+	const float3& position, const float4& rotation, const float3& scale,
+	const std::string& material_name, const nlohmann::json* physics_json,
+	std::vector<ECS::Entity>* out_parts, std::set<std::string>& chain, int depth)
+{
+	ECS::Entity primary = SpawnTemplateEntities(name, template_name, position, rotation, scale,
+		material_name, physics_json, out_parts);
+	const nlohmann::json* parts = GetTemplateParts(template_name);
+	if (primary == ECS::INVALID_ENTITY_ID || parts == nullptr || !parts->is_array()) {
+		return primary;
+	}
+	if (depth >= MAX_COMPOSED_DEPTH) {
+		printf("World::SpawnInstance: '%s' nests parts more than %d deep, stopping.\n",
+			template_name.c_str(), MAX_COMPOSED_DEPTH);
+		return primary;
+	}
+	chain.insert(template_name);
+
+	//Parts are placed in the root *entity's* frame: its rotation turns their offsets and
+	//its position carries them, which is exactly what Base::parent composition does - so
+	//an attached part and a detached one at the same offset land in the same place, and
+	//flipping "attach" never moves anything. The root's own scale is deliberately not
+	//applied: a part is a whole object with a scale of its own, and the instance's scale
+	//is what makes the assembly bigger.
+	const Components::Transform& root = coordinator->GetConstComponent<Components::Transform>(primary);
+	const matrix root_rotation = DirectX::XMMatrixRotationQuaternion(XMLoadFloat4(&root.rotation));
+
+	for (const auto& part : *parts) {
+		const std::string part_name = part.value("name", std::string());
+		const std::string part_template = PartTemplate(part);
+		if (part_name.empty() || part_template.empty()) {
+			printf("World::SpawnInstance: part of '%s' without a name or template, skipping.\n",
+				template_name.c_str());
+			continue;
+		}
+		if (chain.count(part_template) != 0) {
+			printf("World::SpawnInstance: part '%s' of '%s' would compose '%s' into itself, skipping.\n",
+				part_name.c_str(), template_name.c_str(), part_template.c_str());
+			continue;
+		}
+		const bool attach = part.value("attach", true);
+		const std::string bone = part.value("bone", std::string());
+
+		float3 part_position{};
+		float4 part_rotation{};
+		float3 part_scale{};
+		ReadPartTransform(part, part_position, part_rotation, part_scale);
+
+		float3 spawn_position = part_position;
+		float4 spawn_rotation = part_rotation;
+		float3 spawn_scale = part_scale;
+		if (!bone.empty() && attach) {
+			//A socket offset is expressed in the parent mesh's own space, and the whole
+			//chain up to the world - the parent's scale included - is applied by
+			//StaticMeshSystem through the parent's world matrix. Composing anything in
+			//here would apply it twice.
+		}
+		else {
+			spawn_position = MULT_F3_F3(part_position, scale);
+			spawn_scale = MULT_F3_F3(part_scale, scale);
+			if (!attach) {
+				//Detached: there is no parent to compose anything later, so the root's
+				//pose is baked in now.
+				vector3d offset = DirectX::XMVector3Transform(
+					DirectX::XMVectorSet(spawn_position.x, spawn_position.y, spawn_position.z, 1.0f),
+					root_rotation);
+				float3 rotated{};
+				DirectX::XMStoreFloat3(&rotated, offset);
+				spawn_position = ADD_F3_F3(root.position, rotated);
+				spawn_rotation = quaternion_multiply(root.rotation, part_rotation);
+			}
+		}
+
+		//A rigid body on an attached part is either stale or actively wrong - see the
+		//composed-template block in World.h.
+		const bool suppress_physics = attach;
+
+		std::vector<ECS::Entity> part_entities;
+		ECS::Entity part_primary = SpawnComposed(name + PART_NAME_SEPARATOR + part_name,
+			part_template, spawn_position, spawn_rotation, spawn_scale, std::string(), nullptr,
+			&part_entities, chain, depth + 1);
+		if (part_primary == ECS::INVALID_ENTITY_ID) {
+			continue;
+		}
+		if (suppress_physics) {
+			nlohmann::json strip;
+			strip["remove"] = nlohmann::json::array({ Components::Physics::NAME });
+			for (ECS::Entity e : part_entities) {
+				bool remove = !bone.empty();
+				if (!remove && coordinator->ContainsComponent<Components::Physics>(e)) {
+					//A static body is kept and seated at the composed pose; a simulated one
+					//would drive the Transform and silently undo the attachment.
+					remove = coordinator->GetConstComponent<Components::Physics>(e).type !=
+						reactphysics3d::BodyType::STATIC;
+				}
+				if (remove) {
+					//Applied even when there is no Physics component to take away: what this
+					//records is the *removal*, which is what stops World::Init handing a
+					//default static body to a part whose pose changes every frame. Without
+					//it a bone-riding part loads with a collider at whatever the joint
+					//offset points to from the world origin.
+					ApplyComponents(e, strip);
+				}
+			}
+		}
+		if (attach) {
+			//Only the part's own primary is parented: the rest of a multi-part part are
+			//siblings of it in the same spawn, already placed relative to the same pose.
+			Components::Base& base = coordinator->GetComponent<Components::Base>(part_primary);
+			base.parent = primary;
+			base.parent_position = true;
+			base.parent_rotation = true;
+			base.parent_bone = bone;
+			base.parent_joint = Components::Base::UNRESOLVED_JOINT;
+			coordinator->GetComponent<Components::Transform>(part_primary).dirty = true;
+			//A STATIC body that survived the strip above was built from the Transform,
+			//which is now an offset from the root rather than a place in the world.
+			if (coordinator->ContainsComponent<Components::Physics>(part_primary)) {
+				Components::Physics& p = coordinator->GetComponent<Components::Physics>(part_primary);
+				float3 world_position{};
+				float4 world_rotation{};
+				if (p.body != nullptr && ComposedWorldPose(part_primary, world_position, world_rotation)) {
+					std::lock_guard<std::recursive_mutex> lock(Core::physics_mutex);
+					reactphysics3d::Transform bt(
+						{ world_position.x, world_position.y, world_position.z },
+						{ world_rotation.x, world_rotation.y, world_rotation.z, world_rotation.w });
+					p.body->setTransform(bt);
+					p.last_body_transform = bt;
+				}
+			}
+		}
+		if (part.contains("components") && part["components"].is_object()) {
+			nlohmann::json record;
+			record["components"] = part["components"];
+			for (ECS::Entity e : part_entities) {
+				ApplyComponents(e, record);
+			}
+		}
+		if (out_parts != nullptr) {
+			out_parts->insert(out_parts->end(), part_entities.begin(), part_entities.end());
+		}
+	}
+	chain.erase(template_name);
+	return primary;
+}
+
+ECS::Entity World::SpawnTemplateEntities(const std::string& name, const std::string& template_name,
 	const float3& position, const float4& rotation, const float3& scale,
 	const std::string& material_name, const nlohmann::json* physics_json,
 	std::vector<ECS::Entity>* out_parts)
@@ -1380,8 +1714,36 @@ void World::LoadInstances(const nlohmann::json& instances_json) {
 		std::vector<ECS::Entity> parts;
 		SpawnInstance(name, template_name, position, rotation, scale, material_name,
 			physics_json, &parts);
+		//The record's own block belongs to the object it names, not to the other objects
+		//composed into it: a "Physics" override written for the troll must not also land
+		//on the sword it carries. A composed part is addressed by its own name instead,
+		//under "parts".
+		std::set<std::string> root_names;
+		const size_t nodes = GetTemplateEntities(template_name).size();
+		if (nodes > 1) {
+			for (size_t i = 0; i < nodes; ++i) {
+				root_names.insert(name + "_" + std::to_string(i));
+			}
+		}
+		else {
+			root_names.insert(name);
+		}
 		for (ECS::Entity part : parts) {
-			ApplyComponents(part, instance);
+			if (root_names.count(coordinator->GetConstComponent<Components::Base>(part).name) != 0) {
+				ApplyComponents(part, instance);
+			}
+		}
+		if (instance.contains("parts") && instance["parts"].is_object()) {
+			for (const auto& [part_name, part_entry] : instance["parts"].items()) {
+				const std::string entity_name = name + World::PART_NAME_SEPARATOR + part_name;
+				ECS::Entity e = coordinator->GetEntityByName(entity_name);
+				if (e == ECS::INVALID_ENTITY_ID) {
+					printf("World::LoadInstances: instance '%s' overrides unknown part '%s'.\n",
+						name.c_str(), part_name.c_str());
+					continue;
+				}
+				ApplyComponents(e, part_entry);
+			}
 		}
 	}
 }
@@ -1444,7 +1806,9 @@ bool World::Load(const std::string& scene_file, float* progress, std::function<v
 		//are only complete once those sections have run. Creating them here would
 		//resolve every material to the default white one instead - silently, and for
 		//every instance of the template.
-		std::vector<std::pair<std::string, json>> authored_templates_to_create;
+		//name, components, parts - see CreateTemplate and the composed-template block in
+		//World.h for the third.
+		std::vector<std::tuple<std::string, json, json>> authored_templates_to_create;
 		if (jw.contains("templates")) {
 			auto& template_files = jw["templates"];
 			for (json& t : template_files) {
@@ -1454,7 +1818,8 @@ bool World::Load(const std::string& scene_file, float* progress, std::function<v
 						printf("World::Load: inline template without a \"name\", skipping.\n");
 						continue;
 					}
-					authored_templates_to_create.push_back({ name, t["components"] });
+					authored_templates_to_create.push_back({ name, t["components"],
+						(t.contains("parts") && t["parts"].is_array()) ? t["parts"] : json::array() });
 					continue;
 				}
 				if (!t.contains("file") || !t["file"].is_string()) {
@@ -1465,9 +1830,10 @@ bool World::Load(const std::string& scene_file, float* progress, std::function<v
 				if (std::filesystem::path(file).extension() == ".tpl") {
 					std::string name;
 					json components;
+					json parts;
 					std::string error;
-					if (ReadTemplateFile(file, true, name, components, error)) {
-						authored_templates_to_create.push_back({ name, components });
+					if (ReadTemplateFile(file, true, name, components, parts, error)) {
+						authored_templates_to_create.push_back({ name, components, parts });
 					}
 					else {
 						//A missing or malformed template must not abort the level: the
@@ -1530,9 +1896,9 @@ bool World::Load(const std::string& scene_file, float* progress, std::function<v
 		//Authored templates, now that the materials and animation sets their component
 		//blocks name by are all in place (see the templates phase above for why this is
 		//not done up there).
-		for (auto& [name, components] : authored_templates_to_create) {
+		for (auto& [name, components, parts] : authored_templates_to_create) {
 			std::string error;
-			if (!CreateTemplate(name, components, error)) {
+			if (!CreateTemplate(name, components, parts, error)) {
 				printf("World::Load: %s\n", error.c_str());
 			}
 		}
@@ -1811,6 +2177,12 @@ void World::Init() {
 			if (shape == nullptr) {
 				printf("No shape for mesh %s\n", e.first.c_str());
 			}
+			//An attached part's Transform holds an offset from its root, not a place in
+			//the world, so its body goes where the composition puts it. For everything
+			//else this is the entity's own pose, unchanged.
+			float3 body_position = t.position;
+			float4 body_rotation = t.rotation;
+			ComposedWorldPose(e.second, body_position, body_rotation);
 			if (p.body != nullptr) {
 				//A body its own component block already created (Physics::FromJson builds
 				//one so that a Physics block in a level record is not inert). Init-ing
@@ -1822,14 +2194,14 @@ void World::Init() {
 				//applied in key order, and "Physics" sorts before "Transform".
 				std::lock_guard<std::recursive_mutex> lock(physics_mutex);
 				reactphysics3d::Transform bt(
-					{ t.position.x, t.position.y, t.position.z },
-					{ t.rotation.x, t.rotation.y, t.rotation.z, t.rotation.w });
+					{ body_position.x, body_position.y, body_position.z },
+					{ body_rotation.x, body_rotation.y, body_rotation.z, body_rotation.w });
 				p.body->setTransform(bt);
 				p.last_body_transform = bt;
 				p.UpdateShape(shape, b.local_box, t.scale, t.rotation);
 				continue;
 			}
-			p.Init(phys_world, p.type, shape, b.local_box, t.position, t.scale, t.rotation, p.shape);
+			p.Init(phys_world, p.type, shape, b.local_box, body_position, t.scale, body_rotation, p.shape);
 			
 		}
 	}	

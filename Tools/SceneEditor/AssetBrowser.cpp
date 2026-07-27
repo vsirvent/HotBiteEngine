@@ -204,22 +204,13 @@ namespace HotBiteEditor {
 			return true;
 		}
 
-		//SpawnInstance names multi-part instances "<name>_<index>" per part and
-		//single-part ones plain "<name>"; this mirrors that.
+		//Asked of the engine rather than reproduced here: the naming is SpawnInstance's,
+		//and a composed template's parts make it more than "<name>_<index>" (see
+		//World::InstanceEntityNames).
 		std::vector<std::string> InstancePartNames(EditorState& state,
 			const std::string& instance_name, const std::string& template_name)
 		{
-			std::vector<std::string> part_names;
-			size_t parts = state.world->GetTemplateEntities(template_name).size();
-			if (parts > 1) {
-				for (size_t i = 0; i < parts; ++i) {
-					part_names.push_back(instance_name + "_" + std::to_string(i));
-				}
-			}
-			else {
-				part_names.push_back(instance_name);
-			}
-			return part_names;
+			return state.world->InstanceEntityNames(instance_name, template_name);
 		}
 
 		//Undo of a place / cut of an instance: destroys the instance's entities

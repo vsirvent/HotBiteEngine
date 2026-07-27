@@ -55,6 +55,10 @@ namespace HotBiteEditor {
 			bool exists = false;
 			bool inline_in_level = false;
 			nlohmann::json components = nlohmann::json::object();
+			//The composed template's parts, if any (see the Parts block below). Held in
+			//the same snapshot as the components so one undo step covers a template
+			//whichever half of it an edit touched.
+			nlohmann::json parts = nlohmann::json::array();
 		};
 
 		// Components an authored template always carries, because they are exactly
@@ -85,12 +89,79 @@ namespace HotBiteEditor {
 		// placeable and ready to be pointed at real assets. Selects it.
 		bool CreateTemplate(EditorState& state, const std::string& name, std::string& error);
 
+		// == A composed template's parts ==========================================
+		//
+		// A template may carry other templates as parts: a troll with its sword and its
+		// armour, a house made of six pieces. A part is a *reference* to another
+		// template, so the same sword can be a part of any number of composed templates
+		// and editing it reaches all of them; World.h's composed-template block is the
+		// engine half, including what `attach` and `bone` do and why an attached part
+		// cannot carry a rigid body of its own.
+		//
+		// Offsets are in the root entity's own frame: its rotation turns them, its
+		// position carries them, and its scale does not apply (a part is a whole object
+		// with a scale of its own). For a part riding a bone they are relative to that
+		// joint, in the root mesh's space - which is where the root's scale *does* come
+		// in, so a part on a model authored in centimetres carries a scale to match.
+		struct TemplatePart {
+			std::string name;          // unique within the composed template
+			std::string template_name; // the template this part is
+			bool attach = true;        // parented to the root, or spawned free of it
+			std::string bone;          // joint of the root's skeleton, "" for the root itself
+			HotBite::Engine::float3 position{ 0.0f, 0.0f, 0.0f };
+			HotBite::Engine::float4 rotation{ 0.0f, 0.0f, 0.0f, 1.0f };
+			HotBite::Engine::float3 scale{ 1.0f, 1.0f, 1.0f };
+			nlohmann::json components = nlohmann::json::object(); // per-part overrides
+		};
+
+		std::vector<TemplatePart> ListParts(const EditorState& state, const std::string& name);
+		bool IsComposed(const EditorState& state, const std::string& name);
+		// The templates that can be added to `name` as a part: every other template that
+		// does not reach `name` through its own parts (World::CanComposeTemplate), so a
+		// cycle is refused where it is authored rather than where it would hang.
+		std::vector<std::string> ListComposableTemplates(const EditorState& state,
+			const std::string& name);
+		// Adds `part_template` under a part name derived from it, at the root's origin.
+		// `out_part_name`, when given, receives the name it ended up with.
+		bool AddPart(EditorState& state, const std::string& name, const std::string& part_template,
+			std::string& error, std::string* out_part_name = nullptr);
+		bool RemovePart(EditorState& state, const std::string& name, const std::string& part_name,
+			std::string& error);
+		// Replaces the part named `part_name` wholesale. `SetPart` records history;
+		// `ApplyPart` is the same edit without it, for a drag that will record once when
+		// it ends - the pair the component editors already use.
+		bool SetPart(EditorState& state, const std::string& name, const std::string& part_name,
+			const TemplatePart& part, std::string& error);
+		bool ApplyPart(EditorState& state, const std::string& name, const std::string& part_name,
+			const TemplatePart& part, std::string& error);
+		// The joints a part of `name` can ride: the bones of the root mesh's skeleton,
+		// in index order. Empty when the root is not skinned, which is what makes the
+		// bone picker disable itself rather than offer nothing.
+		std::vector<std::string> ListRootBones(const EditorState& state, const std::string& name);
+
 		// A template built from a scene entity - the "make a prefab out of this" path.
 		// Every registered component the entity has is serialized into the template,
 		// minus its Transform position (a template is a *kind* of object, so it starts
 		// at the origin and the instance decides where it goes).
 		bool CreateFromEntity(EditorState& state, const std::string& entity_name,
 			const std::string& template_name, std::string& error);
+
+		// A composed template built from several scene entities - "arrange it in the
+		// scene, then save the arrangement". `entity_names` is the whole selection;
+		// `root_entity` is the one whose frame the others are placed in (and, unless
+		// `pivot_root`, the object the template *is*, with the rest hanging off it).
+		//
+		// With `pivot_root` the template's own body is an invisible marker at the root
+		// entity's pose and every selected entity becomes a part - which is what a house
+		// or a rock formation wants, there being no one piece that is the object.
+		//
+		// A selected entity that was placed from a template becomes a part referencing
+		// that template. Anything else gets a template created from it first
+		// (CreateFromEntity, under a name from UniqueTemplateName), because a part is a
+		// reference and there has to be something to refer to.
+		bool CreateFromSelection(EditorState& state, const std::vector<std::string>& entity_names,
+			const std::string& root_entity, bool pivot_root, const std::string& template_name,
+			std::string& error);
 
 		// A template built from an imported model - the "I want this .fbx in my scene"
 		// path, and the only one there is, since a model is not placeable itself. The

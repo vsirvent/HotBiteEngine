@@ -161,11 +161,47 @@ namespace HotBiteEditor {
 		//parent's rotation/translation when the Base flags enable them). Using the
 		//raw Transform fields here is what previously left the gizmo offset from
 		//the mesh on parented entities.
+		//The matrix that carries an attached entity's own transform into world space: the
+		//joint it rides, then the parent's whole world matrix. False when the entity is
+		//not riding a bone, which is the ordinary parent path below.
+		static bool GetSocketMatrix(Coordinator* c, const Base& base, matrix& out)
+		{
+			if (base.parent == INVALID_ENTITY_ID || base.parent_bone.empty() ||
+				!c->ContainsComponent<Components::Mesh>(base.parent) ||
+				!c->ContainsComponent<Transform>(base.parent)) {
+				return false;
+			}
+			Components::Mesh& parent_mesh = c->GetComponent<Components::Mesh>(base.parent);
+			matrix joint{};
+			const int index = (base.parent_joint >= 0) ? base.parent_joint
+				: parent_mesh.FindJoint(base.parent_bone);
+			if (index < 0 || !parent_mesh.GetJointPose(index, joint)) {
+				return false;
+			}
+			out = joint * c->GetComponent<Transform>(base.parent).world_xmmatrix;
+			return true;
+		}
+
 		static void GetWorldPivot(Coordinator* c, const Base& base, const Transform& t,
 			vector3d& pivot, vector4d& orientation)
 		{
 			pivot = XMLoadFloat3(&t.position);
 			orientation = XMLoadFloat4(&t.rotation);
+			matrix socket{};
+			if (GetSocketMatrix(c, base, socket)) {
+				//Riding a joint: the offset is in the parent mesh's space, so the whole
+				//chain from there to the world is one matrix. Decomposing it is the only
+				//way to get an orientation out - the socket carries the parent's scale,
+				//which a quaternion cannot.
+				pivot = XMVector3Transform(pivot, socket);
+				vector3d socket_scale{};
+				vector4d socket_rotation{};
+				vector3d socket_translation{};
+				if (XMMatrixDecompose(&socket_scale, &socket_rotation, &socket_translation, socket)) {
+					orientation = XMQuaternionMultiply(orientation, socket_rotation);
+				}
+				return;
+			}
 			if (base.parent != INVALID_ENTITY_ID && c->ContainsComponent<Transform>(base.parent)) {
 				const Transform& pt = c->GetComponent<Transform>(base.parent);
 				if (base.parent_rotation) {
@@ -184,6 +220,12 @@ namespace HotBiteEditor {
 		static float3 WorldPivotToLocal(Coordinator* c, const Base& base, const vector3d& world_pivot)
 		{
 			vector3d local = world_pivot;
+			matrix socket{};
+			if (GetSocketMatrix(c, base, socket)) {
+				float3 out;
+				XMStoreFloat3(&out, XMVector3Transform(local, XMMatrixInverse(nullptr, socket)));
+				return out;
+			}
 			if (base.parent != INVALID_ENTITY_ID && c->ContainsComponent<Transform>(base.parent)) {
 				const Transform& pt = c->GetComponent<Transform>(base.parent);
 				if (base.parent_position) {

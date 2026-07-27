@@ -135,6 +135,13 @@ namespace HotBite {
 				data = mesh;
 				joint_cpu_data.clear();
 				joint_gpu_data.clear();
+				joint_pose_scratch.clear();
+				{
+					//A new mesh means new joints; anything socketed to the old ones reads
+					//"no pose" until Update has filled the new set.
+					Core::AutoLock pose_lock(joint_pose_lock);
+					joint_pose_data.clear();
+				}
 				if (data != nullptr && !data->skeletons.empty()) {
 					current_animation.skeleton = data->skeletons[0];
 					joint_gpu_data.resize(current_animation.skeleton->CpuData().size());
@@ -270,8 +277,61 @@ namespace HotBite {
 				return current_animation.key_frame;
 			}
 
-			matrix Mesh::GetAnimationMatrix(int64_t elapsed_nsec, int64_t total_nsec, std::vector<Core::JointCpuData>* cpu_data, int joint_id, Animation& anim) {
+			int Mesh::FindJoint(const std::string& name) const {
+				if (name.empty() || current_animation.skeleton == nullptr) {
+					return -1;
+				}
+				const std::vector<Core::JointCpuData>& joints = current_animation.skeleton->CpuData();
+				for (int i = 0; i < (int)joints.size(); ++i) {
+					if (joints[i].name == name) {
+						return i;
+					}
+				}
+				return -1;
+			}
+
+			std::vector<std::string> Mesh::GetJointNames() const {
+				std::vector<std::string> names;
+				if (current_animation.skeleton == nullptr) {
+					return names;
+				}
+				const std::vector<Core::JointCpuData>& joints = current_animation.skeleton->CpuData();
+				names.reserve(joints.size());
+				for (const Core::JointCpuData& joint : joints) {
+					names.push_back(joint.name);
+				}
+				return names;
+			}
+
+			void Mesh::TrackJoints() {
+				//Just the flag: Update does the sizing, under the pose lock. Turning
+				//tracking on therefore costs the first reader one frame of "no pose yet",
+				//which is why GetJointPose's false means "compose without the socket"
+				//rather than "the joint is at the origin".
+				track_joints = true;
+			}
+
+			bool Mesh::GetJointPose(int index, matrix& out) const {
+				if (index < 0 || current_animation.id < 0) {
+					return false;
+				}
+				Core::AutoLock lock(joint_pose_lock);
+				if (index >= (int)joint_pose_data.size()) {
+					return false;
+				}
+				out = joint_pose_data[index];
+				return true;
+			}
+
+			matrix Mesh::GetAnimationMatrix(int64_t elapsed_nsec, int64_t total_nsec, std::vector<Core::JointCpuData>* cpu_data, int joint_id, Animation& anim, matrix* pose) {
 				matrix ret = DirectX::XMMatrixIdentity();
+				//`pose` is the same blend without the inverse bind pose: where the joint
+				//*is*, rather than how it moves a vertex. It is handed out here because
+				//this is the only place the blend exists; recomputing it outside would
+				//mean interpolating the keyframes a second time.
+				if (pose != nullptr) {
+					*pose = ret;
+				}
 				//An Animation that is not playing carries id -1 (StopAnimation, or one
 				//that never resolved a name), and a joint of another skeleton need not
 				//have as many animations as that id assumes. Either way there is no
@@ -316,7 +376,11 @@ namespace HotBite {
 					matrix m1 = XMLoadFloat4x4(&animation->key_frames[k1].transform);
 					matrix bp = XMLoadFloat4x4(&data->skeletons[0]->CpuData()[joint_id].model_to_bindpose);
 
-					ret = bp * (m0 * w0 + m1 * w1);
+					const matrix joint_pose = m0 * w0 + m1 * w1;
+					if (pose != nullptr) {
+						*pose = joint_pose;
+					}
+					ret = bp * joint_pose;
 					if (!animation->key_frames.empty() && (k1 + 1) >= animation->key_frames.size() && coordinator != nullptr) {
 						end_animation_event.SetParam(EVENT_PARAM_ANIMATION_ID, anim.id);
 						end_animation_event.SetParam(EVENT_PARAM_ANIMATION_NAME, anim.name);
@@ -364,17 +428,38 @@ namespace HotBite {
 						w0 = 0.0f;
 					}
 					if (current_animation.id >= 0) {
+						if (track_joints && joint_pose_scratch.size() != current_cpu_data->size()) {
+							//Sized against the skeleton actually playing: a clip from another
+							//set has its own joint count, and the socket indices are re-derived
+							//from it.
+							joint_pose_scratch.assign(current_cpu_data->size(), DirectX::XMMatrixIdentity());
+						}
 						matrix m;
-						for (int i = 0; i < current_cpu_data->size(); ++i) {							
-							if (w0 > 0.0f) {								
-								m = GetAnimationMatrix(elapsed_nsec, total_nsec, prev_cpu_data, i, previous_animation) * w0 +
-									GetAnimationMatrix(elapsed_nsec, total_nsec, current_cpu_data, i, current_animation) * w1;		
+						matrix pose_prev;
+						matrix pose_cur;
+						for (int i = 0; i < current_cpu_data->size(); ++i) {
+							if (w0 > 0.0f) {
+								m = GetAnimationMatrix(elapsed_nsec, total_nsec, prev_cpu_data, i, previous_animation, track_joints ? &pose_prev : nullptr) * w0 +
+									GetAnimationMatrix(elapsed_nsec, total_nsec, current_cpu_data, i, current_animation, track_joints ? &pose_cur : nullptr) * w1;
+								if (track_joints) {
+									joint_pose_scratch[i] = pose_prev * w0 + pose_cur * w1;
+								}
 							}
 							else {
-								m = GetAnimationMatrix(elapsed_nsec, total_nsec, current_cpu_data, i, current_animation);
+								m = GetAnimationMatrix(elapsed_nsec, total_nsec, current_cpu_data, i, current_animation, track_joints ? &pose_cur : nullptr);
+								if (track_joints) {
+									joint_pose_scratch[i] = pose_cur;
+								}
 							}
 							DirectX::XMStoreFloat4x4(&joint_gpu_data[i].skinning_matrix, XMMatrixTranspose(m));
-						}						
+						}
+						if (track_joints) {
+							//Published in one step, after the last animation event has been
+							//sent: nothing but this swap and GetJointPose's copy ever runs
+							//under the pose lock.
+							Core::AutoLock pose_lock(joint_pose_lock);
+							joint_pose_data.swap(joint_pose_scratch);
+						}
 					}
 					if (animation_change_current_time < animation_change_time) {
 						animation_change_current_time += elapsed_nsec / 1000000;
@@ -426,6 +511,9 @@ namespace HotBite {
 						j["parent"] = parent_name;
 						j["parent_position"] = parent_position;
 						j["parent_rotation"] = parent_rotation;
+						if (!parent_bone.empty()) {
+							j["parent_bone"] = parent_bone;
+						}
 					}
 				}
 				return j;
@@ -440,6 +528,10 @@ namespace HotBite {
 				pass = j.value("pass", pass);
 				parent_position = j.value("parent_position", parent_position);
 				parent_rotation = j.value("parent_rotation", parent_rotation);
+				if (j.contains("parent_bone") && j["parent_bone"].is_string()) {
+					parent_bone = j["parent_bone"];
+					parent_joint = UNRESOLVED_JOINT;
+				}
 				if (j.contains("draw_method") && j["draw_method"].is_string()) {
 					draw_method = (j["draw_method"] == "always") ? eDrawMethod::DRAW_ALWAYS
 						: eDrawMethod::DRAW_SCREEN;
@@ -452,6 +544,7 @@ namespace HotBite {
 						ECS::Entity pe = ctx.coordinator->GetEntityByName(parent_name);
 						if (pe != ECS::INVALID_ENTITY_ID) {
 							parent = pe;
+							parent_joint = UNRESOLVED_JOINT;
 						}
 						else {
 							printf("Base::FromJson: unknown parent entity '%s'.\n", parent_name.c_str());

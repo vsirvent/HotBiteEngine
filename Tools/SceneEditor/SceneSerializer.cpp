@@ -368,6 +368,15 @@ namespace HotBiteEditor {
 				}
 				(*target)["name"] = name;
 				(*target)["components"] = *components;
+				const json* parts = state.world->GetTemplateParts(name);
+				if (parts != nullptr && !parts->empty()) {
+					(*target)["parts"] = *parts;
+				}
+				else {
+					//A template that stopped being composed must stop carrying the parts
+					//of the version that was.
+					target->erase("parts");
+				}
 			};
 			//Templates are always listed: they are this project's own content, and one
 			//with no instances yet is still worth keeping.

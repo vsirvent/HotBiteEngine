@@ -112,6 +112,11 @@ namespace HotBite {
 			//from an FBX, by template name. See CreateTemplate for what this holds and
 			//why it is kept beside the template entity instead of on it.
 			std::map<std::string, nlohmann::json> authored_templates;
+			//The parts of the composed templates, by template name (see the Composed
+			//templates block in the public section). Kept beside the components rather
+			//than inside them because a part is not a component of the root: it is
+			//another whole object, spawned as an entity of its own.
+			std::map<std::string, nlohmann::json> template_parts;
 			//Clone entity name -> root source entity name, so Init() can resolve the
 			//collision ShapeData of clones created during Load() (shapes are keyed by
 			//the original FBX entity name).
@@ -173,6 +178,27 @@ namespace HotBite {
 							ECS::Coordinator* c, Core::VertexBuffer<Core::Vertex>* vb, bool use_animation_names = false);
 			void LoadInstances(const nlohmann::json& instances_json);
 			static void ParsePhysicsJson(const nlohmann::json& physics_json, Components::Physics& physics);
+			// The two halves of SpawnInstance. SpawnTemplateEntities creates the entities
+			// one template describes (one per renderable FBX node, or the single entity of
+			// an authored one) and knows nothing about parts; SpawnComposed wraps it and
+			// walks the part tree, carrying the chain of templates already being spawned
+			// so a cycle is refused rather than followed.
+			ECS::Entity SpawnTemplateEntities(const std::string& name, const std::string& template_name,
+							const float3& position, const float4& rotation, const float3& scale,
+							const std::string& material_name, const nlohmann::json* physics_json,
+							std::vector<ECS::Entity>* out_parts);
+			// Where an entity actually is once its parents are composed in, which for an
+			// attached part is not what its own Transform says (that holds the offset).
+			// False - and the entity's own pose - when it has no parent. Anything placing
+			// a rigid body has to go through this, or a part's collider sits at the
+			// offset, i.e. wherever that offset happens to point from the world origin.
+			bool ComposedWorldPose(ECS::Entity e, float3& position, float4& rotation) const;
+			void CollectInstanceNames(const std::string& instance_name, const std::string& template_name,
+							std::set<std::string>& chain, int depth, std::vector<std::string>& out);
+			ECS::Entity SpawnComposed(const std::string& name, const std::string& template_name,
+							const float3& position, const float4& rotation, const float3& scale,
+							const std::string& material_name, const nlohmann::json* physics_json,
+							std::vector<ECS::Entity>* out_parts, std::set<std::string>& chain, int depth);
 
 		public:
 
@@ -272,6 +298,73 @@ namespace HotBite {
 			// a placeable thing.
 			virtual bool CreateTemplate(const std::string& name, const nlohmann::json& components,
 							std::string& error);
+
+			// --- Composed templates -------------------------------------------------
+			//
+			// A template may also declare *parts*: other templates, placed relative to
+			// its root. That is what makes "a troll carrying this sword", "these six
+			// pieces are one house" or "this armour goes on that body" one placeable
+			// thing instead of an assembly to be redone by hand in every level.
+			//
+			//   [ { "name":     "sword",        // unique within this template
+			//       "template": "iron_sword",   // any other template, by name
+			//       "attach":   true,           // parent to the root and follow it
+			//       "bone":     "hand_r",       // ride a joint of the root's skeleton
+			//       "position"/"rotation"/"scale",   // relative to the root (or the bone)
+			//       "components": { ... } } ]   // overrides on top of that template
+			//
+			// A part is a *reference*, resolved when an instance is spawned. Nothing is
+			// copied, so one sword template can be a part of any number of composed
+			// templates and editing it reaches all of them; and since resolution happens
+			// at spawn, the order templates are declared in never matters. A part may
+			// itself be composed - the tree is walked recursively, with a cycle guard,
+			// because a template that contained itself would spawn until the process
+			// died.
+			//
+			// `attach` is the difference between an object and a pile:
+			//
+			//   true  - the part is parented to the root (Base::parent, plus
+			//           Base::parent_bone for a socket), so moving the root moves it and
+			//           an animated root carries it. Its Transform holds the *offset*.
+			//   false - the part is spawned at the composed world pose as an entity of
+			//           its own, linked to nothing. Right for scenery whose pieces each
+			//           carry their own collision and never move again.
+			//
+			// Physics follows from that, and this is the rule the editor states too: a
+			// bone-attached part gets no rigid body (its pose changes every frame, so a
+			// collider would be stale the instant it was made), an attached part with a
+			// DYNAMIC or KINEMATIC body has it dropped (PhysicsSystem writes body poses
+			// straight into the Transform and would silently overwrite the attachment),
+			// and an attached STATIC body is created at the composed world pose. A
+			// composed object that *moves* must carry its collision on the root.
+			virtual const nlohmann::json* GetTemplateParts(const std::string& name) const;
+			virtual bool IsComposedTemplate(const std::string& name) const;
+			// Registers a template and its parts in one step. The two-argument overload
+			// above is this one with no parts, and leaves any parts the template already
+			// had alone - so editing a composed template's components does not silently
+			// decompose it.
+			virtual bool CreateTemplate(const std::string& name, const nlohmann::json& components,
+							const nlohmann::json& parts, std::string& error);
+			// Whether `part_template` can be a part of `name` - false when it is `name`
+			// itself or reaches it through its own parts. Everything that adds a part
+			// asks first, so the cycle is refused where it is authored rather than where
+			// it would hang.
+			virtual bool CanComposeTemplate(const std::string& name, const std::string& part_template) const;
+
+			// Every entity name spawning `instance_name` from `template_name` produces,
+			// in spawn order: the instance itself (or "<instance>_<n>" for each node of a
+			// multi-part FBX template), followed by "<instance>__<part>" for each part,
+			// recursively.
+			//
+			// The naming lives here because SpawnInstance is what applies it, and
+			// anything that has to find an instance's entities afterwards - the editor's
+			// removal, its undo, the bookkeeping it re-derives on load - would otherwise
+			// reproduce the rule and drift from it.
+			virtual std::vector<std::string> InstanceEntityNames(const std::string& instance_name,
+							const std::string& template_name);
+			// What separates an instance from the part of it a name belongs to. Doubled
+			// so it cannot be confused with the "_<n>" a multi-part FBX template appends.
+			static constexpr const char* PART_NAME_SEPARATOR = "__";
 			// Destroys the template entity and forgets the definition. Entities already
 			// spawned from it are untouched - they own their own components.
 			virtual bool RemoveTemplate(const std::string& name);
@@ -319,7 +412,8 @@ namespace HotBite {
 			// *after* the level's materials and animation sets exist - see the comment
 			// on the templates phase there.
 			virtual bool ReadTemplateFile(const std::string& file, bool relative,
-							std::string& name, nlohmann::json& components, std::string& error);
+							std::string& name, nlohmann::json& components, nlohmann::json& parts,
+							std::string& error);
 			virtual bool LoadTemplateFile(const std::string& file, bool relative, std::string& error);
 			virtual bool SaveTemplateFile(const std::string& name, const std::string& file,
 							std::string& error);

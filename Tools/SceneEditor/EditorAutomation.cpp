@@ -1151,6 +1151,167 @@ namespace HotBiteEditor {
 					}
 				}
 			}
+			else if (cmd == "template_parts") {
+				//What a composed template is made of. Bones are reported too, since
+				//picking one is the next thing a caller does.
+				if (args.size() < 2) {
+					response_lines.push_back("ERR usage: template_parts <template name>");
+				}
+				else if (!TemplateOps::IsAuthored(state, args[1])) {
+					response_lines.push_back("ERR unknown template: " + args[1]);
+				}
+				else {
+					const std::vector<TemplateOps::TemplatePart> parts =
+						TemplateOps::ListParts(state, args[1]);
+					response_lines.push_back("OK " + std::to_string(parts.size()) +
+						" parts on template " + args[1]);
+					for (const TemplateOps::TemplatePart& part : parts) {
+						std::ostringstream os;
+						os << part.name << " is=" << part.template_name
+							<< " attached_to=" << (!part.attach ? "(free)"
+								: part.bone.empty() ? "root" : part.bone)
+							<< " pos=" << part.position.x << "," << part.position.y << "," << part.position.z
+							<< " scale=" << part.scale.x << "," << part.scale.y << "," << part.scale.z;
+						response_lines.push_back(os.str());
+					}
+					const std::vector<std::string> bones = TemplateOps::ListRootBones(state, args[1]);
+					if (!bones.empty()) {
+						std::ostringstream os;
+						os << "bones";
+						for (const std::string& bone : bones) {
+							os << " " << bone;
+						}
+						response_lines.push_back(os.str());
+					}
+				}
+			}
+			else if (cmd == "template_add_part") {
+				if (args.size() < 3) {
+					response_lines.push_back("ERR usage: template_add_part <template name>"
+						" <template to add as a part>");
+				}
+				else {
+					std::string part_name;
+					if (TemplateOps::AddPart(state, args[1], args[2], error, &part_name)) {
+						response_lines.push_back("OK " + args[1] + " + " + part_name +
+							" (" + args[2] + ")");
+					}
+					else {
+						response_lines.push_back("ERR " + error);
+					}
+				}
+			}
+			else if (cmd == "template_remove_part") {
+				if (args.size() < 3) {
+					response_lines.push_back("ERR usage: template_remove_part <template name> <part>");
+				}
+				else if (TemplateOps::RemovePart(state, args[1], args[2], error)) {
+					response_lines.push_back("OK " + args[1] + " - " + args[2]);
+				}
+				else {
+					response_lines.push_back("ERR " + error);
+				}
+			}
+			else if (cmd == "template_set_part") {
+				//Every field of a part in one edit, as a delta: what the JSON does not
+				//name keeps its current value. Single-quoted like template_set, for the
+				//same tokenizer reason.
+				if (args.size() < 4) {
+					response_lines.push_back("ERR usage: template_set_part <template name> <part>"
+						" <json: name/template/attach/bone/position/rotation/scale,"
+						" single-quoted>");
+				}
+				else {
+					std::string source = args[3];
+					std::replace(source.begin(), source.end(), '\'', '"');
+					json value;
+					bool parsed = true;
+					try {
+						value = json::parse(source);
+					}
+					catch (const std::exception& ex) {
+						parsed = false;
+						response_lines.push_back(std::string("ERR bad JSON: ") + ex.what());
+					}
+					if (parsed && !value.is_object()) {
+						parsed = false;
+						response_lines.push_back("ERR part value must be a JSON object");
+					}
+					if (parsed) {
+						TemplateOps::TemplatePart part;
+						bool found = false;
+						for (const TemplateOps::TemplatePart& existing :
+							TemplateOps::ListParts(state, args[1])) {
+							if (existing.name == args[2]) {
+								part = existing;
+								found = true;
+								break;
+							}
+						}
+						if (!found) {
+							response_lines.push_back("ERR unknown part: " + args[2]);
+						}
+						else {
+							part.name = value.value("name", part.name);
+							part.template_name = value.value("template", part.template_name);
+							part.attach = value.value("attach", part.attach);
+							part.bone = value.value("bone", part.bone);
+							if (value.contains("position")) {
+								const auto& p = value["position"];
+								part.position = { p.value("x", part.position.x),
+									p.value("y", part.position.y), p.value("z", part.position.z) };
+							}
+							if (value.contains("rotation")) {
+								const auto& r = value["rotation"];
+								part.rotation = { r.value("x", part.rotation.x),
+									r.value("y", part.rotation.y), r.value("z", part.rotation.z),
+									r.value("w", part.rotation.w) };
+							}
+							if (value.contains("scale")) {
+								const auto& s = value["scale"];
+								part.scale = { s.value("x", part.scale.x),
+									s.value("y", part.scale.y), s.value("z", part.scale.z) };
+							}
+							if (TemplateOps::SetPart(state, args[1], args[2], part, error)) {
+								response_lines.push_back("OK " + args[1] + " " + part.name);
+							}
+							else {
+								response_lines.push_back("ERR " + error);
+							}
+						}
+					}
+				}
+			}
+			else if (cmd == "template_from_selection") {
+				//The composed half of template_from_entity: the whole selection becomes
+				//one template, the primary (or a named entity) being the root.
+				if (args.size() < 2) {
+					response_lines.push_back("ERR usage: template_from_selection <template name>"
+						" [root entity] [pivot]");
+				}
+				else {
+					std::vector<std::string> names;
+					Coordinator* c = state.world->GetCoordinator();
+					for (Entity e : state.selected_entities) {
+						if (c != nullptr && c->ContainsComponent<Base>(e)) {
+							names.push_back(c->GetConstComponent<Base>(e).name);
+						}
+					}
+					const bool pivot = (args.size() > 3 && args[3] == "pivot") ||
+						(args.size() > 2 && args[2] == "pivot");
+					std::string root = (args.size() > 2 && args[2] != "pivot") ? args[2]
+						: (names.empty() ? std::string() : names.back());
+					if (names.empty()) {
+						response_lines.push_back("ERR nothing selected");
+					}
+					else if (TemplateOps::CreateFromSelection(state, names, root, pivot, args[1], error)) {
+						response_lines.push_back("OK " + state.status_message);
+					}
+					else {
+						response_lines.push_back("ERR " + error);
+					}
+				}
+			}
 			else if (cmd == "save_templates") {
 				if (TemplateOps::SaveTemplates(state, error)) {
 					response_lines.push_back("OK " + state.status_message);

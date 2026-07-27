@@ -103,6 +103,11 @@ directory so relative asset paths in level files resolve the same way the other 
 | `template_add_component <template> <Component>` | adds a component with default values |
 | `template_remove_component <template> <Component>` | removes one. `Base`/`Transform`/`Mesh`/`Material`/`Bounds` are refused: they are what makes a template placeable |
 | `template_set <template> <Component> <json>` | add-or-update a whole component block. **Write the JSON with single quotes** (`"{'type':'DYNAMIC'}"`) — the tokenizer treats a double quote as an argument delimiter and strips it |
+| `template_parts <template>` | what a composed template carries: each part's name, the template it is, what it is attached to (`root`, a bone name, or `(free)`) and its offset/scale. Also lists the bones a part could ride, when the root is skinned |
+| `template_add_part <template> <part template>` | adds another template as a part, at the root's origin, attached to the root. Refused when it would compose a template into itself. The `OK` line reports the part name it got |
+| `template_remove_part <template> <part>` | drops a part |
+| `template_set_part <template> <part> <json>` | edits one part as a delta — `name`, `template`, `attach`, `bone`, `position`, `rotation`, `scale`. Keys left out keep their values. `"{'bone':'hand_r'}"` sockets a part to a joint; `"{'attach':false}"` cuts it loose. **Single-quoted**, as `template_set` |
+| `template_from_selection <template> [root entity] [pivot]` | turns the current multi-entity selection into one composed template. The root defaults to the primary selection; `pivot` makes the template's own body an invisible marker and every selected object a part |
 | `save_templates` | writes every `.tpl` with unsaved edits and unlinks the removed ones. Also run automatically by `menu "File/Save Level"`, because the level references these files by name |
 | `camera` | one-line JSON dump of the viewport camera: orbit `position`, rendered `world_position`, focus `target`, `rotation_deg` (pitch/yaw/roll), focus `distance` |
 | `camera_pos x y z` | sets the camera's orbit position |
@@ -162,6 +167,31 @@ Mesh block. Game code plays a role rather than a file name —
 instead of every caller. The animation *set* holding a clip is attached for you, so
 nothing outside the engine has to know that sets exist. `template_default_animation`
 picks what an instance starts in.
+
+A template can also be **composed**: it carries other templates as *parts*, each with
+its own offset from the root. That is what makes "a troll with this sword", "these
+six pieces are one house" or "this armour goes on that body" one placeable thing.
+Build one either by adding parts to a template (`template_add_part` /
+`template_set_part`) or by arranging the objects in the scene, selecting them and
+running `template_from_selection` — which references the template each selected
+object was placed from, and makes one for anything that was not.
+
+A part is a *reference*, so one sword template can be a part of any number of
+composed templates and editing it reaches all of them. Two things a part decides:
+
+- **what it follows.** Attached to the root, it is parented to it and goes wherever
+  it goes. Attached to a **bone** (`template_set_part sword "{'bone':'hand_r'}"`) it
+  rides that joint through the root's animation, which is what puts a weapon in a
+  hand rather than at the model's origin. `attach: false` spawns it at the composed
+  pose and links it to nothing — right for scenery whose pieces never move again.
+- **its physics.** An attached part carries no rigid body: the composed object's
+  collision belongs to its root, and a body on a part would either be driven by the
+  simulation (undoing the attachment) or sit stale where the part was spawned. A
+  part that needs its own collider is placed free of the root.
+
+Placing a composed template spawns the root as `<instance>` and each part as
+`<instance>__<part>`, all from the one `instances` record — so it saves, reloads,
+undoes and deletes as a single object.
 
 A template is stored one of two ways, swappable with `template_storage`:
 

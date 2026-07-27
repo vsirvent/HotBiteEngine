@@ -67,6 +67,38 @@ static bool SameBox(const box& a, const box& b) {
 		a.Extents.x == b.Extents.x && a.Extents.y == b.Extents.y && a.Extents.z == b.Extents.z;
 }
 
+//The socket matrix of a bone-attached entity: where the joint named by
+//Base::parent_bone sits, in the parent mesh's own space, for the pose the parent is
+//playing right now. False when this entity rides no bone, or when the bone cannot be
+//resolved - in which case the caller falls back to the plain parent composition rather
+//than to identity, which would drop the attachment onto the parent's origin.
+//
+//The index is cached in the Base because resolving it is a string search over every
+//joint; it is invalidated by whoever changes the bone or the parent (Base::FromJson,
+//World::SpawnInstance).
+static bool GetParentJoint(ECS::Coordinator* coordinator, Base* base, matrix& out) {
+	if (base->parent == ECS::INVALID_ENTITY_ID || base->parent_bone.empty() ||
+		!coordinator->ContainsComponent<Transform>(base->parent) ||
+		!coordinator->ContainsComponent<Base>(base->parent) ||
+		!coordinator->ContainsComponent<Mesh>(base->parent)) {
+		return false;
+	}
+	Mesh& parent_mesh = coordinator->GetComponent<Mesh>(base->parent);
+	if (base->parent_joint == Base::UNRESOLVED_JOINT) {
+		//Turning tracking on is what makes the parent keep its joint poses at all, so
+		//it has to happen before the first read - and only for a mesh something is
+		//actually attached to.
+		parent_mesh.TrackJoints();
+		base->parent_joint = parent_mesh.FindJoint(base->parent_bone);
+		if (base->parent_joint < 0) {
+			printf("StaticMeshSystem: entity %s rides unknown bone '%s' of %s.\n",
+				base->name.c_str(), base->parent_bone.c_str(),
+				coordinator->GetComponent<Base>(base->parent).name.c_str());
+		}
+	}
+	return parent_mesh.GetJointPose(base->parent_joint, out);
+}
+
 void StaticMeshSystem::Init(StaticMeshEntity& entity) {
 
 	Transform* transform = entity.transform;
@@ -87,12 +119,22 @@ void StaticMeshSystem::Update(StaticMeshEntity& entity, int64_t elapsed_nsec, in
 	//We only update view if invalid
 	float3 parent_position = {};
 	float4 parent_rotation = {};
-	if (entity.base->parent != ECS::INVALID_ENTITY_ID) {
+	//A parent that no longer exists is not an error to assert on: deleting a composed
+	//object destroys the root and its parts one by one, and this runs on another thread
+	//in between. The child simply stands where it is until it is destroyed too - reading
+	//the Transform of a destroyed entity is what used to take the process down.
+	const bool has_parent = entity.base->parent != ECS::INVALID_ENTITY_ID &&
+		coordinator->ContainsComponent<Components::Transform>(entity.base->parent);
+	if (has_parent) {
 		Components::Transform& t = coordinator->GetComponent<Components::Transform>(entity.base->parent);
 		parent_position = t.position;
 		parent_rotation = t.rotation;
 
 	}
+	//A socketed entity has to be rebuilt every frame: what moves it is the parent's
+	//animation, and no flag anywhere says a pose changed.
+	matrix joint_pose{};
+	const bool bone_attached = GetParentJoint(coordinator, base, joint_pose);
 
 	//The mesh's own box, which for a skinned mesh is the box of the animation it plays
 	//rather than of the bind pose its vertices are stored in - see Mesh::GetLocalBox.
@@ -103,8 +145,8 @@ void StaticMeshSystem::Update(StaticMeshEntity& entity, int64_t elapsed_nsec, in
 	//what the Bounds already holds is cheaper than tracking the clip.
 	const bool box_changed = has_box && !SameBox(measured, bounds->local_box);
 
-	if ((entity.transform->dirty || box_changed ||
-		(entity.base->parent != ECS::INVALID_ENTITY_ID &&
+	if ((entity.transform->dirty || box_changed || bone_attached ||
+		(has_parent &&
 		(entity.transform->last_parent_position != parent_position || entity.transform->last_parent_rotation != parent_rotation)))) {
 		if (has_box) {
 			bounds->local_box = measured;
@@ -118,15 +160,25 @@ void StaticMeshSystem::Update(StaticMeshEntity& entity, int64_t elapsed_nsec, in
 
 		vector4d extents = XMLoadFloat3(&bounds->final_box.Extents);
 		extents = XMVector4Transform(extents, transform->world_xmmatrix);
-		if (entity.base->parent >= 0) {
+		if (has_parent) {
 			Components::Transform& pt = coordinator->GetComponent<Transform>(entity.base->parent);
-			if (base->parent_rotation) {
-				matrix r = XMMatrixRotationQuaternion({ pt.rotation.x, pt.rotation.y, pt.rotation.z, pt.rotation.w });
-				transform->world_xmmatrix = transform->world_xmmatrix * r;
+			if (bone_attached) {
+				//Riding a joint: the local transform is an offset from the joint, the
+				//joint sits in the parent mesh's own space, and that space is placed in
+				//the world by the parent's whole world matrix - scale included, which is
+				//the one parenting path that carries it. parent_position/parent_rotation
+				//say nothing here; they describe the position-only composition below.
+				transform->world_xmmatrix = transform->world_xmmatrix * joint_pose * pt.world_xmmatrix;
 			}
-			if (base->parent_position) {
-				matrix t = XMMatrixTranslation(pt.position.x, pt.position.y, pt.position.z);
-				transform->world_xmmatrix = transform->world_xmmatrix * t;
+			else {
+				if (base->parent_rotation) {
+					matrix r = XMMatrixRotationQuaternion({ pt.rotation.x, pt.rotation.y, pt.rotation.z, pt.rotation.w });
+					transform->world_xmmatrix = transform->world_xmmatrix * r;
+				}
+				if (base->parent_position) {
+					matrix t = XMMatrixTranslation(pt.position.x, pt.position.y, pt.position.z);
+					transform->world_xmmatrix = transform->world_xmmatrix * t;
+				}
 			}
 		}
 		XMStoreFloat4x4(&transform->world_matrix, XMMatrixTranspose(transform->world_xmmatrix));

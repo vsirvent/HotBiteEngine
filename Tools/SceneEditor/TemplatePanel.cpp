@@ -251,9 +251,11 @@ namespace HotBiteEditor {
 				return false;
 			}
 			const nlohmann::json* components = state.world->GetTemplateComponents(name);
+			const nlohmann::json* parts = state.world->GetTemplateParts(name);
 			out.exists = (components != nullptr);
 			out.inline_in_level = IsInline(state, name);
 			out.components = (components != nullptr) ? *components : nlohmann::json::object();
+			out.parts = (parts != nullptr) ? *parts : nlohmann::json::array();
 			return true;
 		}
 
@@ -285,7 +287,7 @@ namespace HotBiteEditor {
 				}
 				return true;
 			}
-			if (!state.world->CreateTemplate(name, snapshot.components, error)) {
+			if (!state.world->CreateTemplate(name, snapshot.components, snapshot.parts, error)) {
 				return false;
 			}
 			RegisterAsset(state, name);
@@ -317,7 +319,8 @@ namespace HotBiteEditor {
 			}
 			if (before.exists == after.exists &&
 				before.inline_in_level == after.inline_in_level &&
-				before.components == after.components) {
+				before.components == after.components &&
+				before.parts == after.parts) {
 				return;
 			}
 			std::string description = "edit template " + name;
@@ -347,7 +350,8 @@ namespace HotBiteEditor {
 		//record. Keeping it in one place is what guarantees the history rule in
 		//EditorHistory.h holds for templates no matter which surface asked.
 		static bool MutateTemplate(EditorState& state, const std::string& name,
-			const nlohmann::json& components, bool remove, std::string& error) {
+			const nlohmann::json& components, bool remove, std::string& error,
+			const nlohmann::json* parts = nullptr) {
 			TemplateSnapshot before;
 			if (!GetSnapshot(state, name, before)) {
 				error = "no world";
@@ -359,11 +363,262 @@ namespace HotBiteEditor {
 			//rather than being reset to "in a file" by every edit.
 			target.inline_in_level = before.inline_in_level;
 			target.components = components;
+			//So are the parts: editing a composed template's components must not quietly
+			//decompose it, so they carry over unless the caller is the one editing them.
+			target.parts = (parts != nullptr) ? *parts : before.parts;
 			if (!ApplySnapshot(state, name, target, error)) {
 				return false;
 			}
 			RecordEdit(state, name, before);
 			return true;
+		}
+
+		// == Parts =============================================================
+
+		//The part entry named `part_name` inside a parts array, or null. One place,
+		//because every edit below is "find it, change it, write the array back".
+		static nlohmann::json* FindPartEntry(nlohmann::json& parts, const std::string& part_name) {
+			if (!parts.is_array()) {
+				return nullptr;
+			}
+			for (auto& part : parts) {
+				if (part.is_object() && part.value("name", std::string()) == part_name) {
+					return &part;
+				}
+			}
+			return nullptr;
+		}
+
+		static nlohmann::json PartToJson(const TemplatePart& part) {
+			nlohmann::json j;
+			j["name"] = part.name;
+			j["template"] = part.template_name;
+			j["attach"] = part.attach;
+			if (!part.bone.empty()) {
+				j["bone"] = part.bone;
+			}
+			j["position"] = { {"x", part.position.x}, {"y", part.position.y}, {"z", part.position.z} };
+			j["rotation"] = { {"x", part.rotation.x}, {"y", part.rotation.y},
+							  {"z", part.rotation.z}, {"w", part.rotation.w} };
+			j["scale"] = { {"x", part.scale.x}, {"y", part.scale.y}, {"z", part.scale.z} };
+			if (part.components.is_object() && !part.components.empty()) {
+				j["components"] = part.components;
+			}
+			return j;
+		}
+
+		static TemplatePart PartFromJson(const nlohmann::json& j) {
+			TemplatePart part;
+			part.name = j.value("name", std::string());
+			part.template_name = j.value("template", std::string());
+			part.attach = j.value("attach", true);
+			part.bone = j.value("bone", std::string());
+			if (j.contains("position")) {
+				const auto& p = j["position"];
+				part.position = { p.value("x", 0.0f), p.value("y", 0.0f), p.value("z", 0.0f) };
+			}
+			if (j.contains("rotation")) {
+				const auto& r = j["rotation"];
+				part.rotation = { r.value("x", 0.0f), r.value("y", 0.0f), r.value("z", 0.0f),
+								  r.value("w", 1.0f) };
+			}
+			if (j.contains("scale")) {
+				const auto& s = j["scale"];
+				part.scale = { s.value("x", 1.0f), s.value("y", 1.0f), s.value("z", 1.0f) };
+			}
+			if (j.contains("components") && j["components"].is_object()) {
+				part.components = j["components"];
+			}
+			return part;
+		}
+
+		std::vector<TemplatePart> ListParts(const EditorState& state, const std::string& name) {
+			std::vector<TemplatePart> result;
+			if (state.world == nullptr) {
+				return result;
+			}
+			const nlohmann::json* parts = state.world->GetTemplateParts(name);
+			if (parts == nullptr || !parts->is_array()) {
+				return result;
+			}
+			for (const auto& part : *parts) {
+				if (part.is_object()) {
+					result.push_back(PartFromJson(part));
+				}
+			}
+			return result;
+		}
+
+		bool IsComposed(const EditorState& state, const std::string& name) {
+			return state.world != nullptr && state.world->IsComposedTemplate(name);
+		}
+
+		std::vector<std::string> ListComposableTemplates(const EditorState& state,
+			const std::string& name) {
+			std::vector<std::string> result;
+			if (state.world == nullptr) {
+				return result;
+			}
+			for (const std::string& candidate : ListAuthored(state)) {
+				if (state.world->CanComposeTemplate(name, candidate)) {
+					result.push_back(candidate);
+				}
+			}
+			return result;
+		}
+
+		//A part name not already used in this template, derived from the template the
+		//part is. Two swords on one troll are a normal thing to want, and the second one
+		//cannot silently overwrite the first - the name is what addresses the spawned
+		//entity.
+		static std::string UniquePartName(const std::vector<TemplatePart>& parts,
+			const std::string& base) {
+			std::string candidate = base;
+			int suffix = 2;
+			bool taken = true;
+			while (taken) {
+				taken = false;
+				for (const TemplatePart& part : parts) {
+					if (part.name == candidate) {
+						taken = true;
+						break;
+					}
+				}
+				if (taken) {
+					candidate = base + std::to_string(suffix++);
+				}
+			}
+			return candidate;
+		}
+
+		bool AddPart(EditorState& state, const std::string& name, const std::string& part_template,
+			std::string& error, std::string* out_part_name) {
+			if (state.world == nullptr) {
+				error = "no world";
+				return false;
+			}
+			if (!IsAuthored(state, name)) {
+				error = "unknown template: " + name;
+				return false;
+			}
+			if (!state.world->IsTemplateLoaded(part_template)) {
+				error = "unknown template: " + part_template;
+				return false;
+			}
+			if (!state.world->CanComposeTemplate(name, part_template)) {
+				error = part_template + " already contains " + name +
+					", so adding it would compose a template into itself";
+				return false;
+			}
+			TemplateSnapshot before;
+			GetSnapshot(state, name, before);
+
+			TemplatePart part;
+			part.name = UniquePartName(ListParts(state, name), part_template);
+			part.template_name = part_template;
+
+			nlohmann::json parts = before.parts;
+			if (!parts.is_array()) {
+				parts = nlohmann::json::array();
+			}
+			parts.push_back(PartToJson(part));
+			if (!MutateTemplate(state, name, before.components, false, error, &parts)) {
+				return false;
+			}
+			if (out_part_name != nullptr) {
+				*out_part_name = part.name;
+			}
+			state.status_message = "Added part '" + part.name + "' to " + name;
+			return true;
+		}
+
+		bool RemovePart(EditorState& state, const std::string& name, const std::string& part_name,
+			std::string& error) {
+			TemplateSnapshot before;
+			if (!GetSnapshot(state, name, before) || !before.exists) {
+				error = "unknown template: " + name;
+				return false;
+			}
+			nlohmann::json parts = nlohmann::json::array();
+			bool found = false;
+			for (const auto& part : before.parts) {
+				if (part.is_object() && part.value("name", std::string()) == part_name) {
+					found = true;
+					continue;
+				}
+				parts.push_back(part);
+			}
+			if (!found) {
+				error = "unknown part: " + part_name;
+				return false;
+			}
+			if (!MutateTemplate(state, name, before.components, false, error, &parts)) {
+				return false;
+			}
+			state.status_message = "Removed part '" + part_name + "' from " + name;
+			return true;
+		}
+
+		//The shared body of SetPart/ApplyPart: replace one entry, optionally recording.
+		static bool WritePart(EditorState& state, const std::string& name,
+			const std::string& part_name, const TemplatePart& part, bool record,
+			std::string& error) {
+			TemplateSnapshot before;
+			if (!GetSnapshot(state, name, before) || !before.exists) {
+				error = "unknown template: " + name;
+				return false;
+			}
+			nlohmann::json parts = before.parts;
+			nlohmann::json* entry = FindPartEntry(parts, part_name);
+			if (entry == nullptr) {
+				error = "unknown part: " + part_name;
+				return false;
+			}
+			if (state.world != nullptr && !part.template_name.empty() &&
+				!state.world->CanComposeTemplate(name, part.template_name)) {
+				error = part.template_name + " cannot be a part of " + name;
+				return false;
+			}
+			//Renaming a part to one that is taken would make two entries address the same
+			//spawned entity, and the second would silently win.
+			if (part.name != part_name) {
+				for (const TemplatePart& existing : ListParts(state, name)) {
+					if (existing.name == part.name) {
+						error = "a part named '" + part.name + "' already exists";
+						return false;
+					}
+				}
+			}
+			*entry = PartToJson(part);
+			if (record) {
+				return MutateTemplate(state, name, before.components, false, error, &parts);
+			}
+			TemplateSnapshot target = before;
+			target.parts = parts;
+			return ApplySnapshot(state, name, target, error);
+		}
+
+		bool SetPart(EditorState& state, const std::string& name, const std::string& part_name,
+			const TemplatePart& part, std::string& error) {
+			return WritePart(state, name, part_name, part, true, error);
+		}
+
+		bool ApplyPart(EditorState& state, const std::string& name, const std::string& part_name,
+			const TemplatePart& part, std::string& error) {
+			return WritePart(state, name, part_name, part, false, error);
+		}
+
+		std::vector<std::string> ListRootBones(const EditorState& state, const std::string& name) {
+			std::vector<std::string> bones;
+			if (state.world == nullptr) {
+				return bones;
+			}
+			Coordinator* tc = state.world->GetTemplatesCoordinator();
+			Entity te = state.world->GetTemplateEntity(name);
+			if (tc == nullptr || te == INVALID_ENTITY_ID || !tc->ContainsComponent<Mesh>(te)) {
+				return bones;
+			}
+			return tc->GetComponent<Mesh>(te).GetJointNames();
 		}
 
 		bool SetStorage(EditorState& state, const std::string& name, bool inline_in_level,
@@ -411,6 +666,47 @@ namespace HotBiteEditor {
 			return true;
 		}
 
+		//The component block a scene entity makes as a template: every registered
+		//component it has that can be rebuilt from JSON, starting at the origin.
+		//
+		//A template is a *kind* of object, not a placement of one: it keeps the entity's
+		//rotation and scale (those are part of how the object looks) but not its
+		//position, so every instance is positioned by where it is placed rather than
+		//piling up on the source entity's spot.
+		static nlohmann::json SerializeEntityAsTemplate(EditorState& state, Coordinator* c,
+			Entity e) {
+			nlohmann::json components = nlohmann::json::object();
+			SerializeContext ctx = state.world->MakeSerializeContext();
+			for (const ComponentDesc& desc : ComponentRegistry::Instance().All()) {
+				//Engine-managed components (Camera, Particles) are skipped: their policy
+				//says they cannot be rebuilt from JSON, so carrying them would produce
+				//instances the loader could not reconstruct.
+				if (!desc.Addable() || !desc.has(c, e)) {
+					continue;
+				}
+				try {
+					components[desc.name] = desc.serialize(ctx, e);
+				}
+				catch (const std::exception&) {
+					//A component that will not serialize is left out rather than
+					//aborting the whole template.
+				}
+			}
+			if (components.contains(Transform::NAME)) {
+				components[Transform::NAME]["position"] = nlohmann::json{
+					{"x", 0.0f}, {"y", 0.0f}, {"z", 0.0f} };
+			}
+			//A part of the selection is about to become a part of a composed template,
+			//where the parent link is rebuilt by the spawner from the parts list. Carrying
+			//the old one into the definition would make every instance point at an entity
+			//of the level it was authored in.
+			if (components.contains(Base::NAME)) {
+				components[Base::NAME].erase("parent");
+				components[Base::NAME].erase("parent_bone");
+			}
+			return components;
+		}
+
 		bool CreateFromEntity(EditorState& state, const std::string& entity_name,
 			const std::string& template_name, std::string& error) {
 			if (state.world == nullptr) {
@@ -438,31 +734,7 @@ namespace HotBiteEditor {
 				return false;
 			}
 
-			nlohmann::json components = nlohmann::json::object();
-			SerializeContext ctx = state.world->MakeSerializeContext();
-			for (const ComponentDesc& desc : ComponentRegistry::Instance().All()) {
-				//Engine-managed components (Camera, Particles) are skipped: their policy
-				//says they cannot be rebuilt from JSON, so carrying them would produce
-				//instances the loader could not reconstruct.
-				if (!desc.Addable() || !desc.has(c, e)) {
-					continue;
-				}
-				try {
-					components[desc.name] = desc.serialize(ctx, e);
-				}
-				catch (const std::exception&) {
-					//A component that will not serialize is left out rather than
-					//aborting the whole template.
-				}
-			}
-			//A template is a *kind* of object, not a placement of one: it keeps the
-			//entity's rotation and scale (those are part of how the object looks) but
-			//starts at the origin, so every instance is positioned by where it is
-			//placed rather than piling up on the source entity's spot.
-			if (components.contains(Transform::NAME)) {
-				components[Transform::NAME]["position"] = nlohmann::json{
-					{"x", 0.0f}, {"y", 0.0f}, {"z", 0.0f} };
-			}
+			nlohmann::json components = SerializeEntityAsTemplate(state, c, e);
 
 			if (!MutateTemplate(state, template_name, components, false, error)) {
 				return false;
@@ -482,6 +754,152 @@ namespace HotBiteEditor {
 				candidate = base + std::to_string(suffix++);
 			}
 			return candidate;
+		}
+
+		//The template an entity was placed from, or "" when it is not a placed instance
+		//(an FBX-authored entity, a clone, or a part of some other instance).
+		static std::string InstanceTemplateOf(const EditorState& state, const std::string& entity_name) {
+			for (const PlacedInstance& inst : state.placed_instances) {
+				if (inst.name == entity_name) {
+					return inst.template_name;
+				}
+			}
+			return std::string();
+		}
+
+		//An entity's pose expressed in `root`'s frame, then with the part template's own
+		//base transform taken out - because SpawnInstance will add that back, exactly as
+		//it does for an instance record (see Inspector::StoreInstanceTransform, which
+		//undoes the same composition for the same reason).
+		static void MeasurePart(EditorState& state, const Transform& root, const Transform& t,
+			const std::string& part_template, TemplatePart& part) {
+			const float4 inverse_root = quaternion_conjugate(root.rotation);
+			vector3d offset = DirectX::XMVector3Transform(
+				DirectX::XMVectorSet(t.position.x - root.position.x, t.position.y - root.position.y,
+					t.position.z - root.position.z, 1.0f),
+				DirectX::XMMatrixRotationQuaternion(XMLoadFloat4(&inverse_root)));
+			float3 in_root_frame{};
+			DirectX::XMStoreFloat3(&in_root_frame, offset);
+			//World = local, then the parent's rotation - so the local rotation is the
+			//parent's taken off the *left*, which is not what
+			//express_rotation_with_respect_to does (that is the right-hand division the
+			//instance records need).
+			const float4 rotation_in_root = quaternion_multiply(inverse_root, t.rotation);
+
+			float3 base_position{};
+			float4 base_rotation{ 0.0f, 0.0f, 0.0f, 1.0f };
+			float3 base_scale{ 1.0f, 1.0f, 1.0f };
+			state.world->GetTemplateBaseTransform(part_template, base_position, base_rotation,
+				base_scale);
+			part.position = SUB_F3_F3(in_root_frame, base_position);
+			part.rotation = express_rotation_with_respect_to(rotation_in_root, base_rotation);
+			part.scale = {
+				(base_scale.x != 0.0f) ? t.scale.x / base_scale.x : t.scale.x,
+				(base_scale.y != 0.0f) ? t.scale.y / base_scale.y : t.scale.y,
+				(base_scale.z != 0.0f) ? t.scale.z / base_scale.z : t.scale.z,
+			};
+		}
+
+		bool CreateFromSelection(EditorState& state, const std::vector<std::string>& entity_names,
+			const std::string& root_entity, bool pivot_root, const std::string& template_name,
+			std::string& error) {
+			if (state.world == nullptr) {
+				error = "no world";
+				return false;
+			}
+			Coordinator* c = state.world->GetCoordinator();
+			if (c == nullptr) {
+				error = "no scene";
+				return false;
+			}
+			if (template_name.empty() || state.world->IsTemplateLoaded(template_name)) {
+				error = "a template named '" + template_name + "' already exists";
+				return false;
+			}
+			Entity root = c->GetEntityByName(root_entity);
+			if (root == INVALID_ENTITY_ID || !c->ContainsComponent<Transform>(root)) {
+				error = "root entity not found: " + root_entity;
+				return false;
+			}
+			if (entity_names.size() < 2 && !pivot_root) {
+				error = "a composed template needs more than one entity";
+				return false;
+			}
+			//Copied, not referenced: the sub-templates created below can move the
+			//coordinator's component storage, and every offset is measured against the
+			//pose the root had when the selection was made either way.
+			const Transform root_transform = c->GetConstComponent<Transform>(root);
+
+			nlohmann::json components;
+			if (pivot_root) {
+				//No one of the pieces *is* the object, so the template's own body is an
+				//invisible marker at the root's pose: something to select, move and
+				//rotate the assembly by. It keeps the default cube CreateTemplate gives
+				//every template - hidden rather than absent, because a template with no
+				//mesh is not spawnable at all (see World::SpawnInstance).
+				components[Base::NAME] = { {"visible", false}, {"cast_shadow", false},
+										   {"draw_depth", false} };
+				components[Transform::NAME] = {
+					{"position", {{"x", 0.0f}, {"y", 0.0f}, {"z", 0.0f}}},
+					{"rotation", {{"x", root_transform.rotation.x}, {"y", root_transform.rotation.y},
+								  {"z", root_transform.rotation.z}, {"w", root_transform.rotation.w}}},
+					{"scale", {{"x", 1.0f}, {"y", 1.0f}, {"z", 1.0f}}} };
+			}
+			else {
+				if (!c->ContainsComponent<Mesh>(root)) {
+					error = root_entity + " has no Mesh, so it cannot be the root of a template";
+					return false;
+				}
+				components = SerializeEntityAsTemplate(state, c, root);
+			}
+
+			nlohmann::json parts = nlohmann::json::array();
+			std::vector<TemplatePart> added;
+			int made_templates = 0;
+			for (const std::string& entity_name : entity_names) {
+				if (!pivot_root && entity_name == root_entity) {
+					continue;
+				}
+				Entity e = c->GetEntityByName(entity_name);
+				if (e == INVALID_ENTITY_ID || !c->ContainsComponent<Transform>(e) ||
+					!c->ContainsComponent<Mesh>(e)) {
+					//Lights, cameras and the sky are not objects a template can carry.
+					continue;
+				}
+				//A part is a reference, so there has to be something to refer to: an
+				//entity placed from a template names that one, anything else gets a
+				//template of its own made from it first. Each of those is its own
+				//undoable step, undone after this one by the LIFO stack.
+				std::string part_template = InstanceTemplateOf(state, entity_name);
+				if (part_template.empty()) {
+					part_template = UniqueTemplateName(state, entity_name);
+					std::string sub_error;
+					if (!CreateFromEntity(state, entity_name, part_template, sub_error)) {
+						printf("TemplateOps::CreateFromSelection: %s\n", sub_error.c_str());
+						continue;
+					}
+					++made_templates;
+				}
+				TemplatePart part;
+				part.name = UniquePartName(added, entity_name);
+				part.template_name = part_template;
+				MeasurePart(state, root_transform, c->GetConstComponent<Transform>(e),
+					part_template, part);
+				added.push_back(part);
+				parts.push_back(PartToJson(part));
+			}
+			if (parts.empty()) {
+				error = "nothing in the selection could become a part";
+				return false;
+			}
+			if (!MutateTemplate(state, template_name, components, false, error, &parts)) {
+				return false;
+			}
+			state.selected_template = template_name;
+			state.status_message = "Created composed template '" + template_name + "' from " +
+				std::to_string(parts.size()) + " part(s)" +
+				(made_templates > 0 ? " (" + std::to_string(made_templates) + " new sub-template(s))" : "");
+			return true;
 		}
 
 		bool CreateFromModel(EditorState& state, const std::string& model_name,
@@ -815,7 +1233,8 @@ namespace HotBiteEditor {
 			//name it will actually register under.
 			std::string name;
 			nlohmann::json components;
-			if (!state.world->ReadTemplateFile(tpl_path, false, name, components, error)) {
+			nlohmann::json parts;
+			if (!state.world->ReadTemplateFile(tpl_path, false, name, components, parts, error)) {
 				return false;
 			}
 			if (state.world->IsTemplateLoaded(name)) {
@@ -835,7 +1254,7 @@ namespace HotBiteEditor {
 				}
 			}
 
-			if (!MutateTemplate(state, name, components, false, error)) {
+			if (!MutateTemplate(state, name, components, false, error, &parts)) {
 				return false;
 			}
 			//It came from a file and its file is already written; only the level's
@@ -1343,6 +1762,198 @@ namespace HotBiteEditor {
 				ImGui::PopID();
 			}
 
+			//The part whose transform is mid-drag, so the drag records one history entry
+			//when it ends rather than one a frame - the same shape CommitBlock gives the
+			//component editors.
+			std::string dragging_part;
+			TemplateOps::TemplatePart drag_before;
+
+			void DrawPartsSection(EditorState& state, const std::string& name) {
+				ImGui::PushID("Parts");
+				if (!ImGui::CollapsingHeader("Parts")) {
+					ImGui::PopID();
+					return;
+				}
+				ImGui::PushID("body");
+
+				const std::vector<TemplateOps::TemplatePart> parts = TemplateOps::ListParts(state, name);
+				const std::vector<std::string> bones = TemplateOps::ListRootBones(state, name);
+
+				if (parts.empty()) {
+					ImGui::TextWrapped("Parts are other templates carried by this one: a weapon on a "
+						"character, the pieces of a house. Placing this template places all of "
+						"them, and an attached part follows the root wherever it goes.");
+				}
+				else if (ImGui::BeginTable("##parts", 4,
+					ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_BordersInnerV |
+					ImGuiTableFlags_RowBg)) {
+					ImGui::TableSetupColumn("Part");
+					ImGui::TableSetupColumn("Is");
+					ImGui::TableSetupColumn("Attached to");
+					ImGui::TableSetupColumn("##actions", ImGuiTableColumnFlags_WidthFixed, 30.0f);
+					ImGui::TableHeadersRow();
+
+					for (const TemplateOps::TemplatePart& part : parts) {
+						ImGui::PushID(part.name.c_str());
+						ImGui::TableNextRow();
+
+						ImGui::TableSetColumnIndex(0);
+						char buffer[64];
+						strncpy_s(buffer, part.name.c_str(), sizeof(buffer) - 1);
+						ImGui::SetNextItemWidth(-FLT_MIN);
+						if (ImGui::InputText("##name", buffer, sizeof(buffer),
+							ImGuiInputTextFlags_EnterReturnsTrue) && buffer[0] != '\0') {
+							TemplateOps::TemplatePart edited = part;
+							edited.name = buffer;
+							std::string error;
+							if (!TemplateOps::SetPart(state, name, part.name, edited, error)) {
+								state.status_message = "Rename part failed: " + error;
+							}
+						}
+
+						ImGui::TableSetColumnIndex(1);
+						ImGui::TextUnformatted(part.template_name.c_str());
+						if (state.world != nullptr && !state.world->IsTemplateLoaded(part.template_name)) {
+							ImGui::SameLine();
+							ImGui::TextColored(ImVec4(0.9f, 0.5f, 0.35f, 1.0f), "(missing)");
+						}
+
+						ImGui::TableSetColumnIndex(2);
+						//What the part follows: nothing, the root, or one of its bones. One
+						//control rather than a checkbox plus a picker, because "free",
+						//"the root" and "the root's hand" are three answers to one question.
+						const char* current = !part.attach ? "nothing (placed free)"
+							: part.bone.empty() ? "the root" : part.bone.c_str();
+						ImGui::SetNextItemWidth(-FLT_MIN);
+						if (ImGui::BeginCombo("##attach", current)) {
+							if (ImGui::Selectable("nothing (placed free)", !part.attach)) {
+								TemplateOps::TemplatePart edited = part;
+								edited.attach = false;
+								edited.bone.clear();
+								std::string error;
+								TemplateOps::SetPart(state, name, part.name, edited, error);
+							}
+							if (ImGui::Selectable("the root", part.attach && part.bone.empty())) {
+								TemplateOps::TemplatePart edited = part;
+								edited.attach = true;
+								edited.bone.clear();
+								std::string error;
+								TemplateOps::SetPart(state, name, part.name, edited, error);
+							}
+							for (const std::string& bone : bones) {
+								if (ImGui::Selectable(bone.c_str(), part.attach && part.bone == bone)) {
+									TemplateOps::TemplatePart edited = part;
+									edited.attach = true;
+									edited.bone = bone;
+									std::string error;
+									TemplateOps::SetPart(state, name, part.name, edited, error);
+								}
+							}
+							if (bones.empty()) {
+								ImGui::TextDisabled("(the root has no skeleton to ride)");
+							}
+							ImGui::EndCombo();
+						}
+
+						ImGui::TableSetColumnIndex(3);
+						if (ImGui::SmallButton("X")) {
+							std::string error;
+							if (!TemplateOps::RemovePart(state, name, part.name, error)) {
+								state.status_message = "Remove part failed: " + error;
+							}
+						}
+						ImGui::PopID();
+					}
+					ImGui::EndTable();
+				}
+
+				//The selected part's placement, below the table: three DragFloat3s per row
+				//would not fit, and the offsets are the thing most often nudged rather than
+				//typed once.
+				for (const TemplateOps::TemplatePart& part : parts) {
+					ImGui::PushID(("xf_" + part.name).c_str());
+					if (ImGui::TreeNode(("Place " + part.name).c_str())) {
+						TemplateOps::TemplatePart edited = part;
+						float3 euler = Inspector::QuaternionToEulerDegrees(part.rotation);
+						bool changed = false;
+						bool activated = false;
+						bool finished = false;
+						auto track = [&](bool widget_changed) {
+							changed |= widget_changed;
+							activated |= ImGui::IsItemActivated();
+							finished |= ImGui::IsItemDeactivatedAfterEdit();
+						};
+						track(ImGui::DragFloat3("Offset", &edited.position.x, 0.05f));
+						const bool rotated = ImGui::DragFloat3("Rotation (deg)", &euler.x, 0.5f);
+						track(rotated);
+						track(ImGui::DragFloat3("Scale", &edited.scale.x, 0.01f));
+						if (rotated) {
+							edited.rotation = float3_to_quaternion(euler);
+						}
+						//Mid-drag edits apply so the viewport follows, but only the release
+						//records - otherwise a drag would fill the undo stack with a step
+						//per frame.
+						if (changed) {
+							if (activated || dragging_part != part.name) {
+								dragging_part = part.name;
+								drag_before = part;
+							}
+							std::string error;
+							TemplateOps::ApplyPart(state, name, part.name, edited, error);
+						}
+						if (finished && dragging_part == part.name) {
+							TemplateOps::TemplatePart after = edited;
+							std::string error;
+							//Put the pre-drag value back and re-apply it as one recorded
+							//edit, so undo lands where the drag started.
+							TemplateOps::ApplyPart(state, name, part.name, drag_before, error);
+							TemplateOps::SetPart(state, name, part.name, after, error);
+							dragging_part.clear();
+						}
+						ImGui::TreePop();
+					}
+					ImGui::PopID();
+				}
+
+				//One step: the button opens the list of templates that can go in here and
+				//picking one adds it. It used to be a combo to choose with and a button to
+				//confirm, which reads as a dead button until you notice the combo - the
+				//button is the thing labelled with the verb, so it is what has to do the
+				//work.
+				const std::vector<std::string> composable =
+					TemplateOps::ListComposableTemplates(state, name);
+				if (ImGui::Button("Add Part...")) {
+					ImGui::OpenPopup("add_template_part");
+				}
+				if (ImGui::BeginPopup("add_template_part")) {
+					if (composable.empty()) {
+						//Nothing to offer is nearly always "this project has one template",
+						//so say what to do about it rather than showing an empty list.
+						ImGui::TextDisabled("No other template can go in here.");
+						ImGui::TextWrapped("A part is another template. Make the piece a template "
+							"of its own first - \"New...\" up top, \"Create Template\" on a model "
+							"in the Asset Browser, or \"From Selection\" on something already in "
+							"the scene - and it will be offered here.");
+					}
+					for (const std::string& option : composable) {
+						if (ImGui::Selectable(option.c_str())) {
+							std::string error;
+							if (!TemplateOps::AddPart(state, name, option, error)) {
+								state.status_message = "Add part failed: " + error;
+							}
+							ImGui::CloseCurrentPopup();
+						}
+					}
+					ImGui::EndPopup();
+				}
+
+				ImGui::TextDisabled("An attached part carries no physics of its own - the root's\n"
+					"body is the composed object's. Place a part free of the root\n"
+					"(\"nothing\") when it needs its own collider.");
+				ImGui::PopID();
+				ImGui::PopID();
+			}
+
 			void DrawMaterialSection(EditorState& state, const std::string& name) {
 				nlohmann::json block = TemplateOps::GetComponent(state, name, Material::NAME);
 				const std::string material_name = block.value("name", std::string());
@@ -1698,6 +2309,84 @@ namespace HotBiteEditor {
 				return TemplateOps::UniqueTemplateName(state, base);
 			}
 
+			//The names of the entities currently selected, primary last (the order
+			//Selection keeps them in).
+			std::vector<std::string> SelectedEntityNames(const EditorState& state) {
+				std::vector<std::string> names;
+				Coordinator* c = state.world->GetCoordinator();
+				if (c == nullptr) {
+					return names;
+				}
+				for (Entity e : state.selected_entities) {
+					if (c->ContainsComponent<Base>(e)) {
+						names.push_back(c->GetConstComponent<Base>(e).name);
+					}
+				}
+				return names;
+			}
+
+			//The From Selection prompt when more than one entity is selected: what is
+			//being made is a composed template, and the two things that need deciding
+			//are its name and which of the selected entities the rest hang off.
+			std::string composed_root;
+			bool composed_pivot_root = false;
+
+			bool DrawComposedModal(EditorState& state, const std::vector<std::string>& selection,
+				char* buffer, size_t buffer_size) {
+				bool confirmed = false;
+				const ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+				ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+				if (ImGui::BeginPopupModal("Template From Selection", nullptr,
+					ImGuiWindowFlags_AlwaysAutoResize)) {
+					ImGui::TextUnformatted("Name for the composed template:");
+					ImGui::SetNextItemWidth(320.0f);
+					const bool entered = ImGui::InputText("##name", buffer, buffer_size,
+						ImGuiInputTextFlags_EnterReturnsTrue);
+
+					ImGui::Spacing();
+					ImGui::SetNextItemWidth(320.0f);
+					if (ImGui::BeginCombo("Root", composed_root.c_str())) {
+						for (const std::string& option : selection) {
+							if (ImGui::Selectable(option.c_str(), option == composed_root)) {
+								composed_root = option;
+							}
+						}
+						ImGui::EndCombo();
+					}
+					ImGui::Checkbox("Empty root (the pieces are all parts)", &composed_pivot_root);
+					if (ImGui::IsItemHovered()) {
+						ImGui::SetTooltip("For an assembly where no one piece is the object - a\n"
+							"house, a rock formation. The template's own body is an\n"
+							"invisible marker at the root's pose, to move the whole by.");
+					}
+					if (composed_pivot_root) {
+						ImGui::TextDisabled("All %d selected objects become parts.",
+							(int)selection.size());
+					}
+					else {
+						ImGui::TextDisabled("%s is the object; the other %d become parts of it.",
+							composed_root.c_str(), (int)selection.size() - 1);
+					}
+
+					ImGui::Spacing();
+					ImGui::BeginDisabled(buffer[0] == '\0' || composed_root.empty());
+					const bool clicked = ImGui::Button("Create", ImVec2(90.0f, 0.0f));
+					ImGui::EndDisabled();
+					ImGui::SameLine();
+					const bool cancel = ImGui::Button("Cancel", ImVec2(90.0f, 0.0f)) ||
+						ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+					if ((entered || clicked) && buffer[0] != '\0' && !composed_root.empty()) {
+						confirmed = true;
+						ImGui::CloseCurrentPopup();
+					}
+					else if (cancel) {
+						ImGui::CloseCurrentPopup();
+					}
+					ImGui::EndPopup();
+				}
+				return confirmed;
+			}
+
 			void DrawToolbar(EditorState& state) {
 				static char new_name[128] = "";
 				static char from_entity_name[128] = "";
@@ -1736,10 +2425,23 @@ namespace HotBiteEditor {
 						state.status_message = "No entity selected to make a template from.";
 					}
 				}
+				//More than one entity selected means the arrangement itself is what is
+				//being saved: a composed template, with the others as parts of the
+				//primary. That is the "build it in the scene, then keep it" path.
+				const std::vector<std::string> selection = SelectedEntityNames(state);
 				if (from_selection) {
-					strncpy_s(from_entity_name, UniqueName(state, entity_name + "_template").c_str(),
-						sizeof(from_entity_name) - 1);
-					ImGui::OpenPopup("Template From Entity");
+					if (selection.size() > 1) {
+						strncpy_s(from_entity_name, UniqueName(state, entity_name + "_group").c_str(),
+							sizeof(from_entity_name) - 1);
+						composed_root = entity_name;
+						composed_pivot_root = false;
+						ImGui::OpenPopup("Template From Selection");
+					}
+					else {
+						strncpy_s(from_entity_name, UniqueName(state, entity_name + "_template").c_str(),
+							sizeof(from_entity_name) - 1);
+						ImGui::OpenPopup("Template From Entity");
+					}
 				}
 				if (has_entity && ImGui::IsItemHovered()) {
 					ImGui::SetTooltip("Make a template out of %s", entity_name.c_str());
@@ -1787,6 +2489,12 @@ namespace HotBiteEditor {
 					"Name for the template made from the selected entity:",
 					from_entity_name, sizeof(from_entity_name))) {
 					if (!TemplateOps::CreateFromEntity(state, entity_name, from_entity_name, error)) {
+						state.status_message = "Create failed: " + error;
+					}
+				}
+				if (DrawComposedModal(state, selection, from_entity_name, sizeof(from_entity_name))) {
+					if (!TemplateOps::CreateFromSelection(state, selection, composed_root,
+						composed_pivot_root, from_entity_name, error)) {
 						state.status_message = "Create failed: " + error;
 					}
 				}
@@ -1916,6 +2624,9 @@ namespace HotBiteEditor {
 				//it, and their Play buttons drive the viewport a few lines up. Stored in
 				//the Mesh block all the same - that section points here.
 				DrawAnimationsSection(state, name);
+				//Then what the object is *made of*, before the components that describe
+				//its own body: a composed template's parts are the larger fact about it.
+				DrawPartsSection(state, name);
 				for (const std::string& component : TemplateOps::ListComponents(state, name)) {
 					DrawComponentSection(state, name, component);
 				}

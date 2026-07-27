@@ -159,6 +159,59 @@ namespace HotBiteEditor {
 			};
 		}
 
+		//Scaling a composed object scales what it carries. The engine's parenting
+		//composes the parent's position and rotation but deliberately not its scale (FBX
+		//hierarchies depend on that, see StaticMeshSystem), so a part's offset and size
+		//are in world units and have to be rescaled here to keep up.
+		//
+		//This is not a second authoring channel: World::SpawnInstance multiplies exactly
+		//the same instance scale into every attached part, so what this produces is what
+		//a save and reload of the same instance produces. It needs no history of its own
+		//either - it is a ratio, and an undo of the root's scale runs it again the other
+		//way through the very same path.
+		//
+		//Parts riding a *bone* are left alone: they hang off the parent's whole world
+		//matrix, scale included, so the engine has already scaled them.
+		static void PropagateScaleToAttachedParts(EditorState& state, Entity entity,
+			const TransformSnapshot& before, const Transform& t)
+		{
+			const bool same_scale = before.scale.x == t.scale.x && before.scale.y == t.scale.y &&
+				before.scale.z == t.scale.z;
+			if (same_scale) {
+				return;
+			}
+			Coordinator* c = state.world->GetCoordinator();
+			if (c == nullptr) {
+				return;
+			}
+			const float3 ratio{
+				(before.scale.x != 0.0f) ? t.scale.x / before.scale.x : 1.0f,
+				(before.scale.y != 0.0f) ? t.scale.y / before.scale.y : 1.0f,
+				(before.scale.z != 0.0f) ? t.scale.z / before.scale.z : 1.0f,
+			};
+			for (const auto& [name, child] : c->GetEntites()) {
+				if (child == entity || !c->ContainsComponent<Base>(child) ||
+					!c->ContainsComponent<Transform>(child)) {
+					continue;
+				}
+				const Base& child_base = c->GetConstComponent<Base>(child);
+				if (child_base.parent != entity || !child_base.parent_bone.empty()) {
+					continue;
+				}
+				Transform& ct = c->GetComponent<Transform>(child);
+				const TransformSnapshot child_before{ ct.position, ct.rotation, ct.scale };
+				ct.position = MULT_F3_F3(ct.position, ratio);
+				ct.scale = MULT_F3_F3(ct.scale, ratio);
+				//The child's own targets, but none of the save bookkeeping: a part's pose
+				//is not authored per entity, it is composed from the template's parts list
+				//and the instance's scale, and both of those are already written.
+				SyncTransformTargets(state, child, child_base, ct, child_before);
+				//Parts of parts: a composed template can carry another, and the ratio has
+				//to reach the whole assembly.
+				PropagateScaleToAttachedParts(state, child, child_before, ct);
+			}
+		}
+
 		//Shared post-edit bookkeeping for both the interactive (Draw) and programmatic
 		//(ApplyTransform/ApplySnapshot) paths: syncs the edit out and records what
 		//needs to be written back on save.
@@ -166,6 +219,7 @@ namespace HotBiteEditor {
 			Transform& t, const TransformSnapshot& before)
 		{
 			SyncTransformTargets(state, entity, base, t, before);
+			PropagateScaleToAttachedParts(state, entity, before, t);
 
 			//While the physics preview runs, an edit is authoring against the pose the
 			//scene will rewind to, not against whatever the simulation happens to have

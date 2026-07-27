@@ -510,7 +510,7 @@ level format and the editor's asset UI:
 | layer | what it is | where it lives | placeable? |
 | --- | --- | --- | --- |
 | **model** | an imported `.fbx`: meshes, materials, collision shapes, animation clips | level's `"models"` array, `Assets/Objects/` | no |
-| **template** | one concept ("troll"): a component block with values | level's `"templates"` array, `<assets>/Templates/*.tpl` | yes — the only one |
+| **template** | one concept ("troll"): a component block with values, optionally carrying other templates as `parts` | level's `"templates"` array, `<assets>/Templates/*.tpl` | yes — the only one |
 | **instance** | a template placed in this level | level's `"instances"` array | — |
 
 An `.fbx` is a bag of assets, not an object: a character mesh comes out of one file and
@@ -524,6 +524,50 @@ which is what the Asset Browser's Models section lists and what "Create Template
 whose instances name an `.fbx` still loads, and saving migrates those entries into
 `"models"`.
 
+**A template may also be composed: it carries other templates as `parts`.** That is the
+troll with its sword, the house made of six pieces. A part is a *reference*
+(`{"name", "template", "attach", "bone", "position"/"rotation"/"scale", "components"}`
+in the `.tpl` beside `components`), resolved at spawn — so one sword template can be a
+part of any number of composed templates, editing it reaches all of them, declaration
+order in a level never matters, and a composed template can itself be a part
+(`World::CanComposeTemplate` refuses the cycle where it is authored, `MAX_COMPOSED_DEPTH`
+catches the merely absurd).
+
+Offsets are in the **root entity's own frame**: its rotation turns them, its position
+carries them, its scale does not (a part is a whole object with a scale of its own). An
+attached part and a detached one at the same offset therefore land in the same place, and
+flipping `attach` never moves anything.
+
+Three rules that are not guessable:
+
+- **An attached part carries no rigid body.** Bone-attached, its pose changes every frame,
+  so a collider is stale the moment it is made; DYNAMIC/KINEMATIC, `PhysicsSystem::Update`
+  writes body poses straight into the Transform and silently undoes the attachment. Both
+  are stripped at spawn through `ApplyComponents`' own `"remove"`, which also stops
+  `World::Init` handing one back. A STATIC body survives and is seated at the composed
+  world pose — `World::ComposedWorldPose`, which `Init` uses for *every* entity, because an
+  attached part's Transform is an offset and not a place in the world. A composed object
+  that moves carries its collision on the root.
+- **The spawner owns the naming**, `<instance>__<part>` recursively, and
+  `World::InstanceEntityNames` is the one place it lives — the editor's
+  `AssetBrowser::InstancePartNames` calls it rather than reproducing the rule, which is
+  what keeps removal, undo and the reload bookkeeping from drifting.
+- **`Base::parent_bone` is the only parenting path that reads the parent's whole world
+  matrix** (`local * joint * parentWorld`, so the parent's scale reaches the child).
+  The plain path composes the parent's position and rotation and *deliberately not* its
+  scale, because `FBXLoader` gives every imported child node a global transform *and* a
+  parent, so the two are already double-counted; changing that would move existing
+  content. Scaling a composed root instead rescales its attached parts in the editor
+  (`Inspector::PropagateScaleToAttachedParts`), matching what `SpawnInstance` does with
+  the instance scale on reload.
+
+A bone socket reads `Components::Mesh::joint_pose_data`: the joint's *model-space* matrix,
+which is the keyframe blend before `model_to_bindpose` is folded in. It is filled only
+while `TrackJoints()` is on (the first socket to resolve turns it on), and it must not be
+confused with the skinning matrix — `Core/Particles.h` wants that one, in the separate
+`joint_cpu_data` that `Components::Mesh` never fills (a latent bug in the particle path,
+untouched here).
+
 `World::CreateTemplate` (see the contract in `World.h`) keeps a template in two halves
 on purpose: a template *entity* in the templates coordinator holding only what
 `SpawnInstance` clones (Base/Transform/Bounds/Mesh/Material/Lighted), and the full
@@ -531,6 +575,13 @@ component JSON, which `SpawnInstance` applies to each spawned entity. Physics mu
 off the template entity — applying it there would create a rigid body for something that
 is not in the scene. A template's mandatory components (`TemplateOps::IsMandatory`)
 cannot be removed, since a template that cannot be spawned is not a template.
+
+The editor surface for parts is the Templates panel's **Parts** section
+(`TemplatePanel::DrawPartsSection`, ops in `TemplateOps::AddPart`/`RemovePart`/`SetPart`),
+plus `TemplateOps::CreateFromSelection` — Edit/Create Template from Selection with more
+than one entity selected, which is the "arrange it in the scene, then keep the
+arrangement" path. It references the template each selected object was placed from and
+creates one (as its own undo step) for anything that was not.
 
 **The Templates panel authors templates and does not place them.** An edit there
 changes the *definition* — what a "troll" is — while placing one changes the level,

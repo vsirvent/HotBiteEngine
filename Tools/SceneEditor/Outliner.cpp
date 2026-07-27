@@ -332,6 +332,33 @@ namespace HotBiteEditor {
 			Selection::Add(state, entity);
 		}
 
+		//Attached children by parent, rebuilt each frame from Base::parent. A composed
+		//instance is a root and the parts it carries, and listing them as N unrelated
+		//siblings hides the one fact that matters about them - so a child is drawn
+		//indented under its parent instead, and skipped from the flat list.
+		static std::map<Entity, std::vector<std::pair<std::string, Entity>>> children_of;
+
+		static void DrawEntityRow(EditorState& state, EditorCamera& camera,
+			const std::string& name, Entity entity);
+
+		//The children of `entity`, indented under it. Depth-limited for the same reason
+		//the engine limits composition depth: a hand-edited level can describe a parent
+		//cycle, and the panel must not recurse forever over it.
+		static void DrawEntityChildren(EditorState& state, EditorCamera& camera, Entity entity,
+			int depth)
+		{
+			auto it = children_of.find(entity);
+			if (it == children_of.end() || depth > 8) {
+				return;
+			}
+			ImGui::Indent();
+			for (const auto& [child_name, child] : it->second) {
+				DrawEntityRow(state, camera, child_name, child);
+				DrawEntityChildren(state, camera, child, depth + 1);
+			}
+			ImGui::Unindent();
+		}
+
 		static void DrawEntityRow(EditorState& state, EditorCamera& camera,
 			const std::string& name, Entity entity)
 		{
@@ -490,12 +517,33 @@ namespace HotBiteEditor {
 				return (cmp != 0) ? cmp < 0 : a.first < b.first;
 				});
 
+			//Who hangs off whom, among the entities being listed. A parent that is not in
+			//the list (parked, or filtered out) leaves its child at the top level rather
+			//than hiding it.
+			std::set<Entity> listed;
+			for (const auto& item : sorted) {
+				listed.insert(item.second);
+			}
+			children_of.clear();
+			std::set<Entity> nested;
+			for (const auto& item : sorted) {
+				const Entity parent = c->GetConstComponent<Base>(item.second).parent;
+				if (parent != INVALID_ENTITY_ID && parent != item.second && listed.count(parent) != 0) {
+					children_of[parent].push_back(item);
+					nested.insert(item.second);
+				}
+			}
+
 			std::map<std::string, std::vector<const std::pair<std::string, Entity>*>> per_group;
 			for (const auto& g : state.entity_groups) {
 				per_group[g]; //empty groups still show as tree nodes
 			}
 			std::vector<const std::pair<std::string, Entity>*> ungrouped;
 			for (const auto& item : sorted) {
+				if (nested.count(item.second) != 0) {
+					//Drawn under its parent instead.
+					continue;
+				}
 				auto it = state.entity_group_of.find(item.first);
 				if (it != state.entity_group_of.end() && per_group.count(it->second) != 0) {
 					per_group[it->second].push_back(&item);
@@ -559,6 +607,7 @@ namespace HotBiteEditor {
 				if (open) {
 					for (const auto* item : members) {
 						DrawEntityRow(state, camera, item->first, item->second);
+						DrawEntityChildren(state, camera, item->second, 0);
 					}
 					ImGui::TreePop();
 				}
@@ -567,6 +616,7 @@ namespace HotBiteEditor {
 			//Ungrouped entities at the root, below the groups.
 			for (const auto* item : ungrouped) {
 				DrawEntityRow(state, camera, item->first, item->second);
+				DrawEntityChildren(state, camera, item->second, 0);
 			}
 
 			//The leftover empty space doubles as the "no group" drop target, so

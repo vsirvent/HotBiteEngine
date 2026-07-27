@@ -66,6 +66,24 @@ namespace HotBite {
 				bool parent_rotation = true;
 				//Use parent rotation
 				bool parent_position = true;
+				//The joint of the parent's skeleton this entity rides, "" for none.
+				//
+				//With a bone, the entity's Transform is an offset *from that joint in the
+				//parent mesh's own space*, and its world matrix becomes
+				//local * joint * parent_world - the parent's whole world matrix, so the
+				//parent's scale reaches the child too. That is what makes a weapon follow
+				//a hand through an animation instead of hanging at the model's origin, and
+				//it is the only parenting path that reads more than the parent's position
+				//and rotation (`parent_position`/`parent_rotation` do not apply here).
+				//
+				//Round-trips by name, like `parent` itself; the index it resolves to is
+				//per-session, so it is cached rather than stored.
+				std::string parent_bone;
+				//Cached index of `parent_bone` in the parent mesh's skeleton. -1 is "no
+				//bone", -2 "not looked up yet"; anything that changes `parent_bone` or the
+				//parent must reset it to UNRESOLVED_JOINT.
+				static constexpr int UNRESOLVED_JOINT = -2;
+				int parent_joint = UNRESOLVED_JOINT;
 				//Render only when vertex in screen or always
 				eDrawMethod draw_method = eDrawMethod::DRAW_SCREEN;
 				//The pass where this entity is rendered
@@ -235,6 +253,28 @@ namespace HotBite {
 
 				std::vector<matrix> joint_cpu_data;
 				std::vector<Core::JointGpuData> joint_gpu_data;
+				//Where each joint *is* for the pose currently playing, in the mesh's own
+				//space - the animation matrix before the inverse bind pose is folded in,
+				//which is what an attachment needs and what a skinning matrix is not
+				//(that one maps bind-pose vertices, not a socket).
+				//
+				//Only filled while TrackJoints() is on, because it costs a matrix store per
+				//joint per frame and nothing but an attachment ever reads it.
+				//
+				//It has a lock of its own rather than riding `skeleton_mutex`: the reader is
+				//StaticMeshSystem, which runs holding physics_mutex, while Mesh::Update
+				//sends animation events from *inside* skeleton_mutex - so taking that one
+				//here would invert the two (the deadlock GetLocalBox's comment describes).
+				//Nothing is done under this lock but a swap and a copy, so it cannot invert
+				//against anything. It cannot be dropped either, the way GetLocalBox drops
+				//skeleton_mutex: that reads a box out of the immortal MeshData, while this
+				//vector is resized when the skeleton changes, and reading one mid-resize is
+				//a use-after-free rather than a stale value.
+				std::vector<matrix> joint_pose_data;
+				//Where Update builds the above before publishing it, so the poses are
+				//computed (and animation events sent) outside the lock.
+				std::vector<matrix> joint_pose_scratch;
+				mutable Core::spin_lock joint_pose_lock;
 
 				struct Animation {
 					std::string name;
@@ -282,9 +322,12 @@ namespace HotBite {
 			private:
 				//We can reuse a mesh in several components
 				Core::MeshData* data = nullptr;
+				//Set while something is attached to a joint of this mesh; see
+				//joint_pose_data.
+				bool track_joints = false;
 				matrix GetAnimationMatrix(int64_t elapsed_nsec, int64_t total_nsec,
 					std::vector<Core::JointCpuData>* cpu_data,
-					int joint_id, Animation& anim);
+					int joint_id, Animation& anim, matrix* pose = nullptr);
 
 			public:
 				Mesh();
@@ -334,6 +377,33 @@ namespace HotBite {
 				// silhouette of the one being left behind.
 				bool GetLocalBox(box& out) const;
 				int GetCurrentFrame() const;
+
+				// == Joint sockets ====================================================
+				// What an attachment rides (Base::parent_bone). The index is into the
+				// skeleton currently playing, so it is only valid while that clip is the
+				// one selected - which is why callers cache it and re-resolve rather than
+				// storing a matrix.
+
+				// The index of the joint named `name`, or -1 when this mesh has no
+				// skeleton or no joint by that name. Case sensitive, matching the names
+				// the FBX carried.
+				int FindJoint(const std::string& name) const;
+				// The names of the joints of the skeleton this mesh animates with, in
+				// index order - the list a bone picker offers. Empty for an unskinned mesh.
+				std::vector<std::string> GetJointNames() const;
+				// Asks Update to keep joint_pose_data filled. Anything reading
+				// GetJointPose must have turned this on first; it stays on for the life of
+				// the component, since attachments come and go far more often than the
+				// cost of a matrix store per joint matters.
+				void TrackJoints();
+				bool IsTrackingJoints() const { return track_joints; }
+				// Where joint `index` sits for the pose being played, in this mesh's own
+				// space. False when the index is out of range, when nothing is playing, or
+				// when TrackJoints was never called - in every one of which the caller must
+				// fall back to the un-socketed composition rather than to identity, which
+				// would slam the attachment onto the model's origin.
+				bool GetJointPose(int index, matrix& out) const;
+
 				void Update(int64_t elapsed_nsec, int64_t total_nsec);
 				void Prepare(Core::SimpleVertexShader* vs);
 				void Unprepare(Core::SimpleVertexShader* vs);
