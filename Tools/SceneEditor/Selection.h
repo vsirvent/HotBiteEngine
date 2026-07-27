@@ -24,6 +24,16 @@ namespace HotBiteEditor {
 		bool Contains(const EditorState& state, HotBite::Engine::ECS::Entity entity);
 		size_t Count(const EditorState& state);
 
+		// The entity picked *first*, and INVALID_ENTITY_ID for an empty selection.
+		//
+		// It is the selection's other distinguished member, and it means something the
+		// primary cannot: the primary is the most recent pick (which is what makes a
+		// shift-range anchor and what the Components panel edits), so it changes with
+		// every click and cannot stand for "the one the others are relative to". The
+		// root does - you pick the object first, then everything that goes with it -
+		// and that is what Create Template from Selection composes around.
+		HotBite::Engine::ECS::Entity Root(const EditorState& state);
+
 		void Clear(EditorState& state);
 
 		// Replaces the selection with `entity` alone (INVALID_ENTITY_ID clears it),

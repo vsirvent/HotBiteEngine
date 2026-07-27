@@ -902,6 +902,204 @@ namespace HotBiteEditor {
 			return true;
 		}
 
+		std::string InstanceOf(const EditorState& state, const std::string& entity_name) {
+			for (const PlacedInstance& inst : state.placed_instances) {
+				if (inst.name == entity_name) {
+					return inst.name;
+				}
+				//"<instance>__<part>", the naming World::SpawnInstance gives a composed
+				//instance's parts. Checked as a prefix so a part of a part resolves to
+				//the instance at the top too.
+				const std::string prefix = inst.name + World::PART_NAME_SEPARATOR;
+				if (entity_name.compare(0, prefix.size(), prefix) == 0) {
+					return inst.name;
+				}
+			}
+			return std::string();
+		}
+
+		//Component-space division, guarding the axis a zero scale would blow up. A
+		//degenerate instance scale is already meaningless; keeping the value is a better
+		//answer than an infinity written into the template file.
+		static float3 UnscaleBy(const float3& value, const float3& scale) {
+			return {
+				(scale.x != 0.0f) ? value.x / scale.x : value.x,
+				(scale.y != 0.0f) ? value.y / scale.y : value.y,
+				(scale.z != 0.0f) ? value.z / scale.z : value.z,
+			};
+		}
+
+		//The inverse of what World::SpawnInstance did to this part: take the spawned
+		//entity's live Transform back to the values the template's parts list holds.
+		//
+		//Three compositions to undo, in the order the spawner applied them: the root's
+		//pose (detached parts only - an attached part's Transform is already an offset),
+		//the instance's scale (which a bone-riding part never carried, since the parent's
+		//world matrix scales it instead), and the part template's own base transform,
+		//which SpawnTemplateEntities adds to every spawn.
+		static void MeasureSpawnedPart(EditorState& state, const Transform& root,
+			const Transform& spawned, const float3& instance_scale, TemplatePart& part) {
+			float3 position = spawned.position;
+			float4 rotation = spawned.rotation;
+			float3 scale = spawned.scale;
+
+			float3 base_position{};
+			float4 base_rotation{ 0.0f, 0.0f, 0.0f, 1.0f };
+			float3 base_scale{ 1.0f, 1.0f, 1.0f };
+			state.world->GetTemplateBaseTransform(part.template_name, base_position,
+				base_rotation, base_scale);
+
+			if (!part.attach) {
+				//Composed into world space at spawn: back into the root's frame first.
+				const float4 inverse_root = quaternion_conjugate(root.rotation);
+				const float3 relative = SUB_F3_F3(SUB_F3_F3(position, base_position), root.position);
+				vector3d offset = DirectX::XMVector3Transform(
+					DirectX::XMVectorSet(relative.x, relative.y, relative.z, 1.0f),
+					DirectX::XMMatrixRotationQuaternion(XMLoadFloat4(&inverse_root)));
+				DirectX::XMStoreFloat3(&position, offset);
+				rotation = quaternion_multiply(inverse_root, rotation);
+			}
+			else {
+				position = SUB_F3_F3(position, base_position);
+			}
+			if (part.attach && !part.bone.empty()) {
+				part.position = position;
+			}
+			else {
+				part.position = UnscaleBy(position, instance_scale);
+			}
+			part.rotation = express_rotation_with_respect_to(rotation, base_rotation);
+			scale = UnscaleBy(scale, base_scale);
+			part.scale = (part.attach && !part.bone.empty())
+				? scale : UnscaleBy(scale, instance_scale);
+		}
+
+		bool ApplyInstanceToTemplate(EditorState& state, const std::string& instance_name,
+			std::string& error) {
+			if (state.world == nullptr) {
+				error = "no world";
+				return false;
+			}
+			Coordinator* c = state.world->GetCoordinator();
+			if (c == nullptr) {
+				error = "no scene";
+				return false;
+			}
+			const std::string instance = InstanceOf(state, instance_name);
+			if (instance.empty()) {
+				error = instance_name + " is not a placed instance";
+				return false;
+			}
+			const PlacedInstance* record = nullptr;
+			for (const PlacedInstance& inst : state.placed_instances) {
+				if (inst.name == instance) {
+					record = &inst;
+					break;
+				}
+			}
+			if (record == nullptr) {
+				error = "no record for instance: " + instance;
+				return false;
+			}
+			const std::string template_name = record->template_name;
+			if (!IsAuthored(state, template_name)) {
+				error = "not an authored template: " + template_name;
+				return false;
+			}
+			Entity root = c->GetEntityByName(instance);
+			if (root == INVALID_ENTITY_ID || !c->ContainsComponent<Transform>(root)) {
+				error = "instance entity not found: " + instance;
+				return false;
+			}
+			const Transform root_transform = c->GetConstComponent<Transform>(root);
+			const float3 instance_scale = record->scale;
+
+			TemplateSnapshot before;
+			if (!GetSnapshot(state, template_name, before) || !before.exists) {
+				error = "unknown template: " + template_name;
+				return false;
+			}
+			//Captured before anything is erased, so one undo puts back both halves of
+			//what this does.
+			std::vector<std::pair<std::string, ComponentDelta>> deltas_before;
+			std::vector<std::string> overridden_before;
+
+			nlohmann::json parts = before.parts;
+			int applied = 0;
+			for (auto& entry : parts) {
+				if (!entry.is_object()) {
+					continue;
+				}
+				TemplatePart part = PartFromJson(entry);
+				const std::string entity_name = instance + World::PART_NAME_SEPARATOR + part.name;
+				Entity e = c->GetEntityByName(entity_name);
+				if (e == INVALID_ENTITY_ID || !c->ContainsComponent<Transform>(e)) {
+					//A part the level removed from this instance: the template keeps what
+					//it has rather than being edited by an absence.
+					continue;
+				}
+				MeasureSpawnedPart(state, root_transform, c->GetConstComponent<Transform>(e),
+					instance_scale, part);
+				//Component edits made to this part travel with it: the point of applying
+				//is that what you see on this instance is what the template becomes.
+				auto delta = state.component_deltas.find(entity_name);
+				if (delta != state.component_deltas.end()) {
+					deltas_before.push_back({ entity_name, delta->second });
+					for (const auto& [component, value] : delta->second.added) {
+						part.components[component] = value;
+					}
+					for (const std::string& removed : delta->second.removed) {
+						part.components.erase(removed);
+					}
+					state.component_deltas.erase(delta);
+				}
+				if (state.overridden_entities.erase(entity_name) != 0) {
+					overridden_before.push_back(entity_name);
+				}
+				entry = PartToJson(part);
+				++applied;
+			}
+			if (applied == 0) {
+				error = instance + " has no parts to apply";
+				return false;
+			}
+
+			TemplateSnapshot target = before;
+			target.parts = parts;
+			if (!ApplySnapshot(state, template_name, target, error)) {
+				return false;
+			}
+			TemplateSnapshot after;
+			GetSnapshot(state, template_name, after);
+			EditorHistory::Push({
+				"apply " + instance + " to template " + template_name,
+				[template_name, before, deltas_before, overridden_before](EditorState& s) {
+					std::string err;
+					ApplySnapshot(s, template_name, before, err);
+					for (const auto& [name, delta] : deltas_before) {
+						s.component_deltas[name] = delta;
+					}
+					for (const std::string& name : overridden_before) {
+						s.overridden_entities.insert(name);
+					}
+				},
+				[template_name, after, deltas_before, overridden_before](EditorState& s) {
+					std::string err;
+					ApplySnapshot(s, template_name, after, err);
+					for (const auto& [name, delta] : deltas_before) {
+						s.component_deltas.erase(name);
+					}
+					for (const std::string& name : overridden_before) {
+						s.overridden_entities.erase(name);
+					}
+				} });
+
+			state.selected_template = template_name;
+			state.status_message = "Applied " + std::to_string(applied) + " part(s) of " +
+				instance + " to template " + template_name;
+			return true;
+		}
+
 		bool CreateFromModel(EditorState& state, const std::string& model_name,
 			const std::string& template_name, std::string& error) {
 			if (state.world == nullptr) {
@@ -2426,14 +2624,19 @@ namespace HotBiteEditor {
 					}
 				}
 				//More than one entity selected means the arrangement itself is what is
-				//being saved: a composed template, with the others as parts of the
-				//primary. That is the "build it in the scene, then keep it" path.
+				//being saved: a composed template, with the others as parts of the one
+				//picked first. That is the "build it in the scene, then keep it" path.
 				const std::vector<std::string> selection = SelectedEntityNames(state);
 				if (from_selection) {
 					if (selection.size() > 1) {
-						strncpy_s(from_entity_name, UniqueName(state, entity_name + "_group").c_str(),
+						//The root is the *first* entity picked - the object you select
+						//before gathering what goes with it - not the primary, which is
+						//whatever was clicked last. The Entities panel marks it, and the
+						//combo in the prompt can still override it.
+						const std::string root = selection.front();
+						strncpy_s(from_entity_name, UniqueName(state, root + "_group").c_str(),
 							sizeof(from_entity_name) - 1);
-						composed_root = entity_name;
+						composed_root = root;
 						composed_pivot_root = false;
 						ImGui::OpenPopup("Template From Selection");
 					}

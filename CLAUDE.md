@@ -362,6 +362,40 @@ shortened by the caps so the shape ends where the box does. `Init`/`UpdateShape`
 the whole `box`, so every caller passes `local_box` — never `final_box`/`bounding_box`,
 which the transform pass has already scaled.
 
+**Normal smoothing is a `Mesh` component flag, and it acts on the shared mesh asset.**
+The importer gives every polygon *corner* its own frame, so a control point used by
+several faces is cloned and each face keeps its own normal — that is flat shading.
+Smoothing sums the frames of all the clones of one control point and hands the sum back
+to each. `MeshData` keeps both halves (`flat_frames` and `smooth_groups`, 40 bytes a
+vertex) so the choice is re-derivable instead of baked, which is the only reason it can
+be a flag at all: models load long before any component block is read, so a value that
+had to reach `FBXLoader` could never come from a level.
+
+The scope is the *asset*, exactly like `Mesh`'s `skeletons` key and exactly like the
+`.NoSmooth` node-name suffix it replaces — every entity drawing that mesh changes, and
+two entities asking for different values is last-writer-wins. The suffix is still read
+at import as the default, because it is the only way the existing `.fbx` files say it;
+a level with no `"smooth"` key keeps whatever the import decided.
+
+Three things there that are not guessable:
+
+- **`Mesh::ToJson` writes `smooth` unconditionally**, never "only when it differs from
+  the import default". Every `FromJson` reads a missing key as *leave alone*, and undo
+  works by replaying an earlier `ToJson` (`ComponentOps::RecordEdit`) — so a key omitted
+  because it matched the default cannot be restored. The symptom is an undo that reports
+  success and changes nothing. The same trap waits for any new component field.
+- **Propagating skin weights to the cloned vertices is not part of the smoothing** even
+  though it used to live inside it. Only the control point carries the weights the
+  importer read out of the cluster; its clones are made before those exist. Gated on
+  `smooth`, a flat-shaded *skinned* mesh comes out with every clone unskinned — latent
+  until this made flat shading something you can ask for.
+- The world vertex buffer is `IMMUTABLE` and holds every mesh, so `MeshData::SetSmooth`
+  only rewrites the CPU copy and marks it dirty (`World::SetMeshSmooth`);
+  `World::FlushMeshBuffers`, called once per frame from the editor tick between frames,
+  does the one `Unprepare`/`Prepare` rebuild. Sum, never average, when fusing — the
+  shaders normalize, so averaging would only change every lit pixel of every existing
+  scene for nothing.
+
 **Editing a component's fields** goes through `ComponentOps::ApplyValue` /
 `SetValue` / `RecordEdit` (`Tools/SceneEditor/ComponentOps.h`), never by poking the
 struct alone: an edit that only touches the live component looks right until the
@@ -582,6 +616,26 @@ plus `TemplateOps::CreateFromSelection` — Edit/Create Template from Selection 
 than one entity selected, which is the "arrange it in the scene, then keep the
 arrangement" path. It references the template each selected object was placed from and
 creates one (as its own undo step) for anything that was not.
+
+**Authoring a composed template runs in both directions**, and the scene one is what
+gets used: place the object, drag its parts in the viewport, then
+`TemplateOps::ApplyInstanceToTemplate` (Edit/Apply Instance to Template,
+`apply_to_template`) writes them back. It is the exact inverse of `SpawnInstance`'s
+composition and has to undo all three steps in the order they were applied —
+`MeasureSpawnedPart`: the root's pose for a detached part, the instance's scale (which a
+bone-riding part never carried, the parent's world matrix having scaled it), and the part
+template's own base transform. It applies the parts and their component deltas and
+deliberately not the instance's placement or the root's scale/rotation, which compose
+into every instance and would be folded in twice. The per-instance overrides it consumes
+are dropped in the same undo step, or that instance would stay pinned while every other
+one followed later edits.
+
+**The root of a composed selection is the entity picked *first*** (`Selection::Root`,
+`selected_entities.front()`), not the primary — the primary is the most recent pick,
+which is what anchors a shift-range and what the Components panel edits, so it changes
+under you as you gather a selection. The Entities panel draws the root amber with a `*`
+prefix (ASCII: the default ImGui font has no bullet glyph and renders one as `?`), and
+`list_selection` marks it `[root]`.
 
 **The Templates panel authors templates and does not place them.** An edit there
 changes the *definition* — what a "troll" is — while placing one changes the level,

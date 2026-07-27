@@ -26,6 +26,7 @@ SOFTWARE.
 
 #include <Defines.h>
 #include <d3d11.h>
+#include <algorithm>
 #include <vector>
 #include "DXCore.h"
 
@@ -95,6 +96,17 @@ namespace HotBite {
 					*index_offset = GetIndicesCount();
 					vvertex.insert(vvertex.end(), vertices.begin(), vertices.end());
 					vindex.insert(vindex.end(), indices.begin(), indices.end());
+				}
+
+				//Overwrites the vertices one mesh contributed, in place. The CPU copy
+				//only - the GPU buffer is immutable and is rebuilt from this by
+				//Unprepare()+Prepare(), so a caller changing several meshes pays for
+				//one rebuild rather than one each (World::FlushMeshBuffers).
+				void UpdateMesh(size_t vertex_offset, const std::vector<T>& vertices) {
+					if (vertex_offset + vertices.size() > vvertex.size()) {
+						return;
+					}
+					std::copy(vertices.begin(), vertices.end(), vvertex.begin() + vertex_offset);
 				}
 
 				void FlushMesh(const std::vector<T>& vertices, const std::vector<uint32_t>& indices) {

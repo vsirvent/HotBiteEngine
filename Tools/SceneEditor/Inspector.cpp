@@ -749,6 +749,36 @@ namespace HotBiteEditor {
 			}
 			ImGui::Text("Vertices: %u  Indices: %u", data->vertexCount, data->indexCount);
 
+			//Normal smoothing. A property of the mesh *asset*, edited from here because
+			//this is where an entity's mesh is - so it reaches every entity drawing this
+			//mesh, which the tooltip says out loud rather than leaving to be discovered.
+			//Meshes built in code (the default cube) carry no vertex grouping and cannot
+			//be re-smoothed at all.
+			const bool can_smooth = !data->smooth_groups.empty();
+			ImGui::BeginDisabled(!can_smooth);
+			bool smooth = data->smooth;
+			if (ImGui::Checkbox("Smooth normals", &smooth) && can_smooth) {
+				nlohmann::json block = ComponentOps::GetValue(state, entity_name, Mesh::NAME);
+				block["smooth"] = smooth;
+				std::string error;
+				if (!ComponentOps::SetValue(state, entity_name, Mesh::NAME, block, error)) {
+					state.status_message = "Set smooth failed: " + error;
+				}
+			}
+			ImGui::EndDisabled();
+			if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+				if (can_smooth) {
+					ImGui::SetTooltip("Fuses the normals of vertices that share a corner, so the\n"
+						"surface reads as curved instead of faceted.\n\n"
+						"This belongs to the mesh asset '%s': every entity\n"
+						"drawing that mesh changes with it.", mesh_name.c_str());
+				}
+				else {
+					ImGui::SetTooltip("This mesh was not imported from a model, so it carries no\n"
+						"vertex grouping to smooth across.");
+				}
+			}
+
 			//What this entity can play. Two sources, in the order that matters:
 			//
 			//  - the animation library it inherited from its template ("idle", "walk"):

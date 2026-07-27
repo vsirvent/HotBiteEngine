@@ -214,13 +214,20 @@ int FBXLoader::LoadMeshes(Core::FlatMap<std::string, Core::MeshData>& meshes, Fb
 		std::string name = node->GetName();
 		std::vector<unsigned int> indices;
 		std::unordered_map<int, bool> used_vertices;
-		std::unordered_map<int, std::vector<int>> cloned_vertices;
+		//Per vertex, the control point it came from. Handed to MeshData so smoothing
+		//stays a decision the engine can remake later rather than one baked in here -
+		//see the comment on MeshData::flat_frames.
+		std::vector<uint32_t> smooth_groups;
 
 		FbxMesh* fbxMesh = (FbxMesh*)node->GetNodeAttribute();
 		FbxVector4* controlPoints = fbxMesh->GetControlPoints();
 		int vertexCount = fbxMesh->GetControlPointsCount();
 		std::vector<Vertex> vertices;
 
+		//The import-time default only. It is what the mesh loads as; from there the
+		//Mesh component's "smooth" flag overrides it per level, which is why the
+		//".NoSmooth" suffix is still honoured - it is how every existing .fbx says
+		//this, and the models cannot be re-exported to say it any other way.
 		bool smooth = true;
 		FbxProperty p = node->FindProperty("smooth", false);
 		if (p.IsValid())
@@ -240,6 +247,8 @@ int FBXLoader::LoadMeshes(Core::FlatMap<std::string, Core::MeshData>& meshes, Fb
 			v.Position.z = (float)controlPoints[i].mData[2];
 			v.Normal = {};
 			vertices.push_back(v);
+			//An original is its own group; clones below join it.
+			smooth_groups.push_back((uint32_t)i);
 		}
 
 		int polygonCount = fbxMesh->GetPolygonCount();
@@ -248,12 +257,12 @@ int FBXLoader::LoadMeshes(Core::FlatMap<std::string, Core::MeshData>& meshes, Fb
 			int polygonSize = fbxMesh->GetPolygonSize(i);
 			for (int j = 0; j < polygonSize; j++)
 			{
-				int ind = fbxMesh->GetPolygonVertex(i, j);
+				const int control_point = fbxMesh->GetPolygonVertex(i, j);
+				int ind = control_point;
 				if (used_vertices[ind] == true) {
 					vertices.push_back(vertices[ind]);
-					int new_index = (int)vertices.size() - 1;
-					cloned_vertices[ind].push_back(new_index);
-					ind = new_index;
+					smooth_groups.push_back((uint32_t)control_point);
+					ind = (int)vertices.size() - 1;
 				}
 				indices.push_back(ind);
 
@@ -426,23 +435,11 @@ int FBXLoader::LoadMeshes(Core::FlatMap<std::string, Core::MeshData>& meshes, Fb
 		}
 
 
-		if (smooth) {
-			for (auto cv : cloned_vertices) {
-				vector<int> ids;
-				Vertex mixed_vertex = MixSimilarVertices(vertices, cloned_vertices, cv.first, cv.second, used_vertices, ids);
-				for (auto id : ids) {
-					vertices[id].Normal = mixed_vertex.Normal;
-					vertices[id].Tangent = mixed_vertex.Tangent;
-					vertices[id].Bitangent = mixed_vertex.Bitangent;
-					memcpy(vertices[id].Boneids, mixed_vertex.Boneids, sizeof(mixed_vertex.Boneids));
-					vertices[id].Weights = mixed_vertex.Weights;
-				}
-			}
-		}
-
 		printf("Loaded mesh %s\n", name.c_str());
 		MeshData* mesh = meshes.Create(name);
-		mesh->Init(vb, name, vertices, indices, skeleton);
+		//Fusing the clones is MeshData's job now, so it can be undone: the vertices
+		//handed over are the flat ones, plus the grouping and the default above.
+		mesh->Init(vb, name, vertices, indices, skeleton, &smooth_groups, smooth);
 		++ret;
 	}
 	//Load node childs
@@ -865,53 +862,6 @@ void FBXLoader::CalculateTangents(std::vector<Vertex>& vertices, const std::vect
 		}
 	}
 }
-
-Vertex FBXLoader::MixSimilarVertices(const std::vector<Vertex>& vertices, const std::unordered_map<int, std::vector<int>>& cloned_vertices,
-	int id, const std::vector<int> child_ids, std::unordered_map<int, bool>& used_vertices, std::vector<int>& ids) {
-	Vertex mixed_vertex = {};
-	if (used_vertices.find(id) == used_vertices.end()) {
-		used_vertices[id] = true;
-		ids.push_back(id);
-		mixed_vertex.Normal.x += vertices[id].Normal.x;
-		mixed_vertex.Normal.y += vertices[id].Normal.y;
-		mixed_vertex.Normal.z += vertices[id].Normal.z;
-		mixed_vertex.Tangent.x += vertices[id].Tangent.x;
-		mixed_vertex.Tangent.y += vertices[id].Tangent.y;
-		mixed_vertex.Tangent.z += vertices[id].Tangent.z;
-		mixed_vertex.Bitangent.x += vertices[id].Bitangent.x;
-		mixed_vertex.Bitangent.y += vertices[id].Bitangent.y;
-		mixed_vertex.Bitangent.z += vertices[id].Bitangent.z;
-		memcpy(mixed_vertex.Boneids, vertices[id].Boneids, sizeof(mixed_vertex.Boneids));
-		mixed_vertex.Weights = vertices[id].Weights;
-		for (auto chid : child_ids) {
-			ids.push_back(chid);
-			auto chid_childs = cloned_vertices.find(chid);
-			mixed_vertex.Normal.x += vertices[chid].Normal.x;
-			mixed_vertex.Normal.y += vertices[chid].Normal.y;
-			mixed_vertex.Normal.z += vertices[chid].Normal.z;
-			mixed_vertex.Tangent.x += vertices[chid].Tangent.x;
-			mixed_vertex.Tangent.y += vertices[chid].Tangent.y;
-			mixed_vertex.Tangent.z += vertices[chid].Tangent.z;
-			mixed_vertex.Bitangent.x += vertices[chid].Bitangent.x;
-			mixed_vertex.Bitangent.y += vertices[chid].Bitangent.y;
-			mixed_vertex.Bitangent.z += vertices[chid].Bitangent.z;
-			if (chid_childs != cloned_vertices.end()) {
-				Vertex ch_mixed_vertex = MixSimilarVertices(vertices, cloned_vertices, chid, chid_childs->second, used_vertices, ids);
-				mixed_vertex.Normal.x += ch_mixed_vertex.Normal.x;
-				mixed_vertex.Normal.y += ch_mixed_vertex.Normal.y;
-				mixed_vertex.Normal.z += ch_mixed_vertex.Normal.z;
-				mixed_vertex.Tangent.x += ch_mixed_vertex.Tangent.x;
-				mixed_vertex.Tangent.y += ch_mixed_vertex.Tangent.y;
-				mixed_vertex.Tangent.z += ch_mixed_vertex.Tangent.z;
-				mixed_vertex.Bitangent.x += ch_mixed_vertex.Bitangent.x;
-				mixed_vertex.Bitangent.y += ch_mixed_vertex.Bitangent.y;
-				mixed_vertex.Bitangent.z += ch_mixed_vertex.Bitangent.z;
-			}
-		}
-	}
-	return mixed_vertex;
-}
-
 
 float  FBXLoader::GetMaterialProperty(const FbxSurfaceMaterial* pMaterial,
 	const char* pPropertyName)

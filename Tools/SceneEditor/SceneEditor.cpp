@@ -104,6 +104,12 @@ namespace HotBiteEditor {
 			//Remote-control commands run before the frame renders, so their effects
 			//(and any screenshot taken at the end of this same frame) are consistent.
 			EditorAutomation::ProcessCommands(state, *this);
+			//An edit that changed a mesh's vertices (smoothing, from the Components
+			//panel, from a command above, or from an undo of either) only touched the
+			//CPU side; the immutable GPU buffers are rebuilt here, between frames,
+			//which is the one place all of those surfaces meet. Free when nothing is
+			//dirty, which is almost every frame.
+			world.FlushMeshBuffers();
 			if (level_loaded) {
 				editor_camera.Update((float)t.period / 1000000000.0f);
 				world.GetSystem<RenderSystem>()->Update();
@@ -206,6 +212,33 @@ namespace HotBiteEditor {
 			[this]() {
 				state.show_template_panel = true;
 				TemplatePanel::RequestTemplateFromSelection(state);
+			} });
+
+		//Edit: the other direction - an object placed in the scene, its parts dragged
+		//into place, pushed back into the definition. Enabled for any entity of a
+		//placed instance, so selecting the part you just moved is enough.
+		menu_commands.push_back({ "Edit/Apply Instance to Template",
+			[this]() {
+				Coordinator* c = world.GetCoordinator();
+				if (!level_loaded || c == nullptr ||
+					state.selected_entity == INVALID_ENTITY_ID ||
+					!c->ContainsComponent<Components::Base>(state.selected_entity)) {
+					return false;
+				}
+				const std::string& name =
+					c->GetConstComponent<Components::Base>(state.selected_entity).name;
+				return !TemplateOps::InstanceOf(state, name).empty();
+			},
+			[this]() {
+				Coordinator* c = world.GetCoordinator();
+				if (c == nullptr || !c->ContainsComponent<Components::Base>(state.selected_entity)) {
+					return;
+				}
+				std::string error;
+				if (!TemplateOps::ApplyInstanceToTemplate(state,
+					c->GetConstComponent<Components::Base>(state.selected_entity).name, error)) {
+					state.status_message = "Apply to template failed: " + error;
+				}
 			} });
 
 		//Edit: physics preview. Off by default (see SetPhysicsPause above); while
@@ -381,6 +414,18 @@ namespace HotBiteEditor {
 			if (!io.WantTextInput && !io.KeyCtrl &&
 				ImGui::IsKeyPressed(ImGuiKey_Delete, false)) {
 				state.delete_requested = true;
+			}
+			//Esc drops the selection. Having nothing selected is a state worth being
+			//able to reach: the Components panel stops offering edits that would land
+			//on whatever happened to be picked last, and the gizmo goes away.
+			//
+			//Skipped while a popup is up, because Esc is also how a modal is cancelled
+			//(DrawNameModal and friends read the same key) - and cancelling a dialog
+			//must not also throw away what the dialog was about to act on.
+			if (!io.WantTextInput && !io.KeyCtrl && Selection::Count(state) > 0 &&
+				!ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel) &&
+				ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+				Selection::Clear(state);
 			}
 			if (!io.WantTextInput && io.KeyCtrl) {
 				std::string err;

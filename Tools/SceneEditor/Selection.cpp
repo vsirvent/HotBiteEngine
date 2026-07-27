@@ -38,6 +38,12 @@ namespace HotBiteEditor {
 			return state.selected_entities.size();
 		}
 
+		Entity Root(const EditorState& state)
+		{
+			return state.selected_entities.empty()
+				? INVALID_ENTITY_ID : state.selected_entities.front();
+		}
+
 		void Clear(EditorState& state)
 		{
 			state.selected_entities.clear();

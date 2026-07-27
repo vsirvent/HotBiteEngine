@@ -54,7 +54,54 @@ MeshData::MeshData() {
 MeshData::~MeshData() {	
 }
 
-void MeshData::Init(VertexBuffer<Core::Vertex>* vb, const std::string& mesh_name, const std::vector<Core::Vertex>& vertices, const std::vector<uint32_t>& indices, std::shared_ptr<Skeleton> skeleton)
+//Applies `smooth` to `vertices` from the flat frames and the grouping. Returns false
+//when there is nothing to apply, which is how a mesh loaded without grouping (the
+//built-in cube, a game building its own geometry) stays pinned to what it was given.
+//
+//The two halves are deliberately separate. Fusing the *frames* is the smoothing, and
+//is what the flag turns off. Propagating the skin weights is not optional: only the
+//control point carries the weights the importer read out of the cluster, its clones
+//are created before any of that exists, so without this pass every cloned vertex of a
+//skinned mesh renders unskinned. That used to ride along inside the smoothing pass,
+//which meant a flat-shaded skinned mesh came out broken - invisible only because
+//nothing had ever asked for one.
+static bool ApplySmoothing(std::vector<Vertex>& vertices,
+	const std::vector<MeshData::VertexFrame>& flat_frames,
+	const std::vector<uint32_t>& smooth_groups, bool smooth) {
+	if (flat_frames.size() != vertices.size() || smooth_groups.size() != vertices.size()) {
+		return false;
+	}
+	//The sum over each group, indexed by the group's control point. Summed and not
+	//averaged, which is what the importer always did: the shaders normalize, so the
+	//length never reaches the surface, and averaging here would change every lit
+	//pixel of every existing scene for nothing.
+	std::vector<MeshData::VertexFrame> fused;
+	if (smooth) {
+		fused.resize(vertices.size());
+		for (size_t i = 0; i < vertices.size(); ++i) {
+			MeshData::VertexFrame& f = fused[smooth_groups[i]];
+			const MeshData::VertexFrame& src = flat_frames[i];
+			f.normal.x += src.normal.x;    f.normal.y += src.normal.y;    f.normal.z += src.normal.z;
+			f.tangent.x += src.tangent.x;  f.tangent.y += src.tangent.y;  f.tangent.z += src.tangent.z;
+			f.bitangent.x += src.bitangent.x; f.bitangent.y += src.bitangent.y; f.bitangent.z += src.bitangent.z;
+		}
+	}
+	for (size_t i = 0; i < vertices.size(); ++i) {
+		const uint32_t group = smooth_groups[i];
+		const MeshData::VertexFrame& f = smooth ? fused[group] : flat_frames[i];
+		vertices[i].Normal = f.normal;
+		vertices[i].Tangent = f.tangent;
+		vertices[i].Bitangent = f.bitangent;
+		if (group != (uint32_t)i) {
+			memcpy(vertices[i].Boneids, vertices[group].Boneids, sizeof(vertices[i].Boneids));
+			vertices[i].Weights = vertices[group].Weights;
+		}
+	}
+	return true;
+}
+
+void MeshData::Init(VertexBuffer<Core::Vertex>* vb, const std::string& mesh_name, const std::vector<Core::Vertex>& vertices, const std::vector<uint32_t>& indices, std::shared_ptr<Skeleton> skeleton,
+	const std::vector<uint32_t>* smooth_groups, bool smooth)
 {
 	if (skeleton != nullptr) {
 		skeletons.push_back(skeleton);
@@ -63,8 +110,22 @@ void MeshData::Init(VertexBuffer<Core::Vertex>* vb, const std::string& mesh_name
 	this->init = true;
 	this->vertices = vertices;
 	this->indices = indices;
+	this->vertex_buffer = vb;
+	this->smooth = smooth;
 
-	bvh.Init(vertices, indices);
+	//Held before anything fuses them, so the flat shading stays recoverable.
+	if (smooth_groups != nullptr && smooth_groups->size() == vertices.size()) {
+		this->smooth_groups = *smooth_groups;
+		flat_frames.resize(vertices.size());
+		for (size_t i = 0; i < vertices.size(); ++i) {
+			flat_frames[i] = { vertices[i].Normal, vertices[i].Tangent, vertices[i].Bitangent };
+		}
+		//Before the boxes below and before the upload: BuildSkinnedBoxes reads the
+		//bone ids this pass hands to the cloned vertices.
+		ApplySmoothing(this->vertices, flat_frames, this->smooth_groups, smooth);
+	}
+
+	bvh.Init(this->vertices, indices);
 
 	//Calculate max and min dimensions
 	indexCount = (uint32_t)indices.size();
@@ -81,9 +142,29 @@ void MeshData::Init(VertexBuffer<Core::Vertex>* vb, const std::string& mesh_name
 		if (pos.y > maxDimensions.y)maxDimensions.y = pos.y;
 		if (pos.z > maxDimensions.z)maxDimensions.z = pos.z;
 	}
-	vb->AddMesh(vertices, indices, &vertexOffset, &indexOffset);
+	vb->AddMesh(this->vertices, indices, &vertexOffset, &indexOffset);
 
 	BuildSkinnedBoxes();
+}
+
+bool MeshData::SetSmooth(bool enable) {
+	if (enable == smooth) {
+		return false;
+	}
+	if (!ApplySmoothing(vertices, flat_frames, smooth_groups, enable)) {
+		//No grouping was recorded for this mesh, so there is nothing to fuse or
+		//unfuse. Leaving `smooth` alone keeps the readout honest about what is on
+		//screen rather than reporting a change that never happened.
+		return false;
+	}
+	smooth = enable;
+	if (vertex_buffer != nullptr) {
+		vertex_buffer->UpdateMesh(vertexOffset, vertices);
+	}
+	//Nothing else is re-derived on purpose. Only the vertex frames move; positions,
+	//bone ids and weights are the same either way, so the BVH, the dimensions and the
+	//joint/animation boxes all still describe this mesh.
+	return true;
 }
 
 //A vertex counts towards a joint's box when that joint carries at least this share of

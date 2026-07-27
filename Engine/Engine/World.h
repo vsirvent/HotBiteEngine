@@ -164,6 +164,9 @@ namespace HotBite {
 			//Init() has run: entities created after this point (editor spawns/clones)
 			//must set up their own physics bodies instead of relying on the Init() pass.
 			bool scene_init = false;
+			//A mesh's vertices changed on the CPU side and the GPU buffers no longer
+			//match; see SetMeshSmooth / FlushMeshBuffers.
+			bool mesh_buffers_dirty = false;
 			std::unordered_map<std::string, std::shared_ptr<ECS::System>> systems_by_name;
 			std::list<int> run_timer_ids[Core::DXCore::NTHREADS];
 			std::set<std::string> loaded_files;
@@ -436,6 +439,24 @@ namespace HotBite {
 			// session) otherwise reference GPU data that was never uploaded and render
 			// as nothing. Call from the render thread, between frames.
 			virtual void RefreshMeshBuffers();
+			// Turns normal smoothing on or off for a mesh *asset*. Shared, like the
+			// asset: every entity drawing `mesh` changes, which is the same scope the
+			// ".NoSmooth" node name always had and the same scope Mesh's "skeletons"
+			// key has. Two entities on one mesh asking for different values is
+			// last-writer-wins, and both then serialize the value that won.
+			//
+			// The world vertex buffer is immutable and holds every mesh, so this only
+			// rewrites the CPU side and marks it dirty; FlushMeshBuffers does the one
+			// rebuild that puts it on screen. That split is what keeps a level whose
+			// records flip a dozen meshes from rebuilding the whole buffer a dozen
+			// times. False when nothing changed.
+			virtual bool SetMeshSmooth(Core::MeshData* mesh, bool smooth);
+			// Rebuilds the GPU buffers when a SetMeshSmooth since the last flush left
+			// them stale, and does nothing otherwise - so it is safe (and meant) to be
+			// called every frame, between frames. Before Init() it only clears the
+			// flag: Init uploads the buffers for the first time and so picks the
+			// changes up on its own.
+			virtual void FlushMeshBuffers();
 			// Spawns a new, persistable entity (or set of entities, for multi-part templates)
 			// cloned from a named template, at the given base transform. Used both by the
 			// "instances" section of Load() and by editor tooling that places objects at runtime.

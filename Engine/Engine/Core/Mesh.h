@@ -281,7 +281,13 @@ namespace HotBite {
 					assert(!other.init && "MeshData can't be copied after init.");
 					*this = other;
 				}
-				void Init(Core::VertexBuffer<Core::Vertex>* vb, const std::string& mesh_name, const std::vector<Core::Vertex>& vertices, const std::vector<uint32_t>& indices, std::shared_ptr<Skeleton> skeleton);
+				// `vertices` are the *unsmoothed* frames the importer produced - one
+				// normal/tangent/bitangent per polygon corner. `smooth_groups`, when
+				// given, says which corners belong to the same control point (see
+				// below) and `smooth` whether to fuse them right away; without it the
+				// vertices are taken exactly as passed and SetSmooth does nothing.
+				void Init(Core::VertexBuffer<Core::Vertex>* vb, const std::string& mesh_name, const std::vector<Core::Vertex>& vertices, const std::vector<uint32_t>& indices, std::shared_ptr<Skeleton> skeleton,
+					const std::vector<uint32_t>* smooth_groups = nullptr, bool smooth = true);
 				void Release();
 				void LoadTextures();
 				void AddSkeleton(std::shared_ptr<Skeleton> skl);
@@ -323,6 +329,49 @@ namespace HotBite {
 				// boxes of every skeleton attached so far.
 				void BuildSkinnedBoxes();
 
+				// == Normal smoothing ==================================================
+				//
+				// The importer gives every polygon *corner* its own frame: a control
+				// point used by several faces is cloned so each face keeps its own
+				// normal, which is flat shading. Smoothing sums the frames of all the
+				// clones of one control point and hands the sum back to each of them,
+				// so the surface reads as curved across the seam.
+				//
+				// Both halves of that are kept - the flat frames, and which control
+				// point each vertex came from - so the choice can be remade at any time
+				// instead of being baked at import. That is what lets it be a flag on
+				// the Mesh component rather than a name the .fbx had to be authored with
+				// (".NoSmooth"), which could only ever be decided in the modelling tool.
+				// It costs 40 bytes a vertex, next to the 96 the vertex itself already
+				// costs here and again in the world vertex buffer.
+				struct VertexFrame {
+					float3 normal = {};
+					float3 tangent = {};
+					float3 bitangent = {};
+				};
+				// Per vertex, as imported. Empty when Init was given no grouping, which
+				// pins the mesh to whatever it was loaded with.
+				std::vector<VertexFrame> flat_frames;
+				// Per vertex, the index of the control point it came from - itself, for
+				// a vertex that was never cloned. Groups are one level deep: the loader
+				// only ever clones an original, never a clone.
+				std::vector<uint32_t> smooth_groups;
+				// What is applied right now. Starts at whatever the import decided (an
+				// .fbx "smooth" property, or the ".NoSmooth" suffix in the node name),
+				// which is also where a level that says nothing about it leaves it.
+				bool smooth = true;
+
+				// Re-derives the normals/tangents/bitangents for `enable` and writes
+				// them into the world vertex buffer's CPU copy. True when something
+				// changed, in which case the GPU buffers still have to be rebuilt
+				// (World::FlushMeshBuffers) before the change is on screen - the world
+				// buffer is immutable and holds every mesh, so it is rebuilt once for
+				// all of them rather than once per toggle.
+				//
+				// Shared, exactly like the mesh: this reaches every entity drawing it.
+				// Only positions feed the BVH, so nothing here invalidates it.
+				bool SetSmooth(bool enable);
+
 				HotBite::Engine::Core::BVH bvh;
 				float3 minDimensions = {};
 				float3 maxDimensions = {};
@@ -334,6 +383,8 @@ namespace HotBite {
 				std::string name;
 				std::vector<Core::Vertex> vertices;
 				std::vector<uint32_t> indices;
+				//Where `vertices` live, so SetSmooth can write them back.
+				Core::VertexBuffer<Core::Vertex>* vertex_buffer = nullptr;
 				std::vector<std::shared_ptr<Skeleton>> skeletons;
 				ID3D11ShaderResourceView* normal_map = nullptr;
 				bool init = false;

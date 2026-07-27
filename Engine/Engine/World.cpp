@@ -1066,6 +1066,25 @@ void World::RefreshMeshBuffers() {
 		bvh_buffer->Add(m.bvh.Root(), m.bvh.Size(), &m.bvhOffset);
 	}
 	bvh_buffer->Prepare();
+	mesh_buffers_dirty = false;
+}
+
+bool World::SetMeshSmooth(Core::MeshData* mesh, bool smooth) {
+	if (mesh == nullptr || !mesh->SetSmooth(smooth)) {
+		return false;
+	}
+	mesh_buffers_dirty = true;
+	return true;
+}
+
+void World::FlushMeshBuffers() {
+	if (!mesh_buffers_dirty) {
+		return;
+	}
+	if (scene_init) {
+		RefreshMeshBuffers();
+	}
+	mesh_buffers_dirty = false;
 }
 
 Core::MaterialData* World::GetDefaultMaterial() {
@@ -2211,6 +2230,9 @@ void World::Init() {
 		bvh_buffer->Add(m.bvh.Root(), m.bvh.Size(), &m.bvhOffset);
 	}
 	bvh_buffer->Prepare();
+	//The upload above is the first one, so it already carries whatever the level's
+	//records re-smoothed on the way in.
+	mesh_buffers_dirty = false;
 	scene_init = true;
 }
 

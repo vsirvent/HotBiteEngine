@@ -163,6 +163,38 @@ namespace HotBiteEditor {
 			const std::string& root_entity, bool pivot_root, const std::string& template_name,
 			std::string& error);
 
+		// == Editing a composed object through one of its instances ================
+		//
+		// The other half of authoring: place the object, drag its parts around in the
+		// scene until the arrangement is right, then push that back into the template.
+		// Building the offsets by typing numbers into the Parts section is possible but
+		// nobody wants to; moving the sword in the viewport is the natural way.
+		//
+		// Applies to the template `instance_name` was placed from:
+		//   - every part's pose, measured back out of the spawned entity (the instance's
+		//     own scale and the part template's base transform are taken off, so what is
+		//     stored is what the *next* instance will be composed from, at any scale);
+		//   - the component edits made to each part (a material swapped on this troll's
+		//     sword becomes the sword every troll carries).
+		//
+		// The instance's own placement is deliberately not applied - where one troll
+		// stands is not what a troll is - and neither is the root's scale or rotation,
+		// which compose into every instance and would be folded in twice.
+		//
+		// Those per-instance overrides are dropped as they are applied: they now say the
+		// same thing as the template, and leaving them would pin this instance while
+		// every other one followed later edits. One undoable step covers the template
+		// change and the dropped overrides together.
+		//
+		// `instance_name` may name the instance or any of its parts - a part resolves to
+		// the instance it belongs to, so "select the sword, apply" works.
+		bool ApplyInstanceToTemplate(EditorState& state, const std::string& instance_name,
+			std::string& error);
+		// The instance an entity belongs to (itself, or the instance a "<inst>__<part>"
+		// name is a part of), or "" when it is not part of one. What the menu item's
+		// enabled() predicate asks.
+		std::string InstanceOf(const EditorState& state, const std::string& entity_name);
+
 		// A template built from an imported model - the "I want this .fbx in my scene"
 		// path, and the only one there is, since a model is not placeable itself. The
 		// template takes the model's first renderable node: its mesh, its material and

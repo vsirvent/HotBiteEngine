@@ -364,8 +364,31 @@ namespace HotBiteEditor {
 		{
 			visible_rows.push_back(entity);
 			bool is_selected = Selection::Contains(state, entity);
-			std::string label = name + "##" + std::to_string(entity);
-			if (ImGui::Selectable(label.c_str(), is_selected, ImGuiSelectableFlags_AllowDoubleClick)) {
+			//The first entity picked is the root of anything the selection is composed
+			//into (Create Template from Selection places the others in its frame), so it
+			//has to be readable at a glance - "the first one I clicked" is not something
+			//a list of identically highlighted rows can tell you. Only shown while more
+			//than one is selected, since with one there is nothing to be root *of*.
+			const bool is_root = is_selected && Selection::Count(state) > 1 &&
+				entity == Selection::Root(state);
+			//ASCII, not a bullet glyph: the default ImGui font has no codepoint for one
+			//and draws a "?" instead, which reads as a broken row rather than a marked
+			//one. The colour is what carries it; the asterisk is for a colour-blind eye
+			//and for a screenshot.
+			std::string label = (is_root ? "* " : "") + name + "##" + std::to_string(entity);
+			if (is_root) {
+				ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.78f, 0.35f, 1.0f));
+			}
+			const bool clicked = ImGui::Selectable(label.c_str(), is_selected,
+				ImGuiSelectableFlags_AllowDoubleClick);
+			if (is_root) {
+				ImGui::PopStyleColor();
+				if (ImGui::IsItemHovered()) {
+					ImGui::SetTooltip("Picked first, so this is the root:\n"
+						"Create Template from Selection composes the rest around it.");
+				}
+			}
+			if (clicked) {
 				ImGuiIO& io = ImGui::GetIO();
 				if (io.KeyCtrl) {
 					Selection::Toggle(state, entity);
@@ -620,11 +643,17 @@ namespace HotBiteEditor {
 			}
 
 			//The leftover empty space doubles as the "no group" drop target, so
-			//dragging an entity out of a group and onto the panel background works.
+			//dragging an entity out of a group and onto the panel background works -
+			//and as the place to click when what you want is *nothing* selected.
+			//An InvisibleButton rather than a Dummy because a Dummy has no ID and so
+			//cannot be clicked; it takes drops just the same.
 			ImVec2 avail = ImGui::GetContentRegionAvail();
 			avail.x = (std::max)(avail.x, 1.0f);
 			avail.y = (std::max)(avail.y, ImGui::GetTextLineHeight());
-			ImGui::Dummy(avail);
+			ImGui::InvisibleButton("##deselect", avail);
+			if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
+				Selection::Clear(state);
+			}
 			AcceptEntityDrop(state, "");
 
 			//The rename request comes from inside the group's context popup; the

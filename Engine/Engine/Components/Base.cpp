@@ -701,6 +701,14 @@ namespace HotBite {
 				json j;
 				if (data != nullptr) {
 					j["name"] = data->name;
+					//Always written, never only when it differs from what the import
+					//decided. Every FromJson reads a missing key as "leave alone", so a
+					//ToJson that omits a field cannot be replayed to restore it - and
+					//replaying an earlier ToJson is exactly what undo does
+					//(ComponentOps::RecordEdit). Omitting this one left "unsmooth the
+					//ball" undoable in name only: the step popped off the stack and the
+					//ball stayed faceted.
+					j["smooth"] = data->smooth;
 					//The animation sets attached to this mesh, under the names they were
 					//loaded with. The MeshData holds them as unnamed shared pointers, so
 					//the names have to be recovered from the world's skeleton collection
@@ -847,6 +855,15 @@ namespace HotBite {
 				//a new attachment is exactly the case where it must be done.
 				if (target != GetData() || attached_any) {
 					SetData(target);
+				}
+
+				//Normal smoothing, and like the animation sets above it is a property of
+				//the shared mesh asset that this component is merely the place to author.
+				//It replaces the ".NoSmooth" suffix a mesh's node name had to carry: that
+				//could only be decided in the modelling tool, and the whole point of the
+				//scene editor is that it no longer has to be.
+				if (j.contains("smooth") && j["smooth"].is_boolean()) {
+					ctx.world->SetMeshSmooth(target, j["smooth"].get<bool>());
 				}
 
 				if (j.contains("animation") && j["animation"].is_string()) {

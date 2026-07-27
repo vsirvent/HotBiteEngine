@@ -49,7 +49,7 @@ directory so relative asset paths in level files resolve the same way the other 
 | `select [<name> ...]` | replaces the selection with the named entities (same bookkeeping as clicking, or Ctrl+clicking, them in the Entities panel). The last one becomes the primary — the entity the Components panel edits and the one `copy`/`cut`/`rename`/`focus` act on. No arguments clears the selection; an unknown name fails without changing anything |
 | `add_select <name> ...` | adds the named entities to the current selection, the scripted Ctrl+click |
 | `select_group <group> [add]` | selects every entity in a group, like clicking the group header; `add` extends the selection instead of replacing it |
-| `list_selection` | lists the selected entity names, primary last |
+| `list_selection` | lists the selected entity names in pick order — primary (what the Components panel edits) last, and the first marked `[root]`, that being what `template_from_selection` composes around |
 | `delete` | deletes the selection — mesh entities are parked like a cut, placed instances despawn — as one undo step. The interactive Del key confirms first when several entities are selected; a scripted `delete` is already explicit and goes straight through |
 | `rename <name> <new name>` | renames an entity (same as editing its name in the Components panel); rejects empty/duplicate/reserved names |
 | `components <name>` | lists the components on an entity, in registry order; game components the editor cannot link are listed too (see below) |
@@ -107,7 +107,9 @@ directory so relative asset paths in level files resolve the same way the other 
 | `template_add_part <template> <part template>` | adds another template as a part, at the root's origin, attached to the root. Refused when it would compose a template into itself. The `OK` line reports the part name it got |
 | `template_remove_part <template> <part>` | drops a part |
 | `template_set_part <template> <part> <json>` | edits one part as a delta — `name`, `template`, `attach`, `bone`, `position`, `rotation`, `scale`. Keys left out keep their values. `"{'bone':'hand_r'}"` sockets a part to a joint; `"{'attach':false}"` cuts it loose. **Single-quoted**, as `template_set` |
-| `template_from_selection <template> [root entity] [pivot]` | turns the current multi-entity selection into one composed template. The root defaults to the primary selection; `pivot` makes the template's own body an invisible marker and every selected object a part |
+| `template_from_selection <template> [root entity] [pivot]` | turns the current multi-entity selection into one composed template. The root defaults to the entity picked **first** (`list_selection` marks it `[root]`); `pivot` makes the template's own body an invisible marker and every selected object a part |
+| `apply_to_template [instance or part]` | the other direction: pushes a placed instance's parts — where they now sit, plus any component edits made to them — back into the template it came from. Defaults to the selection, and a part resolves to the instance it belongs to, so "move the sword, apply" is two commands. The instance's own placement is not applied, and the per-instance overrides it consumes are dropped |
+| `deselect` | selects nothing. The same as Esc in the editor, or clicking the empty space below the Entities list |
 | `save_templates` | writes every `.tpl` with unsaved edits and unlinks the removed ones. Also run automatically by `menu "File/Save Level"`, because the level references these files by name |
 | `camera` | one-line JSON dump of the viewport camera: orbit `position`, rendered `world_position`, focus `target`, `rotation_deg` (pitch/yaw/roll), focus `distance` |
 | `camera_pos x y z` | sets the camera's orbit position |
@@ -192,6 +194,19 @@ composed templates and editing it reaches all of them. Two things a part decides
 Placing a composed template spawns the root as `<instance>` and each part as
 `<instance>__<part>`, all from the one `instances` record — so it saves, reloads,
 undoes and deletes as a single object.
+
+Authoring goes both ways, and the scene direction is usually the easier one: place
+the object, drag its parts into place in the viewport (an attached part's gizmo
+edits its offset, a socketed one its offset from the joint), then
+`apply_to_template` — which measures every part back out of the instance and writes
+it into the definition. Edits to a part that are *not* applied stay as overrides on
+that one instance.
+
+Which object the others hang off is the one picked **first**: `list_selection`
+marks it `[root]` and the Entities panel draws it amber with a `*`. That is the
+opposite end of the selection from the primary (the last pick, which is what the
+Components panel edits), because "the thing I selected first, then gathered
+everything around" is what a root is.
 
 A template is stored one of two ways, swappable with `template_storage`:
 

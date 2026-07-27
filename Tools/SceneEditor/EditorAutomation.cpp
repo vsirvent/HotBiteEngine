@@ -297,8 +297,12 @@ namespace HotBiteEditor {
 			}
 			else if (cmd == "list_selection") {
 				response_lines.push_back("OK " + std::to_string(Selection::Count(state)) + " selected");
-				for (const auto& name : Selection::Names(state)) {
-					response_lines.push_back(name);
+				//In pick order, so the first line is the root a composed template would
+				//be built around - marked, because the order is the whole information.
+				const std::vector<std::string> names = Selection::Names(state);
+				for (size_t i = 0; i < names.size(); ++i) {
+					response_lines.push_back(names[i] +
+						((i == 0 && names.size() > 1) ? " [root]" : ""));
 				}
 			}
 			else if (cmd == "delete") {
@@ -1299,8 +1303,10 @@ namespace HotBiteEditor {
 					}
 					const bool pivot = (args.size() > 3 && args[3] == "pivot") ||
 						(args.size() > 2 && args[2] == "pivot");
+					//Defaults to the entity picked first, matching what the panel does and
+					//what the Entities panel marks.
 					std::string root = (args.size() > 2 && args[2] != "pivot") ? args[2]
-						: (names.empty() ? std::string() : names.back());
+						: (names.empty() ? std::string() : names.front());
 					if (names.empty()) {
 						response_lines.push_back("ERR nothing selected");
 					}
@@ -1311,6 +1317,34 @@ namespace HotBiteEditor {
 						response_lines.push_back("ERR " + error);
 					}
 				}
+			}
+			else if (cmd == "apply_to_template") {
+				//The scene-to-definition direction: an instance's parts, as they now
+				//stand, become what the template says.
+				std::string target;
+				if (args.size() > 1) {
+					target = args[1];
+				}
+				else if (state.selected_entity != INVALID_ENTITY_ID) {
+					Coordinator* c = state.world->GetCoordinator();
+					if (c != nullptr && c->ContainsComponent<Base>(state.selected_entity)) {
+						target = c->GetConstComponent<Base>(state.selected_entity).name;
+					}
+				}
+				if (target.empty()) {
+					response_lines.push_back("ERR usage: apply_to_template [instance or part]"
+						" (defaults to the selection)");
+				}
+				else if (TemplateOps::ApplyInstanceToTemplate(state, target, error)) {
+					response_lines.push_back("OK " + state.status_message);
+				}
+				else {
+					response_lines.push_back("ERR " + error);
+				}
+			}
+			else if (cmd == "deselect") {
+				Selection::Clear(state);
+				response_lines.push_back("OK nothing selected");
 			}
 			else if (cmd == "save_templates") {
 				if (TemplateOps::SaveTemplates(state, error)) {

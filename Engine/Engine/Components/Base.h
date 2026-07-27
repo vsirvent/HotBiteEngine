@@ -426,6 +426,12 @@ namespace HotBite {
 				//library names it, so an object that lists its animations never has to list
 				//the files they came from as well. "skeletons" stays for the case with no
 				//library - and for attaching a set whose clips are only chosen at runtime.
+				//
+				//"smooth" is normal smoothing (World::SetMeshSmooth), and belongs to the
+				//shared mesh asset for exactly the same reason "skeletons" does. It
+				//supersedes the ".NoSmooth" suffix in an .fbx node name, which is still
+				//read at import as the default - it is the only way the existing models
+				//say it, and a level that carries no "smooth" key keeps it.
 				nlohmann::json ToJson(const ECS::SerializeContext& ctx) const;
 				void FromJson(const nlohmann::json& j, const ECS::SerializeContext& ctx);
 			};
