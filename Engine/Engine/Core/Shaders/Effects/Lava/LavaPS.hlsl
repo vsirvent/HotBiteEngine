@@ -126,15 +126,20 @@ RenderTargetRT main(GSOutput input)
 	int i = 0;
 	matrix worldViewProj = mul(view, projection);
 
-	//Depth-z check with depth texture
+	//depthTexture is still read below for what is *behind* the surface (the refracted
+	//terrain). The occlusion test that used to be here is gone: the pass renders
+	//against the depth pre-pass buffer, so the hardware rejects fragments the opaque
+	//scene covers before this shader runs. See RenderSystem::DrawScene.
 	float2 pos = input.position.xy;
 	pos.x /= screenW;
 	pos.y /= screenH;
 
 	input.worldPos /= input.worldPos.w;
 	float depth_test = length(input.worldPos.xyz - cameraPosition);
+	//Not an occlusion test - this is the fraction of the 2x2 neighbourhood in which the
+	//lava is in front of the terrain, which fades the surface out along the shore where
+	//it meets the ground. It is applied to the emitted colour at the end.
 	float dz_pcf = depthTexture.SampleCmpLevelZero(PCFSampler, pos, depth_test);
-	if (dz_pcf == 0.0f) { discard; }
 
 	RenderTargetRT output;
 

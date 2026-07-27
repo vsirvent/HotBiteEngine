@@ -165,12 +165,30 @@ namespace HotBite {
 				ID3D11RasterizerState* shadow_rasterizer = nullptr;
 				ID3D11RasterizerState* dir_shadow_rasterizer = nullptr;				
 				ID3D11RasterizerState* drawing_rasterizer = nullptr;
+				//Same as drawing_rasterizer plus a small depth bias, used by the depth
+				//pre-pass. The bias pushes the pre-pass depth slightly away from the
+				//camera so the main pass, which reaches the same surface through a
+				//different chain of matrix products (and through tessellation), never
+				//loses to it in the LESS_EQUAL test. See depth_prepass below.
+				ID3D11RasterizerState* depth_rasterizer = nullptr;
 				ID3D11RasterizerState* sky_rasterizer = nullptr;
 				ID3D11RasterizerState* wireframe_rasterizer = nullptr;
 				ID3D11BlendState* no_blend = NULL;
 				ID3D11BlendState* blend = NULL;
 				ID3D11DepthStencilState* normal_depth = NULL;
 				ID3D11DepthStencilState* transparent_depth = NULL;
+				//Depth states for passes that render on top of the depth pre-pass buffer.
+				//LESS_EQUAL, not LESS: the pre-pass already wrote the depth of every
+				//opaque surface, so the main pass draws that same surface again and must
+				//not be rejected by its own pre-pass value. The hardware then rejects
+				//everything the pre-pass found an occluder for before the pixel shader
+				//runs - which is what the pre-pass is for.
+				//_prepass writes depth (geometry the pre-pass skipped - alpha/blended
+				//materials, second-pass entities - still has to occlude itself),
+				//_prepass_read only tests (the sky, which is blended in behind
+				//everything and must not disturb the buffer).
+				ID3D11DepthStencilState* depth_prepass = NULL;
+				ID3D11DepthStencilState* depth_prepass_read = NULL;
 
 				D3D11_VIEWPORT viewport = {};
 				D3D11_VIEWPORT half_viewport = {};

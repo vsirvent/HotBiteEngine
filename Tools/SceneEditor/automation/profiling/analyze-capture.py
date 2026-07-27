@@ -93,8 +93,13 @@ def main():
         shader_bytes[h] = len(raw)
         return h
 
-    DRAWISH = (rd.ActionFlags.Drawcall | rd.ActionFlags.Dispatch | rd.ActionFlags.Clear |
-               rd.ActionFlags.Copy | rd.ActionFlags.Resolve | rd.ActionFlags.MeshDispatch)
+    # ActionFlags is versioned with RenderDoc and members come and go (MeshDispatch was
+    # dropped, and older builds lack it too), so build the mask from what this install
+    # actually has instead of naming them all unconditionally - one missing name is an
+    # AttributeError that kills the whole replay.
+    DRAWISH = 0
+    for _flag in ("Drawcall", "Dispatch", "Clear", "Copy", "Resolve", "MeshDispatch"):
+        DRAWISH |= int(getattr(rd.ActionFlags, _flag, 0))
     todo = [a for a in actions if a.flags & DRAWISH]
     log("draw/dispatch/clear events: %d" % len(todo))
 

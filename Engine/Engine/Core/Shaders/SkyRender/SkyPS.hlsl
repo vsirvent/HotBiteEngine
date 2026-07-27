@@ -85,12 +85,11 @@ float4 SkyEmitPoint(float3 position, matrix worldViewProj, float3 light_position
 RenderTarget main(VertexToPixel input)
 {
 	int i = 0;
-	float2 pos = input.position.xy;
-	pos.x /= screenW;
-	pos.y /= screenH;
+	//depth is still needed below (the horizon fade); the occlusion test that used to
+	//follow it is gone - the sky is now drawn against the depth pre-pass buffer and the
+	//hardware rejects the covered pixels before this shader runs.
+	//See RenderSystem::DrawSky.
 	float depth = length(input.worldPos.xyz - cameraPosition);
-	float dz = depthTexture.SampleCmpLevelZero(PCFSampler, pos, depth);
-	if (dz == 0.0f) discard;
 	matrix worldViewProj = mul(view, projection);
 
 	float4 finalColor = { 0.0f, 0.0f, 0.0f, dirLights[0].intensity };

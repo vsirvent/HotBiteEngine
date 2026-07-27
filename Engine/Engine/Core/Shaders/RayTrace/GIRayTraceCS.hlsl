@@ -110,16 +110,29 @@ static const float ray_enery_unit = inv_ray_count;
 
 
 
-uint GetRayIndex(float2 pixel, float pdf_cache[MAX_RAYS], float w, float index) {
+//Inverse-CDF pick of one ray out of the pdf cache. `stratum` is which of the
+//ray_count equal slices of the CDF to draw from, `jitter` where inside that slice
+//to land, and it must be random in [0,1): sampling the slice's *left edge* is what
+//the estimator below cannot be paired with. At jitter 0 the target of stratum 0 is
+//exactly 0, and the first pdf entry is always positive (RAY_W_BIAS), so stratum 0
+//returns ray 0 unconditionally - whatever its probability. That ray then gets the
+//weight 1/pdf[0] of a sample that was supposed to be drawn *with* probability
+//pdf[0]/W, which for a cold entry is the 2/wis_size clamp, i.e. ~16x the share one
+//direction out of ray_count is worth. Since the stratum set is picked from `start`,
+//which is a function of the pixel, the over-bright pick lands on the same diagonal
+//in every tile and sweeps across the scene as `start` cycles - the scanning band.
+//With the jitter each ray is selected with probability pdf/W, which is exactly what
+//the 1/pdf weighting assumes, and no ray is picked for free.
+uint GetRayIndex(float pdf_cache[MAX_RAYS], float w, float stratum, float jitter) {
 #ifdef DISABLE_RESTIR
-    return index;
+    return stratum;
 #endif
     float tmp_w = 0.0f;
-    index = index * w * inv_ray_count;
-    
+    float target = (stratum + jitter) * w * inv_ray_count;
+
     for (uint i = 0; i < ray_count; i++) {
             tmp_w += pdf_cache[i];
-            if (tmp_w > index) {
+            if (tmp_w > target) {
                 break;
             }
     }
@@ -521,12 +534,6 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
         return;
     }
     
-    matrix worldViewProj = mul(view, projection);
-    float4 prev_pos = mul(prev_position_map[ray_pixel], worldViewProj);
-    prev_pos.x /= prev_pos.w;
-    prev_pos.y /= -prev_pos.w;
-    prev_pos.xy = round((prev_pos.xy + 1.0f) * dimensions.xy / 2.0f);
-
     float3 normal = ray_source.normal;
     float3 orig_dir = ray.dir;
 
@@ -563,6 +570,9 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     uint wis_size = 0;
     uint last_wi = MAX_RAYS + 1;
 
+    uint pixel_seed = hash((uint)pixel.x * 73856093u ^ (uint)pixel.y * 19349663u);
+    uint jitter_seed = hash(pixel_seed + frame_count * 9781u);
+
 #ifdef DISABLE_RESTIR
     uint start = 0;
     uint step = 1;
@@ -570,12 +580,18 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     float motion_ratio = 1.0f / max(100.0f * sqrt(motion) * toCamDistance, 0.01f);
     //start cycles every frame for every pixel so all CDF strata get revisited over
     //time; otherwise rays in the lower half of the CDF keep a stale pdf forever.
-    uint start = (uint)(pixel.x + pixel.y + (float)frame_count) % ray_count;
+    //The per-pixel term is hashed rather than pixel.x + pixel.y: a linear ramp gives
+    //every pixel on a diagonal the same strata, so whatever variance a stratum
+    //carries is drawn as a coherent line one pixel wide repeating every ray_count
+    //pixels, and the +frame_count sweeps it across the scene. Hashed, neighbours are
+    //uncorrelated and the same variance is left as noise, which is what the kernel
+    //below and the denoiser are built to average away.
+    uint start = (pixel_seed + frame_count) % ray_count;
     uint step = frame_count % 8 + ray_count / 2 + (uint)((ray_count * motion_ratio) * low_energy);
 #endif
     for (i = 0; i < ray_count; i += step) {
         uint index = (i + start) % ray_count;
-        uint wi = GetRayIndex(prev_pos.xy, pdf_cache, w_pixel, index);
+        uint wi = GetRayIndex(pdf_cache, w_pixel, index, random(jitter_seed + i * 26699u));
         wis[wis_size] = wi;
         wis_size += (last_wi != wi);
         last_wi = wi;

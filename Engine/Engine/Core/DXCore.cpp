@@ -104,9 +104,12 @@ DXCore::~DXCore()
 	if (dir_shadow_rasterizer) { dir_shadow_rasterizer->Release(); }
 	if (wireframe_rasterizer) { wireframe_rasterizer->Release(); }
 	if (drawing_rasterizer) { drawing_rasterizer->Release(); }
+	if (depth_rasterizer) { depth_rasterizer->Release(); }
 	if (sky_rasterizer) { sky_rasterizer->Release(); }
 	if (normal_depth) { normal_depth->Release(); }
 	if (transparent_depth) { transparent_depth->Release(); }
+	if (depth_prepass) { depth_prepass->Release(); }
+	if (depth_prepass_read) { depth_prepass_read->Release(); }
 	if (backBufferRTV) { backBufferRTV->Release(); }
 	if (swapChain) { swapChain->Release(); }
 	if (context) { context->Flush();  context->Release(); }
@@ -386,6 +389,24 @@ HRESULT DXCore::InitDirectX()
 		return hr;
 	}
 
+	//The depth pre-pass draws the same geometry as the main pass but through a shorter
+	//path: DepthVS multiplies by world*view*projection while the main pass reaches
+	//clip space via the domain and geometry shaders, and tessellation re-interpolates
+	//the position on the way. The results differ in the last bits, and a surface that
+	//comes out a hair further away in the main pass would be rejected by its own
+	//pre-pass depth, speckling the whole scene. Biasing the pre-pass away from the
+	//camera absorbs that. The units are relative to the depth format (D32_FLOAT), so
+	//the slack is proportional to the z-buffer's own precision: fractions of a
+	//millimetre up close, about a metre out near the far plane.
+	//This replaces the flat 1.0f world-unit slack the old in-shader test used, which
+	//was far too generous near the camera and could not reject anything early.
+	D3D11_RASTERIZER_DESC depthRenderStateDesc = drawingRenderStateDesc;
+	depthRenderStateDesc.DepthBias = 100;
+	depthRenderStateDesc.SlopeScaledDepthBias = 1.0f;
+	if (FAILED(hr = device->CreateRasterizerState(&depthRenderStateDesc, &depth_rasterizer))) {
+		return hr;
+	}
+
 	D3D11_RASTERIZER_DESC skyRenderStateDesc;
 	ZeroMemory(&skyRenderStateDesc, sizeof(D3D11_RASTERIZER_DESC));
 	skyRenderStateDesc.CullMode = D3D11_CULL_NONE;
@@ -488,6 +509,11 @@ HRESULT DXCore::InitDirectX()
 	device->CreateDepthStencilState(&DepthState, &normal_depth);
 	DepthState.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
 	device->CreateDepthStencilState(&DepthState, &transparent_depth);
+
+	DepthState.DepthFunc = D3D11_COMPARISON_LESS_EQUAL;
+	device->CreateDepthStencilState(&DepthState, &depth_prepass_read);
+	DepthState.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
+	device->CreateDepthStencilState(&DepthState, &depth_prepass);
 #endif
 	// Return the "everything is ok" HRESULT value
 	Direct2D::Init();

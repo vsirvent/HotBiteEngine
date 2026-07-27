@@ -3,15 +3,13 @@ Texture2D prevLightTexture;
 RenderTargetRT MainRenderPS(GSOutput input)
 {
 	int i = 0;
-	float2 pos = input.position.xy;
-	pos.x /= screenW;
-	pos.y /= screenH;
 	float spec_intensity = 0.5f;
-	float4 wpos = input.worldPos;	
+	float4 wpos = input.worldPos;
 	wpos /= wpos.w;
-	float depth = length(input.worldPos.xyz - cameraPosition) - 1.0f;
-	float dz = depthTexture.SampleCmpLevelZero(PCFSampler, pos, depth);
-	if (dz == 0.0f) discard;
+	//No occlusion test here: the pass renders on top of the depth pre-pass buffer, so
+	//the hardware rejects occluded fragments before this shader is ever invoked. Doing
+	//it here meant paying for the shader to find out it was not needed.
+	//See RenderSystem::DrawScene.
 
 	RenderTargetRT output;
 	// Calculate the ambient color

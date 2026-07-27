@@ -23,6 +23,22 @@ has Community, older notes said Insiders):
 Outputs land in `Solution/x64/<Config>/`. Engine.lib must exist (build the Engine
 project first if not).
 
+**Nothing in the solution declares a dependency on Engine, so `/m` will happily link a
+tool against a stale `Engine.lib`.** After editing an engine *header* that is enough to
+produce a class-layout mismatch between the tool's objects and the library's — which
+shows up as a crash somewhere unrelated to what you changed (a resource `Init` failing
+inside `LoadRTResources`, say, because the members it reads are at the wrong offsets),
+not as a link error. Whenever an engine header changes, build in two steps and let the
+first finish:
+
+```powershell
+& $msbuild Solution\HotBiteEngine.sln /m /t:Engine /p:Configuration=Release /p:Platform=x64
+& $msbuild Solution\HotBiteEngine.sln /m /t:DemoGame`;SceneEditor /p:Configuration=Release /p:Platform=x64
+```
+
+The same race makes `MaterialDesigner`/`HotBiteTool` fail with `LNK1104: HotBiteTool.lib`
+on a cold whole-solution build; re-running the build clears it.
+
 ## Testing the Scene Editor yourself (no human needed)
 
 The Scene Editor has a file-based automation channel so it can be launched, driven,
@@ -141,6 +157,101 @@ directional kernel is a `DIR_PCF_RADIUS` square of those one texel apart
 replaced and cost roughly a fifth as much. For the same reason, never `round()` a
 `SampleCmp` result — it throws away precisely the sub-texel blend being paid for.
 
+**The depth pre-pass buffer is the frame's only depth buffer, and binding it is what
+makes early-Z work.** `DrawDepth` fills two things: `RenderSystem::depth_view`, a plain
+D32_FLOAT depth buffer, and `depth_map`, an R32_FLOAT *colour* target holding the world
+distance to each surface — the thing water, lava, sky, particles, GI, the ray tracers and
+autofocus sample as `depthTexture`. `DrawSky` and `DrawScene` then render *against*
+`depth_view`, so the hardware rejects occluded fragments before the pixel shader runs.
+The back buffer's depth buffer and any post-process pipeline's are never rendered into;
+`RenderSystem` has no `depth_target` any more.
+
+Three rules follow, and breaking any of them is subtle rather than loud:
+
+- The state is `LESS_EQUAL` (`DXCore::depth_prepass`, plus `depth_prepass_read` for the
+  sky, which must test without writing), never `LESS` — the main pass redraws the very
+  surface the pre-pass recorded and would otherwise be rejected by its own value.
+- The pre-pass rasterizes with `DXCore::depth_rasterizer`, which is `drawing_rasterizer`
+  plus a small depth bias, and it is not optional. `DepthVS` reaches clip space through
+  `world*view*projection`, while the main pass goes VS→HS→DS→GS with tessellation
+  re-interpolating the position on the way, so the two agree only to the last few bits;
+  without the bias that mismatch speckles every surface in the scene. Displacement
+  (`MainRenderDS`) needs no slack of its own — it moves a front-facing surface *toward*
+  the camera, which `LESS_EQUAL` already passes. The bias is in depth-format units, so
+  the slack tracks the z-buffer's own precision instead of the flat 1.0 world unit the
+  old in-shader test used (which was far too loose near the camera and far too tight
+  far away).
+- **Never add an occlusion test to a pixel shader.** Sampling `depthTexture` and
+  `discard`ing is exactly what this replaced: the shader had to run in full to discover
+  it was not needed, so it rejected no work at all. Reading `depthTexture` for what is
+  *behind* a surface is still correct and still done — water and lava refraction,
+  and `LavaPS`'s `dz_pcf`, which is not an occlusion test but the shoreline fade
+  multiplied into the emitted colour at the end.
+
+Depth writes stay **on** in `DrawScene` because the pre-pass deliberately skips
+`ALPHA_ENABLED_FLAG | BLEND_ENABLED_FLAG` materials, anything with `draw_depth` false,
+and the whole second-pass tree — all of which still have to occlude themselves.
+
+**Buffer debugging lives in the texture mixer, not in a pass of its own.**
+`TextureMixerCS` is where every contribution to the frame — scene colour, direct light,
+bloom, emission, RT reflections/refractions, ReSTIR indirect, volumetric, dust, lens
+flare, plus the depth/position/normal G-buffers — is still a separate texture, one
+dispatch before it all becomes one image. So that is where `RenderSystem::eDebugBuffer`
+switches the output to a single buffer instead of the mix: no extra dispatch, no extra
+target, and what you see is exactly the bits the frame was about to be built from. The
+selecting branch is uniform across the dispatch, so a debug frame does not pay to read
+the buffers it is not showing.
+
+Two things that path deliberately does:
+
+- It **suppresses AA, motion blur, DOF and the lens effects** while a buffer view is up
+  (`RenderSystem::IsDebugBufferActive`). A vignetted, depth-blurred normal buffer is not
+  an inspection of anything. The stored settings are never written — all four are pushed
+  to the GPU fresh every frame, which is the seam that makes this free — so they come
+  back the moment the view goes to `off`.
+- It applies a **gain** (`debug_gain`) to the colour buffers, because they are HDR:
+  direct light saturates at 1x while indirect light sits far below it, and shown raw
+  half the views read as black and look broken. `depth`/`position`/`normal` are *mapped*
+  instead (exponential distance, a 10-unit repeating ramp, and the [-1,1] remap) and
+  ignore the gain — a ramp has nothing to expose.
+
+`RT_DEBUG_NO_GI_DENOISE` / `RT_DEBUG_NO_RT_DENOISE` are separate bits in the same value,
+turning `GIAverageCS` and `DenoiserCS` into pass-throughs. They bypass the **temporal**
+accumulation living in those same shaders as well as the spatial filter, on purpose:
+with the history left on you are looking at an average of the noise rather than the
+noise, and cannot tell which stage introduced what. Pair one with the matching buffer
+view — `render debug_buffer indirect gi_denoise 0` is how you see ReSTIR's real sample
+density.
+
+**ReSTIR's ray pick must be jittered inside its stratum, and its phase must be
+hashed.** `GIRayTraceCS` traces only 1–2 of a pixel's `ray_count` (16) cached
+directions per frame, picking each by inverse-CDF from the pdf cache and weighting it
+`W/(ray_count * n * pdf)` — which is only right if a ray is selected *with* probability
+`pdf/W`. `GetRayIndex` therefore takes a random `jitter` in [0,1) saying where inside
+the stratum to sample. Without it the target of stratum 0 is exactly 0 and the first
+pdf entry is always positive (`RAY_W_BIAS`), so **stratum 0 returns ray 0 no matter how
+small its probability**, then collects the `1/pdf` weight of a sample that was never
+drawn that way — for a cold entry the `2/wis_size` clamp, ~16x the share one direction
+out of 16 is worth. Which strata a pixel draws comes from `start`, so that one
+over-bright pick lands wherever `start == 0` does: as `pixel.x + pixel.y + frame_count`
+that was a bright diagonal one pixel wide repeating every 16 pixels and sweeping across
+the scene each frame. Measured on the demo troll with `debug_buffer indirect
+gi_denoise 0`, the profile of the raw GI against `(x+y) mod ray_count` peaked 5–8x
+above every other phase; jittered, it drops into the measurement floor and the mean
+radiance falls ~17% — the inflated energy was the artifact, so **a scene tuned against
+the old GI will read slightly darker**. `start`'s pixel term is hashed for the second
+half of the same reason: a linear ramp gives every pixel on a diagonal the same strata,
+so any residual per-stratum variance is drawn as a line instead of as the noise the
+kernel and denoiser exist to average away.
+
+The packed value crosses into HLSL as a bare `uint` in three cbuffers and nothing
+validates it, so `Shaders/Common/RenderDebug.hlsli` **must** stay in step with
+`eDebugBuffer` and the `RT_DEBUG_*` constants in `RenderSystem.h`; the editor's label
+list in `RenderSettings.cpp` is `static_assert`ed against the enum, and the automation
+token list is generated from `RenderSystem::DebugBufferName` rather than duplicated.
+`RenderSettings::ApplyHighDefaults` clears the whole thing on level load — a debug view
+carried into a freshly opened level looks like the level rendering wrong.
+
 **A game shader can mirror the engine's lighting cbuffer, and nothing checks it.**
 `Tests/DemoGame/TerrainPS.hlsl` declares its own `externalData` block field for field
 and then includes `Common/PixelFunctions.hlsli`, which indexes into it. An array sized
@@ -160,6 +271,43 @@ A warning for any before/after measurement in this engine: it accumulates tempor
 converging and differs from the settled frame by *far* more than whatever was changed.
 Let it settle for several seconds and confirm two consecutive frames agree before
 comparing anything.
+
+### Making a screenshot A/B actually comparable
+
+Settling is not enough, because the scene is *still* moving: `Sky::second_speed` advances
+`second_of_day` every tick, which swings the sun's direction, its intensity and the sky
+back colour, and the same `second_speed` scales the `time` uniform `DrawScene`/`DrawSky`
+hand the shaders — which is what animates the clouds and the lava/water noise. Two shots
+of one camera 40 s apart differ far more visibly than most changes being tested, and it
+reads as a lighting regression that is not there.
+
+**Stop the clock and clear the clouds first.** One automation command does both, and it
+also pins the same sun for every run:
+
+```powershell
+editor-cli.ps1 -Dir $dir -Command `
+    "set_component Sky Sky ""{'second_speed':0,'cloud_density':0,'second_of_day':43200}"""
+```
+
+`second_speed: 0` freezes the sun *and* zeroes the shader `time`, so clouds, lava and
+water stop too; `cloud_density: 0` takes the cloud layer out of `SkyPS` entirely (it is
+the noisiest thing in the frame); `second_of_day: 43200` is noon, and any fixed value
+makes two runs start from the same lighting. Then place the camera, settle, and shoot.
+
+What is left after that is the stochastic floor — GI/ReSTIR/denoiser samples that differ
+run to run and never fully converge — so **the comparison is against that floor, not
+against zero**, and the floor is big enough that ignoring it will make you "find"
+regressions that do not exist. Measured on the demo scene, same binary, two launches,
+three cameras: 0.4–3.0 % of pixels differ, mean |Δ| 0.005–0.051, max 15–25/255. The
+lava camera's *same-build* pair was the single largest delta of any pair measured,
+cross-build ones included.
+
+So capture **two runs of each build** and compare the cross-build deltas against the
+within-build ones, rather than reading one number. Mean |Δ| and % of pixels are the
+robust statistics; max is one pixel out of 3.5 M and swings freely. A real difference
+also *looks* different in a diff map — it lands on silhouettes, edges or whole surfaces,
+where the floor is scattered structureless dither. `PIL` is available for diffing
+(`ImageChops.difference`); `numpy` is not.
 
 Menu items are registered in a `MenuCommand` registry (`SceneEditor.h`); new menu
 entries added there are automatically clickable in the UI *and* scriptable via

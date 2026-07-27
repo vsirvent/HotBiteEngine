@@ -429,6 +429,7 @@ namespace HotBiteEditor {
 			//dense collider wireframe.
 			PhysicsDebug::Draw(state);
 			ShadowDebug::Draw(state);
+			RenderSettings::DrawOverlay(*this);
 			SelectionGizmo::Draw(state);
 			DrawDeleteRequest();
 		}

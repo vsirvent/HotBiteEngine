@@ -18,6 +18,18 @@ namespace HotBiteEditor {
 			return app.GetState().world->GetSystem<RenderSystem>().get();
 		}
 
+		//Menu labels, in RenderSystem::eDebugBuffer order. The engine's own
+		//DebugBufferName() gives the lower-case token the automation command takes;
+		//these are the readable versions, and the two lists must stay aligned.
+		static const char* DEBUG_BUFFER_LABELS[] = {
+			"Off", "Scene colour", "Direct light", "Bloom", "Emission",
+			"RT reflections", "RT refractions", "Indirect (GI)", "Volumetric light",
+			"Dust", "Lens flare", "Depth", "World position", "World normal"
+		};
+		static_assert(IM_ARRAYSIZE(DEBUG_BUFFER_LABELS) ==
+			(int)RenderSystem::eDebugBuffer::COUNT,
+			"DEBUG_BUFFER_LABELS must match RenderSystem::eDebugBuffer");
+
 		void ApplyHighDefaults(SceneEditorApp& app)
 		{
 			RenderSystem* rs = GetRenderSystem(app);
@@ -34,6 +46,11 @@ namespace HotBiteEditor {
 			rs->SetLensGrain(0.0f);
 			rs->SetLensVignette(0.0f);
 			rs->SetWireframe(false);
+			//Debug views are a tool, never a level's state: a buffer view or a
+			//bypassed denoiser carried into a freshly opened level would look like
+			//the level rendering wrong.
+			rs->SetRTDebug(0);
+			rs->SetDebugGain(1.0f);
 		}
 
 		void DrawMenu(SceneEditorApp& app)
@@ -143,7 +160,104 @@ namespace HotBiteEditor {
 				rs->SetWireframe(wireframe);
 			}
 
+			ImGui::Separator();
+
+			//Buffer inspection. The combo drives ProcessMix, which writes the chosen
+			//buffer to the screen in place of the mixed frame; the two bypasses turn
+			//their denoiser into a copy so the buffer carries the raw traced signal.
+			//Both are useful alone, and most useful together.
+			int buffer = (int)rs->GetDebugBuffer();
+			ImGui::SetNextItemWidth(140.0f);
+			if (ImGui::Combo("Debug buffer", &buffer, DEBUG_BUFFER_LABELS,
+				(int)RenderSystem::eDebugBuffer::COUNT)) {
+				rs->SetDebugBuffer((RenderSystem::eDebugBuffer)buffer);
+			}
+			if (ImGui::IsItemHovered()) {
+				ImGui::SetTooltip("Shows one of the buffers the frame is mixed from.\n"
+					"Anti-aliasing, motion blur, depth of field and the lens\n"
+					"effects are suppressed while a buffer is selected.");
+			}
+			//Only meaningful for the HDR colour buffers; depth/position/normal are
+			//mapped, not exposed, so the slider does nothing for them.
+			ImGui::BeginDisabled(!rs->IsDebugBufferActive());
+			float gain = rs->GetDebugGain();
+			ImGui::SetNextItemWidth(140.0f);
+			if (ImGui::SliderFloat("Debug gain", &gain, 0.0f, 32.0f, "%.2fx",
+				ImGuiSliderFlags_Logarithmic)) {
+				rs->SetDebugGain(gain);
+			}
+			ImGui::EndDisabled();
+
+			bool no_gi_denoise = rs->GetDebugFlag(RenderSystem::RT_DEBUG_NO_GI_DENOISE);
+			if (ImGui::Checkbox("Bypass GI denoise", &no_gi_denoise)) {
+				rs->SetDebugFlag(RenderSystem::RT_DEBUG_NO_GI_DENOISE, no_gi_denoise);
+			}
+			bool no_rt_denoise = rs->GetDebugFlag(RenderSystem::RT_DEBUG_NO_RT_DENOISE);
+			if (ImGui::Checkbox("Bypass RT denoise", &no_rt_denoise)) {
+				rs->SetDebugFlag(RenderSystem::RT_DEBUG_NO_RT_DENOISE, no_rt_denoise);
+			}
+
 			ImGui::EndMenu();
+		}
+
+		void DrawOverlay(SceneEditorApp& app)
+		{
+			if (!app.IsLevelLoaded()) {
+				return;
+			}
+			RenderSystem* rs = GetRenderSystem(app);
+			const bool gi_bypassed = rs->GetDebugFlag(RenderSystem::RT_DEBUG_NO_GI_DENOISE);
+			const bool rt_bypassed = rs->GetDebugFlag(RenderSystem::RT_DEBUG_NO_RT_DENOISE);
+			if (!rs->IsDebugBufferActive()) {
+				//A bypassed denoiser with no buffer view still changes the frame, and
+				//it is the kind of switch that gets left on and then blamed on the
+				//renderer. Keep saying so until it is turned off.
+				if (gi_bypassed || rt_bypassed) {
+					ImGui::GetBackgroundDrawList()->AddText(
+						ImVec2(12.0f, 26.0f), IM_COL32(255, 180, 60, 220),
+						gi_bypassed && rt_bypassed ? "GI + RT denoise bypassed"
+						: (gi_bypassed ? "GI denoise bypassed" : "RT denoise bypassed"));
+				}
+				return;
+			}
+
+			ImGui::SetNextWindowBgAlpha(0.78f);
+			//Top centre: the docked panels take the left and right edges and the
+			//shadow legends take the bottom left, so this is the one part of the
+			//frame nothing else claims.
+			ImGui::SetNextWindowPos(ImVec2(ImGui::GetIO().DisplaySize.x * 0.5f, 32.0f),
+				ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.0f));
+			if (ImGui::Begin("Debug Buffer##render_debug", nullptr,
+				ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoDocking |
+				ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav)) {
+				const int buffer = (int)rs->GetDebugBuffer();
+				ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.35f, 1.0f), "%s",
+					DEBUG_BUFFER_LABELS[buffer]);
+				switch (rs->GetDebugBuffer()) {
+				case RenderSystem::eDebugBuffer::DEPTH:
+					ImGui::TextUnformatted("world distance, 1-exp(-d/100); black = nothing hit");
+					break;
+				case RenderSystem::eDebugBuffer::POSITION:
+					ImGui::TextUnformatted("world position, repeating every 10 units per axis");
+					break;
+				case RenderSystem::eDebugBuffer::NORMAL:
+					ImGui::TextUnformatted("world normal, remapped from -1..1");
+					break;
+				default:
+					ImGui::Text("raw buffer x %.2f gain, clamped to 0..1", rs->GetDebugGain());
+					break;
+				}
+				if (gi_bypassed || rt_bypassed) {
+					ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.25f, 1.0f), "%s",
+						gi_bypassed && rt_bypassed ? "GI + RT denoise bypassed"
+						: (gi_bypassed ? "GI denoise bypassed" : "RT denoise bypassed"));
+				}
+				ImGui::Separator();
+				//Say it plainly: these are off because the view is on, not because
+				//the settings were changed.
+				ImGui::TextDisabled("AA / motion blur / DOF / lens suppressed");
+			}
+			ImGui::End();
 		}
 
 		static bool ParseBool(const std::string& value, bool& out)
@@ -226,6 +340,41 @@ namespace HotBiteEditor {
 				else { dof_effect->SetAmplitude(v); }
 				return true;
 			}
+			if (key == "debug_buffer") {
+				//Matched against the engine's own token list so the command and the
+				//shader can never drift apart on what "indirect" means.
+				for (int i = 0; i < (int)RenderSystem::eDebugBuffer::COUNT; ++i) {
+					RenderSystem::eDebugBuffer b = (RenderSystem::eDebugBuffer)i;
+					if (value == RenderSystem::DebugBufferName(b)) {
+						rs->SetDebugBuffer(b);
+						return true;
+					}
+				}
+				error = "debug_buffer must be one of:";
+				for (int i = 0; i < (int)RenderSystem::eDebugBuffer::COUNT; ++i) {
+					error += " ";
+					error += RenderSystem::DebugBufferName((RenderSystem::eDebugBuffer)i);
+				}
+				return false;
+			}
+			if (key == "gi_denoise" || key == "rt_denoise") {
+				//Phrased as the feature, not the bypass: "gi_denoise 0" reads better
+				//than "no_gi_denoise 1", so the stored flag is the inverse of the value.
+				bool enabled;
+				if (!ParseBool(value, enabled)) { error = key + " must be 0|1"; return false; }
+				rs->SetDebugFlag(key == "gi_denoise"
+					? RenderSystem::RT_DEBUG_NO_GI_DENOISE
+					: RenderSystem::RT_DEBUG_NO_RT_DENOISE, !enabled);
+				return true;
+			}
+			if (key == "debug_gain") {
+				float v;
+				try { v = std::stof(value); }
+				catch (...) { error = key + " must be a float"; return false; }
+				if (v < 0.0f) { error = "debug_gain must be >= 0"; return false; }
+				rs->SetDebugGain(v);
+				return true;
+			}
 			error = "unknown render setting: " + key;
 			return false;
 		}
@@ -252,6 +401,10 @@ namespace HotBiteEditor {
 				j["lens_grain"] = rs->GetLensGrain();
 				j["lens_vignette"] = rs->GetLensVignette();
 				j["wireframe"] = rs->GetWireframe();
+				j["debug_buffer"] = RenderSystem::DebugBufferName(rs->GetDebugBuffer());
+				j["debug_gain"] = rs->GetDebugGain();
+				j["gi_denoise"] = !rs->GetDebugFlag(RenderSystem::RT_DEBUG_NO_GI_DENOISE);
+				j["rt_denoise"] = !rs->GetDebugFlag(RenderSystem::RT_DEBUG_NO_RT_DENOISE);
 				Core::BaseDOFProcess* dof_effect = app.GetDofEffect();
 				if (dof_effect != nullptr) {
 					j["dof_focus"] = dof_effect->GetFocus();

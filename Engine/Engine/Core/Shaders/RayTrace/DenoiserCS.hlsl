@@ -1,5 +1,6 @@
 #include "../Common/ShaderStructs.hlsli"
 #include "../Common/Utils.hlsli"
+#include "../Common/RenderDebug.hlsli"
 
 cbuffer externalData : register(b0)
 {
@@ -27,6 +28,17 @@ Texture2D<uint> tiles_output : register(t7);
 void main(uint3 DTid : SV_DispatchThreadID)
 {
     float2 pixel = float2(DTid.x, DTid.y);
+
+    //Denoiser bypass - see the same block in GIAverageCS. Both passes of the
+    //separable blur copy through, so the reflection/refraction textures end up
+    //holding the ray tracer's raw output, temporal reprojection included (the
+    //`else` branch below is where that happens, and it is skipped too).
+    [branch]
+    if (DebugFlag(debug, RT_DEBUG_NO_RT_DENOISE)) {
+        output[pixel] = input[pixel];
+        return;
+    }
+
     uint2 input_dimensions;
     uint2 normals_dimensions;
     {

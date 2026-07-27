@@ -258,8 +258,7 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		vertex_buffer = vb;
 		bvh_buffer = bvh;
 		tbvh_buffer.Prepare(MAX_OBJECTS * 2 - 1);
-		first_pass_target = dxcore;		
-		depth_target = dxcore;
+		first_pass_target = dxcore;
 		int w = dxcore->GetWidth();
 		int h = dxcore->GetHeight();
 		
@@ -586,7 +585,11 @@ void RenderSystem::DrawDepth(int w, int h, const float3& camera_position, const 
 	ID3D11RenderTargetView* rv[1] = { depth_map.RenderTarget() };
 	context->OMSetRenderTargets(1, rv, depth_view.Depth());
 	context->RSSetViewports(1, &dxcore->viewport);
-	context->RSSetState(dxcore->drawing_rasterizer);
+	//Biased so the depth this pass leaves in depth_view is a conservative occluder for
+	//the passes that render on top of it (DrawSky, DrawScene). depth_map, the world
+	//distance the effect shaders read, is a pixel shader output and is not biased.
+	context->RSSetState(dxcore->depth_rasterizer);
+	context->OMSetDepthStencilState(dxcore->normal_depth, 1);
 
 	SkyEntity* sky = nullptr;
 	if (!skies.GetData().empty()) {
@@ -967,9 +970,17 @@ void RenderSystem::DrawSky(int w, int h, const float3& camera_position, const ma
 	float time = ((float)Scheduler::Get()->GetElapsedNanoSeconds() * sky.sky->second_speed) / 1000000000.0f;
 	//Render sky background
 	{
+		//The sky covers the whole screen and is drawn before the scene, so most of what
+		//it shades is about to be painted over. Binding the depth pre-pass buffer lets
+		//the hardware reject those pixels before the (expensive, cloud-marching) pixel
+		//shader runs. Depth writes off: the sky is blended in behind everything and the
+		//buffer belongs to the pre-pass. The dome sits beyond the far plane and the
+		//sky rasterizer has depth clip off, so where nothing occludes it its depth
+		//clamps to the cleared 1.0 and LESS_EQUAL lets it through.
 		ID3D11RenderTargetView* rv[2] = { first_pass_target->RenderTarget(), current_light_map->RenderTarget() };
-		context->OMSetRenderTargets(2, rv, nullptr);
+		context->OMSetRenderTargets(2, rv, depth_view.Depth());
 		context->OMSetBlendState(dxcore->blend, NULL, ~0U);
+		context->OMSetDepthStencilState(dxcore->depth_prepass_read, 1);
 		context->RSSetViewports(1, &dxcore->viewport);
 		context->RSSetState(dxcore->sky_rasterizer);
 
@@ -1029,6 +1040,8 @@ void RenderSystem::DrawSky(int w, int h, const float3& camera_position, const ma
 		UnprepareLights(vs, nullptr, nullptr, nullptr, ps);
 		ps->SetShaderResourceView(DEPTH_TEXTURE, nullptr);
 		context->OMSetBlendState(dxcore->no_blend, NULL, ~0U);
+		ID3D11RenderTargetView* rv_zero[2] = { nullptr, nullptr };
+		context->OMSetRenderTargets(2, rv_zero, nullptr);
 	}
 }
 
@@ -1215,7 +1228,14 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 	//or a post process texture pipeline
 	ID3D11RenderTargetView* light_target = current_light_map->RenderTarget();
 	ID3D11RenderTargetView* bloom_target = bloom_map.RenderTarget();
-	ID3D11DepthStencilView* depth_target_view = depth_target->DepthView();
+	//Render on top of the depth pre-pass buffer rather than into an empty one. Every
+	//opaque surface in the frame is already in it, so the hardware rejects occluded
+	//fragments before the pixel shader runs instead of after - this pass shades one of
+	//the heaviest shaders in the engine (all lights, shadows, parallax) and the scene
+	//is drawn in material order, not front to back, so without it a pixel can be
+	//fully shaded several times over. The rasterizer culls nothing (CULL_NONE), which
+	//alone means every closed mesh shades its far side too.
+	ID3D11DepthStencilView* depth_target_view = depth_view.Depth();
 	context->GSSetShader(nullptr, nullptr, 0);
 	context->HSSetShader(nullptr, nullptr, 0);
 	context->DSSetShader(nullptr, nullptr, 0);
@@ -1254,6 +1274,10 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 									  position_map.RenderTarget() };
 
 	context->OMSetRenderTargets(7, rv, depth_target_view);
+	//Depth writes stay on: what the pre-pass skipped (alpha-tested and blended
+	//materials, and the second-pass tree, which is not in depth_tree at all) still has
+	//to occlude itself and whatever comes after it.
+	context->OMSetDepthStencilState(dxcore->depth_prepass, 1);
 	context->RSSetViewports(1, &dxcore->viewport);
 	if (wireframe_enabled) {
 		context->RSSetState(dxcore->wireframe_rasterizer);
@@ -1463,7 +1487,10 @@ void RenderSystem::ProcessAntiAlias() {
 
 	aa_shader->SetShaderResourceView("input", temp_map.SRV());
 	aa_shader->SetSamplerState("basicSampler", dxcore->basic_sampler);
-	aa_shader->SetInt("enabled", aa_enabled);
+	//Anti-aliasing edits the pixels a debug view exists to show, so it is off for
+	//as long as one is up (the stored setting is pushed fresh every frame, so it
+	//comes straight back).
+	aa_shader->SetInt("enabled", aa_enabled && !IsDebugBufferActive());
 	aa_shader->SetUnorderedAccessView("output", image);
 	aa_shader->CopyAllBufferData();
 	aa_shader->SetShader();
@@ -1486,6 +1513,7 @@ void RenderSystem::ProcessMix() {
 	mixer_shader->SetInt("frame_count", frame_count);
 	mixer_shader->SetFloat("time", time);
 	mixer_shader->SetInt("debug", rt_debug);
+	mixer_shader->SetFloat("debug_gain", debug_gain);
 	mixer_shader->SetInt("rt_enabled", rt_enabled & (rt_quality != eRtQuality::OFF? 0xFF:0x00));
 	mixer_shader->SetShaderResourceView("depthTexture", depth_map.SRV());
 	mixer_shader->SetShaderResourceView("lightTexture", current_light_map->SRV());
@@ -1538,7 +1566,7 @@ void RenderSystem::ProcessMotionBlur() {
 	motion_blur->SetMatrix4x4("view_proj", cam_entity.camera->view_projection);
 	motion_blur->SetMatrix4x4("prev_view_proj", cam_entity.camera->prev_view_projection);
 	motion_blur->SetShaderResourceView("input", motion_blur_map.SRV());
-	motion_blur->SetInt("enabled", motion_blur_enabled);
+	motion_blur->SetInt("enabled", motion_blur_enabled && !IsDebugBufferActive());
 	motion_blur->SetUnorderedAccessView("output", post_process_pipeline->RenderUAV());
 	motion_blur->SetShaderResourceView("motionTexture", motion_texture.SRV());
 	motion_blur->CopyAllBufferData();
@@ -2576,12 +2604,6 @@ void RenderSystem::SetPostProcessPipeline(Core::PostProcess* pipeline) {
 			first_pass_target = &first_pass_texture;
 			second_pass_target = pipeline;
 		}
-		if (pipeline->DepthResource() != nullptr) {
-			depth_target = pipeline;
-		}
-		else {
-			depth_target = dxcore;
-		}
 		post_process_pipeline = pipeline;
 		PostProcess* last = pipeline;
 		pipeline->SetShaderResourceView("volLightTexture", vol_light_map.SRV());
@@ -2604,7 +2626,6 @@ void RenderSystem::SetPostProcessPipeline(Core::PostProcess* pipeline) {
 	}
 	else {
 		first_pass_target = dxcore;
-		depth_target = dxcore;
 	}
 }
 
@@ -2744,12 +2765,16 @@ void RenderSystem::Draw() {
 			last_static_shadow_signature = static_shadow_signature;
 			CastShadows(w, h, camera_position, view, projection, true);
 		}
+		//Both effects are re-enabled from the stored flags every frame, which is what
+		//lets a debug buffer view suppress them for as long as it is up without
+		//disturbing what the user chose.
+		const bool debug_buffer = IsDebugBufferActive();
 		if (dof_effect) {
-			dof_effect->SetEnabled(dof_enabled);
+			dof_effect->SetEnabled(dof_enabled && !debug_buffer);
 			dof_effect->SetAutofocus(dof_autofocus);
 		}
 		if (lens_effect) {
-			lens_effect->SetEnabled(lens_enabled);
+			lens_effect->SetEnabled(lens_enabled && !debug_buffer);
 			lens_effect->SetAberration(lens_aberration);
 			lens_effect->SetGrain(lens_grain);
 			lens_effect->SetVignette(lens_vignette);
@@ -2998,6 +3023,47 @@ void RenderSystem::SetRTDebug(uint32_t debug) {
 
 uint32_t RenderSystem::GetRTDebug() const {
 	return rt_debug;
+}
+
+//Names must stay in eDebugBuffer order; the editor menu and the `render
+//debug_buffer` automation key both index this table.
+const char* RenderSystem::DebugBufferName(eDebugBuffer buffer) {
+	static const char* names[(int)eDebugBuffer::COUNT] = {
+		"off", "scene", "light", "bloom", "emission", "reflection", "refraction",
+		"indirect", "volumetric", "dust", "lens_flare", "depth", "position", "normal"
+	};
+	const int i = (int)buffer;
+	return (i >= 0 && i < (int)eDebugBuffer::COUNT) ? names[i] : "off";
+}
+
+void RenderSystem::SetDebugBuffer(eDebugBuffer buffer) {
+	rt_debug = (rt_debug & ~RT_DEBUG_BUFFER_MASK) |
+		((uint32_t)buffer & RT_DEBUG_BUFFER_MASK);
+}
+
+RenderSystem::eDebugBuffer RenderSystem::GetDebugBuffer() const {
+	return (eDebugBuffer)(rt_debug & RT_DEBUG_BUFFER_MASK);
+}
+
+void RenderSystem::SetDebugFlag(uint32_t flag, bool enabled) {
+	if (enabled) { rt_debug |= flag; }
+	else { rt_debug &= ~flag; }
+}
+
+bool RenderSystem::GetDebugFlag(uint32_t flag) const {
+	return (rt_debug & flag) != 0;
+}
+
+bool RenderSystem::IsDebugBufferActive() const {
+	return GetDebugBuffer() != eDebugBuffer::OFF;
+}
+
+void RenderSystem::SetDebugGain(float gain) {
+	debug_gain = max(gain, 0.0f);
+}
+
+float RenderSystem::GetDebugGain() const {
+	return debug_gain;
 }
 
 void RenderSystem::SetSceneEnabled(bool enabled) {

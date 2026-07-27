@@ -23,6 +23,7 @@ SOFTWARE.
 */
 
 #include "../Common/Utils.hlsli"
+#include "../Common/RenderDebug.hlsli"
 
 cbuffer externalData : register(b0)
 {
@@ -30,6 +31,10 @@ cbuffer externalData : register(b0)
     int frame_count;
     float time;
     uint debug;
+    //Exposure for the debug views only. Most of the buffers below this mixes are
+    //HDR and several (indirect light in particular) sit far below 1.0, so shown
+    //raw they read as black and look broken. Ignored unless a buffer view is on.
+    float debug_gain;
 }
 
 RWTexture2D<float4> output : register(u0);
@@ -181,6 +186,37 @@ float4 readColor(float2 pixel, texture2D text, uint w, uint h) {
     }
 }
 
+//Show one of the buffers this shader mixes, instead of the mix. Everything the
+//frame is made of passes through here, which is why the switch lives in the mixer
+//rather than in a pass of its own - no extra dispatch, no extra target, and what
+//you see is exactly the bits the final frame was about to be built from.
+//
+//Only the selected texture is read: the branch is uniform across the dispatch
+//(`debug` is a constant), so a debug frame does not pay for the readColor calls
+//of the buffers it is not showing.
+float4 DebugBufferColor(uint buffer_id, float2 tpos, float2 pixel, uint w, uint h)
+{
+    float3 c = float3(0.0f, 0.0f, 0.0f);
+    switch (buffer_id) {
+    case RT_DEBUG_BUFFER_SCENE:      c = input[pixel].rgb; break;
+    case RT_DEBUG_BUFFER_LIGHT:      c = readColor(tpos, lightTexture, w, h).rgb; break;
+    case RT_DEBUG_BUFFER_BLOOM:      c = readColor(tpos, bloomTexture, w, h).rgb; break;
+    case RT_DEBUG_BUFFER_EMISSION:   c = readColor(tpos, emissionTexture, w, h).rgb; break;
+    case RT_DEBUG_BUFFER_REFLECTION: c = readColor(tpos, rtTexture0, w, h).rgb; break;
+    case RT_DEBUG_BUFFER_REFRACTION: c = readColor(tpos, rtTexture1, w, h).rgb; break;
+    case RT_DEBUG_BUFFER_INDIRECT:   c = readColor(tpos, rtTexture2, w, h).rgb; break;
+    case RT_DEBUG_BUFFER_VOLUMETRIC: c = readColor(tpos, volLightTexture, w, h).rgb; break;
+    case RT_DEBUG_BUFFER_DUST:       c = readColor(tpos, dustTexture, w, h).rgb; break;
+    case RT_DEBUG_BUFFER_LENS_FLARE: c = readColor(tpos, lensFlareTexture, w, h).rgb; break;
+    //The three that are not colours are mapped rather than gained: a ramp or a
+    //normal has nothing to expose, and scaling it would only destroy the mapping.
+    case RT_DEBUG_BUFFER_DEPTH:      return float4(DebugDepthColor(depthTexture[pixel].r), 1.0f);
+    case RT_DEBUG_BUFFER_POSITION:   return float4(DebugPositionColor(positions[pixel].xyz), 1.0f);
+    case RT_DEBUG_BUFFER_NORMAL:     return float4(DebugNormalColor(normals[pixel].xyz), 1.0f);
+    }
+    return float4(saturate(c * debug_gain), 1.0f);
+}
+
 #define NTHREADS 8
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main(uint3 DTid : SV_DispatchThreadID)
@@ -192,6 +228,12 @@ void main(uint3 DTid : SV_DispatchThreadID)
     float2 tpos = pixel;
     tpos.x /= w;
     tpos.y /= h;
+
+    [branch]
+    if (DebugBuffer(debug) != RT_DEBUG_BUFFER_OFF) {
+        output[pixel] = DebugBufferColor(DebugBuffer(debug), tpos, pixel, w, h);
+        return;
+    }
 
     float4 color = input[pixel];
     float4 l = readColor(tpos, lightTexture, w, h);

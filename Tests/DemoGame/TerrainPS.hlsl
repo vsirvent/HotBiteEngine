@@ -80,15 +80,9 @@ Texture2D grassTexture[NGRASS];
 RenderTargetRT main(GSOutput input)
 {
 	if (!any(input.tangent)) {
-		//Depth-z check with depth texture
-		float2 pos = input.position.xy;
-		pos.x /= screenW;
-		pos.y /= screenH;
-
-		float depth = length(input.worldPos.xyz - cameraPosition) - 1.0f;
-		float dz = depthTexture.SampleCmpLevelZero(PCFSampler, pos, depth);
-		if (dz == 0.0f) { discard; }
-
+		//No occlusion test here: the terrain (and the grass the geometry shader grows
+		//on it) is rendered on top of the depth pre-pass buffer, so occluded fragments
+		//never reach this shader. See RenderSystem::DrawScene.
 		//grass pixel
 		float3 color = { 0.0f, 0.0f, 0.0f };
 		switch ((int)input.bitangent.x) {

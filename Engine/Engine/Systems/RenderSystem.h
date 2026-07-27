@@ -124,6 +124,43 @@ namespace HotBite {
 					HIGH
 				};
 
+				//What the frame is made of, as the texture mixer sees it. Selecting one
+				//makes ProcessMix write that buffer to the screen instead of the mixed
+				//frame - the last point at which every contribution still exists
+				//separately.
+				//
+				//The values, and the RT_DEBUG_* flags below, MUST match
+				//Shaders/Common/RenderDebug.hlsli: they cross into HLSL as a bare uint
+				//in the `debug` field of three cbuffers and nothing validates them.
+				enum class eDebugBuffer : uint32_t {
+					OFF = 0,
+					SCENE,          //material colour before any light is applied
+					LIGHT,          //direct light accumulation
+					BLOOM,
+					EMISSION,
+					REFLECTION,     //ray-traced reflections
+					REFRACTION,     //ray-traced refractions
+					INDIRECT,       //ReSTIR global illumination
+					VOLUMETRIC,
+					DUST,
+					LENS_FLARE,
+					DEPTH,          //world distance, exponentially mapped
+					POSITION,       //world position, 10-unit repeating ramp
+					NORMAL,         //world normal, remapped to 0..1
+					COUNT
+				};
+
+				//Bypasses, independent of the buffer selection and of each other: each
+				//turns its denoiser into a copy so the buffer downstream carries the raw
+				//traced signal. Pair one with the matching buffer view to see what the
+				//ray tracer actually produced.
+				static constexpr uint32_t RT_DEBUG_BUFFER_MASK = 0xFF;
+				static constexpr uint32_t RT_DEBUG_NO_GI_DENOISE = 0x100;
+				static constexpr uint32_t RT_DEBUG_NO_RT_DENOISE = 0x200;
+
+				//Names in eDebugBuffer order, for menus and for the automation command.
+				static const char* DebugBufferName(eDebugBuffer buffer);
+
 			private:
 
 				struct DrawableEntity {
@@ -260,7 +297,11 @@ namespace HotBite {
 				Core::RenderTexture2D bloom_map;
 				Core::RenderTexture2D temp_map;
 				Core::RenderTexture2D rgba_noise_texture;
-				Core::RenderTexture2D first_pass_texture;				
+				Core::RenderTexture2D first_pass_texture;
+				//The frame's one depth buffer. DrawDepth fills it, then DrawSky and
+				//DrawScene render against it so the hardware can reject what it already
+				//proved occluded. Nothing else in the engine owns a scene depth buffer:
+				//the back buffer's and any post-process pipeline's go unused.
 				Core::DepthTexture2D depth_view;
 
 				Core::RenderTexture2D texture_tmp;
@@ -270,7 +311,6 @@ namespace HotBite {
 				Core::PostProcess* post_process_pipeline = nullptr;				
 				Core::IRenderTarget* first_pass_target = nullptr;
 				Core::IRenderTarget* second_pass_target = nullptr;
-				Core::IDepthResource* depth_target = nullptr;
 
 				//Motion blur
 				Core::SimpleComputeShader* motion_blur = nullptr;
@@ -404,7 +444,12 @@ namespace HotBite {
 				bool motion_blur_enabled = true;
 				bool dof_enabled = true;
 				bool scene_enabled = true;
+				//Packed buffer selection + bypass flags, see eDebugBuffer.
 				uint32_t rt_debug = 0;
+				//Exposure applied to a debug buffer view. The colour buffers are HDR and
+				//indirect light in particular sits well under 1.0, so raw it reads as
+				//black; without a gain half the views look broken rather than dark.
+				float debug_gain = 1.0f;
 				uint32_t frame_count = 0;
 				uint32_t current = 0;
 				uint32_t prev = 1;
@@ -543,8 +588,24 @@ namespace HotBite {
 				float GetLensGrain() const;
 				void SetLensVignette(float amount);
 				float GetLensVignette() const;
+				// Render-target debugging. The packed form is what reaches the shaders;
+				// the typed accessors are what callers should use.
+				//
+				// While a buffer view is on, the camera-artifact chain (AA, motion blur,
+				// depth of field, lens) is suppressed for that frame - a vignetted,
+				// depth-blurred normal buffer is not an inspection of anything. The
+				// stored settings are untouched and come back when the view is turned
+				// off, because they are pushed to the GPU fresh every frame anyway.
 				void SetRTDebug(uint32_t debug);
 				uint32_t GetRTDebug() const;
+				void SetDebugBuffer(eDebugBuffer buffer);
+				eDebugBuffer GetDebugBuffer() const;
+				void SetDebugFlag(uint32_t flag, bool enabled);
+				bool GetDebugFlag(uint32_t flag) const;
+				// True while any buffer view is selected.
+				bool IsDebugBufferActive() const;
+				void SetDebugGain(float gain);
+				float GetDebugGain() const;
 				void SetSceneEnabled(bool enabled);
 				bool GetSceneEnabled() const;
 			};

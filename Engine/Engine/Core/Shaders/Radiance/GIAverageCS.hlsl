@@ -1,5 +1,6 @@
 #include "../Common/ShaderStructs.hlsli"
 #include "../Common/Utils.hlsli"
+#include "../Common/RenderDebug.hlsli"
 
 cbuffer externalData : register(b0)
 {
@@ -26,7 +27,6 @@ float GetPosW(int pos, uint kernel) {
     return cos((M_PI * abs((float)pos)) / (2.0f * (float)kernel));
 }
 
-//#define DEBUG
 #define MIN_W 0.1f
 
 #define NTHREADS 8
@@ -35,12 +35,17 @@ void main(uint3 DTid : SV_DispatchThreadID)
 {
     float2 pixel = float2(DTid.x, DTid.y);
 
-#ifdef DEBUG
-    if (debug == 1) { 
+    //Denoiser bypass: copy through instead of filtering. Applied on every pass
+    //type, so the three-pass chain still moves the data along its normal route
+    //(trace -> tmp0 -> tmp1 -> gi) and what lands in the GI texture is the raw
+    //ReSTIR trace. This turns off the temporal accumulation in pass 3 as well,
+    //which is deliberate: with it left on you are looking at a history of the
+    //noise rather than the noise, and cannot tell which stage introduced what.
+    [branch]
+    if (DebugFlag(debug, RT_DEBUG_NO_GI_DENOISE)) {
         output[pixel] = input[pixel];
         return;
     }
-#endif
     float2 input_dimensions;
     float2 info_dimensions;
     {
