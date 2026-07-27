@@ -318,6 +318,21 @@ namespace HotBite {
 				float GetAnimationDefaultTransitionTime() const;
 				int GetCurrentAnimationId() const;
 				std::string GetCurrentAnimationName() const;
+				// The box this mesh occupies in its own local space: the extents of the
+				// animation it is playing when the mesh is skinned (Core::MeshData::
+				// GetAnimationBox), the stored vertex extents otherwise. False when there
+				// is no mesh data to measure.
+				//
+				// Anything measuring a Bounds must come through here. Reading
+				// minDimensions/maxDimensions directly gives the bind pose, which for a
+				// rig is a T-pose: the demo troll's arms are spread in the buffer and
+				// nowhere in any of its animations, so its box came out nearly twice as
+				// wide as the model, and its collider with it.
+				//
+				// A transition between two animations is measured as the one being blended
+				// *to*; for the 250ms it lasts the box can be a little tight at the
+				// silhouette of the one being left behind.
+				bool GetLocalBox(box& out) const;
 				int GetCurrentFrame() const;
 				void Update(int64_t elapsed_nsec, int64_t total_nsec);
 				void Prepare(Core::SimpleVertexShader* vs);

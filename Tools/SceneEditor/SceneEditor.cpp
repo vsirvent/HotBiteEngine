@@ -18,6 +18,7 @@
 #include "SelectionGizmo.h"
 #include "Selection.h"
 #include "PhysicsDebug.h"
+#include "ShadowDebug.h"
 #include "PhysicsPreview.h"
 
 #include <Core/PostProcess.h>
@@ -272,6 +273,27 @@ namespace HotBiteEditor {
 			},
 			[this]() { return state.collider_view == ColliderView::All; } });
 
+		//View: shadow debug tints (see ShadowDebug.h). Unlike the collider overlay these
+		//are not drawn by the editor at all - they switch a flag on the light that makes
+		//the engine's lighting shaders recolour each pixel. Two entries acting as a radio
+		//group, clicking the active one turning the view off, because they are two views
+		//of the same shadow system: the cascades carry the objects that move, the static
+		//map carries everything that does not.
+		menu_commands.push_back({ "View/Shadow Cascades",
+			[this]() { return level_loaded; },
+			[this]() {
+				state.shadow_debug_view = (state.shadow_debug_view == ShadowDebugView::Cascades)
+					? ShadowDebugView::Off : ShadowDebugView::Cascades;
+			},
+			[this]() { return state.shadow_debug_view == ShadowDebugView::Cascades; } });
+		menu_commands.push_back({ "View/Static Shadow Map",
+			[this]() { return level_loaded; },
+			[this]() {
+				state.shadow_debug_view = (state.shadow_debug_view == ShadowDebugView::StaticMap)
+					? ShadowDebugView::Off : ShadowDebugView::StaticMap;
+			},
+			[this]() { return state.shadow_debug_view == ShadowDebugView::StaticMap; } });
+
 		menu_commands.push_back({ "View/Reset Layout",
 			nullptr,
 			[this]() { state.apply_default_layout = true; } });
@@ -406,6 +428,7 @@ namespace HotBiteEditor {
 			//Under the gizmo, so the selection handles stay readable on top of a
 			//dense collider wireframe.
 			PhysicsDebug::Draw(state);
+			ShadowDebug::Draw(state);
 			SelectionGizmo::Draw(state);
 			DrawDeleteRequest();
 		}

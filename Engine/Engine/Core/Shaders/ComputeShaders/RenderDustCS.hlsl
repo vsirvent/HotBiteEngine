@@ -50,7 +50,7 @@ cbuffer externalData : register(b0)
     matrix projection;
 
     float4 LightPerspectiveValues[MAX_LIGHTS / 2];
-    matrix DirPerspectiveMatrix[MAX_LIGHTS];
+    matrix DirPerspectiveMatrix[DIR_SHADOW_MATRIX_COUNT];
     matrix DirStaticPerspectiveMatrix[MAX_LIGHTS];
 
     uint dirLightsCount;
@@ -58,7 +58,7 @@ cbuffer externalData : register(b0)
 
 }
 
-Texture2D<float> DirShadowMapTexture[MAX_LIGHTS];
+Texture2DArray<float> DirShadowMapTexture[MAX_LIGHTS];
 Texture2D<float> DirStaticShadowMapTexture[MAX_LIGHTS];
 TextureCube<float> PointShadowMapTexture[MAX_LIGHTS];
 

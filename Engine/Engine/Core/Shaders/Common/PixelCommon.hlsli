@@ -59,6 +59,14 @@ struct DirLight
 	//Mirrors DIR_LIGHT_FLAG_STATIC_SHADOW in Components/Lights.h: the static shadow
 	//map for this light has been rendered and bound at least once.
 #define DIR_LIGHT_FLAG_STATIC_SHADOW 4
+	//Debug view: tint this light's contribution by which cascade shaded each pixel.
+	//Mirrors DIR_LIGHT_FLAG_DEBUG_CASCADES in Components/Lights.h.
+#define DIR_LIGHT_FLAG_DEBUG_CASCADES 8
+	//Debug view: tint by the *static* caster map instead - what it covers and what it
+	//shadows. Mirrors DIR_LIGHT_FLAG_DEBUG_STATIC in Components/Lights.h. Takes
+	//precedence over the cascade tint if both are somehow set, since they recolour the
+	//same term and their palettes would multiply into nonsense.
+#define DIR_LIGHT_FLAG_DEBUG_STATIC 16
 	float3 Color;
 	float  intensity;
 	float3 DirToLight;
@@ -67,7 +75,10 @@ struct DirLight
 	float3 position;
 	float range;
 	int flags;
-	float2 padding;
+	//Live cascade slices of this light, 0..MAX_SHADOW_CASCADES. Zero means nothing has
+	//been rendered yet and no cascade may be sampled.
+	int cascade_count;
+	float padding;
 };
 
 struct PointLight

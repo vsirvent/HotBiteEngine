@@ -1,4 +1,4 @@
-﻿/*
+/*
 The HotBite Game Engine
 
 Copyright(c) 2023 Vicente Sirvent Orts
@@ -357,7 +357,12 @@ void World::LoadSky(const json& sky_info) {
 		if (light.contains("direction")) {
 			direction = float3{ light["direction"]["x"], light["direction"]["y"], light["direction"]["z"] };
 		}
-		directional.Init(ColorRGBFromStr(light["color"]), direction, light["cast_shadow"], light["resolution"], light["density"]);
+		//The sun is built here rather than through DirectionalLight::FromJson, so the
+		//cascade keys have to be read explicitly or a sky's sun would silently never
+		//get the cascade set its level asked for.
+		Components::DirectionalLight::CascadeSettings cascades;
+		cascades.FromJson(light);
+		directional.Init(ColorRGBFromStr(light["color"]), direction, light["cast_shadow"], light["resolution"], light["density"], cascades);
 		if (light.contains("skip")) {
 			for (const auto& s : light["skip"]) {
 				ECS::Entity skip = coordinator->GetEntityByName(s);
@@ -1235,7 +1240,7 @@ ECS::Entity World::SpawnInstance(const std::string& name, const std::string& tem
 			Components::Physics& p = coordinator->GetComponent<Components::Physics>(e);
 			//The template's LOCAL box: Init scales it by t.scale itself (which already
 			//carries the template's own scale, composed above).
-			p.Init(phys_world, p.type, nullptr, tbounds.local_box.Extents, t.position, t.scale, t.rotation, p.shape);
+			p.Init(phys_world, p.type, nullptr, tbounds.local_box, t.position, t.scale, t.rotation, p.shape);
 		}
 
 		coordinator->NotifySignatureChange(e);
@@ -1337,7 +1342,7 @@ ECS::Entity World::CloneEntity(const std::string& new_name, const std::string& s
 			if (np.type != reactphysics3d::BodyType::DYNAMIC) {
 				shape = shapes.Get(shape_name);
 			}
-			np.Init(phys_world, np.type, shape, bounds.local_box.Extents, t.position, t.scale, t.rotation, np.shape);
+			np.Init(phys_world, np.type, shape, bounds.local_box, t.position, t.scale, t.rotation, np.shape);
 		}
 	}
 
@@ -1579,7 +1584,9 @@ bool World::Load(const std::string& scene_file, float* progress, std::function<v
 					Components::DirectionalLight& directional = coordinator->GetComponent<Components::DirectionalLight>(e);
 					base.name = name;
 					base.id = e;
-					directional.Init(ColorRGBFromStr(light["color"]), float3{ light["direction"]["x"], light["direction"]["y"], light["direction"]["z"] }, light["cast_shadow"], light["resolution"], light["density"]);
+					Components::DirectionalLight::CascadeSettings cascades;
+					cascades.FromJson(light);
+					directional.Init(ColorRGBFromStr(light["color"]), float3{ light["direction"]["x"], light["direction"]["y"], light["direction"]["z"] }, light["cast_shadow"], light["resolution"], light["density"], cascades);
 					if (light.contains("parent")) {
 						ECS::Entity p = coordinator->GetEntityByName(light["parent"]);
 						directional.SetParent(p);
@@ -1819,10 +1826,10 @@ void World::Init() {
 					{ t.rotation.x, t.rotation.y, t.rotation.z, t.rotation.w });
 				p.body->setTransform(bt);
 				p.last_body_transform = bt;
-				p.UpdateShape(shape, b.local_box.Extents, t.scale, t.rotation);
+				p.UpdateShape(shape, b.local_box, t.scale, t.rotation);
 				continue;
 			}
-			p.Init(phys_world, p.type, shape, b.local_box.Extents, t.position, t.scale, t.rotation, p.shape);
+			p.Init(phys_world, p.type, shape, b.local_box, t.position, t.scale, t.rotation, p.shape);
 			
 		}
 	}	

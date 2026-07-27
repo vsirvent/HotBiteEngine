@@ -27,6 +27,22 @@ SOFTWARE.
 
 #define MAX_MULTI_TEXTURE 8
 #define MAX_LIGHTS 8
+//Shadow cascade slices per directional light. Mirrors MAX_SHADOW_CASCADES in
+//Components/Lights.h - the two size the same arrays from opposite sides and must
+//match. Per-light cascade matrices are packed at this fixed stride, so the entry for
+//cascade c of light i is always at [i * MAX_SHADOW_CASCADES + c] no matter how many
+//slices that light actually uses.
+#define MAX_SHADOW_CASCADES 4
+#define DIR_SHADOW_MATRIX_COUNT (MAX_LIGHTS * MAX_SHADOW_CASCADES)
+
+//Directional shadow PCF kernel: taps are one texel apart over a (2r+1) square, so 2 is
+//5x5 = 25 taps. Radius is in whole texels rather than world units, which makes the blur
+//a fixed number of texels and therefore scale with each cascade's texel size - a near
+//cascade blurs a short distance, a far one a long distance. Shared by both lighting
+//front ends (PixelFunctions.hlsli and SimpleLight.hlsli), which is why it lives here.
+#define DIR_PCF_RADIUS 2
+#define DIR_PCF_TAPS ((2 * DIR_PCF_RADIUS + 1) * (2 * DIR_PCF_RADIUS + 1))
+#define DIR_PCF_WEIGHT (1.0f / (float)DIR_PCF_TAPS)
 #define FLT_MAX 3.4e+38
 #define FLT_MIN 1.1e-38 
 

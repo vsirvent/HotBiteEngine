@@ -886,8 +886,33 @@ void RenderSystem::CastShadows(int w, int h, const float3& camera_position, cons
 
 				if (gs) {
 					gs->SetFloat(TIME, time);
-					gs->SetInt(ACTIVE_VIEWS, 0x01);
-					gs->SetMatrix4x4(CUBE_VIEW_0, *l.light->GetViewMatrix());
+					if (static_shadows) {
+						//Static casters go into one plain map fitted to the widest
+						//cascade, so this pass is a single view like the pre-cascade one.
+						gs->SetInt(ACTIVE_VIEWS, 0x01);
+						gs->SetMatrix4x4(CUBE_VIEW_0, *l.light->GetStaticViewMatrix());
+					}
+					else {
+						//One pass fills every cascade: the shadow geometry shader is the
+						//same one the point light's six cube faces go through, so routing
+						//a triangle to slice N via SV_RenderTargetArrayIndex costs nothing
+						//new. The alternative - a draw pass per cascade - would re-walk
+						//the whole shadow tree N times to no benefit, since a directional
+						//caster is not culled per cascade anyway.
+						const float4x4* cascades = l.light->GetViewMatrix();
+						const int cascade_count = l.light->GetCascadeCount();
+						gs->SetInt(ACTIVE_VIEWS, (1 << cascade_count) - 1);
+						static_assert(MAX_SHADOW_CASCADES <= 6,
+							"ShadowMapCubeGS.hlsl carries six view matrices; add slots "
+							"there and entries below before raising MAX_SHADOW_CASCADES.");
+						static const std::string* const CASCADE_VIEW[] = {
+							&CUBE_VIEW_0, &CUBE_VIEW_1, &CUBE_VIEW_2, &CUBE_VIEW_3,
+							&CUBE_VIEW_4, &CUBE_VIEW_5
+						};
+						for (int c = 0; c < cascade_count && c < MAX_SHADOW_CASCADES; ++c) {
+							gs->SetMatrix4x4(*CASCADE_VIEW[c], cascades[c]);
+						}
+					}
 					gs->CopyAllBufferData();
 				}
 
@@ -2492,14 +2517,22 @@ void RenderSystem::SetEntityLights(Lighted* lighted, ECS::EntityVector<Direction
 	lighted->shadows_perspectives.reserve(MAX_LIGHTS);
 	lighted->dir_shadows.reserve(MAX_LIGHTS);
 	lighted->dir_static_shadows.reserve(MAX_LIGHTS);
-	lighted->dir_shadows_perspectives.reserve(MAX_LIGHTS);
+	lighted->dir_shadows_perspectives.reserve(MAX_LIGHTS * MAX_SHADOW_CASCADES);
 	lighted->dir_static_shadows_perspectives.reserve(MAX_LIGHTS);
 
 	for (auto const& l: dir_lights.GetData()) {
 		lighted->dir_lights.push_back(l.light->GetData());
 		lighted->dir_shadows.push_back(l.light->DepthResource());
 		lighted->dir_static_shadows.push_back(l.light->StaticDepthResource());
-		lighted->dir_shadows_perspectives.push_back(*l.light->GetViewMatrix());
+		//Always MAX_SHADOW_CASCADES matrices per light, live or not: the shaders index
+		//this array as [light * MAX_SHADOW_CASCADES + cascade], so the stride has to be
+		//constant even for a light using a single cascade. DirLight::cascade_count is
+		//what tells the shader how many of each light's entries mean anything.
+		const float4x4* cascades = l.light->GetViewMatrix();
+		for (int c = 0; c < MAX_SHADOW_CASCADES; ++c) {
+			lighted->dir_shadows_perspectives.push_back(cascades[c]);
+		}
+		//The static map is one map per light, not a cascade set, so one matrix.
 		lighted->dir_static_shadows_perspectives.push_back(*l.light->GetStaticViewMatrix());
 	}
 	for (auto const& l : point_lights.GetData()) {
@@ -2693,8 +2726,20 @@ void RenderSystem::Draw() {
 		//but this is fine to just make the overhead of casting shadow of static objects almost zero (cost reduced by /STATIC_SHADOW_REFRESH_PERIOD)
 		//...plus immediately whenever the set of static casters or their positions change,
 		//so an edit shows up now instead of up to a whole period later.
+		//...plus whenever a light's static map no longer covers what its cascades do.
+		//The map is fitted to the widest cascade, which follows the camera, so walking
+		//far enough carries the view off the footprint - and every static object's
+		//shadow with it - until the period next comes round, which at 1000 frames is
+		//many seconds of a scene with no shadows on any of the scenery.
+		bool static_stale = false;
+		for (DirectionalLightEntity& l : directional_lights.GetData()) {
+			if (l.light->CastShadow() && l.light->StaticShadowStale()) {
+				static_stale = true;
+				break;
+			}
+		}
 		const uint64_t static_shadow_signature = StaticShadowSignature();
-		if ((count++ % STATIC_SHADOW_REFRESH_PERIOD) == 0 ||
+		if ((count++ % STATIC_SHADOW_REFRESH_PERIOD) == 0 || static_stale ||
 			static_shadow_signature != last_static_shadow_signature) {
 			last_static_shadow_signature = static_shadow_signature;
 			CastShadows(w, h, camera_position, view, projection, true);

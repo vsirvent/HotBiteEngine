@@ -44,7 +44,7 @@ cbuffer externalData : register(b0)
     matrix view_inverse;
     matrix projection_inverse;
     float4 LightPerspectiveValues[MAX_LIGHTS / 2];
-    matrix DirPerspectiveMatrix[MAX_LIGHTS];
+    matrix DirPerspectiveMatrix[DIR_SHADOW_MATRIX_COUNT];
     matrix DirStaticPerspectiveMatrix[MAX_LIGHTS];
 
     int dirLightsCount;

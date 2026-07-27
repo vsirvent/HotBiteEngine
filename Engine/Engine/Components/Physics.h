@@ -83,13 +83,18 @@ namespace HotBite {
 				Physics& operator=(Physics&& other);
 				void SetEnabled(bool enabled);
 
-				// `extends` is the entity's half extents in LOCAL space - Bounds::local_box,
-				// never Bounds::bounding_box. The collision shape is sized here by
-				// multiplying them with `s`, so passing the world-space box (which the
+				// `local_box` is the entity's box in LOCAL space - Bounds::local_box, never
+				// Bounds::final_box or Bounds::bounding_box. The collision shape is sized
+				// here by multiplying it with `s`, so passing a world-space box (which the
 				// transform pass already scaled) applies the scale twice: a troll at scale
 				// 0.025 gets a capsule 40x too small to stand on anything.
+				//
+				// The box's CENTRE is as much a part of it as its size. A mesh is rarely
+				// centred on its entity origin - the demo troll's sits 270 mesh units above
+				// its feet - and a collider built from the extents alone stands that far
+				// away from the model it is meant to represent.
 				bool Init(reactphysics3d::PhysicsWorld* w, reactphysics3d::BodyType body_type,
-					Core::ShapeData* shape_data, const float3& extends,
+					Core::ShapeData* shape_data, const box& local_box,
 					const float3& p, const float3& s, const float4& r, eShapeForm form = SHAPE_CAPSULE);
 
 				// Rebuilds the collider of an already-initialized body for a new
@@ -99,10 +104,10 @@ namespace HotBite {
 				// born with. Editors must call it after changing Transform.scale or
 				// Transform.rotation; a pure translation only needs
 				// RigidBody::setTransform. `shape_data` must be the one Init received
-				// (null for the primitive capsule/box/sphere forms), and `extends` the
-				// same local-space half extents Init takes. Returns false when there is
+				// (null for the primitive capsule/box/sphere forms), and `local_box` the
+				// same local-space box Init takes. Returns false when there is
 				// no body to update.
-				bool UpdateShape(Core::ShapeData* shape_data, const float3& extends,
+				bool UpdateShape(Core::ShapeData* shape_data, const box& local_box,
 					const float3& s, const float4& r);
 
 				reactphysics3d::Material* GetMaterial();
@@ -131,7 +136,7 @@ namespace HotBite {
 			private:
 				// Creates and attaches the collision shape for `s`/`r`. Caller holds
 				// physics_mutex, `body` is valid and carries no collider.
-				void AddCollider(Core::ShapeData* shape_data, const float3& extends,
+				void AddCollider(Core::ShapeData* shape_data, const box& local_box,
 					const float3& s, const float4& r);
 			};
 		}

@@ -49,6 +49,7 @@
     <ClCompile Include="SelectionGizmo.cpp" />
     <ClCompile Include="Selection.cpp" />
     <ClCompile Include="PhysicsDebug.cpp" />
+    <ClCompile Include="ShadowDebug.cpp" />
     <ClCompile Include="PhysicsPreview.cpp" />
     <ClCompile Include="imgui\imgui.cpp" />
     <ClCompile Include="imgui\imgui_draw.cpp" />
@@ -80,6 +81,7 @@
     <ClInclude Include="SelectionGizmo.h" />
     <ClInclude Include="Selection.h" />
     <ClInclude Include="PhysicsDebug.h" />
+    <ClInclude Include="ShadowDebug.h" />
     <ClInclude Include="PhysicsPreview.h" />
     <ClInclude Include="ViewportOverlay.h" />
     <ClInclude Include="EditorLayout.h" />
@@ -263,6 +265,7 @@
       <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
       <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
       <Optimization>Full</Optimization>
+      <EnableParallelCodeGeneration>true</EnableParallelCodeGeneration>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>

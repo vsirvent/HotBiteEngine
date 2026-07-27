@@ -351,6 +351,146 @@ namespace HotBite {
 				return depth_stencil_view;
 			}
 
+			DepthTexture2DArray::DepthTexture2DArray() {
+			}
+
+			DepthTexture2DArray::DepthTexture2DArray(const DepthTexture2DArray& other) {
+				assert(!other.init && "DepthTexture2DArray can't be copied once initialized.");
+				*this = other;
+			}
+
+			DepthTexture2DArray::~DepthTexture2DArray() {
+				Release();
+			}
+
+			int DepthTexture2DArray::Width() const {
+				return width;
+			}
+
+			int DepthTexture2DArray::Height() const {
+				return height;
+			}
+
+			int DepthTexture2DArray::Slices() const {
+				return slices;
+			}
+
+			HRESULT DepthTexture2DArray::Init(int w, int h, int n) {
+				Release();
+				ID3D11Device* device = DXCore::Get()->device;
+				HRESULT hr = S_OK;
+				if (w > MAX_TEXTURE_SIZE || h > MAX_TEXTURE_SIZE || n < 1 ||
+					n > D3D11_REQ_TEXTURE2D_ARRAY_AXIS_DIMENSION) {
+					return E_FAIL;
+				}
+				init = true;
+				width = w;
+				height = h;
+				slices = n;
+
+				D3D11_TEXTURE2D_DESC texDesc = {};
+				texDesc.Width = w;
+				texDesc.Height = h;
+				texDesc.MipLevels = 1;
+				texDesc.ArraySize = (UINT)n;
+				texDesc.Format = DXGI_FORMAT_R32_TYPELESS;
+				texDesc.SampleDesc.Count = 1;
+				texDesc.Usage = D3D11_USAGE_DEFAULT;
+				texDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE;
+				hr = device->CreateTexture2D(&texDesc, nullptr, &texture);
+				if (FAILED(hr)) {
+					Release();
+					return hr;
+				}
+
+				D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+				srvDesc.Format = DXGI_FORMAT_R32_FLOAT;
+				srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DARRAY;
+				srvDesc.Texture2DArray.MostDetailedMip = 0;
+				srvDesc.Texture2DArray.MipLevels = texDesc.MipLevels;
+				srvDesc.Texture2DArray.FirstArraySlice = 0;
+				srvDesc.Texture2DArray.ArraySize = (UINT)n;
+				hr = device->CreateShaderResourceView(texture, &srvDesc, &shader_resource_view);
+				if (FAILED(hr)) {
+					Release();
+					return hr;
+				}
+
+				//The whole-array view: the shadow geometry shader picks the slice per
+				//triangle, so every cascade is filled through this one binding.
+				D3D11_DEPTH_STENCIL_VIEW_DESC dsvDesc = {};
+				dsvDesc.Format = DXGI_FORMAT_D32_FLOAT;
+				dsvDesc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2DARRAY;
+				dsvDesc.Texture2DArray.MipSlice = 0;
+				dsvDesc.Texture2DArray.FirstArraySlice = 0;
+				dsvDesc.Texture2DArray.ArraySize = (UINT)n;
+				hr = device->CreateDepthStencilView(texture, &dsvDesc, &depth_stencil_view);
+				if (FAILED(hr)) {
+					Release();
+					return hr;
+				}
+
+				slice_views.resize(n, nullptr);
+				for (int i = 0; i < n; ++i) {
+					dsvDesc.Texture2DArray.FirstArraySlice = (UINT)i;
+					dsvDesc.Texture2DArray.ArraySize = 1;
+					hr = device->CreateDepthStencilView(texture, &dsvDesc, &slice_views[i]);
+					if (FAILED(hr)) {
+						Release();
+						return hr;
+					}
+				}
+				return hr;
+			}
+
+			void DepthTexture2DArray::Release() {
+				for (ID3D11DepthStencilView* v : slice_views) {
+					if (v != nullptr) {
+						v->Release();
+					}
+				}
+				slice_views.clear();
+				if (depth_stencil_view) {
+					depth_stencil_view->Release();
+					depth_stencil_view = nullptr;
+				}
+				if (shader_resource_view) {
+					shader_resource_view->Release();
+					shader_resource_view = nullptr;
+				}
+				if (texture) {
+					texture->Release();
+					texture = nullptr;
+				}
+				width = 0;
+				height = 0;
+				slices = 0;
+				init = false;
+			}
+
+			void DepthTexture2DArray::Clear() {
+				if (texture) {
+					ID3D11DeviceContext* context = DXCore::Get()->context;
+					context->ClearDepthStencilView(depth_stencil_view,
+						D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+				}
+			}
+
+			ID3D11ShaderResourceView* DepthTexture2DArray::SRV() const {
+				return shader_resource_view;
+			}
+
+			ID3D11DepthStencilView* DepthTexture2DArray::Depth() const {
+				return depth_stencil_view;
+			}
+
+			ID3D11DepthStencilView* DepthTexture2DArray::Depth(int slice) const {
+				if (slice < 0 || slice >= (int)slice_views.size()) {
+					return nullptr;
+				}
+				return slice_views[slice];
+			}
+
 			RenderTexture2D::RenderTexture2D(int mip_levels) {
 				this->mip_levels = mip_levels;
 			}

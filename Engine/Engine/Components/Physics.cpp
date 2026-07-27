@@ -28,6 +28,7 @@ SOFTWARE.
 
 using namespace reactphysics3d;
 using namespace DirectX;
+using namespace HotBite::Engine;
 using namespace HotBite::Engine::Components;
 using namespace HotBite::Engine::Core;
 
@@ -50,43 +51,107 @@ struct Physics::ScaledMesh {
 	}
 };
 
+//Which of the entity's local axes stands most nearly upright once the body's
+//rotation is applied.
+//
+//A capsule has exactly one axis (reactphysics3d runs it along the shape's local Y)
+//and the objects that use one are characters, for which that axis is the vertical
+//one. Which *local* axis is vertical depends on how the model was authored - a Z-up
+//FBX carries a -90 degree X rotation to stand it up - so it is read off the
+//rotation. It is deliberately not guessed from which extent is longest: a rig's
+//widest axis is its arm span as often as its height.
+static int MostVerticalAxis(const float4& r) {
+	const vector4d q = XMVectorSet(r.x, r.y, r.z, r.w);
+	int axis = 1;
+	float best = -1.0f;
+	for (int i = 0; i < 3; ++i) {
+		const vector3d local = XMVectorSet(i == 0 ? 1.0f : 0.0f, i == 1 ? 1.0f : 0.0f,
+			i == 2 ? 1.0f : 0.0f, 0.0f);
+		const float up = fabsf(XMVectorGetY(XMVector3Rotate(local, q)));
+		if (up > best) {
+			best = up;
+			axis = i;
+		}
+	}
+	return axis;
+}
+
 //Builds the body's collider for the given scale/rotation and attaches it. The
 //caller holds physics_mutex and has already cleared any previous collider.
 //Shared by Init and UpdateShape so a rebuilt collider is byte-for-byte the one
 //the entity would have been born with at that scale.
-void Physics::AddCollider(ShapeData* shape_data, const float3& extends,
+void Physics::AddCollider(ShapeData* shape_data, const box& local_box,
 	const float3& s, const float4& r) {
-	Quaternion q{ r.x, r.y, r.z, r.w };
 	CollisionShape* cshape = NULL;
 	owned_shape = nullptr;
 	owned_mesh = nullptr;
 	if (shape_data == NULL) {
-		//`extends` is the local box, so the entity scale is applied here; callers must
-		//not hand over Bounds::bounding_box, which the transform pass already scaled.
-		float3 e = MULT_F3_F3(extends, s);
-		vector4d xm_r = XMVectorSet(r.x, r.y, r.z, r.w);
-		vector3d xm_e = XMVectorSet(e.x, e.y, e.z, 1.0f);
-		XMStoreFloat3(&e, XMVector3Rotate(xm_e, xm_r));
-		e.x = abs(e.x); e.y = abs(e.y); e.z = abs(e.z);
-		float radius = (e.x + e.z) / 4.0f;
+		//Every primitive below is built in BODY space, which is the entity's local
+		//space scaled: half extents and centre are the local box multiplied by the
+		//entity scale, and the body's own transform - which already carries the
+		//entity rotation - is what orients them. That rotation must NOT be applied
+		//to the collider as well. Doing so (and rotating the extents *vector*, which
+		//is not how a box rotates in the first place) is what left the troll's
+		//collider tilted against its own bounding box, and sized by whichever axes
+		//the rotation happened to mix.
+		//The centre is what keeps the shape on the model: a mesh is rarely centred
+		//on its entity origin, and dropping it sank half of the troll's box into the
+		//ground. The mesh-collider branch below has always worked this way - its
+		//triangles are mesh-space and its local transform is the identity - so this
+		//is the primitives joining the convention rather than a new one.
+		//Zero is a legal extent for an authored box (a plane) but not for a
+		//collision shape, so a degenerate axis becomes a thin one instead.
+		constexpr float MIN_EXTENT = 1e-3f;
+		const float half[3] = {
+			(std::max)(fabsf(local_box.Extents.x * s.x), MIN_EXTENT),
+			(std::max)(fabsf(local_box.Extents.y * s.y), MIN_EXTENT),
+			(std::max)(fabsf(local_box.Extents.z * s.z), MIN_EXTENT) };
+		const Vector3 offset(local_box.Center.x * s.x, local_box.Center.y * s.y,
+			local_box.Center.z * s.z);
 		switch (this->shape) {
 		case eShapeForm::SHAPE_CAPSULE: {
+			const int axis = MostVerticalAxis(r);
+			//Half of the two cross-section half extents: a circle cannot match a
+			//rectangle, so the larger would give a character the width of its arm
+			//span and the smaller would walk it through walls its shoulders do not
+			//fit through.
+			//A cross-section as wide as the axis is long holds no capsule at all, and
+			//reactphysics3d asserts on a non-positive height, so there the radius is
+			//what gives way: the shape degenerates towards the sphere such a box
+			//should get.
+			const float radius = (std::min)((half[(axis + 1) % 3] + half[(axis + 2) % 3]) * 0.5f,
+				half[axis] * 0.99f);
+			//`height` is the distance between the two cap CENTRES, so the capsule is
+			//height + 2*radius long: shorten it by the caps and it ends exactly where
+			//the box does. Passing the full extent as the height is what made the old
+			//capsule a radius taller than the model at each end, standing the demo
+			//troll on air.
+			const float height = 2.0f * (half[axis] - radius);
 			if (radius > 0.0f) {
-				cshape = physics_common.createCapsuleShape(radius, e.y * 2.0f);
-				Transform tshape(Vector3{ 0.0f, 0.0f,  radius + e.y }, q.getUnit());
-				collider = body->addCollider(cshape, tshape);
+				cshape = physics_common.createCapsuleShape(radius, height);
+				//Shape local Y -> the chosen local axis.
+				Quaternion align = Quaternion::identity();
+				if (axis == 0) {
+					align = Quaternion::fromEulerAngles(0.0f, 0.0f, -PI_RP3D / 2.0f);
+				}
+				else if (axis == 2) {
+					align = Quaternion::fromEulerAngles(PI_RP3D / 2.0f, 0.0f, 0.0f);
+				}
+				collider = body->addCollider(cshape, Transform(offset, align));
 			}
 		}break;
 		case eShapeForm::SHAPE_BOX: {
-			cshape = physics_common.createBoxShape({ e.x, e.y, e.z });
-			Transform tshape(Vector3{ 0.0f, 0.0f,  0.0f }, q.getUnit());
-			collider = body->addCollider(cshape, tshape);
+			cshape = physics_common.createBoxShape({ half[0], half[1], half[2] });
+			collider = body->addCollider(cshape, Transform(offset, Quaternion::identity()));
 		}break;
 		case eShapeForm::SHAPE_SPHERE: {
+			//As far as the box reaches along its longest axis: a sphere standing for a
+			//box-shaped model is an approximation either way, and one that fits inside
+			//the model lets it sink into the floor.
+			const float radius = (std::max)((std::max)(half[0], half[1]), half[2]);
 			if (radius > 0.0f) {
-				cshape = physics_common.createSphereShape(e.y);
-				Transform tshape(Vector3{ 0.0f, 0.0f, 0.0f }, q.getUnit());
-				collider = body->addCollider(cshape, tshape);
+				cshape = physics_common.createSphereShape(radius);
+				collider = body->addCollider(cshape, Transform(offset, Quaternion::identity()));
 			}
 		}break;
 		}
@@ -154,7 +219,7 @@ void Physics::AddCollider(ShapeData* shape_data, const float3& extends,
 }
 
 bool Physics::Init(PhysicsWorld* w,
-	BodyType body_type, ShapeData* shape_data, const float3& extends,
+	BodyType body_type, ShapeData* shape_data, const box& local_box,
 	const float3& p, const float3& s, const float4& r, eShapeForm form) {
 	physics_mutex.lock();
 	world = w;
@@ -166,7 +231,7 @@ bool Physics::Init(PhysicsWorld* w,
 	if (body != nullptr) {
 		body->setType(body_type);
 		mBodyRefs[body]++;
-		AddCollider(shape_data, extends, s, r);
+		AddCollider(shape_data, local_box, s, r);
 	}
 	if (bounce >= 0.0f) {
 		GetMaterial()->setBounciness(bounce);
@@ -181,7 +246,7 @@ bool Physics::Init(PhysicsWorld* w,
 	return (body != nullptr);
 }
 
-bool Physics::UpdateShape(ShapeData* shape_data, const float3& extends,
+bool Physics::UpdateShape(ShapeData* shape_data, const box& local_box,
 	const float3& s, const float4& r) {
 	std::lock_guard<std::recursive_mutex> lock(physics_mutex);
 	if (body == nullptr) {
@@ -201,7 +266,7 @@ bool Physics::UpdateShape(ShapeData* shape_data, const float3& extends,
 		body->removeCollider(collider);
 		collider = nullptr;
 	}
-	AddCollider(shape_data, extends, s, r);
+	AddCollider(shape_data, local_box, s, r);
 	//Only now that nothing references it: a scale drag calls this every frame, so
 	//leaving the replaced shapes around would grow without bound.
 	if (previous_owned != nullptr && previous_owned != owned_shape) {

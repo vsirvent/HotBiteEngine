@@ -49,7 +49,7 @@ cbuffer externalData : register(b0)
 	int screenW;
 	int screenH;
 	float4 LightPerspectiveValues[MAX_LIGHTS / 2];
-	matrix DirPerspectiveMatrix[MAX_LIGHTS];
+	matrix DirPerspectiveMatrix[DIR_SHADOW_MATRIX_COUNT];
 	matrix DirStaticPerspectiveMatrix[MAX_LIGHTS];
 	matrix spot_view;
 	float time;

@@ -119,7 +119,7 @@ namespace HotBiteEditor {
 							(ph.type != reactphysics3d::BodyType::DYNAMIC)
 							? state.world->GetEntityShape(base.name) : nullptr;
 						ph.UpdateShape(shape_data,
-							c->GetComponent<Bounds>(entity).local_box.Extents,
+							c->GetComponent<Bounds>(entity).local_box,
 							t.scale, t.rotation);
 					}
 				}
@@ -815,6 +815,80 @@ namespace HotBiteEditor {
 			}
 			track(inverse_changed);
 			ImGui::Text("Casts shadow: %s", l.CastShadow() ? "yes" : "no");
+
+			//Shadow cascades. These reach the light through its own setters rather than
+			//through Data: the slice count reallocates the depth arrays, and the rest
+			//mark the fit dirty. All four are serialized, so SectionEdit still has to
+			//see them or the edit would never reach the entity's record.
+			if (l.CastShadow()) {
+				ImGui::SeparatorText("Shadow cascades");
+				const DirectionalLight::CascadeSettings& cs = l.GetCascadeSettings();
+				int cascades = cs.count;
+				if (ImGui::SliderInt("Cascades", &cascades, 1, MAX_SHADOW_CASCADES)) {
+					if (!l.SetCascadeCount(cascades)) {
+						state.status_message =
+							"Could not allocate shadow maps for that cascade count";
+					}
+					track(true);
+				}
+				//What the cascade set covers, in world units, measured from the camera.
+				//The camera's own far plane is 10000; spending the texel budget out to
+				//there is what makes shadows look uniformly bad, so this is the first
+				//knob to reach for.
+				float distance = cs.distance;
+				if (ImGui::DragFloat("Shadow distance", &distance, 1.0f, 1.0f, 10000.0f)) {
+					l.SetCascadeDistance(distance);
+					track(true);
+				}
+				float lambda = cs.split_lambda;
+				if (ImGui::SliderFloat("Split blend", &lambda, 0.0f, 1.0f)) {
+					l.SetCascadeSplitLambda(lambda);
+					track(true);
+				}
+				if (ImGui::IsItemHovered()) {
+					ImGui::SetTooltip("0 = evenly spaced splits, 1 = logarithmic.\n"
+						"Logarithmic matches a perspective camera's 1/z texel\n"
+						"density; lower it if the first cascade is too small to\n"
+						"be useful.");
+				}
+				float extrusion = cs.caster_extrusion;
+				if (ImGui::DragFloat("Caster extrusion", &extrusion, 1.0f, 0.0f, 10000.0f)) {
+					l.SetCasterExtrusion(extrusion);
+					track(true);
+				}
+				if (ImGui::IsItemHovered()) {
+					ImGui::SetTooltip("How far back towards the light each cascade's near\n"
+						"plane reaches, so objects outside the view still cast\n"
+						"into it. Too small and shadows appear as their caster\n"
+						"enters the frame.");
+				}
+				//The other half of texel density, and the only half that is free to
+				//raise once the shadow distance is settled. Shown next to the fitted
+				//densities below so the trade is visible in one place.
+				int resolution = l.GetShadowResolution();
+				if (ImGui::SliderInt("Resolution x", &resolution, 1, 4)) {
+					if (!l.SetShadowResolution(resolution)) {
+						state.status_message =
+							"Could not allocate shadow maps at that resolution";
+					}
+					track(true);
+				}
+				if (ImGui::IsItemHovered()) {
+					ImGui::SetTooltip("Multiplier on a 2048-texel slice. Every cascade\n"
+						"and the static map are allocated at this size, so 2 is\n"
+						"four times the memory of 1.");
+				}
+				ImGui::Text("Slice resolution: %d", l.GetCascadeResolution());
+				//The fitted result, so the effect of the knobs above is visible without
+				//leaving the panel. View/Shadow Cascades draws the same volumes.
+				for (int i = 0; i < l.GetCascadeCount(); ++i) {
+					const DirectionalLight::CascadeInfo& info = l.GetCascadeInfo(i);
+					ImGui::Text("  %d: %.1f-%.1f  box %.1f  %.1f texels/unit",
+						i, info.near_split, info.far_split,
+						2.0f * info.radius, info.texel_density);
+				}
+			}
+
 			if (changed) {
 				l.SetDirty();
 			}

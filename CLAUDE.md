@@ -71,6 +71,96 @@ by matching shader bytecode hashes to the built `.cso` files, because the engine
 debug markers and every shader's entry point is `main` — so analyze against the same
 configuration you captured.
 
+**Directional shadows are cascaded** (`Components/Lights.h`, fitted in
+`DirectionalLightSystem::Update`). A light's `cascades` (1..`MAX_SHADOW_CASCADES`, 4)
+slices live in one `Core::DepthTexture2DArray`, not N separate maps: the pixel shader
+picks its cascade with a *texture coordinate*, costing no extra shader register — the
+ray tracers already sit at the 128-register `cs_5_0` limit — and the existing shadow
+geometry shader (`ShadowMapCubeGS.hlsl`, shared with the point light's six cube faces)
+fills every slice in one pass via `SV_RenderTargetArrayIndex`. Per-cascade matrices are
+uploaded at a *fixed* `MAX_SHADOW_CASCADES` stride, so cascade c of light i is always
+`[i * MAX_SHADOW_CASCADES + c]`; `DirLight::cascade_count` is what tells a shader how
+many of a light's entries mean anything, and it is 0 until the first fit — an unwritten
+slice has a zero matrix, which projects every point to the middle of an empty map.
+
+**The cascades carry only what moves.** `Base::is_static` splits the casters in two and
+that flag has no other meaning in the engine: a static caster is drawn *only* into the
+light's single static map, a dynamic one *only* into the cascades. So the per-frame
+shadow pass costs what the moving objects cost, and marking scenery static is the way
+to make a heavy level cheap (the demo level marks its terrain, liquids and fixed props,
+34 entities - everything whose rigid body is `STATIC`). The static map is one plain
+`DepthTexture2D` fitted to the **widest** cascade, so it covers everything the cascade
+set does; the price is density, since a static caster shades at that outermost cascade's
+texels per unit even up close.
+
+That map is re-rendered on `STATIC_SHADOW_REFRESH_PERIOD`, when the set of static
+casters changes, *and* when `DirectionalLight::StaticShadowStale()` says the camera has
+carried the widest cascade off the footprint it was rendered under. Without that last
+one, walking far enough makes every piece of scenery stop casting until the period next
+comes round - many seconds of a scene whose shadows are all missing.
+
+Two things about the fit. It bounds each frustum slice with a **sphere**, not the tight
+box of its eight corners: a tight box is ~30% smaller but its size and orientation
+change as the camera turns, so every shadow edge crawls; a sphere is rotation-invariant,
+and its centre is then snapped to whole shadow texels (in a *world*-anchored light
+space, or the grid would move with the light's eye and defeat the snapping). The sphere
+is the exact minimal one — the centre solves to `(n+f)(1+k²)/2` along the view axis,
+clamped to the far plane — so nothing is given away beyond sphere-vs-box. And the fit
+follows camera **rotation** as well as position, since the slice being bounded sits in
+front of the camera; watching position alone (what the pre-cascade code did) leaves the
+map behind when you turn on the spot.
+
+Sizing changed with this: the old single map was `8 * screen width` texels covering
+`width/50` world units, so coverage depended on monitor width and a 1080p screen asked
+for a 15360-square map. Coverage is now fitted to the view, so resolution is a plain
+authored number — `resolution` (which for directional lights has always *multiplied*,
+unlike point lights) times 2048.
+
+The debug views are **in the engine, not the editor**: `DIR_LIGHT_FLAG_DEBUG_CASCADES`
+recolours a pixel by the cascade that shaded it, `DIR_LIGHT_FLAG_DEBUG_STATIC` by
+whether the static map reaches it and whether a static caster occludes it
+(`ApplyDirShadowDebug`). They have to be per pixel — which cascade a pixel falls in is
+only known where the shadow lookup happens, and the volumes are always wrapped around
+the viewer, so a wireframe overlay only ever shows the inside of a box you are standing
+in. Both add a small floor on top of the shaded result so the colour stays legible in
+shadow, which is where you most want to read it, and only one may be on at a time (they
+recolour the same term). `Tools/SceneEditor/ShadowDebug.cpp` is only the switches
+(`View/Shadow Cascades`, `View/Static Shadow Map`) and the legends, and its colours
+**must** match `CASCADE_DEBUG_COLOR`/`STATIC_DEBUG_*` in
+`PixelFunctions.hlsli`/`SimpleLight.hlsli`.
+
+**Use `SampleCmpLevelZero` for shadow filtering, never `GatherCmp`.** Both compare
+several depths in one instruction, which makes `GatherCmp` look like the right tool, but
+it returns the four *raw* comparison results and deliberately bypasses the sampler's
+filter. No amount of averaging them removes the stepping: the term can only change at
+texel boundaries, and those are straight lines in shadow-map space — a staircase on
+screen. `SampleCmpLevelZero` with the engine's `COMPARISON_MIN_MAG_MIP_LINEAR` sampler
+blends the 2×2 comparison in hardware, so the term varies *within* a texel. The
+directional kernel is a `DIR_PCF_RADIUS` square of those one texel apart
+(`Defines.hlsli`); 5×5 of them look far smoother than the 121 `GatherCmp` calls they
+replaced and cost roughly a fifth as much. For the same reason, never `round()` a
+`SampleCmp` result — it throws away precisely the sub-texel blend being paid for.
+
+**A game shader can mirror the engine's lighting cbuffer, and nothing checks it.**
+`Tests/DemoGame/TerrainPS.hlsl` declares its own `externalData` block field for field
+and then includes `Common/PixelFunctions.hlsli`, which indexes into it. An array sized
+differently there — `DirPerspectiveMatrix[MAX_LIGHTS]` after cascades made it
+`[DIR_SHADOW_MATRIX_COUNT]` — does not fail to compile: it shifts every field after it
+and reads garbage matrices, which renders as a **solid black surface**. So any change
+to that cbuffer means grepping outside `Engine/Engine/Core/Shaders` for the field names,
+and the shader lives in the *game* project, so it only recompiles when that project
+does. A black material whose shaders look right is this, not a material bug.
+
+The two arrays are deliberately different lengths: the dynamic one is per light *per
+cascade* (`DIR_SHADOW_MATRIX_COUNT`), the static one is per light (`MAX_LIGHTS`),
+because static casters share one map.
+
+A warning for any before/after measurement in this engine: it accumulates temporally
+(GI/ReSTIR/autofocus), so a screenshot taken right after a state change is still
+converging and differs from the settled frame by *far* more than whatever was changed.
+Let it settle for several seconds and confirm two consecutive frames agree before
+comparing anything.
+
 Menu items are registered in a `MenuCommand` registry (`SceneEditor.h`); new menu
 entries added there are automatically clickable in the UI *and* scriptable via
 `menu "<Menu>/<Item>"`, so keep using it instead of raw `ImGui::MenuItem` calls.
@@ -105,6 +195,24 @@ field is written until the commit is done (`Inspector::EditTransformLock`). Whil
 simulation is live the physics thread writes body poses into those same Transforms, and
 an unlocked read-modify-write intermittently latches a mid-fall pose as the rewind
 target — the failure is rare and looks like "disabling physics moved my object".
+
+**A primitive collider is the entity's local box, in body space** (`Physics::AddCollider`).
+Half extents *and centre* come from `Bounds::local_box` scaled by the Transform's scale;
+the collider's own local rotation is the identity, because the rigid body already carries
+the entity rotation and applying it twice tilts the shape against the box it was built
+from. Nor may the extents *vector* be rotated — that is not how a box rotates, and it
+mixes axes as soon as the rotation is not a multiple of 90°. Dropping the centre is the
+other half of the same bug: the troll's mesh box sits 270 units (6.75 world) above its
+feet, so a collider built from the extents alone spent half its height underground. The
+mesh-collider branch has always worked this way (mesh-space triangles, identity local
+transform), so the primitives now match it rather than having a convention of their own.
+The fits: BOX is the box; SPHERE takes the largest half extent; CAPSULE runs along
+whichever *local* axis stands most upright under the body's rotation
+(`MostVerticalAxis` — never the longest extent, which for a rig is as often the arm span
+as the height), with the radius the mean of the two cross half extents and the height
+shortened by the caps so the shape ends where the box does. `Init`/`UpdateShape` take
+the whole `box`, so every caller passes `local_box` — never `final_box`/`bounding_box`,
+which the transform pass has already scaled.
 
 **Editing a component's fields** goes through `ComponentOps::ApplyValue` /
 `SetValue` / `RecordEdit` (`Tools/SceneEditor/ComponentOps.h`), never by poking the
@@ -212,6 +320,25 @@ the model breathe in and out as it played). The preview also drives its *own*
 `Components::Mesh` rather than the template entity's, because that component is what
 `SpawnInstance` clones — advancing its clock would leave every instance spawned
 afterwards starting mid-stride.
+
+**Nor can a `Bounds`, for the same reason** — measure it through `Mesh::GetLocalBox`,
+which is what `StaticMeshSystem::Update` and `Bounds::FromJson` call. For a skinned mesh
+it returns the box of the *clip being played* (`MeshData::GetAnimationBox`), the union
+over that clip's keyframes; only an unskinned mesh, or one with no animation, falls back
+to the stored min/max. The bind pose is a T-pose for most rigs, so measuring it made the
+demo troll's box 21.5 world units across for a model that is 9.7 — a readout nobody can
+match to the model, late culling, and (since `Physics` sizes colliders from the local
+box) a collider wrong in exactly the same way. Because the box changes with the clip and
+not with the transform, `StaticMeshSystem::Update` re-runs when the measured box differs
+from the one the Bounds holds, not only on `transform->dirty`.
+
+The clip box is built once, when a skeleton is attached (`MeshData::BuildSkinnedBoxes`),
+out of per-joint bind-space boxes transformed by each keyframe — never a vertex pass per
+frame, and never a single pose (a box that tracked the pose would resize the collider and
+pop in culling; one measured from a single frame would clip the model mid-stride). Which
+weights count towards a joint's box is the one tuned number, `JOINT_BOX_WEIGHT_SHARE`;
+its comment carries the measurements. `ModelPreview::MeasureSkinnedBounds` stays separate
+and exact — framing one model offscreen can afford the vertex pass this cannot.
 
 **ImGui gotchas, both seen in `Inspector::DrawComponentSection`:**
 - Don't put a `SmallButton` over a `CollapsingHeader` with `SameLine` — the header spans

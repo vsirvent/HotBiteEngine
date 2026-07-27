@@ -44,7 +44,7 @@ Texture2D meshNormalTexture;
 Texture2D highTexture;
 
 Texture2D<float> depthTexture;
-Texture2D<float> DirShadowMapTexture[MAX_LIGHTS];
+Texture2DArray<float> DirShadowMapTexture[MAX_LIGHTS];
 Texture2D<float> DirStaticShadowMapTexture[MAX_LIGHTS];
 TextureCube<float> PointShadowMapTexture[MAX_LIGHTS];
 
@@ -99,36 +99,125 @@ bool OutsideShadowMap(float3 p)
 	       p.y < 0.0f || p.y > 1.0f ||
 	       p.z < 0.0f || p.z > 1.0f;
 }
+
+//Which cascade of light `index` covers this world position, and where in that slice
+//it lands. Cascades are fitted innermost first, so the first one that contains the
+//point is also the highest-density one that does - which is the whole objective, and
+//it needs no split distances uploaded alongside: containment in the map footprint is
+//the same test, evaluated against the matrix that was actually rendered with.
+//
+//Returns -1 when no cascade covers the point, which is the ordinary case beyond the
+//shadow distance and must read as lit, never as shadowed. Slices at or past
+//cascade_count are never touched: their matrices are zero and every point would
+//"land" dead centre in a map holding nothing.
+int SelectDirCascade(float4 position, DirLight light, int index, out float3 uvz)
+{
+	uvz = float3(0.0f, 0.0f, 0.0f);
+	for (int c = 0; c < light.cascade_count; ++c) {
+		float4 p = mul(position, DirPerspectiveMatrix[index * MAX_SHADOW_CASCADES + c]);
+		float3 t = float3((p.x + 1.0f) * 0.5f, 1.0f - ((p.y + 1.0f) * 0.5f), p.z);
+		if (!OutsideShadowMap(t)) {
+			uvz = t;
+			return c;
+		}
+	}
+	return -1;
+}
+
+//Static casters have one plain map per light, not a cascade set - it is fitted to the
+//widest cascade, so a single lookup covers everything the cascades do. There is
+//nothing to select between; this returns false when the point is off the map, which is
+//the same "no data, read as lit" case a cascade miss is.
+bool ProjectDirStatic(float4 position, DirLight light, int index, out float3 uvz)
+{
+	float4 p = mul(position, DirStaticPerspectiveMatrix[index]);
+	uvz = float3((p.x + 1.0f) * 0.5f, 1.0f - ((p.y + 1.0f) * 0.5f), p.z);
+	return !OutsideShadowMap(uvz);
+}
+
+//Debug view: recolour the light's contribution by which cascade shaded this pixel.
+//This is the visualization that actually answers where the cascade boundaries fall,
+//because it is evaluated per pixel through the same selection the shadow lookup used -
+//a wireframe of the cascade volumes cannot show it, since those volumes are always
+//wrapped around the viewer.
+//
+//Saturated hues, because the tint recolours only the *directional* term: a scene with
+//strong ambient, fog or point lights dilutes it towards white in the final pixel, and
+//a pastel band washes out to nothing exactly where you most need to read it. Mirrored
+//by CASCADE_COLOR in Tools/SceneEditor/ShadowDebug.cpp, which draws the legend - a
+//legend that disagrees with the tint is worse than no legend.
+static const float3 CASCADE_DEBUG_COLOR[MAX_SHADOW_CASCADES] = {
+	float3(0.15f, 1.00f, 0.25f), //0 - nearest, tightest
+	float3(1.00f, 0.85f, 0.10f),
+	float3(1.00f, 0.35f, 0.05f),
+	float3(1.00f, 0.15f, 0.75f), //3 - farthest, coarsest
+};
+//Past the last cascade there is no shadow data and the pixel is left lit. Shown as a
+//cold blue so "outside the shadow distance" reads as its own state rather than being
+//mistaken for the last cascade.
+static const float3 CASCADE_DEBUG_OUTSIDE = float3(0.20f, 0.35f, 1.00f);
+//Added on top of the shaded result so the cascade stays legible where the light
+//contributes nothing. Shadowed ground and faces turned away are precisely where the
+//cascade needs reading - a pure multiply leaves them black, which is the one place a
+//cascade debug view must not go dark.
+#define CASCADE_DEBUG_FLOOR 0.15f
+
+float3 ApplyDirCascadeDebug(float3 lit, float4 position, DirLight light, int index)
+{
+	if (!(light.flags & DIR_LIGHT_FLAG_DEBUG_CASCADES)) {
+		return lit;
+	}
+	float3 uvz = float3(0.0f, 0.0f, 0.0f);
+	int cascade = SelectDirCascade(position, light, index, uvz);
+	float3 tint = (cascade < 0) ? CASCADE_DEBUG_OUTSIDE : CASCADE_DEBUG_COLOR[cascade];
+	//Keeps the shading - shadow edges and normals still read - while forcing the hue.
+	return tint * (CASCADE_DEBUG_FLOOR + lit);
+}
 #endif
 
+//Percentage-closer filtering, and the one detail that decides whether a shadow edge
+//looks smooth or looks like a staircase: *which* comparison instruction is used.
+//
+//GatherCmp is the "compare four values at once" instruction, and this code used to be
+//built on it - 121 of them, stepping half a texel over a 5-texel box. That is exactly
+//what produced the stepping. Gather returns the four *raw* comparison results and
+//deliberately bypasses the sampler's filter, so no matter how many of them are averaged
+//the shadow term can still only change at texel boundaries. Those boundaries are
+//straight lines in shadow-map space, which is what a staircase on screen is.
+//
+//SampleCmpLevelZero is the one that fixes it. With the COMPARISON_MIN_MAG_MIP_LINEAR
+//sampler the engine already creates (DXCore.cpp), the hardware compares the 2x2
+//neighbourhood and bilinearly *blends* the four results, so the term varies
+//continuously *within* a texel and the edge stops snapping to the grid. A square grid
+//of those one texel apart is a real PCF kernel: 5x5 = 25 taps here, which looks
+//considerably smoother than the 121 gathers it replaces and costs about a fifth as
+//much.
+//
+//Kernel size is DIR_PCF_RADIUS in Defines.hlsli.
 float DirShadowPCF(float4 position, DirLight light, int index)
 {
-	float4 p = mul(position, DirPerspectiveMatrix[index]);
-	p.x = (p.x + 1.0f) / 2.0f;
-	p.y = 1.0f - ((p.y + 1.0f) / 2.0f);
-	if (OutsideShadowMap(p.xyz)) {
+	float3 p = float3(0.0f, 0.0f, 0.0f);
+	int cascade = SelectDirCascade(position, light, index, p);
+	if (cascade < 0) {
 		return 1.0f;
 	}
 	float w;
 	float h;
-	DirShadowMapTexture[index].GetDimensions(w, h);
-	float2 delta = 0.5f / float2(w, h);
-	float2 kernel = delta * 5.0f;
-	float att1 = 0.0f;
-	float count = 0.00001f;
+	float elements;
+	DirShadowMapTexture[index].GetDimensions(w, h, elements);
+	float2 texel = 1.0f / float2(w, h);
 
-	for (float x = -kernel.x; x <= kernel.x; x += delta.x) {
-		for (float y = -kernel.y; y <= kernel.y; y += delta.y) {
-            float w0 = kernel.x - x;
-            float w1 = kernel.y - y;
-            float w = w0 * w1;
-            float4 val = DirShadowMapTexture[index].GatherCmp(PCFSampler, float2(p.x + x, p.y + y), p.z);
-            att1 += dot(val, float4(0.25, 0.25, 0.25, 0.25));
-			count++;
+	float att1 = 0.0f;
+	[unroll]
+	for (int y = -DIR_PCF_RADIUS; y <= DIR_PCF_RADIUS; ++y) {
+		[unroll]
+		for (int x = -DIR_PCF_RADIUS; x <= DIR_PCF_RADIUS; ++x) {
+			float2 o = float2(x, y) * texel;
+			att1 += DirShadowMapTexture[index].SampleCmpLevelZero(
+				PCFSampler, float3(p.xy + o, cascade), p.z).r;
 		}
 	}
-	att1 /= count;
-	return saturate(att1);
+	return saturate(att1 * DIR_PCF_WEIGHT);
 }
 
 //Static casters are rendered into their own map on a slow refresh cycle, under the
@@ -140,29 +229,26 @@ float DirStaticShadowPCF(float4 position, DirLight light, int index)
 	if (!(light.flags & DIR_LIGHT_FLAG_STATIC_SHADOW)) {
 		return 1.0f;
 	}
-	float4 p = mul(position, DirStaticPerspectiveMatrix[index]);
-	p.x = (p.x + 1.0f) / 2.0f;
-	p.y = 1.0f - ((p.y + 1.0f) / 2.0f);
-	if (OutsideShadowMap(p.xyz)) {
+	float3 p = float3(0.0f, 0.0f, 0.0f);
+	if (!ProjectDirStatic(position, light, index, p)) {
 		return 1.0f;
 	}
 	float w;
 	float h;
 	DirStaticShadowMapTexture[index].GetDimensions(w, h);
-	float2 delta = 0.5f / float2(w, h);
-	float2 kernel = delta * 5.0f;
-	float att1 = 0.0f;
-	float count = 0.00001f;
+	float2 texel = 1.0f / float2(w, h);
 
-	for (float x = -kernel.x; x <= kernel.x; x += delta.x) {
-		for (float y = -kernel.y; y <= kernel.y; y += delta.y) {
-			float4 val = DirStaticShadowMapTexture[index].GatherCmp(PCFSampler, float2(p.x + x, p.y + y), p.z);
-			att1 += dot(val, float4(0.25, 0.25, 0.25, 0.25));
-			count++;
+	float att1 = 0.0f;
+	[unroll]
+	for (int y = -DIR_PCF_RADIUS; y <= DIR_PCF_RADIUS; ++y) {
+		[unroll]
+		for (int x = -DIR_PCF_RADIUS; x <= DIR_PCF_RADIUS; ++x) {
+			float2 o = float2(x, y) * texel;
+			att1 += DirStaticShadowMapTexture[index].SampleCmpLevelZero(
+				PCFSampler, p.xy + o, p.z).r;
 		}
 	}
-	att1 /= count;
-	return saturate(att1);
+	return saturate(att1 * DIR_PCF_WEIGHT);
 }
 
 //Combined attenuation of both caster sets. Shadowing is occlusion, so the darker of
@@ -173,17 +259,54 @@ float DirShadowPCFAll(float4 position, DirLight light, int index)
 	           DirStaticShadowPCF(position, light, index));
 }
 
+//Debug view for the static caster map: what it reaches, and what it shadows.
+//
+//The static map is one plain map fitted to the widest cascade and re-rendered only
+//rarely, so the question it raises is not "which slice" but "does it still cover the
+//view at all" - walk far enough and its footprint is behind you, at which point every
+//piece of scenery silently stops casting. Red is exactly that state, and seeing where
+//the red begins *is* seeing the map's extent.
+static const float3 STATIC_DEBUG_OUTSIDE = float3(1.00f, 0.12f, 0.12f); //not covered
+static const float3 STATIC_DEBUG_SHADOWED = float3(0.20f, 0.45f, 1.00f); //static caster occludes
+static const float3 STATIC_DEBUG_LIT = float3(0.25f, 1.00f, 0.45f);      //covered, unoccluded
+
+float3 ApplyDirStaticDebug(float3 lit, float4 position, DirLight light, int index)
+{
+	if (!(light.flags & DIR_LIGHT_FLAG_DEBUG_STATIC)) {
+		return lit;
+	}
+	float3 uvz = float3(0.0f, 0.0f, 0.0f);
+	if (!(light.flags & DIR_LIGHT_FLAG_STATIC_SHADOW) ||
+		!ProjectDirStatic(position, light, index, uvz)) {
+		return STATIC_DEBUG_OUTSIDE * (CASCADE_DEBUG_FLOOR + lit);
+	}
+	float s = DirStaticShadowPCF(position, light, index);
+	float3 tint = lerp(STATIC_DEBUG_SHADOWED, STATIC_DEBUG_LIT, saturate(s));
+	return tint * (CASCADE_DEBUG_FLOOR + lit);
+}
+
+//The one place the two debug views are combined, so callers apply a single call and
+//neither view has to know about the other.
+float3 ApplyDirShadowDebug(float3 lit, float4 position, DirLight light, int index)
+{
+	if (light.flags & DIR_LIGHT_FLAG_DEBUG_STATIC) {
+		return ApplyDirStaticDebug(lit, position, light, index);
+	}
+	return ApplyDirCascadeDebug(lit, position, light, index);
+}
+
 float DirShadowPCFFAST(float4 position, DirLight light, int index)
 {
-	float4 p = mul(position, DirPerspectiveMatrix[index]);
-	p.x = (p.x + 1.0f) / 2.0f;
-	p.y = 1.0f - ((p.y + 1.0f) / 2.0f);
-	if (OutsideShadowMap(p.xyz)) {
+	float3 p = float3(0.0f, 0.0f, 0.0f);
+	int cascade = SelectDirCascade(position, light, index, p);
+	if (cascade < 0) {
 		return 1.0f;
 	}
-	float4 val = DirShadowMapTexture[index].GatherCmp(PCFSampler, float2(p.x, p.y), p.z);
-    float att1 = dot(val, float4(0.25, 0.25, 0.25, 0.25));
-	return saturate(att1);
+	//Single tap, but SampleCmpLevelZero rather than GatherCmp: same one instruction,
+	//and the hardware blends its 2x2 comparison instead of box-averaging it, so even
+	//the cheap path gets a sub-texel gradient rather than a hard texel edge.
+	return saturate(DirShadowMapTexture[index].SampleCmpLevelZero(
+		PCFSampler, float3(p.xy, cascade), p.z).r);
 }
 
 float DirStaticShadowPCFFAST(float4 position, DirLight light, int index)
@@ -191,15 +314,12 @@ float DirStaticShadowPCFFAST(float4 position, DirLight light, int index)
 	if (!(light.flags & DIR_LIGHT_FLAG_STATIC_SHADOW)) {
 		return 1.0f;
 	}
-	float4 p = mul(position, DirStaticPerspectiveMatrix[index]);
-	p.x = (p.x + 1.0f) / 2.0f;
-	p.y = 1.0f - ((p.y + 1.0f) / 2.0f);
-	if (OutsideShadowMap(p.xyz)) {
+	float3 p = float3(0.0f, 0.0f, 0.0f);
+	if (!ProjectDirStatic(position, light, index, p)) {
 		return 1.0f;
 	}
-	float4 val = DirStaticShadowMapTexture[index].GatherCmp(PCFSampler, float2(p.x, p.y), p.z);
-	float att1 = dot(val, float4(0.25, 0.25, 0.25, 0.25));
-	return saturate(att1);
+	return saturate(DirStaticShadowMapTexture[index].SampleCmpLevelZero(
+		PCFSampler, p.xy, p.z).r);
 }
 
 float DirShadowPCFFASTAll(float4 position, DirLight light, int index)
@@ -291,7 +411,7 @@ float3 CalcDirectional(float3 normal, float4 position, float2 uv, MaterialColor 
 		}
 		shadow = saturate(shadow);
 	}
-	float3 final = finalColor * shadow;
+	float3 final = ApplyDirShadowDebug(finalColor * shadow, position, light, index);
 	bloom.rgb += bloomColor * shadow * material.bloom_scale;;
 	return final;
 }
@@ -310,7 +430,7 @@ float3 CalcDirectionalWithoutNormal(float4 position, MaterialColor material, Dir
 		}
 		shadow = saturate(shadow);
 	}
-	float3 final = finalColor * shadow;
+	float3 final = ApplyDirShadowDebug(finalColor * shadow, position, light, index);
 	bloom.rgb += bloomColor * shadow * material.bloom_scale;
 	return final;
 }

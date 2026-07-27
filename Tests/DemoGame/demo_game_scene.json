@@ -290,6 +290,15 @@
             },
             {
                 "components": {
+                    "Base": {
+                        "cast_shadow": true,
+                        "draw_depth": true,
+                        "draw_method": "screen",
+                        "is_static": true,
+                        "pass": 1,
+                        "scene_visible": true,
+                        "visible": true
+                    },
                     "Transform": {
                         "position": {
                             "x": -49.1337890625,
@@ -313,6 +322,15 @@
             },
             {
                 "components": {
+                    "Base": {
+                        "cast_shadow": true,
+                        "draw_depth": true,
+                        "draw_method": "screen",
+                        "is_static": true,
+                        "pass": 1,
+                        "scene_visible": true,
+                        "visible": true
+                    },
                     "Transform": {
                         "position": {
                             "x": -69.06522369384766,
@@ -336,6 +354,15 @@
             },
             {
                 "components": {
+                    "Base": {
+                        "cast_shadow": true,
+                        "draw_depth": true,
+                        "draw_method": "screen",
+                        "is_static": true,
+                        "pass": 1,
+                        "scene_visible": true,
+                        "visible": true
+                    },
                     "Transform": {
                         "position": {
                             "x": -61.0882682800293,
@@ -379,6 +406,493 @@
                     }
                 },
                 "name": "troll_inst_9"
+            },
+            {
+                "components": {
+                    "Base": {
+                        "cast_shadow": true,
+                        "draw_depth": true,
+                        "draw_method": "screen",
+                        "is_static": true,
+                        "pass": 1,
+                        "scene_visible": true,
+                        "visible": true
+                    }
+                },
+                "name": "Bricks01.NoSmooth"
+            },
+            {
+                "components": {
+                    "Base": {
+                        "cast_shadow": true,
+                        "draw_depth": true,
+                        "draw_method": "screen",
+                        "is_static": true,
+                        "pass": 1,
+                        "scene_visible": true,
+                        "visible": true
+                    }
+                },
+                "name": "Bricks02.NoSmooth"
+            },
+            {
+                "components": {
+                    "Base": {
+                        "cast_shadow": true,
+                        "draw_depth": true,
+                        "draw_method": "screen",
+                        "is_static": true,
+                        "pass": 1,
+                        "scene_visible": true,
+                        "visible": true
+                    }
+                },
+                "name": "Cube.001.NoSmooth"
+            },
+            {
+                "components": {
+                    "Base": {
+                        "cast_shadow": true,
+                        "draw_depth": true,
+                        "draw_method": "screen",
+                        "is_static": true,
+                        "pass": 1,
+                        "scene_visible": true,
+                        "visible": true
+                    }
+                },
+                "name": "Cube.002.NoSmooth"
+            },
+            {
+                "components": {
+                    "Base": {
+                        "cast_shadow": true,
+                        "draw_depth": true,
+                        "draw_method": "screen",
+                        "is_static": true,
+                        "pass": 1,
+                        "scene_visible": true,
+                        "visible": true
+                    }
+                },
+                "name": "Cube.003.NoSmooth"
+            },
+            {
+                "components": {
+                    "Base": {
+                        "cast_shadow": true,
+                        "draw_depth": true,
+                        "draw_method": "screen",
+                        "is_static": true,
+                        "pass": 1,
+                        "scene_visible": false,
+                        "visible": true
+                    }
+                },
+                "name": "Cube.004.NoSmooth"
+            },
+            {
+                "components": {
+                    "Base": {
+                        "cast_shadow": false,
+                        "draw_depth": true,
+                        "draw_method": "screen",
+                        "is_static": true,
+                        "pass": 2,
+                        "scene_visible": true,
+                        "visible": true
+                    }
+                },
+                "name": "Lava"
+            },
+            {
+                "components": {
+                    "Base": {
+                        "cast_shadow": false,
+                        "draw_depth": true,
+                        "draw_method": "screen",
+                        "is_static": true,
+                        "pass": 2,
+                        "scene_visible": true,
+                        "visible": true
+                    }
+                },
+                "name": "Lava.001"
+            },
+            {
+                "components": {
+                    "Base": {
+                        "cast_shadow": true,
+                        "draw_depth": true,
+                        "draw_method": "screen",
+                        "is_static": true,
+                        "pass": 1,
+                        "scene_visible": true,
+                        "visible": true
+                    }
+                },
+                "name": "Terrain"
+            },
+            {
+                "components": {
+                    "Base": {
+                        "cast_shadow": true,
+                        "draw_depth": true,
+                        "draw_method": "screen",
+                        "is_static": true,
+                        "pass": 1,
+                        "scene_visible": true,
+                        "visible": true
+                    }
+                },
+                "name": "Terrain.001"
+            },
+            {
+                "components": {
+                    "Base": {
+                        "cast_shadow": true,
+                        "draw_depth": true,
+                        "draw_method": "screen",
+                        "is_static": true,
+                        "pass": 1,
+                        "scene_visible": true,
+                        "visible": true
+                    }
+                },
+                "name": "Terrain.002"
+            },
+            {
+                "components": {
+                    "Base": {
+                        "cast_shadow": true,
+                        "draw_depth": true,
+                        "draw_method": "screen",
+                        "is_static": true,
+                        "pass": 1,
+                        "scene_visible": true,
+                        "visible": true
+                    }
+                },
+                "name": "Terrain.003"
+            },
+            {
+                "components": {
+                    "Base": {
+                        "cast_shadow": true,
+                        "draw_depth": true,
+                        "draw_method": "screen",
+                        "is_static": true,
+                        "pass": 1,
+                        "scene_visible": true,
+                        "visible": true
+                    }
+                },
+                "name": "Terrain.004"
+            },
+            {
+                "components": {
+                    "Base": {
+                        "cast_shadow": true,
+                        "draw_depth": true,
+                        "draw_method": "screen",
+                        "is_static": true,
+                        "pass": 1,
+                        "scene_visible": false,
+                        "visible": true
+                    }
+                },
+                "name": "Terrain.005"
+            },
+            {
+                "components": {
+                    "Base": {
+                        "cast_shadow": true,
+                        "draw_depth": true,
+                        "draw_method": "screen",
+                        "is_static": true,
+                        "pass": 1,
+                        "scene_visible": true,
+                        "visible": true
+                    }
+                },
+                "name": "Terrain.006"
+            },
+            {
+                "components": {
+                    "Base": {
+                        "cast_shadow": true,
+                        "draw_depth": true,
+                        "draw_method": "screen",
+                        "is_static": true,
+                        "pass": 1,
+                        "scene_visible": true,
+                        "visible": true
+                    }
+                },
+                "name": "Terrain.007"
+            },
+            {
+                "components": {
+                    "Base": {
+                        "cast_shadow": true,
+                        "draw_depth": true,
+                        "draw_method": "screen",
+                        "is_static": true,
+                        "pass": 1,
+                        "scene_visible": true,
+                        "visible": true
+                    }
+                },
+                "name": "Terrain.008"
+            },
+            {
+                "components": {
+                    "Base": {
+                        "cast_shadow": true,
+                        "draw_depth": true,
+                        "draw_method": "screen",
+                        "is_static": true,
+                        "pass": 1,
+                        "scene_visible": true,
+                        "visible": true
+                    }
+                },
+                "name": "Terrain.009"
+            },
+            {
+                "components": {
+                    "Base": {
+                        "cast_shadow": true,
+                        "draw_depth": true,
+                        "draw_method": "screen",
+                        "is_static": true,
+                        "pass": 1,
+                        "scene_visible": true,
+                        "visible": true
+                    }
+                },
+                "name": "Terrain.010"
+            },
+            {
+                "components": {
+                    "Base": {
+                        "cast_shadow": true,
+                        "draw_depth": true,
+                        "draw_method": "screen",
+                        "is_static": true,
+                        "pass": 1,
+                        "scene_visible": true,
+                        "visible": true
+                    }
+                },
+                "name": "Terrain.011"
+            },
+            {
+                "components": {
+                    "Base": {
+                        "cast_shadow": true,
+                        "draw_depth": true,
+                        "draw_method": "screen",
+                        "is_static": true,
+                        "pass": 1,
+                        "scene_visible": true,
+                        "visible": true
+                    }
+                },
+                "name": "Terrain.012"
+            },
+            {
+                "components": {
+                    "Base": {
+                        "cast_shadow": true,
+                        "draw_depth": true,
+                        "draw_method": "screen",
+                        "is_static": true,
+                        "pass": 1,
+                        "scene_visible": true,
+                        "visible": true
+                    }
+                },
+                "name": "Terrain.013"
+            },
+            {
+                "components": {
+                    "Base": {
+                        "cast_shadow": true,
+                        "draw_depth": true,
+                        "draw_method": "screen",
+                        "is_static": true,
+                        "pass": 1,
+                        "scene_visible": true,
+                        "visible": true
+                    }
+                },
+                "name": "Terrain.014"
+            },
+            {
+                "components": {
+                    "Base": {
+                        "cast_shadow": true,
+                        "draw_depth": true,
+                        "draw_method": "screen",
+                        "is_static": true,
+                        "pass": 1,
+                        "scene_visible": true,
+                        "visible": true
+                    }
+                },
+                "name": "Terrain.015"
+            },
+            {
+                "components": {
+                    "Base": {
+                        "cast_shadow": true,
+                        "draw_depth": true,
+                        "draw_method": "screen",
+                        "is_static": true,
+                        "pass": 1,
+                        "scene_visible": true,
+                        "visible": true
+                    }
+                },
+                "name": "Terrain.016"
+            },
+            {
+                "components": {
+                    "Base": {
+                        "cast_shadow": true,
+                        "draw_depth": true,
+                        "draw_method": "screen",
+                        "is_static": true,
+                        "pass": 1,
+                        "scene_visible": true,
+                        "visible": true
+                    }
+                },
+                "name": "Terrain.017"
+            },
+            {
+                "components": {
+                    "Base": {
+                        "cast_shadow": true,
+                        "draw_depth": true,
+                        "draw_method": "screen",
+                        "is_static": true,
+                        "pass": 1,
+                        "scene_visible": true,
+                        "visible": true
+                    }
+                },
+                "name": "Terrain.018"
+            },
+            {
+                "components": {
+                    "Base": {
+                        "cast_shadow": true,
+                        "draw_depth": true,
+                        "draw_method": "screen",
+                        "is_static": true,
+                        "pass": 1,
+                        "scene_visible": true,
+                        "visible": true
+                    }
+                },
+                "name": "Terrain.019"
+            },
+            {
+                "components": {
+                    "Base": {
+                        "cast_shadow": true,
+                        "draw_depth": true,
+                        "draw_method": "screen",
+                        "is_static": true,
+                        "pass": 1,
+                        "scene_visible": true,
+                        "visible": true
+                    }
+                },
+                "name": "Terrain.020"
+            },
+            {
+                "components": {
+                    "Base": {
+                        "cast_shadow": false,
+                        "draw_depth": true,
+                        "draw_method": "screen",
+                        "is_static": true,
+                        "pass": 2,
+                        "scene_visible": true,
+                        "visible": true
+                    }
+                },
+                "name": "Water"
+            },
+            {
+                "components": {
+                    "Base": {
+                        "cast_shadow": false,
+                        "draw_depth": true,
+                        "draw_method": "screen",
+                        "is_static": true,
+                        "pass": 2,
+                        "scene_visible": true,
+                        "visible": true
+                    }
+                },
+                "name": "Water.001"
+            },
+            {
+                "components": {
+                    "DirectionalLight": {
+                        "cascade_split_lambda": 0.8299999833106995,
+                        "cascades": 2,
+                        "cast_shadow": true,
+                        "caster_extrusion": 500.0,
+                        "color": {
+                            "x": 1.0,
+                            "y": 1.0,
+                            "z": 1.0
+                        },
+                        "density": 15.0,
+                        "direction": {
+                            "x": 0.8182887434959412,
+                            "y": 0.5748074054718018,
+                            "z": 0.2874037027359009
+                        },
+                        "fog": true,
+                        "intensity": 1.0,
+                        "inverse_shadow": false,
+                        "position": {
+                            "x": 0.0,
+                            "y": 0.0,
+                            "z": 0.0
+                        },
+                        "range": 0.0,
+                        "resolution": 2,
+                        "shadow_distance": 450.0
+                    },
+                    "Sky": {
+                        "cloud_density": 0.699999988079071,
+                        "day_backcolor": {
+                            "x": 0.019999999552965164,
+                            "y": 0.019999999552965164,
+                            "z": 0.05000000074505806
+                        },
+                        "mid_backcolor": {
+                            "x": 0.5,
+                            "y": 0.30000001192092896,
+                            "z": 0.10000000149011612
+                        },
+                        "night_backcolor": {
+                            "x": 0.0,
+                            "y": 0.0,
+                            "z": 0.0
+                        },
+                        "second_of_day": 30000.10546875,
+                        "second_speed": 1.0
+                    }
+                },
+                "name": "Sky"
             }
         ],
         "instances": [

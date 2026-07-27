@@ -104,6 +104,13 @@ namespace HotBiteEditor {
 	// entities (see PhysicsDebug.h). View state, so it records no undo history.
 	enum class ColliderView { Off = 0, Selection, All };
 
+	// Which shadow debug tint the engine renders the scene with (see ShadowDebug.h).
+	// One at a time: both recolour the same directional term, so showing them together
+	// would multiply two palettes into a colour that means nothing.
+	//   Cascades  - which cascade slice shaded each pixel (dynamic casters).
+	//   StaticMap - what the single static-caster map covers, and what it shadows.
+	enum class ShadowDebugView { Off = 0, Cascades, StaticMap };
+
 	// An entity created via copy/paste as a clone of another scene entity (as
 	// opposed to a template instance). Persisted to the level's "clones" JSON array
 	// on save and recreated by World::CloneEntity on the next load; `source` always
@@ -174,6 +181,11 @@ namespace HotBiteEditor {
 		HotBite::Engine::float3 inspector_euler_degrees{ 0.0f, 0.0f, 0.0f };
 		GizmoMode gizmo_mode = GizmoMode::Translate;
 		ColliderView collider_view = ColliderView::Off;
+		// Which shadow debug tint the scene is rendered with (see ShadowDebug.h). View
+		// state, so it records no undo history - but unlike the collider overlay it
+		// switches a flag on the light itself, so ShadowDebug::Draw has to push it every
+		// frame, Off included, or a light would keep tinting after the view was changed.
+		ShadowDebugView shadow_debug_view = ShadowDebugView::Off;
 
 		std::vector<PlacedInstance> placed_instances;
 		std::set<HotBite::Engine::ECS::Entity> instance_entity_ids; // entities backed by placed_instances

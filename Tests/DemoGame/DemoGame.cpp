@@ -630,7 +630,7 @@ public:
 			m.SetData(world.GetMeshes().Get("Ball"));
 			p.type = reactphysics3d::BodyType::DYNAMIC;
 			p.shape = Physics::SHAPE_SPHERE;
-			p.Init(world.GetPhysicsWorld(), p.type, nullptr, b.local_box.Extents, t.position, t.scale, t.rotation, p.shape);
+			p.Init(world.GetPhysicsWorld(), p.type, nullptr, b.local_box, t.position, t.scale, t.rotation, p.shape);
 			SetupFireBall(ball);
 			c->GetSystem<AudioSystem>()->Play(2, 0, true, 1.0f, 10.0f, true, ball);
 			c->AddEventListenerByEntity(PhysicsSystem::EVENT_ID_COLLISION_START, ball, [=] (Event& ev) {

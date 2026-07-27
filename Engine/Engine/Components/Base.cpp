@@ -237,6 +237,35 @@ namespace HotBite {
 				return current_animation.name;
 			}
 
+			bool Mesh::GetLocalBox(box& out) const {
+				if (data == nullptr) {
+					return false;
+				}
+				//Read without skeleton_mutex on purpose. The caller (StaticMeshSystem) runs
+				//holding physics_mutex, and Mesh::Update sends events from *inside* that
+				//lock, so taking it here would invert the order against any listener that
+				//touches physics. The race it leaves is benign: the skeleton is owned by the
+				//MeshData and outlives any animation change, so an unlucky read gets the
+				//box of the clip being switched away from, for one frame.
+				if (current_animation.skeleton != nullptr) {
+					const box* animated = data->GetAnimationBox(current_animation.skeleton.get(),
+						current_animation.id);
+					if (animated != nullptr) {
+						out = *animated;
+						return true;
+					}
+				}
+				//Nothing is skinning these vertices - no skeleton, no animation
+				//(StopAnimation), or a clip with no keyframes - so the shader draws them
+				//where they are stored, which is what these measure.
+				const float3& lo = data->minDimensions;
+				const float3& hi = data->maxDimensions;
+				out.Center = { (hi.x + lo.x) * 0.5f, (hi.y + lo.y) * 0.5f, (hi.z + lo.z) * 0.5f };
+				out.Extents = { fabsf(hi.x - lo.x) * 0.5f, fabsf(hi.y - lo.y) * 0.5f,
+					fabsf(hi.z - lo.z) * 0.5f };
+				return true;
+			}
+
 			int Mesh::GetCurrentFrame() const {
 				return current_animation.key_frame;
 			}
@@ -475,18 +504,15 @@ namespace HotBite {
 				//done, and fall back to a unit box when there is no mesh to measure.
 				if (local_box.Extents.x == 0.0f && local_box.Extents.y == 0.0f &&
 					local_box.Extents.z == 0.0f) {
-					const Core::MeshData* mesh_data = nullptr;
+					//Measured through the mesh rather than off its stored dimensions, so a
+					//skinned entity gets the box of the animation it plays and not of the
+					//bind pose it is stored in (Mesh::GetLocalBox).
+					bool measured = false;
 					if (ctx.coordinator != nullptr && ctx.entity != ECS::INVALID_ENTITY_ID &&
 						ctx.coordinator->ContainsComponent<Mesh>(ctx.entity)) {
-						mesh_data = ctx.coordinator->GetComponent<Mesh>(ctx.entity).GetData();
+						measured = ctx.coordinator->GetComponent<Mesh>(ctx.entity).GetLocalBox(local_box);
 					}
-					if (mesh_data != nullptr) {
-						const float3& lo = mesh_data->minDimensions;
-						const float3& hi = mesh_data->maxDimensions;
-						local_box.Center = { (hi.x + lo.x) * 0.5f, (hi.y + lo.y) * 0.5f, (hi.z + lo.z) * 0.5f };
-						local_box.Extents = { (hi.x - lo.x) * 0.5f, (hi.y - lo.y) * 0.5f, (hi.z - lo.z) * 0.5f };
-					}
-					else {
+					if (!measured) {
 						local_box.Center = { 0.0f, 0.0f, 0.0f };
 						local_box.Extents = { 0.5f, 0.5f, 0.5f };
 					}

@@ -264,6 +264,15 @@ namespace HotBite {
 				}
 			};
 
+			//A box that may not exist. "Nothing was measured" is a different thing from a
+			//zero-sized box at the origin, and the difference matters as soon as boxes are
+			//unioned: an empty one that pretended to be a point would drag the union to
+			//the model's origin.
+			struct OptionalBox {
+				box bounds = {};
+				bool valid = false;
+			};
+
 			struct MeshData
 			{
 				MeshData();
@@ -277,6 +286,42 @@ namespace HotBite {
 				void LoadTextures();
 				void AddSkeleton(std::shared_ptr<Skeleton> skl);
 				std::unordered_map<int, std::string> GetAnimations();
+
+				// The local-space box this mesh occupies while `animation_id` of `skeleton`
+				// plays, or null when there is no such box to be had (an unskinned mesh, a
+				// skeleton never attached here, an animation with no keyframes) - and then
+				// minDimensions/maxDimensions are the answer.
+				//
+				// Why this exists: minDimensions/maxDimensions measure the vertex positions
+				// as they sit in the buffer, which for a skinned mesh is the *bind* pose - a
+				// T-pose for most rigs, and for the demo troll a box nearly twice as wide as
+				// anything it ever draws (its arms are out). Bounds measured from it are a
+				// readout nobody can match to the model, cull far too late, and - because
+				// Physics takes the local box - size every collider the same way wrong.
+				//
+				// It covers the whole clip rather than the current pose on purpose. A box
+				// that tracked the pose would change the entity's culling volume every frame
+				// and could not be used to build a collision shape at all; one measured from
+				// a single frame would clip the model at the extremes of a stride.
+				const box* GetAnimationBox(const Skeleton* skeleton, int animation_id) const;
+
+				// Per joint, the bind-space box of the vertices it places, indexed by the
+				// joint ids the vertices carry (Vertex::Boneids), plus the box of the vertices
+				// no joint moves. Measured once from the vertex data, they are what makes a
+				// posed box computable without ever walking the vertices again: a skinned
+				// position is the weighted sum of its joints' transformed positions, so the
+				// union of the transformed joint boxes follows the posed mesh. "Places" is
+				// weaker than "influences" and deliberately so - see
+				// JOINT_BOX_WEIGHT_SHARE in Mesh.cpp for which weights count and why.
+				std::vector<OptionalBox> joint_boxes;
+				OptionalBox static_box;
+				// [index into `skeletons`][animation id] -> what GetAnimationBox returns.
+				// Built when a skeleton is attached, so reads need no lock and no work.
+				std::vector<std::vector<OptionalBox>> animation_boxes;
+
+				// Measures `joint_boxes`/`static_box` from `vertices`, then the animation
+				// boxes of every skeleton attached so far.
+				void BuildSkinnedBoxes();
 
 				HotBite::Engine::Core::BVH bvh;
 				float3 minDimensions = {};

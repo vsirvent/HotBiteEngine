@@ -26,6 +26,8 @@ SOFTWARE.
 
 #include "DXCore.h"
 
+#include <vector>
+
 namespace HotBite {
 	namespace Engine {
 		namespace Core {
@@ -65,6 +67,41 @@ namespace HotBite {
 				int Height() const;
 				ID3D11ShaderResourceView* SRV() const;
 				ID3D11DepthStencilView* Depth() const;
+			};
+
+			//A depth texture with several slices, read in shaders as one Texture2DArray.
+			//
+			//This is what a directional light's shadow cascades live in: one SRV covering
+			//every slice (so a pixel shader picks its cascade with a texture coordinate,
+			//not a resource index - an array of Texture2Ds would cost one register per
+			//cascade per light, and the ray tracers are already at the 128-register limit),
+			//and one depth-stencil view covering every slice, which is what lets the shadow
+			//geometry shader route a triangle to slice N via SV_RenderTargetArrayIndex and
+			//fill all the cascades in a single pass. Depth(i) hands out a single-slice view
+			//for anything that needs to render one cascade on its own.
+			class DepthTexture2DArray {
+			private:
+				ID3D11Texture2D* texture = nullptr;
+				ID3D11ShaderResourceView* shader_resource_view = nullptr;
+				ID3D11DepthStencilView* depth_stencil_view = nullptr;
+				std::vector<ID3D11DepthStencilView*> slice_views;
+				bool init = false;
+				int width = 0;
+				int height = 0;
+				int slices = 0;
+			public:
+				DepthTexture2DArray();
+				DepthTexture2DArray(const DepthTexture2DArray& other);
+				virtual ~DepthTexture2DArray();
+				HRESULT Init(int w, int h, int slices);
+				void Release();
+				void Clear();
+				int Width() const;
+				int Height() const;
+				int Slices() const;
+				ID3D11ShaderResourceView* SRV() const;
+				ID3D11DepthStencilView* Depth() const;
+				ID3D11DepthStencilView* Depth(int slice) const;
 			};
 
 			class RenderTexture2D: public IRenderTarget {

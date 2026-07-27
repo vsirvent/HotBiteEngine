@@ -91,6 +91,38 @@ namespace HotBite {
 				float4x4 inverse_view;
 
 				static float3 GetScreenPixel(const matrix& camera_matrix, const float3& world_position);
+
+				/**
+				* The frustum shape, recovered from `xm_projection` rather than from the
+				* constants CameraSystem::Init happens to build it with, so anything
+				* reasoning about the view volume (shadow cascade fitting, and the editor
+				* overlay that draws it) stays correct if the camera's field of view,
+				* aspect ratio or clip planes ever change. Returns false for a projection
+				* that is not a finite left-handed perspective one.
+				*
+				* `tan_half_h`/`tan_half_v` are the tangents of the horizontal and vertical
+				* half angles: a frustum corner at view depth z sits tan_half_h * z off the
+				* view axis horizontally and tan_half_v * z vertically.
+				*/
+				bool GetFrustumParams(float& tan_half_h, float& tan_half_v,
+					float& near_z, float& far_z) const {
+					DirectX::XMFLOAT4X4 p;
+					DirectX::XMStoreFloat4x4(&p, xm_projection);
+					//_11 = 1/(aspect*tan(fovY/2)), _22 = 1/tan(fovY/2),
+					//_33 = f/(f-n), _43 = -n*f/(f-n).
+					if (p._11 <= 1e-6f || p._22 <= 1e-6f || p._33 <= 1e-6f) {
+						return false;
+					}
+					const float denom = 1.0f - p._33;
+					if (fabsf(denom) < 1e-9f) {
+						return false;
+					}
+					tan_half_h = 1.0f / p._11;
+					tan_half_v = 1.0f / p._22;
+					near_z = -p._43 / p._33;
+					far_z = p._43 / denom;
+					return near_z > 0.0f && far_z > near_z;
+				}
 			};
 		}
 	}

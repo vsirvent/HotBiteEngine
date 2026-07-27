@@ -47,7 +47,13 @@ cbuffer externalData : register(b0)
 	int screenW;
 	int screenH;
 	float4 LightPerspectiveValues[MAX_LIGHTS / 2];
-	matrix DirPerspectiveMatrix[MAX_LIGHTS];
+	//This block mirrors the engine's own lighting cbuffer (MainRender/MainRenderPS.hlsl)
+	//field for field, because PixelFunctions.hlsli is included below and indexes into
+	//it. Cascades made the dynamic array MAX_LIGHTS * MAX_SHADOW_CASCADES long; a game
+	//shader left at MAX_LIGHTS here does not fail to compile, it silently shifts every
+	//field after it and reads garbage matrices - which renders as a black surface.
+	matrix DirPerspectiveMatrix[DIR_SHADOW_MATRIX_COUNT];
+	//Static casters are one plain map per light, so this one stays MAX_LIGHTS long.
 	matrix DirStaticPerspectiveMatrix[MAX_LIGHTS];
 	matrix spot_view;
 	float time;

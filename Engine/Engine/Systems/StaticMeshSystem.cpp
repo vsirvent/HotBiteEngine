@@ -60,6 +60,13 @@ void StaticMeshSystem::OnEntitySignatureChanged(ECS::Entity entity, const Signat
 	}
 }
 
+//XMFLOAT3 has no comparison of its own, and this is only ever asking "is this the
+//same box I measured last time".
+static bool SameBox(const box& a, const box& b) {
+	return a.Center.x == b.Center.x && a.Center.y == b.Center.y && a.Center.z == b.Center.z &&
+		a.Extents.x == b.Extents.x && a.Extents.y == b.Extents.y && a.Extents.z == b.Extents.z;
+}
+
 void StaticMeshSystem::Init(StaticMeshEntity& entity) {
 
 	Transform* transform = entity.transform;
@@ -87,16 +94,21 @@ void StaticMeshSystem::Update(StaticMeshEntity& entity, int64_t elapsed_nsec, in
 
 	}
 
-	if ((entity.transform->dirty ||
-		(entity.base->parent != ECS::INVALID_ENTITY_ID && 
+	//The mesh's own box, which for a skinned mesh is the box of the animation it plays
+	//rather than of the bind pose its vertices are stored in - see Mesh::GetLocalBox.
+	box measured{};
+	const bool has_box = mesh->GetLocalBox(measured);
+	//That box belongs to the animation, not to the transform: it changes when the clip
+	//changes, which is not something transform->dirty ever says. Comparing it against
+	//what the Bounds already holds is cheaper than tracking the clip.
+	const bool box_changed = has_box && !SameBox(measured, bounds->local_box);
+
+	if ((entity.transform->dirty || box_changed ||
+		(entity.base->parent != ECS::INVALID_ENTITY_ID &&
 		(entity.transform->last_parent_position != parent_position || entity.transform->last_parent_rotation != parent_rotation)))) {
-		auto minV = mesh->GetData()->minDimensions;
-		auto maxV = mesh->GetData()->maxDimensions;
-		
-		float3 center = float3((maxV.x + minV.x) / 2.0f, (maxV.y + minV.y) / 2.0f, (maxV.z + minV.z) / 2.0f);
-		float3 extends = float3(abs(maxV.x - minV.x) / 2.0f, abs(maxV.y - minV.y) / 2.0f, abs(maxV.z - minV.z) / 2.0f);
-		bounds->local_box.Extents = extends;
-		bounds->local_box.Center = center;
+		if (has_box) {
+			bounds->local_box = measured;
+		}
 		bounds->final_box = bounds->local_box;
 
 		matrix trans = XMMatrixTranslation(transform->position.x, transform->position.y, transform->position.z);

@@ -157,7 +157,7 @@ namespace HotBite {
 							shape_data = ctx.world->GetEntityShape(
 								ctx.coordinator->GetConstComponent<Base>(ctx.entity).name);
 						}
-						UpdateShape(shape_data, bounds.local_box.Extents, transform.scale,
+						UpdateShape(shape_data, bounds.local_box, transform.scale,
 							transform.rotation);
 					}
 					//Values below zero mean "leave the engine default alone".
@@ -201,7 +201,7 @@ namespace HotBite {
 						ctx.coordinator->GetConstComponent<Base>(ctx.entity).name);
 				}
 				//The local box, not bounding_box: Init applies transform.scale itself.
-				Init(ctx.world->GetPhysicsWorld(), type, shape_data, bounds.local_box.Extents,
+				Init(ctx.world->GetPhysicsWorld(), type, shape_data, bounds.local_box,
 					transform.position, transform.scale, transform.rotation, shape);
 			}
 		}
