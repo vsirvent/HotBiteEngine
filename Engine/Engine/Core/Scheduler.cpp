@@ -24,6 +24,8 @@ SOFTWARE.
 
 #include "Scheduler.h"
 
+#include <algorithm>
+
 using namespace HotBite::Engine::Core;
 
 std::vector<Scheduler*> Scheduler::instances;
@@ -199,13 +201,29 @@ bool Scheduler::RemoveTimer(Scheduler::TimerId id) {
 	return done;
 }
 
-void Scheduler::Update() {
+bool Scheduler::IsRemovalPending(Scheduler::TimerId id) {
 	remove_timer_mutex.lock();
-	while (!removed_timers.empty()) {
-		RemoveTimer(removed_timers.front());
-		removed_timers.pop_front();
-	}
+	const bool pending = std::find(removed_timers.begin(), removed_timers.end(), id) != removed_timers.end();
 	remove_timer_mutex.unlock();
+	return pending;
+}
+
+void Scheduler::Update() {
+	//Pop each queued removal under the lock but call RemoveTimer outside it: RemoveTimer
+	//takes timer_mutex, while the dispatch loop below takes remove_timer_mutex *while
+	//holding* timer_mutex (IsRemovalPending). Holding both here in the opposite order
+	//would be a lock-order inversion between this and any thread calling RemoveTimerAsync.
+	for (;;) {
+		remove_timer_mutex.lock();
+		if (removed_timers.empty()) {
+			remove_timer_mutex.unlock();
+			break;
+		}
+		const TimerId id = removed_timers.front();
+		removed_timers.pop_front();
+		remove_timer_mutex.unlock();
+		RemoveTimer(id);
+	}
 	new_timer_mutex.lock();
 	while (!new_timers.empty()) {
 		_RegisterTimer(std::move(new_timers.front()));
@@ -219,6 +237,18 @@ void Scheduler::Update() {
 		std::map<int64_t, std::list<TimerData>>::iterator timer = timers.begin();
 		if (timer->first < t) {
 			for (auto timer_data = timer->second.begin(); timer_data != timer->second.end(); ++timer_data) {
+				//A callback that already ran in *this* Update may have removed this timer
+				//and then destroyed the object its callback captured - World::Stop does
+				//exactly that (RemoveTimerAsync for every thread's timers), and the caller
+				//deletes the World straight afterwards. Async removals are only applied at
+				//the top of the next Update, so without this check the freed object's
+				//callback still runs here, reading a dangling `this`. Dropping it now (not
+				//re-queuing it below) is what actually removes it; the queued entry is a
+				//no-op by the time the next Update gets to it.
+				if (IsRemovalPending(timer_data->id)) {
+					timer_id_counters.push(timer_data->id);
+					continue;
+				}
 				timer_data->elapsed = t - timer_data->total;
 				timer_data->total = t;
 				if (timer_data->cb(*timer_data)) {

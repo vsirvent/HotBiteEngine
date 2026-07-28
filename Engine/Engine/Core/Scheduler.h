@@ -127,6 +127,11 @@ namespace HotBite {
 
 				void _RegisterTimer(TimerData&& td);
 
+				// Whether RemoveTimerAsync has queued `id` for removal but Update has
+				// not applied it yet. Checked before each callback in Update - see the
+				// comment there.
+				bool IsRemovalPending(TimerId id);
+
 			public:
 				//Scheduler management
 				static void Init(int count = 1);
