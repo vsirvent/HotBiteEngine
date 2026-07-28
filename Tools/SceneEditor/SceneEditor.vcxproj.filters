@@ -26,6 +26,9 @@
     <ClCompile Include="Outliner.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="LogPanel.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="Inspector.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -116,6 +119,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Outliner.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="LogPanel.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Inspector.h">

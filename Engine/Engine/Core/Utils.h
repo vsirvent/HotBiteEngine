@@ -33,6 +33,7 @@ SOFTWARE.
 #include <atomic>
 #include <string>
 #include <DirectXMath.h>
+#include "Log.h"
 
 namespace HotBite {
 	namespace Engine {
@@ -191,7 +192,20 @@ namespace HotBite {
                         index = it->second;
                     }
                     else {
+                        //Every T* handed out by Get() before this call points into this
+                        //same vector's buffer. push_back beyond capacity reallocates and
+                        //frees the old one, so any such pointer silently dangles from here
+                        //on - logged because that failure mode reads as garbage far away
+                        //(a misaligned SIMD load, a wrong-looking value) rather than as
+                        //anything that names this line.
+                        const void* before = data.data();
+                        const size_t cap_before = data.capacity();
                         data.push_back(v);
+                        if (data.data() != before) {
+                            LOG_WARN("FlatMap::Insert('%s'): vector reallocated (cap %zu -> %zu, "
+                                "%p -> %p); every previously-returned pointer into this map is now dangling",
+                                k.c_str(), cap_before, data.capacity(), before, (const void*)data.data());
+                        }
                         index = data.size() - 1;
                         indexes[k] = index;
                     }
@@ -207,7 +221,15 @@ namespace HotBite {
                         index = it->second;
                     }
                     else {
+                        //See the const-ref overload above: same hazard, same reason to log.
+                        const void* before = data.data();
+                        const size_t cap_before = data.capacity();
                         data.emplace_back(std::forward<T>(entry));
+                        if (data.data() != before) {
+                            LOG_WARN("FlatMap::Insert('%s'): vector reallocated (cap %zu -> %zu, "
+                                "%p -> %p); every previously-returned pointer into this map is now dangling",
+                                k.c_str(), cap_before, data.capacity(), before, (const void*)data.data());
+                        }
                         index = data.size() - 1;
                         indexes[k] = index;
                     }

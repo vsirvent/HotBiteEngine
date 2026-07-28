@@ -91,6 +91,17 @@ namespace HotBite {
 			}
 
 			void MaterialData::_MaterialData() {
+				//Logged once: the layout Engine.lib itself compiled MaterialData with,
+				//to compare against what any other binary linking against it (a stale
+				//Engine.lib, or headers that diverged) thinks the layout is. A mismatch
+				//here is the class-layout hazard CLAUDE.md warns about; this is the
+				//direct proof instead of inferring it from a misaligned-read disassembly.
+				static bool logged_layout = false;
+				if (!logged_layout) {
+					logged_layout = true;
+					LOG_INFO("Engine: sizeof(MaterialData)=%zu alignof(MaterialData)=%zu offsetof(props)=%zu",
+						sizeof(MaterialData), alignof(MaterialData), offsetof(MaterialData, props));
+				}
 				//Set default shaders, after loading the scene the shaders can be changed
 				shaders.vs = ShaderFactory::Get()->GetShader<SimpleVertexShader>("MainRenderVS.cso");
 				shaders.hs = ShaderFactory::Get()->GetShader<SimpleHullShader>("MainRenderHS.cso");

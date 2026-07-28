@@ -20,8 +20,10 @@
 #include "PhysicsDebug.h"
 #include "ShadowDebug.h"
 #include "PhysicsPreview.h"
+#include "LogPanel.h"
 
 #include <Core/PostProcess.h>
+#include <Core/Log.h>
 
 #include "imgui.h"
 #include "backends/imgui_impl_win32.h"
@@ -53,6 +55,13 @@ namespace HotBiteEditor {
 	SceneEditorApp::SceneEditorApp(HINSTANCE hInstance)
 		: DXCore(hInstance, "HotBite Scene Editor", 1600, 900, true, true)
 	{
+		//Before anything else, so every message the rest of this constructor and every
+		//load afterward produces - including the ones a crash a moment later would
+		//otherwise take with it - lands in the file and in the Log panel's buffer. Debug
+		//by default: this is a dev tool, and View/Log's Level combo is the quiet switch
+		//back to Info once nothing is being chased.
+		Log::Init("scene_editor_log.txt", LogLevel::Debug);
+
 		//Open filling the screen. The 1600x900 above is only the fallback for a
 		//display too small to maximize into; the editor's docked panels (the
 		//Components panel in particular) are taller than that, so a fixed window
@@ -287,6 +296,10 @@ namespace HotBiteEditor {
 			[this]() { return level_loaded; },
 			[this]() { state.show_template_panel = !state.show_template_panel; },
 			[this]() { return state.show_template_panel; } });
+		menu_commands.push_back({ "View/Log",
+			[this]() { return level_loaded; },
+			[this]() { state.show_log_panel = !state.show_log_panel; },
+			[this]() { return state.show_log_panel; } });
 		//View: physics collider wireframes (see PhysicsDebug.h). Two entries acting
 		//as a radio group - clicking the active one turns the overlay off - because
 		//"all" is expensive enough on a terrain-heavy scene to want the selection-only
@@ -469,6 +482,9 @@ namespace HotBiteEditor {
 			}
 			if (state.show_template_panel) {
 				TemplatePanel::Draw(state);
+			}
+			if (state.show_log_panel) {
+				LogPanel::Draw(state);
 			}
 			//Under the gizmo, so the selection handles stay readable on top of a
 			//dense collider wireframe.

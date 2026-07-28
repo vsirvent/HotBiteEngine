@@ -30,6 +30,7 @@
     <ClCompile Include="SceneEditor.cpp" />
     <ClCompile Include="ProjectBrowser.cpp" />
     <ClCompile Include="Outliner.cpp" />
+    <ClCompile Include="LogPanel.cpp" />
     <ClCompile Include="Inspector.cpp" />
     <ClCompile Include="AssetBrowser.cpp" />
     <ClCompile Include="MaterialPanel.cpp" />
@@ -62,6 +63,7 @@
     <ClInclude Include="SceneEditor.h" />
     <ClInclude Include="ProjectBrowser.h" />
     <ClInclude Include="Outliner.h" />
+    <ClInclude Include="LogPanel.h" />
     <ClInclude Include="Inspector.h" />
     <ClInclude Include="AssetBrowser.h" />
     <ClInclude Include="MaterialPanel.h" />

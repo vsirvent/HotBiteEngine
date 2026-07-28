@@ -37,6 +37,7 @@ SOFTWARE.
 #include <Core\SpinLock.h>
 #include <Core\Utils.h>
 #include <Core\Json.h>
+#include <Core\Log.h>
 //Material/Mesh serialize as asset *names*, so resolving them needs the world's
 //material/mesh collections and its templates coordinator.
 #include <World.h>
@@ -689,11 +690,18 @@ namespace HotBite {
 				if (ctx.world == nullptr) {
 					return;
 				}
+				const std::string entity_name = (ctx.coordinator != nullptr &&
+					ctx.coordinator->ContainsComponent<Base>(ctx.entity))
+					? ctx.coordinator->GetConstComponent<Base>(ctx.entity).name : std::string("?");
+				LOG_DEBUG("Material::FromJson: entity '%s' (%u), json=%s, data-before=%p",
+					entity_name.c_str(), ctx.entity, j.dump().c_str(), (void*)data);
 				ECS::Entity te = ResolveTemplateEntity(j, ctx);
 				if (te != ECS::INVALID_ENTITY_ID) {
 					ECS::Coordinator* tc = ctx.world->GetTemplatesCoordinator();
 					if (tc->ContainsComponent<Material>(te)) {
 						data = tc->GetConstComponent<Material>(te).data;
+						LOG_DEBUG("Material::FromJson: entity '%s' adopted template entity %u's material -> %p",
+							entity_name.c_str(), te, (void*)data);
 					}
 				}
 				if (j.contains("name") && j["name"].is_string()) {
@@ -709,8 +717,12 @@ namespace HotBite {
 					}
 					if (found != nullptr) {
 						data = found;
+						LOG_DEBUG("Material::FromJson: entity '%s' resolved material '%s' -> %p",
+							entity_name.c_str(), material_name.c_str(), (void*)data);
 					}
 					else {
+						LOG_WARN("Material::FromJson: entity '%s' unknown material '%s'",
+							entity_name.c_str(), material_name.c_str());
 						printf("Material::FromJson: unknown material '%s'.\n", material_name.c_str());
 					}
 				}
@@ -723,8 +735,11 @@ namespace HotBite {
 				//added from scratch, so give it the default rather than leaving a null
 				//pointer for the render system to trip over.
 				if (data == nullptr) {
+					LOG_WARN("Material::FromJson: entity '%s' has no material after FromJson, falling back to default",
+						entity_name.c_str());
 					data = ctx.world->GetDefaultMaterial();
 				}
+				LOG_DEBUG("Material::FromJson: entity '%s' data-after=%p", entity_name.c_str(), (void*)data);
 			}
 
 			json Mesh::ToJson(const ECS::SerializeContext& ctx) const {

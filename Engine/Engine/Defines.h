@@ -40,7 +40,32 @@ namespace HotBite {
         typedef DirectX::XMFLOAT4X4 float4x4;
         typedef DirectX::XMFLOAT3X3 float3x3;
         typedef DirectX::XMFLOAT3X4 float3x4;
-        typedef XM_ALIGNED_STRUCT(16) DirectX::XMFLOAT4 float4;
+        //XM_ALIGNED_STRUCT(16) expands to "struct alignas(16)" - meant to prefix a
+        //struct *definition* (XM_ALIGNED_STRUCT(16) Foo { ... };), not to decorate an
+        //alias of an existing type. Used in a typedef of an already-defined type, as
+        //below, the alignas is attached to nothing and silently discarded: MSVC accepts
+        //the line but alignof(float4) comes out as the type's own natural alignment,
+        //not 16. That was invisible for years because most float4s land on 16-aligned
+        //addresses anyway (default heap alignment on x64 usually obliges) - until one
+        //doesn't, and the hand-written SSE below faults.
+        //
+        //MULT_F4_F/ADD_F4_F4/SUB_F4_F4/MULT_F4_F4/DIV_F4_F4/DIV_F4_F (this file) call
+        //_mm_load_ps on a float4's address directly - the *aligned* load, which raises
+        //an access violation on a misaligned pointer rather than a slow-path unaligned
+        //read. Every one of them was written on the assumption this typedef actually
+        //aligned the type, so this is a bug fix, not a stricter opt-in: it makes the
+        //alignment real instead of merely written down. `__declspec(align(16))` is the
+        //form MSVC documents for aligning a typedef (as opposed to `alignas`, which the
+        //language does not permit on an alias-declaration at all).
+        //
+        //float3/float2 keep the same no-op line: nothing reads one through an aligned
+        //intrinsic (every float3/float2 arithmetic helper below builds a temporary
+        //float4 and goes through the float4 path instead), and actually aligning them
+        //would pad float3 from 12 to 16 bytes and float2 from 8 to 16 wherever either
+        //is a struct member - shifting the layout of every CPU struct mirrored field-
+        //for-field by an HLSL cbuffer (MaterialProps and others), for a case nothing
+        //here exercises. Fix only the one this is proven to affect.
+        typedef __declspec(align(16)) DirectX::XMFLOAT4 float4;
         typedef XM_ALIGNED_STRUCT(16) DirectX::XMFLOAT3 float3;
         typedef XM_ALIGNED_STRUCT(16) DirectX::XMFLOAT2 float2;
         typedef DirectX::XMVECTOR   vector4d;

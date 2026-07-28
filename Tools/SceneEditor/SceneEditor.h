@@ -297,6 +297,7 @@ namespace HotBiteEditor {
 		bool show_asset_browser = true;
 		bool show_material_panel = false;
 		bool show_template_panel = false;
+		bool show_log_panel = false;
 
 		// Set by View/Reset Layout: for one frame every panel re-applies its
 		// default position/size unconditionally instead of ImGuiCond_FirstUseEver.
