@@ -24,7 +24,7 @@ namespace HotBiteEditor {
 		static const char* DEBUG_BUFFER_LABELS[] = {
 			"Off", "Scene colour", "Direct light", "Bloom", "Emission",
 			"RT reflections", "RT refractions", "Indirect (GI)", "Volumetric light",
-			"Dust", "Lens flare", "Depth", "World position", "World normal"
+			"Dust", "Lens flare", "Depth", "World position", "World normal", "Motion vectors"
 		};
 		static_assert(IM_ARRAYSIZE(DEBUG_BUFFER_LABELS) ==
 			(int)RenderSystem::eDebugBuffer::COUNT,
@@ -242,6 +242,12 @@ namespace HotBiteEditor {
 					break;
 				case RenderSystem::eDebugBuffer::NORMAL:
 					ImGui::TextUnformatted("world normal, remapped from -1..1");
+					break;
+				case RenderSystem::eDebugBuffer::MOTION:
+					//Motion is the one mapped view that still honours the gain, so say so.
+					ImGui::Text("screen motion x %.2f gain; grey = not moving,",
+						rs->GetDebugGain());
+					ImGui::TextUnformatted("red/green = +x/+y, blue = nothing drawn");
 					break;
 				default:
 					ImGui::Text("raw buffer x %.2f gain, clamped to 0..1", rs->GetDebugGain());

@@ -50,6 +50,11 @@ VertexOutput main(VertexShaderInput input)
 	
 	output.position = pos;
 	output.worldPos = mul(pos, world);
+	//The terrain is never skinned, so its previous pose is its current one and all of its
+	//motion (none, in practice) comes from the previous world matrix the pixel shader
+	//applies. It still has to be written: VertexOutput::prevPos is what carries pos0_map
+	//down the chain, and an unassigned one only earns a warning from fxc.
+	output.prevPos = pos;
 	output.normal = normalize(mul(normal, (float3x3)world));
 	output.uv = input.uv;
 	output.mesh_uv = input.mesh_uv;

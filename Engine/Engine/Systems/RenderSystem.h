@@ -147,6 +147,7 @@ namespace HotBite {
 					DEPTH,          //world distance, exponentially mapped
 					POSITION,       //world position, 10-unit repeating ramp
 					NORMAL,         //world normal, remapped to 0..1
+					MOTION,         //screen-space motion, velocity-buffer encoding
 					COUNT
 				};
 
@@ -248,6 +249,13 @@ namespace HotBite {
 				RenderTree shadow_tree;
 				RenderTree depth_tree;
 				RenderParticleTree particle_tree;
+
+				//Every drawable, once, regardless of which pass or shader bucket it landed in.
+				//The trees are keyed by shader tuple and material, which is what a draw call
+				//needs but no use at all for the one thing that has to happen exactly once per
+				//entity per frame: latching what this frame was drawn with as the previous
+				//frame (LatchPreviousFrame).
+				ECS::EntityVector<DrawableEntity> drawables;
 
 				Components::Lighted scene_lighting;
 
@@ -433,6 +441,13 @@ namespace HotBite {
 
 				//Motion texture
 				Core::RenderTexture2D motion_texture;
+				//The view-projection the *previous rendered frame* used, which is what
+				//every temporal pass (motion vectors, the GI and RT denoisers) means by
+				//"previous". Owned here rather than by Components::Camera because only the
+				//renderer knows where a frame boundary is - CameraSystem ticks on the
+				//background thread, at a rate unrelated to the render rate.
+				float4x4 prev_view_projection{};
+				bool prev_view_projection_valid = false;
 				Core::SimpleComputeShader* motion_shader = nullptr;
 
 				float time = 0.0f;
@@ -490,6 +505,12 @@ namespace HotBite {
 				void DrawParticles(int w, int h, const float3& camera_position, const matrix& view, const matrix& projection, RenderParticleTree& tree);
 				bool IsVisible(const float3& camera_pos, const DrawableEntity& drawable, const matrix& view_projection, int w, int h) const;
 				void CheckSceneVisibility(RenderTree& tree);
+				//Everything a motion vector is measured against: the camera's
+				//view-projection, every entity's world matrix and every skinned mesh's pose,
+				//stored as "previous" for the next frame. Called at the very end of Draw, once
+				//per rendered frame, and this is the only place any of the three is written -
+				//see Transform::prev_world_matrix.
+				void LatchPreviousFrame(const Components::Camera& camera);
 				void PostProcessLight();
 				
 				void PrepareMaterial(Core::MaterialData* material, Core::SimpleVertexShader* vs, Core::SimpleHullShader* hs, Core::SimpleDomainShader* ds, Core::SimpleGeometryShader* gs, Core::SimplePixelShader* ps);

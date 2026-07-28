@@ -97,7 +97,7 @@ void main(
 			element.uv = input[i].uv;
 			element.mesh_uv = float2(wl1[i], wl0[i]);
 			element.worldPos = wp[i];
-			element.objectPos = input[i].position;
+			element.prevObjectPos = input[i].prevPos;
 			element.position = p[i];			
 			element.normal = normal;
 			element.tangent = tangent;

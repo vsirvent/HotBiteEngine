@@ -1236,16 +1236,20 @@ namespace HotBiteEditor {
 				error = "no world";
 				return false;
 			}
-			const nlohmann::json* current = state.world->GetTemplateComponents(name);
-			if (current == nullptr) {
+			//Start from the whole template, not just its components: parts and storage
+			//are orthogonal to the block being edited, and a snapshot built without
+			//them decomposes a composed template and moves it back into a .tpl on the
+			//next widget drag. This is the same rule MutateTemplate states.
+			TemplateSnapshot target;
+			if (!GetSnapshot(state, name, target)) {
+				error = "no world";
+				return false;
+			}
+			if (!target.exists) {
 				error = "unknown template: " + name;
 				return false;
 			}
-			nlohmann::json components = *current;
-			components[component] = value;
-			TemplateSnapshot target;
-			target.exists = true;
-			target.components = components;
+			target.components[component] = value;
 			return ApplySnapshot(state, name, target, error);
 		}
 

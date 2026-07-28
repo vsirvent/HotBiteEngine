@@ -23,6 +23,13 @@ has Community, older notes said Insiders):
 Outputs land in `Solution/x64/<Config>/`. Engine.lib must exist (build the Engine
 project first if not).
 
+**Debug x64 does not link in this tree**, and not for any reason in the code: every tool
+wants `reactphysics3d.lib`, which is a CMake build living in `React3d/out/build/` and only
+ever built for **x64-Release**. No project in the solution builds it, so a Debug link ends
+at `LNK1104: reactphysics3d.lib`. Build and test against Release; a Debug *Engine* build
+(and with it the Debug `.cso` set) does succeed, which is worth doing after a shader change
+so the Debug shaders are not left half-old.
+
 **Nothing in the solution declares a dependency on Engine, so `/m` will happily link a
 tool against a stale `Engine.lib`.** After editing an engine *header* that is enough to
 produce a class-layout mismatch between the tool's objects and the library's — which
@@ -38,6 +45,38 @@ first finish:
 
 The same race makes `MaterialDesigner`/`HotBiteTool` fail with `LNK1104: HotBiteTool.lib`
 on a cold whole-solution build; re-running the build clears it.
+
+Do not trust *any* measurement taken from a partially rebuilt tree after an engine header
+changed. The failure is not a crash you can attribute: a mismatched `RenderSystem.h` shifts
+every member after the one that moved, so render targets come out bound to each other's
+memory and buffers read as plausible-but-wrong - a motion buffer that is uniformly zero, a
+camera matrix that appears frozen while the image plainly moves. It also corrupts the heap,
+which surfaces as an access violation in an unrelated system several frames later
+(`PrepareLights`, `AudioSystem`, `RtlFreeHeap`) with a different stack each run. If results
+stop making sense, rebuild both steps clean before debugging anything else.
+
+## The regression suite — run it, and add to it
+
+`Tools/SceneEditor/automation/tests/Run-Tests.ps1` is the project's test suite:
+~240 tests over 18 files, ~3 minutes, exit code = number of failures. **Run it
+before and after any change to the engine or the editor**, and **every new
+feature adds its own tests to it**. It needs the Release build (`-Config Debug`
+does not link here — see above).
+
+```powershell
+Tools\SceneEditor\automation\tests\Run-Tests.ps1                    # everything
+Tools\SceneEditor\automation\tests\Run-Tests.ps1 -Suite '10-parts*' # one file
+Tools\SceneEditor\automation\tests\Run-Tests.ps1 -Test '*undo*'     # one test
+```
+
+There is no in-process harness because nothing in the editor runs without a D3D
+device and a loaded `World`. The automation channel below *is* the seam, so a test
+written against it drives the same code paths the UI does. Each suite gets a
+generated throwaway project (`New-TestProject.ps1`) and its own editor process —
+one level per session, and a suite that saves or deletes must not reach the next.
+How to write one, what is in scope, and the traps (screenshot comparisons are
+against a stochastic floor, motion vectors need a run of frames rather than a
+capture) are in `Tools/SceneEditor/automation/tests/README.md`.
 
 ## Testing the Scene Editor yourself (no human needed)
 
@@ -265,6 +304,96 @@ does. A black material whose shaders look right is this, not a material bug.
 The two arrays are deliberately different lengths: the dynamic one is per light *per
 cascade* (`DIR_SHADOW_MATRIX_COUNT`), the static one is per light (`MAX_LIGHTS`),
 because static casters share one map.
+
+**"Previous frame" belongs to the renderer, and to nothing else.**
+`RenderSystem::LatchPreviousFrame`, called at the very end of `Draw()`, is the one place
+all three of the things a motion vector is measured against are stored: the camera's
+`prev_view_projection`, every entity's `Transform::prev_world_matrix`, and every skinned
+mesh's `Mesh::prev_joint_gpu_data`. Each of them used to be latched by the system that
+produces it - `CameraSystem::Update`, `StaticMeshSystem`/`PhysicsSystem::Update`,
+`Mesh::Update` - and every one of those runs on the **background thread**, on a timer
+unrelated to the render tick. Two ways that goes wrong, and both were live:
+
+- Latched *next to* the value it is supposed to lag behind, the pair is identical. That
+  is what `StaticMeshSystem::Update` did (`prev_world_matrix = world_matrix` right after
+  computing `world_matrix`), so **every entity reported zero motion** - a moving or
+  animating object had no motion vector, no motion blur, and the object half of every
+  temporal reprojection was dead. The camera had the same bug in a subtler form: its
+  ticks where nothing moved copied the current matrix over the previous one, so unless
+  the tick that moved the camera was the last one before a `Draw`, the motion was gone.
+- Latched correctly but on the wrong clock, it measures one of *that system's* ticks
+  rather than one frame - the magnitude is then whatever the two rates happen to be.
+
+`Camera::prev_view_projection` is gone from the component so it cannot be reintroduced
+there; the other two are only written by the latch. `drawables` (a flat
+`EntityVector<DrawableEntity>`) exists for this: the render trees are keyed by shader and
+material, and the latch has to touch each entity exactly once.
+
+**A skinned mesh animating in place moves, and the pose is the only record of it.**
+`MainRenderVS` skins each vertex twice - once with `joints`, once with `prev_joints` - and
+carries the second result down the chain as `prevPos` (object space) to
+`GSOutput::prevObjectPos`, which `MainRenderPS` multiplies by `prevWorld` to get
+`pos0_map`. Both halves are needed and neither substitutes for the other: `prevWorld`
+alone cannot see an animation (a rig walking on the spot has one world matrix all frame),
+and the previous *pose* alone cannot see the object move. This is why `GSOutput` carries
+`prevObjectPos` and not the current `objectPos` it used to - a geometry shader that
+generates its own vertices (`TerrainGS`'s grass) has no previous pose and writes its
+current position there, and an unskinned `VertexOutput::prevPos` is just `position`.
+
+Adding a field to `VertexOutput`/`HullOutput`/`DomainOutput` reaches the *game's* shaders
+too (`TerrainVS` feeds `MainRenderHS`), and fxc only warns (X3578) about the one that
+forgets to write it. The cost of the second joint array is 16 KB more in the main render
+VS cbuffer, uploaded per draw whether the mesh is skinned or not; the alternative -
+splitting the joints into their own cbuffer so static geometry stops paying for the first
+one either - means every VS that declares `joints` and a `CopyAllBufferData` that no
+longer copies everything.
+
+**Verifying anything about motion vectors needs the thing to be moving on consecutive
+frames.** One `camera_orbit`, or one `set_position`, moves it for a single frame, and
+`CameraSystem`/`StaticMeshSystem` only recompute their matrices on the next background
+tick, so a `camera_orbit` + `screenshot` batch (or a `set_position` + `screenshot` one)
+captures a frame with no motion in it nearly every time - the object reads as static and
+it looks like the bug is back. Drive the channel at frame rate instead - write
+`command.txt`, wait for the editor to delete it, write the next - and screenshot every
+frame of the run. `render debug_buffer motion` shows the result: **grey (143,143,143)** is
+not moving, red/green deflect with +x/+y, and it is the one mapped view that honours
+`debug_gain`. It is worth counting the pixels that differ from that grey rather than
+eyeballing it - a static object is the same colour as the background, so "I cannot see
+the troll" means "the troll is not moving", not "the troll is not drawn". A moving object
+lands around 10% of the viewport, camera motion at 100%.
+
+The three cases are separate code paths and a check of one says nothing about the others:
+an entity moved by hand or by physics (world matrix), a rig animating in place (previous
+pose), and the camera (`prev_view_proj`).
+
+Writing `command.txt` from PowerShell 5.1, use `[System.IO.File]::WriteAllText` with
+`ASCIIEncoding` - `Set-Content -Encoding utf8` prepends a **BOM**, which makes the first
+command of every batch fail to parse while the rest run. A frame-rate driver built that
+way silently never moves anything and produces a screen full of "not moving".
+
+**Temporal reprojection needs the *previous* view-projection, and one pass had to be
+told.** `DenoiserCS` (reflections/refractions) and `GIAverageCS` (ReSTIR indirect) both
+find last frame's history by taking `prev_position_map` — the surface's previous pose
+through its previous world matrix — and projecting it to a screen position. That
+projection must use `prev_view_proj`. `DenoiserCS` used `mul(view, projection)`, i.e. this
+frame's camera, which reprojects object motion but drops camera motion entirely: for
+static geometry `prevWorld == world`, so the previous world position projects straight
+back onto the same pixel and the history is fetched from where the surface is *now*.
+
+It survived because the blend weight `saturate(0.7f - motion * 50.0f)` discards history
+outright above ~0.014 NDC of motion, about 10 pixels a frame — fast movement threw the bad
+fetch away, and below that the wrong pixel is close enough that it read as slight softening
+during slow pans rather than as ghosting. `prev_view_proj` had simply never been plumbed
+into that pass's cbuffer; `GIAverageCS` has always had it. If you add another temporally
+accumulating pass, that constant is the thing to check first.
+
+**A pixel shader that builds its own `RenderTargetRT` must fill every field of it.**
+`TerrainPS`'s *grass* branch (`!any(input.tangent)`) constructs its own output rather than
+delegating to `MainRenderPS`, and left `pos0_map`/`pos1_map` unassigned. That does not skip
+the export — the ROP writes whatever was in the register — so `MotionCS` read uninitialized
+memory as the grass's world position now and last frame. Grass does not move, so both are
+`input.worldPos`, the same convention `WaterPS` and `LavaPS` use. FXC only warns (X3578)
+about this, so it builds clean either way.
 
 A warning for any before/after measurement in this engine: it accumulates temporally
 (GI/ReSTIR/autofocus), so a screenshot taken right after a state change is still

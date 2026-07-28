@@ -55,6 +55,7 @@ SOFTWARE.
 #define RT_DEBUG_BUFFER_DEPTH       11u
 #define RT_DEBUG_BUFFER_POSITION    12u
 #define RT_DEBUG_BUFFER_NORMAL      13u
+#define RT_DEBUG_BUFFER_MOTION      14u
 
 #define DebugBuffer(d)   ((d) & RT_DEBUG_BUFFER_MASK)
 #define DebugFlag(d, f)  (((d) & (f)) != 0u)
@@ -75,6 +76,23 @@ float3 DebugPositionColor(float3 world_pos)
 float3 DebugNormalColor(float3 normal)
 {
     return normal * 0.5f + 0.5f;
+}
+
+//Screen-space motion -> the usual velocity-buffer encoding: mid grey is a pixel that did
+//not move, red/green deflect with +x/+y and cyan/magenta with -x/-y. Unlike the mappings
+//above this one *is* scaled by debug_gain, because the useful range is enormous: a slow
+//pan is a thousandth of NDC and a fast one is tenths, and there is no natural display
+//range to pick. Gain 1 is calibrated so a full-screen sweep saturates.
+//
+//Pixels the motion pass rejected (nothing drawn there) are flagged in blue rather than
+//left at grey, because "no motion vector" and "a zero motion vector" are the two states
+//you are usually trying to tell apart.
+float3 DebugMotionColor(float2 motion, float gain)
+{
+    if (motion.x < -1e30f) {
+        return float3(0.0f, 0.0f, 0.6f);
+    }
+    return float3(saturate(0.5f + motion * gain * 25.0f), 0.5f);
 }
 
 //depth_map holds the world distance from the camera, cleared to FLT_MAX where

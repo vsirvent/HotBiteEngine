@@ -168,20 +168,13 @@ void CameraSystem::Update(CameraData& entity, int64_t elapsed_nsec, int64_t tota
 		XMStoreFloat4x4(&entity.camera->view, XMMatrixTranspose(entity.camera->xm_view));
 		XMStoreFloat4x4(&entity.camera->inverse_view, XMMatrixTranspose(XMMatrixInverse(nullptr, entity.camera->xm_view)));
 		
-		entity.camera->prev_view_projection = entity.camera->view_projection;
 		entity.camera->xm_view_projection = entity.camera->xm_view * entity.camera->xm_projection;
 		XMStoreFloat4x4(&entity.camera->view_projection, XMMatrixTranspose(entity.camera->xm_view_projection));
-		if (elapsed_nsec == 0) {
-			entity.camera->prev_view_projection = entity.camera->view_projection;
-		}
 		updated = true;
 		entity.transform->dirty = false;
 		Event ev(this, EVENT_ID_CAMERA_MOVED);
 		ev.SetParam<CameraData*>(EVENT_PARAM_CAMERA_DATA, &entity);
 		coordinator->SendEvent(ev);
-	}
-	else {
-		entity.camera->prev_view_projection = entity.camera->view_projection;
 	}
 }
 

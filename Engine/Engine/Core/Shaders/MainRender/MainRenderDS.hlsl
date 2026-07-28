@@ -52,11 +52,13 @@ DomainOutput main(
 	// Determine the position of the new vertex.
 	float4 vertexPosition = domain.x * patch[0].position + domain.y * patch[1].position + domain.z * patch[2].position;
 	float4 vertexWPosition = domain.x * patch[0].worldPos + domain.y * patch[1].worldPos + domain.z * patch[2].worldPos;
+	float4 vertexPrevPosition = domain.x * patch[0].prevPos + domain.y * patch[1].prevPos + domain.z * patch[2].prevPos;
 	float3 vertexNormal = domain.x * patch[0].normal + domain.y * patch[1].normal + domain.z * patch[2].normal;
 	float2 vertexUV = domain.x * patch[0].uv + domain.y * patch[1].uv + domain.z * patch[2].uv;
 	float2 vertexMeshUV = domain.x * patch[0].mesh_uv + domain.y * patch[1].mesh_uv + domain.z * patch[2].mesh_uv;
 	output.position = vertexPosition;
 	output.worldPos = vertexWPosition;
+	output.prevPos = vertexPrevPosition;
 	output.mesh_uv = vertexMeshUV;
 	output.uv = vertexUV;
 	output.normal = normalize(vertexNormal);
@@ -81,6 +83,10 @@ DomainOutput main(
 	}
 
 	output.position.xyz += disp * output.normal;
+	//The displacement is fixed in the surface's own texture space, so it has to move the
+	//previous position by the same amount along the same (object-space) normal. Offsetting
+	//only the current one would read as the whole displaced surface sliding every frame.
+	output.prevPos.xyz += disp * output.normal;
 	output.normal = normalize(mul(output.normal, (float3x3)world));
 	output.worldPos.xyz += disp * output.normal;
 

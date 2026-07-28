@@ -134,9 +134,21 @@ namespace HotBite {
 			{
 				this->shaderFile = shaderFile;
 
-				// Load the shader to a blob and ensure it worked
+				// Load the shader to a blob and ensure it worked.
+				//
+				// A missing or unreadable .cso is a normal outcome here, not a
+				// programming error: the editor's set_shader takes a file name that can
+				// name something that is not there, and ShaderFactory::GetShader probes
+				// for a stage a material may not have. An assert alone is compiled out
+				// of Release, and CreateShader then dereferences the null blob - so the
+				// whole process died where the caller only wanted `false` back.
+				shaderBlob = nullptr;
 				HRESULT hr = D3DReadFileToBlob(shaderFile, &shaderBlob);
-				assert(hr == S_OK);
+				if (FAILED(hr) || shaderBlob == nullptr)
+				{
+					shaderValid = false;
+					return false;
+				}
 
 				// Create the shader - Calls an overloaded version of this abstract
 				// method in the appropriate child class

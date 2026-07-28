@@ -228,7 +228,11 @@ RenderTargetRT MainRenderPS(GSOutput input)
 	output.rt_ray0_map = getColor0(ray);
 	output.rt_ray1_map = getColor1(ray);
 
-	float4 prev_world_pos = mul(input.objectPos, prevWorld);
+	//Where this surface point was last frame: its previous *pose* (prevObjectPos, skinned
+	//with the previous frame's joints) through its previous *world* matrix. Both halves
+	//matter - one is the animation, the other is the object moving - and MotionCS turns
+	//the pair of position maps into the frame's motion vectors.
+	float4 prev_world_pos = mul(input.prevObjectPos, prevWorld);
 	output.pos0_map = prev_world_pos / prev_world_pos.w;
 	output.pos1_map = input.worldPos / input.worldPos.w;
 	return output;

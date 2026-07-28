@@ -18,7 +18,7 @@ with no mouse input and no RenderDoc UI. Built on the automation channel
 $dir = 'C:\tmp\prof'
 
 # 1. capture 4 frames of the demo scene from a representative viewpoint
-Tools\SceneEditor\automation\profiling\capture-frames.ps1 -OutDir $dir -Count 4 `
+Tools\SceneEditor\automation\profiling\capture-frames.ps1 -OutDir $dir -Count 4 -Freeze `
     -CameraPos '-54 16 -54' -CameraTarget '-60 12.6 -61'
 
 # 2. replay them and print the pass table (minutes per capture -- see below)
@@ -65,6 +65,13 @@ Note the contention did not scale everything equally: TerrainPS barely moved whi
 volumetric pass quadrupled, so you cannot correct for it after the fact.
 `capture-frames.ps1` quits the editor for you unless you pass `-KeepOpen`; if you did,
 close it before analyzing. Same goes for anything else heavy on the GPU.
+
+**Freeze the clock for a before/after.** `-Freeze` stops the sky clock and pins the sun at
+noon before capturing. The sun's angle drives the volumetric, GI and shadow passes, so
+without it the same camera profiles differently minute to minute and a build comparison
+measures the time of day. It deliberately leaves `cloud_density` alone, unlike the
+screenshot A/B recipe in `CLAUDE.md`: zeroing it takes the cloud layer out of `SkyPS`, and
+profiling a frame the engine never renders is not profiling.
 
 **Take several captures, never one.** The demo scene animates (physics, emissive lava).
 On a clean run the passes are tight (a few percent apart across captures), so a pass whose

@@ -63,6 +63,7 @@ HullOutput main(
 	HullOutput Output;
 	Output.worldPos = ip[i].worldPos;
 	Output.position = ip[i].position;
+	Output.prevPos = ip[i].prevPos;
 	Output.normal = ip[i].normal;
 	Output.uv = ip[i].uv;
 	Output.mesh_uv = ip[i].mesh_uv;

@@ -32,6 +32,12 @@ cbuffer externalData : register(b0)
 	float3 cameraDirection;
 	bool tessEnabled;
 	matrix joints[MAX_JOINTS];
+	//The same skinning matrices as of the previous *rendered* frame
+	//(Components::Mesh::prev_joint_gpu_data, latched by RenderSystem once per Draw).
+	//Skinning the vertex a second time with these is the only way an animation that
+	//plays in place produces a motion vector: the object's world matrix does not change,
+	//so without this the whole rig reads as static however fast it moves.
+	matrix prev_joints[MAX_JOINTS];
 	uint njoints;
 	int tessType;
 	float tessFactor;
@@ -41,25 +47,33 @@ VertexOutput main(VertexShaderInput input)
 {
 	VertexOutput output;
 	int use_bones = 0;
-	matrix m;
+	//Both accumulate a weighted sum, so both have to start at zero - stated rather than
+	//left to fxc, since the second one is new and the pair has to behave the same.
+	matrix m = (matrix)0;
+	matrix prev_m = (matrix)0;
 	for (int i = 0; i < 4; ++i) {
 		if (input.bone_ids[i] >= 0 && input.weights[i] > 0.0f && (int)njoints > input.bone_ids[i]) {
 			m += joints[input.bone_ids[i]] * input.weights[i];
+			prev_m += prev_joints[input.bone_ids[i]] * input.weights[i];
 			use_bones = 1;
 		}
 	}
 	float4 pos;
+	float4 prev_pos;
 	float3 normal;
 	if (use_bones) {
 		pos = mul(float4(input.position, 1.0f), m);
-		normal = mul(input.normal, (float3x3)m);		
+		prev_pos = mul(float4(input.position, 1.0f), prev_m);
+		normal = mul(input.normal, (float3x3)m);
 	}
 	else {
 		pos = float4(input.position, 1.0f);
+		prev_pos = pos;
 		normal = input.normal;
 	}
 	output.position = pos;
 	output.worldPos = mul(pos, world);
+	output.prevPos = prev_pos;
 	output.normal = normal;
 	output.uv = input.uv;
 	output.mesh_uv = input.mesh_uv;

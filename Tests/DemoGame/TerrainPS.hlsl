@@ -142,6 +142,14 @@ RenderTargetRT main(GSOutput input)
 
 		output.rt_ray0_map = getColor0(ray);
 		output.rt_ray1_map = getColor1(ray);
+		//Unlike the terrain branch below, this one builds its own RenderTargetRT, so it
+		//has to fill *every* target. Leaving these two unassigned does not skip the
+		//export - it exports whatever happened to be in the register, and MotionCS reads
+		//that as this pixel's world position now and last frame, so the grass got a
+		//motion vector out of uninitialized memory. Grass does not move, so its previous
+		//position is its current one, same as WaterPS and LavaPS do.
+		output.pos0_map = input.worldPos;
+		output.pos1_map = input.worldPos;
 
 		return output;
 	}

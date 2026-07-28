@@ -135,6 +135,10 @@ namespace HotBite {
 				data = mesh;
 				joint_cpu_data.clear();
 				joint_gpu_data.clear();
+				//A pose from the mesh that was here before is not a previous pose of this one;
+				//Prepare reads a size mismatch as "no history" and skins both passes with the
+				//current joints until the next frame latches a real one.
+				prev_joint_gpu_data.clear();
 				joint_pose_scratch.clear();
 				{
 					//A new mesh means new joints; anything socketed to the old ones reads
@@ -473,12 +477,38 @@ namespace HotBite {
 					skeleton_mutex->lock();
 					Core::JointGpuData* data = joint_gpu_data.data();
 					vs->SetData("joints", (void*)data, sizeof(float4x4) * (int)joint_gpu_data.size());
+					//Only the main render VS declares prev_joints - the depth, shadow and
+					//preview ones neither write a position map nor care where the pose was, and
+					//SetData is a no-op for a name they do not have. Falling back to the current
+					//pose when there is no previous one (first frame, or a skeleton that just
+					//changed size) reports "did not move", which is the right answer for a
+					//frame with nothing to compare against.
+					if (prev_joint_gpu_data.size() == joint_gpu_data.size()) {
+						vs->SetData("prev_joints", (void*)prev_joint_gpu_data.data(),
+							sizeof(float4x4) * (int)prev_joint_gpu_data.size());
+					}
+					else {
+						vs->SetData("prev_joints", (void*)data, sizeof(float4x4) * (int)joint_gpu_data.size());
+					}
 					vs->SetInt(Core::SimpleShaderKeys::NJOINTS, (int)joint_gpu_data.size());
 					skeleton_mutex->unlock();
 				}
 				else {
 					vs->SetInt(Core::SimpleShaderKeys::NJOINTS, 0);
 				}
+			}
+
+			void Mesh::LatchPrevJoints() {
+				if (joint_gpu_data.empty()) {
+					prev_joint_gpu_data.clear();
+					return;
+				}
+				//Under the skeleton lock: Mesh::Update writes joint_gpu_data from the
+				//background thread and resizes it whenever the skeleton changes, so an
+				//unlocked copy can read a vector that is being reallocated.
+				skeleton_mutex->lock();
+				prev_joint_gpu_data = joint_gpu_data;
+				skeleton_mutex->unlock();
 			}
 
 			void Mesh::Unprepare(Core::SimpleVertexShader* vs) {

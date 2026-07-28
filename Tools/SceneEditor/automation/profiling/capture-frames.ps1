@@ -30,6 +30,13 @@ param(
     # Seconds to let the editor settle before the first capture.
     [int]$WarmupSec = 15,
     [int]$IntervalSec = 4,
+    # Stop the sky clock and pin the sun at noon before capturing. The sun's angle drives
+    # the volumetric, GI and shadow passes, so on a running clock the same camera profiles
+    # differently minute to minute -- pass this whenever the captures are one side of a
+    # before/after comparison. Cloud density is deliberately left alone: zeroing it (what
+    # a screenshot A/B does) would take the cloud layer out of SkyPS and profile a frame
+    # the engine never renders.
+    [switch]$Freeze,
     # Leave the editor running afterwards (to poke at it by hand).
     [switch]$KeepOpen
 )
@@ -49,7 +56,17 @@ if (-not (Test-Path 'C:\Program Files\RenderDoc\renderdoc.dll')) {
 
 New-Item -ItemType Directory -Force $OutDir | Out-Null
 $OutDir = (Resolve-Path $OutDir).Path
+# The .json replay results go too, not just the .rdc: report.py aggregates every .json
+# in the directory, so a leftover pair from an earlier session is silently averaged into
+# this one's table -- and having been captured against a different build, its shader
+# hashes no longer resolve, so it shows up as a second set of `PS:<hash>` rows rather
+# than as an obvious duplicate.
+#
+# Where-Object rather than -Exclude: combined with -Filter, -Exclude silently matches
+# nothing, so the stale files would survive the "cleanup" without a word.
 Get-ChildItem $OutDir -Filter *.rdc -ErrorAction SilentlyContinue | Remove-Item -Force
+Get-ChildItem $OutDir -Filter *.json -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -ne 'analyze-job.json' } | Remove-Item -Force
 
 Write-Host "Launching $Config SceneEditor with RenderDoc..." -ForegroundColor Cyan
 # --renderdoc must be honoured before the D3D11 device exists; the editor handles that.
@@ -64,6 +81,11 @@ Start-Sleep -Seconds $WarmupSec
 $state = (& $cli -Dir $OutDir -Command 'state') -join "`n"
 if ($state -notmatch '"level_loaded":true') {
     throw "Editor did not load the level. Response:`n$state"
+}
+
+if ($Freeze) {
+    & $cli -Dir $OutDir -Command "set_component Sky Sky ""{'second_speed':0,'second_of_day':43200}""" | Out-Null
+    Write-Host 'Sky clock frozen at noon.'
 }
 
 if ($CameraPos -or $CameraTarget) {

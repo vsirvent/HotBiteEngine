@@ -128,7 +128,12 @@ namespace HotBite {
 				float4 rotation = { 0.0f, 0.0f, 0.0f, 1.0f };
 				//The entity world matrix ready to be used in the vertex shader
 				float4x4 world_matrix = {};
-				//The previous entity world matrix used to calculate vertex speed
+				//The world matrix the previous *rendered* frame used, which is what a motion
+				//vector is measured against. Latched once per frame by RenderSystem::Draw and
+				//by nothing else: the transform systems run on the background thread at their
+				//own rate, so a system that latched it there erased the frame's motion on
+				//every tick where the entity had not moved (the same trap
+				//Camera::prev_view_projection fell into).
 				float4x4 prev_world_matrix = {};
 				//The entity inverse world matrix ready to be used in the vertex shader
 				float4x4 world_inv_matrix = {};
@@ -253,6 +258,16 @@ namespace HotBite {
 
 				std::vector<matrix> joint_cpu_data;
 				std::vector<Core::JointGpuData> joint_gpu_data;
+				//The skinning matrices as of the previous *rendered* frame, uploaded next to
+				//the current ones so the vertex shader can skin each vertex twice and report
+				//where it was. Without them an animation that plays in place produces no
+				//motion at all: the entity's world matrix is the same all frame, and it is the
+				//only other thing the previous position could come from.
+				//
+				//Latched by RenderSystem::Draw, like Transform::prev_world_matrix and for the
+				//same reason - Mesh::Update runs on the background thread on a timer of its
+				//own, so latching there measures one animation tick rather than one frame.
+				std::vector<Core::JointGpuData> prev_joint_gpu_data;
 				//Where each joint *is* for the pose currently playing, in the mesh's own
 				//space - the animation matrix before the inverse bind pose is folded in,
 				//which is what an attachment needs and what a skinning matrix is not
@@ -407,6 +422,10 @@ namespace HotBite {
 				void Update(int64_t elapsed_nsec, int64_t total_nsec);
 				void Prepare(Core::SimpleVertexShader* vs);
 				void Unprepare(Core::SimpleVertexShader* vs);
+				// Keeps the pose this frame was drawn with as the one the next frame measures
+				// its motion against (prev_joint_gpu_data). Called once per rendered frame,
+				// from RenderSystem::Draw, *after* the frame is drawn - see the member.
+				void LatchPrevJoints();
 				const std::vector<matrix>& GetJoints() { return joint_cpu_data; }
 
 				//Serializes as the mesh asset's name, the animation sets attached to it

@@ -184,7 +184,11 @@ void StaticMeshSystem::Update(StaticMeshEntity& entity, int64_t elapsed_nsec, in
 		XMStoreFloat4x4(&transform->world_matrix, XMMatrixTranspose(transform->world_xmmatrix));
 		XMStoreFloat4x4(&transform->world_inv_matrix, XMMatrixTranspose(XMMatrixInverse(nullptr, transform->world_xmmatrix)));
 
-		transform->prev_world_matrix = transform->world_matrix;
+		//prev_world_matrix is deliberately *not* touched here. This runs on the background
+		//thread, and latching it next to the matrix it is supposed to lag behind made the
+		//two identical - every entity reported zero motion, so a moving or animating object
+		//got no motion vector, no motion blur and no temporal reprojection.
+		//RenderSystem::Draw latches it once per rendered frame instead.
 
 		bounds->local_box.Transform(bounds->final_box, transform->world_xmmatrix);
 

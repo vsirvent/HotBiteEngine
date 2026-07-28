@@ -51,6 +51,7 @@ Texture2D lensFlareTexture: register(t12);
 Texture2D positions: register(t13);
 Texture2D normals: register(t14);
 Texture2D emissionTexture: register(t15);
+Texture2D<float2> motionTexture: register(t16);
 SamplerState basicSampler : register(s0);
 
 #include "../Common/RGBANoise.hlsli"
@@ -213,6 +214,8 @@ float4 DebugBufferColor(uint buffer_id, float2 tpos, float2 pixel, uint w, uint 
     case RT_DEBUG_BUFFER_DEPTH:      return float4(DebugDepthColor(depthTexture[pixel].r), 1.0f);
     case RT_DEBUG_BUFFER_POSITION:   return float4(DebugPositionColor(positions[pixel].xyz), 1.0f);
     case RT_DEBUG_BUFFER_NORMAL:     return float4(DebugNormalColor(normals[pixel].xyz), 1.0f);
+    //Motion is the exception to "mapped buffers ignore the gain" - see DebugMotionColor.
+    case RT_DEBUG_BUFFER_MOTION:     return float4(DebugMotionColor(motionTexture[pixel], debug_gain), 1.0f);
     }
     return float4(saturate(c * debug_gain), 1.0f);
 }

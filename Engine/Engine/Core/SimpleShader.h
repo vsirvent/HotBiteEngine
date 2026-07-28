@@ -331,7 +331,16 @@ namespace HotBite {
 						if (s == shaders.end()) {
 							shader = new T(DXCore::Get()->device, DXCore::Get()->context);
 							std::wstring ws(name.begin(), name.end());
-							shader->LoadShaderFile(ws.c_str());
+							//A shader that did not load is not cached and not handed out:
+							//callers (MaterialData::SetShaders) test for null to decide
+							//whether a shader set is usable, and a non-null-but-invalid
+							//shader made them adopt a material that cannot draw. Not
+							//caching it also keeps a mistyped name from poisoning that
+							//name for the rest of the session.
+							if (!shader->LoadShaderFile(ws.c_str())) {
+								delete shader;
+								return nullptr;
+							}
 							shaders[name] = shader;
 						}
 						else {

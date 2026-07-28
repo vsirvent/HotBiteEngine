@@ -70,7 +70,10 @@ namespace HotBite {
 				float4x4 inverse_projection;
 				matrix xm_projection;
 
-				float4x4 prev_view_projection;
+				//No prev_view_projection here: "the previous frame" is a render-thread
+				//concept and CameraSystem ticks on the background thread, so a field
+				//maintained here is wrong by the time the renderer samples it.
+				//RenderSystem::prev_view_projection owns it.
 				float4x4 view_projection;
 				matrix xm_view_projection;
 

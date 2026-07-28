@@ -99,10 +99,17 @@ struct VertexShaderInput
 	float  weights[4]   : BLENDWEIGHT;
 };
 
+//`prevPos` is where this vertex was in the object's own space the *previous frame*:
+//the same control point put through the previous frame's skinning matrices. For an
+//unskinned vertex it is simply `position`, and all of the object's motion comes from
+//the previous world matrix the pixel shader multiplies it by (RenderSystem::PREV_WORLD).
+//For a skinned one the two differ by whatever the animation moved, which is the only
+//place that motion exists - a rig animating in place has one world matrix all frame.
 struct VertexOutput
 {
 	float4 position		: SV_POSITION;
 	float4 worldPos		: POSITION;
+	float4 prevPos      : POSITION1;
 	float3 normal		: NORMAL;
 	float2 uv			: TEXCOORD;
 	float2 mesh_uv		: TEXCOORD1;
@@ -113,6 +120,7 @@ struct HullOutput
 {
 	float4 position		: SV_POSITION;
 	float4 worldPos		: POSITION;
+	float4 prevPos      : POSITION1;
 	float3 normal		: NORMAL;
 	float2 uv			: TEXCOORD;
 	float2 mesh_uv		: TEXCOORD1;
@@ -120,8 +128,9 @@ struct HullOutput
 
 struct DomainOutput
 {
-	float4 position		: SV_POSITION;	
+	float4 position		: SV_POSITION;
 	float4 worldPos		: POSITION;
+	float4 prevPos      : POSITION1;
 	float3 normal		: NORMAL;
 	float2 uv			: TEXCOORD;
 	float2 mesh_uv		: TEXCOORD1;
@@ -131,7 +140,11 @@ struct GSOutput
 {
 	float4 position     : SV_POSITION;
 	float4 worldPos     : POSITION0;
-	float4 objectPos    : POSITION1;
+	//The previous frame's object-space position (see VertexOutput::prevPos). This is
+	//what the pixel shader turns into pos0_map, so anything building a GSOutput has to
+	//fill it - a geometry shader that generates its own vertices (grass) has no previous
+	//pose and writes its current position here.
+	float4 prevObjectPos : POSITION1;
 	float3 normal		: NORMAL;
 	float2 uv			: TEXCOORD;
 	float2 mesh_uv		: TEXCOORD1;

@@ -137,6 +137,7 @@ void RenderSystem::OnEntityDestroyed(ECS::Entity entity) {
 	RemoveDrawable(entity, depth_tree);
 	RemoveDrawable(entity, shadow_tree);
 	RemoveParticle(entity, particle_tree);
+	drawables.Remove(entity);
 }
 
 void RenderSystem::RefreshDrawable(ECS::Entity entity) {
@@ -241,12 +242,14 @@ void RenderSystem::OnEntitySignatureChanged(ECS::Entity entity, const Signature&
 		if (!is_pass1 && !is_pass2) {
 			RemoveDrawable(entity, shadow_tree);
 		}
+		drawables.Insert(entity, drawable);
 	}
 	else {
 		RemoveDrawable(entity, render_pass2_tree);
 		RemoveDrawable(entity, render_tree);
 		RemoveDrawable(entity, depth_tree);
 		RemoveDrawable(entity, shadow_tree);
+		drawables.Remove(entity);
 	}
 }
 
@@ -1060,6 +1063,23 @@ void RenderSystem::CheckSceneVisibility(RenderTree& tree) {
 	}
 }
 
+void RenderSystem::LatchPreviousFrame(const Components::Camera& camera) {
+	//What this frame was drawn with becomes what the next one measures its motion against.
+	//All three of these have to be latched here, once per rendered frame, and nowhere else:
+	//the systems that produce them (CameraSystem, StaticMeshSystem/PhysicsSystem,
+	//Mesh::Update) all run on the background thread on timers of their own, so a latch
+	//there either erases the motion outright - every tick in which nothing moved copied the
+	//current value over the previous one - or measures one of *its* ticks rather than one
+	//frame.
+	prev_view_projection = camera.view_projection;
+	for (DrawableEntity& de : drawables.GetData()) {
+		de.transform->prev_world_matrix = de.transform->world_matrix;
+		//The pose as well as the place: a rig animating on the spot keeps one world matrix
+		//all frame, so its skinning matrices are the only record that anything moved.
+		de.mesh->LatchPrevJoints();
+	}
+}
+
 void RenderSystem::DrawParticles(int w, int h, const float3& camera_position, const matrix& view, const matrix& projection, RenderParticleTree& tree) {
 
 	ID3D11DeviceContext* context = dxcore->context;
@@ -1530,6 +1550,7 @@ void RenderSystem::ProcessMix() {
 	}
 	mixer_shader->SetShaderResourceView("positions", rt_ray_sources0.SRV());
 	mixer_shader->SetShaderResourceView("normals", rt_ray_sources1.SRV());
+	mixer_shader->SetShaderResourceView("motionTexture", motion_texture.SRV());
 	mixer_shader->SetShaderResourceView("input", post_process_pipeline->RenderResource());
 	mixer_shader->SetUnorderedAccessView("output", image);
 	mixer_shader->SetShaderResourceView("rgbaNoise", rgba_noise_texture.SRV());
@@ -1545,6 +1566,7 @@ void RenderSystem::ProcessMix() {
 	mixer_shader->SetShaderResourceView("rtTexture2", nullptr);
 	mixer_shader->SetShaderResourceView("rtTexture3", nullptr);
 	mixer_shader->SetShaderResourceView("volLightTexture", nullptr);
+	mixer_shader->SetShaderResourceView("motionTexture", nullptr);
 	mixer_shader->SetShaderResourceView("dustTexture", nullptr);
 	mixer_shader->SetShaderResourceView("input", nullptr);
 	mixer_shader->SetShaderResourceView("lensFlareTexture", nullptr);
@@ -1564,7 +1586,7 @@ void RenderSystem::ProcessMotionBlur() {
 	int32_t  groupsX = (int32_t)(ceil((float)post_process_pipeline->GetW() / 8.0f));
 	int32_t  groupsY = (int32_t)(ceil((float)post_process_pipeline->GetH() / 8.0f));
 	motion_blur->SetMatrix4x4("view_proj", cam_entity.camera->view_projection);
-	motion_blur->SetMatrix4x4("prev_view_proj", cam_entity.camera->prev_view_projection);
+	motion_blur->SetMatrix4x4("prev_view_proj", prev_view_projection);
 	motion_blur->SetShaderResourceView("input", motion_blur_map.SRV());
 	motion_blur->SetInt("enabled", motion_blur_enabled && !IsDebugBufferActive());
 	motion_blur->SetUnorderedAccessView("output", post_process_pipeline->RenderUAV());
@@ -1749,7 +1771,7 @@ void RenderSystem::ProcessMotion() {
 		int32_t  groupsX = (int32_t)(ceil((float)motion_texture.Width() / 8.0f));
 		int32_t  groupsY = (int32_t)(ceil((float)motion_texture.Height() / 8.0f));
 		motion_shader->SetMatrix4x4("view_proj", cam_entity.camera->view_projection);
-		motion_shader->SetMatrix4x4("prev_view_proj", cam_entity.camera->prev_view_projection);
+		motion_shader->SetMatrix4x4("prev_view_proj", prev_view_projection);
 		motion_shader->SetUnorderedAccessView("output", motion_texture.UAV());
 		motion_shader->SetShaderResourceView("positionTexture", position_map.SRV());
 		motion_shader->SetShaderResourceView("prevPositionTexture", prev_position_map.SRV());
@@ -1884,7 +1906,7 @@ void RenderSystem::ProcessGI() {
 		gi_shader->SetInt("nobjects", nobjects);
 		gi_shader->SetInt("enabled", rt_enabled & (rt_quality != eRtQuality::OFF ? 0xFF : 0x00));
 		gi_shader->SetMatrix4x4("view_proj", cam_entity.camera->view_projection);
-		gi_shader->SetMatrix4x4("prev_view_proj", cam_entity.camera->prev_view_projection);
+		gi_shader->SetMatrix4x4("prev_view_proj", prev_view_projection);
 		gi_shader->SetInt("frame_count", frame_count);
 		gi_shader->SetData("objectMaterials", objectMaterials, nobjects * sizeof(MaterialProps));
 		gi_shader->SetData("objectInfos", objects, nobjects * sizeof(ObjectInfo));
@@ -1961,7 +1983,7 @@ void RenderSystem::ProcessGI() {
 		gi_weights->CopyAllBufferData();
 
 		gi_average->SetInt("debug", rt_debug);
-		gi_average->SetMatrix4x4("prev_view_proj", cam_entity.camera->prev_view_projection);
+		gi_average->SetMatrix4x4("prev_view_proj", prev_view_projection);
 		gi_average->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
 		gi_average->SetShaderResourceView("positions", rt_ray_sources0.SRV());
 		gi_average->SetShaderResourceView("normals", rt_ray_sources1.SRV());
@@ -2064,7 +2086,7 @@ void RenderSystem::ProcessRT() {
 			rt_di_shader->SetInt("nobjects", nobjects);
 			rt_di_shader->SetInt("enabled", rt_enabled & (rt_quality != eRtQuality::OFF ? 0xFF : 0x00));
 			rt_di_shader->SetMatrix4x4("view_proj", cam_entity.camera->view_projection);
-			rt_di_shader->SetMatrix4x4("prev_view_proj", cam_entity.camera->prev_view_projection);
+			rt_di_shader->SetMatrix4x4("prev_view_proj", prev_view_projection);
 			rt_di_shader->SetInt("frame_count", frame_count);
 			rt_di_shader->SetData("objectMaterials", objectMaterials, nobjects * sizeof(MaterialProps));
 			rt_di_shader->SetData("objectInfos", objects, nobjects * sizeof(ObjectInfo));
@@ -2127,6 +2149,10 @@ void RenderSystem::ProcessRT() {
 			rt_di_denoiser->SetShaderResourceView("prev_position_map", prev_position_map.SRV());
 			rt_di_denoiser->SetMatrix4x4(VIEW, cam_entity.camera->view);
 			rt_di_denoiser->SetMatrix4x4(PROJECTION, cam_entity.camera->projection);
+			//The temporal reprojection needs the view-projection the history was rendered
+			//with, not this frame's - see the comment on it in DenoiserCS.hlsl. GIAverageCS
+			//has had this for the same reason; this pass simply never had it plumbed in.
+			rt_di_denoiser->SetMatrix4x4("prev_view_proj", prev_view_projection);
 			rt_di_denoiser->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
 			rt_di_denoiser->SetShaderResourceView("tiles_output", rt_textures_gi_tiles.SRV());
 
@@ -2736,6 +2762,11 @@ void RenderSystem::Draw() {
 		rt_mutex.unlock();
 
 		CameraEntity& cam_entity = cameras.GetData()[0];
+		//First frame: no previous frame to have moved from.
+		if (!prev_view_projection_valid) {
+			prev_view_projection = cam_entity.camera->view_projection;
+			prev_view_projection_valid = true;
+		}
 
 		matrix view = XMMatrixTranspose(XMLoadFloat4x4(&cam_entity.camera->view));
 		matrix projection = XMMatrixTranspose(XMLoadFloat4x4(&cam_entity.camera->projection));
@@ -2808,7 +2839,7 @@ void RenderSystem::Draw() {
 			post_process_pipeline->SetShaderResourceView(AUTOFOCUS_TEXTURE, autofocus_map.SRV());
 			post_process_pipeline->SetView(*(cam_entity.camera));
 		}
-		
+		LatchPreviousFrame(*(cam_entity.camera));
 	}
 	if (post_process_pipeline != nullptr) {
 		DXCore::Get()->context->RSSetViewports(1, &dxcore->viewport);
@@ -3030,7 +3061,8 @@ uint32_t RenderSystem::GetRTDebug() const {
 const char* RenderSystem::DebugBufferName(eDebugBuffer buffer) {
 	static const char* names[(int)eDebugBuffer::COUNT] = {
 		"off", "scene", "light", "bloom", "emission", "reflection", "refraction",
-		"indirect", "volumetric", "dust", "lens_flare", "depth", "position", "normal"
+		"indirect", "volumetric", "dust", "lens_flare", "depth", "position", "normal",
+		"motion"
 	};
 	const int i = (int)buffer;
 	return (i >= 0 && i < (int)eDebugBuffer::COUNT) ? names[i] : "off";

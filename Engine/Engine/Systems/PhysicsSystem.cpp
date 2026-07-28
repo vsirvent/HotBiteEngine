@@ -272,7 +272,9 @@ void PhysicsSystem::Update(PhysicsEntity& pe, int64_t elapsed_nsec, int64_t tota
 
 	const reactphysics3d::Transform& bt = physics->body->getTransform();
 
-	transform->prev_world_matrix = transform->world_matrix;
+	//prev_world_matrix belongs to the renderer (RenderSystem::Draw latches it once per
+	//rendered frame). Latching it here measured one *physics* tick instead of one frame,
+	//and the physics thread runs on a timer unrelated to the render tick.
 
 	if (physics->type != reactphysics3d::BodyType::STATIC && (force || physics->last_body_transform != bt)) {
 		const reactphysics3d::Vector3& p = bt.getPosition();

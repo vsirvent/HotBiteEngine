@@ -12,6 +12,9 @@ cbuffer externalData : register(b0)
     matrix projection;
     uint debug;
     int kernel_size;
+    //The view-projection the previous frame was rendered with. The temporal reprojection
+    //below needs it; view/projection above describe *this* frame's camera.
+    matrix prev_view_proj;
 }
 
 Texture2D<float4> input : register(t0);
@@ -133,8 +136,15 @@ void main(uint3 DTid : SV_DispatchThreadID)
         output[pixel] = c0;
     }
     else {
-        matrix worldViewProj = mul(view, projection);
-        float4 prev_pos = mul(prev_position_map[info_pixel], worldViewProj);
+        //Where this surface was on screen *last* frame, which is where its history sits:
+        //the previous world position through the *previous* view-projection. This used to
+        //use mul(view, projection), i.e. this frame's camera, which reprojects object
+        //motion but drops camera motion entirely - for static geometry prevWorld == world,
+        //so it landed back on the same pixel and fetched history from where the surface is
+        //now rather than where it was. The blend weight below discards history once motion
+        //passes ~0.014 NDC, so fast movement hid it; slow pans read a pixel a few texels
+        //off and softened the result. GIAverageCS reprojects the same way.
+        float4 prev_pos = mul(prev_position_map[info_pixel], prev_view_proj);
         prev_pos.x /= prev_pos.w;
         prev_pos.y /= -prev_pos.w;
         prev_pos.xy = (prev_pos.xy + 1.0f) * normals_dimensions.xy / 2.0f;
