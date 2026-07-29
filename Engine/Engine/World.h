@@ -121,7 +121,11 @@ namespace HotBite {
 			//collision ShapeData of clones created during Load() (shapes are keyed by
 			//the original FBX entity name).
 			std::unordered_map<std::string, std::string> clone_shape_alias;
-			std::unordered_map<std::string, nlohmann::json> multi_materials;
+			//Named layer stacks, and the .mat file each came from - the same
+			//name/origin/retired triple materials keep, for the same reasons.
+			std::map<std::string, Core::MultiMaterialData> multi_materials;
+			std::map<std::string, std::string> multi_material_origin;
+			std::set<std::string> removed_multi_materials;
 			// Components a level record explicitly stripped from an entity, by entity id.
 			// Init() hands every mesh entity a Physics component when it has none, which
 			// would silently undo a "remove": ["Physics"] the loader had just honoured -
@@ -263,7 +267,6 @@ namespace HotBite {
 			virtual void LoadMaterialFiles(const nlohmann::json& materials_info, const std::string& path);
 			virtual void LoadMaterialsNode(const nlohmann::json& materials_info,
 										  const std::string& texture_path);
-			virtual void LoadMultiMaterial(const std::string& name, const nlohmann::json& multi_material_info);
 			// The entities behind a template name. A name that is not a template but is
 			// a loaded *model* resolves to that model's entities: a level written before
 			// models and templates were separate places instances directly from an .fbx,
@@ -451,6 +454,19 @@ namespace HotBite {
 			// records flip a dozen meshes from rebuilding the whole buffer a dozen
 			// times. False when nothing changed.
 			virtual bool SetMeshSmooth(Core::MeshData* mesh, bool smooth);
+			// Installs the level-of-detail chain of a mesh *asset*, by the names its
+			// alternates are registered under - shared exactly like SetMeshSmooth
+			// above, and for the same reason: a LOD is a description of the geometry,
+			// so every entity drawing `mesh` follows it.
+			//
+			// `names` is finest first and must not include `mesh` itself, which is
+			// always level 0. `distances` supplies the LOD_DISTANCE switch point of
+			// each name, in the same order, and is ignored in LOD_AUTO. False when a
+			// name did not resolve or an alternate was refused (MeshData::SetLods says
+			// why on stdout); the levels that were usable are still installed, so a
+			// level naming one bad LOD keeps the rest of the chain.
+			virtual bool SetMeshLods(Core::MeshData* mesh, const std::vector<std::string>& names,
+				const std::vector<float>& distances = {});
 			// Rebuilds the GPU buffers when a SetMeshSmooth since the last flush left
 			// them stale, and does nothing otherwise - so it is safe (and meant) to be
 			// called every frame, between frames. Before Init() it only clears the
@@ -607,6 +623,50 @@ namespace HotBite {
 			// is unknown or any name does not load as the stage it was given for.
 			bool SetMaterialShaders(const std::string& material_name,
 									const Core::MaterialShaderNames& names);
+
+			// --- Multi-materials ----------------------------------------------------
+			//
+			// A multi-material is a named stack of material layers - the terrain painted
+			// with dirt, grass and rock through one mask image, with snow on whatever
+			// faces up. It is an asset like a material: stored in a .mat file's
+			// "multi_materials" array, shared by every level that references the file,
+			// and saved by SaveMaterialFile rather than with the level.
+			//
+			// A *material* carries one (MaterialData::multi_material_name), and that is
+			// what makes a surface use it. It is deliberately not per entity: the render
+			// trees are keyed by material, so all the entities in one bucket are drawn
+			// with a single set of layer constants and a per-entity stack could only ever
+			// be honoured for whichever of them the bucket happened to hold first.
+			//
+			// Names live in their own namespace, so a multi-material may share a name
+			// with the material that uses it.
+			std::vector<std::string> ListMultiMaterials() const;
+			Core::MultiMaterialData* GetMultiMaterial(const std::string& name);
+			// Inserts or replaces `name` and rebuilds its GPU arrays. Does not assign it
+			// to a file (CreateMultiMaterial does) - this is the "apply an edit" entry
+			// point, used by the editor's undo as much as by loading.
+			void SetMultiMaterial(const std::string& name, const Core::MultiMaterialData& data);
+			void LoadMultiMaterial(const std::string& name, const nlohmann::json& multi_material_info);
+			// Creates an empty stack under `name`, registered against `mat_file`. Null
+			// when the name is taken or the file is unknown, exactly like CreateMaterial.
+			Core::MultiMaterialData* CreateMultiMaterial(const std::string& name, const std::string& mat_file);
+			// Retires a stack and detaches it from every material using it. Like
+			// RemoveMaterial the data is kept, so RestoreMultiMaterial can undo this.
+			bool RemoveMultiMaterial(const std::string& name);
+			bool RestoreMultiMaterial(const std::string& name, const std::string& mat_file);
+			bool IsMultiMaterialRemoved(const std::string& name) const;
+			std::string GetMultiMaterialOrigin(const std::string& name) const;
+			// Attaches a stack to a material, or detaches it when `multi_material_name`
+			// is empty. Re-registers the material's entities with the render system,
+			// because a stack changes which shader path they take.
+			bool SetMaterialMultiMaterial(const std::string& material_name,
+										  const std::string& multi_material_name);
+			// Re-resolves every material's stack pointer and rebuilds every stack from
+			// its layers. Needed after loading (a material can name a stack the file
+			// declares below it), after a material's textures change (the layer flags
+			// record which maps exist) and after any layer edit.
+			void ResolveMultiMaterials();
+
 			Core::FlatMap<std::string, Core::MeshData>& GetMeshes();
 			// The single vertex/index buffer every mesh this world loaded lives in.
 			// A MeshData does not own GPU buffers of its own - it holds an offset pair

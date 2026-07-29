@@ -505,6 +505,18 @@ namespace HotBite {
 				void DrawParticles(int w, int h, const float3& camera_position, const matrix& view, const matrix& projection, RenderParticleTree& tree);
 				bool IsVisible(const float3& camera_pos, const DrawableEntity& drawable, const matrix& view_projection, int w, int h) const;
 				void CheckSceneVisibility(RenderTree& tree);
+				//Picks the level of detail every drawable is drawn at this frame, from
+				//the chain its mesh asset declares (Core::MeshData::lods).
+				//
+				//Once per frame, over `drawables`, and before anything draws - both
+				//halves of that matter. Over the flat list rather than the trees because
+				//an entity has one geometry per frame no matter how many buckets it sits
+				//in, and the trees hold it once per shader tuple. Before anything draws
+				//because the depth pre-pass records the surface the main pass is then
+				//tested against: a switch between the two passes leaves the main pass
+				//drawing a silhouette the recorded depth does not match, which is not a
+				//pop but a hole.
+				void SelectLods(const Components::Camera& camera);
 				//Everything a motion vector is measured against: the camera's
 				//view-projection, every entity's world matrix and every skinned mesh's pose,
 				//stored as "previous" for the next frame. Called at the very end of Draw, once
@@ -516,8 +528,12 @@ namespace HotBite {
 				void PrepareMaterial(Core::MaterialData* material, Core::SimpleVertexShader* vs, Core::SimpleHullShader* hs, Core::SimpleDomainShader* ds, Core::SimpleGeometryShader* gs, Core::SimplePixelShader* ps);
 				void UnprepareMaterial(Core::MaterialData* material, Core::SimpleVertexShader* vs, Core::SimpleHullShader* hs, Core::SimpleDomainShader* ds, Core::SimpleGeometryShader* gs, Core::SimplePixelShader* ps);
 
-				void PrepareMultiMaterial(Components::Material* material, Core::SimpleVertexShader* vs, Core::SimpleHullShader* hs, Core::SimpleDomainShader* ds, Core::SimpleGeometryShader* gs, Core::SimplePixelShader* ps);
-				void UnprepareMultiMaterial(Components::Material* material, Core::SimpleVertexShader* vs, Core::SimpleHullShader* hs, Core::SimpleDomainShader* ds, Core::SimpleGeometryShader* gs, Core::SimplePixelShader* ps);
+				//Binds (and unbinds) the layer stack a material draws with. Takes the
+				//MaterialData rather than a Material component because that is where a
+				//stack lives - the draw trees are keyed by material, so one bucket has
+				//exactly one stack no matter how many entities are in it.
+				void PrepareMultiMaterial(Core::MaterialData* material, Core::SimpleVertexShader* vs, Core::SimpleHullShader* hs, Core::SimpleDomainShader* ds, Core::SimpleGeometryShader* gs, Core::SimplePixelShader* ps);
+				void UnprepareMultiMaterial(Core::MaterialData* material, Core::SimpleVertexShader* vs, Core::SimpleHullShader* hs, Core::SimpleDomainShader* ds, Core::SimpleGeometryShader* gs, Core::SimplePixelShader* ps);
 
 				void PrepareEntity(DrawableEntity& entity, Core::SimpleVertexShader* vs, Core::SimpleHullShader* hs, Core::SimpleDomainShader* ds, Core::SimpleGeometryShader* gs, Core::SimplePixelShader* ps);
 				void UnprepareEntity(DrawableEntity& entity, Core::SimpleVertexShader* vs, Core::SimpleHullShader* hs, Core::SimpleDomainShader* ds, Core::SimpleGeometryShader* gs, Core::SimplePixelShader* ps);

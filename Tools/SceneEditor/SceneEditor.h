@@ -258,6 +258,15 @@ namespace HotBiteEditor {
 		std::string selected_material;
 		std::set<std::string> dirty_material_files;
 
+		// The multi-material (layer stack) the Materials panel's second tab is
+		// editing, by name. Multi-materials live in the same .mat files and are
+		// marked unsaved through the same set above - a stack and the materials it
+		// blends are written by one File/Save Materials.
+		std::string selected_multi_material;
+		// Which layer of it the Layers table has open, and which the mask painting
+		// tool targets when a session is started without an explicit index.
+		int selected_multi_material_layer = 0;
+
 		// Entity grouping shown as a tree in the Entities panel: every group name
 		// (kept even while empty) plus the group each entity name belongs to
 		// (entities absent from the map are ungrouped). Keyed by entity *name*

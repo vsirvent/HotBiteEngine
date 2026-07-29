@@ -410,7 +410,26 @@ void  World::LoadMaterialFiles(const nlohmann::json& materials_info, const std::
 			mdata->Load(root, m.dump());
 			material_origin[name] = file;
 		}
+
+		//The file's layer stacks. Read after the materials because every layer names
+		//one of them, and skipping an entry that carries no "textures" array is not
+		//defensive coding for its own sake: Tools/MaterialDesigner has been writing
+		//plain materials into this array, and reading one as a stack would register a
+		//multi-material with no layers under a material's name.
+		if (scene.contains("multi_materials")) {
+			for (const auto& mm : scene["multi_materials"]) {
+				if (!mm.contains("textures") || !mm.contains("name")) {
+					continue;
+				}
+				const std::string name = mm["name"];
+				LoadMultiMaterial(name, mm);
+				multi_material_origin[name] = file;
+			}
+		}
 	}
+	//A material may name a stack this file declares below it, or one another file
+	//declared - so binding is a pass of its own, after everything is in.
+	ResolveMultiMaterials();
 }
 
 std::string World::GetMaterialOrigin(const std::string& material_name) const {
@@ -525,6 +544,22 @@ bool World::SaveMaterialFile(const std::string& mat_file) {
 		}
 	}
 
+	//The layer stacks assigned to this file, same ordering rule as the materials.
+	out["multi_materials"] = nlohmann::json::array();
+	std::vector<std::string> stacks;
+	for (const auto& origin : multi_material_origin) {
+		if (origin.second == mat_file && !IsMultiMaterialRemoved(origin.first)) {
+			stacks.push_back(origin.first);
+		}
+	}
+	std::sort(stacks.begin(), stacks.end());
+	for (const std::string& name : stacks) {
+		auto it = multi_materials.find(name);
+		if (it != multi_materials.end()) {
+			out["multi_materials"].push_back(it->second.ToJson());
+		}
+	}
+
 	std::ofstream stream(file_path);
 	if (!stream.is_open()) {
 		printf("World::SaveMaterialFile: cannot write %s\n", file_path.c_str());
@@ -578,8 +613,160 @@ bool World::SetEntityMaterial(ECS::Entity e, const std::string& material_name) {
 	return true;
 }
 
+std::vector<std::string> World::ListMultiMaterials() const {
+	std::vector<std::string> names;
+	for (const auto& entry : multi_materials) {
+		if (!IsMultiMaterialRemoved(entry.first)) {
+			names.push_back(entry.first);
+		}
+	}
+	return names; //std::map already orders them by name
+}
+
+Core::MultiMaterialData* World::GetMultiMaterial(const std::string& name) {
+	auto it = multi_materials.find(name);
+	if (it == multi_materials.end() || IsMultiMaterialRemoved(name)) {
+		return nullptr;
+	}
+	return &it->second;
+}
+
+void World::SetMultiMaterial(const std::string& name, const Core::MultiMaterialData& data) {
+	//The render thread walks these arrays every frame, so an in-place edit has to
+	//happen under the render lock like every other material change.
+	auto c = GetCoordinator();
+	auto rs = (c != nullptr) ? c->GetSystem<RenderSystem>() : nullptr;
+	std::unique_lock<std::recursive_mutex> l;
+	if (rs != nullptr) {
+		l = std::unique_lock<std::recursive_mutex>(rs->mutex);
+	}
+	Core::MultiMaterialData& stored = multi_materials[name];
+	//A replaced stack keeps its own name: the caller may have edited a copy that was
+	//taken before a rename, and the key is what everything else resolves through.
+	stored = data;
+	stored.name = name;
+	stored.Rebuild(path, materials);
+	removed_multi_materials.erase(name);
+	//Rebinding matters even for a pure layer edit: a material holds a pointer into
+	//this map, and inserting a new key can rehash nothing here (std::map is stable)
+	//but a *new* stack has to be picked up by the materials naming it.
+	ResolveMultiMaterials();
+}
+
 void World::LoadMultiMaterial(const std::string& name, const nlohmann::json& multi_material_info) {
-	multi_materials[name] = multi_material_info;
+	Core::MultiMaterialData& stored = multi_materials[name];
+	stored.FromJson(multi_material_info, path, materials);
+	//The registry key wins over the record's own "name", after the fact: a file whose
+	//entry disagrees with the key it was filed under would otherwise save itself back
+	//under a name nothing resolves.
+	stored.name = name;
+	removed_multi_materials.erase(name);
+}
+
+Core::MultiMaterialData* World::CreateMultiMaterial(const std::string& name, const std::string& mat_file) {
+	if (name.empty() || material_files.find(mat_file) == material_files.end()) {
+		return nullptr;
+	}
+	const bool reviving = IsMultiMaterialRemoved(name);
+	if (!reviving && multi_materials.find(name) != multi_materials.end()) {
+		return nullptr;
+	}
+	if (reviving) {
+		removed_multi_materials.erase(name);
+	}
+	else {
+		Core::MultiMaterialData fresh;
+		fresh.name = name;
+		multi_materials[name] = fresh;
+	}
+	multi_material_origin[name] = mat_file;
+	return &multi_materials[name];
+}
+
+bool World::RemoveMultiMaterial(const std::string& name) {
+	if (multi_materials.find(name) == multi_materials.end() || IsMultiMaterialRemoved(name)) {
+		return false;
+	}
+	//Detach it everywhere first: a material left naming a retired stack would keep
+	//drawing with layers that are no longer part of the project and would write the
+	//dangling name back out on the next save.
+	for (auto& material : materials.GetData()) {
+		if (material.multi_material_name == name) {
+			SetMaterialMultiMaterial(material.name, std::string());
+		}
+	}
+	removed_multi_materials.insert(name);
+	multi_material_origin.erase(name);
+	return true;
+}
+
+bool World::RestoreMultiMaterial(const std::string& name, const std::string& mat_file) {
+	if (!IsMultiMaterialRemoved(name) || multi_materials.find(name) == multi_materials.end()) {
+		return false;
+	}
+	if (material_files.find(mat_file) == material_files.end()) {
+		return false;
+	}
+	removed_multi_materials.erase(name);
+	multi_material_origin[name] = mat_file;
+	return true;
+}
+
+bool World::IsMultiMaterialRemoved(const std::string& name) const {
+	return removed_multi_materials.find(name) != removed_multi_materials.end();
+}
+
+std::string World::GetMultiMaterialOrigin(const std::string& name) const {
+	auto it = multi_material_origin.find(name);
+	return it != multi_material_origin.end() ? it->second : std::string();
+}
+
+bool World::SetMaterialMultiMaterial(const std::string& material_name,
+	const std::string& multi_material_name) {
+	Core::MaterialData* material = materials.Get(material_name);
+	if (material == nullptr) {
+		return false;
+	}
+	if (!multi_material_name.empty() && GetMultiMaterial(multi_material_name) == nullptr) {
+		return false;
+	}
+	auto c = GetCoordinator();
+	auto rs = (c != nullptr) ? c->GetSystem<RenderSystem>() : nullptr;
+	std::unique_lock<std::recursive_mutex> l;
+	if (rs != nullptr) {
+		l = std::unique_lock<std::recursive_mutex>(rs->mutex);
+	}
+	material->multi_material_name = multi_material_name;
+	material->multi_material = multi_material_name.empty()
+		? nullptr : GetMultiMaterial(multi_material_name);
+	//Attaching a stack changes which textures and constants the draw needs, and the
+	//tessellation/displacement values come from the stack rather than the material -
+	//so the entities have to be re-registered, exactly as for a shader change.
+	if (rs != nullptr) {
+		for (const auto& entry : c->GetEntites()) {
+			const ECS::Entity e = entry.second;
+			if (c->ContainsComponent<Components::Material>(e) &&
+				c->GetComponent<Components::Material>(e).data == material) {
+				rs->RefreshDrawable(e);
+			}
+		}
+	}
+	return true;
+}
+
+void World::ResolveMultiMaterials() {
+	for (auto& entry : multi_materials) {
+		entry.second.Rebuild(path, materials);
+	}
+	for (auto& material : materials.GetData()) {
+		material.multi_material = material.multi_material_name.empty()
+			? nullptr : GetMultiMaterial(material.multi_material_name);
+		if (!material.multi_material_name.empty() && material.multi_material == nullptr) {
+			LOG_WARN("World: material '%s' names multi-material '%s', which this level does "
+				"not declare; drawing it as a plain material",
+				material.name.c_str(), material.multi_material_name.c_str());
+		}
+	}
 }
 
 void World::LoadMaterialsNode(const nlohmann::json& materials_info,
@@ -1075,6 +1262,32 @@ bool World::SetMeshSmooth(Core::MeshData* mesh, bool smooth) {
 	}
 	mesh_buffers_dirty = true;
 	return true;
+}
+
+bool World::SetMeshLods(Core::MeshData* mesh, const std::vector<std::string>& names,
+	const std::vector<float>& distances) {
+	if (mesh == nullptr) {
+		return false;
+	}
+	bool resolved_all = true;
+	std::vector<Core::MeshData*> chain;
+	std::vector<float> chain_distances;
+	for (size_t i = 0; i < names.size(); ++i) {
+		Core::MeshData* lod = meshes.Get(names[i]);
+		if (lod == nullptr) {
+			printf("World::SetMeshLods: unknown mesh '%s'.\n", names[i].c_str());
+			resolved_all = false;
+			continue;
+		}
+		chain.push_back(lod);
+		//Kept in step with `chain` rather than passed through whole: a name that did
+		//not resolve must not shift every distance after it onto the wrong level.
+		chain_distances.push_back(i < distances.size() ? distances[i] : 0.0f);
+	}
+	//Nothing is uploaded and nothing is rebuilt - the alternates are meshes the world
+	//already holds, already in the vertex buffer. This only records which of them
+	//stand in for which, so it needs no FlushMeshBuffers.
+	return mesh->SetLods(chain, chain_distances) && resolved_all;
 }
 
 void World::FlushMeshBuffers() {
@@ -2132,34 +2345,10 @@ void World::Init() {
 		//Init material
 		m.Init();
 	}
-	//Init multitextures
-	for (auto& m : coordinator->GetComponents<Components::Material>()->Array()) {
-		for (uint32_t i = 0; i < m.multi_material.multi_texture_count; ++i) {
-			if (m.multi_material.multi_texture_data[i] != nullptr) {
-				if (m.multi_material.multi_texture_data[i]->diffuse != nullptr) {
-					m.multi_material.multi_texture_operation[i] |= TEXT_DIFF;
-				}
-				if (m.multi_material.multi_texture_data[i]->normal != nullptr) {
-					m.multi_material.multi_texture_operation[i] |= TEXT_NORM;
-				}
-				if (m.multi_material.multi_texture_data[i]->spec != nullptr) {
-					m.multi_material.multi_texture_operation[i] |= TEXT_SPEC;
-				}
-				if (m.multi_material.multi_texture_data[i]->ao != nullptr) {
-					m.multi_material.multi_texture_operation[i] |= TEXT_AO;
-				}
-				if (m.multi_material.multi_texture_data[i]->arm != nullptr) {
-					m.multi_material.multi_texture_operation[i] |= TEXT_ARM;
-				}
-				if (m.multi_material.multi_texture_data[i]->high != nullptr) {
-					m.multi_material.multi_texture_operation[i] |= TEXT_DISP;
-				}
-				if (m.multi_material.multi_texture_mask[i] != nullptr) {
-					m.multi_material.multi_texture_operation[i] |= TEXT_MASK;
-				}
-			}
-		}
-	}
+	//Init multitextures. This has to run *after* the material Init() loop above: a
+	//layer's flags record which maps its source material actually carries, and those
+	//textures only exist once the material has loaded them.
+	ResolveMultiMaterials();
 	for (auto& m : meshes.GetData()) {
 		//Normal map textures are loaded from json file,
 		//so we need to load in a second stage (after mesh.Init())

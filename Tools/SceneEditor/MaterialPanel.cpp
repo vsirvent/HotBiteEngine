@@ -1,4 +1,5 @@
 #include "MaterialPanel.h"
+#include "MultiMaterialPanel.h"
 #include "EditorHistory.h"
 #include "EditorLayout.h"
 #include "MaterialPreview.h"
@@ -626,6 +627,16 @@ namespace HotBiteEditor {
 			const std::string file = state.world->GetMaterialOrigin(name);
 			ImGui::TextDisabled("File: %s%s", file.empty() ? "(none)" : file.c_str(),
 				state.dirty_material_files.count(file) != 0 ? "  (unsaved)" : "");
+			if (m->multi_material != nullptr) {
+				//The stack's layers replace this material's own diffuse/normal/spec/ao/
+				//height maps on the draw path (see MainRenderPS.hlsli); everything else -
+				//emission, opacity, the flag checkboxes, the shader slots - still applies.
+				//Said here rather than merely leaving the Textures section looking inert,
+				//since "why doesn't my diffuse map do anything" is the natural question.
+				ImGui::TextColored(ImVec4(0.9f, 0.75f, 0.3f, 1.0f),
+					"Wearing multi-material '%s' - its layers replace the maps below.",
+					m->multi_material_name.c_str());
+			}
 			ImGui::Separator();
 
 			MaterialOps::MaterialSnapshot frame_before;
@@ -754,6 +765,30 @@ namespace HotBiteEditor {
 				}
 			}
 
+			if (ImGui::CollapsingHeader("Multi-material")) {
+				ImGui::TextDisabled("Attach a layer stack (see the Multi-Materials tab) to "
+					"paint several materials over this one's surface.");
+				const std::string current = m->multi_material_name;
+				if (ImGui::BeginCombo("Stack", current.empty() ? "(none)" : current.c_str())) {
+					if (ImGui::Selectable("(none)", current.empty())) {
+						std::string set_error;
+						if (!MultiMaterialOps::Assign(state, name, std::string(), set_error)) {
+							state.status_message = "Detach failed: " + set_error;
+						}
+					}
+					for (const std::string& mm_name : MultiMaterialOps::List(state)) {
+						if (ImGui::Selectable(mm_name.c_str(), mm_name == current) &&
+							mm_name != current) {
+							std::string set_error;
+							if (!MultiMaterialOps::Assign(state, name, mm_name, set_error)) {
+								state.status_message = "Attach failed: " + set_error;
+							}
+						}
+					}
+					ImGui::EndCombo();
+				}
+			}
+
 			if (ImGui::CollapsingHeader("Used by")) {
 				const std::vector<std::string> users = MaterialOps::FindUsers(state, name);
 				if (users.empty()) {
@@ -780,6 +815,21 @@ namespace HotBiteEditor {
 				return;
 			}
 
+			if (ImGui::BeginTabBar("##material_panel_tabs")) {
+				if (ImGui::BeginTabItem("Materials")) {
+					DrawMaterialsTab(state);
+					ImGui::EndTabItem();
+				}
+				if (ImGui::BeginTabItem("Multi-Materials")) {
+					MultiMaterialPanel::Draw(state);
+					ImGui::EndTabItem();
+				}
+				ImGui::EndTabBar();
+			}
+			ImGui::End();
+		}
+
+		void DrawMaterialsTab(EditorState& state) {
 			if (ImGui::Button("New...")) {
 				ImGui::OpenPopup("Create Material");
 			}
@@ -847,7 +897,6 @@ namespace HotBiteEditor {
 			const std::vector<std::string> names = MaterialOps::ListMaterials(state);
 			if (names.empty()) {
 				ImGui::TextDisabled("This level has no materials.");
-				ImGui::End();
 				return;
 			}
 
@@ -869,7 +918,6 @@ namespace HotBiteEditor {
 				}
 			}
 			ImGui::EndChild();
-			ImGui::End();
 		}
 	}
 }

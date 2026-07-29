@@ -167,6 +167,139 @@ bool MeshData::SetSmooth(bool enable) {
 	return true;
 }
 
+//Two meshes can stand in for each other only if the joint buffer uploaded for one
+//means the same thing to the other: the vertices carry joint *indices*, and those
+//index whatever skeleton the entity is animating - which is LOD0's, since the LOD
+//never reaches Components::Mesh::data. Same skeleton object (the usual case, LODs
+//exported as sibling nodes of one .fbx) is settled immediately; across files the
+//joints have to agree in count and in order, because an off-by-one there does not
+//degrade the model, it tears it apart.
+static bool CompatibleSkinning(const MeshData& base, const MeshData& lod) {
+	if (base.skeletons.empty()) {
+		//An unskinned model. A skinned stand-in would be posed by a joint buffer
+		//nothing ever fills, which is the identity - so it would draw, in its bind
+		//pose, and only look wrong.
+		return lod.skeletons.empty();
+	}
+	if (lod.skeletons.empty()) {
+		return false;
+	}
+	if (base.skeletons[0] == lod.skeletons[0]) {
+		return true;
+	}
+	const std::vector<JointCpuData>& a = base.skeletons[0]->CpuData();
+	const std::vector<JointCpuData>& b = lod.skeletons[0]->CpuData();
+	if (a.size() != b.size()) {
+		return false;
+	}
+	for (size_t i = 0; i < a.size(); ++i) {
+		if (a[i].name != b[i].name) {
+			return false;
+		}
+	}
+	return true;
+}
+
+bool MeshData::SetLods(const std::vector<MeshData*>& chain, const std::vector<float>& distances) {
+	lods.clear();
+	bool complete = true;
+	//[0] is always this mesh, so selection code never has a special case for the
+	//full-detail level and `ratio`/`distance` are read the same way at every index.
+	lods.push_back(MeshLod{ this, 1.0f, 0.0f });
+	if (vertexCount == 0) {
+		return chain.empty();
+	}
+	for (size_t i = 0; i < chain.size(); ++i) {
+		MeshData* lod = chain[i];
+		const char* refused = nullptr;
+		if (lod == nullptr || !lod->init || lod->vertexCount == 0) {
+			refused = "it holds no geometry";
+		}
+		else if (lod == this) {
+			refused = "it is the mesh itself";
+		}
+		else if (!CompatibleSkinning(*this, *lod)) {
+			refused = "it is not skinned to the same skeleton";
+		}
+		else {
+			for (const MeshLod& existing : lods) {
+				if (existing.mesh == lod) {
+					refused = "it is already in the chain";
+					break;
+				}
+			}
+		}
+		if (refused != nullptr) {
+			printf("MeshData::SetLods: '%s' cannot be a LOD of '%s': %s.\n",
+				(lod != nullptr) ? lod->name.c_str() : "(null)", name.c_str(), refused);
+			complete = false;
+			continue;
+		}
+		MeshLod entry;
+		entry.mesh = lod;
+		entry.ratio = (float)lod->vertexCount / (float)vertexCount;
+		//A stand-in with *more* vertices than the mesh it stands in for is not a
+		//reduction, and would be eligible at every coverage below 100%: clamped, so
+		//the worst it can do is draw as early as LOD0 rather than instead of it.
+		if (entry.ratio > 1.0f) {
+			entry.ratio = 1.0f;
+		}
+		entry.distance = (i < distances.size()) ? distances[i] : 0.0f;
+		lods.push_back(entry);
+	}
+	if (lods.size() == 1) {
+		//"No chain" and "a chain of just me" are the same thing to every reader, and
+		//the empty one is what a mesh that never declared LODs looks like.
+		lods.clear();
+	}
+	return complete;
+}
+
+//The margin a metric has to pass a boundary by before the selection follows it: 10%
+//of the metric, in whichever direction it is moving.
+//
+//Not optional. The coverage of a model the camera is drifting past crosses a
+//threshold and re-crosses it on the noise of the fit, and each crossing swaps the
+//geometry - so a model sitting near a boundary flickers between two silhouettes every
+//frame, which is far more visible than either of them being the wrong one.
+static constexpr float LOD_HYSTERESIS = 0.1f;
+
+int MeshData::SelectLod(float coverage, float distance, int current) const {
+	if (lods.size() < 2) {
+		return 0;
+	}
+	//The coarsest level that still qualifies. The chain is ordered, so the first
+	//level that fails ends it.
+	auto pick = [this](float cov, float dist) {
+		int chosen = 0;
+		for (int i = 1; i < (int)lods.size(); ++i) {
+			const bool ok = (lod_mode == LOD_DISTANCE) ? (dist >= lods[i].distance)
+				: (lods[i].ratio >= cov);
+			if (!ok) {
+				break;
+			}
+			chosen = i;
+		}
+		return chosen;
+	};
+	//`lod_bias` scales the detail demanded, not the coverage measured - the same
+	//number either way, but this is the direction it reads in: above 1 asks for more
+	//vertices per pixel and so holds each level further out.
+	const float required = coverage * lod_bias;
+	int chosen = pick(required, distance);
+	if (current < 0 || current >= (int)lods.size() || chosen == current) {
+		return chosen;
+	}
+	const float m = 1.0f + LOD_HYSTERESIS;
+	if (chosen > current) {
+		//Dropping detail. Only follow if the coarser level still qualifies with the
+		//model treated as bigger (nearer) than it is.
+		return max(current, pick(required * m, distance / m));
+	}
+	//Gaining it, under the mirror image of the same test.
+	return min(current, pick(required / m, distance * m));
+}
+
 //A vertex counts towards a joint's box when that joint carries at least this share of
 //the influence the vertex's strongest joint has.
 //

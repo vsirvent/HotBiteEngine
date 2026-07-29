@@ -102,6 +102,14 @@ clips, its own `.mat`), a `tf_troll` template scaled and turned upright like the
 demo's, and a ground slab for shadows to land on. ~13 MB of copying and ~5 s of
 FBX load, so only the suites that need a real mesh use it.
 
+**`lods`** - `models` plus the two sky domes (`Space`, 2880 vertices, and `Sky`,
+36), which is the least a level-of-detail chain can be tested with: two unskinned
+meshes of the same kind, one an exact 1.25% of the other. Both are scaled down to
+0.02 in the `tf_dome` template, because at their authored size a sky dome fills
+the view from anywhere and every screen-area assertion would read a coverage of 1.
+The troll comes along so "a skinned mesh will not take an unskinned stand-in" has
+both halves.
+
 ## Suites
 
 | file | fixture | covers |
@@ -124,6 +132,8 @@ FBX load, so only the suites that need a real mesh use it.
 | `16-animations` | models | the animation library, defaults, per-instance overrides |
 | `17-skinning` | models | clip-measured bounds, colliders, bone sockets, smoothing |
 | `18-engine-render` | models | motion vectors, G-buffers, shadow debug views |
+| `19-multimaterials` | empty | multi-material layer stacks, orientation/altitude rules, mask painting, rendering |
+| `20-lods` | lods | the LOD chain on the mesh asset, switching by screen area and by distance, per-entity opt-out |
 
 ## Things that will bite you
 

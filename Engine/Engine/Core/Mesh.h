@@ -372,6 +372,86 @@ namespace HotBite {
 				// Only positions feed the BVH, so nothing here invalidates it.
 				bool SetSmooth(bool enable);
 
+				// == Levels of detail ==================================================
+				//
+				// A LOD chain is a list of alternate geometries for one model, finest
+				// first: `lods[0]` is this mesh itself and every entry after it is a
+				// coarser stand-in that draws in its place once the model is small enough
+				// on screen for the difference not to show.
+				//
+				// The chain belongs to the mesh *asset*, exactly like `skeletons` and
+				// `smooth` and for the same reason - it describes the geometry, so every
+				// entity drawing this mesh switches with it, and two entities asking for
+				// different chains is last-writer-wins. Where the *switch* happens is the
+				// renderer's business (RenderSystem::SelectLods, once per frame).
+				//
+				// Only the three DrawIndexed arguments ever change. Components::Mesh::data
+				// keeps pointing at the full-detail mesh, so the bounds, the collider
+				// sized from them, the BVH the ray tracers walk and the skeleton being
+				// animated are all measured from LOD0 and none of them wobble with the
+				// camera. A LOD that changed the bounds would change the culling volume
+				// and the physics shape of an object for walking away from it.
+				struct MeshLod {
+					// The geometry drawn at this level. Never null once the chain is
+					// built, and [0] is always the owning mesh.
+					MeshData* mesh = nullptr;
+					// This level's share of the full mesh's vertices, in (0, 1] -
+					// `mesh->vertexCount / lods[0].mesh->vertexCount`. Derived rather
+					// than authored: the reduction is a fact about the geometry that was
+					// supplied, and a number typed next to it would only ever be a second
+					// opinion about it. This is what LOD_AUTO compares screen coverage
+					// against.
+					float ratio = 1.0f;
+					// LOD_DISTANCE only: the camera distance at which this level takes
+					// over, in world units. Zero for [0], increasing down the chain.
+					float distance = 0.0f;
+				};
+
+				enum LodMode {
+					// Detail follows the model's share of the screen: a level is eligible
+					// once its `ratio` is at least the fraction of the viewport the model
+					// covers. An object covering a tenth of the screen may drop to a
+					// tenth of its vertices. Needs no authoring at all beyond the meshes
+					// themselves, and adapts to resolution and field of view on its own.
+					LOD_AUTO = 0,
+					// Detail follows plain camera distance, from the `distance` on each
+					// level. For when the automatic rule reads a model wrong - a tree
+					// whose silhouette is mostly empty space, a piece whose coarse LOD is
+					// deliberately not a fair approximation of the fine one.
+					LOD_DISTANCE = 1
+				};
+
+				// Finest first, [0] being this mesh. Empty or of size one means "no
+				// chain", which is every mesh until something declares otherwise.
+				std::vector<MeshLod> lods;
+				int lod_mode = LOD_AUTO;
+				// LOD_AUTO only: scales the detail the rule demands. Above 1 the model
+				// holds each level further out (2 asks for twice the vertices, so it
+				// switches at half the coverage), below 1 it drops sooner. It is the one
+				// knob for trading quality against triangles across a whole model.
+				float lod_bias = 1.0f;
+
+				// Installs `chain` as the alternates below this mesh, coarsest last, and
+				// derives each one's `ratio`. `distances` is the LOD_DISTANCE switch
+				// point of each alternate, in the same order; a short or empty list
+				// leaves the missing ones at zero, which in that mode means the level is
+				// eligible everywhere and so effectively pins the mesh to the coarsest
+				// entry - authoring distances is not optional once that mode is chosen.
+				//
+				// An entry is refused (and reported) when it is this mesh, a duplicate,
+				// uninitialized, or skinned incompatibly - see MeshData.cpp. Returns
+				// false when the chain that resulted differs from what was asked for.
+				bool SetLods(const std::vector<MeshData*>& chain,
+					const std::vector<float>& distances = {});
+
+				// The level to draw for a model covering `coverage` of the viewport
+				// (0..1) at `distance` world units from the camera, given that `current`
+				// is being drawn now. `current` is what supplies the hysteresis: the
+				// metric has to pass a boundary by a margin before the answer follows it,
+				// or a model parked exactly on one alternates every frame and the pop is
+				// the most visible thing on screen. Pass -1 for "no history".
+				int SelectLod(float coverage, float distance, int current) const;
+
 				HotBite::Engine::Core::BVH bvh;
 				float3 minDimensions = {};
 				float3 maxDimensions = {};

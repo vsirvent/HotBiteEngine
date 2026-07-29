@@ -696,9 +696,209 @@ namespace HotBiteEditor {
 			//Materials panel is where you go to look at the sphere.
 			MaterialPanel::DrawMaterialProperties(state, md.name, false);
 
-			if (m.multi_material.multi_texture_count > 0) {
-				ImGui::Text("Multi-texture layers: %u", m.multi_material.multi_texture_count);
+			//A layer stack belongs to the material, so it is edited in the Materials
+			//panel's Multi-Materials tab and only reported here.
+			if (md.multi_material != nullptr) {
+				ImGui::TextDisabled("Multi-material: %s (%u layer(s))",
+					md.multi_material_name.c_str(), md.multi_material->multi_texture_count);
 			}
+		}
+
+		//The mesh's level-of-detail chain. Everything in here but the "Level of detail"
+		//checkbox belongs to the mesh *asset* (Core::MeshData::lods) and so reaches every
+		//entity drawing it, exactly like the smoothing flag above - the header says so
+		//once rather than every row repeating it.
+		static void DrawMeshLods(EditorState& state, Mesh& mesh, Core::MeshData* data,
+			const std::string& entity_name, const std::vector<std::string>& all_meshes)
+		{
+			if (!ImGui::TreeNodeEx("Levels of detail", ImGuiTreeNodeFlags_DefaultOpen)) {
+				return;
+			}
+			//Per entity, and first, because it is the switch that decides whether any of
+			//the rest applies to this object at all.
+			{
+				SectionEdit edit(state, entity_name, Mesh::NAME);
+				bool enabled = mesh.lod_enabled;
+				const bool changed = ImGui::Checkbox("Level of detail", &enabled);
+				if (changed) {
+					mesh.lod_enabled = enabled;
+					if (!enabled) {
+						mesh.SetLod(0);
+					}
+				}
+				edit.Track(changed);
+				edit.Commit();
+			}
+			if (ImGui::IsItemHovered()) {
+				ImGui::SetTooltip("Whether THIS entity follows the chain below. Off pins it to\n"
+					"full detail - for the one object the camera is always on.");
+			}
+
+			const int level_count = (int)data->lods.size();
+			ImGui::Text("Drawing level %d of %d", mesh.current_lod,
+				level_count > 0 ? level_count : 1);
+
+			//Which rule decides. A combo, so it is applied through SetValue rather than
+			//tracked - see the note on SectionEdit.
+			const bool by_distance = (data->lod_mode == Core::MeshData::LOD_DISTANCE);
+			if (ImGui::BeginCombo("Switch by", by_distance ? "camera distance" : "screen area")) {
+				auto choose = [&](const char* label, bool want_distance) {
+					if (ImGui::Selectable(label, by_distance == want_distance) &&
+						by_distance != want_distance) {
+						nlohmann::json block = ComponentOps::GetValue(state, entity_name, Mesh::NAME);
+						block["lod_mode"] = want_distance ? "distance" : "auto";
+						std::string error;
+						if (!ComponentOps::SetValue(state, entity_name, Mesh::NAME, block, error)) {
+							state.status_message = "Set LOD mode failed: " + error;
+						}
+					}
+				};
+				choose("screen area", false);
+				choose("camera distance", true);
+				ImGui::EndCombo();
+			}
+			if (ImGui::IsItemHovered()) {
+				ImGui::SetTooltip("screen area: a level is used once its share of the model's\n"
+					"vertices is at least the share of the screen the model covers.\n"
+					"Needs no distances and follows resolution and field of view.\n\n"
+					"camera distance: each level takes over at the distance set on it.");
+			}
+
+			if (!by_distance) {
+				SectionEdit edit(state, entity_name, Mesh::NAME);
+				edit.Track(ImGui::DragFloat("Quality", &data->lod_bias, 0.05f, 0.05f, 20.0f));
+				if (data->lod_bias < 0.05f) {
+					data->lod_bias = 0.05f;
+				}
+				edit.Commit();
+				if (ImGui::IsItemHovered()) {
+					ImGui::SetTooltip("Scales the detail demanded. Above 1 holds each level\n"
+						"further out (2 asks for twice the vertices, so it switches\n"
+						"at half the coverage); below 1 drops detail sooner.");
+				}
+			}
+
+			//The chain itself. Level 0 is the mesh and is listed for its vertex count,
+			//which is what every ratio below it is a share of - without it the numbers
+			//are a column of percentages of nothing.
+			if (ImGui::BeginTable("lods", by_distance ? 5 : 4,
+				ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_RowBg)) {
+				//Abbreviated headers and a one-character remove button: the Inspector
+				//is a narrow dock, and at its default width the full words leave the
+				//distance field too small to drag.
+				ImGui::TableSetupColumn("Lv", ImGuiTableColumnFlags_WidthFixed);
+				ImGui::TableSetupColumn("Mesh");
+				ImGui::TableSetupColumn("Verts");
+				if (by_distance) {
+					ImGui::TableSetupColumn("At");
+				}
+				ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed);
+				ImGui::TableHeadersRow();
+
+				auto row = [&](int index, const std::string& lod_name, uint32_t vertices,
+					float ratio, float* distance) {
+					ImGui::TableNextRow();
+					ImGui::TableNextColumn();
+					//The level on screen right now, so the table is also the readout of
+					//what the rule above is currently deciding.
+					if (index == mesh.current_lod) {
+						ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f), "* %d", index);
+					}
+					else {
+						ImGui::Text("%d", index);
+					}
+					ImGui::TableNextColumn();
+					ImGui::TextUnformatted(lod_name.c_str());
+					ImGui::TableNextColumn();
+					ImGui::Text("%u", vertices);
+					if (ImGui::IsItemHovered()) {
+						ImGui::SetTooltip("%.2f%% of the full mesh - the share of the screen\n"
+							"the model has to be under for this level to be used.",
+							ratio * 100.0f);
+					}
+					if (by_distance) {
+						ImGui::TableNextColumn();
+						if (distance != nullptr) {
+							ImGui::PushID(index);
+							ImGui::SetNextItemWidth(-FLT_MIN);
+							SectionEdit edit(state, entity_name, Mesh::NAME);
+							edit.Track(ImGui::DragFloat("##distance", distance, 0.5f, 0.0f,
+								100000.0f, "%.1f"));
+							if (*distance < 0.0f) {
+								*distance = 0.0f;
+							}
+							edit.Commit();
+							ImGui::PopID();
+						}
+						else {
+							ImGui::TextDisabled("-");
+						}
+					}
+					ImGui::TableNextColumn();
+					if (index > 0) {
+						ImGui::PushID(index);
+						if (ImGui::SmallButton("x")) {
+							nlohmann::json block =
+								ComponentOps::GetValue(state, entity_name, Mesh::NAME);
+							if (block.contains("lods") && block["lods"].is_array() &&
+								index - 1 < (int)block["lods"].size()) {
+								block["lods"].erase(index - 1);
+								std::string error;
+								if (!ComponentOps::SetValue(state, entity_name, Mesh::NAME,
+									block, error)) {
+									state.status_message = "Remove LOD failed: " + error;
+								}
+							}
+						}
+						if (ImGui::IsItemHovered()) {
+							ImGui::SetTooltip("Remove this level from the chain.");
+						}
+						ImGui::PopID();
+					}
+				};
+
+				if (level_count == 0) {
+					row(0, data->name, data->vertexCount, 1.0f, nullptr);
+				}
+				for (int i = 0; i < level_count; ++i) {
+					Core::MeshData::MeshLod& lod = data->lods[i];
+					row(i, lod.mesh != nullptr ? lod.mesh->name : std::string("(missing)"),
+						lod.mesh != nullptr ? lod.mesh->vertexCount : 0, lod.ratio,
+						i > 0 ? &lod.distance : nullptr);
+				}
+				ImGui::EndTable();
+			}
+
+			//Adding one. A picker over the level's meshes for the same reason the mesh
+			//field above is a picker: the name has to resolve against a loaded mesh, and
+			//an alternate that does not is simply dropped on load.
+			if (ImGui::BeginCombo("Add level", "(choose a mesh)")) {
+				for (const std::string& option : all_meshes) {
+					if (option == data->name) {
+						continue;
+					}
+					if (ImGui::Selectable(option.c_str())) {
+						nlohmann::json block =
+							ComponentOps::GetValue(state, entity_name, Mesh::NAME);
+						if (!block.contains("lods") || !block["lods"].is_array()) {
+							block["lods"] = nlohmann::json::array();
+						}
+						block["lods"].push_back(nlohmann::json{ {"name", option},
+																{"distance", 0.0f} });
+						std::string error;
+						if (!ComponentOps::SetValue(state, entity_name, Mesh::NAME, block, error)) {
+							state.status_message = "Add LOD failed: " + error;
+						}
+					}
+				}
+				ImGui::EndCombo();
+			}
+			if (ImGui::IsItemHovered()) {
+				ImGui::SetTooltip("Add a coarser stand-in, in order: each one should have fewer\n"
+					"vertices than the level above it. A skinned model's levels must\n"
+					"be rigged to the same skeleton or the level is refused.");
+			}
+			ImGui::TreePop();
 		}
 
 		static void DrawMesh(EditorState& state, Coordinator* c, Entity e)
@@ -778,6 +978,8 @@ namespace HotBiteEditor {
 						"vertex grouping to smooth across.");
 				}
 			}
+
+			DrawMeshLods(state, mesh, data, entity_name, meshes);
 
 			//What this entity can play. Two sources, in the order that matters:
 			//

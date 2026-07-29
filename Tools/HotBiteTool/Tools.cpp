@@ -79,9 +79,12 @@ namespace HotBiteTool {
 				mdata = materials.Get(name);
 			}
 			mdata->Load(root, mat);
+			//A plain material is a material with no layer stack. Load() cleared the name
+			//already; drop the resolved pointer with it, or the preview keeps drawing the
+			//stack that was there before.
+			mdata->multi_material = nullptr;
 			if (e != ECS::INVALID_ENTITY_ID) {
 				Components::Material& m = c->GetComponent<Components::Material>(e);
-				m.multi_material.multi_texture_count = 0;
 				m.data = mdata;
 				c->NotifySignatureChange(e);
 			}
@@ -91,11 +94,26 @@ namespace HotBiteTool {
 			auto c = world.GetCoordinator();
 			std::scoped_lock l(c->GetSystem<RenderSystem>()->mutex);
 			ECS::Entity e = c->GetEntityByName(entity);
-			if (e != ECS::INVALID_ENTITY_ID) {
-				Components::Material& m = c->GetComponent<Components::Material>(e);
-				m.multi_material.LoadMultitexture(mat, root, world.GetMaterials());
-				c->NotifySignatureChange(e);
+			if (e == ECS::INVALID_ENTITY_ID) {
+				return;
 			}
+			Components::Material& m = c->GetComponent<Components::Material>(e);
+			if (m.data == nullptr) {
+				return;
+			}
+			//A layer stack belongs to a material now, not to an entity (see World.h), so
+			//the designer's live preview attaches one to whatever material the preview
+			//object is wearing. It is registered under that material's name because the
+			//stack being edited has no identity of its own until it is saved to a file.
+			Core::MultiMaterialData stack;
+			if (!stack.LoadMultitexture(mat, root, world.GetMaterials())) {
+				return;
+			}
+			stack.name = m.data->name;
+			world.SetMultiMaterial(stack.name, stack);
+			m.data->multi_material_name = stack.name;
+			m.data->multi_material = world.GetMultiMaterial(stack.name);
+			c->NotifySignatureChange(e);
 		}
 
 		void ToolUi::LoadWorld(const std::string& world_file)

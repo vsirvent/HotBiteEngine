@@ -34,6 +34,8 @@
     <ClCompile Include="Inspector.cpp" />
     <ClCompile Include="AssetBrowser.cpp" />
     <ClCompile Include="MaterialPanel.cpp" />
+    <ClCompile Include="MultiMaterialPanel.cpp" />
+    <ClCompile Include="MaskPaint.cpp" />
     <ClCompile Include="MaterialPreview.cpp" />
     <ClCompile Include="ModelPreview.cpp" />
     <ClCompile Include="PreviewPass.cpp" />
@@ -67,6 +69,8 @@
     <ClInclude Include="Inspector.h" />
     <ClInclude Include="AssetBrowser.h" />
     <ClInclude Include="MaterialPanel.h" />
+    <ClInclude Include="MultiMaterialPanel.h" />
+    <ClInclude Include="MaskPaint.h" />
     <ClInclude Include="MaterialPreview.h" />
     <ClInclude Include="ModelPreview.h" />
     <ClInclude Include="PreviewPass.h" />

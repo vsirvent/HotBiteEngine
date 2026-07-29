@@ -24,6 +24,8 @@ SOFTWARE.
 
 #include "Utils.h"
 
+#include <algorithm>
+
 #include <DDSTextureLoader.h>
 #include <WICTextureLoader.h>
 
@@ -90,6 +92,227 @@ namespace HotBite {
 				return srv;
 			}
 
+			//--- MultiMaterialData ------------------------------------------------------
+
+			namespace {
+				//The four rule fields as the shader wants them. `enabled` rides in .w
+				//rather than in a separate array because the alternative is a second
+				//constant array whose only content is a boolean.
+				float4 RangeVector(bool enabled, float min_value, float max_value, float fade) {
+					return float4{ min_value, max_value, fade, enabled ? 1.0f : 0.0f };
+				}
+			}
+
+			void MultiMaterialData::Rebuild(const std::string& root_path,
+				const FlatMap<std::string, MaterialData>& materials) {
+				multi_texture_count = (uint32_t)(std::min)(layers.size(), (size_t)MAX_MULTI_TEXTURE);
+				multi_texture_data.assign(multi_texture_count, nullptr);
+				multi_texture_operation.assign(multi_texture_count, 0);
+				multi_texture_value.assign(multi_texture_count, 0.0f);
+				multi_texture_uv_scales.assign(multi_texture_count, 1.0f);
+				multi_texture_slope.assign(multi_texture_count, float4{});
+				multi_texture_height.assign(multi_texture_count, float4{});
+				multi_texture_mask_uv.assign(multi_texture_count, float4{ 1.0f, 1.0f, 0.0f, 0.0f });
+				multi_texture_mask.resize(multi_texture_count, nullptr);
+				resolved_masks.resize(multi_texture_count);
+
+				for (uint32_t i = 0; i < multi_texture_count; ++i) {
+					const MultiMaterialLayer& layer = layers[i];
+					//The op field carries both the authored blend mode and, below, the
+					//derived "this map exists" bits, so start from the authored half only.
+					uint32_t op = layer.op & TEXT_OP_MASK;
+					op |= (uint32_t)(layer.mask_channel & 3) << TEXT_MASK_CHANNEL_SHIFT;
+					if (layer.mask_invert) { op |= TEXT_MASK_INV; }
+					if (layer.mask_noise) { op |= TEXT_MASK_NOISE; }
+					if (layer.uv_noise) { op |= TEXT_UV_NOISE; }
+					if (layer.slope_enabled) { op |= TEXT_SLOPE; }
+					if (layer.height_enabled) { op |= TEXT_HEIGHT; }
+
+					const std::string mask_path = layer.mask.empty()
+						? std::string() : root_path + "\\" + layer.mask;
+					if (resolved_masks[i] != mask_path) {
+						resolved_masks[i] = mask_path;
+						multi_texture_mask[i] = mask_path.empty() ? nullptr : LoadTexture(mask_path);
+					}
+					ID3D11ShaderResourceView* live = GetLiveMask(i);
+					if (live != nullptr) {
+						multi_texture_mask[i] = live;
+					}
+					if (multi_texture_mask[i] != nullptr) {
+						op |= TEXT_MASK;
+					}
+
+					MaterialData* source = materials.Get(layer.material);
+					multi_texture_data[i] = source;
+					if (source != nullptr) {
+						//Which maps the source material actually has. A layer asking for a
+						//map its material does not carry must not sample the array slot,
+						//which holds whatever the previous draw left there.
+						if (source->diffuse != nullptr) { op |= TEXT_DIFF; }
+						if (source->normal != nullptr) { op |= TEXT_NORM; }
+						if (source->spec != nullptr) { op |= TEXT_SPEC; }
+						if (source->ao != nullptr) { op |= TEXT_AO; }
+						if (source->arm != nullptr) { op |= TEXT_ARM; }
+						if (source->high != nullptr) { op |= TEXT_DISP; }
+					}
+
+					multi_texture_operation[i] = op;
+					multi_texture_value[i] = layer.value;
+					multi_texture_uv_scales[i] = layer.uv_scale;
+					multi_texture_slope[i] = RangeVector(layer.slope_enabled, layer.slope_min,
+						layer.slope_max, layer.slope_fade);
+					multi_texture_height[i] = RangeVector(layer.height_enabled, layer.height_min,
+						layer.height_max, layer.height_fade);
+					multi_texture_mask_uv[i] = float4{ layer.mask_uv_scale, layer.mask_uv_scale,
+						layer.mask_uv_offset.x, layer.mask_uv_offset.y };
+				}
+			}
+
+			void MultiMaterialData::SetLiveMask(uint32_t layer, ID3D11ShaderResourceView* srv) {
+				if (live_masks.size() <= layer) {
+					live_masks.resize(layer + 1, nullptr);
+				}
+				//Whether multi_texture_mask[layer]'s *current* entry is a reference this
+				//object owns (a LoadTexture() call in Rebuild or in the reload branch
+				//below) versus a caller-owned live texture (MaskPaint's session SRV,
+				//released by MaskPaint::ReleaseGpu, never by this object) - decided by
+				//whether a live override was active a moment ago, before it changes below.
+				const bool owned_current_mask = (layer < live_masks.size()) && (live_masks[layer] == nullptr);
+				live_masks[layer] = srv;
+				//Take effect now rather than at the next unrelated Rebuild: the caller is a
+				//brush, and a stroke that only appears when something else changes reads as
+				//the tool not working.
+				if (layer < multi_texture_mask.size()) {
+					if (owned_current_mask && multi_texture_mask[layer] != nullptr) {
+						ReleaseTexture(multi_texture_mask[layer]);
+					}
+					if (srv != nullptr) {
+						multi_texture_mask[layer] = srv;
+						multi_texture_operation[layer] |= TEXT_MASK;
+					}
+					else {
+						multi_texture_mask[layer] = resolved_masks[layer].empty()
+							? nullptr : LoadTexture(resolved_masks[layer]);
+						if (multi_texture_mask[layer] == nullptr) {
+							multi_texture_operation[layer] &= ~TEXT_MASK;
+						}
+					}
+				}
+			}
+
+			ID3D11ShaderResourceView* MultiMaterialData::GetLiveMask(uint32_t layer) const {
+				return (layer < live_masks.size()) ? live_masks[layer] : nullptr;
+			}
+
+			nlohmann::json MultiMaterialData::ToJson() const {
+				nlohmann::json j;
+				j["name"] = name;
+				j["count"] = (uint32_t)layers.size();
+				j["parallax_scale"] = multi_parallax_scale;
+				j["tess_type"] = tessellation_type;
+				j["tess_factor"] = tessellation_factor;
+				j["displacement_scale"] = displacement_scale;
+
+				nlohmann::json textures = nlohmann::json::array();
+				for (size_t i = 0; i < layers.size(); ++i) {
+					const MultiMaterialLayer& layer = layers[i];
+					nlohmann::json t;
+					t["layer"] = (int)i;
+					t["texture"] = layer.material;
+					t["mask"] = layer.mask;
+					//The original format's shape: the blend mode alone, with the derived
+					//map bits left out. Writing the whole runtime `op` would bake this
+					//session's texture set into the file.
+					t["op"] = layer.op & TEXT_OP_MASK;
+					t["value"] = layer.value;
+					t["uv_scale"] = layer.uv_scale;
+					t["mask_noise"] = layer.mask_noise ? 1 : 0;
+					t["uv_noise"] = layer.uv_noise ? 1 : 0;
+					t["mask_channel"] = layer.mask_channel;
+					t["mask_invert"] = layer.mask_invert ? 1 : 0;
+					t["mask_uv_scale"] = layer.mask_uv_scale;
+					t["mask_uv_offset"] = nlohmann::json{ {"u", layer.mask_uv_offset.x},
+						{"v", layer.mask_uv_offset.y} };
+					//Written even when disabled: every FromJson reads a missing key as
+					//"leave alone", and the editor's undo replays an earlier ToJson - so a
+					//key omitted because the rule was off could never be turned back off.
+					t["slope"] = nlohmann::json{ {"enabled", layer.slope_enabled},
+						{"min", layer.slope_min}, {"max", layer.slope_max}, {"fade", layer.slope_fade} };
+					t["height"] = nlohmann::json{ {"enabled", layer.height_enabled},
+						{"min", layer.height_min}, {"max", layer.height_max}, {"fade", layer.height_fade} };
+					textures.push_back(t);
+				}
+				j["textures"] = textures;
+				return j;
+			}
+
+			void MultiMaterialData::FromJson(const nlohmann::json& j, const std::string& root_path,
+				const FlatMap<std::string, MaterialData>& materials) {
+				name = j.value("name", name);
+				multi_parallax_scale = j.value("parallax_scale", multi_parallax_scale);
+				tessellation_type = j.value("tess_type", tessellation_type);
+				tessellation_factor = j.value("tess_factor", tessellation_factor);
+				displacement_scale = j.value("displacement_scale", displacement_scale);
+
+				//"count" is what the original format declared; the array is authoritative
+				//when the two disagree, since a short array with a large count used to
+				//leave unwritten layers pointing at nothing.
+				const nlohmann::json empty = nlohmann::json::array();
+				const nlohmann::json& textures = j.contains("textures") ? j["textures"] : empty;
+				size_t count = (size_t)j.value("count", (uint32_t)textures.size());
+				count = (std::min)((std::max)(count, textures.size()), (size_t)MAX_MULTI_TEXTURE);
+				layers.assign(count, MultiMaterialLayer{});
+
+				for (const auto& t : textures) {
+					const size_t index = (size_t)t.value("layer", -1);
+					if (index >= layers.size()) {
+						continue;
+					}
+					MultiMaterialLayer& layer = layers[index];
+					layer.material = t.value("texture", std::string());
+					layer.mask = t.value("mask", std::string());
+					layer.op = t.value("op", (uint32_t)TEXT_OP_MIX) & TEXT_OP_MASK;
+					layer.value = t.value("value", 1.0f);
+					layer.uv_scale = t.value("uv_scale", 1.0f);
+					layer.mask_noise = t.value("mask_noise", 0) != 0;
+					layer.uv_noise = t.value("uv_noise", 0) != 0;
+					layer.mask_channel = (std::max)(0, (std::min)(3, t.value("mask_channel", 0)));
+					layer.mask_invert = t.value("mask_invert", 0) != 0;
+					layer.mask_uv_scale = t.value("mask_uv_scale", 1.0f);
+					if (t.contains("mask_uv_offset")) {
+						const auto& o = t["mask_uv_offset"];
+						layer.mask_uv_offset = { o.value("u", 0.0f), o.value("v", 0.0f) };
+					}
+					if (t.contains("slope")) {
+						const auto& s = t["slope"];
+						layer.slope_enabled = s.value("enabled", false);
+						layer.slope_min = s.value("min", 0.0f);
+						layer.slope_max = s.value("max", 1.0f);
+						layer.slope_fade = s.value("fade", 0.1f);
+					}
+					if (t.contains("height")) {
+						const auto& h = t["height"];
+						layer.height_enabled = h.value("enabled", false);
+						layer.height_min = h.value("min", 0.0f);
+						layer.height_max = h.value("max", 0.0f);
+						layer.height_fade = h.value("fade", 1.0f);
+					}
+				}
+				Rebuild(root_path, materials);
+			}
+
+			bool MultiMaterialData::LoadMultitexture(const std::string& json_str,
+				const std::string& root_path, const FlatMap<std::string, MaterialData>& materials) {
+				try {
+					FromJson(nlohmann::json::parse(json_str), root_path, materials);
+				}
+				catch (const std::exception& e) {
+					LOG_WARN("MultiMaterialData::LoadMultitexture: %s", e.what());
+					return false;
+				}
+				return true;
+			}
+
 			void MaterialData::_MaterialData() {
 				//Logged once: the layout Engine.lib itself compiled MaterialData with,
 				//to compare against what any other binary linking against it (a stale
@@ -145,6 +368,11 @@ namespace HotBite {
 				this->shadow_shaders = other.shadow_shaders;
 				this->depth_shaders = other.depth_shaders;
 				this->shader_names = other.shader_names;
+				//Both halves of the multi-material reference: the name is authoring data
+				//that has to survive a copy (Save writes it), and the pointer is a borrowed
+				//view of the world's registry, so copying it shares rather than duplicates.
+				this->multi_material_name = other.multi_material_name;
+				this->multi_material = other.multi_material;
 
 				this->tessellation_type = other.tessellation_type;
 				this->tessellation_factor = other.tessellation_factor;
@@ -211,6 +439,10 @@ namespace HotBite {
 				tessellation_type = j.value("tess_type", 0);
 				tessellation_factor = j.value("tess_factor", 0.0f);
 				displacement_scale = j.value("displacement_scale", 0.0f);
+				//Only the name: the stack itself lives in the world's registry, which is
+				//filled from the same file's "multi_materials" array and may not have been
+				//read yet. World::ResolveMultiMaterials binds the pointer afterwards.
+				multi_material_name = j.value("multi_material", std::string());
 				if (j.value("raytrace", false)) {
 					props.flags |= RAY_TRACING_ENABLED_FLAG;
 				}
@@ -352,6 +584,10 @@ namespace HotBite {
 				j["tess_type"] = tessellation_type;
 				j["tess_factor"] = tessellation_factor;
 				j["displacement_scale"] = displacement_scale;
+				//Written unconditionally, empty included: a material that *stopped* being
+				//a multi-material has to say so, or reloading the file would reattach the
+				//stack the key still named.
+				j["multi_material"] = multi_material_name;
 
 				//Only the four flags Load() sets from the file are written back; the rest
 				//of props.flags is derived from which texture maps are present and is

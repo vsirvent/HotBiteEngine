@@ -55,19 +55,40 @@ which surfaces as an access violation in an unrelated system several frames late
 (`PrepareLights`, `AudioSystem`, `RtlFreeHeap`) with a different stack each run. If results
 stop making sense, rebuild both steps clean before debugging anything else.
 
-## The regression suite — run it, and add to it
+## The regression suites — run them, and add to them
 
-`Tools/SceneEditor/automation/tests/Run-Tests.ps1` is the project's test suite:
-~240 tests over 18 files, ~3 minutes, exit code = number of failures. **Run it
-before and after any change to the engine or the editor**, and **every new
-feature adds its own tests to it**. It needs the Release build (`-Config Debug`
-does not link here — see above).
+**Any change to the engine or the Scene Editor MUST pass the automation tests
+before it is considered done. No exceptions.** Run the relevant suite *before*
+the change (to have a baseline — some failures predate you) and *after*, and
+**every new feature adds its own tests**. Both suites need the Release build
+(`-Config Debug` does not link here — see above), and both use exit code =
+number of failures, so either one gates a commit on its own.
+
+There are two, and which ones apply depends on what was touched:
+
+| changed | run |
+| --- | --- |
+| Scene Editor only | the editor suite |
+| a game (Marbles, DemoGame) only | that game's suite |
+| **the engine** (`Engine/`) | **both** — an engine change reaches every consumer, and the two suites cover different parts of it (the editor exercises authoring and serialization, the game exercises gameplay, physics and level loading) |
 
 ```powershell
+# Engine + Scene Editor: ~240 tests over 18 files, ~3 minutes
 Tools\SceneEditor\automation\tests\Run-Tests.ps1                    # everything
 Tools\SceneEditor\automation\tests\Run-Tests.ps1 -Suite '10-parts*' # one file
 Tools\SceneEditor\automation\tests\Run-Tests.ps1 -Test '*undo*'     # one test
+
+# Marbles (separate repo, ../Marbles): boot, menus, the four levels, player, render
+..\Marbles\Marbles\automation\tests\Run-Tests.ps1
+..\Marbles\Marbles\automation\tests\Run-Tests.ps1 -Suite '03-levels*'
 ```
+
+Running the game suite after an engine change is not belt-and-braces: the engine
+bugs found this way — a `float4` typedef whose `alignas` silently did nothing
+(faulting the hand-written `_mm_load_ps` in `Defines.h`), and `Scheduler::Update`
+invoking a timer that a callback earlier in the same iteration had removed and
+whose owner it had then deleted — were both invisible to the editor suite and
+both crashed the game outright.
 
 There is no in-process harness because nothing in the editor runs without a D3D
 device and a loaded `World`. The automation channel below *is* the seam, so a test
@@ -101,6 +122,26 @@ Tools\SceneEditor\automation\editor-cli.ps1 -Dir $dir -Command 'screenshot C:\..
 # 4. shut down
 Tools\SceneEditor\automation\editor-cli.ps1 -Dir $dir -Command 'quit'
 ```
+
+### Logging
+
+`Engine/Core/Log.h` is the engine's logger: `LOG_TRACE/DEBUG/INFO/WARN/ERROR/FATAL`,
+each capturing `__FILE__`/`__LINE__` automatically (never pass them by hand). A host
+calls `Log::Init("<file>.txt", level)` — the Scene Editor and Marbles both do, first
+thing in their constructors, at `Debug`. Every line is flushed immediately, because the
+usual reason to reach for this is a crash a moment later and a buffered line a crash
+never flushes is worse than no line at all.
+
+Lines go to the file *and* to a bounded in-memory ring the Scene Editor's **View/Log**
+panel renders (docked full-width at the bottom, with a level combo and Clear). `Init`
+truncates: one run, one log.
+
+**Reach for this before the debugger.** The two engine bugs behind the Marbles crashes
+were both found by adding a few `LOG_DEBUG`s and reading the file — one printed
+`alignof(MaterialData)` from both sides of the `Engine.lib` boundary and settled an
+alignment question a disassembly had only made ambiguous. `Log::Enabled()` short-circuits
+before the varargs, so a `LOG_TRACE` left in a hot loop costs one comparison until
+someone opts into that level.
 
 ### Crashes and hangs
 
@@ -525,6 +566,45 @@ Three things there that are not guessable:
   shaders normalize, so averaging would only change every lit pixel of every existing
   scene for nothing.
 
+**A level-of-detail chain is a list of alternate meshes on the mesh asset, and only
+three numbers ever change.** `Core::MeshData::lods` is finest first with `lods[0]`
+being the mesh itself, so selection code has no special case for full detail; the
+alternates are authored meshes (`World::SetMeshLods`, the Mesh component's `"lods"`
+key), never anything the engine generates. `RenderSystem::SelectLods` then writes
+`Components::Mesh::index_count`/`index_offset`/`vertex_offset` — the only things the
+five `DrawIndexed` sites read — and leaves `Mesh::data` pointing at the full mesh, so
+the `Bounds`, the collider sized from them, the BVH the ray tracers walk and the
+skeleton being animated are all still LOD0 and none of them wobble with the camera.
+Scope is the *asset*, exactly like `smooth` and `skeletons`; the one per-entity part
+is `Mesh::lod_enabled`, which pins the object the camera is always on.
+
+Four things there that are not guessable:
+
+- **It runs once per frame, over `drawables`, before anything draws** — next to
+  `CheckSceneVisibility` at the top of `Draw`, for the same reason `LatchPreviousFrame`
+  is over that flat list: the trees hold an entity once per shader tuple and it has one
+  geometry per frame. Before, because the depth pre-pass records the surface the main
+  pass is tested against — a switch between those two passes is not a pop, it is a hole.
+- **`LOD_AUTO` compares a *derived* ratio against screen coverage.** `ratio` is
+  `lod->vertexCount / lods[0].vertexCount`, so the reduction is measured from the
+  geometry supplied rather than typed next to it, and a level is eligible once its ratio
+  is at least the fraction of the viewport the model covers (times `lod_bias`, which
+  scales the detail *demanded*: 2 asks for twice the vertices and so switches at half the
+  coverage). Coverage is the bounding *sphere* through `Camera::GetFrustumParams` —
+  rotation-invariant, so a model turning on the spot keeps one coverage — measured
+  against view *depth*, not distance, since the screen is a fixed angle wide.
+- **The selection is hysteretic** (`LOD_HYSTERESIS`, 10%): the metric has to pass a
+  boundary by a margin before the answer follows it, in whichever direction it is
+  moving. Without it a model parked near a threshold re-crosses it on the noise of the
+  bounds fit and swaps silhouette every frame, which is far more visible than either
+  level being wrong.
+- **A skinned mesh only takes a stand-in rigged to the same skeleton**
+  (`CompatibleSkinning`): the vertices carry joint *indices* into whatever skeleton
+  LOD0 is animating, since the level never reaches `Mesh::data`. Same skeleton object
+  (levels exported as sibling nodes of one `.fbx`) passes immediately; across files the
+  joints must agree in count and order. An unskinned stand-in on a skinned mesh is
+  refused outright — it would draw in its bind pose while the model animates.
+
 **Editing a component's fields** goes through `ComponentOps::ApplyValue` /
 `SetValue` / `RecordEdit` (`Tools/SceneEditor/ComponentOps.h`), never by poking the
 struct alone: an edit that only touches the live component looks right until the
@@ -594,6 +674,67 @@ shaders in place must go through `World::SetMaterialShaders`, which calls
 `RenderSystem::RefreshDrawable` on every user, because the draw trees are keyed by shader
 tuple and `AddDrawable`'s own cleanup only evicts buckets whose *material* differs (so a
 same-material key change would leave the entity drawing twice).
+
+**A multi-material is a stack of material layers, and it belongs to a *material*, never
+to an entity** (`Core::MultiMaterialData`, authored in the Materials panel's
+Multi-Materials tab — `Tools/SceneEditor/MultiMaterialPanel.h`). It is a named asset like
+a material: stored in a `.mat` file's `multi_materials` array, saved by File/Save
+Materials, and worn by a material through `MaterialData::multi_material_name`. Non-null
+`MaterialData::multi_material` is what makes `RenderSystem` take the multi-texture path,
+where the layers *replace* that material's own diffuse/normal/spec/ao/height maps (the
+rest of it — emission, opacity, flags, shaders — still applies).
+
+Per entity was the obvious alternative and is not expressible: the draw trees are keyed
+by material (`RenderTree` is `ShaderKey -> MaterialData* -> …`), so one bucket is drawn
+with a single set of layer constants no matter how many entities it holds. The old code
+kept the stack on the `Material` *component* and bound whichever component the bucket
+happened to hold first, which was only ever right because nothing wrote it.
+
+Each layer names a source material for its maps plus the rules that decide *where* it
+lands: a mask image with a **channel** (four layers off one RGBA splat map, which is what
+makes a single big mask over a terrain practical), optional inversion and noise, and two
+range rules — **slope** on `dot(world normal, up)` (1 flat, 0 vertical, -1 overhang: the
+snow-on-flat-ground knob) and **height** on world Y. They all multiply, so a layer lands
+only where every rule it declares agrees. Four things there are not guessable:
+
+- The range fade sits **outside** the range, not straddling its edge. `smoothstep(min -
+  fade, min + fade, x)` puts the boundary itself at the fade's midpoint — weight 0.5 —
+  so a caller who sets `slope_max: 1.0` meaning "include flat ground" gets flat ground at
+  *half* strength. `multiRangeMask` fades over `[min-fade, min]` and `[max, max+fade]`
+  instead, and `[min, max]` is fully included.
+- A layer that supplies no normal map must fall back to `{0.5, 0.5, 1.0}`, not to zero
+  (`MultiTextureNotEnabledDefault`). The value is decoded `*2-1` as a tangent-space
+  direction, so zero decodes to `(-1,-1,-1)`: a normal facing away from every light. A
+  perfectly good blend rendered **pitch black** because of this, and it looks like the
+  stack is not binding rather than like a normal-map bug.
+- `getValues` needs the normal **in world space**. `MainRenderDS` has it in object space
+  at the call site (it transforms it a few lines later), so passing it as-is tilts every
+  slope rule with the model's own rotation.
+- `Rebuild()` derives the `TEXT_DIFF`/`TEXT_NORM`/… bits from which maps the layer's
+  source material actually has, so it must run *after* the materials have loaded their
+  textures — which is why `World::Init` calls `ResolveMultiMaterials()` after the
+  `m.Init()` loop and not with it.
+
+The layer `op` crosses into HLSL as a bare `uint` and nothing validates it, so the
+`TEXT_*` constants in `Core/Material.h` and the `MULTITEXT_*` ones in
+`Shaders/Common/MultiTexture.hlsli` **must** stay in step. The two `float4` arrays
+carrying the slope/height rules are declared in every shader that includes
+`MultiTexture.hlsli` (nine of them, `Tests/DemoGame/TerrainPS.hlsl` included — an include
+cannot declare the constants it reads), which is the same trap the lighting cbuffer has.
+
+**Mask painting is a tool, and deliberately outside the undo history**
+(`Tools/SceneEditor/MaskPaint.h`). A session edits one layer's mask channel; the canvas is
+bound as that layer's mask through `MultiMaterialData::SetLiveMask` so strokes show up
+without a round trip through disk, and only Commit writes a file. A stroke is a pixel edit
+to an image asset — undoing it would mean restoring file bytes, the same reason
+File/Import Object is out of scope — so Cancel is the escape hatch instead; *which file a
+layer points at* is authoring data and is undoable.
+
+Two hazards that both produced real crashes: `Commit` must clear the live mask **before**
+rebuilding and before releasing the session texture, or `Rebuild` re-adopts the very SRV
+about to be destroyed and the next frame binds freed memory; and every write to those
+arrays needs `RenderSystem::mutex`, because the editor's render tick is not the thread
+commands run on. Neither shows up on a single paint/commit cycle — it took four in a row.
 
 **Asset previews are their own forward pass, not the engine renderer**
 (`Tools/SceneEditor/PreviewPass.h`). The material thumbnails (`MaterialPreview.h`) and

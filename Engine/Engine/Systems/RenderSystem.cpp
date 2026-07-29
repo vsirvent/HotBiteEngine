@@ -1063,6 +1063,62 @@ void RenderSystem::CheckSceneVisibility(RenderTree& tree) {
 	}
 }
 
+void RenderSystem::SelectLods(const Components::Camera& camera) {
+	//The frustum is read off the projection rather than assumed, so the coverage a
+	//model is judged by tracks the camera's actual field of view - the same reason
+	//the shadow cascade fit reads it from there.
+	float tan_half_h = 0.0f, tan_half_v = 0.0f, near_z = 0.0f, far_z = 0.0f;
+	if (!camera.GetFrustumParams(tan_half_h, tan_half_v, near_z, far_z)) {
+		return;
+	}
+	const float3& camera_position = camera.world_position;
+	for (DrawableEntity& de : drawables.GetData()) {
+		Mesh* mesh = de.mesh;
+		MeshData* data = mesh->GetData();
+		if (data == nullptr || data->lods.size() < 2) {
+			continue;
+		}
+		if (!mesh->lod_enabled) {
+			if (mesh->current_lod != 0) {
+				mesh->SetLod(0);
+			}
+			continue;
+		}
+		//The bounding sphere of the entity's world box, which is what makes this a
+		//handful of arithmetic instead of eight projections: it is rotation
+		//invariant, so a model turning on the spot keeps one coverage and does not
+		//switch level for spinning. The screen-rect of the projected corners would be
+		//tighter and would also need every corner tested for being behind the camera.
+		const float3& center = de.bounds->final_box.Center;
+		const float3& extents = de.bounds->final_box.Extents;
+		const float3 to_center{ center.x - camera_position.x,
+								center.y - camera_position.y,
+								center.z - camera_position.z };
+		const float radius = sqrtf(DIST2(extents));
+		const float distance = sqrtf(DIST2(to_center));
+		//Depth along the view axis, not distance: the screen is a fixed angle wide,
+		//so how big something draws depends on how far *in front* it is. Distance
+		//would shrink everything towards the edges of the view, which is where a
+		//model is most likely to be moving.
+		const float depth = XMVectorGetX(XMVector3Dot(
+			XMVectorSet(to_center.x, to_center.y, to_center.z, 0.0f), camera.xm_direction));
+		float coverage = 1.0f;
+		//Anything reaching the near plane is treated as filling the screen. Its
+		//projection is unbounded there, and a model the camera is inside of is the
+		//last one that should be losing detail.
+		if (depth > near_z + radius) {
+			//The viewport is 2*tan*depth across at that depth, so the sphere covers
+			//pi*r^2 of (2*tan_h*depth)*(2*tan_v*depth).
+			coverage = (XM_PI * radius * radius) /
+				(4.0f * tan_half_h * tan_half_v * depth * depth);
+			if (coverage > 1.0f) {
+				coverage = 1.0f;
+			}
+		}
+		mesh->SetLod(data->SelectLod(coverage, distance, mesh->current_lod));
+	}
+}
+
 void RenderSystem::LatchPreviousFrame(const Components::Camera& camera) {
 	//What this frame was drawn with becomes what the next one measures its motion against.
 	//All three of these have to be latched here, once per rendered frame, and nowhere else:
@@ -1438,8 +1494,11 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 		for (auto &mat: shaders.second) {
 			if (!mat.second.second.GetData().empty()) {
 				PrepareMaterial(mat.first, vs, hs, ds, gs, ps);
-				if (mat.second.first->multi_material.multi_texture_count > 0) {
-					PrepareMultiMaterial(mat.second.first, vs, hs, ds, gs, ps);
+				//The stack belongs to the *material*, not to the representative entity's
+				//component: this bucket draws every entity using mat.first with one set
+				//of layer constants, so there is only one stack it could ever apply.
+				if (mat.first->multi_material != nullptr) {
+					PrepareMultiMaterial(mat.first, vs, hs, ds, gs, ps);
 					ds->CopyAllBufferData();
 				}
 				for (auto& de : mat.second.second.GetData()) {
@@ -1452,8 +1511,8 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 					UnprepareEntity(de, vs, hs, ds, gs, ps);
 					total_count++;
 				}
-				if (mat.second.first->multi_material.multi_texture_count > 0) {
-					UnprepareMultiMaterial(mat.second.first, vs, hs, ds, gs, ps);
+				if (mat.first->multi_material != nullptr) {
+					UnprepareMultiMaterial(mat.first, vs, hs, ds, gs, ps);
 				}
 				UnprepareMaterial(mat.first, vs, hs, ds, gs, ps);
 			}
@@ -2341,77 +2400,97 @@ void RenderSystem::UnprepareMaterial(Core::MaterialData* material, Core::SimpleV
 	}
 }
 
-void RenderSystem::PrepareMultiMaterial(Components::Material* material, Core::SimpleVertexShader* vs,
+void RenderSystem::PrepareMultiMaterial(Core::MaterialData* material, Core::SimpleVertexShader* vs,
 	                                    Core::SimpleHullShader* hs, Core::SimpleDomainShader* ds,
 	                                    Core::SimpleGeometryShader* gs, Core::SimplePixelShader* ps) {
-	if (material->multi_material.multi_texture_count > 0) {
-		for (uint32_t i = 0; i < material->multi_material.multi_texture_count; ++i) {
-			if (material->multi_material.multi_texture_data[i] != nullptr) {
-				multitext_diff[i] = material->multi_material.multi_texture_data[i]->diffuse;
-				multitext_norm[i] = material->multi_material.multi_texture_data[i]->normal;
-				multitext_spec[i] = material->multi_material.multi_texture_data[i]->spec;
-				multitext_ao[i] = material->multi_material.multi_texture_data[i]->ao;
-				multitext_arm[i] = material->multi_material.multi_texture_data[i]->arm;
-				multitext_disp[i] = material->multi_material.multi_texture_data[i]->high;
-				multitext_mask[i] = material->multi_material.multi_texture_mask[i];
-			}
-		}
+	Core::MultiMaterialData* mm = material->multi_material;
+	if (mm == nullptr) {
+		return;
+	}
+	const uint32_t count = mm->multi_texture_count;
+	for (uint32_t i = 0; i < count; ++i) {
+		//A layer whose source material is missing contributes nothing, but its slot
+		//still has to be cleared: leaving the previous draw's texture bound there
+		//would blend an unrelated surface in, and the layer's op bits say the map
+		//does not exist so nothing would ever sample it back out.
+		Core::MaterialData* source = mm->multi_texture_data[i];
+		multitext_diff[i] = (source != nullptr) ? source->diffuse : nullptr;
+		multitext_norm[i] = (source != nullptr) ? source->normal : nullptr;
+		multitext_spec[i] = (source != nullptr) ? source->spec : nullptr;
+		multitext_ao[i] = (source != nullptr) ? source->ao : nullptr;
+		multitext_arm[i] = (source != nullptr) ? source->arm : nullptr;
+		multitext_disp[i] = (source != nullptr) ? source->high : nullptr;
+		multitext_mask[i] = mm->multi_texture_mask[i];
 	}
 	if (vs != nullptr) {
-		vs->SetInt(TESS_TYPE, material->multi_material.tessellation_type);
-		vs->SetFloat(TESS_FACTOR, material->multi_material.tessellation_factor);
+		vs->SetInt(TESS_TYPE, mm->tessellation_type);
+		vs->SetFloat(TESS_FACTOR, mm->tessellation_factor);
 	}
 
 	if (ds != nullptr) {
-		ds->SetInt(SimpleShaderKeys::MULTI_TEXTURE_COUNT, material->multi_material.multi_texture_count);
-		if (material->multi_material.multi_texture_count > 0) {
-			ds->SetData("packed_multi_texture_values", material->multi_material.multi_texture_value.data(), material->multi_material.multi_texture_count * sizeof(float));
-			ds->SetData("packed_multi_texture_uv_scales", material->multi_material.multi_texture_uv_scales.data(), material->multi_material.multi_texture_count * sizeof(float));
-			ds->SetData("packed_multi_texture_operations", material->multi_material.multi_texture_operation.data(), material->multi_material.multi_texture_count * sizeof(uint32_t));
-			ds->SetShaderResourceViewArray("multi_highTexture[0]", multitext_disp.data(), material->multi_material.multi_texture_count);
-			ds->SetFloat(DISPLACEMENT_SCALE, material->multi_material.displacement_scale);
+		ds->SetInt(SimpleShaderKeys::MULTI_TEXTURE_COUNT, count);
+		if (count > 0) {
+			ds->SetData("packed_multi_texture_values", mm->multi_texture_value.data(), count * sizeof(float));
+			ds->SetData("packed_multi_texture_uv_scales", mm->multi_texture_uv_scales.data(), count * sizeof(float));
+			ds->SetData("packed_multi_texture_operations", mm->multi_texture_operation.data(), count * sizeof(uint32_t));
+			//The domain shader displaces along the layer heights, so it needs the same
+			//slope/height rules the pixel shader uses - otherwise a snow layer masked
+			//off a cliff would still push the cliff's geometry out.
+			ds->SetData("multi_texture_slope", mm->multi_texture_slope.data(), count * sizeof(float4));
+			ds->SetData("multi_texture_height", mm->multi_texture_height.data(), count * sizeof(float4));
+			ds->SetData("multi_texture_mask_uv", mm->multi_texture_mask_uv.data(), count * sizeof(float4));
+			ds->SetShaderResourceViewArray("multi_highTexture[0]", multitext_disp.data(), count);
+			ds->SetShaderResourceViewArray("multi_maskTexture[0]", multitext_mask.data(), count);
+			ds->SetFloat(DISPLACEMENT_SCALE, mm->displacement_scale);
 		}
 	}
-	
+
 	if (ps != nullptr) {
-		ps->SetInt(SimpleShaderKeys::MULTI_TEXTURE_COUNT, material->multi_material.multi_texture_count);
-		if (material->multi_material.multi_texture_count > 0) {		
-			ps->SetFloat("multi_parallax_scale", material->multi_material.multi_parallax_scale);
-			ps->SetData("packed_multi_texture_values", material->multi_material.multi_texture_value.data(), material->multi_material.multi_texture_count * sizeof(float));
-			ps->SetData("packed_multi_texture_uv_scales", material->multi_material.multi_texture_uv_scales.data(), material->multi_material.multi_texture_count * sizeof(float));
-			ps->SetData("packed_multi_texture_operations", material->multi_material.multi_texture_operation.data(), material->multi_material.multi_texture_count * sizeof(uint32_t));
-			ps->SetShaderResourceViewArray("multi_diffuseTexture[0]", multitext_diff.data(), material->multi_material.multi_texture_count);
-			ps->SetShaderResourceViewArray("multi_normalTexture[0]", multitext_norm.data(), material->multi_material.multi_texture_count);
-			ps->SetShaderResourceViewArray("multi_specularTexture[0]", multitext_spec.data(), material->multi_material.multi_texture_count);
-			ps->SetShaderResourceViewArray("multi_aoTexture[0]", multitext_ao.data(), material->multi_material.multi_texture_count);
-			ps->SetShaderResourceViewArray("multi_armTexture[0]", multitext_arm.data(), material->multi_material.multi_texture_count);
-			ps->SetShaderResourceViewArray("multi_highTexture[0]", multitext_disp.data(), material->multi_material.multi_texture_count);
-			ps->SetShaderResourceViewArray("multi_maskTexture[0]", multitext_mask.data(), material->multi_material.multi_texture_count);
+		ps->SetInt(SimpleShaderKeys::MULTI_TEXTURE_COUNT, count);
+		if (count > 0) {
+			ps->SetFloat("multi_parallax_scale", mm->multi_parallax_scale);
+			ps->SetData("packed_multi_texture_values", mm->multi_texture_value.data(), count * sizeof(float));
+			ps->SetData("packed_multi_texture_uv_scales", mm->multi_texture_uv_scales.data(), count * sizeof(float));
+			ps->SetData("packed_multi_texture_operations", mm->multi_texture_operation.data(), count * sizeof(uint32_t));
+			ps->SetData("multi_texture_slope", mm->multi_texture_slope.data(), count * sizeof(float4));
+			ps->SetData("multi_texture_height", mm->multi_texture_height.data(), count * sizeof(float4));
+			ps->SetData("multi_texture_mask_uv", mm->multi_texture_mask_uv.data(), count * sizeof(float4));
+			ps->SetShaderResourceViewArray("multi_diffuseTexture[0]", multitext_diff.data(), count);
+			ps->SetShaderResourceViewArray("multi_normalTexture[0]", multitext_norm.data(), count);
+			ps->SetShaderResourceViewArray("multi_specularTexture[0]", multitext_spec.data(), count);
+			ps->SetShaderResourceViewArray("multi_aoTexture[0]", multitext_ao.data(), count);
+			ps->SetShaderResourceViewArray("multi_armTexture[0]", multitext_arm.data(), count);
+			ps->SetShaderResourceViewArray("multi_highTexture[0]", multitext_disp.data(), count);
+			ps->SetShaderResourceViewArray("multi_maskTexture[0]", multitext_mask.data(), count);
 		}
 	}
 }
 
-void RenderSystem::UnprepareMultiMaterial(Components::Material* material, Core::SimpleVertexShader* vs,
+void RenderSystem::UnprepareMultiMaterial(Core::MaterialData* material, Core::SimpleVertexShader* vs,
 	                                      Core::SimpleHullShader* hs, Core::SimpleDomainShader* ds,
 	                                      Core::SimpleGeometryShader* gs, Core::SimplePixelShader* ps) {
-	if (material->multi_material.multi_texture_count > 0) {
-		static ID3D11ShaderResourceView* zero_text[MAX_MULTI_TEXTURE] = {};
+	Core::MultiMaterialData* mm = material->multi_material;
+	if (mm == nullptr || mm->multi_texture_count == 0) {
+		return;
+	}
+	const uint32_t count = mm->multi_texture_count;
+	static ID3D11ShaderResourceView* zero_text[MAX_MULTI_TEXTURE] = {};
 
-		if (ps) {
-			ps->SetInt(SimpleShaderKeys::MULTI_TEXTURE_COUNT, 0);
-		
-			ps->SetShaderResourceViewArray("multi_diffuseTexture[0]", zero_text, material->multi_material.multi_texture_count);
-			ps->SetShaderResourceViewArray("multi_normalTexture[0]", zero_text, material->multi_material.multi_texture_count);
-			ps->SetShaderResourceViewArray("multi_specularTexture[0]", zero_text, material->multi_material.multi_texture_count);
-			ps->SetShaderResourceViewArray("multi_aoTexture[0]", zero_text, material->multi_material.multi_texture_count);
-			ps->SetShaderResourceViewArray("multi_armTexture[0]", zero_text, material->multi_material.multi_texture_count);
-			ps->SetShaderResourceViewArray("multi_highTexture[0]", zero_text, material->multi_material.multi_texture_count);
-			ps->SetShaderResourceViewArray("multi_maskTexture[0]", zero_text, material->multi_material.multi_texture_count);
-		}
-		if (ds) {
-			ds->SetInt(SimpleShaderKeys::MULTI_TEXTURE_COUNT, 0);
-			ds->SetShaderResourceViewArray("multi_highTexture[0]", zero_text, material->multi_material.multi_texture_count);
-		}
+	if (ps) {
+		ps->SetInt(SimpleShaderKeys::MULTI_TEXTURE_COUNT, 0);
+
+		ps->SetShaderResourceViewArray("multi_diffuseTexture[0]", zero_text, count);
+		ps->SetShaderResourceViewArray("multi_normalTexture[0]", zero_text, count);
+		ps->SetShaderResourceViewArray("multi_specularTexture[0]", zero_text, count);
+		ps->SetShaderResourceViewArray("multi_aoTexture[0]", zero_text, count);
+		ps->SetShaderResourceViewArray("multi_armTexture[0]", zero_text, count);
+		ps->SetShaderResourceViewArray("multi_highTexture[0]", zero_text, count);
+		ps->SetShaderResourceViewArray("multi_maskTexture[0]", zero_text, count);
+	}
+	if (ds) {
+		ds->SetInt(SimpleShaderKeys::MULTI_TEXTURE_COUNT, 0);
+		ds->SetShaderResourceViewArray("multi_highTexture[0]", zero_text, count);
+		ds->SetShaderResourceViewArray("multi_maskTexture[0]", zero_text, count);
 	}
 }
 
@@ -2773,6 +2852,9 @@ void RenderSystem::Draw() {
 		float3 camera_position = cam_entity.camera->world_position;
 
 		CheckSceneVisibility(render_tree);
+		//Before CastShadows and DrawDepth, so every pass of this frame draws the same
+		//geometry - see SelectLods.
+		SelectLods(*(cam_entity.camera));
 		static int count = 0;
 		//Only one every STATIC_SHADOW_REFRESH_PERIOD frames we refresh static shadows (directional light can change location due to sky component)
 		//but this is fine to just make the overhead of casting shadow of static objects almost zero (cost reduced by /STATIC_SHADOW_REFRESH_PERIOD)

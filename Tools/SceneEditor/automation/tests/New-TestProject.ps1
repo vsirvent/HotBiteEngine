@@ -15,13 +15,17 @@
 #   models  the same plus the demo troll (a skinned mesh with clips), which is
 #           what animation, bone sockets, skinned bounds and mesh-collider tests
 #           need. Costs ~13 MB of copying and a few seconds of FBX load.
+#   lods    models plus the two sky domes, which is a pair of unskinned meshes of
+#           different sizes - the least a level-of-detail chain can be tested
+#           with. The troll comes along so the "a skinned mesh will not take an
+#           unskinned stand-in" case has both halves.
 #
 # Both write absolute paths, so the project can live anywhere (World::Load
 # resolves a relative "path" against the process working directory, which for the
 # editor is the build output folder, not the project).
 
 param(
-    [ValidateSet('empty', 'models')][string]$Kind = 'empty',
+    [ValidateSet('empty', 'models', 'lods')][string]$Kind = 'empty',
     [Parameter(Mandatory = $true)][string]$Path,
     # Where the troll assets are copied from for -Kind models.
     [string]$TrollAssets = (Join-Path $PSScriptRoot '..\..\..\..\Tests\DemoGame\assets\troll')
@@ -58,6 +62,26 @@ Write-Json -File (Join-Path $root 'config.json') -Value @{
 # One .mat file with two materials: create_material needs an existing file to
 # write into, remove_material needs a material with users, and set_material needs
 # something to switch between.
+
+# Small solid-color diffuse maps for TestRed/TestBlue, so a multi-material layer
+# built from them has something visible to blend - a layer whose source material
+# carries no diffuse SRV contributes nothing to MULTITEXT_DIFF (see
+# MultiTexture.hlsli) and a stack made only of such layers renders black, which
+# would make the multi-materials suite's screenshot checks meaningless.
+Add-Type -AssemblyName System.Drawing -ErrorAction SilentlyContinue
+function New-SolidTexture {
+    param([string]$Path, [byte]$R, [byte]$G, [byte]$B)
+    $bmp = New-Object System.Drawing.Bitmap 8, 8
+    $color = [System.Drawing.Color]::FromArgb(255, $R, $G, $B)
+    for ($y = 0; $y -lt 8; $y++) {
+        for ($x = 0; $x -lt 8; $x++) { $bmp.SetPixel($x, $y, $color) }
+    }
+    $bmp.Save($Path, [System.Drawing.Imaging.ImageFormat]::Png)
+    $bmp.Dispose()
+}
+New-SolidTexture -Path (Join-Path $assets 'materials\test_red.png') -R 220 -G 40 -B 30
+New-SolidTexture -Path (Join-Path $assets 'materials\test_blue.png') -R 40 -G 80 -B 230
+
 $standardShaders = @{
     draw_vs   = 'MainRenderVS.cso'
     draw_hs   = 'MainRenderHS.cso'
@@ -70,10 +94,11 @@ $standardShaders = @{
     depth_ps  = 'DepthPS.cso'
 }
 function New-MaterialRecord {
-    param([string]$Name, [string]$Diffuse)
+    param([string]$Name, [string]$Diffuse, [string]$DiffuseTexture = '')
     $m = @{
         name             = $Name
         diffuse_color    = $Diffuse
+        diffuse_textname = $DiffuseTexture
         ambient_color    = '#000000FF'
         emission_color   = '#000000FF'
         alpha_enabled    = $false
@@ -98,8 +123,8 @@ function New-MaterialRecord {
 }
 Write-Json -File (Join-Path $assets 'materials\test.mat') -Value @{
     root      = 'materials\'
-    materials = @((New-MaterialRecord -Name 'TestRed'  -Diffuse '#FF4030FF'),
-                  (New-MaterialRecord -Name 'TestBlue' -Diffuse '#3050FFFF'))
+    materials = @((New-MaterialRecord -Name 'TestRed'  -Diffuse '#FF4030FF' -DiffuseTexture 'test_red.png'),
+                  (New-MaterialRecord -Name 'TestBlue' -Diffuse '#3050FFFF' -DiffuseTexture 'test_blue.png'))
 }
 
 #--- a file-backed template ---------------------------------------------------
@@ -134,7 +159,7 @@ $instances = @(
 $models = @()
 $materialFiles = @('materials\test.mat')
 
-if ($Kind -eq 'models') {
+if ($Kind -eq 'models' -or $Kind -eq 'lods') {
     $trollSource = [IO.Path]::GetFullPath($TrollAssets)
     if (-not (Test-Path $trollSource)) {
         throw "troll assets not found at $trollSource - pass -TrollAssets, or use -Kind empty."
@@ -173,6 +198,49 @@ if ($Kind -eq 'models') {
                        rotation = @{ x = -0.70710677; y = 0.0; z = 0.0; w = 0.70710677 } }
         Physics   = @{ type = 'DYNAMIC'; shape = 'CAPSULE' }
     } }
+}
+
+if ($Kind -eq 'lods') {
+    # A level-of-detail chain needs two meshes of the same kind and different
+    # sizes, and the troll is the only mesh the models fixture has. The sky domes
+    # are the cheapest pair in the tree that qualifies: both unskinned, tens of KB,
+    # and one has several times the vertices of the other - so an assertion on
+    # "the coarse level took over" is an assertion about a real reduction rather
+    # than about two meshes that happen to differ.
+    #
+    # They stay out of the models fixture because that one asserts on its exact
+    # model count, and because every suite pays for the fixture it names.
+    $skySource = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..\..\Tests\DemoGame\assets\Sky'))
+    if (-not (Test-Path $skySource)) {
+        throw "sky assets not found at $skySource."
+    }
+    $skyTarget = Join-Path $assets 'Sky'
+    New-Item -ItemType Directory -Force $skyTarget | Out-Null
+    Copy-Item (Join-Path $skySource '*.fbx') $skyTarget -Force
+
+    $models += @{ file = 'Sky\sky.fbx'; triangulate = $false }
+    $models += @{ file = 'Sky\space.fbx'; triangulate = $false }
+
+    # Two instances of the same mesh, so a test can prove that the chain is shared
+    # by the asset (both switch) while `lod_enabled` is not (only one is pinned).
+    # 'Space' (2880 vertices) is the full-detail mesh and 'Sky' (36) the coarse
+    # stand-in, so a chain of the two is a 1.25% reduction. Those are the mesh
+    # *node* names inside the files, which are capitalized and are not the file
+    # names - a mesh name that does not resolve is not an error, it silently
+    # leaves the entity on the built-in cube.
+    #
+    # Scaled down because both are sky domes, authored to be stood inside: at
+    # their own size they fill the view from anywhere the camera can reach, and
+    # every screen-area test would read the same coverage of 1.
+    $templates += @{ name = 'tf_dome'; components = @{
+        Mesh      = @{ name = 'Space' }
+        Material  = @{ name = 'TestRed' }
+        Transform = @{ scale = @{ x = 0.02; y = 0.02; z = 0.02 } }
+    } }
+    $instances += @{ name = 'dome_a'; template = 'tf_dome'
+                     position = @{ x = 0.0; y = 0.0; z = 0.0 } }
+    $instances += @{ name = 'dome_b'; template = 'tf_dome'
+                     position = @{ x = 0.0; y = 0.0; z = 40.0 } }
 }
 
 Write-Json -File (Join-Path $assets 'Levels\Solo\1\level.json') -Value @{

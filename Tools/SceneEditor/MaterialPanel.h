@@ -98,10 +98,16 @@ namespace HotBiteEditor {
 		bool HasUnsavedMaterials(const EditorState& state);
 	}
 
-	// The "Materials" panel: a thumbnail list of every material in the level on the
-	// left, and the selected material's properties on the right.
+	// The "Materials" panel: a tab bar over the plain-material editor (thumbnail list
+	// plus properties, as before) and the Multi-Materials tab (see
+	// MultiMaterialPanel.h) for authoring layer stacks.
 	namespace MaterialPanel {
 		void Draw(EditorState& state);
+
+		// The plain-material tab's content: the thumbnail list on the left, the
+		// selected material's properties on the right. Broken out from Draw() only so
+		// the tab bar can host it; nothing outside MaterialPanel.cpp calls it.
+		void DrawMaterialsTab(EditorState& state);
 
 		// The property editor for a single material - every field, with drag
 		// coalescing, undo history and dirty-file marking already wired up.

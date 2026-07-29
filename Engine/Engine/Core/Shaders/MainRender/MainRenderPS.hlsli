@@ -20,8 +20,12 @@ RenderTargetRT MainRenderPS(GSOutput input)
 	float calculated_values[MAX_MULTI_TEXTURE];
 
 	if (multi_texture_count > 0) {
+		//The interpolated geometric normal, before any normal map: the layer rules are
+		//about how the surface sits in the world, and the rock detail in a normal map
+		//would otherwise speckle the snow line.
 		getValues(calculated_values, basicSampler, input.uv, multi_texture_count,
-			multi_texture_operations, multi_maskTexture, multi_texture_values, input.worldPos.xyz);
+			multi_texture_operations, multi_maskTexture, multi_texture_values,
+			input.worldPos.xyz, input.normal);
 	}
 
 	spec_intensity = material.specIntensity;

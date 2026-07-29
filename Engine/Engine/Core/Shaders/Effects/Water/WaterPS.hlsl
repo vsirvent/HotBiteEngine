@@ -61,29 +61,67 @@ cbuffer externalData : register(b0)
 	uint4 packed_multi_texture_operations[MAX_MULTI_TEXTURE / 4];
 	float4 packed_multi_texture_values[MAX_MULTI_TEXTURE / 4];
 	float4 packed_multi_texture_uv_scales[MAX_MULTI_TEXTURE / 4];
+	//Per layer, the orientation and altitude rules as (min, max, fade, enabled).
+	//Declared here rather than in MultiTexture.hlsli because that file is an
+	//include: every shader that pulls it in has to supply the constants it reads.
+	float4 multi_texture_slope[MAX_MULTI_TEXTURE];
+	float4 multi_texture_height[MAX_MULTI_TEXTURE];
+	//Per layer, the mask image's own UV transform as (scale, scale, offset u,
+	//offset v). Separate from the uv_scale that tiles the detail maps: a splat
+	//map covers the surface once, the rock on it repeats tens of times.
+	float4 multi_texture_mask_uv[MAX_MULTI_TEXTURE];
 }
 
 #include "../../Common/PixelFunctions.hlsli"
 Texture2D renderTexture;
 Texture2D prevLightTexture;
 
+//How far light travels into this water before it is spent, in world units, taken from
+//the material's `opacity`: 1.0 is a clear mountain lake you can see the bottom of,
+//small values a murky pond. WaterPS never read `opacity` before, so giving it this
+//meaning changes nothing that was authored earlier.
+#define WATER_CLARITY_SCALE 45.0f
+//Per-channel absorption at that distance. Water kills red first - which is the whole
+//reason deep clear water reads blue-green over a sandy bottom instead of grey - so a
+//single coefficient for all three channels would only dim the image toward black.
+#define WATER_EXTINCTION float3(3.2f, 1.0f, 0.65f)
+//Where nothing opaque sits behind the surface (the horizon past the far shore) the
+//water is treated as this deep rather than as depth zero. Otherwise it turns
+//*transparent* exactly where it should look deepest.
+#define WATER_HORIZON_DEPTH 400.0f
+//Width in world units of the shallow band that grows foam along a shore.
+#define WATER_SHORE_WIDTH 2.2f
+
 float3 CalcWaterDirectional(float3 normal, float3 position, float2 uv, DirLight light, int index, const float spec_intensity, inout float4 bloom)
 {
 	float3 color = light.Color.rgb * light.intensity;
 	float3 finalColor = { 0.f, 0.f, 0.f };
 	float3 bloomColor = { 0.f, 0.f, 0.f };
-	// Blinn specular
 	float3 ToEye = cameraPosition.xyz - position.xyz;
 	ToEye = normalize(ToEye);
+
+	//Diffuse. This term did not exist: the surface was lit by a specular highlight and
+	//nothing else, so every part of a lake the sun's reflection did not land on was
+	//left completely unlit - which is what made the water read as tar rather than as
+	//water with a colour.
+	float NDotL = saturate(dot(normal, light.DirToLight));
+	finalColor += color * NDotL;
+
+	// Blinn specular
 	float3 HalfWay = normalize(ToEye + light.DirToLight);
 	float NDotH = saturate(dot(HalfWay, normal));
-	float3 spec_color = { 0.f, 0.f, 0.f };
-	spec_color += pow(NDotH, 500.0f) * spec_intensity * 15.0f;
-//	spec_color += color * pow(NDotH, 100.0f) * spec_intensity;
-//	spec_color += color * pow(NDotH, 2.0f) * spec_intensity * 0.1f;
+	//Fresnel (Schlick, water's F0 = 0.02): a lake is nearly matte looked straight down
+	//into and a mirror at a grazing angle. Without it the sun's glint is equally strong
+	//everywhere, which reads as a flat sheet however good the wave normals are.
+	float NDotV = saturate(dot(normal, ToEye));
+	float fresnel = 0.02f + 0.98f * pow(1.0f - NDotV, 5.0f);
+	//Tinted by the light rather than white, so a low sun lays an orange glare on the
+	//water instead of a white one.
+	float3 spec_color = color * pow(NDotH, 500.0f) * spec_intensity * 15.0f * fresnel;
 	finalColor += spec_color;
 	bloomColor += spec_color;
 
+	bloom.rgb += bloomColor;
 	return finalColor;
 }
 
@@ -155,7 +193,16 @@ RenderTargetRT main(GSOutput input)
 	float t = time * 0.2f;
     float n0 = fnlGetNoise3D(state, input.worldPos.x + t, input.worldPos.y + t, input.worldPos.z + t);
 	float n1 = fnlGetNoise3D(state, input.worldPos.z - t, input.worldPos.y - t, input.worldPos.x - t);
-	float3 bump = float3(n0, 0, n1);
+	//A second, much longer wave under the ripples. One frequency perturbing the normal
+	//by a whole unit tilts it up to 45 degrees from pixel to pixel, which is why the
+	//surface read as churning static and gave no sense of how big the lake was: real
+	//water carries a slow swell with fine ripples riding on it, and it is the ratio
+	//between the two that the eye reads as scale. The combined amplitude is also far
+	//smaller now, so the surface still lies flat enough to reflect.
+	state.frequency = 0.09f;
+	float s0 = fnlGetNoise3D(state, input.worldPos.x + 0.3f * t, input.worldPos.y, input.worldPos.z + 0.3f * t);
+	float s1 = fnlGetNoise3D(state, input.worldPos.z - 0.3f * t, input.worldPos.y, input.worldPos.x - 0.3f * t);
+	float3 bump = float3(0.20f * n0 + 0.32f * s0, 0.0f, 0.20f * n1 + 0.32f * s1);
 	normal = normalize(normal + bump);
 	
 	float2 pos2 = pos;
@@ -185,29 +232,44 @@ RenderTargetRT main(GSOutput input)
 		}
 	}
 
-	// Apply textures
-	if (material.flags & DIFFUSSE_MAP_ENABLED_FLAG || multi_texture_count > 0) {
-		float3 text_color = diffuseTexture.Sample(basicSampler, input.uv).rgb;
-		finalColor.rgb *= text_color;
-	}
-	else {
-		finalColor *= float4(0.9f, 0.9f, 1.0f, 1.0f) * 0.3f;
+	//The water's own colour. `diffuseColor` could never show before: it was multiplied
+	//into a finalColor that was still zero at that point, so the only water colour in
+	//the frame was a hard-coded (0,0,0.3) that the depth fade below drove to black -
+	//which is why deep water rendered as tar. It is an authored material colour now.
+	float3 water_color = material.diffuseColor.rgb;
+	if (material.flags & DIFFUSSE_MAP_ENABLED_FLAG) {
+		water_color *= diffuseTexture.Sample(basicSampler, input.uv).rgb;
 	}
 
-	// Apply textures
-	float dist_to_terrain = 0.0f;
-	float dist_to_terrain2 = 0.0f;
-	if (dz > depth) {
-		dist_to_terrain = saturate(1.0f - (dz - depth) / 60.0f);
-		dist_to_terrain2 = saturate( 1.0f - (dz - depth) / 30.0f);
-	}
-	float3 terrain_color = (renderTexture.Sample(basicSampler, pos).rgb + float3(0.0f, 0.0f, 0.3f) * (1.0f - dist_to_terrain))* dist_to_terrain2;	
-	float3 prev_light = (prevLightTexture.Sample(basicSampler, pos).rgb + float3(0.0f, 0.0f, 0.3f) * (1.0f - dist_to_terrain)) * dist_to_terrain2;
-	finalColor.rgb += terrain_color;
-	lumColor.rgb += prev_light;
+	//How much water the view ray passes through before it hits the bottom. Where
+	//nothing opaque is behind the surface it is the far shore that has run out, not the
+	//water, so that reads as deep rather than as a depth of zero - otherwise the lake
+	//turns transparent exactly where it should look deepest.
+	float water_depth = (dz > depth) ? (dz - depth) : WATER_HORIZON_DEPTH;
+
+	//Beer-Lambert: the fraction of the bottom that survives the trip up through the
+	//water. The old code faded it linearly to zero over 30 units instead, so anything
+	//deeper than that was black no matter what was under it or what lit the surface.
+	float clarity = max(0.5f, material.opacity * WATER_CLARITY_SCALE);
+	float3 trans = exp(-water_depth * WATER_EXTINCTION / clarity);
+
+	//Foam where the bottom rises to meet the surface, broken up by the same noise that
+	//moves the waves so the shoreline is not a clean contour of the terrain under it.
+	float shore = saturate(1.0f - water_depth / WATER_SHORE_WIDTH);
+	float foam = saturate(shore * shore * (0.6f + 0.55f * n0));
+
+	float3 bottom_color = renderTexture.Sample(basicSampler, pos).rgb;
+	float3 bottom_light = prevLightTexture.Sample(basicSampler, pos).rgb;
+
+	//Shallow water shows the bottom, deep water its own colour. The surface's own
+	//lighting is weighted by (1 - trans), the light scattered back out of the column:
+	//it grows over exactly the path length the transmission shrinks over, so a film of
+	//water over sand still looks like wet sand while a lake looks like lit water.
+	finalColor.rgb = lerp(water_color, bottom_color, trans) + foam;
+	lumColor.rgb = lumColor.rgb * (1.0f - trans) + bottom_light * trans;
 
 	output.light_map = lumColor;
-	output.bloom_map = lightColor;
+	output.bloom_map = saturate(lightColor);
 	output.scene = finalColor;
 	RaySource ray;
 	ray.orig = input.worldPos.xyz;

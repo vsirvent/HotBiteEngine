@@ -180,51 +180,22 @@ namespace HotBite {
 				void FromJson(const nlohmann::json& j, const ECS::SerializeContext& ctx);
 			};
 
-			struct MultiMaterial {
-				std::vector<Core::MaterialData*> multi_texture_data;
-				std::vector<ID3D11ShaderResourceView*> multi_texture_mask;
-				std::vector<uint32_t> multi_texture_operation;
-				std::vector<float> multi_texture_value;
-				std::vector<float> multi_texture_uv_scales;
-				uint32_t multi_texture_count = 0;
-				float multi_parallax_scale = 0.0f;
-				uint32_t tessellation_type = 0;
-				float tessellation_factor = 0;
-				float displacement_scale = 0.0f;
-
-				bool LoadMultitexture(const std::string& json_str, const std::string& root_path, const Core::FlatMap<std::string, Core::MaterialData>& materials);
-			};
+			//The layer stack a material can draw with. It lives on Core::MaterialData
+			//(and in the world's registry) rather than here, because the render trees are
+			//keyed by material: every entity in a bucket is drawn with one set of layer
+			//constants, so a per-entity stack could only ever be honoured for whichever
+			//entity the bucket happened to hold first. Aliased here under its old name so
+			//existing tool code keeps compiling.
+			using MultiMaterial = Core::MultiMaterialData;
 
 			/**
 			 * The component that contains the entity materials
 			 */
 			struct Material {
-				//Maximum multiple texture count
-				#define MAX_MULTI_TEXTURE 8
-				//Texture layer mix operation: mix
-				#define TEXT_OP_MIX 1
-				//Texture layer mix operation: add
-				#define TEXT_OP_ADD 2
-				//Texture layer mix operation: multiplication
-				#define TEXT_OP_MULT 3
-
-				//Texture type flags
-				#define TEXT_DIFF (1 << 3)
-				#define TEXT_NORM (1 << 4)
-				#define TEXT_SPEC (1 << 5)
-				#define TEXT_ARM  (1 << 6)
-				#define TEXT_DISP (1 << 7)
-				#define TEXT_AO   (1 << 8)
-				#define TEXT_MASK   (1 << 9)
-				#define TEXT_UV_NOISE   (1 << 12)
-				#define TEXT_MASK_NOISE   (1 << 13)
-
 				static constexpr const char* NAME = "Material";
 
 				//We can reuse a material in several components
 				Core::MaterialData* data;
-				//Multimaterial data painted over main "data" material
-				MultiMaterial multi_material;
 
 				//Serializes as the material's *name* ("floor"), resolved against the world's
 				//material collection on load - a MaterialData pointer is shared between
@@ -324,9 +295,24 @@ namespace HotBite {
 				float animation_change_current_time = 1000.0f;
 				float animation_default_change_time = 250.0f;
 				float animation_change_time = animation_default_change_time;
+				//What DrawIndexed is called with, and the only thing a level of detail
+				//changes about an entity: SetLod points them at another mesh in the
+				//asset's chain, `data` and everything measured from it stay put.
 				uint32_t index_count = 0;
 				size_t index_offset = 0;
 				size_t vertex_offset = 0;
+				//The level being drawn: an index into GetData()->lods, 0 for the full
+				//mesh and for every mesh that declares no chain. Owned by
+				//RenderSystem::SelectLods, which sets it once per frame before anything
+				//draws - the depth pre-pass and the main pass have to agree on the
+				//geometry or the second one is rejected by the depth the first recorded.
+				int current_lod = 0;
+				//Whether this entity follows its mesh's chain at all. Per entity and not
+				//per asset, because it is the one part of this that is about a particular
+				//object rather than about the geometry: the hero the camera is always
+				//looking at is pinned to full detail while every other instance of the
+				//same mesh drops away normally.
+				bool lod_enabled = true;
 				uint32_t time_offset = rand();
 				
 				ECS::Entity entity = ECS::INVALID_ENTITY_ID;
@@ -349,6 +335,11 @@ namespace HotBite {
 				virtual ~Mesh();
 				void SetData(Core::MeshData* data);
 				Core::MeshData* GetData();
+				// Draws level `index` of the mesh's chain from now on: the three
+				// DrawIndexed arguments, and nothing else. Out of range (and any index
+				// but 0 on a mesh with no chain) falls back to the full mesh rather than
+				// leaving the entity drawing whatever it drew before.
+				void SetLod(int index);
 				void SetCoordinatorInfo(ECS::Entity e, ECS::Coordinator* c);
 				// Plays `name`, which is either a logical name from `clips` or a clip name
 				// directly - the library is consulted first, so an object that publishes

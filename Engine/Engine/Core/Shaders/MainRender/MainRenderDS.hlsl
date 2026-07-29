@@ -36,6 +36,15 @@ cbuffer externalData : register(b0)
 	uint4 packed_multi_texture_operations[MAX_MULTI_TEXTURE / 4];
 	float4 packed_multi_texture_values[MAX_MULTI_TEXTURE / 4];
 	float4 packed_multi_texture_uv_scales[MAX_MULTI_TEXTURE / 4];
+	//Per layer, the orientation and altitude rules as (min, max, fade, enabled).
+	//Declared here rather than in MultiTexture.hlsli because that file is an
+	//include: every shader that pulls it in has to supply the constants it reads.
+	float4 multi_texture_slope[MAX_MULTI_TEXTURE];
+	float4 multi_texture_height[MAX_MULTI_TEXTURE];
+	//Per layer, the mask image's own UV transform as (scale, scale, offset u,
+	//offset v). Separate from the uv_scale that tiles the detail maps: a splat
+	//map covers the surface once, the rock on it repeats tens of times.
+	float4 multi_texture_mask_uv[MAX_MULTI_TEXTURE];
 }
 
 #include "../Common/MultiTexture.hlsli"
@@ -72,7 +81,11 @@ DomainOutput main(
 		float h = 0.0f;
 		if (multi_texture_count > 0) {
 			float calculated_values[MAX_MULTI_TEXTURE];
-			getValues(calculated_values, basicSampler, output.uv, multi_texture_count, multi_texture_operations, multi_maskTexture, multi_texture_values, output.worldPos.xyz);
+			//output.normal is still in object space here (it is transformed a few lines
+			//below), and the layer rules are world-space ones - passing it as-is would
+			//tilt every slope rule with the model's own rotation.
+			const float3 world_normal = normalize(mul(output.normal, (float3x3)world));
+			getValues(calculated_values, basicSampler, output.uv, multi_texture_count, multi_texture_operations, multi_maskTexture, multi_texture_values, output.worldPos.xyz, world_normal);
 			h = getMutliTextureValueLevel(basicSampler, 1, MULTITEXT_DISP, multi_texture_count, multi_texture_operations,
 				calculated_values, multi_texture_uv_scales, output.uv, multi_highTexture).r;
 		}

@@ -27,10 +27,192 @@ SOFTWARE.
 #include "SimpleShader.h"
 #include "Texture.h"
 #include "Json.h"
+#include "Utils.h"
+
+#include <string>
+#include <vector>
 
 namespace HotBite {
 	namespace Engine {
 		namespace Core {
+
+			class MaterialData;
+
+			//Maximum number of layers one multi-material blends. Mirrored by
+			//MAX_MULTI_TEXTURE in Shaders/Common/Defines.hlsli, which sizes both the
+			//shader texture arrays and the packed constant arrays RenderSystem uploads -
+			//raising it here alone would overrun those.
+#define MAX_MULTI_TEXTURE 8
+
+			//How a layer combines with the layers under it. Bits 0:1 of a layer's `op`;
+			//mirrored by MULTITEXT_MIX/ADD/MULT in Shaders/Common/MultiTexture.hlsli.
+#define TEXT_OP_MASK 3
+#define TEXT_OP_MIX 1
+#define TEXT_OP_ADD 2
+#define TEXT_OP_MULT 3
+
+			//Bits 3:9 - which maps the layer's source material actually provides. Derived
+			//from the material, never authored (MultiMaterialData::Rebuild sets them).
+#define TEXT_DIFF (1 << 3)
+#define TEXT_NORM (1 << 4)
+#define TEXT_SPEC (1 << 5)
+#define TEXT_ARM  (1 << 6)
+#define TEXT_DISP (1 << 7)
+#define TEXT_AO   (1 << 8)
+#define TEXT_MASK (1 << 9)
+
+			//Bits 12: - the authored rules that decide *where* the layer lands.
+#define TEXT_UV_NOISE   (1 << 12)
+#define TEXT_MASK_NOISE (1 << 13)
+			//Orientation rule on: narrow the layer to a range of dot(world normal, up).
+#define TEXT_SLOPE      (1 << 14)
+			//Altitude rule on: narrow the layer to a range of world-space Y.
+#define TEXT_HEIGHT     (1 << 15)
+			//Read the mask channel as 1 - value, so one image can drive two layers that
+			//are each other's complement.
+#define TEXT_MASK_INV   (1 << 16)
+			//Bits 17:18 - which channel of the mask image this layer reads. Four layers
+			//can share one RGBA "splat map", which is what makes a single big mask over a
+			//terrain practical.
+#define TEXT_MASK_CHANNEL_SHIFT 17
+#define TEXT_MASK_CHANNEL_MASK (3 << TEXT_MASK_CHANNEL_SHIFT)
+
+			//One layer of a MultiMaterialData: a material whose maps are blended onto the
+			//surface, plus the rules that decide where. This is authoring data only - the
+			//flattened, GPU-ready arrays live on MultiMaterialData and are derived from a
+			//vector of these by Rebuild().
+			struct MultiMaterialLayer {
+				//Name of the material supplying this layer's diffuse/normal/spec/ao/arm/
+				//height maps. Only its *maps* are used: the blend weight, uv scale and
+				//masks below are the layer's own, and the base material of the surface
+				//still supplies everything else (emission, opacity, shaders, flags).
+				std::string material;
+				//Mask image, relative to the world's assets path. Empty means no mask.
+				std::string mask;
+				//0=R 1=G 2=B 3=A. Which channel of `mask` this layer reads.
+				int mask_channel = 0;
+				bool mask_invert = false;
+
+				//Where the mask image sits in UV space: the layer samples it at
+				//`uv * mask_uv_scale + mask_uv_offset`. Deliberately *not* `uv_scale`,
+				//which tiles the detail maps: the two want opposite frequencies. A rock
+				//texture on a terrain repeats tens of times across it, while a splat map
+				//painting where the paths go must cover the whole surface exactly once -
+				//and a mesh's UVs are laid out for the first, so they run well outside
+				//[0,1] (the demo terrain spans about 24 units each way). Left at 1/0 the
+				//mask samples raw UV, which is what every mask did before this existed,
+				//so nothing authored earlier moves.
+				float mask_uv_scale = 1.0f;
+				float2 mask_uv_offset = { 0.0f, 0.0f };
+				//Modulate the mask by world-space noise, so a hand-painted boundary does
+				//not read as a clean line.
+				bool mask_noise = false;
+				bool uv_noise = false;
+
+				uint32_t op = TEXT_OP_MIX;
+				float value = 1.0f;
+				float uv_scale = 1.0f;
+
+				//Orientation rule. The measured quantity is dot(world normal, up): 1 is
+				//ground facing straight up, 0 a vertical wall, -1 an overhang. So snow is
+				//[0.6, 1.0] and exposed cliff rock is [-1.0, 0.4]. `fade` is the half
+				//width of the smooth edge at each end of the range, in the same units; 0
+				//gives a hard line.
+				bool slope_enabled = false;
+				float slope_min = 0.0f;
+				float slope_max = 1.0f;
+				float slope_fade = 0.1f;
+
+				//Altitude rule, the same shape, measured on the world-space Y of the
+				//shaded point - the snow line, the waterline, the mud in the valley.
+				bool height_enabled = false;
+				float height_min = 0.0f;
+				float height_max = 0.0f;
+				float height_fade = 1.0f;
+			};
+
+			//A stack of material layers blended over a surface: a terrain painted with
+			//dirt, grass and rock through one mask image, with snow on whatever faces up.
+			//
+			//Kept in two halves on purpose. `layers` is the authoring record - what the
+			//editor edits, what a .mat file carries, what an undo restores. Everything
+			//after it is the flattened form RenderSystem uploads, one entry per layer in
+			//layer order, and Rebuild() is the only thing that writes it.
+			//
+			//A material *has* one of these (MaterialData::multi_material) rather than an
+			//entity having one, because the render trees are keyed by material: every
+			//entity in a bucket is drawn with one set of layer constants, so a per-entity
+			//stack could only ever be honoured for whichever entity the bucket happened
+			//to hold first.
+			class MultiMaterialData {
+			public:
+				std::string name;
+				std::vector<MultiMaterialLayer> layers;
+
+				//Surface parameters the stack overrides on the material it is attached to.
+				float multi_parallax_scale = 0.0f;
+				uint32_t tessellation_type = 0;
+				float tessellation_factor = 0.0f;
+				float displacement_scale = 0.0f;
+
+				//--- derived by Rebuild(), uploaded by RenderSystem::PrepareMultiMaterial
+				std::vector<MaterialData*> multi_texture_data;
+				std::vector<ID3D11ShaderResourceView*> multi_texture_mask;
+				std::vector<uint32_t> multi_texture_operation;
+				std::vector<float> multi_texture_value;
+				std::vector<float> multi_texture_uv_scales;
+				//Per layer, (min, max, fade, enabled) for the orientation and altitude
+				//rules. float4 because an HLSL constant array strides by 16 bytes anyway,
+				//so packing them tighter would buy nothing.
+				std::vector<float4> multi_texture_slope;
+				std::vector<float4> multi_texture_height;
+				//Per layer, the mask's UV transform as (scale, scale, offset u, offset v).
+				//Uniform scale in a float4 rather than two floats for the same reason as
+				//above: the constant array strides by 16 bytes whatever is put in it.
+				std::vector<float4> multi_texture_mask_uv;
+				uint32_t multi_texture_count = 0;
+
+				//Re-resolves every layer's source material and mask image and rebuilds the
+				//arrays above. Call after any edit to `layers`. `root_path` is where mask
+				//images are looked up (the world's assets path).
+				//
+				//Mask textures are taken from Core::LoadTexture's process-wide cache and
+				//deliberately never released, exactly as the loader that came before this
+				//did: a MultiMaterialData is copied by value into the tools that edit it,
+				//and a released SRV would dangle in every copy. A repeat of the same path
+				//is not reloaded (see `resolved_masks`), so dragging a slider is free.
+				void Rebuild(const std::string& root_path,
+					const FlatMap<std::string, MaterialData>& materials);
+
+				//Binds `srv` as a layer's mask in place of whatever its `mask` file names,
+				//until it is cleared with null. This is what lets a mask being painted show
+				//up in the viewport as the brush moves: the alternative is writing a PNG and
+				//reloading it per stroke. Survives Rebuild, and takes precedence over the
+				//file, so an editing session is not undone by an unrelated layer edit.
+				void SetLiveMask(uint32_t layer, ID3D11ShaderResourceView* srv);
+				ID3D11ShaderResourceView* GetLiveMask(uint32_t layer) const;
+
+				//The layer stack as a .mat "multi_materials" entry, and its inverse. The
+				//file format predates this class (Tools/MaterialDesigner writes it), so
+				//FromJson accepts the original keys and treats everything added since as
+				//optional.
+				nlohmann::json ToJson() const;
+				void FromJson(const nlohmann::json& j, const std::string& root_path,
+					const FlatMap<std::string, MaterialData>& materials);
+
+				//FromJson over a serialized string. Kept because Tools/HotBiteTool drives
+				//a live preview through it.
+				bool LoadMultitexture(const std::string& json_str, const std::string& root_path,
+					const FlatMap<std::string, MaterialData>& materials);
+
+			private:
+				//Absolute path each entry of multi_texture_mask was loaded from, so a
+				//Rebuild that changed nothing does not hit the texture cache again.
+				std::vector<std::string> resolved_masks;
+				//Per layer, an editing tool's own mask texture (see SetLiveMask). Not
+				//owned: the tool creates and destroys it, and clears the entry first.
+				std::vector<ID3D11ShaderResourceView*> live_masks;
+			};
 			//Mirrored field for field by MaterialColor in Shaders/Common/PixelCommon.hlsli
 			//and uploaded raw (RenderSystem binds it as the "material" cbuffer and as the
 			//objectMaterials[] array the ray tracers index), so the layout has to obey HLSL
@@ -134,6 +316,18 @@ namespace HotBite {
 				int tessellation_type = 0;
 				float tessellation_factor = 0.0f;
 				float displacement_scale = 0.0f;
+
+				//The layer stack this material draws with, or empty/null for a plain
+				//material. The name is the authoring value, saved to and loaded from the
+				//.mat file's "multi_material" key; the pointer is resolved against the
+				//world's multi-material registry (World::ResolveMultiMaterials) and is
+				//owned by it, never by the material.
+				//
+				//Non-null is what makes RenderSystem take the multi-texture path, so a
+				//name that resolves to nothing leaves the material drawing as itself
+				//rather than as an untextured surface.
+				std::string multi_material_name;
+				MultiMaterialData* multi_material = nullptr;
 
 				bool init = false;
 

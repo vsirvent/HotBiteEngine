@@ -47,82 +47,6 @@ namespace HotBite {
 		namespace Components {
 						
 
-			bool MultiMaterial::LoadMultitexture(const std::string& json_str, const std::string& root_path, const Core::FlatMap<std::string, Core::MaterialData>& materials) {
-				try
-				{
-					const nlohmann::json multi_textures_json = nlohmann::json::parse(json_str);
-					multi_texture_count = multi_textures_json["count"];
-					multi_texture_data.resize(multi_texture_count);
-					multi_texture_mask.resize(multi_texture_count);
-					multi_texture_operation.resize(multi_texture_count);
-					multi_texture_uv_scales.resize(multi_texture_count);
-					multi_texture_value.resize(multi_texture_count);
-
-					if (multi_textures_json.contains("parallax_scale")) {
-						multi_parallax_scale = multi_textures_json["parallax_scale"];
-					}
-					if (multi_textures_json.contains("tess_type")) {
-						tessellation_type = multi_textures_json["tess_type"];
-					}
-					if (multi_textures_json.contains("tess_factor")) {
-						tessellation_factor = multi_textures_json["tess_factor"];
-					}
-					if (multi_textures_json.contains("displacement_scale")) {
-						displacement_scale = multi_textures_json["displacement_scale"];
-					}
-					for (auto& multi_texture : multi_textures_json["textures"]) {
-						int layer = multi_texture["layer"];
-						std::string mask_texture = (std::string)multi_texture["mask"];
-						if (!mask_texture.empty()) {
-							multi_texture_mask[layer] = Core::LoadTexture(root_path + "\\" + mask_texture);
-						}
-						else {
-							multi_texture_mask[layer] = nullptr;
-						}
-						multi_texture_operation[layer] = multi_texture["op"];
-						multi_texture_uv_scales[layer] = multi_texture["uv_scale"];
-						multi_texture_value[layer] = multi_texture["value"];
-						multi_texture_data[layer] = materials.Get(multi_texture["texture"]);
-						if (multi_texture.contains("mask_noise") && multi_texture["mask_noise"] == 1) {
-							multi_texture_operation[layer] |= TEXT_MASK_NOISE;
-						}
-						if (multi_texture.contains("uv_noise") && multi_texture["uv_noise"] == 1) {
-							multi_texture_operation[layer] |= TEXT_UV_NOISE;
-						}
-					}
-					for (uint32_t i = 0; i < multi_texture_count; ++i) {
-						if (multi_texture_data[i] != nullptr) {
-							if (multi_texture_data[i]->diffuse != nullptr) {
-								multi_texture_operation[i] |= TEXT_DIFF;
-							}
-							if (multi_texture_data[i]->normal != nullptr) {
-								multi_texture_operation[i] |= TEXT_NORM;
-							}
-							if (multi_texture_data[i]->spec != nullptr) {
-								multi_texture_operation[i] |= TEXT_SPEC;
-							}
-							if (multi_texture_data[i]->ao != nullptr) {
-								multi_texture_operation[i] |= TEXT_AO;
-							}
-							if (multi_texture_data[i]->arm != nullptr) {
-								multi_texture_operation[i] |= TEXT_ARM;
-							}
-							if (multi_texture_data[i]->high != nullptr) {
-								multi_texture_operation[i] |= TEXT_DISP;
-							}
-							if (multi_texture_mask[i] != nullptr) {
-								multi_texture_operation[i] |= TEXT_MASK;
-							}
-						}
-					}
-				}
-				catch (...) {
-					printf("Material::LoadMultitexture: error loading multitexture");
-					return false;
-				}
-				return true;
-			}
-
 			Mesh::Mesh() {
 				end_animation_event.SetSender(this);
 				end_animation_event.SetType(EVENT_ID_ANIMATION_END);
@@ -153,6 +77,10 @@ namespace HotBite {
 					joint_cpu_data.resize(current_animation.skeleton->CpuData().size());
 					current_animation.id = 0;
 				}
+				//A level of the mesh that was here before means nothing about this one,
+				//and the chain may be shorter or absent: back to full detail, which
+				//SelectLods revises on the next frame it draws.
+				current_lod = 0;
 				index_count = data->indexCount;
 				index_offset = data->indexOffset;
 				vertex_offset = data->vertexOffset;
@@ -160,6 +88,24 @@ namespace HotBite {
 
 			Core::MeshData* Mesh::GetData() {
 				return data;
+			}
+
+			void Mesh::SetLod(int index) {
+				if (data == nullptr) {
+					return;
+				}
+				const Core::MeshData* geometry = data;
+				if (index > 0 && index < (int)data->lods.size() &&
+					data->lods[index].mesh != nullptr) {
+					geometry = data->lods[index].mesh;
+				}
+				else {
+					index = 0;
+				}
+				current_lod = index;
+				index_count = geometry->indexCount;
+				index_offset = geometry->indexOffset;
+				vertex_offset = geometry->vertexOffset;
 			}
 
 			void Mesh::SetCoordinatorInfo(ECS::Entity e, ECS::Coordinator* c) {
@@ -686,22 +632,34 @@ namespace HotBite {
 				return j;
 			}
 
+			//A layer stack authored straight into an entity's record, from before
+			//multi-materials were named assets in a .mat file. It is applied to the
+			//entity's *material*, which is where a stack lives now, and registered under
+			//that material's name so the editor can see and re-save it as a normal
+			//multi-material. Nothing in this tree writes the key any more; it is read so
+			//that levels which do keep loading unchanged.
+			static void ApplyInlineMultiTexture(Core::MaterialData* material,
+				const json& mt, const ECS::SerializeContext& ctx) {
+				if (material == nullptr || ctx.world == nullptr) {
+					return;
+				}
+				Core::MultiMaterialData stack;
+				stack.name = material->name;
+				stack.FromJson(mt, ctx.world->GetAssetsPath(), ctx.world->GetMaterials());
+				ctx.world->SetMultiMaterial(stack.name, stack);
+				material->multi_material_name = stack.name;
+				material->multi_material = ctx.world->GetMultiMaterial(stack.name);
+			}
+
 			void Material::FromJson(const json& j, const ECS::SerializeContext& ctx) {
 				if (ctx.world == nullptr) {
 					return;
 				}
-				const std::string entity_name = (ctx.coordinator != nullptr &&
-					ctx.coordinator->ContainsComponent<Base>(ctx.entity))
-					? ctx.coordinator->GetConstComponent<Base>(ctx.entity).name : std::string("?");
-				LOG_DEBUG("Material::FromJson: entity '%s' (%u), json=%s, data-before=%p",
-					entity_name.c_str(), ctx.entity, j.dump().c_str(), (void*)data);
 				ECS::Entity te = ResolveTemplateEntity(j, ctx);
 				if (te != ECS::INVALID_ENTITY_ID) {
 					ECS::Coordinator* tc = ctx.world->GetTemplatesCoordinator();
 					if (tc->ContainsComponent<Material>(te)) {
 						data = tc->GetConstComponent<Material>(te).data;
-						LOG_DEBUG("Material::FromJson: entity '%s' adopted template entity %u's material -> %p",
-							entity_name.c_str(), te, (void*)data);
 					}
 				}
 				if (j.contains("name") && j["name"].is_string()) {
@@ -717,29 +675,22 @@ namespace HotBite {
 					}
 					if (found != nullptr) {
 						data = found;
-						LOG_DEBUG("Material::FromJson: entity '%s' resolved material '%s' -> %p",
-							entity_name.c_str(), material_name.c_str(), (void*)data);
 					}
 					else {
-						LOG_WARN("Material::FromJson: entity '%s' unknown material '%s'",
-							entity_name.c_str(), material_name.c_str());
+						LOG_WARN("Material::FromJson: unknown material '%s' (entity %u), keeping the current one",
+							material_name.c_str(), ctx.entity);
 						printf("Material::FromJson: unknown material '%s'.\n", material_name.c_str());
 					}
 				}
 				if (j.contains("multi_texture")) {
-					const json& mt = j["multi_texture"];
-					multi_material.LoadMultitexture(mt.dump(), ctx.world->GetAssetsPath(),
-						ctx.world->GetMaterials());
+					ApplyInlineMultiTexture(data, j["multi_texture"], ctx);
 				}
 				//Nothing named anything and no material to keep: this is a Material
 				//added from scratch, so give it the default rather than leaving a null
 				//pointer for the render system to trip over.
 				if (data == nullptr) {
-					LOG_WARN("Material::FromJson: entity '%s' has no material after FromJson, falling back to default",
-						entity_name.c_str());
 					data = ctx.world->GetDefaultMaterial();
 				}
-				LOG_DEBUG("Material::FromJson: entity '%s' data-after=%p", entity_name.c_str(), (void*)data);
 			}
 
 			json Mesh::ToJson(const ECS::SerializeContext& ctx) const {
@@ -754,6 +705,27 @@ namespace HotBite {
 					//ball" undoable in name only: the step popped off the stack and the
 					//ball stayed faceted.
 					j["smooth"] = data->smooth;
+					//The level-of-detail chain, and like "smooth" a property of the
+					//shared asset that this component is merely the place to author.
+					//Written unconditionally for the reason above: an omitted key is
+					//"leave alone", so a chain that happened to match what was loaded
+					//could never be restored by replaying this.
+					json lods = json::array();
+					//Level 0 is the mesh itself and is implied by the chain existing;
+					//writing it back would make it an alternate of itself on the next
+					//load, which SetLods refuses - correctly, and noisily.
+					for (size_t i = 1; i < data->lods.size(); ++i) {
+						const Core::MeshData* lod = data->lods[i].mesh;
+						if (lod == nullptr) {
+							continue;
+						}
+						lods.push_back(json{ {"name", lod->name},
+											 {"distance", data->lods[i].distance} });
+					}
+					j["lods"] = lods;
+					j["lod_mode"] = (data->lod_mode == Core::MeshData::LOD_DISTANCE) ?
+						"distance" : "auto";
+					j["lod_bias"] = data->lod_bias;
 					//The animation sets attached to this mesh, under the names they were
 					//loaded with. The MeshData holds them as unnamed shared pointers, so
 					//the names have to be recovered from the world's skeleton collection
@@ -778,6 +750,9 @@ namespace HotBite {
 						}
 					}
 				}
+				//Per entity, unlike everything above: whether this one follows the
+				//chain its mesh declares.
+				j["lod_enabled"] = lod_enabled;
 				if (!clips.empty()) {
 					json library = json::object();
 					for (const auto& [logical, clip] : clips) {
@@ -909,6 +884,50 @@ namespace HotBite {
 				//scene editor is that it no longer has to be.
 				if (j.contains("smooth") && j["smooth"].is_boolean()) {
 					ctx.world->SetMeshSmooth(target, j["smooth"].get<bool>());
+				}
+
+				//The level-of-detail chain, on the same terms as "smooth": authored
+				//here, owned by the asset. Two spellings, because most chains have
+				//nothing to say about distances - a bare array of mesh names, or one of
+				//{"name", "distance"} objects when the switch points are being authored
+				//by hand for LOD_DISTANCE.
+				if (target != nullptr && j.contains("lods") && j["lods"].is_array()) {
+					std::vector<std::string> names;
+					std::vector<float> distances;
+					for (const auto& entry : j["lods"]) {
+						if (entry.is_string()) {
+							names.push_back(entry.get<std::string>());
+							distances.push_back(0.0f);
+						}
+						else if (entry.is_object() && entry.contains("name") &&
+							entry["name"].is_string()) {
+							names.push_back(entry["name"].get<std::string>());
+							distances.push_back(entry.value("distance", 0.0f));
+						}
+					}
+					ctx.world->SetMeshLods(target, names, distances);
+				}
+				if (target != nullptr && j.contains("lod_mode") && j["lod_mode"].is_string()) {
+					target->lod_mode = (j["lod_mode"].get<std::string>() == "distance") ?
+						Core::MeshData::LOD_DISTANCE : Core::MeshData::LOD_AUTO;
+				}
+				if (target != nullptr && j.contains("lod_bias") && j["lod_bias"].is_number()) {
+					//Zero or less would demand no detail at all and pin every model to
+					//the coarsest level it has, which is indistinguishable from the
+					//feature being broken.
+					const float bias = j["lod_bias"].get<float>();
+					if (bias > 0.0f) {
+						target->lod_bias = bias;
+					}
+				}
+				if (j.contains("lod_enabled") && j["lod_enabled"].is_boolean()) {
+					lod_enabled = j["lod_enabled"].get<bool>();
+					if (!lod_enabled) {
+						//Back to full detail now rather than at the next frame that
+						//draws this entity: an entity opting out while off screen would
+						//otherwise keep whatever level it was last seen at.
+						SetLod(0);
+					}
 				}
 
 				if (j.contains("animation") && j["animation"].is_string()) {

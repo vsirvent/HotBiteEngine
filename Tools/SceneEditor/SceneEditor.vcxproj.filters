@@ -83,6 +83,12 @@
     <ClCompile Include="MaterialPanel.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="MultiMaterialPanel.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="MaskPaint.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="MaterialPreview.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -188,6 +194,12 @@
       <Filter>imgui\backends</Filter>
     </ClInclude>
     <ClInclude Include="MaterialPanel.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="MultiMaterialPanel.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="MaskPaint.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="MaterialPreview.h">

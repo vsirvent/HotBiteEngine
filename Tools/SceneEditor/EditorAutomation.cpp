@@ -4,6 +4,8 @@
 #include "Inspector.h"
 #include "AssetBrowser.h"
 #include "MaterialPanel.h"
+#include "MultiMaterialPanel.h"
+#include "MaskPaint.h"
 #include "TemplatePanel.h"
 #include "Outliner.h"
 #include "EntityOps.h"
@@ -441,6 +443,60 @@ namespace HotBiteEditor {
 					}
 				}
 			}
+			else if (cmd == "lod_info") {
+				//What each selected entity's mesh declares as its level-of-detail
+				//chain, and which level it is being drawn at right now. The second
+				//half is the point: the switch happens on the render thread from a
+				//coverage nothing else reports, so without a readout the only evidence
+				//of it is a silhouette changing in a screenshot - and the coarse levels
+				//of a well-made chain are meant not to be visible.
+				Coordinator* c = state.world->GetCoordinator();
+				if (c == nullptr) {
+					response_lines.push_back("ERR no coordinator");
+				}
+				else if (state.selected_entities.empty()) {
+					response_lines.push_back("ERR nothing selected");
+				}
+				else {
+					response_lines.push_back("OK " + std::to_string(Selection::Count(state)) + " selected");
+					for (Entity e : state.selected_entities) {
+						if (!c->ContainsComponent<Base>(e) || !c->ContainsComponent<Mesh>(e)) {
+							continue;
+						}
+						const std::string& name = c->GetComponent<Base>(e).name;
+						Mesh& mesh = c->GetComponent<Mesh>(e);
+						Core::MeshData* data = mesh.GetData();
+						if (data == nullptr) {
+							response_lines.push_back(name + " no mesh data");
+							continue;
+						}
+						std::ostringstream os;
+						os << name << " mesh=" << data->name
+							<< " mode=" << (data->lod_mode == Core::MeshData::LOD_DISTANCE ?
+								"distance" : "auto")
+							<< " bias=" << data->lod_bias
+							<< " enabled=" << (mesh.lod_enabled ? "1" : "0")
+							<< " levels=" << data->lods.size()
+							<< " current=" << mesh.current_lod
+							//The three DrawIndexed arguments, so a test can prove the
+							//selection reached the draw call and not just the readout.
+							<< " index_count=" << mesh.index_count
+							<< " index_offset=" << mesh.index_offset
+							<< " vertex_offset=" << mesh.vertex_offset;
+						response_lines.push_back(os.str());
+						for (size_t i = 0; i < data->lods.size(); ++i) {
+							const Core::MeshData::MeshLod& lod = data->lods[i];
+							std::ostringstream ls;
+							ls << "  lod" << i << " mesh="
+								<< (lod.mesh != nullptr ? lod.mesh->name : std::string("(null)"))
+								<< " ratio=" << lod.ratio
+								<< " distance=" << lod.distance
+								<< " vertices=" << (lod.mesh != nullptr ? lod.mesh->vertexCount : 0);
+							response_lines.push_back(ls.str());
+						}
+					}
+				}
+			}
 			//--- Materials (see MaterialPanel.h). Materials are keyed by name and are
 			//saved separately from the level, so `save_materials` is its own command
 			//rather than part of `save`.
@@ -580,6 +636,246 @@ namespace HotBiteEditor {
 				else {
 					response_lines.push_back("ERR " + error);
 				}
+			}
+			//--- Multi-materials (see MultiMaterialPanel.h). Layer stacks that live in
+			//the same .mat files as plain materials, share save_materials with them, and
+			//are attached to a material by name - never to an entity.
+			else if (cmd == "multi_materials") {
+				const std::vector<std::string> names = MultiMaterialOps::List(state);
+				response_lines.push_back("OK " + std::to_string(names.size()) + " multi-materials");
+				for (const std::string& name : names) {
+					std::ostringstream os;
+					const std::string file = state.world->GetMultiMaterialOrigin(name);
+					Core::MultiMaterialData* mm = state.world->GetMultiMaterial(name);
+					os << name << " file=" << (file.empty() ? "(none)" : file)
+						<< " layers=" << (mm != nullptr ? mm->layers.size() : 0)
+						<< " materials=" << MultiMaterialOps::FindMaterials(state, name).size();
+					if (state.dirty_material_files.count(file) != 0) {
+						os << " unsaved";
+					}
+					if (name == state.selected_multi_material) {
+						os << " selected";
+					}
+					response_lines.push_back(os.str());
+				}
+			}
+			else if (cmd == "select_multi_material") {
+				if (args.size() < 2) {
+					response_lines.push_back("ERR usage: select_multi_material <name>");
+				}
+				else if (state.world->GetMultiMaterial(args[1]) == nullptr) {
+					response_lines.push_back("ERR multi-material not found: " + args[1]);
+				}
+				else {
+					state.selected_multi_material = args[1];
+					state.selected_multi_material_layer = 0;
+					state.show_material_panel = true;
+					response_lines.push_back("OK selected multi-material: " + args[1]);
+				}
+			}
+			else if (cmd == "create_multi_material") {
+				if (args.size() < 3) {
+					response_lines.push_back("ERR usage: create_multi_material <name> <mat file>");
+				}
+				else if (MultiMaterialOps::Create(state, args[1], args[2], error)) {
+					response_lines.push_back("OK multi-material created: " + args[1] + " in " + args[2]);
+				}
+				else {
+					response_lines.push_back("ERR " + error);
+				}
+			}
+			else if (cmd == "remove_multi_material") {
+				if (args.size() < 2) {
+					response_lines.push_back("ERR usage: remove_multi_material <name>");
+				}
+				else if (MultiMaterialOps::Remove(state, args[1], error)) {
+					response_lines.push_back("OK multi-material removed: " + args[1]);
+				}
+				else {
+					response_lines.push_back("ERR " + error);
+				}
+			}
+			else if (cmd == "set_multi_material") {
+				//`set_multi_material <material> none` detaches.
+				if (args.size() < 3) {
+					response_lines.push_back("ERR usage: set_multi_material <material name> <multi-material|none>");
+				}
+				else {
+					const std::string target = (args[2] == "none") ? std::string() : args[2];
+					if (MultiMaterialOps::Assign(state, args[1], target, error)) {
+						response_lines.push_back("OK " + args[1] + " -> " + (target.empty() ? "(none)" : target));
+					}
+					else {
+						response_lines.push_back("ERR " + error);
+					}
+				}
+			}
+			else if (cmd == "add_layer") {
+				if (args.size() < 3) {
+					response_lines.push_back("ERR usage: add_layer <multi-material> <source material>");
+				}
+				else if (MultiMaterialOps::AddLayer(state, args[1], args[2], error)) {
+					response_lines.push_back("OK layer added to " + args[1]);
+				}
+				else {
+					response_lines.push_back("ERR " + error);
+				}
+			}
+			else if (cmd == "remove_layer") {
+				if (args.size() < 3) {
+					response_lines.push_back("ERR usage: remove_layer <multi-material> <layer index>");
+				}
+				else {
+					int index = -1;
+					try { index = std::stoi(args[2]); } catch (...) {}
+					if (MultiMaterialOps::RemoveLayer(state, args[1], index, error)) {
+						response_lines.push_back("OK layer removed: " + args[1] + " " + args[2]);
+					}
+					else {
+						response_lines.push_back("ERR " + error);
+					}
+				}
+			}
+			else if (cmd == "move_layer") {
+				if (args.size() < 4) {
+					response_lines.push_back("ERR usage: move_layer <multi-material> <layer index> <delta>");
+				}
+				else {
+					int index = -1, delta = 0;
+					try { index = std::stoi(args[2]); delta = std::stoi(args[3]); } catch (...) {}
+					if (MultiMaterialOps::MoveLayer(state, args[1], index, delta, error)) {
+						response_lines.push_back("OK layer moved: " + args[1] + " " + args[2] + " by " + args[3]);
+					}
+					else {
+						response_lines.push_back("ERR " + error);
+					}
+				}
+			}
+			else if (cmd == "layer") {
+				//Readback of one layer's authored fields plus what Rebuild derived from
+				//them (flags, whether its material resolved) - the multi-material analogue
+				//of the `component` command.
+				if (args.size() < 3) {
+					response_lines.push_back("ERR usage: layer <multi-material> <layer index>");
+				}
+				else {
+					int index = -1;
+					try { index = std::stoi(args[2]); } catch (...) {}
+					const json value = MultiMaterialOps::LayerJson(state, args[1], index);
+					if (value.empty()) {
+						response_lines.push_back("ERR no layer " + args[2] + " in " + args[1]);
+					}
+					else {
+						response_lines.push_back("OK " + args[1] + " layer " + args[2]);
+						response_lines.push_back(value.dump());
+					}
+				}
+			}
+			else if (cmd == "set_layer") {
+				//Single-quoted JSON, same rule as set_component: the tokenizer strips
+				//double quotes, so a double-quoted object never arrives intact.
+				if (args.size() < 4) {
+					response_lines.push_back("ERR usage: set_layer <multi-material> <layer index>"
+						" <json object, single-quoted keys/values>");
+				}
+				else {
+					int index = -1;
+					try { index = std::stoi(args[2]); } catch (...) {}
+					std::string source = args[3];
+					std::replace(source.begin(), source.end(), '\'', '"');
+					json value;
+					bool parsed = true;
+					try {
+						value = json::parse(source);
+					}
+					catch (const std::exception& ex) {
+						parsed = false;
+						response_lines.push_back(std::string("ERR bad JSON: ") + ex.what());
+					}
+					if (parsed && MultiMaterialOps::SetLayer(state, args[1], index, value, error)) {
+						response_lines.push_back("OK " + args[1] + " layer " + args[2] + " = " +
+							MultiMaterialOps::LayerJson(state, args[1], index).dump());
+					}
+					else if (parsed) {
+						response_lines.push_back("ERR " + error);
+					}
+				}
+			}
+			else if (cmd == "set_multi_material_params") {
+				if (args.size() < 3) {
+					response_lines.push_back("ERR usage: set_multi_material_params <multi-material>"
+						" <json object, single-quoted keys/values>");
+				}
+				else {
+					std::string source = args[2];
+					std::replace(source.begin(), source.end(), '\'', '"');
+					json value;
+					bool parsed = true;
+					try {
+						value = json::parse(source);
+					}
+					catch (const std::exception& ex) {
+						parsed = false;
+						response_lines.push_back(std::string("ERR bad JSON: ") + ex.what());
+					}
+					if (parsed && MultiMaterialOps::SetParams(state, args[1], value, error)) {
+						response_lines.push_back("OK " + args[1] + " params updated");
+					}
+					else if (parsed) {
+						response_lines.push_back("ERR " + error);
+					}
+				}
+			}
+			//--- Mask painting (see MaskPaint.h). One session at a time, targeting a
+			//single multi-material layer; paint_mask dabs it in the layer's own UV space.
+			else if (cmd == "paint_mask_begin") {
+				if (args.size() < 3) {
+					response_lines.push_back("ERR usage: paint_mask_begin <multi-material> <layer index> [canvas size]");
+				}
+				else {
+					int index = -1;
+					try { index = std::stoi(args[2]); } catch (...) {}
+					int size = 1024;
+					if (args.size() >= 4) {
+						try { size = std::stoi(args[3]); } catch (...) {}
+					}
+					if (MaskPaint::Begin(state, args[1], index, error, size)) {
+						response_lines.push_back("OK painting " + args[1] + " layer " + args[2] +
+							" (" + std::to_string(MaskPaint::Width()) + "x" +
+							std::to_string(MaskPaint::Height()) + ")");
+					}
+					else {
+						response_lines.push_back("ERR " + error);
+					}
+				}
+			}
+			else if (cmd == "paint_mask") {
+				if (!MaskPaint::Active()) {
+					response_lines.push_back("ERR no paint session is open (paint_mask_begin first)");
+				}
+				else {
+					float args4[4];
+					if (!ParseFloats(args, 1, 4, args4)) {
+						response_lines.push_back("ERR usage: paint_mask <u> <v> <radius> <strength>"
+							" (uv 0..1, radius in uv units, strength -1..1)");
+					}
+					else {
+						MaskPaint::PaintStroke(args4[0], args4[1], args4[2], args4[3]);
+						response_lines.push_back("OK dab at " + args[1] + "," + args[2]);
+					}
+				}
+			}
+			else if (cmd == "paint_mask_commit") {
+				if (MaskPaint::Commit(state, error)) {
+					response_lines.push_back("OK mask committed");
+				}
+				else {
+					response_lines.push_back("ERR " + error);
+				}
+			}
+			else if (cmd == "paint_mask_cancel") {
+				MaskPaint::Cancel(state);
+				response_lines.push_back("OK paint session cancelled");
 			}
 			else if (cmd == "create_group") {
 				if (args.size() < 2) {
