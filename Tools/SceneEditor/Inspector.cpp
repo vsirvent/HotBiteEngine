@@ -4,6 +4,7 @@
 #include "EditorLayout.h"
 #include "EntityOps.h"
 #include "MaterialPanel.h"
+#include "MeshOps.h"
 #include "TemplatePanel.h"
 
 #include "imgui.h"
@@ -869,9 +870,55 @@ namespace HotBiteEditor {
 				ImGui::EndTable();
 			}
 
-			//Adding one. A picker over the level's meshes for the same reason the mesh
-			//field above is a picker: the name has to resolve against a loaded mesh, and
-			//an alternate that does not is simply dropped on load.
+			//Building one. First, because it is the answer for almost every model: a
+			//hand-made stand-in means going back to the modelling tool and exporting a
+			//second .fbx, and until there is one the chain above cannot be authored at
+			//all. The percentage is the share of the *full* mesh to aim for - the same
+			//number the Verts column reports back - and it defaults to half of the
+			//coarsest level there, so accepting it repeatedly builds 50%, 25%, 12.5%.
+			{
+				//Per mesh, so switching entity does not carry a number typed for
+				//another model, and remembered across frames because it is a drag.
+				static std::string ratio_mesh;
+				static float ratio_percent = 50.0f;
+				if (ratio_mesh != data->name) {
+					ratio_mesh = data->name;
+					ratio_percent = MeshOps::SuggestedRatio(data) * 100.0f;
+				}
+				ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.45f);
+				ImGui::DragFloat("##lod_ratio", &ratio_percent, 0.5f, 1.0f, 99.0f, "%.0f%%");
+				if (ImGui::IsItemHovered()) {
+					ImGui::SetTooltip("How much of the full mesh the generated level keeps,\n"
+						"in vertices. The result lands near it rather than on it -\n"
+						"a collapse takes a whole vertex and everything welded to\n"
+						"it at once.");
+				}
+				ImGui::SameLine();
+				if (ImGui::Button("Generate level")) {
+					std::string generated;
+					std::string error;
+					if (MeshOps::GenerateLod(state, entity_name, ratio_percent / 100.0f,
+						generated, error)) {
+						state.status_message = "Generated LOD mesh '" + generated + "'";
+						ratio_percent = MeshOps::SuggestedRatio(data) * 100.0f;
+					}
+					else {
+						state.status_message = "Generate LOD failed: " + error;
+					}
+				}
+				if (ImGui::IsItemHovered()) {
+					ImGui::SetTooltip("Simplifies THIS mesh into a coarser one and adds it to the\n"
+						"chain. The result is a mesh asset like any other - it is\n"
+						"stored beside the level and is there on the next load.\n\n"
+						"Always built from level 0, never from the level above:\n"
+						"reducing a reduction compounds the error.");
+				}
+			}
+
+			//Or picking one that already exists. A picker over the level's meshes for
+			//the same reason the mesh field above is a picker: the name has to resolve
+			//against a loaded mesh, and an alternate that does not is simply dropped on
+			//load.
 			if (ImGui::BeginCombo("Add level", "(choose a mesh)")) {
 				for (const std::string& option : all_meshes) {
 					if (option == data->name) {

@@ -84,6 +84,24 @@ namespace HotBite {
 				std::vector<std::string> animation_sets; // skeletons, i.e. clip sets
 			};
 
+			// A mesh this world produced by simplifying another one, rather than by
+			// importing it (GenerateMeshLod). The triple is what a level writes into
+			// its "generated_meshes" array and what a load reads back, and it is
+			// deliberately the *recipe* and not just the file: the file can be missing,
+			// stale or written by another build, and a recipe can always be run again.
+			struct GeneratedMesh {
+				std::string name;   // what it is registered as, and what a chain names
+				std::string source; // the mesh it was made from
+				float ratio = 0.5f; // the share of the source's vertices it aimed for
+				std::string file;   // where the geometry is cached, assets-path relative
+			};
+
+			// Where GenerateMeshLod caches its geometry, under the assets path. One
+			// folder rather than beside each model: a generated mesh belongs to no
+			// .fbx, and a folder of them is the thing to delete when they should all
+			// be rebuilt.
+			static inline const char* GENERATED_MESH_DIR = "GeneratedMeshes";
+
 		protected:
 			std::atomic<uint64_t> current_server_nsec = 0;
 			std::atomic<uint64_t> current_background_thread_nsec = 0;
@@ -147,6 +165,9 @@ namespace HotBite {
 			//every saved file.
 			std::set<std::string> removed_materials;
 			Core::FlatMap<std::string, Core::MeshData> meshes{ ECS::MAX_ENTITIES };
+			//The meshes in there that this world generated rather than imported, in
+			//creation order. See GeneratedMesh and GenerateMeshLod.
+			std::vector<GeneratedMesh> generated_meshes;
 			Core::FlatMap<std::string, Core::ShapeData> shapes{ ECS::MAX_ENTITIES };
 			Core::FlatMap<std::string, std::shared_ptr<Core::Skeleton>> animations{ ECS::MAX_ENTITIES };
 
@@ -178,6 +199,24 @@ namespace HotBite {
 			void OnLockStepTick(ECS::Event& ev);
 			void SetupCoordinator(ECS::Coordinator* c);
 			void LoadSky(const nlohmann::json& sky_info);
+			// Registers geometry produced here (rather than imported) as a mesh asset
+			// under `name`. The skeleton and the smoothing flag come from the mesh it
+			// was made from: a level of a skinned model has to be skinned to the same
+			// skeleton to be usable as one at all (CompatibleSkinning), and shading
+			// that did not match the source's would show up as the model changing
+			// appearance when it drops a level.
+			Core::MeshData* InstallGeneratedMesh(const std::string& name,
+				const std::vector<Core::Vertex>& vertices,
+				const std::vector<uint32_t>& indices,
+				const std::vector<uint32_t>& smooth_groups,
+				std::shared_ptr<Core::Skeleton> skeleton, bool smooth);
+			// The level's "generated_meshes" section: one {name, source, ratio, file}
+			// recipe per mesh (see GeneratedMesh). Each is read from its cache file
+			// when that file still matches the source, and simplified again when it
+			// does not. Runs after the models and the "meshes" section - it needs the
+			// source meshes - and before any template is created, because a template's
+			// Mesh block may name one of these in its LOD chain.
+			void LoadGeneratedMeshes(const nlohmann::json& entries);
 			std::set<ECS::Entity> LoadFBX(const std::string& file, bool triangulate, bool relative,
 							Core::FlatMap<std::string, Core::MaterialData>& materials,
 							Core::FlatMap<std::string, Core::MeshData>& meshes,
@@ -467,6 +506,29 @@ namespace HotBite {
 			// level naming one bad LOD keeps the rest of the chain.
 			virtual bool SetMeshLods(Core::MeshData* mesh, const std::vector<std::string>& names,
 				const std::vector<float>& distances = {});
+			// Builds a coarser stand-in for `source_mesh` by simplifying its geometry
+			// (Core::SimplifyMesh) and registers it as a mesh asset of its own, named
+			// `<source>_lod<n>`, which is what comes back in `out_name`. It is then a
+			// mesh like any other: it can be named in a LOD chain, picked in an
+			// editor's mesh list, and drawn by anything that draws a mesh - the point
+			// being that a level of detail no longer has to be a second model somebody
+			// exported by hand.
+			//
+			// `ratio` is the share of the source's vertices to aim for, in (0, 1).
+			//
+			// It is *stored*, not recomputed: the geometry is written to
+			// GENERATED_MESH_DIR under the assets path and the level records the
+			// name/source/ratio triple that produced it (see GeneratedMesh and the
+			// "generated_meshes" section of Load), so the next load reads a file
+			// instead of simplifying the model again. The file is a cache and is
+			// treated as one - it is regenerated whenever it is missing, written by a
+			// different build, or no longer matches the source mesh it claims to come
+			// from.
+			virtual bool GenerateMeshLod(const std::string& source_mesh, float ratio,
+				std::string& out_name, std::string& error);
+			// The generated meshes this world holds, in creation order - what a level
+			// has to write out for a future load to find them again.
+			const std::vector<GeneratedMesh>& GetGeneratedMeshes() const { return generated_meshes; }
 			// Rebuilds the GPU buffers when a SetMeshSmooth since the last flush left
 			// them stale, and does nothing otherwise - so it is safe (and meant) to be
 			// called every frame, between frames. Before Init() it only clears the

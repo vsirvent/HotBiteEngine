@@ -63,8 +63,44 @@ float node_distance(BVHNode node, float3 pos)
     return dist;
 }
 
+//Where along the ray it enters `node`'s box, or FLT_MAX if it never does. One
+//slab test does three jobs a BVH descent needs: whether to visit the child at
+//all, which of two children to visit first, and whether the child can still hold
+//anything nearer than the best hit so far - and `t` is the right key for all
+//three, being the distance to the part of the box the ray actually reaches.
+//
+//This replaces a pair of calls per child: IntersectAABB (which recomputed 1/dir
+//every time) plus node_distance, whose key was the distance to the box's
+//bounding *sphere* - always shorter than the real one, so it culled less than it
+//could and ordered children by a value the ray may never pass through.
+//
+//`invDir` is hoisted to the caller because it is per ray, not per box; the
+//infinities a zero component produces are what the min/max formulation wants.
+float aabb_entry(float3 orig, float3 invDir, float3 bmin, float3 bmax)
+{
+    float3 t0 = (bmin - orig) * invDir;
+    float3 t1 = (bmax - orig) * invDir;
+    float3 tsmall = min(t0, t1);
+    float3 tbig = max(t0, t1);
+    float tmin = max(max(tsmall.x, tsmall.y), max(tsmall.z, 0.0f));
+    float tmax = min(min(tbig.x, tbig.y), tbig.z);
+    return (tmax >= tmin) ? tmin : FLT_MAX;
+}
 
-bool IntersectTri(RayObject ray, uint indexOffset, uint vertexOffset, out IntersectionResult result)
+float aabb_entry(float3 orig, float3 invDir, BVHNode node)
+{
+    return aabb_entry(orig, invDir, aabb_min(node), aabb_max(node));
+}
+
+
+//`best_t` is the nearest hit found so far: a triangle beyond it cannot matter, so
+//it is rejected before anything is written to `result`. The result carries the
+//vertex *indices* and the barycentrics rather than the three positions - the
+//caller reloads those in the one place it needs them (once per hit, not once per
+//test), which takes 9 floats out of every live IntersectionResult. These shaders
+//sit at the cs_5_0 register limit and there are three of those structs live in
+//the traversal, so that is occupancy rather than arithmetic.
+bool IntersectTri(RayObject ray, uint indexOffset, uint vertexOffset, float best_t, out IntersectionResult result)
 {
     result = (IntersectionResult)0;
 
@@ -110,12 +146,9 @@ bool IntersectTri(RayObject ray, uint indexOffset, uint vertexOffset, out Inters
 
     // Calculate t to find out where the intersection point is on the line
     const float t = f * dot(edge2, q);
-    if (t > 0.0f)
+    if (t > 0.0f && t < best_t)
     {
         // Valid intersection, populate the result
-        result.v0 = v0;
-        result.v1 = v1;
-        result.v2 = v2;
         result.vindex = vindex;
         result.object = 0;
         result.distance = t;
@@ -125,6 +158,18 @@ bool IntersectTri(RayObject ray, uint indexOffset, uint vertexOffset, out Inters
     }
 
     return false; // No intersection
+}
+
+//The hit position in object space, from the triangle the result names and the
+//barycentrics it landed at. Reloading the three positions here costs three fetches
+//once per hit; carrying them through the traversal cost nine registers on every
+//intersection test.
+float3 bary_position(IntersectionResult r)
+{
+    float3 v0 = asfloat(vertexBuffer.Load3(r.vindex.x));
+    float3 v1 = asfloat(vertexBuffer.Load3(r.vindex.y));
+    float3 v2 = asfloat(vertexBuffer.Load3(r.vindex.z));
+    return (1.0f - r.u - r.v) * v0 + r.u * v1 + r.v * v2;
 }
 
 bool IntersectAABB(float3 pos, float3 dir, float3 bmin, float3 bmax)

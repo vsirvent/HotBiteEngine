@@ -117,6 +117,23 @@ namespace HotBite {
 				static const std::string TESS_TYPE;
 				static const std::string DISPLACEMENT_SCALE;
 
+				//What the last PrepareRT handed the ray tracers, in triangle indices
+				//summed over the objects it sent (the nearest MAX_OBJECTS of them).
+				//The only readout there is of the level of detail selection actually
+				//reaching them: which geometry a ray hits is invisible in a screenshot
+				//- a reflection tracing the wrong mesh still looks like a reflection -
+				//and the timings do not show it either, since on a scene whose GI cost
+				//is its denoiser, tracing a tenth of the triangles costs the same to
+				//within noise.
+				//
+				//Written on the ray tracing thread and read wherever a tool asks: a
+				//plain unsynchronized read of values that are only ever reported.
+				struct RtGeometryStats {
+					int objects = 0;
+					uint64_t full_indices = 0;   //what tracing level 0 would have cost
+					uint64_t traced_indices = 0; //what every ray actually walks
+				};
+
 				enum class eRtQuality {
 					OFF,
 					LOW,
@@ -323,8 +340,17 @@ namespace HotBite {
 				//Motion blur
 				Core::SimpleComputeShader* motion_blur = nullptr;
 
-				//Ray tracing
-				eRtQuality rt_quality = eRtQuality::MID;
+				//Ray tracing. These two MUST agree: SetRayTracingQuality only touches
+				//the divider when the quality actually *changes*, so a mismatched pair
+				//here is a state the engine can never be talked out of - it said MID
+				//while tracing at the full-resolution divider of HIGH, and setting MID
+				//(what a game does when it applies a saved option) was a no-op that left
+				//it there. The reflection/refraction pass is the most expensive thing in
+				//a ray traced frame and scales with this divider, so that mismatch was
+				//worth about 2x: on Marbles' sponza, divider 1 is 27 fps and divider 3 is
+				//52. HIGH is the pair that matches the behaviour every scene was authored
+				//against; changing the default means changing what every game looks like.
+				eRtQuality rt_quality = eRtQuality::HIGH;
 				uint32_t RT_TEXTURE_RESOLUTION_DIVIDER = 1;
 				static constexpr uint32_t RT_REFLEX_ENABLE = 1;
 				static constexpr uint32_t RT_REFRACT_ENABLE = 2;
@@ -372,9 +398,21 @@ namespace HotBite {
 				Core::RenderTexture2D rt_ray_sources1;
 				Core::ExtBVHBuffer tbvh_buffer;
 				Core::BVHBuffer* bvh_buffer = nullptr;
+				//The ray tracers' view of the scene, filled by PrepareRT: the nearest
+				//MAX_OBJECTS drawables, each pointing at the **coarsest level of detail
+				//its mesh has**. Reflections, refractions and indirect light all read
+				//this one array - none of them wants the detail, and this pass is the
+				//most expensive thing in a ray traced frame.
+				//
+				//It used to be two arrays, with reflections tracing the level being
+				//*drawn* (floored by the quality setting) and only the GI taking the
+				//coarsest. That distinction bought a silhouette nobody can see through a
+				//half-resolution, denoised reflection, and cost a second 20 KB cbuffer
+				//upload per frame.
 				ObjectInfo objects[MAX_OBJECTS]{};
 				MaterialProps objectMaterials[MAX_OBJECTS]{};
 				int nobjects = 0;
+				RtGeometryStats rt_geometry_stats;
 				ID3D11ShaderResourceView* diffuseTextures[MAX_OBJECTS]{};
 				std::mutex rt_mutex;
 				std::condition_variable rt_signal;
@@ -517,6 +555,11 @@ namespace HotBite {
 				//drawing a silhouette the recorded depth does not match, which is not a
 				//pop but a hole.
 				void SelectLods(const Components::Camera& camera);
+				//The geometry the ray tracers should use for a mesh, at level `lod` of
+				//its chain (clamped to what the chain has). Null is never returned for a
+				//mesh that has data: an out-of-range level falls back to the full mesh,
+				//the same way Components::Mesh::SetLod does.
+				static const Core::MeshData* LodGeometry(Core::MeshData* data, int lod);
 				//Everything a motion vector is measured against: the camera's
 				//view-projection, every entity's world matrix and every skinned mesh's pose,
 				//stored as "previous" for the next frame. Called at the very end of Draw, once
@@ -572,6 +615,8 @@ namespace HotBite {
 				// with each shader. Assigning a different material does not need this
 				// (that cleanup covers it); changing shaders in place does.
 				void RefreshDrawable(ECS::Entity entity);
+
+				RtGeometryStats GetRtGeometryStats() const { return rt_geometry_stats; }
 
 				void EnableNormalMaterialMapping(bool enabled);
 				bool IsEnabledEnableNormalMaterialMapping() const;

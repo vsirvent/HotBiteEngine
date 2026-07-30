@@ -6,6 +6,7 @@
 #include "MaterialPanel.h"
 #include "MultiMaterialPanel.h"
 #include "MaskPaint.h"
+#include "MeshOps.h"
 #include "TemplatePanel.h"
 #include "Outliner.h"
 #include "EntityOps.h"
@@ -17,6 +18,7 @@
 #include <Windows.h>
 #include <Components/Base.h>
 #include <Components/Physics.h>
+#include <Systems/RenderSystem.h>
 #include <Core/Json.h>
 #include <algorithm>
 #include <mutex>
@@ -483,6 +485,15 @@ namespace HotBiteEditor {
 							<< " index_count=" << mesh.index_count
 							<< " index_offset=" << mesh.index_offset
 							<< " vertex_offset=" << mesh.vertex_offset;
+						//What the ray tracers trace this entity against, which is not
+						//what is drawn: every ray takes the coarsest level in the chain,
+						//whatever is on screen. Reported because it is invisible in a
+						//screenshot - a reflection tracing the wrong geometry still looks
+						//like a reflection.
+						{
+							const int levels = (int)data->lods.size();
+							os << " trace_lod=" << (levels > 0 ? levels - 1 : 0);
+						}
 						response_lines.push_back(os.str());
 						for (size_t i = 0; i < data->lods.size(); ++i) {
 							const Core::MeshData::MeshLod& lod = data->lods[i];
@@ -493,6 +504,75 @@ namespace HotBiteEditor {
 								<< " distance=" << lod.distance
 								<< " vertices=" << (lod.mesh != nullptr ? lod.mesh->vertexCount : 0);
 							response_lines.push_back(ls.str());
+						}
+					}
+				}
+			}
+			else if (cmd == "rt_info") {
+				//What the ray tracers were last handed, in triangle indices summed over
+				//the objects they were given. This is the one place the level of detail
+				//selection is observable: a reflection tracing the wrong geometry still
+				//looks like a reflection, and on a scene whose GI cost is its denoiser
+				//the timings do not move either.
+				Systems::RenderSystem* rs =
+					(state.world != nullptr) ? state.world->GetSystem<Systems::RenderSystem>().get() : nullptr;
+				if (rs == nullptr) {
+					response_lines.push_back("ERR no render system");
+				}
+				else {
+					const Systems::RenderSystem::RtGeometryStats stats = rs->GetRtGeometryStats();
+					std::ostringstream os;
+					os << "OK objects=" << stats.objects
+						<< " full_indices=" << stats.full_indices
+						<< " traced_indices=" << stats.traced_indices;
+					response_lines.push_back(os.str());
+				}
+			}
+			else if (cmd == "generate_lod") {
+				//Builds a coarser level out of the selected entity's mesh and adds it
+				//to the chain (MeshOps::GenerateLod), which is the Components panel's
+				//"Generate level" button. The percentage is optional and defaults to
+				//the same suggestion the panel offers - half of the coarsest level
+				//there.
+				Coordinator* c = state.world->GetCoordinator();
+				if (c == nullptr) {
+					response_lines.push_back("ERR no coordinator");
+				}
+				else if (state.selected_entity == INVALID_ENTITY_ID) {
+					response_lines.push_back("ERR nothing selected");
+				}
+				else if (!c->ContainsComponent<Mesh>(state.selected_entity)) {
+					response_lines.push_back("ERR selected entity has no Mesh");
+				}
+				else {
+					const std::string name = c->GetComponent<Base>(state.selected_entity).name;
+					Core::MeshData* data = c->GetComponent<Mesh>(state.selected_entity).GetData();
+					float ratio = MeshOps::SuggestedRatio(data);
+					bool ok = true;
+					if (args.size() > 1) {
+						try {
+							ratio = std::stof(args[1]) / 100.0f;
+						}
+						catch (...) {
+							response_lines.push_back("ERR usage: generate_lod [<percent>]");
+							ok = false;
+						}
+					}
+					if (ok) {
+						std::string generated;
+						std::string error;
+						if (MeshOps::GenerateLod(state, name, ratio, generated, error)) {
+							Core::MeshData* lod = state.world->GetMeshes().Get(generated);
+							std::ostringstream os;
+							os << "OK " << generated
+								<< " vertices=" << (lod != nullptr ? lod->vertexCount : 0)
+								<< " indices=" << (lod != nullptr ? lod->indexCount : 0)
+								<< " source=" << (data != nullptr ? data->name : std::string())
+								<< " source_vertices=" << (data != nullptr ? data->vertexCount : 0);
+							response_lines.push_back(os.str());
+						}
+						else {
+							response_lines.push_back("ERR " + error);
 						}
 					}
 				}

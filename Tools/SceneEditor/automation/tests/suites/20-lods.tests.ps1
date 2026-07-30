@@ -44,11 +44,31 @@ function Get-Lod {
 
 # Puts the camera `Distance` from the origin, looking at it, and lets the frame
 # that draws from there happen before anything reads the result.
+# Puts the camera `Distance` from the origin, looking at it, and does not come back
+# until the rig is actually there.
+#
+# The wait is the point. The pose is commanded on the channel's thread and applied by
+# EditorCamera on its own tick, so the frames right after the command can still be
+# rendering - and selecting levels of detail for - the previous distance. Asserting a
+# fixed few frames later reads the old level roughly one run in fifteen, which is what
+# made four of the switching tests below intermittent.
 function Set-CameraDistance {
     param([double]$Distance)
     SendOk 'camera_target 0 0 0' | Out-Null
     SendOk "camera_pos 0 0 -$Distance" | Out-Null
-    Step-EditorFrames -Session $Session -Count 3
+    $tolerance = $Distance * 0.01 + 0.01
+    for ($i = 0; $i -lt 30; $i += 2) {
+        $cam = Get-Camera -Session $Session
+        if ([Math]::Abs([double]$cam.distance - $Distance) -le $tolerance) {
+            # There, and then a few frames for the render (and SelectLods with it) to
+            # have run at the new pose.
+            Step-EditorFrames -Session $Session -Count 3
+            return
+        }
+        Step-EditorFrames -Session $Session -Count 2
+    }
+    throw ("camera never reached distance $Distance " +
+           "(at $((Get-Camera -Session $Session).distance))")
 }
 
 function Set-Chain {
@@ -244,4 +264,248 @@ Test 'the chain survives a save and reload' {
     Assert-Near -Expected 3.0 -Actual $record.components.Mesh.lod_bias -Message 'bias in the file'
     Assert-Equal -Expected 'Sky' -Actual @($record.components.Mesh.lods)[0].name -Message 'the alternate in the file'
     Assert-Near -Expected 70.0 -Actual @($record.components.Mesh.lods)[0].distance -Message 'its distance'
+}
+
+#--- generating a level -------------------------------------------------------
+# A chain no longer needs a second model exported by hand: the editor builds the
+# coarse mesh out of the fine one (Core::SimplifyMesh, through
+# World::GenerateMeshLod) and registers it as a mesh asset of its own. These are
+# the Components panel's "Generate level" button, and the cache file it leaves
+# behind so the next load reads the geometry instead of computing it again.
+
+# Generates a level for `Entity` and returns what came back on the OK line: the
+# mesh it made and the two vertex counts. Asked for rather than reproduced - the
+# name is chosen by the engine (`<source>_lod<n>`, first free n), and a test that
+# guessed it would break the moment another test in this file generated one.
+function New-GeneratedLod {
+    param([string]$Entity, [double]$Percent)
+    SendOk "select $Entity" | Out-Null
+    $r = SendOk "generate_lod $Percent"
+    $text = $r[0].Text
+    $m = [regex]::Match($text, '^(\S+) vertices=(\d+) indices=(\d+) source=(\S+) source_vertices=(\d+)')
+    if (-not $m.Success) { throw "generate_lod answered something unparseable: $text" }
+    return @{
+        Name           = $m.Groups[1].Value
+        Vertices       = [int]$m.Groups[2].Value
+        Indices        = [int]$m.Groups[3].Value
+        Source         = $m.Groups[4].Value
+        SourceVertices = [int]$m.Groups[5].Value
+    }
+}
+
+Test 'generate_lod simplifies the mesh and installs the result as a level' {
+    Set-Chain 'dome_a' "{'lod_mode':'auto','lod_bias':1.0,'lods':[]}"
+    $made = New-GeneratedLod -Entity 'dome_a' -Percent 50
+    Assert-Equal -Expected 'Space' -Actual $made.Source -Message 'built from the full mesh'
+    Assert-Equal -Expected $FullVertices -Actual $made.SourceVertices -Message 'which is this one'
+    # Near, not exact: a collapse takes a whole vertex and everything welded to it
+    # at once, so the target is where to stop rather than a count to land on.
+    Assert-Near -Expected ($FullVertices * 0.5) -Actual $made.Vertices `
+        -Tolerance ($FullVertices * 0.05) -Message 'half the vertices'
+    Assert-True -Condition ($made.Indices -lt $FullVertices) -Message 'and fewer triangles'
+
+    $lod = Get-Lod 'dome_a'
+    Assert-Equal -Expected '2' -Actual $lod.levels -Message 'the chain gained a level'
+    Assert-Equal -Expected $made.Name -Actual $lod.Chain[1].Mesh -Message 'which is the generated mesh'
+    # The ratio is derived from the geometry that was produced, so this is the
+    # engine agreeing with what the reduction actually did.
+    Assert-Near -Expected 0.5 -Actual $lod.Chain[1].Ratio -Tolerance 0.05 -Message 'its ratio'
+    $script:GeneratedLod = $made
+}
+
+Test 'the generated level is a mesh asset like any other' {
+    # The point of registering it rather than keeping it inside the chain: it can
+    # be given to an entity, listed in a picker, and named by another level.
+    $name = $script:GeneratedLod.Name
+    Set-Chain 'dome_b' "{'name':'$name'}"
+    $block = Get-Component -Session $Session -Entity 'dome_b' -Component 'Mesh'
+    Assert-Equal -Expected $name -Actual $block.name -Message 'dome_b now draws the generated mesh'
+    Set-Chain 'dome_b' "{'name':'Space'}"
+}
+
+Test 'a ratio that is not a reduction is refused' {
+    SendOk 'select dome_a' | Out-Null
+    Assert-Err -Result (Send 'generate_lod 150')[0] -Pattern 'between 0 and 1' `
+        -Message 'more than the mesh has'
+    Assert-Err -Result (Send 'generate_lod 0')[0] -Pattern 'between 0 and 1' `
+        -Message 'nothing at all'
+}
+
+Test 'generating a level is undoable, and leaves the mesh behind' {
+    Set-Chain 'dome_a' "{'lods':[]}"
+    $made = New-GeneratedLod -Entity 'dome_a' -Percent 30
+    Assert-Equal -Expected '2' -Actual (Get-Lod 'dome_a').levels -Message 'level added'
+    SendOk 'undo' | Out-Null
+    Assert-Equal -Expected '0' -Actual (Get-Lod 'dome_a').levels -Message 'undone'
+    # The asset is not undone with it - the same scope as an imported model, and
+    # the reason redo can name it again.
+    SendOk 'redo' | Out-Null
+    Assert-Equal -Expected $made.Name -Actual (Get-Lod 'dome_a').Chain[1].Mesh -Message 'redone'
+}
+
+Test 'a generated level is stored beside the level and recorded in it' {
+    Set-Chain 'dome_a' "{'lod_mode':'auto','lods':[{'name':'$($script:GeneratedLod.Name)'}]}"
+    SendOk 'menu "File/Save Level"' | Out-Null
+    $level = Get-Content -Raw $LevelPath | ConvertFrom-Json
+    $entry = @($level.world.generated_meshes) | Where-Object { $_.name -eq $script:GeneratedLod.Name }
+    Assert-True -Condition ($null -ne $entry) -Message 'the level lists the generated mesh'
+    Assert-Equal -Expected 'Space' -Actual $entry.source -Message 'and what it was made from'
+    Assert-Near -Expected 0.5 -Actual $entry.ratio -Tolerance 0.001 -Message 'and at what ratio'
+    # The recipe *and* the geometry: the second is a cache, which is why the first
+    # is written at all.
+    Assert-FileExists -Path (Join-Path $Assets $entry.file) -Message 'the cached geometry'
+    $script:GeneratedFile = Join-Path $Assets $entry.file
+}
+
+Test 'a reloaded level gets its generated levels back' {
+    # A second process on the file the test above wrote: the generated mesh has to
+    # be registered before the templates are created, or the chain naming it would
+    # be dropped as an unknown mesh.
+    $reloadDir = Join-Path (Split-Path -Parent $ShotDir) 'lod-reload-channel'
+    $reloaded = New-EditorSession -Exe $Session.Exe -Level $LevelPath -AutomationDir $reloadDir
+    try {
+        $r = Invoke-EditorCommand -Session $reloaded -Command @('select dome_a', 'lod_info')
+        Assert-Ok -Result $r
+        $line = @($r[1].Payload) | Where-Object { $_ -match '^\s+lod1 ' }
+        Assert-Match -Pattern "mesh=$([regex]::Escape($script:GeneratedLod.Name))" -Actual $line `
+            -Message 'the generated level came back'
+        Assert-Match -Pattern "vertices=$($script:GeneratedLod.Vertices)\b" -Actual $line `
+            -Message 'with the same geometry, off the cache file'
+    }
+    finally {
+        Close-EditorSession -Session $reloaded
+    }
+}
+
+Test 'a damaged cache is rebuilt rather than trusted' {
+    # The file describes the mesh it was made from, so anything that no longer
+    # matches - a changed model, another build, a truncated write - is thrown away
+    # and simplified again. Nothing has to be invalidated by hand, and a stale file
+    # can never draw yesterday's model as today's level.
+    [IO.File]::WriteAllText($script:GeneratedFile, 'not a mesh')
+    $reloadDir = Join-Path (Split-Path -Parent $ShotDir) 'lod-rebuild-channel'
+    $reloaded = New-EditorSession -Exe $Session.Exe -Level $LevelPath -AutomationDir $reloadDir
+    try {
+        $r = Invoke-EditorCommand -Session $reloaded -Command @('select dome_a', 'lod_info')
+        Assert-Ok -Result $r
+        $line = @($r[1].Payload) | Where-Object { $_ -match '^\s+lod1 ' }
+        Assert-Match -Pattern "vertices=$($script:GeneratedLod.Vertices)\b" -Actual $line `
+            -Message 'rebuilt to the same geometry'
+    }
+    finally {
+        Close-EditorSession -Session $reloaded
+    }
+    # And rewritten, so the load after this one is a read again.
+    Assert-True -Condition ((Get-Item $script:GeneratedFile).Length -gt 1000) `
+        -Message 'the cache file was rewritten'
+}
+
+Test 'a skinned mesh generates a level skinned to the same skeleton' {
+    # The one case a stand-in cannot be picked for: the vertices carry joint
+    # indices into the skeleton LOD0 is animating, so a hand-made LOD has to be
+    # rigged to it. A generated one is made of those same vertices, so it always
+    # is - and this is the check that the reduction carries the weights across.
+    SendOk 'place tf_troll origin' | Out-Null
+    Step-EditorFrames -Session $Session -Count 2
+    $troll = (SendOk 'list_selection')[0].Payload[0]
+    $made = New-GeneratedLod -Entity $troll -Percent 25
+    $lod = Get-Lod $troll
+    Assert-Equal -Expected '2' -Actual $lod.levels -Message 'the chain was accepted'
+    Assert-Equal -Expected $made.Name -Actual $lod.Chain[1].Mesh -Message 'the generated level'
+    Assert-Near -Expected 0.25 -Actual $lod.Chain[1].Ratio -Tolerance 0.05 -Message 'its ratio'
+    SendOk "select $troll" | Out-Null
+    SendOk 'delete' | Out-Null
+}
+
+#--- what the ray tracers trace ------------------------------------------------
+# The chain is not only about what is drawn. Every ray - reflection, refraction and
+# indirect light alike - traces the *coarsest* level the mesh has, whatever is on
+# screen and whatever the ray tracing quality is set to. `rt_info` reports the
+# geometry the last PrepareRT handed them, summed in triangle indices over the
+# objects it sent, and it is the only place any of this is observable: a ray hitting
+# the wrong geometry produces a reflection that still looks like a reflection.
+
+# Steps frames until `Entity` is drawn at level `Want`, up to a limit. The selection
+# happens on the render thread from a screen coverage that settles over a few frames,
+# with a 10% hysteresis margin on top, so a fixed frame count is a race. Throws if it
+# never gets there, which is the regression this guards.
+function Wait-Lod {
+    param([string]$Entity, [int]$Want, [int]$MaxFrames = 30)
+    for ($i = 0; $i -lt $MaxFrames; $i += 2) {
+        $lod = Get-Lod $Entity
+        if ([int]$lod.current -eq $Want) { return $lod }
+        Step-EditorFrames -Session $Session -Count 2
+    }
+    $l = Get-Lod $Entity
+    throw ("$Entity never reached level $Want after $MaxFrames frames " +
+           "(current=$($l.current) enabled=$($l.enabled) levels=$($l.levels) " +
+           "mode=$($l.mode) bias=$($l.bias) index_count=$($l.index_count))")
+}
+
+# rt_info, after enough frames for the ray tracing thread to have re-prepared the
+# scene with whatever was just changed.
+function Get-RtInfo {
+    Step-EditorFrames -Session $Session -Count 4
+    $r = SendOk 'rt_info'
+    $info = @{}
+    foreach ($field in @('objects', 'full_indices', 'traced_indices')) {
+        $m = [regex]::Match($r[0].Text, "$field=([0-9]+)")
+        if (-not $m.Success) { throw "rt_info has no $field`: $($r[0].Text)" }
+        $info[$field] = [int64]$m.Groups[1].Value
+    }
+    return $info
+}
+
+Test 'every ray traces the coarsest level, whatever is being drawn' {
+    # dome_a up close is drawn at full detail; the tracers still get the coarse
+    # geometry. Then the coarse level is made the drawn one too (distance mode with
+    # a switch point of 0, so it is eligible everywhere - no camera involved, see the
+    # note in the switching tests) and what is traced does not move.
+    SendOk 'render rt_quality high' | Out-Null
+    Set-Chain 'dome_a' "{'lod_mode':'auto','lod_bias':1.0,'lods':['Sky']}"
+    Set-CameraDistance 8
+    Wait-Lod -Entity 'dome_a' -Want 0 | Out-Null
+    $drawn_fine = Get-RtInfo
+    Assert-True -Condition ($drawn_fine.objects -gt 0) -Message 'the ray tracers were given objects'
+    Assert-True -Condition ($drawn_fine.traced_indices -lt $drawn_fine.full_indices) `
+        -Message ("traced less than the full scene " +
+                  "($($drawn_fine.traced_indices) of $($drawn_fine.full_indices))")
+
+    Set-Chain 'dome_a' "{'lod_mode':'distance','lods':[{'name':'Sky','distance':0.0}]}"
+    Wait-Lod -Entity 'dome_a' -Want 1 | Out-Null
+    $drawn_coarse = Get-RtInfo
+    Assert-Equal -Expected $drawn_fine.traced_indices -Actual $drawn_coarse.traced_indices `
+        -Message 'the drawn level does not change what is traced'
+    Set-Chain 'dome_a' "{'lod_mode':'auto','lod_bias':1.0}"
+}
+
+Test 'the ray tracing quality changes resolution, not traced geometry' {
+    # It used to be a floor on the traced level (high = what is drawn, mid = level 1,
+    # low = level 2). It is not any more: every quality traces the coarsest level and
+    # the setting moves RT_TEXTURE_RESOLUTION_DIVIDER instead, which is where its cost
+    # actually is.
+    Set-Chain 'dome_a' "{'lod_mode':'auto','lod_bias':1.0,'lods':['Sky']}"
+    Set-CameraDistance 8
+    Wait-Lod -Entity 'dome_a' -Want 0 | Out-Null
+    SendOk 'render rt_quality high' | Out-Null
+    $high = Get-RtInfo
+    SendOk 'render rt_quality mid' | Out-Null
+    $mid = Get-RtInfo
+    SendOk 'render rt_quality low' | Out-Null
+    $low = Get-RtInfo
+    Assert-Equal -Expected $high.traced_indices -Actual $mid.traced_indices -Message 'mid traces the same'
+    Assert-Equal -Expected $high.traced_indices -Actual $low.traced_indices -Message 'low traces the same'
+    Assert-True -Condition ($high.traced_indices -lt $high.full_indices) `
+        -Message 'and it is the coarse geometry, not the full mesh'
+    SendOk 'render rt_quality high' | Out-Null
+}
+
+Test 'a mesh with no chain is traced at full detail' {
+    # The floor of the rule: "coarsest level there is" is the mesh itself when nobody
+    # has built levels for it, so a scene with no chains traces everything.
+    Set-Chain 'dome_a' "{'lods':[]}"
+    Set-Chain 'dome_b' "{'lods':[]}"
+    $info = Get-RtInfo
+    Assert-Equal -Expected $info.full_indices -Actual $info.traced_indices `
+        -Message 'nothing to coarsen, so nothing is coarsened'
 }

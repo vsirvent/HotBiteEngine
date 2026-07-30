@@ -27,6 +27,10 @@ SOFTWARE.
 
 #define MAX_OBJECTS 100
 #define MAX_STACK_SIZE 20
+//Depth budget for the top-level (object) hierarchy, which holds at most
+//MAX_OBJECTS leaves and so needs far less than a mesh's triangle BVH. Only used
+//when USE_OBH is on, which it is not - see the note in GIRayTraceCS.hlsl.
+#define MAX_VOLUME_STACK_SIZE 16
 
 //#define PACK_RAYS_8
 #define RAY_W_SCALE 1.0f
@@ -65,19 +69,19 @@ struct RayObject {
     float t;
 };
 
+//What a hit is, in the fewest registers that still describe it: which triangle
+//(vertex byte offsets, which the caller reloads positions/normals/UVs from),
+//where in it, and how far. The three vertex positions used to live here too -
+//see the note on IntersectTri.
 struct IntersectionResult
 {
-    float3 v0;
-    float distance;
-    
-    float3 v1;
-    uint object; 
-    
-    float3 v2;
-    float  u;
-
     uint3 vindex;
-    float  v;    
+    float distance;
+
+    float u;
+    float v;
+    uint object;
+    float padding;
 };
 
 struct ObjectInfo

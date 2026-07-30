@@ -1844,6 +1844,18 @@ void RenderSystem::ProcessMotion() {
 	}
 }
 
+const Core::MeshData* RenderSystem::LodGeometry(Core::MeshData* data, int lod) {
+	if (data == nullptr) {
+		return nullptr;
+	}
+	//"No chain" and "level 0" are the same geometry, which is why nothing here
+	//needs to know whether the mesh declares levels at all.
+	if (lod <= 0 || lod >= (int)data->lods.size() || data->lods[lod].mesh == nullptr) {
+		return data;
+	}
+	return data->lods[lod].mesh;
+}
+
 void RenderSystem::PrepareRT() {
 	if (rt_quality != eRtQuality::OFF && rt_enabled && bvh_buffer != nullptr) {
 		auto& device = dxcore->device;
@@ -1854,13 +1866,17 @@ void RenderSystem::PrepareRT() {
 			ObjectInfo obj;
 			MaterialProps mat;
 			ID3D11ShaderResourceView* diff;
+			//Only for the readout below; nothing traced reads them.
+			uint32_t full_indices;
+			uint32_t traced_indices;
 		};
 		std::map<float, Node> distance_map;
 
 		bool enabled_layer[RT_NTEXTURES]{ false };
 		enabled_layer[2] = rt_enabled & RT_INDIRECT_ENABLE;
 
-		auto fill = [op = &enabled_layer[0], tr = &enabled_layer[1], ca = &cam_entity](const RenderTree& tree, std::map<float, Node>& distance_map) {
+		auto fill = [op = &enabled_layer[0], tr = &enabled_layer[1],
+			ca = &cam_entity](const RenderTree& tree, std::map<float, Node>& distance_map) {
 			for (const auto& shaders : tree) {
 				for (const auto& mat : shaders.second) {
 					for (const auto& de : mat.second.second.GetConstData()) {
@@ -1888,9 +1904,21 @@ void RenderSystem::PrepareRT() {
 											orientedBoxCenter.y + orientedBoxExtents.y,
 											orientedBoxCenter.z + orientedBoxExtents.z };
 
-							o.vertex_offset = (uint32_t)de.mesh->GetData()->vertexOffset;
-							o.index_offset = (uint32_t)de.mesh->GetData()->indexOffset;
-							o.object_offset = (uint32_t)de.mesh->GetData()->bvhOffset;
+							Core::MeshData* data = de.mesh->GetData();
+							//Every ray traces the coarsest level in the chain, whatever is
+							//being drawn and whatever the quality setting says. Neither
+							//consumer wants the detail: a reflection is a filtered,
+							//denoised, half-resolution image of the scene and indirect
+							//light is a diffuse integral accumulated over many frames, and
+							//this pass is ~64% of a ray traced frame (see the cost table in
+							//CLAUDE.md), so a mesh's silhouette in a reflection is the
+							//cheapest thing in the frame to be approximate about.
+							//
+							//`lods` is finest-first with [0] being the mesh itself, so the
+							//last entry is the answer and an empty chain means there is
+							//only the mesh.
+							const int trace_lod = data->lods.empty() ? 0 : (int)data->lods.size() - 1;
+							const Core::MeshData* geometry = LodGeometry(data, trace_lod);
 
 							o.position = orientedBoxCenter;
 							o.world = de.transform->world_matrix;
@@ -1898,7 +1926,11 @@ void RenderSystem::PrepareRT() {
 
 							o.density = de.mat->data->props.density;
 							o.opacity = de.mat->data->props.opacity;
-							
+
+							o.vertex_offset = (uint32_t)geometry->vertexOffset;
+							o.index_offset = (uint32_t)geometry->indexOffset;
+							o.object_offset = (uint32_t)geometry->bvhOffset;
+
 							if (o.opacity > 0.0f) {
 								*op = true;
 							}
@@ -1907,7 +1939,8 @@ void RenderSystem::PrepareRT() {
 							}
 							while (true) {
 								if (!distance_map.contains(distance)) {
-									distance_map[distance] = { o, mo, diffuse_text };
+									distance_map[distance] = { o, mo, diffuse_text,
+										data->indexCount, geometry->indexCount };
 									break;
 								}
 								else {
@@ -1937,7 +1970,33 @@ void RenderSystem::PrepareRT() {
 
 		fill(render_tree, distance_map);
 		fill(render_pass2_tree, distance_map);
-		sort(distance_map, objects, objectMaterials, diffuseTextures, nobjects);	
+		sort(distance_map, objects, objectMaterials, diffuseTextures, nobjects);
+		//An empty object list has no hierarchy to build, and Subdivide does not
+		//survive being asked for one: the root gets a count of zero, neither
+		//termination case matches, and it recurses into two equally empty children
+		//until the stack runs out. Only reachable with nothing traceable on screen
+		//(every drawable skinned, or hidden), which is why it went unnoticed while
+		//the shaders ignored the result.
+		if (nobjects <= 0) {
+			rt_geometry_stats = RtGeometryStats{};
+			return;
+		}
+		//Over the objects that were actually sent, which is the nearest MAX_OBJECTS of
+		//them and not everything the trees hold.
+		{
+			RtGeometryStats stats;
+			int index = 0;
+			for (const auto& o : distance_map) {
+				if (index++ >= nobjects) {
+					break;
+				}
+				stats.objects++;
+				stats.full_indices += o.second.full_indices;
+				stats.traced_indices += o.second.traced_indices;
+			}
+			rt_geometry_stats = stats;
+		}
+		//From the AABBs, which are the entity bounds and so identical in both arrays.
 		tbvh.Load(objects, nobjects);
 	}	
 }
@@ -1958,6 +2017,13 @@ void RenderSystem::ProcessGI() {
 		std::lock_guard<std::mutex> lock(rt_mutex);
 		CameraEntity& cam_entity = cameras.GetData()[0];
 
+		//The top-level BVH this pass walks (USE_OBH) has to be the one PrepareRT
+		//just built. It used to be uploaded only by ProcessRT, which does not run
+		//when reflections and refractions are both off - so indirect light would
+		//have traversed a hierarchy describing the objects of some earlier frame,
+		//and on the first frame one that was never written at all. Uploading it
+		//twice in a frame costs a copy of at most MAX_OBJECTS*2-1 nodes (6 KB).
+		tbvh_buffer.Refresh(tbvh.Root(), 0, tbvh.Size());
 
 		gi_shader->SetInt("kernel_size", RESTIR_KERNEL);
 		gi_shader->SetInt("ray_count", RESTIR_PIXEL_RAYS);

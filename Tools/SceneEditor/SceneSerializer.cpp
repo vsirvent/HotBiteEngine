@@ -505,7 +505,30 @@ namespace HotBiteEditor {
 				jw["templates"] = kept;
 			}
 
-			//4) Entity groups (the Entities panel tree). Stored under a top-level
+				//3b) Meshes this level had generated rather than imported - the levels of
+				//    detail simplified out of a model (World::GenerateMeshLod). The
+				//    recipe is what is written, not just the file it was cached into: a
+				//    cache can be missing or stale and a recipe can always be run again,
+				//    which is what makes the folder of .hbmesh files safe to delete.
+				//
+				//    Written whole from the world's registry rather than merged entry by
+				//    entry: the registry is everything this session loaded plus
+				//    everything it generated, so it already contains what the file had.
+				{
+					json generated = json::array();
+					for (const World::GeneratedMesh& g : state.world->GetGeneratedMeshes()) {
+						generated.push_back(json{ {"name", g.name}, {"source", g.source},
+												  {"ratio", g.ratio}, {"file", g.file} });
+					}
+					if (generated.empty()) {
+						jw.erase("generated_meshes");
+					}
+					else {
+						jw["generated_meshes"] = generated;
+					}
+				}
+
+				//4) Entity groups (the Entities panel tree). Stored under a top-level
 			//   "editor" object that World::Load never reads, so it round-trips as
 			//   editor-only data. Assignments to entities that no longer exist are
 			//   dropped here rather than accumulating in the file.

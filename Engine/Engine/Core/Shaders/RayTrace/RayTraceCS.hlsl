@@ -29,6 +29,10 @@ SOFTWARE.
 
 #define REFLEX_ENABLED 1
 #define REFRACT_ENABLED 2
+//See the note on USE_OBH in GIRayTraceCS.hlsl. Off here too, though for this pass
+//it measured neutral rather than worse (0.997 vs 1.000 ms, and the same fps): the
+//reflection rays are fewer, so neither structure decides the frame. Kept in step
+//with the GI tracer so one explanation covers both.
 #define USE_OBH 0
 
 cbuffer externalData : register(b0)
@@ -145,10 +149,13 @@ struct RayTraceColor {
     bool hit;
 };
 
+#if !USE_OBH
 //Objects within max_distance of the pixel origin are the same for every ray and
 //every refraction bounce of the pixel (the original code also culled against the
 //first origin): cull the object list once per pixel. A bitmask keeps the
 //per-thread storage at 4 registers instead of a spilled index array.
+//
+//This is the mitigation for not having a top-level BVH, and goes away with it.
 #define CANDIDATE_WORDS ((MAX_OBJECTS + 31) / 32)
 static uint candidate_mask[CANDIDATE_WORDS];
 
@@ -172,6 +179,7 @@ bool IsCandidate(uint i)
 {
     return (candidate_mask[i >> 5] & (1u << (i & 31))) != 0;
 }
+#endif
 
 bool GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTraceColor out_color, float dispersion, bool mix, bool refract)
 {
@@ -243,68 +251,108 @@ bool GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
                 oray.dir = normalize(mul(ray.dir, (float3x3) o.inv_world));
                 oray.t = FLT_MAX;
 
+                //Descend the tree with the child already in hand instead of
+                //pushing both children and popping one: every internal node used
+                //to be fetched three times over (once as each parent's child, to
+                //order it, and once again when it came off the stack). Now a node
+                //is fetched once, as a child, and the nearer one is stepped into
+                //directly; only the far child goes on the stack.
+                //
+                //`limit` tightens as triangles are hit, which is what makes the
+                //near-first order pay: the far subtree is usually rejected by a
+                //hit found in the near one.
+                float3 invDir = 1.0f / oray.dir;
                 uint stackSize = 0;
-                stack[stackSize++] = 0;
+                uint base = o.objectOffset;
+                BVHNode node = objects[base];
+                bool traverse = aabb_entry(oray.orig.xyz, invDir, node) < FLT_MAX;
 
-                while (stackSize > 0 && stackSize < MAX_STACK_SIZE)
+                [loop]
+                while (traverse)
                 {
-                    uint current = stack[--stackSize];
-
-                    BVHNode node = objects[o.objectOffset + current];
+                    [branch]
                     if (is_leaf(node))
                     {
-                        float t;
-                        uint idx = index(node);
-                        idx += o.indexOffset;
-
                         IntersectionResult tmp_result;
-                        tmp_result.distance = FLT_MAX;
-                        if (IntersectTri(oray, idx, o.vertexOffset, tmp_result))
+                        if (IntersectTri(oray, index(node) + o.indexOffset, o.vertexOffset,
+                                         object_result.distance, tmp_result))
                         {
-                            if (tmp_result.distance < object_result.distance) {
-                                object_result.v0 = tmp_result.v0;
-                                object_result.v1 = tmp_result.v1;
-                                object_result.v2 = tmp_result.v2;
-                                object_result.vindex = tmp_result.vindex;
-                                object_result.distance = tmp_result.distance;
-                                object_result.u = tmp_result.u;
-                                object_result.v = tmp_result.v;
-                                object_result.object = objectIndex;
-                            }
+                            object_result = tmp_result;
+                            object_result.object = objectIndex;
                         }
                     }
-                    else if (IntersectAABB(oray, node))
+                    else
                     {
                         uint left_node_index = left_child(node);
                         uint right_node_index = right_child(node);
+                        BVHNode left_node = objects[base + left_node_index];
+                        BVHNode right_node = objects[base + right_node_index];
 
-                        BVHNode left_node = objects[o.objectOffset + left_node_index];
-                        BVHNode right_node = objects[o.objectOffset + right_node_index];
+                        //Two gates per child, and they are different questions. The
+                        //slab entry is "does the ray reach this box, and could it
+                        //hold anything nearer than the best hit so far".
+                        float left_t = aabb_entry(oray.orig.xyz, invDir, left_node);
+                        float right_t = aabb_entry(oray.orig.xyz, invDir, right_node);
+                        //And this is `max_distance`, which is NOT a limit along the
+                        //ray: it is how far from the pixel the tracer looks at all,
+                        //the same distance-from-origin test BuildCandidateList
+                        //applies to whole objects. Gating the ray's *length* by it
+                        //instead looks like an optimisation and is a behaviour
+                        //change - the boxes of a big wall are entered 20+ units
+                        //along a ray whose origin sits well inside max_distance of
+                        //them, and rejecting those took 80% of the indirect light
+                        //out of sponza.
+                        float left_reach = node_distance(left_node, oray.orig.xyz);
+                        float right_reach = node_distance(right_node, oray.orig.xyz);
 
-                        float left_dist = node_distance(left_node, oray.orig.xyz);
-                        float right_dist = node_distance(right_node, oray.orig.xyz);
-
-                        if (left_dist < right_dist) {
-                            if (right_dist < object_result.distance && right_dist < max_distance) {
-                                stack[stackSize++] = right_node_index;
+                        bool go_left = left_t < object_result.distance && left_reach < max_distance;
+                        bool go_right = right_t < object_result.distance && right_reach < max_distance;
+                        [branch]
+                        if (go_left && go_right)
+                        {
+                            //Near child now, far child later - and dropped rather
+                            //than overflowing the stack, which loses one subtree
+                            //where bailing out of the loop lost every pending one.
+                            //Written as a branch and not a ternary: fxc will not
+                            //select between two struct values (X3020).
+                            [branch]
+                            if (left_t <= right_t)
+                            {
+                                if (stackSize < MAX_STACK_SIZE) {
+                                    stack[stackSize++] = right_node_index;
+                                }
+                                node = left_node;
                             }
-                            if (left_dist < object_result.distance && left_dist < max_distance) {
-                                stack[stackSize++] = left_node_index;
+                            else
+                            {
+                                if (stackSize < MAX_STACK_SIZE) {
+                                    stack[stackSize++] = left_node_index;
+                                }
+                                node = right_node;
                             }
+                            continue;
                         }
-                        else {
-                            if (left_dist < object_result.distance && left_dist < max_distance) {
-                                stack[stackSize++] = left_node_index;
-                            }
-                            if (right_dist < object_result.distance && right_dist < max_distance) {
-                                stack[stackSize++] = right_node_index;
-                            }
+                        else if (go_left)
+                        {
+                            node = left_node;
+                            continue;
+                        }
+                        else if (go_right)
+                        {
+                            node = right_node;
+                            continue;
                         }
                     }
+
+                    [branch]
+                    if (stackSize == 0) {
+                        break;
+                    }
+                    node = objects[base + stack[--stackSize]];
                 }
 
                 if (object_result.distance < FLT_MAX) {
-                    float3 opos = (1.0f - object_result.u - object_result.v) * object_result.v0 + object_result.u * object_result.v1 + object_result.v * object_result.v2;
+                    float3 opos = bary_position(object_result);
                     float4 pos = mul(float4(opos, 1.0f), o.world);
                     float distance = length(pos - ray.orig);
                     if (distance < result.distance)
@@ -312,13 +360,8 @@ bool GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
                         collide = true;
                         collision_dist = length(pos - ray.orig);
                         ray.t = distance;
-                        result.v0 = object_result.v0;
-                        result.v1 = object_result.v1;
-                        result.v2 = object_result.v2;
-                        result.vindex = object_result.vindex;
+                        result = object_result;
                         result.distance = distance;
-                        result.u = object_result.u;
-                        result.v = object_result.v;
                         result.object = objectIndex;
                     }
                 }
@@ -366,7 +409,7 @@ bool GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
         float3 normal0 = asfloat(vertexBuffer.Load3(result.vindex.x + 12));
         float3 normal1 = asfloat(vertexBuffer.Load3(result.vindex.y + 12));
         float3 normal2 = asfloat(vertexBuffer.Load3(result.vindex.z + 12));
-        float3 opos = (1.0f - result.u - result.v) * result.v0 + result.u * result.v1 + result.v * result.v2;
+        float3 opos = bary_position(result);
         float3 normal = (1.0f - result.u - result.v) * normal0 + result.u * normal1 + result.v * normal2;
         normal = normalize(mul(normal, (float3x3)o.world));
         float4 pos = mul(float4(opos, 1.0f), o.world);
@@ -514,7 +557,9 @@ return out_color.hit;
                 rc.hit = false;
                 [branch]
                 if (DTid.z == 0) {
+#if !USE_OBH
                     BuildCandidateList(orig_pos);
+#endif
                     float3 seed = orig_pos * 100.0f;
                     float rX = rgba_tnoise(seed);
                     rX = pow(rX, 4.0f);
@@ -543,7 +588,9 @@ return out_color.hit;
                 else {
                     //Refracted ray
                     if (ray_source.opacity < 1.0f && (enabled & REFRACT_ENABLED)) {
-                        BuildCandidateList(orig_pos);
+    #if !USE_OBH
+                    BuildCandidateList(orig_pos);
+#endif
                         float3 seed = orig_pos * 100.0f;
                         float rX = rgba_tnoise(seed);
                         Ray ray = GetRefractedRayFromSource(ray_source);

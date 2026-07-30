@@ -28,6 +28,7 @@ SOFTWARE.
 #include "World.h"
 #include <Network/LockStepClient.h>
 #include <Core/PhysicsCommon.h>
+#include <Core/MeshSimplify.h>
 #include <Components/Sky.h>
 #include <Network/Commons.h>
 
@@ -1260,6 +1261,18 @@ bool World::SetMeshSmooth(Core::MeshData* mesh, bool smooth) {
 	if (mesh == nullptr || !mesh->SetSmooth(smooth)) {
 		return false;
 	}
+	//A generated level of detail is a copy of this mesh's surface and has to shade
+	//like it. Left behind, a model would change appearance the moment it dropped a
+	//level - which reads as the LOD being a different model, not as a shading flag
+	//that only reached half of it.
+	for (const GeneratedMesh& generated : generated_meshes) {
+		if (generated.source != mesh->name) {
+			continue;
+		}
+		if (Core::MeshData* lod = meshes.Get(generated.name)) {
+			lod->SetSmooth(smooth);
+		}
+	}
 	mesh_buffers_dirty = true;
 	return true;
 }
@@ -1288,6 +1301,357 @@ bool World::SetMeshLods(Core::MeshData* mesh, const std::vector<std::string>& na
 	//already holds, already in the vertex buffer. This only records which of them
 	//stand in for which, so it needs no FlushMeshBuffers.
 	return mesh->SetLods(chain, chain_distances) && resolved_all;
+}
+
+//== Generated meshes ==========================================================
+//
+//A cached simplification, on disk. It is a cache and never the source of truth:
+//the level records the name/source/ratio recipe that produced it, so every field
+//written here that describes the input exists to answer one question - is this
+//still the mesh that recipe would produce today? Anything that says no (a changed
+//model, a rebuilt engine whose Vertex grew a field, a file from a future version)
+//throws the file away and simplifies again, which costs a second and cannot be
+//wrong. Trusting a stale file instead would draw yesterday's model as today's LOD,
+//and would do it silently.
+namespace {
+	constexpr char LOD_CACHE_MAGIC[8] = { 'H','B','L','O','D','M','S','H' };
+	constexpr uint32_t LOD_CACHE_VERSION = 1;
+
+	struct LodGeometry {
+		std::vector<Core::Vertex> vertices;
+		std::vector<uint32_t> indices;
+		//Empty when the source carried no grouping, which pins the generated mesh
+		//to the shading it was built with exactly as it pins the source.
+		std::vector<uint32_t> smooth_groups;
+	};
+
+	template<class T>
+	void WritePod(std::ofstream& os, const T& value) {
+		os.write(reinterpret_cast<const char*>(&value), sizeof(T));
+	}
+
+	template<class T>
+	bool ReadPod(std::ifstream& is, T& value) {
+		is.read(reinterpret_cast<char*>(&value), sizeof(T));
+		return (bool)is;
+	}
+
+	bool WriteLodCache(const std::string& file, const std::string& source_name,
+		uint32_t source_vertices, uint32_t source_indices, float ratio,
+		const LodGeometry& geometry) {
+		std::error_code ec;
+		std::filesystem::create_directories(std::filesystem::path(file).parent_path(), ec);
+		std::ofstream os(file, std::ios::binary | std::ios::trunc);
+		if (!os) {
+			return false;
+		}
+		os.write(LOD_CACHE_MAGIC, sizeof(LOD_CACHE_MAGIC));
+		WritePod(os, LOD_CACHE_VERSION);
+		WritePod(os, (uint32_t)sizeof(Core::Vertex));
+		WritePod(os, source_vertices);
+		WritePod(os, source_indices);
+		WritePod(os, ratio);
+		WritePod(os, (uint32_t)geometry.vertices.size());
+		WritePod(os, (uint32_t)geometry.indices.size());
+		WritePod(os, (uint32_t)geometry.smooth_groups.size());
+		const uint32_t name_length = (uint32_t)source_name.size();
+		WritePod(os, name_length);
+		os.write(source_name.data(), name_length);
+		os.write(reinterpret_cast<const char*>(geometry.vertices.data()),
+			(std::streamsize)(geometry.vertices.size() * sizeof(Core::Vertex)));
+		os.write(reinterpret_cast<const char*>(geometry.indices.data()),
+			(std::streamsize)(geometry.indices.size() * sizeof(uint32_t)));
+		os.write(reinterpret_cast<const char*>(geometry.smooth_groups.data()),
+			(std::streamsize)(geometry.smooth_groups.size() * sizeof(uint32_t)));
+		return (bool)os;
+	}
+
+	bool ReadLodCache(const std::string& file, const std::string& source_name,
+		uint32_t source_vertices, uint32_t source_indices, float ratio,
+		LodGeometry& geometry) {
+		std::ifstream is(file, std::ios::binary);
+		if (!is) {
+			return false;
+		}
+		char magic[sizeof(LOD_CACHE_MAGIC)] = {};
+		is.read(magic, sizeof(magic));
+		if (!is || memcmp(magic, LOD_CACHE_MAGIC, sizeof(magic)) != 0) {
+			return false;
+		}
+		uint32_t version = 0, stride = 0, cached_source_vertices = 0, cached_source_indices = 0;
+		uint32_t vertex_count = 0, index_count = 0, group_count = 0, name_length = 0;
+		float cached_ratio = 0.0f;
+		if (!ReadPod(is, version) || !ReadPod(is, stride) ||
+			!ReadPod(is, cached_source_vertices) || !ReadPod(is, cached_source_indices) ||
+			!ReadPod(is, cached_ratio) || !ReadPod(is, vertex_count) ||
+			!ReadPod(is, index_count) || !ReadPod(is, group_count) ||
+			!ReadPod(is, name_length)) {
+			return false;
+		}
+		if (version != LOD_CACHE_VERSION || stride != (uint32_t)sizeof(Core::Vertex)) {
+			return false;
+		}
+		std::string cached_source(name_length, '\0');
+		is.read(cached_source.data(), name_length);
+		if (!is || cached_source != source_name) {
+			return false;
+		}
+		//The source is identified by what it *is*, not by when it was written: a
+		//timestamp says nothing useful about an .fbx that was re-exported unchanged,
+		//and nothing at all about one edited in place by a tool that preserves it.
+		if (cached_source_vertices != source_vertices || cached_source_indices != source_indices ||
+			fabsf(cached_ratio - ratio) > 1e-4f) {
+			return false;
+		}
+		if (vertex_count == 0 || index_count == 0 ||
+			(group_count != 0 && group_count != vertex_count)) {
+			return false;
+		}
+		geometry.vertices.resize(vertex_count);
+		geometry.indices.resize(index_count);
+		geometry.smooth_groups.resize(group_count);
+		is.read(reinterpret_cast<char*>(geometry.vertices.data()),
+			(std::streamsize)(vertex_count * sizeof(Core::Vertex)));
+		is.read(reinterpret_cast<char*>(geometry.indices.data()),
+			(std::streamsize)(index_count * sizeof(uint32_t)));
+		if (group_count != 0) {
+			is.read(reinterpret_cast<char*>(geometry.smooth_groups.data()),
+				(std::streamsize)(group_count * sizeof(uint32_t)));
+		}
+		if (!is) {
+			geometry = LodGeometry{};
+			return false;
+		}
+		//A truncated file that happens to end on a record boundary would pass every
+		//check above, so the indices are what is actually going to be drawn with.
+		for (uint32_t index : geometry.indices) {
+			if (index >= vertex_count) {
+				geometry = LodGeometry{};
+				return false;
+			}
+		}
+		return true;
+	}
+
+	//A mesh is named after the node it came out of an .fbx as, and those names are
+	//not file names: Sponza's are "sponza:sponza_381". Left alone that colon does
+	//not fail - NTFS reads it as an alternate data stream, so the geometry is
+	//written *into* a zero-length file called "sponza" and silently lost, and the
+	//next load finds no cache and rebuilds every time. Only the file is spelled
+	//differently; the asset keeps the name everything else refers to it by.
+	std::string SafeFileStem(const std::string& name) {
+		std::string stem;
+		stem.reserve(name.size());
+		for (char c : name) {
+			const bool illegal = (c == '<' || c == '>' || c == ':' || c == '"' || c == '/' ||
+				c == '\\' || c == '|' || c == '?' || c == '*' || (unsigned char)c < 0x20);
+			stem.push_back(illegal ? '_' : c);
+		}
+		if (stem.empty()) {
+			stem = "mesh";
+		}
+		return stem;
+	}
+
+	bool BuildLodGeometry(const Core::MeshData& source, float ratio, LodGeometry& geometry) {
+		Core::SimplifyResult result;
+		if (!Core::SimplifyMesh(source.vertices, source.indices, ratio, result)) {
+			return false;
+		}
+		geometry.vertices = std::move(result.vertices);
+		geometry.indices = std::move(result.indices);
+		//Carry the shading data across, so the generated mesh can be smoothed and
+		//unsmoothed with the mesh it stands in for instead of being frozen at
+		//whatever that mesh was showing the moment it was generated - which would
+		//show up as the model changing its shading when it drops a level.
+		if (source.flat_frames.size() != source.vertices.size() ||
+			source.smooth_groups.size() != source.vertices.size()) {
+			return !geometry.indices.empty();
+		}
+		geometry.smooth_groups.resize(geometry.vertices.size());
+		std::unordered_map<uint32_t, uint32_t> first_of_group;
+		for (size_t i = 0; i < geometry.vertices.size(); ++i) {
+			const uint32_t src = result.source_vertex[i];
+			//MeshData::Init reads the frames it is handed as the *flat* ones, so what
+			//goes in here has to be the unfused frame - the source's live vertices
+			//carry whatever its current `smooth` produced, and handing those over
+			//would fuse an already fused frame.
+			geometry.vertices[i].Normal = source.flat_frames[src].normal;
+			geometry.vertices[i].Tangent = source.flat_frames[src].tangent;
+			geometry.vertices[i].Bitangent = source.flat_frames[src].bitangent;
+			//The clones of one control point that survived the reduction are still
+			//clones of each other, and the first of them stands for the group exactly
+			//as the original control point did.
+			const uint32_t group = source.smooth_groups[src];
+			auto it = first_of_group.find(group);
+			if (it == first_of_group.end()) {
+				first_of_group.emplace(group, (uint32_t)i);
+				geometry.smooth_groups[i] = (uint32_t)i;
+			}
+			else {
+				geometry.smooth_groups[i] = it->second;
+			}
+		}
+		return !geometry.indices.empty();
+	}
+}
+
+Core::MeshData* World::InstallGeneratedMesh(const std::string& name,
+	const std::vector<Core::Vertex>& vertices, const std::vector<uint32_t>& indices,
+	const std::vector<uint32_t>& smooth_groups, std::shared_ptr<Core::Skeleton> skeleton,
+	bool smooth) {
+	//Insert before Init, like every other mesh here: MeshData refuses to be copied
+	//once initialized and Insert copies into the collection.
+	meshes.Insert(name, Core::MeshData{});
+	Core::MeshData* mesh = meshes.Get(name);
+	if (mesh == nullptr) {
+		return nullptr;
+	}
+	mesh->Init(vertex_buffer, name, vertices, indices, skeleton,
+		smooth_groups.empty() ? nullptr : &smooth_groups, smooth);
+	//The world vertex buffer is immutable and holds every mesh, so the geometry is
+	//in the CPU copy alone until the one rebuild happens - FlushMeshBuffers, between
+	//frames. Before Init() there is nothing to do: it uploads the buffers for the
+	//first time and picks this up with everything else.
+	mesh_buffers_dirty = true;
+	return mesh;
+}
+
+bool World::GenerateMeshLod(const std::string& source_mesh, float ratio,
+	std::string& out_name, std::string& error) {
+	out_name.clear();
+	if (vertex_buffer == nullptr) {
+		error = "no vertex buffer";
+		return false;
+	}
+	if (!(ratio > 0.0f) || !(ratio < 1.0f)) {
+		error = "ratio must be between 0 and 1";
+		return false;
+	}
+	Core::MeshData* source = meshes.Get(source_mesh);
+	if (source == nullptr) {
+		error = "unknown mesh '" + source_mesh + "'";
+		return false;
+	}
+	//Read off the source before anything is inserted into the collection it lives in.
+	std::shared_ptr<Core::Skeleton> skeleton =
+		source->skeletons.empty() ? nullptr : source->skeletons[0];
+	const bool smooth = source->smooth;
+	const uint32_t source_vertices = source->vertexCount;
+	const uint32_t source_indices = source->indexCount;
+
+	std::string name;
+	for (int i = 1; i < 1000; ++i) {
+		const std::string candidate = source_mesh + "_lod" + std::to_string(i);
+		if (meshes.Get(candidate) == nullptr) {
+			name = candidate;
+			break;
+		}
+	}
+	if (name.empty()) {
+		error = "no free name for a level of '" + source_mesh + "'";
+		return false;
+	}
+
+	LodGeometry geometry;
+	if (!BuildLodGeometry(*source, ratio, geometry)) {
+		error = "'" + source_mesh + "' cannot be simplified to " +
+			std::to_string((int)(ratio * 100.0f)) + "% (see the log)";
+		return false;
+	}
+	//Two mesh names that differ only in a character the sanitizer had to replace
+	//would be cached into one file, and each load would find the other one's
+	//geometry there and rebuild. Rare, silent, and cheap to rule out.
+	const std::string stem = SafeFileStem(name);
+	std::string file;
+	for (int attempt = 0; ; ++attempt) {
+		file = std::string(GENERATED_MESH_DIR) + "\\" + stem +
+			(attempt == 0 ? "" : "_" + std::to_string(attempt)) + ".hbmesh";
+		bool taken = false;
+		for (const GeneratedMesh& other : generated_meshes) {
+			if (other.file == file) {
+				taken = true;
+				break;
+			}
+		}
+		if (!taken) {
+			break;
+		}
+	}
+	if (!WriteLodCache(path + file, source_mesh, source_vertices, source_indices, ratio,
+		geometry)) {
+		//Not fatal. The mesh is in the world either way; what is lost is the saving
+		//on the next load, which will simplify it again from the recipe.
+		LOG_WARN("World::GenerateMeshLod: could not write '%s'", (path + file).c_str());
+	}
+	if (InstallGeneratedMesh(name, geometry.vertices, geometry.indices,
+		geometry.smooth_groups, skeleton, smooth) == nullptr) {
+		error = "could not register the generated mesh";
+		return false;
+	}
+	generated_meshes.push_back(GeneratedMesh{ name, source_mesh, ratio, file });
+	LOG_INFO("World::GenerateMeshLod: '%s' from '%s' at %.0f%% - %zu vertices of %u, %zu indices",
+		name.c_str(), source_mesh.c_str(), ratio * 100.0f, geometry.vertices.size(),
+		source_vertices, geometry.indices.size());
+	out_name = name;
+	return true;
+}
+
+void World::LoadGeneratedMeshes(const nlohmann::json& entries) {
+	for (const json& entry : entries) {
+		const std::string name = entry.value("name", std::string());
+		const std::string source_name = entry.value("source", std::string());
+		const float ratio = entry.value("ratio", 0.5f);
+		if (name.empty() || source_name.empty()) {
+			printf("World::Load: generated mesh entry without a \"name\" or \"source\", skipping.\n");
+			continue;
+		}
+		if (meshes.Get(name) != nullptr) {
+			//A model already registered a mesh of that name. Overwriting it would
+			//swap a real asset for a stand-in behind the back of everything drawing
+			//it, so the generated one is the one that gives way.
+			printf("World::Load: generated mesh '%s' is already a mesh, skipping.\n", name.c_str());
+			continue;
+		}
+		Core::MeshData* source = meshes.Get(source_name);
+		if (source == nullptr) {
+			printf("World::Load: generated mesh '%s' comes from unknown mesh '%s', skipping.\n",
+				name.c_str(), source_name.c_str());
+			continue;
+		}
+		const std::string file = entry.value("file",
+			std::string(GENERATED_MESH_DIR) + "\\" + SafeFileStem(name) + ".hbmesh");
+		std::shared_ptr<Core::Skeleton> skeleton =
+			source->skeletons.empty() ? nullptr : source->skeletons[0];
+		const bool smooth = source->smooth;
+		const uint32_t source_vertices = source->vertexCount;
+		const uint32_t source_indices = source->indexCount;
+
+		LodGeometry geometry;
+		const bool cached = ReadLodCache(path + file, source_name, source_vertices,
+			source_indices, ratio, geometry);
+		if (!cached) {
+			if (!BuildLodGeometry(*source, ratio, geometry)) {
+				printf("World::Load: generated mesh '%s' could not be rebuilt from '%s', skipping.\n",
+					name.c_str(), source_name.c_str());
+				continue;
+			}
+			//Rewritten so the next load is a read again. This is the path a changed
+			//model takes, and it is why the cache never has to be invalidated by hand.
+			if (!WriteLodCache(path + file, source_name, source_vertices, source_indices,
+				ratio, geometry)) {
+				LOG_WARN("World::LoadGeneratedMeshes: could not write '%s'", (path + file).c_str());
+			}
+		}
+		if (InstallGeneratedMesh(name, geometry.vertices, geometry.indices,
+		geometry.smooth_groups, skeleton, smooth) == nullptr) {
+			continue;
+		}
+		generated_meshes.push_back(GeneratedMesh{ name, source_name, ratio, file });
+		LOG_INFO("World::LoadGeneratedMeshes: '%s' from '%s' (%s) - %zu vertices",
+			name.c_str(), source_name.c_str(), cached ? "cached" : "rebuilt",
+			geometry.vertices.size());
+	}
 }
 
 void World::FlushMeshBuffers() {
@@ -2125,6 +2489,15 @@ bool World::Load(const std::string& scene_file, float* progress, std::function<v
 				}
 			}
 		}
+		//Meshes this level had generated rather than imported - a level of detail
+		//simplified out of a model instead of exported beside it (GenerateMeshLod).
+		//Here because they are made *from* the meshes above and named *by* the
+		//templates below: a template whose Mesh block lists one in its LOD chain would
+		//otherwise have that level silently dropped as an unknown mesh.
+		if (jw.contains("generated_meshes") && jw["generated_meshes"].is_array()) {
+			LoadGeneratedMeshes(jw["generated_meshes"]);
+		}
+
 		//Authored templates, now that the materials and animation sets their component
 		//blocks name by are all in place (see the templates phase above for why this is
 		//not done up there).

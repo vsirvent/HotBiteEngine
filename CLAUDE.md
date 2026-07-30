@@ -605,6 +605,175 @@ Four things there that are not guessable:
   joints must agree in count and order. An unskinned stand-in on a skinned mesh is
   refused outright — it would draw in its bind pose while the model animates.
 
+**A level can also be generated, and then it is a mesh asset like any other.**
+`Core::SimplifyMesh` (`Core/MeshSimplify.h`) reduces a mesh by quadric edge collapse;
+`World::GenerateMeshLod` runs it, registers the result under `<source>_lod<n>`, and
+records the `{name, source, ratio, file}` recipe in `generated_meshes` — a level
+section that `World::Load` reads *after* the meshes and *before* any template is
+created, since a template's chain may name one. The editor surface is the Components
+panel's percentage + **Generate level** (`MeshOps::GenerateLod`, `generate_lod
+[<percent>]`); it always simplifies from level 0, never from the level above, because
+reducing a reduction compounds the error and a level's `ratio` is its share of the
+*full* mesh.
+
+Four things there that are not guessable:
+
+- **The geometry is cached, the recipe is the truth.** `Assets/GeneratedMeshes/*.hbmesh`
+  holds the vertices so a load is a read rather than a simplification, and the file
+  carries the source's name and vertex/index counts plus `sizeof(Vertex)`: anything
+  that no longer matches (a re-exported model, another build, a truncated write) is
+  discarded and rebuilt. So the folder is safe to delete and there is nothing to
+  invalidate by hand — and a stale file can never draw yesterday's model as today's
+  level.
+- **A surviving vertex is always one of the two the edge had.** The optimal point a
+  quadric solves for is a better fit and is what an offline tool uses, but it is a
+  position no vertex ever had, so its UVs, tangents and above all its four bone indices
+  and weights would have to be invented. Keeping an original vertex is what makes a
+  generated level pass `CompatibleSkinning` against a rig that is animating.
+- **Vertices are welded by position for the collapse, and only for it.** The importer
+  clones a control point per polygon corner, so the index buffer alone describes a
+  surface in pieces and an edge collapse on it tears seams open. The corners ride along
+  and are re-picked per triangle (nearest UV), which is also why the reduction is
+  measured in *corners*: they get shared as triangles merge, so the vertex count falls
+  faster than the triangle count and a target counted in welded positions overshoots by
+  a third.
+- **Boundaries and UV seams are weighted, not locked** (`BORDER_WEIGHT` 100,
+  `SEAM_PENALTY` 32). Locking them keeps every reduction exact and stops a shell or a
+  heavily seamed model — which is most game models — from reaching its target at all.
+
+The mesh asset and its file are deliberately outside undo, exactly like File/Import
+Model: undo takes the level back off the chain, and leaves the asset registered (which
+is what lets redo name it again). `SetMeshSmooth` reaches a mesh's generated levels
+too, or a model would change shading the moment it dropped one.
+
+**The ray tracers trace a level of detail too, and not the one being drawn.**
+`PrepareRT` points every object's three geometry offsets at **the coarsest level its
+mesh has** and hands that one `ObjectInfo` array to reflections, refractions and
+ReSTIR indirect alike. Not the level being drawn, and not something the ray tracing
+quality moves: this pass is the most expensive thing in a ray traced frame (see the
+cost table below), and what it produces is a half-resolution, denoised, temporally
+accumulated image, so a silhouette in a reflection is the cheapest thing in the frame
+to be approximate about. A mesh with no chain is traced at full detail, that being the
+coarsest level it has.
+
+It was briefly two arrays - reflections on the drawn level with the quality as a
+floor, only the GI on the coarsest - and that is worth knowing only so nobody rebuilds
+it: it bought a difference nobody can see and cost a second 20 KB cbuffer upload per
+frame. `rt_quality` moves `RT_TEXTURE_RESOLUTION_DIVIDER` instead, which is where its
+cost is (divider 1 vs 3 is 27 vs 52 fps on sponza).
+
+A generated level already carries its own BVH (`MeshData::Init`) at its own
+`bvhOffset`, so nothing else was needed to make this work. `LodGeometry` answers an
+out-of-range level with the *full* mesh, so the index handed to it is clamped to the
+end of the chain rather than trusted.
+
+**None of it is visible in a screenshot**, which is why `rt_info` exists: a ray hitting
+the wrong geometry still produces a plausible reflection. It reports `full_indices`
+(what level 0 would have cost) against `traced_indices` (what the rays walk), summed
+over the objects sent. On sponza from the atrium that is 291447 against 78468.
+
+**The traversal is a single-fetch descent, and every part of that is load-bearing.**
+`RayFunctions.hlsli`'s `aabb_entry` returns where along the ray it enters a box, or
+FLT_MAX, and the per-object loop in both tracers uses it for all three questions a
+descent asks - visit this child at all, which child first, and can this child still
+hold anything nearer than the best hit. Four things changed together there and each is
+worth keeping:
+
+- **A node is fetched once.** The old loop pushed both children and popped one, so
+  every internal node was read three times over: once as each parent's child (to
+  order it) and again off the stack. Now the nearer child is stepped into directly
+  and only the far one is pushed.
+- **`1/dir` is computed per ray, not per box.** `IntersectAABB` divided on every call.
+- **The ordering key is the ray's entry distance**, not the distance to the box's
+  bounding *sphere* (the old `node_distance`), which is always shorter than the real
+  one - it ordered children by a point the ray may never pass through and culled less
+  than it could.
+- **`IntersectionResult` carries indices, not positions.** The three vertex positions
+  it used to hold are 9 floats on every one of three live structs, in shaders already
+  at the cs_5_0 register limit; `bary_position` reloads them once per hit instead.
+
+Measured on Marbles' sponza, alternating the two `.cso` sets on one binary: **45 → 55
+fps** at the shipped quality and **27 → 39** at full RT resolution, with the frame
+bit-identical.
+
+**`max_distance` is not a limit along the ray, and treating it as one is a trap worth
+one paragraph.** It is how far from the *pixel* the tracer looks at all - the same
+distance-from-origin test `BuildCandidateList` applies to whole objects - so the node
+gate has to compare it against the distance from the ray *origin* to the box, which is
+what `node_distance` is still there for. Folding it into the entry-distance test looks
+like the same thing and is not: the boxes of a big wall are entered 20+ units along a
+ray whose origin sits well inside `max_distance` of them, and rejecting those took
+**80% of the indirect light** out of sponza while leaving the final frame
+bit-identical (the raw `indirect` buffer is the only place it showed). Two lessons:
+gate the two questions separately, and check the raw GI buffer - `render debug_buffer
+indirect gi_denoise 0` - against a same-build capture, which on a fixed camera is
+bit-reproducible, so any difference at all is real.
+
+**Where a ray traced frame's time actually goes**, measured by switching features off
+one at a time and reading the game's own counter - each toggle is a dispatch genuinely
+not submitted. Marbles' sponza (level 3), 1920x1080, before the traversal work:
+
+| off | fps | so that block costs |
+| --- | --- | --- |
+| nothing (baseline) | 27 | 37.0 ms total |
+| `gi_denoise 0` | 29 | ~2.5 ms (`GIAverageCS`) |
+| `indirect 0` | 32 | ~5.5 ms (all of `ProcessGI`) |
+| `rt_denoise 0` | +3 fps on top | ~3.5 ms (`DenoiserCS`) |
+| reflection **and** refraction (skips `ProcessRT`) | 74 | **~23.5 ms** |
+| that plus `indirect 0` | 120 | leaves ~8.3 ms of everything else |
+
+Neither the reflection flag nor the refraction flag alone changes anything - they are
+shader flags on one dispatch that runs if *either* is set, and only the C++ skips the
+block when both are clear. It is GPU cost, not submission: the CPU spends 0.05 ms in
+`ProcessRT`.
+
+**Do not read the RenderDoc profiling table as a frame budget, and do not read it as an
+attribution either.** On that frame it charges `GIAverageCS` 25.0 ms and `RayTraceCS`
+1.0 ms - the ladder above says 2.5 and ~20. Use the table to rank passes and the ladder
+for magnitudes. Two traps while measuring: the *game's* `render rt_quality` takes a
+**number** (0-3), not the editor's names, and a rejected command still answers - `ERR`
+scrolls past and the reading looks like "this setting does nothing" (it cost an hour
+here). Check the response, and confirm the divider actually moved.
+
+**The top-level BVH (`USE_OBH`) is off, and that was measured rather than assumed.**
+Turning it on is *correct* - the two variants render the same frame to within 1/255 -
+and at a wide viewpoint it is faster (sponza from up the atrium: `GIRayTraceCS`
+2.20 -> 1.68 ms). At the player's viewpoint it is **slower**: 26 -> 24 fps,
+reproducibly, and the loss is entirely the GI tracer. The reason is
+`BuildCandidateList`, which applies `max_distance` **once per pixel** and in an
+interior rejects almost every object for a few ALU ops; the hierarchy re-derives that
+rejection once per *ray*, with dependent 32-byte node loads and a second indexable
+stack. Sizing the volume stack to the object count (`MAX_VOLUME_STACK_SIZE`) recovers
+about a third of the loss, not the rest. Turn it on if the object count grows well past
+`MAX_OBJECTS` = 100, or the ray budget grows long enough that the distance cull stops
+rejecting.
+
+Two things found while measuring that stayed in, both independent of that switch:
+`tbvh_buffer.Refresh` now also runs in `ProcessGI` (it was only in `ProcessRT`, which
+does not run when reflections and refractions are both off - so a GI pass walking the
+hierarchy would have read one built for an earlier frame, or never written at all), and
+`PrepareRT` returns early on an empty object list (`TBVH::Subdivide` recurses forever on
+a zero-count root).
+
+**Marbles' sponza level carries generated levels** (`../Marbles`, solo level 3): the 116
+meshes of 1000 indices or more - 91% of the level's geometry - each got a 35% and a 10%
+level, 232 generated meshes cached under `Assets/GeneratedMeshes/`. The chains are there
+for the ray tracers, which trace the 10% level: from the atrium that is 78468 traced
+indices against 291447 at full detail. The *raster* saving from the same chains is small
+(`MainRenderPS` 3.00 -> 2.77 ms), and at the player's viewpoint the chains move the
+frame rate not at all - the frame there is the ray tracing pass, not the triangles.
+
+**A commanded camera pose is not in effect on the next frame**, and four of `20-lods`'
+switching tests were intermittently reading the level from *before* the move because of
+it (roughly one run in fifteen). `EditorCamera` applies the pose on its own tick, so
+`Set-CameraDistance` in that suite now polls the `camera` readout until the rig is
+actually at the requested distance before returning. Any new test that moves the camera
+and then asserts on something the render decides needs the same treatment; anything that
+needs a particular level *drawn* can also wait for it (`Wait-Lod`) or change the rule
+instead of the camera - `lod_mode: distance` with a switch point of 0 makes the coarse
+level eligible everywhere, with no camera involved. `lod_bias` is not a substitute for
+that: it is clamped at 0.05.
+
 **Editing a component's fields** goes through `ComponentOps::ApplyValue` /
 `SetValue` / `RecordEdit` (`Tools/SceneEditor/ComponentOps.h`), never by poking the
 struct alone: an edit that only touches the live component looks right until the
