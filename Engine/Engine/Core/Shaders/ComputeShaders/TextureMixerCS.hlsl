@@ -35,6 +35,9 @@ cbuffer externalData : register(b0)
     //HDR and several (indirect light in particular) sit far below 1.0, so shown
     //raw they read as black and look broken. Ignored unless a buffer view is on.
     float debug_gain;
+    //Only the two radiance cache views need this: a cell is keyed partly by its
+    //distance to the camera, so a lookup cannot be done without it.
+    float3 cameraPosition;
 }
 
 RWTexture2D<float4> output : register(u0);
@@ -53,6 +56,12 @@ Texture2D normals: register(t14);
 Texture2D emissionTexture: register(t15);
 Texture2D<float2> motionTexture: register(t16);
 SamplerState basicSampler : register(s0);
+
+//Read-only: the mixer inspects the cache for the two debug views and never writes
+//it. RC_READ_ONLY also drops RCDeposit, so the deposit path cannot be reached from
+//a pass that has no business filling the cache.
+#define RC_READ_ONLY
+#include "../Common/RadianceCache.hlsli"
 
 #include "../Common/RGBANoise.hlsli"
 
@@ -216,6 +225,21 @@ float4 DebugBufferColor(uint buffer_id, float2 tpos, float2 pixel, uint w, uint 
     case RT_DEBUG_BUFFER_NORMAL:     return float4(DebugNormalColor(normals[pixel].xyz), 1.0f);
     //Motion is the exception to "mapped buffers ignore the gain" - see DebugMotionColor.
     case RT_DEBUG_BUFFER_MOTION:     return float4(DebugMotionColor(motionTexture[pixel], debug_gain), 1.0f);
+    //The world radiance cache, looked up at whatever surface this pixel sees. Unlike
+    //every other view here this is not a texture being displayed - there is no
+    //screen-space image of the cache to show - so it is resolved per pixel through
+    //the same hash the ray tracer uses. Blue where the lookup found no cell, so that
+    //"there is nothing here" is distinguishable from "there is a cell and it is
+    //black", which is the distinction you are always trying to make.
+    case RT_DEBUG_BUFFER_GI_CACHE: {
+        float4 v = RCLookup(positions[pixel].xyz, normals[pixel].xyz, cameraPosition);
+        if (v.w <= 0.0f) { return float4(0.0f, 0.0f, 0.6f, 1.0f); }
+        return float4(saturate(v.rgb * debug_gain), 1.0f);
+    }
+    case RT_DEBUG_BUFFER_GI_CACHE_CONF: {
+        float4 v = RCLookup(positions[pixel].xyz, normals[pixel].xyz, cameraPosition);
+        return float4(DebugCacheConfidenceColor(v.w, v.w > 0.0f), 1.0f);
+    }
     }
     return float4(saturate(c * debug_gain), 1.0f);
 }

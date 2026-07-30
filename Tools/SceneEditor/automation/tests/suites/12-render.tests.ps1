@@ -6,7 +6,7 @@
 # mirror in Shaders/Common/RenderDebug.hlsli and the editor's label list.
 $DebugBuffers = @('off', 'scene', 'light', 'bloom', 'emission', 'reflection', 'refraction',
                   'indirect', 'volumetric', 'dust', 'lens_flare', 'depth', 'position',
-                  'normal', 'motion')
+                  'normal', 'motion', 'gi_cache', 'gi_cache_conf')
 
 Test 'render dumps every setting the Render menu has' {
     $r = Get-Render -Session $Session

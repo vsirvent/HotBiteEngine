@@ -1,3 +1,260 @@
-03:02:30.222 [INFO ] [t14952] Material.cpp:326: Engine: sizeof(MaterialData)=928 alignof(MaterialData)=16 offsetof(props)=96
-03:03:58.430 [INFO ] [t14952] World.cpp:1595: World::GenerateMeshLod: 'Statue.001_lod1' from 'Statue.001' at 50% - 43849 vertices of 87711, 55143 indices
-03:04:07.160 [INFO ] [t14952] World.cpp:1595: World::GenerateMeshLod: 'Statue.001_lod2' from 'Statue.001' at 10% - 8769 vertices of 87711, 19275 indices
+01:41:10.215 [INFO ] [t22688] Material.cpp:326: Engine: sizeof(MaterialData)=928 alignof(MaterialData)=16 offsetof(props)=96
+01:41:19.425 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'Statue.001_lod1' from 'Statue.001' (cached) - 30697 vertices
+01:41:19.456 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'Statue.001_lod2' from 'Statue.001' (cached) - 8769 vertices
+01:41:19.489 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_381_lod1' from 'sponza:sponza_381' (cached) - 14675 vertices
+01:41:19.504 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_381_lod2' from 'sponza:sponza_381' (cached) - 4193 vertices
+01:41:19.518 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'plant.001_lod1' from 'plant.001' (cached) - 6218 vertices
+01:41:19.523 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'plant.001_lod2' from 'plant.001' (cached) - 1775 vertices
+01:41:19.536 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'fabric_d_red_lod1' from 'fabric_d_red' (cached) - 5774 vertices
+01:41:19.541 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'fabric_d_red_lod2' from 'fabric_d_red' (cached) - 1647 vertices
+01:41:19.549 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'fabric_d_green_lod1' from 'fabric_d_green' (cached) - 5777 vertices
+01:41:19.554 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'fabric_d_green_lod2' from 'fabric_d_green' (cached) - 1649 vertices
+01:41:19.564 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'fabric_d_blue.002_lod1' from 'fabric_d_blue.002' (cached) - 5772 vertices
+01:41:19.568 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'fabric_d_blue.002_lod2' from 'fabric_d_blue.002' (cached) - 1651 vertices
+01:41:19.579 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'fabric_d_green.001_lod1' from 'fabric_d_green.001' (cached) - 5777 vertices
+01:41:19.584 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'fabric_d_green.001_lod2' from 'fabric_d_green.001' (cached) - 1647 vertices
+01:41:19.595 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'fabric_d_green.002_lod1' from 'fabric_d_green.002' (cached) - 5775 vertices
+01:41:19.600 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'fabric_d_green.002_lod2' from 'fabric_d_green.002' (cached) - 1642 vertices
+01:41:19.609 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'fabric_d_blue.001_lod1' from 'fabric_d_blue.001' (cached) - 5778 vertices
+01:41:19.612 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'fabric_d_blue.001_lod2' from 'fabric_d_blue.001' (cached) - 1648 vertices
+01:41:19.618 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'fabric_d_blue_lod1' from 'fabric_d_blue' (cached) - 5773 vertices
+01:41:19.621 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'fabric_d_blue_lod2' from 'fabric_d_blue' (cached) - 1645 vertices
+01:41:19.634 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'fabric_d_red.001_lod1' from 'fabric_d_red.001' (cached) - 5775 vertices
+01:41:19.638 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'fabric_d_red.001_lod2' from 'fabric_d_red.001' (cached) - 1646 vertices
+01:41:19.645 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'fabric_red.02_lod1' from 'fabric_red.02' (cached) - 5094 vertices
+01:41:19.648 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'fabric_red.02_lod2' from 'fabric_red.02' (cached) - 1455 vertices
+01:41:19.655 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'fabric_green.01_lod1' from 'fabric_green.01' (cached) - 5096 vertices
+01:41:19.660 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'fabric_green.01_lod2' from 'fabric_green.01' (cached) - 1457 vertices
+01:41:19.670 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'fabric_red.03_lod1' from 'fabric_red.03' (cached) - 5098 vertices
+01:41:19.674 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'fabric_red.03_lod2' from 'fabric_red.03' (cached) - 1453 vertices
+01:41:19.685 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'fabric_blue.01_lod1' from 'fabric_blue.01' (cached) - 5096 vertices
+01:41:19.689 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'fabric_blue.01_lod2' from 'fabric_blue.01' (cached) - 1455 vertices
+01:41:19.700 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'fabric_green.03_lod1' from 'fabric_green.03' (cached) - 5097 vertices
+01:41:19.704 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'fabric_green.03_lod2' from 'fabric_green.03' (cached) - 1456 vertices
+01:41:19.715 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'fabric_blue.03_lod1' from 'fabric_blue.03' (cached) - 5100 vertices
+01:41:19.718 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'fabric_blue.03_lod2' from 'fabric_blue.03' (cached) - 1452 vertices
+01:41:19.727 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'plant.002_lod1' from 'plant.002' (cached) - 5057 vertices
+01:41:19.730 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'plant.002_lod2' from 'plant.002' (cached) - 1446 vertices
+01:41:19.740 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'fabric_red.01_lod1' from 'fabric_red.01' (cached) - 4831 vertices
+01:41:19.744 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'fabric_red.01_lod2' from 'fabric_red.01' (cached) - 1381 vertices
+01:41:19.755 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'fabric_red_lod1' from 'fabric_red' (cached) - 4834 vertices
+01:41:19.759 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'fabric_red_lod2' from 'fabric_red' (cached) - 1379 vertices
+01:41:19.769 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'fabric_green.02_lod1' from 'fabric_green.02' (cached) - 4829 vertices
+01:41:19.771 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'fabric_green.02_lod2' from 'fabric_green.02' (cached) - 1379 vertices
+01:41:19.777 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'fabric_blue.02_lod1' from 'fabric_blue.02' (cached) - 4831 vertices
+01:41:19.779 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'fabric_blue.02_lod2' from 'fabric_blue.02' (cached) - 1375 vertices
+01:41:19.786 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'plant.006_lod1' from 'plant.006' (cached) - 4638 vertices
+01:41:19.824 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'plant.006_lod2' from 'plant.006' (cached) - 1326 vertices
+01:41:19.832 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'plant.004_lod1' from 'plant.004' (cached) - 3987 vertices
+01:41:19.835 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'plant.004_lod2' from 'plant.004' (cached) - 1136 vertices
+01:41:19.842 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'plant.007_lod1' from 'plant.007' (cached) - 3817 vertices
+01:41:19.845 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'plant.007_lod2' from 'plant.007' (cached) - 1090 vertices
+01:41:19.851 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'plant.005_lod1' from 'plant.005' (cached) - 3467 vertices
+01:41:19.853 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'plant.005_lod2' from 'plant.005' (cached) - 992 vertices
+01:41:19.857 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'plant_lod1' from 'plant' (cached) - 3467 vertices
+01:41:19.859 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'plant_lod2' from 'plant' (cached) - 992 vertices
+01:41:19.864 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'Player_lod1' from 'Player' (cached) - 3275 vertices
+01:41:19.867 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'Player_lod2' from 'Player' (cached) - 932 vertices
+01:41:19.873 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'arcs_lod1' from 'arcs' (cached) - 3033 vertices
+01:41:19.875 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'arcs_lod2' from 'arcs' (cached) - 868 vertices
+01:41:19.879 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_378_lod1' from 'sponza:sponza_378' (cached) - 3022 vertices
+01:41:19.882 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_378_lod2' from 'sponza:sponza_378' (cached) - 863 vertices
+01:41:19.888 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_377_lod1' from 'sponza:sponza_377' (cached) - 3023 vertices
+01:41:19.889 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_377_lod2' from 'sponza:sponza_377' (cached) - 864 vertices
+01:41:19.894 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_366_lod1' from 'sponza:sponza_366' (cached) - 2811 vertices
+01:41:19.895 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_366_lod2' from 'sponza:sponza_366' (cached) - 802 vertices
+01:41:19.900 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_367_lod1' from 'sponza:sponza_367' (cached) - 2808 vertices
+01:41:19.902 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_367_lod2' from 'sponza:sponza_367' (cached) - 803 vertices
+01:41:19.907 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_368_lod1' from 'sponza:sponza_368' (cached) - 2809 vertices
+01:41:19.909 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_368_lod2' from 'sponza:sponza_368' (cached) - 803 vertices
+01:41:19.914 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_01_lod1' from 'sponza:sponza_01' (cached) - 2812 vertices
+01:41:19.916 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_01_lod2' from 'sponza:sponza_01' (cached) - 802 vertices
+01:41:19.921 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_372_lod1' from 'sponza:sponza_372' (cached) - 2737 vertices
+01:41:19.923 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_372_lod2' from 'sponza:sponza_372' (cached) - 783 vertices
+01:41:19.929 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_370_lod1' from 'sponza:sponza_370' (cached) - 2739 vertices
+01:41:19.930 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_370_lod2' from 'sponza:sponza_370' (cached) - 780 vertices
+01:41:19.935 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_371_lod1' from 'sponza:sponza_371' (cached) - 2740 vertices
+01:41:19.937 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_371_lod2' from 'sponza:sponza_371' (cached) - 782 vertices
+01:41:19.941 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_369_lod1' from 'sponza:sponza_369' (cached) - 2733 vertices
+01:41:19.943 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_369_lod2' from 'sponza:sponza_369' (cached) - 783 vertices
+01:41:19.948 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_08_lod1' from 'sponza:sponza_08' (cached) - 2447 vertices
+01:41:19.950 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_08_lod2' from 'sponza:sponza_08' (cached) - 697 vertices
+01:41:19.955 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_19_lod1' from 'sponza:sponza_19' (cached) - 2447 vertices
+01:41:19.957 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_19_lod2' from 'sponza:sponza_19' (cached) - 698 vertices
+01:41:19.962 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_374_lod1' from 'sponza:sponza_374' (cached) - 2407 vertices
+01:41:19.964 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_374_lod2' from 'sponza:sponza_374' (cached) - 682 vertices
+01:41:19.968 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_375_lod1' from 'sponza:sponza_375' (cached) - 2405 vertices
+01:41:19.971 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_375_lod2' from 'sponza:sponza_375' (cached) - 682 vertices
+01:41:19.976 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_376_lod1' from 'sponza:sponza_376' (cached) - 2403 vertices
+01:41:19.978 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_376_lod2' from 'sponza:sponza_376' (cached) - 687 vertices
+01:41:19.983 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_373_lod1' from 'sponza:sponza_373' (cached) - 2409 vertices
+01:41:19.984 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_373_lod2' from 'sponza:sponza_373' (cached) - 688 vertices
+01:41:19.988 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'plant.003_lod1' from 'plant.003' (cached) - 2312 vertices
+01:41:19.990 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'plant.003_lod2' from 'plant.003' (cached) - 661 vertices
+01:41:19.993 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_123_lod1' from 'sponza:sponza_123' (cached) - 1949 vertices
+01:41:19.994 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_123_lod2' from 'sponza:sponza_123' (cached) - 557 vertices
+01:41:19.998 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_124_lod1' from 'sponza:sponza_124' (cached) - 1946 vertices
+01:41:19.999 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_124_lod2' from 'sponza:sponza_124' (cached) - 556 vertices
+01:41:20.002 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'candel.002_lod1' from 'candel.002' (cached) - 1716 vertices
+01:41:20.003 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'candel.002_lod2' from 'candel.002' (cached) - 490 vertices
+01:41:20.006 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'candel.001_lod1' from 'candel.001' (cached) - 1723 vertices
+01:41:20.007 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'candel.001_lod2' from 'candel.001' (cached) - 489 vertices
+01:41:20.010 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'candel.003_lod1' from 'candel.003' (cached) - 1723 vertices
+01:41:20.012 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'candel.003_lod2' from 'candel.003' (cached) - 492 vertices
+01:41:20.015 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'candel_lod1' from 'candel' (cached) - 1723 vertices
+01:41:20.016 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'candel_lod2' from 'candel' (cached) - 492 vertices
+01:41:20.019 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_03_lod1' from 'sponza:sponza_03' (cached) - 1425 vertices
+01:41:20.021 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_03_lod2' from 'sponza:sponza_03' (cached) - 408 vertices
+01:41:20.024 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_364_lod1' from 'sponza:sponza_364' (cached) - 1301 vertices
+01:41:20.025 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_364_lod2' from 'sponza:sponza_364' (cached) - 371 vertices
+01:41:20.028 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_337_lod1' from 'sponza:sponza_337' (cached) - 1302 vertices
+01:41:20.029 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_337_lod2' from 'sponza:sponza_337' (cached) - 372 vertices
+01:41:20.031 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_345_lod1' from 'sponza:sponza_345' (cached) - 1305 vertices
+01:41:20.032 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_345_lod2' from 'sponza:sponza_345' (cached) - 373 vertices
+01:41:20.035 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_346_lod1' from 'sponza:sponza_346' (cached) - 1306 vertices
+01:41:20.036 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_346_lod2' from 'sponza:sponza_346' (cached) - 372 vertices
+01:41:20.038 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_363_lod1' from 'sponza:sponza_363' (cached) - 1306 vertices
+01:41:20.040 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_363_lod2' from 'sponza:sponza_363' (cached) - 370 vertices
+01:41:20.042 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_355_lod1' from 'sponza:sponza_355' (cached) - 1302 vertices
+01:41:20.043 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_355_lod2' from 'sponza:sponza_355' (cached) - 372 vertices
+01:41:20.046 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_336_lod1' from 'sponza:sponza_336' (cached) - 1301 vertices
+01:41:20.047 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_336_lod2' from 'sponza:sponza_336' (cached) - 372 vertices
+01:41:20.049 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_354_lod1' from 'sponza:sponza_354' (cached) - 1306 vertices
+01:41:20.051 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_354_lod2' from 'sponza:sponza_354' (cached) - 370 vertices
+01:41:20.053 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_136_lod1' from 'sponza:sponza_136' (cached) - 1278 vertices
+01:41:20.054 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_136_lod2' from 'sponza:sponza_136' (cached) - 365 vertices
+01:41:20.056 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_125_lod1' from 'sponza:sponza_125' (cached) - 1273 vertices
+01:41:20.057 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_125_lod2' from 'sponza:sponza_125' (cached) - 364 vertices
+01:41:20.060 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_147_lod1' from 'sponza:sponza_147' (cached) - 1278 vertices
+01:41:20.061 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_147_lod2' from 'sponza:sponza_147' (cached) - 365 vertices
+01:41:20.063 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_158_lod1' from 'sponza:sponza_158' (cached) - 1279 vertices
+01:41:20.064 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_158_lod2' from 'sponza:sponza_158' (cached) - 365 vertices
+01:41:20.066 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_169_lod1' from 'sponza:sponza_169' (cached) - 1277 vertices
+01:41:20.067 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_169_lod2' from 'sponza:sponza_169' (cached) - 364 vertices
+01:41:20.070 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_213_lod1' from 'sponza:sponza_213' (cached) - 1275 vertices
+01:41:20.071 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_213_lod2' from 'sponza:sponza_213' (cached) - 366 vertices
+01:41:20.073 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_224_lod1' from 'sponza:sponza_224' (cached) - 1275 vertices
+01:41:20.074 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_224_lod2' from 'sponza:sponza_224' (cached) - 365 vertices
+01:41:20.076 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_235_lod1' from 'sponza:sponza_235' (cached) - 1278 vertices
+01:41:20.077 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_235_lod2' from 'sponza:sponza_235' (cached) - 365 vertices
+01:41:20.080 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_246_lod1' from 'sponza:sponza_246' (cached) - 1280 vertices
+01:41:20.081 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_246_lod2' from 'sponza:sponza_246' (cached) - 366 vertices
+01:41:20.083 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_202_lod1' from 'sponza:sponza_202' (cached) - 1276 vertices
+01:41:20.084 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_202_lod2' from 'sponza:sponza_202' (cached) - 365 vertices
+01:41:20.086 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_191_lod1' from 'sponza:sponza_191' (cached) - 1279 vertices
+01:41:20.087 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_191_lod2' from 'sponza:sponza_191' (cached) - 366 vertices
+01:41:20.090 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_180_lod1' from 'sponza:sponza_180' (cached) - 1278 vertices
+01:41:20.091 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_180_lod2' from 'sponza:sponza_180' (cached) - 365 vertices
+01:41:20.091 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_353_lod1' from 'sponza:sponza_353' (cached) - 582 vertices
+01:41:20.092 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_353_lod2' from 'sponza:sponza_353' (cached) - 167 vertices
+01:41:20.093 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_344_lod1' from 'sponza:sponza_344' (cached) - 580 vertices
+01:41:20.093 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_344_lod2' from 'sponza:sponza_344' (cached) - 167 vertices
+01:41:20.094 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_362_lod1' from 'sponza:sponza_362' (cached) - 585 vertices
+01:41:20.094 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_362_lod2' from 'sponza:sponza_362' (cached) - 164 vertices
+01:41:20.095 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_335_lod1' from 'sponza:sponza_335' (cached) - 580 vertices
+01:41:20.095 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_335_lod2' from 'sponza:sponza_335' (cached) - 167 vertices
+01:41:20.096 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_21_lod1' from 'sponza:sponza_21' (cached) - 570 vertices
+01:41:20.096 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_21_lod2' from 'sponza:sponza_21' (cached) - 162 vertices
+01:41:20.097 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_20_lod1' from 'sponza:sponza_20' (cached) - 571 vertices
+01:41:20.098 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_20_lod2' from 'sponza:sponza_20' (cached) - 160 vertices
+01:41:20.098 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_380_lod1' from 'sponza:sponza_380' (cached) - 513 vertices
+01:41:20.099 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_380_lod2' from 'sponza:sponza_380' (cached) - 148 vertices
+01:41:20.099 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_263_lod1' from 'sponza:sponza_263' (cached) - 477 vertices
+01:41:20.100 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_263_lod2' from 'sponza:sponza_263' (cached) - 136 vertices
+01:41:20.100 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_269_lod1' from 'sponza:sponza_269' (cached) - 474 vertices
+01:41:20.101 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_269_lod2' from 'sponza:sponza_269' (cached) - 135 vertices
+01:41:20.102 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_308_lod1' from 'sponza:sponza_308' (cached) - 471 vertices
+01:41:20.102 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_308_lod2' from 'sponza:sponza_308' (cached) - 134 vertices
+01:41:20.103 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_311_lod1' from 'sponza:sponza_311' (cached) - 476 vertices
+01:41:20.104 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_311_lod2' from 'sponza:sponza_311' (cached) - 135 vertices
+01:41:20.105 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_313_lod1' from 'sponza:sponza_313' (cached) - 478 vertices
+01:41:20.105 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_313_lod2' from 'sponza:sponza_313' (cached) - 136 vertices
+01:41:20.106 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_310_lod1' from 'sponza:sponza_310' (cached) - 478 vertices
+01:41:20.107 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_310_lod2' from 'sponza:sponza_310' (cached) - 133 vertices
+01:41:20.107 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_273_lod1' from 'sponza:sponza_273' (cached) - 477 vertices
+01:41:20.108 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_273_lod2' from 'sponza:sponza_273' (cached) - 133 vertices
+01:41:20.108 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_271_lod1' from 'sponza:sponza_271' (cached) - 476 vertices
+01:41:20.109 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_271_lod2' from 'sponza:sponza_271' (cached) - 135 vertices
+01:41:20.109 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_314_lod1' from 'sponza:sponza_314' (cached) - 476 vertices
+01:41:20.110 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_314_lod2' from 'sponza:sponza_314' (cached) - 135 vertices
+01:41:20.110 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_298_lod1' from 'sponza:sponza_298' (cached) - 475 vertices
+01:41:20.111 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_298_lod2' from 'sponza:sponza_298' (cached) - 133 vertices
+01:41:20.112 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_290_lod1' from 'sponza:sponza_290' (cached) - 471 vertices
+01:41:20.112 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_290_lod2' from 'sponza:sponza_290' (cached) - 136 vertices
+01:41:20.113 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_299_lod1' from 'sponza:sponza_299' (cached) - 471 vertices
+01:41:20.113 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_299_lod2' from 'sponza:sponza_299' (cached) - 136 vertices
+01:41:20.114 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_317_lod1' from 'sponza:sponza_317' (cached) - 476 vertices
+01:41:20.115 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_317_lod2' from 'sponza:sponza_317' (cached) - 135 vertices
+01:41:20.116 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_316_lod1' from 'sponza:sponza_316' (cached) - 474 vertices
+01:41:20.116 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_316_lod2' from 'sponza:sponza_316' (cached) - 135 vertices
+01:41:20.117 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_265_lod1' from 'sponza:sponza_265' (cached) - 478 vertices
+01:41:20.118 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_265_lod2' from 'sponza:sponza_265' (cached) - 136 vertices
+01:41:20.119 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_304_lod1' from 'sponza:sponza_304' (cached) - 470 vertices
+01:41:20.119 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_304_lod2' from 'sponza:sponza_304' (cached) - 133 vertices
+01:41:20.120 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_302_lod1' from 'sponza:sponza_302' (cached) - 474 vertices
+01:41:20.121 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_302_lod2' from 'sponza:sponza_302' (cached) - 133 vertices
+01:41:20.122 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_296_lod1' from 'sponza:sponza_296' (cached) - 471 vertices
+01:41:20.122 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_296_lod2' from 'sponza:sponza_296' (cached) - 136 vertices
+01:41:20.123 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_305_lod1' from 'sponza:sponza_305' (cached) - 476 vertices
+01:41:20.123 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_305_lod2' from 'sponza:sponza_305' (cached) - 135 vertices
+01:41:20.124 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_301_lod1' from 'sponza:sponza_301' (cached) - 475 vertices
+01:41:20.125 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_301_lod2' from 'sponza:sponza_301' (cached) - 134 vertices
+01:41:20.126 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_319_lod1' from 'sponza:sponza_319' (cached) - 474 vertices
+01:41:20.127 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_319_lod2' from 'sponza:sponza_319' (cached) - 133 vertices
+01:41:20.128 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_307_lod1' from 'sponza:sponza_307' (cached) - 474 vertices
+01:41:20.128 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_307_lod2' from 'sponza:sponza_307' (cached) - 133 vertices
+01:41:20.129 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_268_lod1' from 'sponza:sponza_268' (cached) - 475 vertices
+01:41:20.129 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_268_lod2' from 'sponza:sponza_268' (cached) - 135 vertices
+01:41:20.130 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_260_lod1' from 'sponza:sponza_260' (cached) - 475 vertices
+01:41:20.131 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_260_lod2' from 'sponza:sponza_260' (cached) - 135 vertices
+01:41:20.132 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_261_lod1' from 'sponza:sponza_261' (cached) - 474 vertices
+01:41:20.132 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_261_lod2' from 'sponza:sponza_261' (cached) - 135 vertices
+01:41:20.133 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_293_lod1' from 'sponza:sponza_293' (cached) - 471 vertices
+01:41:20.134 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_293_lod2' from 'sponza:sponza_293' (cached) - 136 vertices
+01:41:20.135 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_295_lod1' from 'sponza:sponza_295' (cached) - 472 vertices
+01:41:20.135 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_295_lod2' from 'sponza:sponza_295' (cached) - 135 vertices
+01:41:20.136 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_292_lod1' from 'sponza:sponza_292' (cached) - 475 vertices
+01:41:20.136 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_292_lod2' from 'sponza:sponza_292' (cached) - 134 vertices
+01:41:20.137 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_33_lod1' from 'sponza:sponza_33' (cached) - 408 vertices
+01:41:20.138 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_33_lod2' from 'sponza:sponza_33' (cached) - 116 vertices
+01:41:20.139 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_28_lod1' from 'sponza:sponza_28' (cached) - 414 vertices
+01:41:20.139 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_28_lod2' from 'sponza:sponza_28' (cached) - 117 vertices
+01:41:20.140 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_22_lod1' from 'sponza:sponza_22' (cached) - 414 vertices
+01:41:20.140 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_22_lod2' from 'sponza:sponza_22' (cached) - 115 vertices
+01:41:20.141 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_27_lod1' from 'sponza:sponza_27' (cached) - 408 vertices
+01:41:20.142 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'sponza:sponza_27_lod2' from 'sponza:sponza_27' (cached) - 117 vertices
+01:41:20.143 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'column_a.011_lod1' from 'column_a.011' (cached) - 356 vertices
+01:41:20.143 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'column_a.011_lod2' from 'column_a.011' (cached) - 100 vertices
+01:41:20.144 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'column_a.002_lod1' from 'column_a.002' (cached) - 353 vertices
+01:41:20.144 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'column_a.002_lod2' from 'column_a.002' (cached) - 98 vertices
+01:41:20.145 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'column_a.003_lod1' from 'column_a.003' (cached) - 354 vertices
+01:41:20.145 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'column_a.003_lod2' from 'column_a.003' (cached) - 100 vertices
+01:41:20.146 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'column_a.010_lod1' from 'column_a.010' (cached) - 349 vertices
+01:41:20.146 [INFO ] [t22688] World.cpp:1653: World::LoadGeneratedMeshes: 'column_a.010_lod2' from 'column_a.010' (cached) - 100 vertices
+01:41:20.149 [WARN ] [t22688] Base.cpp:681: Material::FromJson: unknown material 'sp_fabric_green' (entity 281), keeping the current one
+01:41:20.149 [WARN ] [t22688] Base.cpp:681: Material::FromJson: unknown material 'sp_fabric_green' (entity 286), keeping the current one
+01:41:20.149 [WARN ] [t22688] Base.cpp:681: Material::FromJson: unknown material 'sp_fabric_green' (entity 284), keeping the current one
+01:41:20.149 [WARN ] [t22688] Base.cpp:681: Material::FromJson: unknown material 'sp_columna_a' (entity 15), keeping the current one
+01:41:20.149 [WARN ] [t22688] Base.cpp:681: Material::FromJson: unknown material 'sp_columna_a' (entity 10), keeping the current one
+01:41:20.149 [WARN ] [t22688] Base.cpp:681: Material::FromJson: unknown material 'sp_columna_a' (entity 117), keeping the current one
+01:41:20.149 [WARN ] [t22688] Base.cpp:681: Material::FromJson: unknown material 'sp_columna_a' (entity 8), keeping the current one
+01:41:20.149 [WARN ] [t22688] Base.cpp:681: Material::FromJson: unknown material 'sp_columna_a' (entity 9), keeping the current one
+01:41:20.149 [WARN ] [t22688] Base.cpp:681: Material::FromJson: unknown material 'sp_columna_a' (entity 11), keeping the current one
+01:41:20.150 [WARN ] [t22688] Base.cpp:681: Material::FromJson: unknown material 'sp_columna_a' (entity 12), keeping the current one
+01:41:20.150 [WARN ] [t22688] Base.cpp:681: Material::FromJson: unknown material 'sp_columna_a' (entity 13), keeping the current one
+01:41:20.150 [WARN ] [t22688] Base.cpp:681: Material::FromJson: unknown material 'sp_columna_a' (entity 14), keeping the current one
+01:41:20.150 [WARN ] [t22688] Base.cpp:681: Material::FromJson: unknown material 'sp_columna_a' (entity 118), keeping the current one
+01:41:20.150 [WARN ] [t22688] Base.cpp:681: Material::FromJson: unknown material 'sp_columna_a' (entity 119), keeping the current one
+01:41:20.150 [WARN ] [t22688] Base.cpp:681: Material::FromJson: unknown material 'sp_columna_a' (entity 120), keeping the current one
+01:41:20.150 [WARN ] [t22688] Base.cpp:681: Material::FromJson: unknown material 'sp_columna_a' (entity 15), keeping the current one
+01:41:20.150 [WARN ] [t22688] Base.cpp:681: Material::FromJson: unknown material 'sp_columna_a' (entity 10), keeping the current one
+01:41:20.150 [WARN ] [t22688] Base.cpp:681: Material::FromJson: unknown material 'sp_columna_a' (entity 117), keeping the current one
+01:41:20.150 [WARN ] [t22688] Base.cpp:681: Material::FromJson: unknown material 'sp_columna_a' (entity 8), keeping the current one
+01:41:20.150 [WARN ] [t22688] Base.cpp:681: Material::FromJson: unknown material 'sp_columna_a' (entity 9), keeping the current one
+01:41:20.150 [WARN ] [t22688] Base.cpp:681: Material::FromJson: unknown material 'sp_columna_a' (entity 11), keeping the current one
+01:41:20.150 [WARN ] [t22688] Base.cpp:681: Material::FromJson: unknown material 'sp_columna_a' (entity 12), keeping the current one
+01:41:20.150 [WARN ] [t22688] Base.cpp:681: Material::FromJson: unknown material 'sp_columna_a' (entity 13), keeping the current one
+01:41:20.150 [WARN ] [t22688] Base.cpp:681: Material::FromJson: unknown material 'sp_columna_a' (entity 14), keeping the current one
+01:41:20.150 [WARN ] [t22688] Base.cpp:681: Material::FromJson: unknown material 'sp_columna_a' (entity 118), keeping the current one
+01:41:20.150 [WARN ] [t22688] Base.cpp:681: Material::FromJson: unknown material 'sp_columna_a' (entity 119), keeping the current one
+01:41:20.150 [WARN ] [t22688] Base.cpp:681: Material::FromJson: unknown material 'sp_columna_a' (entity 120), keeping the current one

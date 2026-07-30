@@ -24,7 +24,8 @@ namespace HotBiteEditor {
 		static const char* DEBUG_BUFFER_LABELS[] = {
 			"Off", "Scene colour", "Direct light", "Bloom", "Emission",
 			"RT reflections", "RT refractions", "Indirect (GI)", "Volumetric light",
-			"Dust", "Lens flare", "Depth", "World position", "World normal", "Motion vectors"
+			"Dust", "Lens flare", "Depth", "World position", "World normal", "Motion vectors",
+			"GI cache (world)", "GI cache confidence"
 		};
 		static_assert(IM_ARRAYSIZE(DEBUG_BUFFER_LABELS) ==
 			(int)RenderSystem::eDebugBuffer::COUNT,

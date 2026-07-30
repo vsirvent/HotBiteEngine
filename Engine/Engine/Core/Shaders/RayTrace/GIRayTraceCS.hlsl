@@ -111,6 +111,10 @@ static float2 lps[MAX_LIGHTS] = (float2[MAX_LIGHTS])LightPerspectiveValues;
 
 #include "../Common/SimpleLight.hlsli"
 #include "../Common/RayFunctions.hlsli"
+//Writable: this pass is the one that fills the cache. It reads it through the same
+//UAV rather than taking an SRV, because the texture registers here are full (see
+//the DiffuseTextures note above) and a Buffer SRV would cost one of them.
+#include "../Common/RadianceCache.hlsli"
 
 #define max_distance 10.0f
 
@@ -123,6 +127,12 @@ static const uint max_y = stride * kernel_size;
 static const uint N = ray_count * kernel_size * kernel_size;
 static const float space_size = (float)N / (float)ray_count;
 static const float ray_enery_unit = inv_ray_count;
+
+//Seed for the radiance cache lookup inside GetColor, which has no idea which pixel or
+//which ray it is serving. main() re-seeds it per ray before each trace; a lookup that
+//used the same jitter for every ray of a pixel would dither between cells but always
+//the same way, which is a fixed pattern rather than noise.
+static uint rc_bounce_seed = 0;
 
 
 
@@ -495,6 +505,24 @@ void GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
 
         color *= o.opacity;
 
+        //Multi-bounce, for one buffer load. `color` here is the light *arriving* at
+        //the hit, and the cache holds exactly that quantity for the cell the hit
+        //falls in - so the two add, and the albedo multiply below then applies to
+        //both. Putting the lookup on the far side of that multiply would double the
+        //albedo and darken every second bounce.
+        //
+        //The value read is last frame's, because rcache_value is written only by the
+        //resolve pass: light advances one cell per frame, like a radiosity
+        //relaxation. That is also what makes this safe to do while other threads are
+        //depositing - nothing reads what this frame is writing.
+        //
+        //This is what turns a one-bounce tracer into a many-bounce one, and it
+        //partly defeats `max_distance`: a ray only reaches 10 units, but the cell it
+        //lands on already holds light that arrived there from further away.
+        //Jittered here too. A bounce is averaged over the pixel's rays and over the
+        //denoiser, so the cubes are far less visible than at a primary pixel - but
+        //"less visible" on a flat wall lit only by bounce is still visible.
+        color += RCLookupJittered(pos.xyz, normal, cameraPosition, rc_bounce_seed).rgb * RC_BOUNCE_GAIN;
 
         bool use_mat_texture = material.flags & DIFFUSSE_MAP_ENABLED_FLAG;
         float3 mat_color = material.diffuseColor.rgb * !use_mat_texture;
@@ -677,6 +705,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
         ray.dir = GenerateHemisphereRay(normal, tangent, bitangent, 1.0f, N, level, n);
         ray.orig.xyz = orig_pos.xyz + ray.dir * 0.001f;
         float dist = FLT_MAX;
+        rc_bounce_seed = hash(jitter_seed + i * 7919u);
         GetColor(ray, n, level, 1, rc, ray_source.dispersion, true, false);
         last_wi = wi;
         hit = hit || rc.hit;
@@ -694,13 +723,85 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
 #endif
     }
 
+#ifndef DISABLE_RESTIR
+    //THE SCAN RAY. One direction per frame, picked round-robin off frame_count and
+    //NOT by the pdf, skipping whatever the importance sampling above already took.
+    //Every one of the ray_count directions is therefore re-traced at least once every
+    //ray_count frames no matter how unlikely the pdf thinks it is.
+    //
+    //Without it the pdf cannot adapt to a lighting change, and the failure is total
+    //rather than gradual. Selection above is inverse-CDF weighted BY the pdf, so a
+    //direction that has collapsed to RAY_W_BIAS (1e-4) against a bright one (~1) is
+    //drawn with probability ~1e-4 - about once every five thousand frames at the one
+    //or two draws a frame this pass affords. When the sun moves so that a previously
+    //dark direction becomes the bright one, nothing ever samples it, so its pdf entry
+    //stays dark and the surface never recovers its light. Cycling `start` does not
+    //cover this: strata are slices of the *CDF*, so a ray holding 0.01% of the CDF is
+    //hit by a stratum boundary 0.01% of the time. Only an unconditional round-robin
+    //visit refreshes an entry the pdf has written off.
+    //
+    //Its result updates pdf_cache ONLY - it is deliberately not added to
+    //color_diffuse. The estimator above is built on rays drawn with probability
+    //pdf/W, and this one is drawn with probability 1; folding a deterministic sample
+    //into that weighted sum would bias the pixel. Adapting the pdf is the whole job,
+    //and the very next frame's importance sampling picks the direction up properly
+    //weighted now that its entry is no longer stale.
+    {
+        uint scan_ray = frame_count % ray_count;
+        [loop]
+        for (uint g = 0; g < ray_count; ++g) {
+            bool taken = false;
+            for (uint k = 0; k < wis_size; ++k) {
+                if ((uint)wis[k] == scan_ray) { taken = true; break; }
+            }
+            if (!taken) { break; }
+            scan_ray = (scan_ray + 1) % ray_count;
+        }
+
+        float n = fmod(offset + (float)scan_ray * offset2, N);
+        ray.dir = GenerateHemisphereRay(normal, tangent, bitangent, 1.0f, N, level, n);
+        ray.orig.xyz = orig_pos.xyz + ray.dir * 0.001f;
+        rc_bounce_seed = hash(jitter_seed + 104729u);
+        GetColor(ray, n, level, 1, rc, ray_source.dispersion, true, false);
+        pdf_cache[scan_ray] = RAY_W_BIAS + length(rc.color.rgb);
+        hit = hit || rc.hit;
+    }
+#endif
+
     restir_pdf_1[pixel] = PackRays(pdf_cache, RAY_W_SCALE);
 #ifdef DISABLE_RESTIR
     color_diffuse = color_diffuse / ray_count;
 #endif
 
+    //Feed the world cache. This is the whole cost of filling it: the rays were
+    //traced for the screen-space estimate anyway, and their result is deposited into
+    //the cell the pixel's surface point falls in. Every pixel looking at that point,
+    //now or after the camera has moved, gets the benefit.
+    //
+    //Deposited LINEAR, before the sqrt encoding below. That encoding is a display
+    //convention of the screen-space path (the mixer uses its output directly); the
+    //cache holds radiometric irradiance, because the ray tracer reads it back as
+    //incoming light for a bounce where a square root would be meaningless.
+    //
+    //A miss deposits zero rather than nothing: "no light arrives here" is a fact
+    //about the cell worth caching, and skipping it would leave dark cells reading
+    //as unconverged forever.
+    bool deposited = RCDeposit(orig_pos, normal, cameraPosition, color_diffuse.rgb, frame_count);
+
+    //Counted from one thread per 8x8 group and scaled by 64 on the way out. An
+    //atomic per pixel on a single address serializes far more of this pass than a
+    //health counter is worth, and a group reduction is not available here: main()
+    //returns early for pixels with no ray source, and a barrier past a divergent
+    //return is undefined.
+    [branch]
+    if (thread.x == 0 && thread.y == 0) {
+        uint ignored;
+        rcache_stats.InterlockedAdd(deposited ? RC_STAT_DEPOSIT : RC_STAT_DROPPED, 1u, ignored);
+    }
+
     color_diffuse.rgb = pow(color_diffuse.rgb, 0.5f);
     output[pixel] = color_diffuse;
+
 
     if (hit) {
         [unroll]
@@ -716,3 +817,5 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
     //float r = wis_size / ray_count;
     //output[pixel] = float4(wis_size, 0.0f, 0.0f, 1.0f);
 }
+
+

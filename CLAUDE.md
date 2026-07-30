@@ -55,6 +55,27 @@ which surfaces as an access violation in an unrelated system several frames late
 (`PrepareLights`, `AudioSystem`, `RtlFreeHeap`) with a different stack each run. If results
 stop making sense, rebuild both steps clean before debugging anything else.
 
+**A shader change can silently not be built, and the build still says it succeeded.**
+Two separate traps, and together they cost three rounds of an A/B that all secretly
+ran the same `.cso` and read as "the feature does nothing":
+
+- **FxCompile does not track `.hlsli` includes here.** Edit a shared header, rebuild,
+  and every `.cso` that includes it is stale. `AdditionalInputs` metadata on the
+  FxCompile item does *not* fix it (tried). The `InvalidateShadersOnSharedHeaderChange`
+  target at the bottom of `Engine.vcxproj` touches the dependent `.hlsl` files instead,
+  because that is the input FxCompile does track — extend its list when a new shared
+  header appears.
+- **Never write a shader file with PowerShell's `Set-Content -Encoding utf8`.** It
+  prepends a **BOM**, and fxc rejects a BOM in an `#include`d file with
+  `error X3000: Illegal character in shader file`. The compile then fails while the
+  stale `.cso` stays on disk and keeps being loaded, so the engine runs yesterday's
+  shader. Use `[System.IO.File]::WriteAllText(path, text, [System.Text.UTF8Encoding]::new($false))`.
+  This is the same BOM trap as `command.txt`, in a place where it fails far more quietly.
+
+So: **after any shader edit, confirm the `.cso` timestamp actually moved**, and when a
+measurement is on the line use `/t:Engine:Rebuild` rather than an incremental build.
+A `.cso` older than its `.hlsl` is the tell.
+
 ## The regression suites — run them, and add to them
 
 **Any change to the engine or the Scene Editor MUST pass the automation tests
@@ -331,6 +352,141 @@ list in `RenderSettings.cpp` is `static_assert`ed against the enum, and the auto
 token list is generated from `RenderSystem::DebugBufferName` rather than duplicated.
 `RenderSettings::ApplyHighDefaults` clears the whole thing on level load — a debug view
 carried into a freshly opened level looks like the level rendering wrong.
+
+**GI convergence lives in a world-space hash grid, not in the pixel that saw it**
+(`Shaders/Common/RadianceCache.hlsli`, resolved by `Radiance/RadianceCacheResolveCS.hlsl`).
+The ReSTIR pass keeps its state in two screen-space places — the per-pixel pdf and the
+denoised history — and both die when the camera moves: the pdf is not even reprojected,
+it is blended toward flat in proportion to how far the pixel moved, because a pdf
+describing a *different* surface point is worse than none. So a rotation restarts every
+pixel at the 1–2 rays a frame the pass can afford, and a disoccluded surface starts from
+nothing. The cache is keyed by *where the surface is*, so it survives both.
+
+It costs no rays. `GIRayTraceCS` deposits the estimate it already computed into the cell
+its pixel's surface point falls in; filling the cache is a side effect of work the frame
+was doing anyway.
+
+Six things there that are not guessable:
+
+- **It stores linear irradiance, deposited *before* the `pow(color, 0.5)` at the end of
+  the trace.** That square root is a display convention of the screen-space path (the
+  mixer uses its output directly); the cache is read back as incoming light for a bounce,
+  where a square root is meaningless. Confusing the two makes the cache look empty — at
+  gain 4 a correctly-filled cache still renders near-black, because it holds the *square*
+  of what the `indirect` buffer shows. Check it at `debug_gain 64` before concluding
+  anything is broken.
+- **Two buffers, and the split is the point.** `rcache` is the atomically updated part
+  (key, this frame's accumulator, age); `rcache_value` is the resolved value, written
+  only by the resolve pass, so a lookup is one 16-byte load that never contends with the
+  deposits. Both are raw `ByteAddressBuffer`s — SM5 only guarantees the interlocked ops
+  there, not on a structured buffer whose element is a struct — so the offsets are
+  spelled out by hand and **nothing checks the stride**.
+- **An evicted cell becomes a tombstone, never free.** Zeroing the key would cut the
+  probe run and orphan every cell that had probed past that slot, which reads as a cache
+  that inexplicably stops answering for one region of the level.
+- **`RC_MAX_AGE` is the memory the cache exists for.** 64 frames (~1 s) expires a surface
+  in about the time it takes to look away from it — exactly the case this is meant to
+  fix. It is 512.
+- **The tracer reads and writes the cache through its UAV, not an SRV.** `GIRayTraceCS`
+  is at the 128 texture-register limit (see the `DiffuseTextures` note), and a Buffer SRV
+  costs a `t` register where a UAV costs one of eight `u` registers.
+- **`Base::is_static` is not consulted yet.** Dynamic geometry drags stale radiance
+  through the cells it vacates; the `RC_MIN_BLEND` floor bounds how long that takes to
+  re-converge (~20 frames) rather than preventing it.
+
+**The cache buys multi-bounce for one buffer load, and `RC_BOUNCE_GAIN` is a loop gain
+rather than a brightness knob.** `GetColor` adds the cell's cached irradiance to the
+light arriving at a hit, *before* the albedo multiply — on the far side it would double
+the albedo and darken every second bounce. The value read is last frame's, since only
+the resolve pass writes `rcache_value`, so light advances one cell per frame like a
+radiosity relaxation and there is no read/write race with the deposits. It also partly
+defeats `max_distance`: a ray reaches 10 units, but the cell it lands on already holds
+light that arrived there from further away.
+
+It is a feedback loop — a cell's value is fed back into the rays that fill it — so the
+gain must stay under 1 or a white material holds energy instead of losing it and a
+corner brightens without bound. 0.9 costs a few percent at the second bounce and less
+at each one after.
+
+Measured on **sponza opened in the Scene Editor** (Marbles solo level 3 loads fine via
+`--level`, which is the way to get the editor's frozen clock and `gi_cache_info` onto a
+scene that actually has bounced light): frozen clock and fixed camera give a within-build
+floor of meanDelta 0.33–0.43 with *zero* pixels over threshold, against which the bounce
+is meanDelta **8.78 with 48% of pixels changed** — indirect mean 32.3 → 39.9 (**+23%**),
+final frame **+26%**. The demo scene is useless for this: it is outdoors, so GI rays
+mostly hit sky and never reach the lookup at all, and an A/B there returns the floor
+whatever the gain.
+
+Two surfaces can see it, because a cache that is working and a cache that is absent
+render identically: `gi_cache_info` (occupancy, deposits, drops — `dropped` is the one
+number that says `RC_ENTRIES`/`RC_PROBES` are too small for the scene) and the
+`gi_cache` / `gi_cache_conf` debug buffers. The value view paints **blue where the
+lookup found no cell**, so "no cell" is distinguishable from "a black cell"; the
+confidence view is black for no cell and a cold-to-hot ramp otherwise, which is the
+difference between the cache not working and the cache not having got there yet.
+
+**`SimpleShader` binds buffer SRVs by name now, and that was a silent failure before.**
+Its reflection registered only `D3D_SIT_TEXTURE`, so
+`SetShaderResourceView("<a ByteAddressBuffer>", srv)` looked the name up, found nothing,
+returned false — and no caller checks that return. The buffer stayed unbound and every
+read of it returned zero, which is why the BVH and vertex buffers are bound by explicit
+register through `CSSetShaderResources` instead. `D3D_SIT_BYTEADDRESS` and
+`D3D_SIT_STRUCTURED` are registered too now; the explicit binds still work and were left
+alone.
+
+**A non-blocking GPU readback needs far more ring depth than it looks like it does, and
+should not run every frame.** `Core::RWByteBuffer::Readback` copies to a staging ring and
+maps a slot several frames old with `DO_NOT_WAIT`. At three slots (two frames of slack)
+the map failed essentially *every* call once the driver was buffering frames ahead — it
+succeeded once during startup and then never again, so the counters froze at their first
+reading and looked exactly like a cache that had stopped filling. It is eight deep, it
+scans oldest-first for a slot that maps, and it tracks which slots hold a copy at all
+(mapping a never-written staging buffer succeeds and returns zeros — "an empty cache"
+rather than "no reading"). It also runs **only while something is asking**:
+`GetRadianceCacheStats` sets a keepalive, because a `CopyResource` plus a driver `Map`
+on the render thread every frame, for counters nothing in the frame depends on, is a
+real cost paid by every build.
+
+**The cache also fills in at the primary pixel, and the gain there is real but small.**
+`GIAverageCS` pass 3 - the one place that already knows whether temporal reprojection
+succeeded - blends the cell's value into the result, weighted by how *little* the pixel
+can rely on its screen-space history: a pixel whose reprojection landed nowhere usable
+takes the cache outright, and one with good history takes at most `RC_PRIMARY_BLEND`,
+because there the screen estimate is the sharper of the two and carries contact detail a
+cell several centimetres across cannot. Confidence gates it, or an unresolved (black)
+cell would darken a disocclusion instead of filling it. **The value must be
+`sqrt()`-encoded on the way in** - the cache is linear, this pass and the mixer are not.
+
+Measured on sponza (rotate away, settle, rotate back, capture the recovery frame by
+frame against the settled reference): the improvement is **~8%, consistently, from the
+fourth frame on** - not the step change the design predicted. The reason is worth
+recording: the existing path already recovers in about four frames, because
+`GIAverageCS`'s spatial kernel is enormous (43 taps) and its motion-driven temporal
+blend reaches 0.8, so a disoccluded pixel is filled by its neighbours almost at once.
+The "twenty frames of visible convergence" this stage was aimed at is not what the
+screen-space path actually does on that scene. `RC_PRIMARY_ENABLE` is the master switch
+that A/B exists for - `RC_PRIMARY_BLEND` is not, since a pixel with no history ignores
+it by design.
+
+**A hash grid read once per pixel draws its own cells on screen, and the fix is two
+things, not one.** A cell is constant across its volume, so one lookup per pixel is a
+piecewise-constant image - literally cubes. They are worst while the camera moves,
+because that is when the primary-pixel fill leans hardest on the cache.
+
+- **Jitter the lookup** (`RCLookupJittered`): displace the point by up to half a cell
+  before quantizing, with a seed that varies per pixel *and* per frame. A pixel near a
+  boundary then lands in either neighbour in proportion to how close it is, so the
+  average over pixels is the trilinear blend of the surrounding cells and the residual
+  is noise - which the denoiser and the temporal accumulation already exist to remove.
+  A step edge is not, and no amount of blurring stops an edge reading as an edge.
+  `RCLookup` (unjittered) is kept for the `gi_cache` debug view, which is *supposed* to
+  show the cells.
+- **Make the cells small enough that the dither is fine-grained.** This is the half
+  that is easy to miss. The first sizing (`RC_BASE_SIZE` 0.25, `RC_LEVEL_SCALE` 0.1)
+  held a cell at a constant ~24 full-resolution pixels - on sponza a cell was as wide
+  as the column it was shading, and jitter alone would only have turned 24-pixel blocks
+  into 24-pixel blotches. 0.125 / 0.05 gives ~6 pixels; sponza goes 1.5k -> 6.4k live
+  cells, which is 1.2% of `RC_ENTRIES`, so there is room to go finer still.
 
 **A game shader can mirror the engine's lighting cbuffer, and nothing checks it.**
 `Tests/DemoGame/TerrainPS.hlsl` declares its own `externalData` block field for field

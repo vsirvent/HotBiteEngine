@@ -1,6 +1,10 @@
 #include "../Common/ShaderStructs.hlsli"
 #include "../Common/Utils.hlsli"
 #include "../Common/RenderDebug.hlsli"
+//Read-only: this pass consumes the world cache to fill in where the screen-space
+//history cannot, and must never write it.
+#define RC_READ_ONLY
+#include "../Common/RadianceCache.hlsli"
 
 cbuffer externalData : register(b0)
 {
@@ -223,6 +227,17 @@ void main(uint3 DTid : SV_DispatchThreadID)
         //stale/disoccluded fetch cannot ghost, and it is trusted less under motion.
         [branch]
         if (type == 3) {
+            //Where the screen-space history cannot help, the world cache can. This is
+            //the whole point of the cache: a pixel the camera has just revealed has no
+            //history at all, but the *surface* it is looking at was very likely cached
+            //by some other pixel, or by this one before the camera turned away.
+            //
+            //`have_history` starts false and is set only where the reprojection lands
+            //somewhere usable, so a disoccluded pixel takes the cache outright instead
+            //of spending the next twenty frames converging from nothing.
+            bool have_history = false;
+            float cache_weight = 1.0f;
+
             float4 prev_pos = mul(prev_position_map[info_pixel], prev_view_proj);
             [branch]
             if (prev_pos.w > Epsilon) {
@@ -231,6 +246,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
                 float2 pp = (prev_pos.xy + 1.0f) * input_dimensions.xy * 0.5f;
                 [branch]
                 if (all(pp >= 0.0f) && all(pp < input_dimensions)) {
+                    have_history = true;
                     float3 cmin = c.rgb;
                     float3 cmax = c.rgb;
                     [unroll]
@@ -251,7 +267,28 @@ void main(uint3 DTid : SV_DispatchThreadID)
                     }
                     float blend = lerp(0.15f, 0.8f, saturate(pixels_moved * 0.25f));
                     c.rgb = lerp(prev_color, c.rgb, blend);
+
+                    //With usable history the screen estimate is the sharper of the
+                    //two - it carries contact detail a voxel cannot - so the cache
+                    //only leans in as the history stops being trustworthy, which is
+                    //exactly when the pixel is moving fast.
+                    cache_weight = saturate(pixels_moved * 0.25f) * RC_PRIMARY_BLEND;
                 }
+            }
+
+            //The cache is stored as linear irradiance; everything in this pass is the
+            //sqrt-encoded form the trace emits and the mixer consumes. Encode on the
+            //way in or the cache reads as far too dark and looks like it holds nothing.
+            //Jittered, or the cache's cells are drawn as cubes on screen - this is the
+            //one lookup that lands on a pixel directly, with nothing averaging it.
+            uint rc_seed = hash((uint)pixel.x * 73856093u ^ (uint)pixel.y * 19349663u) + frame_count * 9781u;
+            float4 cached = RCLookupJittered(p0_position, p0_normal, cameraPosition, rc_seed);
+            //Confidence gates it: an unresolved cell is black, and blending toward
+            //black would darken a disocclusion rather than fill it.
+            float w = saturate(cache_weight) * cached.w * RC_PRIMARY_ENABLE;
+            [branch]
+            if (w > 0.0f) {
+                c.rgb = lerp(c.rgb, sqrt(max(cached.rgb, 0.0f)), w);
             }
         }
     }

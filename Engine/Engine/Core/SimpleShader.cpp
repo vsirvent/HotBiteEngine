@@ -186,6 +186,18 @@ namespace HotBite {
 					// Check the type
 					switch (resourceDesc.Type)
 					{
+					//Buffer SRVs bind exactly like texture SRVs - same `t` register
+					//space, same *SetShaderResources call - so they belong in the same
+					//table. Only D3D_SIT_TEXTURE used to be registered here, which
+					//meant SetShaderResourceView("<a ByteAddressBuffer>", srv) looked
+					//the name up, found nothing, and returned false; callers do not
+					//check that, so the buffer silently stayed unbound and every read
+					//of it returned zero. That is why the BVH and vertex buffers are
+					//bound by explicit register number through CSSetShaderResources
+					//rather than by name - this was the reason, and it no longer
+					//applies.
+					case D3D_SIT_BYTEADDRESS:
+					case D3D_SIT_STRUCTURED:
 					case D3D_SIT_TEXTURE: // A texture resource
 					{
 						// Create the SRV wrapper

@@ -38,6 +38,7 @@ SOFTWARE.
 #include <Core\Mesh.h>
 #include <Core\PostProcess.h>
 #include <Core\BVH.h>
+#include <Core\RWBuffer.h>
 
 namespace HotBite {
 	namespace Engine {
@@ -134,6 +135,27 @@ namespace HotBite {
 					uint64_t traced_indices = 0; //what every ray actually walks
 				};
 
+				//The world radiance cache's occupancy, read back off the GPU. The
+				//cache is invisible in a screenshot - a ray reading a cell that does
+				//not exist yet just produces the same one-bounce answer it always did -
+				//so this is the only way to see it working at all.
+				//
+				//`deposits`/`dropped` are sampled from one thread per 8x8 group and
+				//scaled by 64, so they are an estimate of the per-frame totals; the
+				//three counted in the resolve pass are exact. Two frames stale by
+				//construction (see Core::RWByteBuffer::Readback) - these are counters
+				//for a readout, not a fence.
+				struct RadianceCacheStats {
+					uint32_t live = 0;      //cells holding a value
+					uint32_t touched = 0;   //cells that received a sample this frame
+					uint32_t evicted = 0;   //cells aged out this frame
+					uint32_t deposits = 0;  //samples that found a slot
+					uint32_t dropped = 0;   //samples lost to a full probe run
+					uint32_t hits = 0;      //lookups that found a cell
+					uint32_t misses = 0;    //lookups that did not
+					uint32_t entries = 0;   //table size, so a caller can form a ratio
+				};
+
 				enum class eRtQuality {
 					OFF,
 					LOW,
@@ -165,6 +187,8 @@ namespace HotBite {
 					POSITION,       //world position, 10-unit repeating ramp
 					NORMAL,         //world normal, remapped to 0..1
 					MOTION,         //screen-space motion, velocity-buffer encoding
+					GI_CACHE,       //world radiance cache, looked up per visible pixel
+					GI_CACHE_CONF,  //that cache's confidence, as a cold-to-hot ramp
 					COUNT
 				};
 
@@ -380,6 +404,33 @@ namespace HotBite {
 				Core::RenderTexture2D restir_w;
 				Core::RenderTexture2D* restir_pdf_curr = nullptr;
 				Core::RenderTexture2D* restir_pdf_prev = nullptr;
+
+				//The world radiance cache. Sizes and the record layout are in
+				//Shaders/Common/RadianceCache.hlsli and MUST stay in step with
+				//RADIANCE_CACHE_ENTRIES below - the buffers are raw, so nothing
+				//checks the stride and a mismatch reads neighbouring cells as this
+				//one's colour.
+				static constexpr uint32_t RADIANCE_CACHE_ENTRIES = 1048576;
+				static constexpr uint32_t RADIANCE_CACHE_STRIDE = 32;
+				static constexpr uint32_t RADIANCE_CACHE_VALUE_STRIDE = 16;
+				static constexpr uint32_t RADIANCE_CACHE_STATS_BYTES = 32;
+				Core::RWByteBuffer rcache;
+				Core::RWByteBuffer rcache_value;
+				Core::RWByteBuffer rcache_stats;
+				Core::SimpleComputeShader* rcache_resolve = nullptr;
+				RadianceCacheStats rcache_stats_cpu;
+				//Frame of the last GetRadianceCacheStats call. The readback is a
+				//CopyResource plus a driver Map every frame it runs, on the render
+				//thread, for counters nothing in the frame depends on - so it runs only
+				//while something is actually reading them, and stops on its own a couple
+				//of seconds after the last request.
+				mutable uint32_t rcache_stats_request_frame = 0;
+				mutable bool rcache_stats_requested = false;
+				static constexpr uint32_t RADIANCE_CACHE_STATS_KEEPALIVE = 120;
+				//Cleared on the next resolve. A level load leaves the table full of
+				//cells describing geometry that no longer exists, and those would keep
+				//answering lookups for RC_MAX_AGE frames of the new level.
+				bool rcache_reset = true;
 
 				static constexpr uint32_t RESTIR_HALF_KERNEL = 5;
 				static constexpr uint32_t RESTIR_KERNEL = 2 * RESTIR_HALF_KERNEL + 1;
@@ -617,6 +668,18 @@ namespace HotBite {
 				void RefreshDrawable(ECS::Entity entity);
 
 				RtGeometryStats GetRtGeometryStats() const { return rt_geometry_stats; }
+				//Asking is what turns the readback on; the first call after a quiet
+				//period therefore answers with whatever was last read (zeros at
+				//startup) and the values become live a few frames later. Callers poll
+				//- see Wait-CacheStat in the 21-gicache suite.
+				RadianceCacheStats GetRadianceCacheStats() const {
+					rcache_stats_request_frame = frame_count;
+					rcache_stats_requested = true;
+					return rcache_stats_cpu;
+				}
+				//Drop every cell. Call whenever the scene the cache describes is
+				//replaced wholesale - a level load - rather than merely changed.
+				void ResetRadianceCache() { rcache_reset = true; }
 
 				void EnableNormalMaterialMapping(bool enabled);
 				bool IsEnabledEnableNormalMaterialMapping() const;

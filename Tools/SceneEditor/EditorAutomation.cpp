@@ -528,6 +528,34 @@ namespace HotBiteEditor {
 					response_lines.push_back(os.str());
 				}
 			}
+			else if (cmd == "gi_cache_info") {
+				//Occupancy of the world radiance cache. The cache is deliberately
+				//invisible in a normal frame - a lookup that finds nothing falls back
+				//to what the screen-space pass always did - so this and the
+				//`gi_cache` debug buffer are the only two ways to see it at all.
+				//
+				//The counters lag the current frame by two (they are read back
+				//without stalling the pipeline), so a test that changes something and
+				//reads this immediately is reading the state from before the change.
+				Systems::RenderSystem* rs =
+					(state.world != nullptr) ? state.world->GetSystem<Systems::RenderSystem>().get() : nullptr;
+				if (rs == nullptr) {
+					response_lines.push_back("ERR no render system");
+				}
+				else {
+					const Systems::RenderSystem::RadianceCacheStats stats = rs->GetRadianceCacheStats();
+					std::ostringstream os;
+					os << "OK live=" << stats.live
+						<< " touched=" << stats.touched
+						<< " evicted=" << stats.evicted
+						<< " deposits=" << stats.deposits
+						<< " dropped=" << stats.dropped
+						<< " hits=" << stats.hits
+						<< " misses=" << stats.misses
+						<< " entries=" << stats.entries;
+					response_lines.push_back(os.str());
+				}
+			}
 			else if (cmd == "generate_lod") {
 				//Builds a coarser level out of the selected entity's mesh and adds it
 				//to the chain (MeshOps::GenerateLod), which is the Components panel's

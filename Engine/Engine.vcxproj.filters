@@ -194,6 +194,12 @@
     <ClCompile Include="Engine\Core\BVH.cpp">
       <Filter>Engine\Core</Filter>
     </ClCompile>
+    <ClCompile Include="Engine\Components\PhysicsSerialization.cpp">
+      <Filter>Engine</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\Core\MeshSimplify.cpp">
+      <Filter>Engine</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Engine\ECS\ComponentArray.h">
@@ -385,6 +391,9 @@
     <ClInclude Include="Engine\Core\BVH.h">
       <Filter>Engine\Core</Filter>
     </ClInclude>
+    <ClInclude Include="Engine\Core\MeshSimplify.h" />
+    <ClInclude Include="Engine\ECS\ComponentRegistry.h" />
+    <ClInclude Include="Engine\ECS\Serialization.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
@@ -441,6 +450,9 @@
     </None>
     <None Include="Engine\Core\Shaders\Common\RayFunctions.hlsli">
       <Filter>Engine\Core\Shaders\Common</Filter>
+    </None>
+    <None Include="Engine\Core\Shaders\Common\RadianceCache.hlsli">
+      <Filter>Engine\Core\Shaders\RayTrace</Filter>
     </None>
   </ItemGroup>
   <ItemGroup>
@@ -604,6 +616,12 @@
       <Filter>Engine\Core\Shaders\RayTrace</Filter>
     </FxCompile>
     <FxCompile Include="Engine\Core\Shaders\RayTrace\RayTraceCS.hlsl">
+      <Filter>Engine\Core\Shaders\RayTrace</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\MaterialPreview\MaterialPreviewVS.hlsl" />
+    <FxCompile Include="Engine\Core\Shaders\MaterialPreview\ModelPreviewVS.hlsl" />
+    <FxCompile Include="Engine\Core\Shaders\MaterialPreview\MaterialPreviewPS.hlsl" />
+    <FxCompile Include="Engine\Core\Shaders\Radiance\RadianceCacheResolveCS.hlsl">
       <Filter>Engine\Core\Shaders\RayTrace</Filter>
     </FxCompile>
   </ItemGroup>

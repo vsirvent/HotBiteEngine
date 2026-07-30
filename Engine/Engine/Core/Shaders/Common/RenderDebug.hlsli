@@ -56,6 +56,8 @@ SOFTWARE.
 #define RT_DEBUG_BUFFER_POSITION    12u
 #define RT_DEBUG_BUFFER_NORMAL      13u
 #define RT_DEBUG_BUFFER_MOTION      14u
+#define RT_DEBUG_BUFFER_GI_CACHE    15u
+#define RT_DEBUG_BUFFER_GI_CACHE_CONF 16u
 
 #define DebugBuffer(d)   ((d) & RT_DEBUG_BUFFER_MASK)
 #define DebugFlag(d, f)  (((d) & (f)) != 0u)
@@ -105,6 +107,21 @@ float3 DebugDepthColor(float distance)
         return float3(0.0f, 0.0f, 0.0f);
     }
     return (1.0f - exp(-distance * 0.01f)).xxx;
+}
+
+//How converged a radiance cache cell is: black where there is no cell at all, then
+//a cold-to-hot ramp from a cell resolved once to one that has been fed for
+//1/RC_CONF_STEP frames. This is what the stage 2 blend reads, so a surface that
+//stays blue is one the cache is not yet allowed to answer for - which is the
+//difference between "the cache is not working" and "the cache has not got there
+//yet". A ramp, so it ignores debug_gain.
+float3 DebugCacheConfidenceColor(float confidence, bool present)
+{
+    if (!present) {
+        return float3(0.0f, 0.0f, 0.0f);
+    }
+    float c = saturate(confidence);
+    return float3(c, 1.0f - abs(c * 2.0f - 1.0f), 1.0f - c);
 }
 
 #endif

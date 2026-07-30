@@ -378,6 +378,10 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		if (gi_weights == nullptr) {
 			throw std::exception("RestirCalcWeightsCS shader.Init failed");
 		}
+		rcache_resolve = ShaderFactory::Get()->GetShader<SimpleComputeShader>("RadianceCacheResolveCS.cso");
+		if (rcache_resolve == nullptr) {
+			throw std::exception("RadianceCacheResolveCS shader.Init failed");
+		}
 		motion_blur = ShaderFactory::Get()->GetShader<SimpleComputeShader>("MotionBlurCS.cso");
 		if (motion_blur == nullptr) {
 			throw std::exception("motion blur shader.Init failed");
@@ -468,6 +472,9 @@ RenderSystem::~RenderSystem() {
 
 	rt_ray_sources0.Release();
 	rt_ray_sources1.Release();
+	rcache.Release();
+	rcache_value.Release();
+	rcache_stats.Release();
 	vol_data.Release();
 }
 
@@ -515,6 +522,25 @@ void RenderSystem::LoadRTResources() {
 	if (FAILED(texture_tmp.Init(w / RT_TEXTURE_RESOLUTION_DIVIDER, h / RT_TEXTURE_RESOLUTION_DIVIDER, DXGI_FORMAT::DXGI_FORMAT_R11G11B10_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 		throw std::exception("texture_tmp.Init failed");
 	}
+
+	//The world radiance cache. Unlike everything above it this is not sized from
+	//the screen - it is keyed by where surfaces are, not by which pixel sees them -
+	//so a resolution change does not need to rebuild it. It is rebuilt here anyway
+	//because LoadRTResources is also what a device reset runs through, and the
+	//alternative is a buffer whose lifetime is subtly different from its neighbours'.
+	if (FAILED(rcache.Init(RADIANCE_CACHE_ENTRIES * RADIANCE_CACHE_STRIDE))) {
+		throw std::exception("rcache.Init failed");
+	}
+	if (FAILED(rcache_value.Init(RADIANCE_CACHE_ENTRIES * RADIANCE_CACHE_VALUE_STRIDE))) {
+		throw std::exception("rcache_value.Init failed");
+	}
+	if (FAILED(rcache_stats.Init(RADIANCE_CACHE_STATS_BYTES, true))) {
+		throw std::exception("rcache_stats.Init failed");
+	}
+	rcache.Clear(0);
+	rcache_value.Clear(0);
+	rcache_stats.Clear(0);
+	rcache_reset = true;
 
 	ResetRTBBuffers();
 }
@@ -1611,6 +1637,15 @@ void RenderSystem::ProcessMix() {
 	mixer_shader->SetShaderResourceView("normals", rt_ray_sources1.SRV());
 	mixer_shader->SetShaderResourceView("motionTexture", motion_texture.SRV());
 	mixer_shader->SetShaderResourceView("input", post_process_pipeline->RenderResource());
+	//For the two radiance cache views only. Bound every frame rather than behind a
+	//test on the debug value: the branch that reads them is uniform and costs
+	//nothing when it is not taken, and a resource left unbound between frames is a
+	//far more common source of a black debug view than the cost of binding it.
+	if (!cameras.GetData().empty()) {
+		mixer_shader->SetFloat3(CAMERA_POSITION, cameras.GetData()[0].camera->world_position);
+	}
+	mixer_shader->SetShaderResourceView("rcache", rcache.SRV());
+	mixer_shader->SetShaderResourceView("rcache_value", rcache_value.SRV());
 	mixer_shader->SetUnorderedAccessView("output", image);
 	mixer_shader->SetShaderResourceView("rgbaNoise", rgba_noise_texture.SRV());
 	mixer_shader->CopyAllBufferData();
@@ -1630,6 +1665,8 @@ void RenderSystem::ProcessMix() {
 	mixer_shader->SetShaderResourceView("input", nullptr);
 	mixer_shader->SetShaderResourceView("lensFlareTexture", nullptr);
 	mixer_shader->SetShaderResourceView("rgbaNoise", nullptr);
+	mixer_shader->SetShaderResourceView("rcache", nullptr);
+	mixer_shader->SetShaderResourceView("rcache_value", nullptr);
 	mixer_shader->CopyAllBufferData();
 }
 
@@ -2070,6 +2107,13 @@ void RenderSystem::ProcessGI() {
 		gi_shader->SetUnorderedAccessView("output", rt_texture_gi_trace->UAV());
 		gi_shader->SetUnorderedAccessView("tiles_output", rt_textures_gi_tiles.UAV());
 
+		//The counters are per frame, so they are zeroed before the two passes that
+		//write them rather than accumulated across the run.
+		rcache_stats.Clear(0);
+		gi_shader->SetUnorderedAccessView("rcache", rcache.UAV());
+		gi_shader->SetUnorderedAccessView("rcache_value", rcache_value.UAV());
+		gi_shader->SetUnorderedAccessView("rcache_stats", rcache_stats.UAV());
+
 		int groupsX = (int32_t)(ceil((float)rt_texture_gi_curr->Width() / (8.0f)));
 		int groupsY = (int32_t)(ceil((float)rt_texture_gi_curr->Height() / (8.0f)));
 		dxcore->context->Dispatch((uint32_t)ceil((float)groupsX), (uint32_t)ceil((float)groupsY), 1);
@@ -2080,6 +2124,9 @@ void RenderSystem::ProcessGI() {
 
 		gi_shader->SetUnorderedAccessView("output", nullptr);
 		gi_shader->SetUnorderedAccessView("tiles_output", nullptr);
+		gi_shader->SetUnorderedAccessView("rcache", nullptr);
+		gi_shader->SetUnorderedAccessView("rcache_value", nullptr);
+		gi_shader->SetUnorderedAccessView("rcache_stats", nullptr);
 		gi_shader->SetShaderResourceView("position_map", nullptr);
 		gi_shader->SetShaderResourceView("motion_texture", nullptr);
 		gi_shader->SetShaderResourceView("ray0", nullptr);
@@ -2107,6 +2154,49 @@ void RenderSystem::ProcessGI() {
 		gi_weights->SetUnorderedAccessView("restir_w_1", nullptr);
 		gi_weights->CopyAllBufferData();
 
+		//Resolve the world cache: this frame's deposits become the value every
+		//lookup reads, and cells nobody has fed in RC_MAX_AGE frames are freed. It
+		//has to run after the trace has deposited and before anything reads a
+		//lookup, which for now means before the next frame's trace.
+		rcache_resolve->SetShader();
+		rcache_resolve->SetInt("frame_count", frame_count);
+		rcache_resolve->SetInt("reset", rcache_reset ? 1 : 0);
+		rcache_resolve->SetUnorderedAccessView("rcache", rcache.UAV());
+		rcache_resolve->SetUnorderedAccessView("rcache_value", rcache_value.UAV());
+		rcache_resolve->SetUnorderedAccessView("rcache_stats", rcache_stats.UAV());
+		rcache_resolve->CopyAllBufferData();
+		dxcore->context->Dispatch(RADIANCE_CACHE_ENTRIES / 64, 1, 1);
+		rcache_resolve->SetUnorderedAccessView("rcache", nullptr);
+		rcache_resolve->SetUnorderedAccessView("rcache_value", nullptr);
+		rcache_resolve->SetUnorderedAccessView("rcache_stats", nullptr);
+		rcache_resolve->CopyAllBufferData();
+		rcache_reset = false;
+
+		//Never blocks: the copy taken this frame is read several frames from now. A
+		//failed map leaves the previous reading in place, which is the right answer
+		//for a counter nothing is gated on.
+		//
+		//Only while something is reading them. This is a CopyResource and a driver
+		//Map on the render thread, and running it unconditionally put that on every
+		//frame of every build for a counter that is idle almost always - measurable
+		//as jitter in the editor's tick rather than in the frame time.
+		rcache_stats_cpu.entries = RADIANCE_CACHE_ENTRIES;
+		if (rcache_stats_requested &&
+			frame_count - rcache_stats_request_frame < RADIANCE_CACHE_STATS_KEEPALIVE) {
+			uint32_t raw[RADIANCE_CACHE_STATS_BYTES / sizeof(uint32_t)] = {};
+			if (rcache_stats.Readback(raw, sizeof(raw))) {
+				rcache_stats_cpu.live = raw[0];
+				rcache_stats_cpu.touched = raw[1];
+				rcache_stats_cpu.evicted = raw[2];
+				//Sampled one thread per 8x8 group - see the note in GIRayTraceCS.
+				rcache_stats_cpu.deposits = raw[3] * 64;
+				rcache_stats_cpu.dropped = raw[4] * 64;
+				rcache_stats_cpu.hits = raw[5];
+				rcache_stats_cpu.misses = raw[6];
+				rcache_stats_cpu.entries = RADIANCE_CACHE_ENTRIES;
+			}
+		}
+
 		gi_average->SetInt("debug", rt_debug);
 		gi_average->SetMatrix4x4("prev_view_proj", prev_view_projection);
 		gi_average->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
@@ -2118,6 +2208,10 @@ void RenderSystem::ProcessGI() {
 		gi_average->SetShaderResourceView("tiles_output", rt_textures_gi_tiles.SRV());
 		gi_average->SetInt("kernel_size", RESTIR_HALF_KERNEL);
 		gi_average->SetInt("frame_count", frame_count);
+		//Pass 3 reads the world cache to fill in where the screen-space history
+		//cannot. Read-only here - the SRV, not the UAV the tracer deposits through.
+		gi_average->SetShaderResourceView("rcache", rcache.SRV());
+		gi_average->SetShaderResourceView("rcache_value", rcache_value.SRV());
 #if 1
 		//Pass 1
 		gi_average->SetInt("type", 1);
@@ -2181,7 +2275,17 @@ void RenderSystem::ProcessGI() {
 		gi_average->SetShaderResourceView("prev_output", nullptr);
 		gi_average->SetShaderResourceView("motion_texture", nullptr);
 		gi_average->SetShaderResourceView("prev_position_map", nullptr);
+		gi_average->SetShaderResourceView("rcache", nullptr);
+		gi_average->SetShaderResourceView("rcache_value", nullptr);
 		gi_average->CopyAllBufferData();
+	}
+	else {
+		//Nothing feeds or resolves the cache when the indirect pass does not run, so
+		//the counters would otherwise freeze at whatever they held when it last did -
+		//a readout that says the cache is busy while the pass that fills it is off.
+		//`entries` is a property of the table rather than of the frame, so it stays.
+		rcache_stats_cpu = RadianceCacheStats{};
+		rcache_stats_cpu.entries = RADIANCE_CACHE_ENTRIES;
 	}
 }
 
@@ -3085,6 +3189,12 @@ void RenderSystem::ResetRTBBuffers() {
 		restir_pdf[i].Clear(zero);
 		restir_w.Clear(nrays);
 	}
+
+	//The world cache is accumulated state exactly like the textures above, so it is
+	//dropped with them. Cleared by the next resolve rather than here: the buffer may
+	//be bound to an in-flight dispatch, and the resolve pass already walks every
+	//entry, so this costs nothing extra.
+	rcache_reset = true;
 }
 
 RenderSystem::eRtQuality RenderSystem::GetRayTracingQuality() const {
@@ -3210,7 +3320,7 @@ const char* RenderSystem::DebugBufferName(eDebugBuffer buffer) {
 	static const char* names[(int)eDebugBuffer::COUNT] = {
 		"off", "scene", "light", "bloom", "emission", "reflection", "refraction",
 		"indirect", "volumetric", "dust", "lens_flare", "depth", "position", "normal",
-		"motion"
+		"motion", "gi_cache", "gi_cache_conf"
 	};
 	const int i = (int)buffer;
 	return (i >= 0 && i < (int)eDebugBuffer::COUNT) ? names[i] : "off";

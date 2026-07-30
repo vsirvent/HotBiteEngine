@@ -280,6 +280,7 @@
     <None Include="Engine\Core\Shaders\Common\PixelFunctions.hlsli" />
     <None Include="Engine\Core\Shaders\Common\Quaternion.hlsli" />
     <None Include="Engine\Core\Shaders\Common\QuickNoise.hlsli" />
+    <None Include="Engine\Core\Shaders\Common\RadianceCache.hlsli" />
     <None Include="Engine\Core\Shaders\Common\RayFunctions.hlsli" />
     <None Include="Engine\Core\Shaders\Common\RayDefines.hlsli" />
     <None Include="Engine\Core\Shaders\Common\RGBANoise.hlsli" />
@@ -347,6 +348,7 @@
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Compute</ShaderType>
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Compute</ShaderType>
       <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
+      <AdditionalInputs>$(MSBuildThisFileDirectory)Engine\Core\Shaders\Common\RadianceCache.hlsli;%(AdditionalInputs)</AdditionalInputs>
     </FxCompile>
     <FxCompile Include="Engine\Core\Shaders\ComputeShaders\UpdateDustCS.hlsl">
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Compute</ShaderType>
@@ -575,6 +577,13 @@
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Hull</ShaderType>
       <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">5.0</ShaderModel>
     </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\Radiance\RadianceCacheResolveCS.hlsl">
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Compute</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Compute</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|x64'">5.0</ShaderModel>
+      <AdditionalInputs>$(MSBuildThisFileDirectory)Engine\Core\Shaders\Common\RadianceCache.hlsli;%(AdditionalInputs)</AdditionalInputs>
+    </FxCompile>
     <FxCompile Include="Engine\Core\Shaders\RayTrace\DenoiserCS.hlsl">
       <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Compute</ShaderType>
@@ -609,6 +618,7 @@
       <DisableOptimizations Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</DisableOptimizations>
       <EnableDebuggingInformation Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</EnableDebuggingInformation>
       <AdditionalOptions Condition="'$(Configuration)|$(Platform)'=='Release|x64'">/O3 %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalInputs>$(MSBuildThisFileDirectory)Engine\Core\Shaders\Common\RadianceCache.hlsli;%(AdditionalInputs)</AdditionalInputs>
     </FxCompile>
     <FxCompile Include="Engine\Core\Shaders\RayTrace\GICalcWeightsCS.hlsl">
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Compute</ShaderType>
@@ -682,5 +692,29 @@
     <Error Condition="!Exists('..\Solution\packages\directxtex_desktop_2019.2022.10.18.1\build\native\directxtex_desktop_2019.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\Solution\packages\directxtex_desktop_2019.2022.10.18.1\build\native\directxtex_desktop_2019.targets'))" />
     <Error Condition="!Exists('..\Solution\packages\Microsoft.XAudio2.Redist.1.2.10\build\native\Microsoft.XAudio2.Redist.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\Solution\packages\Microsoft.XAudio2.Redist.1.2.10\build\native\Microsoft.XAudio2.Redist.targets'))" />
     <Error Condition="!Exists('..\Solution\packages\directxtk_desktop_2019.2022.12.16.1\build\native\directxtk_desktop_2019.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\Solution\packages\directxtk_desktop_2019.2022.12.16.1\build\native\directxtk_desktop_2019.targets'))" />
+  </Target>
+  <!--
+    FxCompile does not track .hlsli includes in this toolset. Editing a header and
+    rebuilding leaves every .cso that includes it STALE, with no warning and a
+    successful build - so the engine runs yesterday's shader while the source says
+    otherwise, and any measurement taken from it is wrong. That is not hypothetical:
+    three rounds of an A/B on RC_BOUNCE_GAIN were all silently run against one
+    binary, and read as "the feature does nothing".
+    `AdditionalInputs` metadata on the FxCompile items does not fix it (tried, no
+    effect). Touching the dependent .hlsl does, because that is the input FxCompile
+    *does* track. List a header here with its dependents whenever a new one is shared.
+  -->
+  <Target Name="InvalidateShadersOnSharedHeaderChange" BeforeTargets="FxCompile">
+    <PropertyGroup>
+      <RadianceCacheHeader>$(MSBuildThisFileDirectory)Engine\Core\Shaders\Common\RadianceCache.hlsli</RadianceCacheHeader>
+    </PropertyGroup>
+    <ItemGroup>
+      <RadianceCacheDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\RayTrace\GIRayTraceCS.hlsl" />
+      <RadianceCacheDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\TextureMixerCS.hlsl" />
+      <RadianceCacheDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\Radiance\RadianceCacheResolveCS.hlsl" />
+      <RadianceCacheDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\Radiance\GIAverageCS.hlsl" />
+    </ItemGroup>
+    <Touch Files="@(RadianceCacheDependent)"
+           Condition="Exists('$(RadianceCacheHeader)') And $([System.IO.File]::GetLastWriteTime('$(RadianceCacheHeader)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('%(RadianceCacheDependent.FullPath)').Ticks)" />
   </Target>
 </Project>
