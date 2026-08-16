@@ -14,6 +14,7 @@
 #include "Selection.h"
 #include "RenderSettings.h"
 #include "RenderDocIntegration.h"
+#include "ShaderReload.h"
 
 #include <Windows.h>
 #include <Components/Base.h>
@@ -737,6 +738,95 @@ namespace HotBiteEditor {
 					}
 				}
 			}
+			//--- Shader hot reload (see ShaderReload.h). Recompiles the engine's .hlsl
+			//sources into the running editor; the same code the Shaders menu and F5 run.
+			else if (cmd == "reload_shaders") {
+				//Asynchronous by necessity - a compile can take half a minute and the
+				//editor must keep pumping messages (see ShaderReload.h). The command
+				//answers as soon as the work is queued; poll shader_reload_status for
+				//the outcome.
+				const std::string what = (args.size() > 1) ? args[1] : "changed";
+				if (what == "changed" || what == "all") {
+					const int queued = ShaderReload::ReloadAll(state, what == "changed");
+					response_lines.push_back("OK queued " + std::to_string(queued) + " shader(s)");
+				}
+				else if (ShaderReload::ReloadOne(state, what, error)) {
+					response_lines.push_back("OK queued " + what);
+				}
+				else {
+					response_lines.push_back("ERR " + error);
+				}
+			}
+			else if (cmd == "shader_reload_status") {
+				const int pending = ShaderReload::Pending();
+				const std::vector<std::string>& errors = ShaderReload::LastErrors();
+				response_lines.push_back(std::string("OK ") + (pending > 0 ? "busy" : "idle") +
+					" pending=" + std::to_string(pending) +
+					" last=" + (ShaderReload::LastReport().empty() ? "none" : ShaderReload::LastReport()) +
+					" errors=" + std::to_string(errors.size()));
+				for (const std::string& err : errors) {
+					//One line each, and the compiler's own message can be several lines
+					//long - flatten it so the channel stays line oriented.
+					std::string flat = err;
+					std::replace(flat.begin(), flat.end(), '\n', ' ');
+					std::replace(flat.begin(), flat.end(), '\r', ' ');
+					response_lines.push_back(flat);
+				}
+			}
+			else if (cmd == "shaders_loaded") {
+				const std::vector<std::string> names = Core::ShaderFactory::Get()->GetShaderNames();
+				response_lines.push_back("OK " + std::to_string(names.size()) + " shaders loaded");
+				for (const std::string& name : names) {
+					Core::ISimpleShader* shader = Core::ShaderFactory::Get()->Find(name);
+					const std::string source = (shader != nullptr) ? shader->GetSourcePath() : std::string();
+					response_lines.push_back(name + "=" + (source.empty() ? "<no source>" : source));
+				}
+			}
+			else if (cmd == "shader_sources") {
+				const std::string action = (args.size() > 1) ? args[1] : "";
+				if (action.empty()) {
+					std::string report = ShaderReload::SourcesReport();
+					//One response line per folder: the channel is line oriented and a
+					//driver splits on newlines.
+					size_t start = 0;
+					bool first = true;
+					while (start <= report.size()) {
+						size_t nl = report.find('\n', start);
+						std::string line = report.substr(start, (nl == std::string::npos) ? std::string::npos : nl - start);
+						while (!line.empty() && (line.front() == ' ')) {
+							line.erase(line.begin());
+						}
+						response_lines.push_back(first ? ("OK " + line) : line);
+						first = false;
+						if (nl == std::string::npos) {
+							break;
+						}
+						start = nl + 1;
+					}
+				}
+				else if (args.size() < 3) {
+					response_lines.push_back("ERR usage: shader_sources [add|remove <folder>]");
+				}
+				else if (action == "add") {
+					if (ShaderReload::AddSourceFolder(args[2], error)) {
+						response_lines.push_back("OK " + ShaderReload::LastReport());
+					}
+					else {
+						response_lines.push_back("ERR " + error);
+					}
+				}
+				else if (action == "remove") {
+					if (ShaderReload::RemoveSourceFolder(args[2], error)) {
+						response_lines.push_back("OK removed " + args[2]);
+					}
+					else {
+						response_lines.push_back("ERR " + error);
+					}
+				}
+				else {
+					response_lines.push_back("ERR usage: shader_sources [add|remove <folder>]");
+				}
+			}
 			else if (cmd == "save_materials") {
 				if (MaterialOps::SaveMaterials(state, error)) {
 					response_lines.push_back("OK " + state.status_message);
@@ -1247,6 +1337,21 @@ namespace HotBiteEditor {
 							clips += state.world->GetAnimationSetClips(set).size();
 						}
 						os << " animations=" << clips;
+						//A .ply contributes a splat cloud and none of the three above, so
+						//without this a perfectly good import reads as
+						//"meshes=0 materials=0 animations=0" - indistinguishable from a
+						//file that failed to load.
+						if (!assets->splat_clouds.empty()) {
+							size_t splats = 0;
+							for (const std::string& cloud : assets->splat_clouds) {
+								if (const Core::SplatCloudData* c =
+									state.world->GetSplatClouds().Get(cloud)) {
+									splats += c->Count();
+								}
+							}
+							os << " splat_clouds=" << assets->splat_clouds.size()
+								<< " splats=" << splats;
+						}
 					}
 					if (m.name == state.selected_model) {
 						os << " [selected]";

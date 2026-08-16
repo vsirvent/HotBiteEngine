@@ -29,6 +29,7 @@ SOFTWARE.
 #include <ECS/Serialization.h>
 #include <Core/Material.h>
 #include <Core/Mesh.h>
+#include <Core/SplatCloud.h>
 #include <Core/Utils.h>
 #include <Core/SpinLock.h>
 #include <Core/Scheduler.h>
@@ -442,6 +443,70 @@ namespace HotBite {
 				//supersedes the ".NoSmooth" suffix in an .fbx node name, which is still
 				//read at import as the default - it is the only way the existing models
 				//say it, and a level that carries no "smooth" key keeps it.
+				nlohmann::json ToJson(const ECS::SerializeContext& ctx) const;
+				void FromJson(const nlohmann::json& j, const ECS::SerializeContext& ctx);
+			};
+
+			/**
+			 * Draws a cloud of 3D Gaussians instead of a triangle mesh.
+			 *
+			 * The peer of Mesh, and mutually exclusive with it in practice - an entity
+			 * carrying both draws both, which is legal but is almost never what anyone
+			 * meant.
+			 *
+			 * What makes this different from a normal Gaussian-splatting renderer is what
+			 * the splats *carry*. A capture stores baked radiance and a splat renderer
+			 * composites it; here each splat carries albedo, a normal and a specular
+			 * intensity, and RenderSystem's splat pass lights them with the scene's own
+			 * lights and shadows before writing the result into the same targets
+			 * MainRenderPS writes. So a cloud sits under the level's sun, takes its
+			 * shadows, moves through its post-process chain, and is visible to the ray
+			 * tracers as a ray source. See Core::SplatCloudData for the cost of that
+			 * reinterpretation.
+			 *
+			 * Asset scope vs entity scope follows Mesh exactly: the splats, their count and
+			 * the cloud's bounds belong to the shared Core::SplatCloudData, and everything
+			 * here is either a per-entity multiplier over it or renderer bookkeeping.
+			 */
+			struct SplatCloud {
+				static constexpr const char* NAME = "SplatCloud";
+
+				//The shared cloud. Serializes as its *name*, resolved against the world's
+				//splat cloud collection on load - the pointer means nothing across sessions.
+				Core::SplatCloudData* data = nullptr;
+
+				//Scales every splat's alpha. The fade-out knob, and the only way to make a
+				//cloud translucent without re-importing it.
+				float opacity_scale = 1.0f;
+				//Scales every splat's albedo. The exposure match: an imported capture's
+				//colours are radiance being reinterpreted as reflectance, so they routinely
+				//land too bright or too dark next to authored materials, and this is the
+				//correction that does not require touching the file.
+				float albedo_scale = 1.0f;
+				//Specular intensity handed to CalcDirectional/CalcPoint, overriding what the
+				//import guessed. A capture carries no specular information at all - every
+				//highlight it saw is already inside the albedo - so this is authored, never
+				//recovered.
+				float spec_intensity = 0.1f;
+
+				//Flips every normal. The import points normals away from the cloud centroid,
+				//which is right for an object scanned from the outside and exactly backwards
+				//for a room scanned from within; nothing in the point set distinguishes the
+				//two, so it is a switch rather than a heuristic.
+				bool invert_normals = false;
+
+				//Where along the front-to-back accumulation the surface is declared to be:
+				//the depth written to the G-buffer is the one at which accumulated alpha
+				//crosses this. A cloud always writes it - whether the object renders at all
+				//is Base::visible's job, and a splat cloud that contributed colour but no
+				//depth would be a third state neither flag describes.
+				float surface_alpha = 0.5f;
+
+				//Every field is written unconditionally, including ones that match their
+				//default. Undo replays an earlier ToJson (ComponentOps::RecordEdit) and every
+				//FromJson reads a missing key as "leave alone", so a key omitted because it
+				//happened to match the default at save time cannot be restored - the undo
+				//reports success and changes nothing. Same trap Mesh's "smooth" documents.
 				nlohmann::json ToJson(const ECS::SerializeContext& ctx) const;
 				void FromJson(const nlohmann::json& j, const ECS::SerializeContext& ctx);
 			};

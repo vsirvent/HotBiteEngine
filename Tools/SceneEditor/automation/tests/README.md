@@ -134,6 +134,9 @@ both halves.
 | `18-engine-render` | models | motion vectors, G-buffers, shadow debug views |
 | `19-multimaterials` | empty | multi-material layer stacks, orientation/altitude rules, mask painting, rendering |
 | `20-lods` | lods | the LOD chain on the mesh asset, switching by screen area and by distance, per-entity opt-out |
+| `21-shaders` | empty | shader hot reload: the source index, recompiling into the running editor, include-graph change detection, the watcher, and a broken shader changing nothing |
+| `23-splatrender` | empty | the Gaussian splat pass: that a cloud reaches the frame, follows its transform, writes depth, and answers its per-entity knobs |
+| `24-createentity` | empty | Add/Entity: an entity built from nothing - its mandatory components, undo, delete, and the `created_entities` record it saves and reloads through |
 
 ## Things that will bite you
 
@@ -154,6 +157,19 @@ motion and animating-rig motion are reliable. That test therefore *reports*
 (`[skip]` with the measurement) instead of asserting, so a run stays green and
 readable; the assertion is written directly below the skip, ready to switch on
 once the camera path is deterministic. The test's own comment has the evidence.
+
+**A shader test edits a copy, never the tree.** `21-shaders` writes its shaders
+into a scratch folder registered with `shader_sources add`, which wins the name
+collision - so the engine's own `.hlsl` files are never touched and a failure
+halfway through leaves the repo clean. That folder has to sit **outside
+`$Project`**: the editor registers the open project's folder as a source folder of
+its own (a game keeps its shaders there), so a scratch copy under the project is
+found again by the project scan the moment the explicit entry is removed.
+
+**A reload answers when it is queued, not when it is done.** `reload_shaders`
+hands the work to a compile thread - fxc takes 36 s on `GIRayTraceCS` - so a test
+polls `shader_reload_status` until it reads `idle` before asserting on anything
+the render decides.
 
 **A test that fails skips its own cleanup.** Suites that change global state
 (render settings, debug buffers, the camera) set what they need at the *start* of

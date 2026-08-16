@@ -41,6 +41,7 @@ SOFTWARE.
 #include <Systems\PointLightSystem.h>
 #include <Systems\RenderSystem.h>
 #include <Systems\StaticMeshSystem.h>
+#include <Systems\SplatCloudSystem.h>
 #include <Systems\SkySystem.h>
 #include <Systems\ParticleSystem.h>
 #include <Systems\AnimationSystem.h>
@@ -52,6 +53,7 @@ SOFTWARE.
 #include <Core\DXCore.h>
 #include <Core\Material.h>
 #include <Core\Mesh.h>
+#include <Core\SplatCloud.h>
 #include <Core\Utils.h>
 #include <ECS\Types.h>
 #include <Network\Commons.h>
@@ -82,6 +84,10 @@ namespace HotBite {
 				std::vector<std::string> meshes;
 				std::vector<std::string> materials;
 				std::vector<std::string> animation_sets; // skeletons, i.e. clip sets
+				// Gaussian splat clouds, for a .ply. Mutually exclusive with the three
+				// above in practice: a .ply carries a cloud and nothing else, an .fbx
+				// carries everything else and no cloud.
+				std::vector<std::string> splat_clouds;
 			};
 
 			// A mesh this world produced by simplifying another one, rather than by
@@ -168,6 +174,11 @@ namespace HotBite {
 			//The meshes in there that this world generated rather than imported, in
 			//creation order. See GeneratedMesh and GenerateMeshLod.
 			std::vector<GeneratedMesh> generated_meshes;
+			//Gaussian splat clouds, keyed by asset name. A peer of `meshes`: shared,
+			//immutable geometry that a SplatCloud component points at. Unlike a MeshData,
+			//each one owns its own GPU buffer - splats never reach the input assembler, so
+			//there is no world-wide vertex buffer for them to be offsets into.
+			Core::FlatMap<std::string, Core::SplatCloudData> splat_clouds{ ECS::MAX_ENTITIES };
 			Core::FlatMap<std::string, Core::ShapeData> shapes{ ECS::MAX_ENTITIES };
 			Core::FlatMap<std::string, std::shared_ptr<Core::Skeleton>> animations{ ECS::MAX_ENTITIES };
 
@@ -180,6 +191,7 @@ namespace HotBite {
 			std::shared_ptr<Systems::PointLightSystem> pointlight_system;
 			std::shared_ptr<Systems::RenderSystem> render_system;
 			std::shared_ptr<Systems::StaticMeshSystem> static_mesh_system;
+			std::shared_ptr<Systems::SplatCloudSystem> splat_cloud_system;
 			std::shared_ptr<Systems::SkySystem> sky_system;
 			std::shared_ptr<Systems::AnimationMeshSystem> animation_mesh_system;
 			std::shared_ptr<Systems::ParticleSystem> particle_system;
@@ -555,6 +567,21 @@ namespace HotBite {
 			// copy/paste at runtime.
 			virtual ECS::Entity CloneEntity(const std::string& new_name, const std::string& source_name);
 
+			// Creates an entity carrying only the two components every entity must have:
+			// Base (identity) and Transform (placement). No mesh, no bounds, no body -
+			// so it draws nothing and belongs to no system until components are added
+			// to it, which is exactly what the editor's Add/Entity is for.
+			//
+			// It is the one kind of entity that comes from no model, no template and no
+			// other entity, so a level has to record its existence on its own: that is
+			// the "created_entities" section of Load(), which is this call plus the
+			// component blocks the entity was given. INVALID_ENTITY_ID when the name is
+			// empty or already taken.
+			virtual ECS::Entity CreateEmptyEntity(const std::string& name,
+							const float3& position = { 0.0f, 0.0f, 0.0f },
+							const float4& rotation = { 0.0f, 0.0f, 0.0f, 1.0f },
+							const float3& scale = { 1.0f, 1.0f, 1.0f });
+
 			// Registers T with the ECS and, when T declares the serialization members
 			// (see ECS/Serialization.h), with the component registry as well - so a
 			// game's own components become level-authorable and editor-visible without
@@ -617,6 +644,7 @@ namespace HotBite {
 			// create the asset on demand rather than reporting it missing.
 			static constexpr const char* DEFAULT_MATERIAL_NAME = "__default_material";
 			static constexpr const char* DEFAULT_MESH_NAME = "__default_mesh";
+			static constexpr const char* DEFAULT_SPLAT_CLOUD_NAME = "__default_splat_cloud";
 
 			// The context handed to component ToJson/FromJson, bound to this world's
 			// scene coordinator.
@@ -634,8 +662,8 @@ namespace HotBite {
 			// components than the current binary (the Scene Editor opening a Marbles
 			// level) must still load everything it does understand.
 			//
-			// Shared by the "entities", "instances" and "clones" phases of Load, and by
-			// editor tooling applying the same blocks at runtime.
+			// Shared by the "entities", "instances", "clones" and "created_entities"
+			// phases of Load, and by editor tooling applying the same blocks at runtime.
 			void ApplyComponents(ECS::Entity e, const nlohmann::json& entry);
 
 			// Whether a level record explicitly removed `component` from this entity.
@@ -736,6 +764,16 @@ namespace HotBite {
 			// editor preview pass, a debug overlay) has to bind this and then draw with
 			// the mesh's indexOffset/vertexOffset, exactly as RenderSystem does.
 			Core::VertexBuffer<Core::Vertex>* GetVertexBuffer() { return vertex_buffer; }
+			Core::FlatMap<std::string, Core::SplatCloudData>& GetSplatClouds();
+			// Imports a .ply Gaussian splat cloud and registers it under `name`, uploading
+			// it to the GPU. Returns null on a failed read or an unusable file; the reason
+			// is logged. Re-registering an existing name returns the one already there
+			// rather than re-reading the file.
+			Core::SplatCloudData* LoadSplatCloud(const std::string& file, const std::string& name);
+			// The stand-in cloud, created on demand: a small sphere of splats, so a
+			// SplatCloud component added with no asset picked is visible and swappable
+			// instead of being an invisible entity that looks like a bug.
+			Core::SplatCloudData* GetDefaultSplatCloud();
 			Core::FlatMap<std::string, Core::ShapeData>& GetShapes();
 			Core::FlatMap<std::string, std::shared_ptr<Core::Skeleton>>& GetSkeletons();
 			reactphysics3d::PhysicsWorld* GetPhysicsWorld();

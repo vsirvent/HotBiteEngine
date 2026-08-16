@@ -235,6 +235,23 @@ namespace HotBite {
 				};
 				ECS::Signature particles_signature;
 
+				//A Gaussian splat cloud. Deliberately NOT a DrawableEntity: it carries no
+				//Mesh and no Material, it is in none of the render trees (which are keyed
+				//by shader tuple, and this one has no raster shaders at all), and it is
+				//drawn by a compute pass of its own rather than by a draw call. The only
+				//things it shares with a mesh entity are the transform and Base::visible.
+				struct SplatEntity {
+					Components::Base* base = nullptr;
+					Components::Transform* transform = nullptr;
+					Components::SplatCloud* cloud = nullptr;
+					SplatEntity(ECS::Coordinator* c, ECS::Entity entity) {
+						base = &(c->GetComponent<Components::Base>(entity));
+						transform = &(c->GetComponent<Components::Transform>(entity));
+						cloud = &(c->GetComponent<Components::SplatCloud>(entity));
+					}
+				};
+				ECS::Signature splat_signature;
+
 				struct SkyEntity : public DrawableEntity {
 					Components::Sky* sky;
 					SkyEntity(ECS::Coordinator* c, ECS::Entity entity) : DrawableEntity(c, entity) {
@@ -305,6 +322,7 @@ namespace HotBite {
 				ECS::EntityVector<DirectionalLightEntity> directional_lights;
 				ECS::EntityVector<CameraEntity> cameras;
 				ECS::EntityVector<SkyEntity> skies;
+				ECS::EntityVector<SplatEntity> splat_clouds;
 				Core::VertexBuffer<Vertex>* vertex_buffer = nullptr;
 				ECS::Coordinator* coordinator = nullptr;
 
@@ -471,6 +489,54 @@ namespace HotBite {
 				bool rt_prepare = false;
 				std::thread rt_thread;
 
+				//Gaussian splat clouds. Two dispatches per visible cloud: SplatPreprocessCS
+				//projects every Gaussian and bins it into the screen tiles it covers, then
+				//SplatRasterCS runs one group per tile and writes the lit result into the
+				//same targets MainRenderPS fills.
+				Core::SimpleComputeShader* splat_preprocess = nullptr;
+				Core::SimpleComputeShader* splat_raster = nullptr;
+
+				//Mirrors `SplatView` in Shaders/Splats/SplatCommon.hlsli field for field.
+				//Never uploaded from here - only the *size* crosses the boundary, as the
+				//structured buffer's stride - but it has to be written out so that stride
+				//is derived from the layout instead of typed in as a number.
+				struct SplatView {
+					float2 screen_xy;
+					float3 conic;
+					float view_depth;
+					float3 albedo;
+					float3 normal;
+					float alpha;
+					float spec;
+					float radius;
+				};
+				//What fxc computed for the HLSL struct: `dcl_resource_structured t20, 60`.
+				//float3/float2 are 12 and 8 bytes here - the alignas in their typedefs is
+				//a documented no-op (see Defines.h) - so the C++ layout packs the same way
+				//fxc does, and this assert is what keeps that true.
+				static_assert(sizeof(SplatView) == 60,
+					"SplatView must match the 60-byte stride SplatCommon.hlsli is compiled with");
+
+				//Both mirror SplatCommon.hlsli, and both are load-bearing on the CPU side:
+				//the tile size sets the rasterizer's dispatch dimensions and the per-tile
+				//capacity sets how large the list buffer has to be.
+				static constexpr uint32_t SPLAT_TILE_SIZE = 16;
+				static constexpr uint32_t SPLAT_MAX_PER_TILE = 1024;
+				//Threads per group in SplatPreprocessCS, which is one splat per thread.
+				static constexpr uint32_t SPLAT_PREPROCESS_GROUP = 256;
+
+				//The projected splats of the cloud currently being drawn, and the tile
+				//bins pointing into them. One cloud at a time - each needs its own world
+				//matrix, and the rasterizer consumes the bins before the next cloud
+				//refills them - so these are sized for the *largest* cloud on screen
+				//rather than for all of them, and grown on demand by EnsureSplatBuffers.
+				Core::RWStructuredBuffer splat_views;
+				Core::RWTypedBuffer splat_tile_counts;
+				Core::RWTypedBuffer splat_tile_lists;
+				uint32_t splat_views_capacity = 0;
+				uint32_t splat_tiles_x = 0;
+				uint32_t splat_tiles_y = 0;
+
 				//Copy texture shader
 				Core::SimpleComputeShader* copy_texture = nullptr;
 
@@ -576,6 +642,29 @@ namespace HotBite {
 				void DrawScene(int w, int h, const float3& camera_position, const matrix& view, const matrix& projection,
 					ID3D11ShaderResourceView* prev_pass_texture,
 					Core::IRenderTarget* target, RenderTree& tree);
+
+				//Draws every visible Gaussian splat cloud, after DrawScene and before
+				//anything that consumes the frame's buffers.
+				//
+				//Placed there because it both reads and writes what DrawScene produced:
+				//the preprocess pass rejects a splat behind the opaque depth, and the
+				//rasterizer then composites over the scene colour, the light map and that
+				//same depth. Running it earlier would test against a depth buffer the
+				//geometry had not filled yet; running it after ProcessMotion/ProcessRT/
+				//ProcessMix would leave the mixer building the frame out of buffers the
+				//clouds had not reached.
+				//
+				//The scene colour is taken as the post-process pipeline's UAV - the same
+				//texture DrawScene bound as an RTV, which is why this cannot run until the
+				//render targets are unbound. With no pipeline installed there is no such
+				//texture and the pass does nothing.
+				void DrawSplats(int w, int h, const float3& camera_position, const matrix& view, const matrix& projection);
+				//Sizes the splat scratch buffers for `splat_count` Gaussians and a
+				//`tiles_x` by `tiles_y` screen. Grows only - a cloud smaller than the last
+				//one reuses what is already there - and returns false if an allocation
+				//failed, which is the pass's cue to skip the frame rather than dispatch
+				//against a null UAV.
+				bool EnsureSplatBuffers(uint32_t splat_count, uint32_t tiles_x, uint32_t tiles_y);
 
 				void LoadRTResources();
 				void ResetRTBBuffers();

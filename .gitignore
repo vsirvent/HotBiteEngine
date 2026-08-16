@@ -905,3 +905,7 @@ Solution/x64/Debug/GameServer.exe
 /Tools/HotBiteTool/x64
 /Tools/SceneEditor/x64
 /Solution/x64
+/Tools/SceneEditor/x64
+/Solution/x64
+Tests/DemoGame/assets/Objects/oct.ply
+Tests/DemoGame/assets/splats/oct.ply

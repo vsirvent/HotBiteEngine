@@ -1115,6 +1115,28 @@ namespace HotBiteEditor {
 				error = "a template named '" + template_name + "' already exists";
 				return false;
 			}
+			//A Gaussian splat cloud is renderable geometry with no node behind it: a
+			//.ply registers a cloud and no entities at all, so the mesh-node search
+			//below would report it as an animation-only model and refuse. It needs no
+			//node - the cloud *is* the geometry, and there is no exported transform to
+			//preserve, so the template is the component plus an identity transform.
+			if (!assets->splat_clouds.empty()) {
+				nlohmann::json splat_components = nlohmann::json::object();
+				splat_components[Components::SplatCloud::NAME] = nlohmann::json{
+					{"name", assets->splat_clouds.front()} };
+				splat_components[Transform::NAME] = nlohmann::json{
+					{"position", {{"x", 0.0f}, {"y", 0.0f}, {"z", 0.0f}}},
+					{"rotation", {{"x", 0.0f}, {"y", 0.0f}, {"z", 0.0f}, {"w", 1.0f}}},
+					{"scale", {{"x", 1.0f}, {"y", 1.0f}, {"z", 1.0f}}} };
+				if (!MutateTemplate(state, template_name, splat_components, false, error)) {
+					return false;
+				}
+				state.selected_template = template_name;
+				state.status_message = "Created template '" + template_name +
+					"' from splat cloud " + model_name;
+				return true;
+			}
+
 			//The first renderable node of the model: an .fbx registers armatures and
 			//empties alongside its meshes, and a template is built from geometry.
 			Coordinator* tc = state.world->GetTemplatesCoordinator();

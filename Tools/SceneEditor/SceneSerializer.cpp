@@ -163,11 +163,22 @@ namespace HotBiteEditor {
 			Coordinator* c = state.world->GetCoordinator();
 
 			//Clone names never go in "entities" (they are written to "clones"); parked
-			//(cut) names never go anywhere except "removed_entities".
+			//(cut) names never go anywhere except "removed_entities"; created ones are
+			//written whole to "created_entities" further down.
 			std::set<std::string> clone_names;
 			for (const auto& rec : state.cloned_entities) {
 				clone_names.insert(rec.name);
 			}
+			const std::set<std::string> created_names(state.created_entities.begin(),
+				state.created_entities.end());
+			//Whether this entity's edits belong in a record of its own rather than in an
+			//"entities" override entry. A created entity's record carries its existence,
+			//its pose and its components together, so an override entry for the same name
+			//would be a second, partial copy of it.
+			auto has_own_record = [&](const std::string& name) {
+				return clone_names.count(name) != 0 || created_names.count(name) != 0 ||
+					EntityOps::IsParkedName(name);
+			};
 			//current name -> authored (load-time) name, for the entries below.
 			std::map<std::string, std::string> authored_of;
 			for (const auto& [authored, current] : state.renamed_entities) {
@@ -190,28 +201,27 @@ namespace HotBiteEditor {
 				}
 			}
 			//Every current name that needs an entry: transform-overridden or renamed,
-			//excluding clones and parked entities.
+			//excluding clones, created entities and parked ones.
 			std::set<std::string> entity_entries;
 			for (const auto& name : state.overridden_entities) {
-				if (clone_names.count(name) == 0 && !EntityOps::IsParkedName(name)) {
+				if (!has_own_record(name)) {
 					entity_entries.insert(name);
 				}
 			}
 			//Component add/remove is on its own an edit worth an entry, even for an
 			//entity whose transform was never touched.
 			for (const auto& [name, delta] : state.component_deltas) {
-				if (clone_names.count(name) == 0 && !EntityOps::IsParkedName(name) &&
-					c->GetEntityByName(name) != INVALID_ENTITY_ID) {
+				if (!has_own_record(name) && c->GetEntityByName(name) != INVALID_ENTITY_ID) {
 					entity_entries.insert(name);
 				}
 			}
 			for (const auto& [name, blocks] : state.opaque_components) {
-				if (clone_names.count(name) == 0 && !EntityOps::IsParkedName(name)) {
+				if (!has_own_record(name)) {
 					entity_entries.insert(name);
 				}
 			}
 			for (const auto& [authored, current] : state.renamed_entities) {
-				if (clone_names.count(current) == 0 && !EntityOps::IsParkedName(current)) {
+				if (!has_own_record(current)) {
 					entity_entries.insert(current);
 				}
 			}
@@ -296,6 +306,29 @@ namespace HotBiteEditor {
 				clones.push_back(entry);
 			}
 			jw["clones"] = clones;
+
+			//2b') Entities created empty in the editor (Add/Entity) and built up
+			//     component by component. Written whole from the session bookkeeping, in
+			//     creation order, like the two arrays above: nothing else in the file
+			//     implies one of these exists, so its record has to carry everything -
+			//     the name, the live transform and every component block - and a created
+			//     entity that was deleted simply stops being listed.
+			json created = json::array();
+			for (const auto& name : state.created_entities) {
+				Entity e = c->GetEntityByName(name);
+				if (e == INVALID_ENTITY_ID || !c->ContainsComponent<Transform>(e)) {
+					continue;
+				}
+				const Transform& t = c->GetComponent<Transform>(e);
+				json entry;
+				entry["name"] = name;
+				entry["position"] = Float3ToJson(t.position);
+				entry["rotation"] = Float4ToJson(t.rotation);
+				entry["scale"] = Float3ToJson(t.scale);
+				WriteComponentDelta(state, c, name, entry);
+				created.push_back(entry);
+			}
+			jw["created_entities"] = created;
 
 			//2c) Entities the user cut (deleted), by authored name; the loader removes
 			//    them after applying renames and clones.
@@ -577,6 +610,7 @@ namespace HotBiteEditor {
 			state.entity_group_of.clear();
 			state.renamed_entities.clear();
 			state.cloned_entities.clear();
+			state.created_entities.clear();
 			state.removed_entities.clear();
 			state.parked_entities.clear();
 			state.component_deltas.clear();
@@ -617,6 +651,24 @@ namespace HotBiteEditor {
 					for (const auto& entry : jw["clones"]) {
 						if (entry.contains("name") && entry.contains("source")) {
 							state.cloned_entities.push_back({ entry["name"], entry["source"] });
+						}
+					}
+				}
+
+				//Entities the level created from nothing. Re-derived for the same reason
+				//the instance records are: Save rewrites "created_entities" wholesale from
+				//this list, so starting empty would delete every hand-built entity in the
+				//level the first time it was saved. A record whose entity did not make it
+				//into the scene is dropped rather than re-emitted.
+				if (jw.contains("created_entities") && jw["created_entities"].is_array()) {
+					Coordinator* c = state.world->GetCoordinator();
+					for (const auto& entry : jw["created_entities"]) {
+						if (!entry.contains("name") || !entry["name"].is_string()) {
+							continue;
+						}
+						const std::string name = entry["name"];
+						if (c != nullptr && c->GetEntityByName(name) != INVALID_ENTITY_ID) {
+							state.created_entities.push_back(name);
 						}
 					}
 				}
@@ -689,7 +741,7 @@ namespace HotBiteEditor {
 				//was skipped by the loader and exists nowhere but the file, so it is held
 				//here verbatim. Without that, opening a game's level in the editor and
 				//saving would quietly delete every one of its own components.
-				for (const char* section : { "entities", "instances", "clones" }) {
+				for (const char* section : { "entities", "instances", "clones", "created_entities" }) {
 					if (!jw.contains(section) || !jw[section].is_array()) {
 						continue;
 					}
@@ -699,12 +751,13 @@ namespace HotBiteEditor {
 							continue;
 						}
 						const std::string name = record["name"];
-						//An "instances" record is the exception to "needs no bookkeeping"
-						//above: Save rewrites that array wholesale from placed_instances,
-						//so a block not in the deltas is not merged - it is dropped. The
-						//delta re-serializes from the live entity, so what gets written
-						//back is this instance's actual state, override included.
-						const bool rewritten_wholesale = (std::string(section) == "instances");
+						//The "instances" and "created_entities" records are the exception to
+						//"needs no bookkeeping" above: Save rewrites those arrays wholesale
+						//from its own lists, so a block not in the deltas is not merged - it
+						//is dropped. The delta re-serializes from the live entity, so what
+						//gets written back is that entity's actual state, override included.
+						const bool rewritten_wholesale = (std::string(section) == "instances" ||
+							std::string(section) == "created_entities");
 						for (const auto& [component, value] : record["components"].items()) {
 							if (ECS::ComponentRegistry::Instance().Find(component) == nullptr) {
 								state.opaque_components[name][component] = value;

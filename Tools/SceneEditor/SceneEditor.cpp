@@ -21,6 +21,7 @@
 #include "ShadowDebug.h"
 #include "PhysicsPreview.h"
 #include "LogPanel.h"
+#include "ShaderReload.h"
 
 #include <Core/PostProcess.h>
 #include <Core/Log.h>
@@ -80,6 +81,11 @@ namespace HotBiteEditor {
 		ImGui_ImplWin32_Init(wnd);
 		ImGui_ImplDX11_Init(device, context);
 
+		//Find the .hlsl sources so shaders can be recompiled in place (Shaders menu,
+		//F5, the reload_shaders command). Only a folder scan - nothing is compiled
+		//until something asks.
+		ShaderReload::Init();
+
 		//The World's systems/coordinator are set up now, before any project/level is
 		//chosen, so the ImGui panels have a valid (initially empty) Coordinator to
 		//query from frame one.
@@ -113,6 +119,9 @@ namespace HotBiteEditor {
 			//Remote-control commands run before the frame renders, so their effects
 			//(and any screenshot taken at the end of this same frame) are consistent.
 			EditorAutomation::ProcessCommands(state, *this);
+			//Between frames, like the mesh flush below: a shader swap must not land in
+			//the middle of a draw. Inert unless auto reload is on (see ShaderReload.h).
+			ShaderReload::Tick(state);
 			//An edit that changed a mesh's vertices (smoothing, from the Components
 			//panel, from a command above, or from an undo of either) only touched the
 			//CPU side; the immutable GPU buffers are rebuilt here, between frames,
@@ -274,6 +283,22 @@ namespace HotBiteEditor {
 			[this]() { state.gizmo_mode = GizmoMode::Scale; },
 			[this]() { return state.gizmo_mode == GizmoMode::Scale; } });
 
+		//Add: things that come into the level from nothing. An *object* is placed from
+		//a template (the Asset Browser's Place, which is the one surface for it) - what
+		//has nowhere else to come from is an entity carrying only Base and Transform,
+		//to be built up component by component in the Components panel. That is the
+		//third way to get an entity, next to placing a definition and copying one that
+		//already exists.
+		menu_commands.push_back({ "Add/Entity",
+			[this]() { return level_loaded; },
+			[this]() {
+				std::string name;
+				std::string error;
+				if (!EntityOps::CreateEmptyEntity(state, name, error)) {
+					state.status_message = "Add entity failed: " + error;
+				}
+			} });
+
 		//View: panel visibility toggles and layout reset. All of them need a level:
 		//before one is open the editor is just the menu bar over an empty viewport.
 		menu_commands.push_back({ "View/Entities",
@@ -343,10 +368,44 @@ namespace HotBiteEditor {
 		menu_commands.push_back({ "View/Reset Layout",
 			nullptr,
 			[this]() { state.apply_default_layout = true; } });
+
+		//Shaders: recompile the engine's .hlsl sources into the running editor (see
+		//ShaderReload.h). Not gated on a level being loaded - the shaders a level has
+		//not caused to load yet simply are not in the factory, and reloading the ones
+		//that are is always valid.
+		menu_commands.push_back({ "Shaders/Reload Changed",
+			nullptr,
+			[this]() { ShaderReload::ReloadAll(state, true); } });
+		menu_commands.push_back({ "Shaders/Reload All",
+			nullptr,
+			[this]() { ShaderReload::ReloadAll(state, false); } });
+		//Not a state to be in for long - the queue is worked one shader at a time and
+		//a full reload is minutes - but it is the honest readout while it lasts.
+		menu_commands.push_back({ "Shaders/Cancel Pending",
+			[]() { return ShaderReload::Pending() > 0; },
+			[this]() {
+				ShaderReload::Shutdown();
+				state.status_message = "Shaders: pending reloads cancelled";
+			} });
+		menu_commands.push_back({ "Shaders/Auto Reload on Change",
+			nullptr,
+			[this]() { ShaderReload::SetAuto(!ShaderReload::AutoEnabled()); },
+			[]() { return ShaderReload::AutoEnabled(); } });
+		menu_commands.push_back({ "Shaders/Show Source Folders",
+			nullptr,
+			[this]() {
+				//Multi-line, so the log is where it can actually be read; the status
+				//bar gets the count.
+				LOG_INFO("ShaderReload: %s", ShaderReload::SourcesReport().c_str());
+				state.status_message = ShaderReload::SourcesReport().substr(
+					0, ShaderReload::SourcesReport().find('\n'));
+			} });
 	}
 
 	SceneEditorApp::~SceneEditorApp()
 	{
+		//Let go of the shader compile worker before the factory it feeds is released.
+		ShaderReload::Shutdown();
 		//Before the ImGui backend goes away: the preview passes' targets are D3D
 		//textures ImGui is still holding texture ids for.
 		MaterialPreview::Shutdown();
@@ -415,6 +474,15 @@ namespace HotBiteEditor {
 	void SceneEditorApp::Present()
 	{
 		DrawMenuBar();
+		//F5 recompiles the shaders whose source changed, the same as
+		//Shaders/Reload Changed. Outside the level_loaded block below: a shader edit
+		//is worth applying whether or not a scene is open, and the factory only holds
+		//what has actually been loaded. Shift+F5 forces all of them, for the case the
+		//edit predates this session (the change detector's baseline is the moment a
+		//shader first loaded here, not the build).
+		if (!ImGui::GetIO().WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F5, false)) {
+			ShaderReload::ReloadAll(state, !ImGui::GetIO().KeyShift);
+		}
 		if (level_loaded) {
 			//Undo/redo hotkeys, gated like the gizmo's 1/2/3 keys: inert while a
 			//text field owns the keyboard. Ctrl+Shift+Z is the usual redo alias.

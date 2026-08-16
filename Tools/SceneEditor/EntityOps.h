@@ -3,7 +3,8 @@
 #include "SceneEditor.h"
 
 namespace HotBiteEditor {
-	// Entity-level clipboard and naming operations: rename, copy, cut, paste.
+	// Entity-level creation, clipboard and naming operations: create, rename,
+	// copy, cut, paste, delete.
 	// Every successful mutation records one EditorHistory action, so all surfaces
 	// (Components panel, Entities panel context menu, Edit menu, Ctrl+C/X/V, and
 	// the automation `rename`/`copy`/`cut`/`paste` commands) go through here.
@@ -15,6 +16,14 @@ namespace HotBiteEditor {
 	//    previous pastes; pasting clones them via World::CloneEntity.
 	//  Lights, cameras and the sky are refused - their components own live GPU
 	//  or system resources a component copy would alias.
+	//
+	// An entity created empty here (CreateEmptyEntity) is deletable whatever it
+	// carries - it has no mesh to qualify as one until the user gives it one, and
+	// a create that cannot be undeleted would be a one-way door. It parks like any
+	// other scene entity, except that what is dropped (and restored) is its
+	// created_entities record: there is no authored name to add to
+	// "removed_entities", the entity never having been in the file it is being
+	// removed from.
 	//
 	// Cut does not destroy an FBX-authored/cloned entity immediately (its mesh
 	// data must stay clonable for a later paste, and undo must be able to bring it
@@ -29,6 +38,24 @@ namespace HotBiteEditor {
 		// Entities whose name carries this prefix are parked cut entities: hidden,
 		// inert, skipped by UI listings and by the serializer.
 		bool IsParkedName(const std::string& name);
+
+		// Creates an entity carrying only the components every entity must have -
+		// Base and Transform, the two the registry marks Mandatory - and nothing
+		// else: no mesh, no material, no bounds, no body. It is the "start from
+		// nothing and add what this object is" path, next to placing a template
+		// (which starts from a definition) and pasting (which starts from another
+		// entity), and the only one that produces an entity belonging to no asset.
+		//
+		// Named "Entity", "Entity_1", ... and left selected, so the Components
+		// panel's Add Component is pointing at it. Landing point is the middle of
+		// the view (PlacementMode::ViewCenter), like the Asset Browser's Place -
+		// nothing is drawn until a Mesh is added, but that is where it will appear.
+		//
+		// Recorded in EditorState::created_entities, which is what the level's
+		// "created_entities" section is written from: nothing else in the file
+		// implies this entity exists. `created_name` receives the name it got.
+		bool CreateEmptyEntity(EditorState& state, std::string& created_name,
+			std::string& error);
 
 		// Renames an entity, updating every piece of editor bookkeeping that is
 		// keyed by entity name (instance records, clone records and their sources,

@@ -893,6 +893,12 @@
                     }
                 },
                 "name": "Sky"
+            },
+            {
+                "name": "oct_inst_0",
+                "remove": [
+                    "Mesh"
+                ]
             }
         ],
         "instances": [
@@ -921,6 +927,29 @@
                     "z": 1.0
                 },
                 "template": "troll"
+            },
+            {
+                "name": "oct_inst_0",
+                "position": {
+                    "x": 86.34980010986328,
+                    "y": 38.17100143432617,
+                    "z": 146.35745239257813
+                },
+                "remove": [
+                    "Mesh"
+                ],
+                "rotation": {
+                    "w": 1.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "scale": {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 1.0
+                },
+                "template": "oct"
             }
         ],
         "level": {
@@ -1017,6 +1046,10 @@
             {
                 "file": ".\\Assets\\troll\\troll_death.fbx",
                 "triangulate": false
+            },
+            {
+                "file": "assets\\Objects\\oct.ply",
+                "triangulate": false
             }
         ],
         "path": "..\\..\\..\\Tests\\DemoGame\\",
@@ -1051,6 +1084,12 @@
         "templates": [
             {
                 "file": "Templates\\troll.tpl"
+            },
+            {
+                "file": "Templates\\test.tpl"
+            },
+            {
+                "file": "Templates\\oct.tpl"
             }
         ]
     }

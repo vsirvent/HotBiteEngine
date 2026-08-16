@@ -73,6 +73,13 @@ void World::SetupCoordinator(ECS::Coordinator* c) {
 	c->RegisterComponent<Components::Lighted>();
 	c->RegisterComponent<Components::Particles>();
 	c->RegisterComponent<Components::Sky>();
+	//Registered last, deliberately. RegisterComponent hands out sequential type ids
+	//and a signature is a bitmask over them, so inserting a component in the middle
+	//of this list renumbers every one after it. Nothing should depend on the actual
+	//numbers - signatures are built at runtime from GetComponentType<T>() - but a
+	//new component is not the place to find out that something does. Appending keeps
+	//every existing id exactly where it was.
+	c->RegisterComponent<Components::SplatCloud>();
 
 	//Serialization policies for the engine's own components. Registration is
 	//idempotent and the descriptors are stateless, so running this once per
@@ -92,6 +99,9 @@ void World::SetupCoordinator(ECS::Coordinator* c) {
 	registry.Register<Components::PointLight>(ComponentPolicy::Full);
 	registry.Register<Components::Sky>(ComponentPolicy::Full);
 	registry.Register<Components::Mesh>(ComponentPolicy::Full);
+	//Like Mesh: needs an asset to exist at all, and gets GetDefaultSplatCloud() when
+	//added from scratch, so adding and removing it are both honest operations.
+	registry.Register<Components::SplatCloud>(ComponentPolicy::Full);
 	registry.Register<Components::Material>(ComponentPolicy::Full);
 	registry.Register<Components::Bounds>(ComponentPolicy::Full);
 	registry.Register<Components::Lighted>(ComponentPolicy::Full);
@@ -122,6 +132,7 @@ bool World::PreLoad(Core::DXCore* dx) {
 	pointlight_system = RegisterSystem<Systems::PointLightSystem>();
 	render_system = RegisterSystem<Systems::RenderSystem>();
 	static_mesh_system = RegisterSystem<Systems::StaticMeshSystem>();
+	splat_cloud_system = RegisterSystem<Systems::SplatCloudSystem>();
 	sky_system = RegisterSystem<Systems::SkySystem>();
 	animation_mesh_system = RegisterSystem<Systems::AnimationMeshSystem>();
 	particle_system = RegisterSystem<Systems::ParticleSystem>();
@@ -186,6 +197,54 @@ World::GetMaterials() {
 Core::FlatMap<std::string, Core::MeshData>&
 World::GetMeshes() {
 	return meshes;
+}
+
+Core::FlatMap<std::string, Core::SplatCloudData>&
+World::GetSplatClouds() {
+	return splat_clouds;
+}
+
+Core::SplatCloudData*
+World::LoadSplatCloud(const std::string& file, const std::string& name) {
+	//Re-registering a name is a no-op rather than a re-read: a level naming the same
+	//cloud from two places (a template and an instance override) is normal, and
+	//re-importing would throw away the GPU buffer every user is pointing at.
+	if (Core::SplatCloudData* existing = splat_clouds.Get(name)) {
+		return existing;
+	}
+	//Inserted empty and then filled through the stored pointer, never loaded into a
+	//local and copied in: once Prepare has run a SplatCloudData owns a COM buffer and
+	//an SRV, and FlatMap::Insert takes a copy, so a prepared temporary would release
+	//the very resources the stored copy is holding when it went out of scope.
+	splat_clouds.Insert(name, Core::SplatCloudData{});
+	Core::SplatCloudData* stored = splat_clouds.Get(name);
+	if (stored == nullptr || !stored->Load(file, name)) {
+		//A failed load leaves the empty entry behind on purpose. FlatMap removal
+		//relocates another element (the reason RemoveMaterial retires rather than
+		//erases), which would dangle every SplatCloud::data pointing at it; an empty
+		//cloud simply draws nothing.
+		return nullptr;
+	}
+	if (FAILED(stored->Prepare())) {
+		LOG_ERROR("World::LoadSplatCloud: '%s' loaded but failed to upload", name.c_str());
+	}
+	return stored;
+}
+
+Core::SplatCloudData* World::GetDefaultSplatCloud() {
+	if (Core::SplatCloudData* existing = splat_clouds.Get(DEFAULT_SPLAT_CLOUD_NAME)) {
+		return existing;
+	}
+	//A sphere of splats, coloured by normal. Built rather than loaded so a SplatCloud
+	//component is never an invisible entity, and so the automation suite has a fixture
+	//that needs no binary asset checked into the repo.
+	splat_clouds.Insert(DEFAULT_SPLAT_CLOUD_NAME, Core::SplatCloudData{});
+	Core::SplatCloudData* stored = splat_clouds.Get(DEFAULT_SPLAT_CLOUD_NAME);
+	if (stored != nullptr) {
+		stored->BuildDefault(DEFAULT_SPLAT_CLOUD_NAME);
+		stored->Prepare();
+	}
+	return stored;
 }
 
 Core::FlatMap<std::string, Core::ShapeData>&
@@ -833,6 +892,36 @@ bool World::IsTemplateLoaded(const std::string& template_name) {
 void World::LoadModel(const std::string& model_file, bool triangulate, bool relative,
 	bool use_animation_names) {
 	const std::string name = std::filesystem::path(model_file).filename().replace_extension().string();
+
+	//A Gaussian splat cloud is a model file like any other as far as the three asset
+	//layers are concerned: it registers under its file stem, contributes an asset,
+	//and creates no template - so File/Import Model, the Asset Browser's Models
+	//section and "Create Template" all work on it unchanged. Only the reader differs,
+	//because there is no FBX in it to read.
+	std::string ext = std::filesystem::path(model_file).extension().string();
+	std::transform(ext.begin(), ext.end(), ext.begin(),
+		[](unsigned char c) { return (char)std::tolower(c); });
+	if (ext == ".ply") {
+		if (IsModelLoaded(name)) {
+			//Same dedup contract as the FBX path below: asking twice must not
+			//unregister what the first call loaded.
+			return;
+		}
+		if (LoadSplatCloud(model_file, name) == nullptr) {
+			return;
+		}
+		ModelAssets splat_assets;
+		splat_assets.file = model_file;
+		splat_assets.triangulate = triangulate;
+		splat_assets.splat_clouds.push_back(name);
+		model_assets[name] = std::move(splat_assets);
+		//Registered with an empty entity set. A .ply contributes no nodes, which is
+		//exactly what an animation-only .fbx does too, and GetTemplateEntities'
+		//fallback already copes with a model that spawns nothing by itself.
+		model_entities[name] = {};
+		return;
+	}
+
 	//What the model contributed is the difference the load makes to the world's
 	//collections. They are flat and shared - every file merges into the same three
 	//maps - so this is the only moment the provenance of an asset is knowable, and
@@ -2280,6 +2369,37 @@ ECS::Entity World::CloneEntity(const std::string& new_name, const std::string& s
 	return e;
 }
 
+ECS::Entity World::CreateEmptyEntity(const std::string& name, const float3& position,
+	const float4& rotation, const float3& scale)
+{
+	if (name.empty()) {
+		printf("World::CreateEmptyEntity: empty entity name.\n");
+		return ECS::INVALID_ENTITY_ID;
+	}
+	if (coordinator->GetEntityByName(name) != ECS::INVALID_ENTITY_ID) {
+		printf("World::CreateEmptyEntity: entity name already exists: %s\n", name.c_str());
+		return ECS::INVALID_ENTITY_ID;
+	}
+	ECS::Entity e = coordinator->CreateEntity(name);
+
+	//Base's own defaults are what an entity with nothing on it should have; only
+	//its identity has to be filled in (creation_time defaults to now on its own).
+	Components::Base base;
+	base.name = name;
+	base.id = e;
+	coordinator->AddComponent<Components::Base>(e, base);
+
+	Components::Transform t;
+	t.position = position;
+	t.rotation = rotation;
+	t.scale = scale;
+	t.dirty = true;
+	coordinator->AddComponent<Components::Transform>(e, t);
+
+	coordinator->NotifySignatureChange(e);
+	return e;
+}
+
 void World::LoadInstances(const nlohmann::json& instances_json) {
 	for (const auto& instance : instances_json) {
 		std::string name = instance["name"];
@@ -2602,6 +2722,44 @@ bool World::Load(const std::string& scene_file, float* progress, std::function<v
 		}
 		if (OnLoadProgress != nullptr) { OnLoadProgress(*progress += 10.0f * progress_unit); }
 
+		//Entities the editor created from nothing (its Add/Entity): an entity that
+		//comes from no model, no template and no other entity has nowhere else to be
+		//recorded, so this section carries both its existence and everything that was
+		//then added to it. Created *before* the "entities" phase below so an override
+		//entry - or a wildcard rule - reaches one exactly as it reaches an
+		//FBX-authored entity, and before "clones" so one can be a clone source.
+		if (jw.contains("created_entities")) {
+			for (const auto& created : jw["created_entities"]) {
+				if (!created.contains("name") || !created["name"].is_string()) {
+					continue;
+				}
+				std::string created_name = created["name"];
+				float3 position{ 0.0f, 0.0f, 0.0f };
+				if (created.contains("position")) {
+					const auto& pos = created["position"];
+					position = { pos["x"], pos["y"], pos["z"] };
+				}
+				float4 rotation{ 0.0f, 0.0f, 0.0f, 1.0f };
+				if (created.contains("rotation")) {
+					const auto& rot = created["rotation"];
+					rotation = { rot["x"], rot["y"], rot["z"], rot["w"] };
+				}
+				float3 scale{ 1.0f, 1.0f, 1.0f };
+				if (created.contains("scale")) {
+					const auto& scl = created["scale"];
+					scale = { scl["x"], scl["y"], scl["z"] };
+				}
+				ECS::Entity e = CreateEmptyEntity(created_name, position, rotation, scale);
+				if (e == ECS::INVALID_ENTITY_ID) {
+					continue;
+				}
+				//The components the entity was given after it was created. Applied after
+				//the transform so a "components": {"Transform": ...} block still wins,
+				//exactly as it does for a clone.
+				ApplyComponents(e, created);
+			}
+		}
+
 		//Complete entities information.
 		//
 		//Entries are keyed by name, and GetEntitiesByName pattern-matches, so
@@ -2731,7 +2889,13 @@ void World::Init() {
 	//Init physics
 	for (auto& e : coordinator->GetEntites()) {
 		Components::Base& base = coordinator->GetComponent<Components::Base>(e.second);
-		if (coordinator->ContainsComponent<Components::Mesh>(e.second)) {
+		//Bounds as well as Mesh: a collider is sized from `local_box` and there is
+		//nothing to size it from without one. Every entity an FBX or a template
+		//produces has both, but one assembled component by component in the editor
+		//(Add/Entity, then Mesh) may not - and GetComponent<Bounds> *throws*, out of
+		//an Init() nothing catches, so the level that saved would not reopen.
+		if (coordinator->ContainsComponent<Components::Mesh>(e.second) &&
+			coordinator->ContainsComponent<Components::Bounds>(e.second)) {
 			printf("Entity %s\n", base.name.c_str());
 			ShapeData* shape = nullptr;
 			if (coordinator->ContainsComponent<Components::Sky>(e.second)) {
@@ -2863,6 +3027,9 @@ void World::Run(int render_fps, int background_fps, int physics_fps, bool auto_r
 				render_system->mutex.lock();
 				physics_mutex.lock();
 				static_mesh_system->Update(t.period, t.total);
+				//Next to StaticMeshSystem, because it does the same job for the entities
+				//that one excludes, and it needs the same two locks for the same reason.
+				splat_cloud_system->Update(t.period, t.total);
 				dirlight_system->Update(t.period, t.total);
 				pointlight_system->Update(t.period, t.total);
 				coordinator->SendEvent(this, World::EVENT_ID_UPDATE_BACKGROUND3);

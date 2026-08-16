@@ -12,11 +12,12 @@ Solution\build.bat [Debug|Release] [x64]          # whole solution
 
 To build a single project (much faster), target it directly. The x64 configurations
 use PlatformToolset v145, which only the VS 18 install provides — VS2022's MSBuild
-fails with MSB8020, so use that one (check which edition is installed; this machine
-has Community, older notes said Insiders):
+fails with MSB8020, so use that one (check which edition is actually installed —
+`Get-ChildItem 'C:\Program Files\Microsoft Visual Studio\18'` — rather than trusting
+this path; it is **Insiders** on this machine, and a note here once said Community):
 
 ```powershell
-& 'C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe' `
+& 'C:\Program Files\Microsoft Visual Studio\18\Insiders\MSBuild\Current\Bin\MSBuild.exe' `
     Solution\HotBiteEngine.sln /m /t:SceneEditor /p:Configuration=Debug /p:Platform=x64
 ```
 
@@ -89,7 +90,7 @@ There are two, and which ones apply depends on what was touched:
 
 | changed | run |
 | --- | --- |
-| Scene Editor only | the editor suite |
+| Scene Editor only | the editor suite (the Marbles checkout here has no `automation/` at all, and its sources no longer compile against the current `Physics::Init` — so the game suite is unavailable, not merely skipped) |
 | a game (Marbles, DemoGame) only | that game's suite |
 | **the engine** (`Engine/`) | **both** — an engine change reaches every consumer, and the two suites cover different parts of it (the editor exercises authoring and serialization, the game exercises gameplay, physics and level loading) |
 
@@ -292,6 +293,76 @@ Three rules follow, and breaking any of them is subtle rather than loud:
 Depth writes stay **on** in `DrawScene` because the pre-pass deliberately skips
 `ALPHA_ENABLED_FLAG | BLEND_ENABLED_FLAG` materials, anything with `draw_depth` false,
 and the whole second-pass tree — all of which still have to occlude themselves.
+
+**A Gaussian splat cloud is drawn by a compute pass, not by the draw trees**
+(`RenderSystem::DrawSplats`, `Shaders/Splats/`). Two dispatches per visible cloud:
+`SplatPreprocessCS` projects every Gaussian and bins it into the 16x16 screen tiles it
+covers, then `SplatRasterCS` runs one group per tile and composites the result into the
+*same* targets `MainRenderPS` writes — scene colour, the light map and `depth_map`. So a
+cloud is lit by the level's own lights and shadows (it stores albedo/normal/spec rather
+than baked radiance), and it shows up in the ordinary frame and in the `scene`/`depth`
+debug buffers, never in a channel of its own.
+
+It sits after both `DrawScene` calls and before `ProcessMotion`, and both halves matter:
+the preprocess rejects splats behind the depth pre-pass result, and the mixer downstream
+builds the frame out of the buffers the rasterizer writes into. The scene colour it
+composites into is `post_process_pipeline->RenderUAV()` — the same texture `DrawScene`
+bound as an RTV — so the pass does nothing when no post-process chain is installed, and
+it can only run once the render targets are unbound.
+
+Four things there that are not guessable:
+
+- **There is no sort, on purpose.** A 3DGS renderer composites back to front and needs
+  an ordering; this one is filling a G-buffer, which holds one surface per pixel however
+  it got there. Pass 1 takes the nearest depth with coverage, pass 2 averages everything
+  within `SPLAT_DEPTH_SLAB` behind it. Both are commutative, so the tile list can be in
+  any order. The cost is that you cannot see *through* a cloud.
+- **Neither pass may early-out of the batch loop.** Every thread has to keep reaching
+  `GroupMemoryBarrierWithGroupSync`, so the *work* is gated on a `contributes` flag and
+  the control flow is not — fxc rejects the alternative outright (X4026).
+- **`SplatView` is mirrored by `RenderSystem::SplatView` and nothing checks the stride.**
+  fxc packs a structured buffer element tightly on 4-byte boundaries, with none of the
+  cbuffer float4 rules, so it is 60 bytes and the C++ mirror is `static_assert`ed against
+  that. Read the number out of `fxc /dumpbin` (`dcl_resource_structured t20, 60`), never
+  off `sizeof()` on one side.
+- **The scratch buffers are sized for the largest cloud on screen and grown only**
+  (`EnsureSplatBuffers`), because the tile list is `tiles * SPLAT_MAX_PER_TILE` uints —
+  ~33 MB at 1080p. Nothing is allocated until a level actually contains a cloud.
+
+`Core::RWStructuredBuffer` and `Core::RWTypedBuffer` (`Core/RWBuffer.h`) exist for this
+pass and are the non-raw counterparts of `RWByteBuffer`.
+
+**A `StructuredBuffer` bound through `SimpleShader` used to take the process down, and
+the reason is worth knowing before adding another one.** `shaderDesc.ConstantBuffers` is
+*not* the number of cbuffers: reflection reports one entry per constant-buffer-shaped
+thing, and every `StructuredBuffer`/`RWStructuredBuffer` contributes one of type
+`D3D_CT_RESOURCE_BIND_INFO` describing its element layout (the "Resource bind info for
+&lt;name&gt;" block in `fxc /dumpbin`). Those are not buffers to create: their `Size` is the
+element stride, `CreateBuffer` rejects it as a constant buffer size, and the slot is left
+holding a null that `CopyAllBufferData` then hands to `UpdateSubresource`. The crash is an
+access violation *inside D3D*, on a stack pointing at whatever pass happened to be
+drawing — nothing about it says "structured buffer". `ISimpleShader::LoadShaderBlob` now
+skips anything that is not `D3D_CT_CBUFFER`/`D3D_CT_TBUFFER` and recomputes
+`constantBufferCount` from what it kept. Nothing hit this before because the BVH and
+vertex buffers are bound by explicit register and never reach that loop.
+
+**`Transform::world_matrix` has exactly one owner per entity, and a splat cloud needs a
+system of its own to get one.** It is written in three places now:
+`StaticMeshSystem::Update` (needs `Mesh` *and* `Bounds`), `PhysicsSystem::Update` (needs a
+rigid body), and `SplatCloudSystem::Update` for everything carrying a `SplatCloud` that
+neither of those claims. Only `Base` and `Transform` are mandatory components and
+`TemplateOps` builds a cloud template out of `SplatCloud` plus an identity `Transform`, so
+without that third system a cloud entity's matrix is never composed at all — and a zero
+matrix sends every splat to the origin with `w = 0`, which renders as a cloud welded to
+the world origin rather than as an error. The exclusions are mutual and are what keeps two
+background threads from composing one matrix from different inputs.
+
+A trap for anything testing this: `TemplatePanel::IsMandatory` makes `Mesh`, `Material`
+and `Bounds` mandatory on a **template**, so a template built from a `.ply` carries a
+stand-in cube and every placed cloud arrives wearing one. That cube sits exactly where the
+cloud is *and* hands the entity back to `StaticMeshSystem` — so a transform test written
+against a freshly placed instance passes whether `SplatCloudSystem` exists or not.
+`23-splatrender` strips it (`Remove-StandInMesh`) and asserts it is gone.
 
 **Buffer debugging lives in the texture mixer, not in a pass of its own.**
 `TextureMixerCS` is where every contribution to the frame — scene colour, direct light,
@@ -1152,6 +1223,38 @@ which is what the Asset Browser's Models section lists and what "Create Template
 `World::GetTemplateEntities` falls back to the model registry, so a pre-split level
 whose instances name an `.fbx` still loads, and saving migrates those entries into
 `"models"`.
+
+**An entity can also come from nothing, and then the level has to record it itself.**
+Add/Entity (`EntityOps::CreateEmptyEntity`; the menu entry is `Add/Entity`, so it is
+scriptable like every other) creates an entity carrying only `Base` and `Transform` —
+the two the component registry marks `Mandatory` — and selects it, to be told what it is
+one component at a time in the Components panel. It is the third way to get an entity,
+next to placing a template and pasting one, and the only one that belongs to no asset: a
+marker, a trigger volume, a spawn point, anything whose whole content is a game's own
+component. It lands at the middle of the view like a placed template, which is where it
+will appear once it has a Mesh.
+
+Three things follow from "belongs to no asset":
+
+- **Its existence is data of its own.** Nothing else in the file implies it, so the level
+  carries a `created_entities` array — name, live pose and every component block, written
+  whole from `EditorState::created_entities` exactly like `instances`. A created name is
+  therefore kept *out* of the `entities` override array, where it would be a second,
+  partial copy of the same thing. `World::Load` rebuilds them before the `entities` phase,
+  so an override entry (or a wildcard rule) reaches one just as it reaches an FBX-authored
+  entity, and before `clones` so one can be a clone source.
+- **It is deletable whatever it carries.** What makes a scene entity deletable is
+  Base+Transform+Bounds+Mesh, which an empty one does not meet until the user gives it
+  those, and refusing would make Add/Entity a one-way door. It parks like any other entity
+  (`EntityOps`' `ParkInfo`), except that what park and unpark drop and restore is its
+  `created_entities` record: there is no authored name for `removed_entities` to name, the
+  entity never having been in the file it is being removed from.
+- **A hand-assembled entity reaches states no importer produces**, and `World::Init` had a
+  latent throw for one of them: it read `Bounds::local_box` off anything carrying a Mesh,
+  and `GetComponent` on a component that is not there *throws* rather than returning null.
+  Mesh-without-Bounds is only reachable this way, and the throw is out of an `Init()`
+  nothing catches, on the *next* load — so the level that saved would not reopen. It now
+  requires both components, a collider having nothing to be sized from without the box.
 
 **A template may also be composed: it carries other templates as `parts`.** That is the
 troll with its sword, the house made of six pieces. A part is a *reference*

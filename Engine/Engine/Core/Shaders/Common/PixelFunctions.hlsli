@@ -375,10 +375,10 @@ float3 CalcDirectional(float3 normal, float4 position, float2 uv, MaterialColor 
 {
 	float3 spec_intensity = material.specIntensity;
 	if (material.flags & SPECULAR_MAP_ENABLED_FLAG) {
-		spec_intensity *= specularTexture.Sample(basicSampler, uv).r;
+		spec_intensity *= PF_SAMPLE(specularTexture, basicSampler, uv).r;
 	}
 	else if (material.flags & ARM_MAP_ENABLED_FLAG) {
-		spec_intensity *= armTexture.Sample(basicSampler, uv).g;
+		spec_intensity *= PF_SAMPLE(armTexture, basicSampler, uv).g;
 	}
 	float3 color = light.Color.rgb * light.intensity;
 	// Phong diffuse
@@ -604,10 +604,10 @@ float3 CalcPoint(float3 normal, float3 position, float2 uv, MaterialColor materi
 #if 1
 	float3 spec_intensity = material.specIntensity;
 	if (material.flags & SPECULAR_MAP_ENABLED_FLAG) {
-		spec_intensity *= specularTexture.Sample(basicSampler, uv).r;
+		spec_intensity *= PF_SAMPLE(specularTexture, basicSampler, uv).r;
 	}
 	else if (material.flags & ARM_MAP_ENABLED_FLAG) {
-		spec_intensity *= armTexture.Sample(basicSampler, uv).g;
+		spec_intensity *= PF_SAMPLE(armTexture, basicSampler, uv).g;
 	}
 	ToEye = normalize(ToEye);
 	ToLight = normalize(ToLight);

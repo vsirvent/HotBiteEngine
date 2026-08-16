@@ -7,12 +7,15 @@
 
 #include "Defines.h"
 #include "DXCore.h"
+#include "ShaderCompiler.h"
 
 #include <d3d11.h>
 #include <d3dcompiler.h>
 #include <DirectXMath.h>
 
+#include <cstdint>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 #include <string>
 
@@ -76,6 +79,55 @@ namespace HotBite {
 				bool LoadShaderFile(LPCWSTR shaderFile);
 				bool Reload();
 
+				// Rebuilds this shader from its .hlsl source, compiled in process (see
+				// ShaderCompiler). The compile happens first and a failing one changes
+				// nothing: the shader that is drawing stays exactly as it was and the
+				// compiler's message comes back in `error`. That is the whole point of
+				// the ordering - a typo in a shader must not blank the viewport.
+				//
+				// The object is reloaded in place, so every pointer to it stays valid:
+				// the draw trees are keyed by shader pointer (ShaderKey), and nothing
+				// has to be re-registered for the new code to take effect next frame.
+				//
+				// Blocking, and a compile is not quick: fxc takes tens of seconds on the
+				// big ray tracers. A host with a message pump must use the two halves
+				// below instead and compile off its main thread - Windows kills an
+				// application that stops pumping for long enough, which is exactly how
+				// this was found.
+				bool ReloadFromSource(std::string& error);
+
+				// The compile half, safe to run on any thread: it reads this shader's
+				// source path and profile and touches nothing else. `search_dirs` is the
+				// caller's snapshot of ShaderCompiler::SourceFolders().
+				bool CompileSource(const std::vector<std::string>& search_dirs,
+					ShaderCompiler::Result& result);
+
+				// The apply half, for the thread that renders: creates the device shader
+				// out of an already compiled blob and swaps it in. Takes ownership of
+				// result.blob either way. Milliseconds, so it can sit in a frame.
+				bool ApplyCompiled(ShaderCompiler::Result& result, std::string& error);
+
+				// True when the source, or any file it includes, has been written since
+				// this shader last loaded. The include set comes from the compiler
+				// itself; for a shader that has only ever been loaded from a .cso it is
+				// discovered with a preprocess-only pass, and the timestamps recorded
+				// then are the baseline - so an edit made *before* the host started is
+				// not reported (Reload All is the answer to that one).
+				bool IsSourceOutdated();
+
+				// The .hlsl this shader would reload from, empty if none was found. The
+				// lookup is cached (including the miss), so ForgetSourcePath is what a
+				// change to the source folders has to call.
+				const std::string& GetSourcePath();
+				void ForgetSourcePath() { sourcePath.clear(); }
+
+				// The name this shader was loaded under ("MainRenderPS.cso").
+				const std::string& GetName() const { return shaderName; }
+				void SetName(const std::string& name) { shaderName = name; }
+
+				// The profile this stage compiles as ("vs_5_0", "ps_5_0", ...).
+				virtual const char* GetShaderProfile() const = 0;
+
 				// Simple helpers
 				bool IsShaderValid() { return shaderValid; }
 
@@ -126,8 +178,33 @@ namespace HotBite {
 
 			protected:
 
+				// Builds the shader and its reflection tables out of `blob`, taking
+				// ownership of it. Constant buffer *contents* survive: a variable that
+				// exists in both the old and the new shader, at the same size, keeps
+				// its value, because plenty of them are written once at init or on
+				// resize rather than per frame (screenW/screenH, the dust and lens
+				// setup) and a reload that zeroed those would leave the shader running
+				// on a black frame's worth of constants until something happened to set
+				// them again.
+				bool LoadShaderBlob(ID3DBlob* blob);
+
+				// Records the include set and the timestamp of every file in it, which
+				// is what IsSourceOutdated compares against. `times` is the compiler's
+				// own reading, taken as each file was read; when it is not supplied
+				// (a preprocess-only scan) the files are stat'ed here instead.
+				void RecordDependencies(const std::vector<std::string>& dependencies,
+					const std::vector<uint64_t>* times = nullptr);
+
 				bool shaderValid;
 				std::wstring shaderFile;
+				// Name the factory cached this under, e.g. "MainRenderPS.cso".
+				std::string shaderName;
+				// Resolved .hlsl path (empty = not looked up yet, "-" = looked up and
+				// not found, which is remembered so a miss is not re-probed per frame).
+				std::string sourcePath;
+				// The source and every file it includes, with the write time each had
+				// when this shader last loaded.
+				std::vector<std::pair<std::string, uint64_t>> dependencies;
 				ID3DBlob* shaderBlob;
 				ID3D11Device* device;
 				ID3D11DeviceContext* deviceContext;
@@ -164,6 +241,7 @@ namespace HotBite {
 				ID3D11VertexShader* GetDirectXShader() { return shader; }
 				ID3D11InputLayout* GetInputLayout() { return inputLayout; }
 				bool GetPerInstanceCompatible() { return perInstanceCompatible; }
+				const char* GetShaderProfile() const override { return "vs_5_0"; }
 
 				bool SetShaderResourceView(const std::string& name, ID3D11ShaderResourceView* srv);
 				bool SetShaderResourceViewArray(const std::string& name, ID3D11ShaderResourceView** srv, int nviews);
@@ -184,6 +262,7 @@ namespace HotBite {
 				SimplePixelShader(ID3D11Device* device, ID3D11DeviceContext* context);
 				~SimplePixelShader();
 				ID3D11PixelShader* GetDirectXShader() { return shader; }
+				const char* GetShaderProfile() const override { return "ps_5_0"; }
 
 				bool SetShaderResourceView(const std::string& name, ID3D11ShaderResourceView* srv);
 				bool SetShaderResourceViewArray(const std::string& name, ID3D11ShaderResourceView** srv, int nviews);
@@ -202,6 +281,7 @@ namespace HotBite {
 				SimpleDomainShader(ID3D11Device* device, ID3D11DeviceContext* context);
 				~SimpleDomainShader();
 				ID3D11DomainShader* GetDirectXShader() { return shader; }
+				const char* GetShaderProfile() const override { return "ds_5_0"; }
 
 				bool SetShaderResourceView(const std::string& name, ID3D11ShaderResourceView* srv);
 				bool SetShaderResourceViewArray(const std::string& name, ID3D11ShaderResourceView** srv, int nviews);
@@ -220,6 +300,7 @@ namespace HotBite {
 				SimpleHullShader(ID3D11Device* device, ID3D11DeviceContext* context);
 				~SimpleHullShader();
 				ID3D11HullShader* GetDirectXShader() { return shader; }
+				const char* GetShaderProfile() const override { return "hs_5_0"; }
 
 				bool SetShaderResourceView(const std::string& name, ID3D11ShaderResourceView* srv);
 				bool SetShaderResourceViewArray(const std::string& name, ID3D11ShaderResourceView** srv, int nviews);
@@ -238,6 +319,7 @@ namespace HotBite {
 				SimpleGeometryShader(ID3D11Device* device, ID3D11DeviceContext* context, bool useStreamOut = 0, bool allowStreamOutRasterization = 0);
 				~SimpleGeometryShader();
 				ID3D11GeometryShader* GetDirectXShader() { return shader; }
+				const char* GetShaderProfile() const override { return "gs_5_0"; }
 
 				bool SetShaderResourceView(const std::string& name, ID3D11ShaderResourceView* srv);
 				bool SetShaderResourceViewArray(const std::string& name, ID3D11ShaderResourceView** srv, int nviews);
@@ -271,6 +353,7 @@ namespace HotBite {
 				SimpleComputeShader(ID3D11Device* device, ID3D11DeviceContext* context);
 				~SimpleComputeShader();
 				ID3D11ComputeShader* GetDirectXShader() { return shader; }
+				const char* GetShaderProfile() const override { return "cs_5_0"; }
 
 				void DispatchByGroups(unsigned int groupsX, unsigned int groupsY, unsigned int groupsZ);
 				void DispatchByThreads(unsigned int threadsX, unsigned int threadsY, unsigned int threadsZ);
@@ -323,6 +406,19 @@ namespace HotBite {
 					}
 				}
 
+				// Drops every shader's cached .hlsl path, so the next reload looks it up
+				// again. Needed after a source folder is added or removed: a name can
+				// resolve to a different file, or to one for the first time.
+				void ForgetSourcePaths();
+
+				// Names of every shader currently cached, sorted.
+				std::vector<std::string> GetShaderNames() const;
+
+				ISimpleShader* Find(const std::string& name) const {
+					auto s = shaders.find(name);
+					return (s == shaders.end()) ? nullptr : s->second;
+				}
+
 				template <typename T>
 				T* GetShader(const std::string& name) {
 					T* shader = nullptr;
@@ -341,6 +437,7 @@ namespace HotBite {
 								delete shader;
 								return nullptr;
 							}
+							shader->SetName(name);
 							shaders[name] = shader;
 						}
 						else {

@@ -113,6 +113,9 @@
     <ClCompile Include="ShadowDebug.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="ShaderReload.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="PhysicsPreview.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -224,6 +227,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="ShadowDebug.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ShaderReload.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="PhysicsPreview.h">

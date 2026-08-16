@@ -186,7 +186,7 @@ float3 getMutliTextureValue(SamplerState basicSampler, uint type, uint count, co
 			if (val[i] > 0.0f) {
 				float v = val[i];
 				float uv_scale = uv_scales[i];
-				float3 tcolor = text[i].Sample(basicSampler, uv * uv_scale).rgb;
+				float3 tcolor = PF_SAMPLE(text[i], basicSampler, uv * uv_scale).rgb;
 				switch (op[i] & MULTITEXT_OP_MASK) {
 				case MULTITEXT_MIX: {
 					color = (1.0f - v) * color + v * tcolor;

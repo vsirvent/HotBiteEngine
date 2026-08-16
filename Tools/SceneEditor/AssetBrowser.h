@@ -22,6 +22,16 @@ namespace HotBiteEditor {
 		bool ImportModel(EditorState& state, const std::string& fbx_path, std::string& error);
 		void ImportModelWithDialog(EditorState& state);
 
+		// The world point the middle of the viewport is aimed at: the first surface
+		// the view-center ray hits (the same raycast a viewport click runs), or a
+		// fixed distance down that ray when it hits nothing. False when there is no
+		// camera to aim with, in which case `out` is untouched.
+		//
+		// Where every ViewCenter placement starts from, before the placed object's
+		// own footprint and base transform are taken out of it.
+		bool ViewCenterPoint(EditorState& state, HotBite::Engine::float3& out,
+			bool& hit_something);
+
 		// Spawns an instance of `template_name`, records it for save and selects it.
 		// `mode` decides where it lands (see PlacementMode). Returns false with `error`
 		// set on failure; `out_position`, when given, receives the world position the

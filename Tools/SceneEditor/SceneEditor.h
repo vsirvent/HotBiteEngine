@@ -191,6 +191,15 @@ namespace HotBiteEditor {
 		std::set<HotBite::Engine::ECS::Entity> instance_entity_ids; // entities backed by placed_instances
 		std::set<std::string> overridden_entities;                 // FBX-authored entities whose transform was edited
 
+		// Entities created empty in this level (Add/Entity), in creation order. An
+		// entity built this way comes from no model, no template and no other entity,
+		// so unlike every other kind the level has to record that it exists at all:
+		// SceneSerializer writes the list (with each entity's live transform and its
+		// components) to the level's "created_entities" array, and World::Load
+		// rebuilds them from it. Names, like every other editor map, so a rename or an
+		// undo that re-creates the entity still resolves.
+		std::vector<std::string> created_entities;
+
 		// Copy/cut/paste and rename bookkeeping (all maintained by EntityOps).
 		EntityClipboard clipboard;
 		std::vector<ClonedEntity> cloned_entities;  // paste-created clones, in creation

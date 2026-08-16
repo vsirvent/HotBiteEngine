@@ -3,12 +3,28 @@
 /// </summary>
 /// 
 #include "SimpleShader.h"
+#include "ShaderCompiler.h"
+#include "Log.h"
+
+#include <algorithm>
 
 namespace HotBite {
 	namespace Engine {
 		namespace Core {
 
 			ShaderFactory* ShaderFactory::sInstance = nullptr;
+
+			//Shader file names are ASCII (they name a .cso next to the executable), so a
+			//byte-wise narrowing is enough to get one back out of the wide string the
+			//loader keeps.
+			static std::string NarrowName(const std::wstring& wide) {
+				std::string out;
+				out.reserve(wide.size());
+				for (wchar_t c : wide) {
+					out.push_back((c < 128) ? (char)c : '?');
+				}
+				return out;
+			}
 
 			std::string SimpleShaderKeys::CLOUD_TEST = "cloud_test";
 			std::string SimpleShaderKeys::DOP_ACTIVE = "dopActive";
@@ -41,6 +57,22 @@ namespace HotBite {
 					delete sInstance;
 				}
 				sInstance = nullptr;
+			}
+
+			std::vector<std::string> ShaderFactory::GetShaderNames() const {
+				std::vector<std::string> names;
+				names.reserve(shaders.size());
+				for (const auto& shader : shaders) {
+					names.push_back(shader.first);
+				}
+				std::sort(names.begin(), names.end());
+				return names;
+			}
+
+			void ShaderFactory::ForgetSourcePaths() {
+				for (auto& shader : shaders) {
+					shader.second->ForgetSourcePath();
+				}
 			}
 
 
@@ -82,7 +114,14 @@ namespace HotBite {
 				// Handle constant buffers and local data buffers
 				for (unsigned int i = 0; i < constantBufferCount; i++)
 				{
-					constantBuffers[i].ConstantBuffer->Release();
+					//Null only if CreateBuffer failed for this slot - a device-removed or
+					//out-of-memory frame. Worth the check because the alternative is
+					//taking the process down while tearing a shader down.
+					if (constantBuffers[i].ConstantBuffer != nullptr)
+					{
+						constantBuffers[i].ConstantBuffer->Release();
+						constantBuffers[i].ConstantBuffer = nullptr;
+					}
 					delete[] constantBuffers[i].LocalDataBuffer;
 					constantBuffers[i].LocalDataBuffer = nullptr;
 				}
@@ -130,6 +169,124 @@ namespace HotBite {
 				return LoadShaderFile(shaderFile.c_str());
 			}
 
+			const std::string& ISimpleShader::GetSourcePath()
+			{
+				if (sourcePath.empty()) {
+					//Remembered either way: a shader with no source is asked about once
+					//per reload sweep, and a filesystem probe per shader per sweep is
+					//not free once there are seventy of them.
+					std::string found = ShaderCompiler::Get()->FindSource(
+						shaderName.empty() ? NarrowName(shaderFile) : shaderName);
+					sourcePath = found.empty() ? "-" : found;
+				}
+				static const std::string none;
+				return (sourcePath == "-") ? none : sourcePath;
+			}
+
+			void ISimpleShader::RecordDependencies(const std::vector<std::string>& deps,
+				const std::vector<uint64_t>* times)
+			{
+				const bool use_times = (times != nullptr && times->size() == deps.size());
+				dependencies.clear();
+				dependencies.reserve(deps.size());
+				for (size_t i = 0; i < deps.size(); ++i) {
+					dependencies.push_back({ deps[i],
+						use_times ? (*times)[i] : ShaderCompiler::FileTime(deps[i]) });
+				}
+			}
+
+			bool ISimpleShader::IsSourceOutdated()
+			{
+				const std::string& source = GetSourcePath();
+				if (source.empty()) {
+					return false;
+				}
+				if (dependencies.empty()) {
+					//Never compiled here, so the include set is unknown: learn it with a
+					//preprocess-only pass (far cheaper than a compile) and take the
+					//current timestamps as the baseline. The .cso on disk was built from
+					//these files, so "unchanged" is the right answer for a fresh tree.
+					std::vector<std::string> deps;
+					std::string error;
+					ShaderCompiler::Get()->Preprocess(source, deps, error);
+					if (deps.empty()) {
+						deps.push_back(source);
+					}
+					RecordDependencies(deps);
+					return false;
+				}
+				for (const auto& dep : dependencies) {
+					if (ShaderCompiler::FileTime(dep.first) != dep.second) {
+						return true;
+					}
+				}
+				return false;
+			}
+
+			bool ISimpleShader::CompileSource(const std::vector<std::string>& search_dirs,
+				ShaderCompiler::Result& result)
+			{
+				//The source path is resolved (and cached) by the caller before this runs
+				//- see ShaderReload - so this half reads it without writing anything.
+				const std::string& source = GetSourcePath();
+				if (source.empty()) {
+					result.error = "no .hlsl source found for " +
+						(shaderName.empty() ? NarrowName(shaderFile) : shaderName);
+					return false;
+				}
+				return ShaderCompiler::Get()->CompileWith(source, GetShaderProfile(), search_dirs, result);
+			}
+
+			bool ISimpleShader::ApplyCompiled(ShaderCompiler::Result& result, std::string& error)
+			{
+				//The include set is recorded whether or not the compile succeeded: it is
+				//what tells a "reload changed" sweep to try this shader again after the
+				//next edit, and a failed compile still reports the files it opened.
+				if (!result.dependencies.empty()) {
+					RecordDependencies(result.dependencies, &result.dependency_times);
+				}
+				if (result.blob == nullptr) {
+					error = result.error;
+					return false;
+				}
+				if (!result.error.empty()) {
+					LOG_WARN("Shader %s compiled with warnings:\n%s",
+						GetSourcePath().c_str(), result.error.c_str());
+				}
+				//LoadShaderBlob takes the blob, so the caller must not release it.
+				ID3DBlob* blob = result.blob;
+				result.blob = nullptr;
+				if (!LoadShaderBlob(blob)) {
+					error = "the compiled shader could not be created on the device";
+					LOG_ERROR("Shader reload failed to create device shader: %s", GetSourcePath().c_str());
+					return false;
+				}
+				LOG_INFO("Shader reloaded from source: %s", GetSourcePath().c_str());
+				return true;
+			}
+
+			bool ISimpleShader::ReloadFromSource(std::string& error)
+			{
+				const std::string& source = GetSourcePath();
+				if (source.empty()) {
+					error = "no .hlsl source found for " +
+						(shaderName.empty() ? NarrowName(shaderFile) : shaderName);
+					return false;
+				}
+
+				//Compile before touching anything. A shader that fails to compile leaves
+				//the running one exactly as it is - the frame after a typo looks like the
+				//frame before it, with the compiler's message in the log.
+				ShaderCompiler::Result result;
+				if (!ShaderCompiler::Get()->Compile(source, GetShaderProfile(), result)) {
+					error = result.error;
+					RecordDependencies(result.dependencies, &result.dependency_times);
+					LOG_ERROR("Shader compile failed: %s\n%s", source.c_str(), error.c_str());
+					return false;
+				}
+				return ApplyCompiled(result, error);
+			}
+
 			bool ISimpleShader::LoadShaderFile(LPCWSTR shaderFile)
 			{
 				this->shaderFile = shaderFile;
@@ -142,13 +299,42 @@ namespace HotBite {
 				// for a stage a material may not have. An assert alone is compiled out
 				// of Release, and CreateShader then dereferences the null blob - so the
 				// whole process died where the caller only wanted `false` back.
-				shaderBlob = nullptr;
-				HRESULT hr = D3DReadFileToBlob(shaderFile, &shaderBlob);
-				if (FAILED(hr) || shaderBlob == nullptr)
+				ID3DBlob* blob = nullptr;
+				HRESULT hr = D3DReadFileToBlob(shaderFile, &blob);
+				if (FAILED(hr) || blob == nullptr)
 				{
 					shaderValid = false;
 					return false;
 				}
+				return LoadShaderBlob(blob);
+			}
+
+			bool ISimpleShader::LoadShaderBlob(ID3DBlob* blob)
+			{
+				// Snapshot the constant buffer contents before CreateShader tears the
+				// tables down, so values set once (at init, or on resize) survive a
+				// reload. Keyed by name and only restored at an identical size, which is
+				// what makes it safe when the edit being reloaded changed a cbuffer.
+				std::unordered_map<std::string, std::vector<unsigned char>> saved;
+				for (const auto& entry : varTable)
+				{
+					const SimpleShaderVariable& var = entry.second;
+					if (var.ConstantBufferIndex >= constantBufferCount ||
+						constantBuffers == nullptr ||
+						constantBuffers[var.ConstantBufferIndex].LocalDataBuffer == nullptr)
+					{
+						continue;
+					}
+					const unsigned char* src =
+						constantBuffers[var.ConstantBufferIndex].LocalDataBuffer + var.ByteOffset;
+					saved[entry.first].assign(src, src + var.Size);
+				}
+
+				if (shaderBlob != nullptr)
+				{
+					shaderBlob->Release();
+				}
+				shaderBlob = blob;
 
 				// Create the shader - Calls an overloaded version of this abstract
 				// method in the appropriate child class
@@ -224,7 +410,24 @@ namespace HotBite {
 					}
 				}
 
-				// Loop through all constant buffers
+				// Loop through all constant buffers.
+				//
+				// `shaderDesc.ConstantBuffers` is not the number of *cbuffers*: reflection
+				// reports one entry per constant-buffer-shaped thing, and a
+				// StructuredBuffer/ByteAddressBuffer contributes one of type
+				// D3D_CT_RESOURCE_BIND_INFO describing its element layout - which is why
+				// `fxc /dumpbin` prints a "Resource bind info for <name>" block next to the
+				// real cbuffers. Those are not buffers to create or to upload: their Size is
+				// the element stride (60 for SplatView), CreateBuffer rejects it as a
+				// constant buffer size, and the slot is left holding a null. CopyAllBufferData
+				// then hands that null to UpdateSubresource and the process dies inside D3D,
+				// with a stack pointing at whichever pass happened to be drawing.
+				//
+				// Nothing hit this until a compute pass took a StructuredBuffer by name; the
+				// BVH and vertex buffers are bound by explicit register, which never reaches
+				// this loop. So the count is recomputed from what is actually kept, and the
+				// slots stay contiguous because SetShader and CopyAllBufferData index them.
+				unsigned int keptBuffers = 0;
 				for (unsigned int b = 0; b < constantBufferCount; b++)
 				{
 					// Get this buffer
@@ -235,15 +438,21 @@ namespace HotBite {
 					D3D11_SHADER_BUFFER_DESC bufferDesc;
 					cb->GetDesc(&bufferDesc);
 
+					if (bufferDesc.Type != D3D_CT_CBUFFER && bufferDesc.Type != D3D_CT_TBUFFER)
+					{
+						continue;
+					}
+					const unsigned int slot = keptBuffers++;
+
 					// Get the description of the resource binding, so
 					// we know exactly how it's bound in the shader
 					D3D11_SHADER_INPUT_BIND_DESC bindDesc;
 					refl->GetResourceBindingDescByName(bufferDesc.Name, &bindDesc);
 
 					// Set up the buffer and put its pointer in the table
-					constantBuffers[b].BindIndex = bindDesc.BindPoint;
-					constantBuffers[b].Name = bufferDesc.Name;
-					cbTable.insert(std::pair<std::string, SimpleConstantBuffer*>(bufferDesc.Name, &constantBuffers[b]));
+					constantBuffers[slot].BindIndex = bindDesc.BindPoint;
+					constantBuffers[slot].Name = bufferDesc.Name;
+					cbTable.insert(std::pair<std::string, SimpleConstantBuffer*>(bufferDesc.Name, &constantBuffers[slot]));
 
 					// Create this constant buffer
 					D3D11_BUFFER_DESC newBuffDesc;
@@ -253,12 +462,12 @@ namespace HotBite {
 					newBuffDesc.CPUAccessFlags = 0;
 					newBuffDesc.MiscFlags = 0;
 					newBuffDesc.StructureByteStride = 0;
-					device->CreateBuffer(&newBuffDesc, 0, &constantBuffers[b].ConstantBuffer);
+					device->CreateBuffer(&newBuffDesc, 0, &constantBuffers[slot].ConstantBuffer);
 
 					// Set up the data buffer for this constant buffer
-					constantBuffers[b].Size = bufferDesc.Size;
-					constantBuffers[b].LocalDataBuffer = new unsigned char[bufferDesc.Size];
-					ZeroMemory(constantBuffers[b].LocalDataBuffer, bufferDesc.Size);
+					constantBuffers[slot].Size = bufferDesc.Size;
+					constantBuffers[slot].LocalDataBuffer = new unsigned char[bufferDesc.Size];
+					ZeroMemory(constantBuffers[slot].LocalDataBuffer, bufferDesc.Size);
 
 					// Loop through all variables in this buffer
 					for (unsigned int v = 0; v < bufferDesc.Variables; v++)
@@ -273,7 +482,7 @@ namespace HotBite {
 
 						// Create the variable struct
 						SimpleShaderVariable varStruct;
-						varStruct.ConstantBufferIndex = b;
+						varStruct.ConstantBufferIndex = slot;
 						varStruct.ByteOffset = varDesc.StartOffset;
 						varStruct.Size = varDesc.Size;
 
@@ -282,8 +491,26 @@ namespace HotBite {
 
 						// Add this variable to the table and the constant buffer
 						varTable.insert(std::pair<std::string, SimpleShaderVariable>(varName, varStruct));
-						constantBuffers[b].Variables.push_back(varStruct);
+						constantBuffers[slot].Variables.push_back(varStruct);
 					}
+				}
+				//Only the kept slots are initialised, and every loop over this array -
+				//CopyAllBufferData, SetShader, CleanUp - is bounded by it.
+				constantBufferCount = keptBuffers;
+
+				// Put back the values a previous build of this shader was holding (see
+				// the snapshot at the top). Only an exact name and size match is
+				// restored - a variable that changed type or size is left at zero,
+				// because the bytes meant something else.
+				for (const auto& entry : varTable)
+				{
+					auto old = saved.find(entry.first);
+					if (old == saved.end() || old->second.size() != entry.second.Size)
+					{
+						continue;
+					}
+					memcpy(constantBuffers[entry.second.ConstantBufferIndex].LocalDataBuffer +
+						entry.second.ByteOffset, old->second.data(), old->second.size());
 				}
 
 				// All set

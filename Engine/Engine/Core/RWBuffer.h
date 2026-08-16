@@ -32,10 +32,10 @@ namespace HotBite {
 	namespace Engine {
 		namespace Core {
 
-			//A GPU-writable raw buffer: `RWByteAddressBuffer` in HLSL, and the only
-			//buffer in the engine a shader can *write*. Everything else here
-			//(Core::Buffer, Core::ExtBuffer) is upload-only, SRV-only, because until
-			//the radiance cache nothing needed a shader to build persistent state.
+			//A GPU-writable raw buffer: `RWByteAddressBuffer` in HLSL. One of the three
+			//GPU-written buffer types, alongside RWStructuredBuffer and RWTypedBuffer
+			//below; Core::Buffer and Core::ExtBuffer are upload-only, SRV-only, because
+			//until the radiance cache nothing needed a shader to build state at all.
 			//
 			//Raw rather than structured on purpose. SM5 guarantees the interlocked
 			//operations on a RWByteAddressBuffer; on a RWStructuredBuffer they are
@@ -195,6 +195,174 @@ namespace HotBite {
 				ID3D11UnorderedAccessView* UAV() const { return uav; }
 				ID3D11ShaderResourceView* SRV() const { return srv; }
 				ID3D11ShaderResourceView* const* SRVAddr() const { return &srv; }
+			};
+
+			//A GPU-written structured buffer: `RWStructuredBuffer<T>` to the pass that
+			//fills it, `StructuredBuffer<T>` to the pass that reads it. Both views exist
+			//because that hand-off is the only reason this type is here - the splat
+			//preprocess writes the projected Gaussians and the rasterizer reads them, and
+			//a read-only pass should take the SRV so it does not serialize against the
+			//writer.
+			//
+			//Structured rather than raw (unlike RWByteBuffer above) because neither side
+			//needs an interlocked operation on the record: one thread owns one element.
+			//The price is that `stride` MUST equal the stride fxc computed for the HLSL
+			//struct, and NOTHING CHECKS IT - a mismatch reads neighbouring elements as
+			//this one's fields. Get the number from the disassembly
+			//(`fxc /dumpbin` -> `dcl_resource_structured tN, <stride>`) rather than from
+			//sizeof() on the C++ mirror, and static_assert the mirror against it.
+			class RWStructuredBuffer {
+			private:
+				ID3D11Buffer* buffer = nullptr;
+				ID3D11UnorderedAccessView* uav = nullptr;
+				ID3D11ShaderResourceView* srv = nullptr;
+				uint32_t stride = 0;
+				uint32_t count = 0;
+
+			public:
+				RWStructuredBuffer() = default;
+				~RWStructuredBuffer() { Release(); }
+
+				RWStructuredBuffer(const RWStructuredBuffer&) = delete;
+				RWStructuredBuffer& operator=(const RWStructuredBuffer&) = delete;
+
+				uint32_t Stride() const { return stride; }
+				uint32_t Count() const { return count; }
+				bool IsValid() const { return buffer != nullptr; }
+
+				HRESULT Init(uint32_t element_stride, uint32_t element_count) {
+					Release();
+					ID3D11Device* device = Core::DXCore::Get()->device;
+					stride = element_stride;
+					count = element_count;
+
+					D3D11_BUFFER_DESC bd = {};
+					bd.Usage = D3D11_USAGE_DEFAULT;
+					bd.ByteWidth = stride * count;
+					bd.BindFlags = D3D11_BIND_UNORDERED_ACCESS | D3D11_BIND_SHADER_RESOURCE;
+					bd.CPUAccessFlags = 0;
+					bd.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+					bd.StructureByteStride = stride;
+
+					HRESULT hr = device->CreateBuffer(&bd, nullptr, &buffer);
+					if (FAILED(hr)) { goto end; }
+
+					{
+						//DXGI_FORMAT_UNKNOWN is required for a structured view: the
+						//element layout comes from the stride, not from a format.
+						D3D11_UNORDERED_ACCESS_VIEW_DESC ud = {};
+						ud.Format = DXGI_FORMAT_UNKNOWN;
+						ud.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
+						ud.Buffer.FirstElement = 0;
+						ud.Buffer.NumElements = count;
+						ud.Buffer.Flags = 0;
+						hr = device->CreateUnorderedAccessView(buffer, &ud, &uav);
+						if (FAILED(hr)) { goto end; }
+					}
+					{
+						D3D11_SHADER_RESOURCE_VIEW_DESC sd = {};
+						sd.Format = DXGI_FORMAT_UNKNOWN;
+						sd.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
+						sd.Buffer.FirstElement = 0;
+						sd.Buffer.NumElements = count;
+						hr = device->CreateShaderResourceView(buffer, &sd, &srv);
+						if (FAILED(hr)) { goto end; }
+					}
+				end:
+					return hr;
+				}
+
+				void Release() {
+					if (uav != nullptr) { uav->Release(); uav = nullptr; }
+					if (srv != nullptr) { srv->Release(); srv = nullptr; }
+					if (buffer != nullptr) { buffer->Release(); buffer = nullptr; }
+					stride = 0;
+					count = 0;
+				}
+
+				ID3D11UnorderedAccessView* UAV() const { return uav; }
+				ID3D11ShaderResourceView* SRV() const { return srv; }
+			};
+
+			//A GPU-written *typed* buffer: `RWBuffer<uint>` to the writer, `Buffer<uint>`
+			//to the reader. The counterpart of RWStructuredBuffer for the case where the
+			//element is a scalar the format already describes, which is what makes
+			//Clear() possible - ClearUnorderedAccessViewUint needs a typed or raw view
+			//and does nothing useful on a structured one.
+			class RWTypedBuffer {
+			private:
+				ID3D11Buffer* buffer = nullptr;
+				ID3D11UnorderedAccessView* uav = nullptr;
+				ID3D11ShaderResourceView* srv = nullptr;
+				uint32_t count = 0;
+
+			public:
+				RWTypedBuffer() = default;
+				~RWTypedBuffer() { Release(); }
+
+				RWTypedBuffer(const RWTypedBuffer&) = delete;
+				RWTypedBuffer& operator=(const RWTypedBuffer&) = delete;
+
+				uint32_t Count() const { return count; }
+				bool IsValid() const { return buffer != nullptr; }
+
+				//`element_bytes` must match `format`; they are separate arguments only
+				//because DXGI has no size-of-format query.
+				HRESULT Init(uint32_t element_count, DXGI_FORMAT format = DXGI_FORMAT_R32_UINT,
+					uint32_t element_bytes = 4) {
+					Release();
+					ID3D11Device* device = Core::DXCore::Get()->device;
+					count = element_count;
+
+					D3D11_BUFFER_DESC bd = {};
+					bd.Usage = D3D11_USAGE_DEFAULT;
+					bd.ByteWidth = element_bytes * count;
+					bd.BindFlags = D3D11_BIND_UNORDERED_ACCESS | D3D11_BIND_SHADER_RESOURCE;
+					bd.CPUAccessFlags = 0;
+					bd.MiscFlags = 0;
+					bd.StructureByteStride = 0;
+
+					HRESULT hr = device->CreateBuffer(&bd, nullptr, &buffer);
+					if (FAILED(hr)) { goto end; }
+
+					{
+						D3D11_UNORDERED_ACCESS_VIEW_DESC ud = {};
+						ud.Format = format;
+						ud.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
+						ud.Buffer.FirstElement = 0;
+						ud.Buffer.NumElements = count;
+						ud.Buffer.Flags = 0;
+						hr = device->CreateUnorderedAccessView(buffer, &ud, &uav);
+						if (FAILED(hr)) { goto end; }
+					}
+					{
+						D3D11_SHADER_RESOURCE_VIEW_DESC sd = {};
+						sd.Format = format;
+						sd.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
+						sd.Buffer.FirstElement = 0;
+						sd.Buffer.NumElements = count;
+						hr = device->CreateShaderResourceView(buffer, &sd, &srv);
+						if (FAILED(hr)) { goto end; }
+					}
+				end:
+					return hr;
+				}
+
+				void Release() {
+					if (uav != nullptr) { uav->Release(); uav = nullptr; }
+					if (srv != nullptr) { srv->Release(); srv = nullptr; }
+					if (buffer != nullptr) { buffer->Release(); buffer = nullptr; }
+					count = 0;
+				}
+
+				void Clear(uint32_t value = 0) {
+					if (uav == nullptr) { return; }
+					const UINT v[4] = { value, value, value, value };
+					Core::DXCore::Get()->context->ClearUnorderedAccessViewUint(uav, v);
+				}
+
+				ID3D11UnorderedAccessView* UAV() const { return uav; }
+				ID3D11ShaderResourceView* SRV() const { return srv; }
 			};
 		}
 	}

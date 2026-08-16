@@ -53,6 +53,7 @@
     <ClCompile Include="SelectionGizmo.cpp" />
     <ClCompile Include="Selection.cpp" />
     <ClCompile Include="PhysicsDebug.cpp" />
+    <ClCompile Include="ShaderReload.cpp" />
     <ClCompile Include="ShadowDebug.cpp" />
     <ClCompile Include="PhysicsPreview.cpp" />
     <ClCompile Include="imgui\imgui.cpp" />
@@ -89,6 +90,7 @@
     <ClInclude Include="SelectionGizmo.h" />
     <ClInclude Include="Selection.h" />
     <ClInclude Include="PhysicsDebug.h" />
+    <ClInclude Include="ShaderReload.h" />
     <ClInclude Include="ShadowDebug.h" />
     <ClInclude Include="PhysicsPreview.h" />
     <ClInclude Include="ViewportOverlay.h" />

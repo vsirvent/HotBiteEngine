@@ -76,6 +76,14 @@ namespace HotBiteEditor {
 			if (state.overridden_entities.erase(old_name) != 0) {
 				state.overridden_entities.insert(new_name);
 			}
+			//The created-entity list is the only record that this entity exists at all,
+			//so a rename it did not follow would write the level under the old name and
+			//lose everything the entity was given.
+			for (auto& created : state.created_entities) {
+				if (created == old_name) {
+					created = new_name;
+				}
+			}
 			auto git = state.entity_group_of.find(old_name);
 			if (git != state.entity_group_of.end()) {
 				std::string group = git->second;
@@ -119,6 +127,23 @@ namespace HotBiteEditor {
 				}
 			}
 			return false;
+		}
+
+		//Where `name` sits in the creation order, or created_entities.size() when it is
+		//not one of them - so a caller can test and place with one call.
+		static size_t CreatedIndex(EditorState& state, const std::string& name)
+		{
+			for (size_t i = 0; i < state.created_entities.size(); ++i) {
+				if (state.created_entities[i] == name) {
+					return i;
+				}
+			}
+			return state.created_entities.size();
+		}
+
+		static bool IsCreatedName(EditorState& state, const std::string& name)
+		{
+			return CreatedIndex(state, name) < state.created_entities.size();
 		}
 
 		//The authored (load-time) name behind `current_name`, i.e. the key the
@@ -214,6 +239,99 @@ namespace HotBiteEditor {
 			}
 		}
 
+		//First free "Entity", "Entity_1", ... The "_0" probe covers multi-part
+		//instances, whose parts claim "<name>_<index>".
+		static std::string MakeCreatedName(EditorState& state)
+		{
+			Coordinator* c = state.world->GetCoordinator();
+			for (int n = 0;; ++n) {
+				std::string candidate = std::string("Entity") + (n > 0 ? "_" + std::to_string(n) : "");
+				if (c->GetEntityByName(candidate) == INVALID_ENTITY_ID &&
+					c->GetEntityByName(candidate + "_0") == INVALID_ENTITY_ID) {
+					return candidate;
+				}
+			}
+		}
+
+		//Creates the empty entity `name` at `where`, records it in the creation order
+		//and selects it. Shared by CreateEmptyEntity and by the redo of one, so both
+		//run the same code; `index` is where the record goes back in, which matters
+		//only for keeping the saved order stable across an undo/redo cycle.
+		static bool SpawnCreatedEntity(EditorState& state, const std::string& name,
+			const TransformSnapshot& where, size_t index, std::string& error)
+		{
+			Coordinator* c = state.world->GetCoordinator();
+			if (c == nullptr) {
+				error = "no scene loaded";
+				return false;
+			}
+			Entity e = state.world->CreateEmptyEntity(name, where.position, where.rotation, where.scale);
+			if (e == INVALID_ENTITY_ID) {
+				error = "could not create an entity named '" + name + "'";
+				return false;
+			}
+			size_t at = (std::min)(index, state.created_entities.size());
+			state.created_entities.insert(state.created_entities.begin() + at, name);
+			Selection::Set(state, e);
+			return true;
+		}
+
+		//Undo of a create: destroys the entity and drops its record. Outright rather
+		//than parked, exactly like the undo of a paste - the entity is being taken
+		//back to never having existed, and nothing can be pasted from it afterwards.
+		static void RemoveCreatedEntity(EditorState& state, const std::string& name)
+		{
+			Coordinator* c = state.world->GetCoordinator();
+			Entity e = c->GetEntityByName(name);
+			size_t at = CreatedIndex(state, name);
+			if (at < state.created_entities.size()) {
+				state.created_entities.erase(state.created_entities.begin() + at);
+			}
+			if (e == INVALID_ENTITY_ID) {
+				return;
+			}
+			state.overridden_entities.erase(name);
+			Selection::Remove(state, e);
+			c->DestroyEntity(e);
+		}
+
+		bool CreateEmptyEntity(EditorState& state, std::string& created_name, std::string& error)
+		{
+			Coordinator* c = state.world->GetCoordinator();
+			if (c == nullptr) {
+				error = "no scene loaded";
+				return false;
+			}
+			const std::string name = MakeCreatedName(state);
+			const size_t index = state.created_entities.size();
+
+			//Nothing is drawn until the entity is given a Mesh, but that is where it
+			//will appear when it is - so it starts where the user is looking, like a
+			//placed template. No camera to aim with leaves it at the origin.
+			TransformSnapshot where;
+			bool hit_something = false;
+			float3 point{};
+			if (AssetBrowser::ViewCenterPoint(state, point, hit_something)) {
+				where.position = point;
+			}
+
+			if (!SpawnCreatedEntity(state, name, where, index, error)) {
+				return false;
+			}
+			created_name = name;
+			state.status_message = "Created empty entity: " + name;
+			EditorHistory::Push({
+				"create " + name,
+				[name](EditorState& s) {
+					RemoveCreatedEntity(s, name);
+				},
+				[name, where, index](EditorState& s) {
+					std::string err;
+					SpawnCreatedEntity(s, name, where, index, err);
+				} });
+			return true;
+		}
+
 		bool CanCopySelected(EditorState& state)
 		{
 			Coordinator* c = state.world->GetCoordinator();
@@ -282,6 +400,14 @@ namespace HotBiteEditor {
 			ClonedEntity clone_record;// the removed clone record (clone cuts only)
 			size_t clone_record_index = 0;
 			bool is_clone = false;
+			//An entity created empty in the editor: recorded by nothing but the level's
+			//created_entities list, so parking it means dropping that record (and
+			//unparking means putting it back where it was). It has no authored name for
+			//"removed_entities" to name - it was never in the file it is being removed
+			//from - which is exactly what makes this a third case rather than the
+			//authored one.
+			bool is_created = false;
+			size_t created_index = 0;
 			//Clones that were cloned *from* this one, repointed to this one's own
 			//source when it is parked so no live clone ever depends on a parked
 			//entity (keeps the persisted "clones" chain resolvable). Undo restores
@@ -316,6 +442,12 @@ namespace HotBiteEditor {
 						state.cloned_entities.erase(it);
 						break;
 					}
+				}
+			}
+			else if (info.is_created) {
+				size_t at = CreatedIndex(state, info.name);
+				if (at < state.created_entities.size()) {
+					state.created_entities.erase(state.created_entities.begin() + at);
 				}
 			}
 			else {
@@ -360,6 +492,12 @@ namespace HotBiteEditor {
 						}
 					}
 				}
+			}
+			else if (info.is_created) {
+				//Back at its original position, so the saved created_entities order does
+				//not shuffle every time one is deleted and the delete undone.
+				size_t at = (std::min)(info.created_index, state.created_entities.size());
+				state.created_entities.insert(state.created_entities.begin() + at, info.name);
 			}
 			else {
 				state.removed_entities.erase(info.authored);
@@ -408,6 +546,8 @@ namespace HotBiteEditor {
 					break;
 				}
 			}
+			info.created_index = CreatedIndex(state, info.name);
+			info.is_created = !info.is_clone && info.created_index < state.created_entities.size();
 			if (info.is_clone) {
 				for (const auto& rec : state.cloned_entities) {
 					if (rec.source == info.name) {
@@ -415,7 +555,7 @@ namespace HotBiteEditor {
 					}
 				}
 			}
-			else {
+			else if (!info.is_created) {
 				info.authored = AuthoredNameOf(state, info.name);
 				if (info.authored != info.name) {
 					info.renamed_from = info.authored;
@@ -472,6 +612,11 @@ namespace HotBiteEditor {
 				return false;
 			}
 			if (state.instance_entity_ids.count(e) != 0) {
+				return true;
+			}
+			//An entity created empty has nothing to be a mesh entity *with* yet, and
+			//refusing to delete it would make Add/Entity a one-way door.
+			if (IsCreatedName(state, c->GetComponent<Base>(e).name)) {
 				return true;
 			}
 			return c->ContainsComponent<Transform>(e) && c->ContainsComponent<Bounds>(e) &&

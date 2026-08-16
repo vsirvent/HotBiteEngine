@@ -65,7 +65,16 @@ namespace HotBiteEditor {
 			std::error_code ec;
 			if (fs::exists(objects_dir, ec)) {
 				for (auto& entry : fs::directory_iterator(objects_dir, ec)) {
-					if (!entry.is_regular_file() || entry.path().extension() != ".fbx") {
+					if (!entry.is_regular_file()) {
+						continue;
+					}
+					//A model file is an .fbx or a Gaussian splat .ply. Both register
+					//under their file stem and neither is placeable by itself, so from
+					//here down they are the same kind of thing.
+					std::string ext = entry.path().extension().string();
+					std::transform(ext.begin(), ext.end(), ext.begin(),
+						[](unsigned char c) { return (char)std::tolower(c); });
+					if (ext != ".fbx" && ext != ".ply") {
 						continue;
 					}
 					const std::string name = entry.path().filename().replace_extension().string();
@@ -173,7 +182,10 @@ namespace HotBiteEditor {
 			OPENFILENAMEA ofn = {};
 			ofn.lStructSize = sizeof(ofn);
 			ofn.hwndOwner = nullptr;
-			ofn.lpstrFilter = "FBX models\0*.fbx\0All files\0*.*\0";
+			ofn.lpstrFilter = "Model files\0*.fbx;*.ply\0"
+							  "FBX models\0*.fbx\0"
+							  "Gaussian splat clouds\0*.ply\0"
+							  "All files\0*.*\0";
 			ofn.lpstrFile = file;
 			ofn.nMaxFile = sizeof(file);
 			ofn.lpstrTitle = "Import Model";
@@ -277,12 +289,7 @@ namespace HotBiteEditor {
 			return false;
 		}
 
-		//Where a ViewCenter placement puts the instance record's position: the point
-		//the middle of the view is aimed at, raised so the object rests on that
-		//surface, minus the template's own base transform (which SpawnInstance adds
-		//back). False when there is no camera to aim with.
-		static bool ViewCenterPosition(EditorState& state, const std::string& template_name,
-			float3& out, bool& hit_something)
+		bool ViewCenterPoint(EditorState& state, float3& out, bool& hit_something)
 		{
 			hit_something = false;
 			ECS::Coordinator* c = state.world->GetCoordinator();
@@ -316,13 +323,27 @@ namespace HotBiteEditor {
 				distance = FALLBACK_DISTANCE;
 			}
 
+			out = { origin.x + dir.x * distance,
+					origin.y + dir.y * distance,
+					origin.z + dir.z * distance };
+			return true;
+		}
+
+		//Where a ViewCenter placement puts the instance record's position: the point
+		//the middle of the view is aimed at, raised so the object rests on that
+		//surface, minus the template's own base transform (which SpawnInstance adds
+		//back). False when there is no camera to aim with.
+		static bool ViewCenterPosition(EditorState& state, const std::string& template_name,
+			float3& out, bool& hit_something)
+		{
+			if (!ViewCenterPoint(state, out, hit_something)) {
+				return false;
+			}
+
 			float3 base_position;
 			float bottom_offset = 0.0f;
 			TemplateFootprint(state, template_name, base_position, bottom_offset);
 
-			out = { origin.x + dir.x * distance,
-					origin.y + dir.y * distance,
-					origin.z + dir.z * distance };
 			if (hit_something) {
 				//Sit the object's underside on the surface instead of burying its
 				//middle in it.
@@ -389,8 +410,8 @@ namespace HotBiteEditor {
 		{
 			if (state.models.empty()) {
 				ImGui::TextDisabled("No models imported.");
-				ImGui::TextDisabled("File/Import Model... brings an .fbx in, or drop one\n"
-					"into Assets/Objects.");
+				ImGui::TextDisabled("File/Import Model... brings an .fbx or a splat .ply in,\n"
+					"or drop one into Assets/Objects.");
 				return;
 			}
 			for (const ModelAsset& m : state.models) {

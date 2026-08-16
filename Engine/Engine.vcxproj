@@ -173,7 +173,9 @@
     <ClCompile Include="Engine\Core\PostProcess.cpp" />
     <ClCompile Include="Engine\Core\RGBANoise.cpp" />
     <ClCompile Include="Engine\Core\Scheduler.cpp" />
+    <ClCompile Include="Engine\Core\ShaderCompiler.cpp" />
     <ClCompile Include="Engine\Core\SimpleShader.cpp" />
+    <ClCompile Include="Engine\Core\SplatCloud.cpp" />
     <ClCompile Include="Engine\Core\Texture.cpp" />
     <ClCompile Include="Engine\Core\Utils.cpp" />
     <ClCompile Include="Engine\Core\Log.cpp" />
@@ -197,6 +199,7 @@
     <ClCompile Include="Engine\Systems\RenderSystem.cpp" />
     <ClCompile Include="Engine\Systems\RTSCameraSystem.cpp" />
     <ClCompile Include="Engine\Systems\SkySystem.cpp" />
+    <ClCompile Include="Engine\Systems\SplatCloudSystem.cpp" />
     <ClCompile Include="Engine\Systems\StaticMeshSystem.cpp" />
     <ClCompile Include="Engine\Utils\AStar.cpp" />
     <ClCompile Include="Engine\World.cpp" />
@@ -221,8 +224,10 @@
     <ClInclude Include="Engine\Core\PhysicsCommon.h" />
     <ClInclude Include="Engine\Core\PostProcess.h" />
     <ClInclude Include="Engine\Core\Scheduler.h" />
+    <ClInclude Include="Engine\Core\ShaderCompiler.h" />
     <ClInclude Include="Engine\Core\SimpleShader.h" />
     <ClInclude Include="Engine\Core\SpinLock.h" />
+    <ClInclude Include="Engine\Core\SplatCloud.h" />
     <ClInclude Include="Engine\Core\Texture.h" />
     <ClInclude Include="Engine\Core\Utils.h" />
     <ClInclude Include="Engine\Core\Log.h" />
@@ -265,6 +270,7 @@
     <ClInclude Include="Engine\Systems\RenderSystem.h" />
     <ClInclude Include="Engine\Systems\RTSCameraSystem.h" />
     <ClInclude Include="Engine\Systems\SkySystem.h" />
+    <ClInclude Include="Engine\Systems\SplatCloudSystem.h" />
     <ClInclude Include="Engine\Systems\StaticMeshSystem.h" />
     <ClInclude Include="Engine\Utils\AStar.h" />
     <ClInclude Include="Engine\World.h" />
@@ -577,6 +583,18 @@
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Hull</ShaderType>
       <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">5.0</ShaderModel>
     </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\Splats\SplatPreprocessCS.hlsl">
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Compute</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|x64'">5.0</ShaderModel>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Compute</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\Splats\SplatRasterCS.hlsl">
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Compute</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|x64'">5.0</ShaderModel>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Compute</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
+    </FxCompile>
     <FxCompile Include="Engine\Core\Shaders\Radiance\RadianceCacheResolveCS.hlsl">
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Compute</ShaderType>
       <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
@@ -716,5 +734,14 @@
     </ItemGroup>
     <Touch Files="@(RadianceCacheDependent)"
            Condition="Exists('$(RadianceCacheHeader)') And $([System.IO.File]::GetLastWriteTime('$(RadianceCacheHeader)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('%(RadianceCacheDependent.FullPath)').Ticks)" />
+    <PropertyGroup>
+      <SplatCommonHeader>$(MSBuildThisFileDirectory)Engine\Core\Shaders\Splats\SplatCommon.hlsli</SplatCommonHeader>
+    </PropertyGroup>
+    <ItemGroup>
+      <SplatCommonDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\Splats\SplatPreprocessCS.hlsl" />
+      <SplatCommonDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\Splats\SplatRasterCS.hlsl" />
+    </ItemGroup>
+    <Touch Files="@(SplatCommonDependent)"
+           Condition="Exists('$(SplatCommonHeader)') And $([System.IO.File]::GetLastWriteTime('$(SplatCommonHeader)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('%(SplatCommonDependent.FullPath)').Ticks)" />
   </Target>
 </Project>

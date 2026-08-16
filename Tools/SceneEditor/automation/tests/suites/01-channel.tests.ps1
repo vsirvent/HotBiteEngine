@@ -92,6 +92,7 @@ Test 'menus lists the registry, and every path in it executes' {
                             'Edit/Delete', 'Edit/Simulate Physics',
                             'Edit/Gizmo: Translate', 'Edit/Gizmo: Rotate', 'Edit/Gizmo: Scale',
                             'Edit/Create Template from Selection', 'Edit/Apply Instance to Template',
+                            'Add/Entity',
                             'View/Entities', 'View/Components', 'View/Asset Browser',
                             'View/Materials', 'View/Templates', 'View/Colliders: Selection',
                             'View/Colliders: All', 'View/Shadow Cascades', 'View/Static Shadow Map',

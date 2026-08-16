@@ -944,6 +944,82 @@ namespace HotBite {
 					}
 				}
 			}
+
+			json SplatCloud::ToJson(const ECS::SerializeContext& ctx) const {
+				json j;
+				if (data != nullptr) {
+					//The cloud's *name*. A SplatCloudData pointer is shared between every
+					//entity drawing it and means nothing across sessions, exactly as with
+					//Mesh and Material.
+					j["name"] = data->GetName();
+				}
+				//Every one of these is written whether or not it matches its default. See
+				//the contract on the struct: undo replays an earlier ToJson, and a missing
+				//key means "leave alone", so an omitted field is an unrestorable one.
+				j["opacity_scale"] = opacity_scale;
+				j["albedo_scale"] = albedo_scale;
+				j["spec_intensity"] = spec_intensity;
+				j["invert_normals"] = invert_normals;
+				j["surface_alpha"] = surface_alpha;
+				return j;
+			}
+
+			void SplatCloud::FromJson(const json& j, const ECS::SerializeContext& ctx) {
+				if (ctx.world == nullptr) {
+					return;
+				}
+				ECS::Entity te = ResolveTemplateEntity(j, ctx);
+				if (te != ECS::INVALID_ENTITY_ID) {
+					ECS::Coordinator* tc = ctx.world->GetTemplatesCoordinator();
+					if (tc->ContainsComponent<SplatCloud>(te)) {
+						data = tc->GetConstComponent<SplatCloud>(te).data;
+					}
+				}
+				if (j.contains("name") && j["name"].is_string()) {
+					const std::string cloud_name = j["name"];
+					Core::SplatCloudData* found = ctx.world->GetSplatClouds().Get(cloud_name);
+					if (found == nullptr && cloud_name == World::DEFAULT_SPLAT_CLOUD_NAME) {
+						//The stand-in is created on demand, so a scene referencing it is
+						//simply the first thing to ask.
+						found = ctx.world->GetDefaultSplatCloud();
+					}
+					if (found != nullptr) {
+						data = found;
+					}
+					else {
+						//Keeping whatever is already here beats nulling it: an unknown
+						//cloud should draw the old one, not crash the splat pass.
+						LOG_WARN("SplatCloud::FromJson: unknown splat cloud '%s' (entity %u), keeping the current one",
+							cloud_name.c_str(), ctx.entity);
+					}
+				}
+				if (j.contains("opacity_scale") && j["opacity_scale"].is_number()) {
+					opacity_scale = j["opacity_scale"].get<float>();
+				}
+				if (j.contains("albedo_scale") && j["albedo_scale"].is_number()) {
+					albedo_scale = j["albedo_scale"].get<float>();
+				}
+				if (j.contains("spec_intensity") && j["spec_intensity"].is_number()) {
+					spec_intensity = j["spec_intensity"].get<float>();
+				}
+				if (j.contains("invert_normals") && j["invert_normals"].is_boolean()) {
+					invert_normals = j["invert_normals"].get<bool>();
+				}
+				if (j.contains("surface_alpha") && j["surface_alpha"].is_number()) {
+					//Clamped away from both ends: at 0 the first splat touched is declared
+					//the surface (so the depth is the nearest floater, not the object), and
+					//at 1 the crossing never happens on any pixel that is not fully opaque,
+					//so nothing is written at all. Both read as "the depth write is broken".
+					const float a = j["surface_alpha"].get<float>();
+					surface_alpha = (a < 0.01f) ? 0.01f : ((a > 0.99f) ? 0.99f : a);
+				}
+				//An added-from-scratch component with nothing named: give it the stand-in
+				//rather than leaving a null for the splat pass to skip, which looks like the
+				//component silently not working.
+				if (data == nullptr) {
+					data = ctx.world->GetDefaultSplatCloud();
+				}
+			}
 		}
 	}
 }

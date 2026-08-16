@@ -99,6 +99,7 @@ directory so relative asset paths in level files resolve the same way the other 
 | `create_template_from_model <model> [template name]` | builds a template out of the model's first mesh node — its mesh, its material and its own rotation/scale. The path from an imported file to something placeable; fails for an animation-only model, which has no mesh |
 | `select_template <name>` | selects a template |
 | `place <template> [origin\|view]` | spawns an instance. `origin` (the default, and what a scripted place wants because it is reproducible) puts it at the world origin; `view` drops it on the first thing the middle of the view is looking at — the same raycast a viewport click uses — sitting it *on* that surface using its own bounding box, and falls back to 15 units down the view ray when the center hits nothing. The `OK` line reports the position it landed at |
+| `menu "Add/Entity"` | creates an entity carrying only `Base` and `Transform` - the two components the registry marks required - and selects it. The third way to get an entity, next to placing a template and pasting one: it belongs to no model, no template and no other entity, and is built up with `add_component`/`set_component` from there. Named `Entity`, `Entity_1`, ...; undoable, deletable whatever it ends up carrying, and saved to the level's own `created_entities` array |
 | `import_template <.tpl path>` | same as File/Import Template..., minus the file dialog: copies the `.tpl` into `<assets>/Templates/` and registers it. Importing an `.fbx` is the other import, `import_model` |
 | `template_storage <name> file\|level` | moves a template between its own `.tpl` file and an inline definition in the level's `templates` array. Moving to `level` unlinks the `.tpl` at the next save; moving to `file` writes one |
 | `template_info <name>` | the template's component blocks as JSON, one per line |
@@ -145,6 +146,10 @@ directory so relative asset paths in level files resolve the same way the other 
 | `lod_info` | the level-of-detail chain of each selected entity's mesh and the level being drawn: mode (`auto`/`distance`), quality bias, whether this entity follows the chain, the current level, and the three `DrawIndexed` arguments it resolved to — then one line per level with its mesh, derived vertex ratio and switch distance. The selection happens once per frame on the render thread, so a `camera_*` move and a `lod_info` **in the same batch** report the level of the frame *before* the move: send them as separate batches |
 | `rt_info` | what the ray tracers were last handed, in triangle indices summed over the objects sent (the nearest `MAX_OBJECTS`): `full_indices` if everything were traced at level 0, and `traced_indices` for what every ray actually walks - which is the *coarsest* level of each mesh, for reflections, refractions and indirect light alike, whatever is being drawn and whatever the ray tracing quality is. The only readout of the level-of-detail selection reaching them — a ray hitting the wrong geometry still produces a plausible-looking reflection, and on a scene whose GI cost is its denoiser the timings do not move either. Prepared on the ray tracing thread, so give it a few frames after a camera move or a quality change |
 | `generate_lod [<percent>]` | builds a coarser level out of the selected entity's mesh and adds it to the chain, the Components panel's "Generate level" button. The percentage is the share of the *full* mesh's vertices to aim for and defaults to half of the coarsest level already there, so repeating it builds 50%, 25%, 12.5%. The result is a mesh asset of its own (`<mesh>_lod<n>`) — pickable, reusable, and cached to `Assets\GeneratedMeshes\` with the level recording the source/ratio that made it. The `OK` line gives the name and both vertex counts. Always simplified from level 0, never from the level above |
+| `shaders_loaded` | every shader the engine currently has loaded and the `.hlsl` each would reload from (`<no source>` when none was found) |
+| `shader_sources` | the folders searched for `.hlsl` sources and how many were indexed. `shader_sources add <dir>` / `remove <dir>` changes the list at run time; a folder added later **wins a name collision**, which is how a modified copy of an engine shader is tried out without touching the tree |
+| `reload_shaders [changed\|all\|<name>]` | recompiles shaders into the running editor (the Shaders menu / F5). `changed` (the default) takes only those whose `.hlsl` or included `.hlsli` was written since it last loaded, `all` takes everything, `<name>` takes one (`MainRenderPS.cso`, or the bare stem). **Answers as soon as the work is queued, not when it is done** - fxc takes 36 s on `GIRayTraceCS`, so the compiling runs on a worker thread and the editor keeps rendering. Poll `shader_reload_status` |
+| `shader_reload_status` | `busy`/`idle`, how many shaders are still queued, the last finished batch (`<n> reloaded, <n> failed`) and one line per compiler error. A failed compile leaves the previous shader running, so an `errors=` count is the only sign of it in the render |
 | `screenshot <png path>` | saves the backbuffer (scene + ImGui UI) as PNG at the end of the frame |
 | `rdoc_capture` | queues a RenderDoc capture of the frame being rendered; needs `--renderdoc` at launch. The `.rdc` is finalized after present, so poll `rdoc_last` for its path |
 | `rdoc_last` | number of captures this session and the path of the newest one |
@@ -178,6 +183,13 @@ hand instead is `create_template` (or `template_from_entity` to capture a scene
 entity), then `template_mesh` / `template_material` / `template_add_animation` /
 `template_add_component` + `template_set`, then `place` — which spawns an entity
 carrying every component the template declares, not just its mesh and material.
+
+Not everything in a scene comes off that path. `menu "Add/Entity"` makes an entity
+out of nothing - `Base` and `Transform` and no more - to be told what it is one
+component at a time. It is the right start for a marker, a trigger volume, a
+spawn point or anything carrying only a game's own component; the level records
+it in a `created_entities` array of its own, because no model, template or source
+entity implies it exists.
 
 A template owns its **animation library**: the names this object answers to and the
 imported clip behind each one, e.g. `template_add_animation troll walk troll_walk`,

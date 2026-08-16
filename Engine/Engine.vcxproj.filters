@@ -89,11 +89,17 @@
     <ClCompile Include="Engine\Core\SimpleShader.cpp">
       <Filter>Engine\Core</Filter>
     </ClCompile>
+    <ClCompile Include="Engine\Core\ShaderCompiler.cpp">
+      <Filter>Engine\Core</Filter>
+    </ClCompile>
     <ClCompile Include="Engine\Core\PostProcess.cpp">
       <Filter>Engine\Core</Filter>
     </ClCompile>
     <ClCompile Include="Engine\Core\Material.cpp">
       <Filter>Engine\Core</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\Systems\SplatCloudSystem.cpp">
+      <Filter>Engine\Systems</Filter>
     </ClCompile>
     <ClCompile Include="Engine\Systems\StaticMeshSystem.cpp">
       <Filter>Engine\Systems</Filter>
@@ -256,6 +262,9 @@
     <ClInclude Include="Engine\Core\SimpleShader.h">
       <Filter>Engine\Core</Filter>
     </ClInclude>
+    <ClInclude Include="Engine\Core\ShaderCompiler.h">
+      <Filter>Engine\Core</Filter>
+    </ClInclude>
     <ClInclude Include="Engine\Core\PostProcess.h">
       <Filter>Engine\Core</Filter>
     </ClInclude>
@@ -263,6 +272,9 @@
       <Filter>Engine\Core</Filter>
     </ClInclude>
     <ClInclude Include="Engine\Systems\PhysicsSystem.h">
+      <Filter>Engine\Systems</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\Systems\SplatCloudSystem.h">
       <Filter>Engine\Systems</Filter>
     </ClInclude>
     <ClInclude Include="Engine\Systems\StaticMeshSystem.h">

@@ -124,6 +124,12 @@ void RenderSystem::OnRegister(ECS::Coordinator* c) {
 	particles_signature.set(coordinator->GetComponentType<Base>(), true);
 	particles_signature.set(coordinator->GetComponentType<Transform>(), true);
 	particles_signature.set(coordinator->GetComponentType<Particles>(), true);
+
+	//No Mesh, no Material, no Bounds: a splat cloud brings its own geometry and its
+	//own shading, and is drawn by DrawSplats rather than by any of the render trees.
+	splat_signature.set(coordinator->GetComponentType<Base>(), true);
+	splat_signature.set(coordinator->GetComponentType<Transform>(), true);
+	splat_signature.set(coordinator->GetComponentType<SplatCloud>(), true);
 }
 
 void RenderSystem::OnEntityDestroyed(ECS::Entity entity) {
@@ -131,6 +137,7 @@ void RenderSystem::OnEntityDestroyed(ECS::Entity entity) {
 	point_lights.Remove(entity);
 	directional_lights.Remove(entity);
 	cameras.Remove(entity);
+	splat_clouds.Remove(entity);
 
 	RemoveDrawable(entity, render_pass2_tree);
 	RemoveDrawable(entity, render_tree);
@@ -191,6 +198,15 @@ void RenderSystem::OnEntitySignatureChanged(ECS::Entity entity, const Signature&
 	else
 	{
 		cameras.Remove(entity);
+	}
+
+	if ((entity_signature & splat_signature) == splat_signature)
+	{
+		splat_clouds.Insert(entity, SplatEntity{ coordinator, entity });
+	}
+	else
+	{
+		splat_clouds.Remove(entity);
 	}
 
 	if ((entity_signature & particles_signature) == particles_signature) {
@@ -283,7 +299,11 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		if (FAILED(vol_light_map2.Init(w / 2, h / 2, DXGI_FORMAT::DXGI_FORMAT_R11G11B10_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("vol_light_map2.Init failed");
 		}
-		if (FAILED(position_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT))) {
+		//UNORDERED_ACCESS because the Gaussian splat rasterizer (SplatRasterCS) writes
+		//this from compute. It stays an RTV in DrawScene's seven-target set - the flag
+		//only adds a second way to bind it, and the two are never bound at once.
+		if (FAILED(position_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT,
+			nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("position_map.Init failed");
 		}
 		if (FAILED(prev_position_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT))) {
@@ -349,6 +369,14 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		dust_render = ShaderFactory::Get()->GetShader<SimpleComputeShader>("RenderDustCS.cso");
 		if (dust_render == nullptr) {
 			throw std::exception("dust_render shader.Init failed");
+		}
+		splat_preprocess = ShaderFactory::Get()->GetShader<SimpleComputeShader>("SplatPreprocessCS.cso");
+		if (splat_preprocess == nullptr) {
+			throw std::exception("splat_preprocess shader.Init failed");
+		}
+		splat_raster = ShaderFactory::Get()->GetShader<SimpleComputeShader>("SplatRasterCS.cso");
+		if (splat_raster == nullptr) {
+			throw std::exception("splat_raster shader.Init failed");
 		}
 		rt_di_shader = ShaderFactory::Get()->GetShader<SimpleComputeShader>("RayTraceCS.cso");
 		if (rt_di_shader == nullptr) {
@@ -1578,6 +1606,201 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 	if (n++ % 500 == 0) {
 		printf("Rendered %d / %d objects\n", draw_count, total_count);
 	}
+}
+
+bool RenderSystem::EnsureSplatBuffers(uint32_t splat_count, uint32_t tiles_x, uint32_t tiles_y) {
+	//Grow only. A frame whose largest cloud is smaller than the last one reuses what
+	//is there: these are tens of megabytes, and reallocating them because the camera
+	//turned away from the big cloud would be a stall for nothing.
+	if (splat_count > splat_views_capacity) {
+		if (FAILED(splat_views.Init((uint32_t)sizeof(SplatView), splat_count))) {
+			LOG_ERROR("RenderSystem::EnsureSplatBuffers: splat_views.Init failed for %u splats (%.1f MB)",
+				splat_count, (float)(splat_count * sizeof(SplatView)) / (1024.0f * 1024.0f));
+			splat_views.Release();
+			splat_views_capacity = 0;
+			return false;
+		}
+		splat_views_capacity = splat_count;
+	}
+	if (tiles_x != splat_tiles_x || tiles_y != splat_tiles_y) {
+		const uint32_t tiles = tiles_x * tiles_y;
+		//SPLAT_MAX_PER_TILE entries per tile, flat: a tile's list is a fixed slice at
+		//tile * SPLAT_MAX_PER_TILE, because DX11 cannot allocate mid-frame and a tile
+		//that wants more drops the overflow. At 1080p that is 8160 tiles and ~33 MB,
+		//which is the price of the sort-free design and is only paid once a level
+		//actually contains a splat cloud - nothing here is allocated before then.
+		if (FAILED(splat_tile_counts.Init(tiles)) ||
+			FAILED(splat_tile_lists.Init(tiles * SPLAT_MAX_PER_TILE))) {
+			LOG_ERROR("RenderSystem::EnsureSplatBuffers: tile buffer Init failed for %ux%u tiles",
+				tiles_x, tiles_y);
+			splat_tile_counts.Release();
+			splat_tile_lists.Release();
+			splat_tiles_x = 0;
+			splat_tiles_y = 0;
+			return false;
+		}
+		splat_tiles_x = tiles_x;
+		splat_tiles_y = tiles_y;
+	}
+	return true;
+}
+
+void RenderSystem::DrawSplats(int w, int h, const float3& camera_position, const matrix& view, const matrix& projection) {
+	if (splat_clouds.GetData().empty() || splat_preprocess == nullptr || splat_raster == nullptr) {
+		return;
+	}
+	//The scene colour this composites into is the post-process chain's own texture -
+	//the one DrawScene rendered to and the one ProcessMix reads back as `input`. With
+	//no chain installed there is no such texture, exactly as in ProcessMix.
+	if (post_process_pipeline == nullptr || current_light_map == nullptr) {
+		return;
+	}
+	ID3D11UnorderedAccessView* scene_uav = post_process_pipeline->RenderUAV();
+	if (scene_uav == nullptr) {
+		return;
+	}
+	assert(!cameras.GetData().empty() && "No cameras found");
+	CameraEntity& cam_entity = cameras.GetData()[0];
+
+	const uint32_t tiles_x = ((uint32_t)w + SPLAT_TILE_SIZE - 1) / SPLAT_TILE_SIZE;
+	const uint32_t tiles_y = ((uint32_t)h + SPLAT_TILE_SIZE - 1) / SPLAT_TILE_SIZE;
+
+	//The scratch buffers hold one cloud at a time, so they are sized for the largest
+	//one about to be drawn rather than for the sum. Measured before anything is
+	//dispatched: a mid-loop grow would throw away the bins of the cloud in flight.
+	uint32_t max_splats = 0;
+	for (SplatEntity& e : splat_clouds.GetData()) {
+		if (e.base->visible && e.cloud->data != nullptr && e.cloud->data->Prepared()) {
+			max_splats = max(max_splats, e.cloud->data->Count());
+		}
+	}
+	if (max_splats == 0 || !EnsureSplatBuffers(max_splats, tiles_x, tiles_y)) {
+		return;
+	}
+
+	//The near plane the projection actually encodes, rather than a constant that would
+	//go stale if the camera's clip planes ever changed.
+	float tan_half_h = 0.0f;
+	float tan_half_v = 0.0f;
+	float near_z = 0.01f;
+	float far_z = 1000.0f;
+	cam_entity.camera->GetFrustumParams(tan_half_h, tan_half_v, near_z, far_z);
+
+	SkyEntity* sky = skies.GetData().empty() ? nullptr : &(skies.GetData()[0]);
+	const float frame_time = (float)Scheduler::Get()->GetElapsedNanoSeconds() / 1000000000.0f;
+	ID3D11DeviceContext* context = dxcore->context;
+
+	//A cloud carries no Lighted component to gather per-entity lights from, so it takes
+	//the scene's whole light set - the same thing DrawSky does, and refilled here rather
+	//than relying on DrawSky having run, since a level need not contain a sky.
+	SetEntityLights(&scene_lighting, directional_lights, point_lights);
+
+	//Everything a splat's material is. The rasterizer overwrites specIntensity per
+	//pixel (it is a per-cloud constant carried on the SplatView) and clears the flags,
+	//since a splat has no maps of any kind; the rest is what the lighting functions
+	//read - bloom_scale above all, which at a nonzero value would have splats feeding
+	//a bloom buffer this pass does not write.
+	MaterialProps splat_material{};
+	splat_material.diffuseColor = { 1.0f, 1.0f, 1.0f, 1.0f };
+	splat_material.specIntensity = 0.0f;
+	splat_material.bloom_scale = 0.0f;
+	splat_material.opacity = 1.0f;
+	splat_material.density = 1.0f;
+	splat_material.emission = 0.0f;
+	splat_material.flags = 0;
+
+	for (SplatEntity& e : splat_clouds.GetData()) {
+		if (!e.base->visible || e.cloud->data == nullptr || !e.cloud->data->Prepared()) {
+			continue;
+		}
+		const uint32_t count = e.cloud->data->Count();
+		if (count == 0) {
+			continue;
+		}
+		// --- project every Gaussian and bin it into the tiles it covers ---------------
+		//Zeroed per cloud, not per frame: the bins describe one cloud's splats and the
+		//rasterizer consumes them before the next cloud refills them.
+		splat_tile_counts.Clear(0);
+
+		const float3 albedo_tint{ e.cloud->albedo_scale, e.cloud->albedo_scale, e.cloud->albedo_scale };
+		splat_preprocess->SetMatrix4x4(WORLD, e.transform->world_matrix);
+		splat_preprocess->SetMatrix4x4(VIEW, cam_entity.camera->view);
+		splat_preprocess->SetMatrix4x4(PROJECTION, cam_entity.camera->projection);
+		splat_preprocess->SetFloat3(CAMERA_POSITION, camera_position);
+		splat_preprocess->SetFloat("splat_opacity_scale", e.cloud->opacity_scale);
+		splat_preprocess->SetFloat3("albedo_tint", albedo_tint);
+		splat_preprocess->SetFloat("splat_spec", e.cloud->spec_intensity);
+		splat_preprocess->SetInt("splat_count", (int)count);
+		splat_preprocess->SetInt(SCREEN_W, w);
+		splat_preprocess->SetInt(SCREEN_H, h);
+		splat_preprocess->SetInt("tiles_x", (int)tiles_x);
+		splat_preprocess->SetInt("tiles_y", (int)tiles_y);
+		splat_preprocess->SetInt("invert_normals", e.cloud->invert_normals ? 1 : 0);
+		splat_preprocess->SetFloat("near_plane", near_z);
+		splat_preprocess->SetFloat("far_plane", far_z);
+		splat_preprocess->SetShaderResourceView("splats", *(e.cloud->data->SRV()));
+		//The depth pre-pass result, for the coarse reject. Read here and *written* by
+		//the rasterizer below, which is why it is unbound before that dispatch rather
+		//than left for D3D to unbind with a hazard warning.
+		splat_preprocess->SetShaderResourceView(DEPTH_TEXTURE, depth_map.SRV());
+		splat_preprocess->SetUnorderedAccessView("splat_views", splat_views.UAV());
+		splat_preprocess->SetUnorderedAccessView("tile_counts", splat_tile_counts.UAV());
+		splat_preprocess->SetUnorderedAccessView("tile_lists", splat_tile_lists.UAV());
+		splat_preprocess->CopyAllBufferData();
+		splat_preprocess->SetShader();
+		context->Dispatch((count + SPLAT_PREPROCESS_GROUP - 1) / SPLAT_PREPROCESS_GROUP, 1, 1);
+		splat_preprocess->SetShaderResourceView("splats", nullptr);
+		splat_preprocess->SetShaderResourceView(DEPTH_TEXTURE, nullptr);
+		splat_preprocess->SetUnorderedAccessView("splat_views", nullptr);
+		splat_preprocess->SetUnorderedAccessView("tile_counts", nullptr);
+		splat_preprocess->SetUnorderedAccessView("tile_lists", nullptr);
+
+		// --- rasterize the bins, lit by the scene's own lights ------------------------
+		splat_raster->SetMatrix4x4(WORLD, e.transform->world_matrix);
+		splat_raster->SetMatrix4x4(VIEW, cam_entity.camera->view);
+		splat_raster->SetMatrix4x4(PROJECTION, cam_entity.camera->projection);
+		splat_raster->SetFloat3(CAMERA_POSITION, camera_position);
+		splat_raster->SetFloat3(CAMERA_DIRECTION, cam_entity.camera->direction);
+		splat_raster->SetInt(SCREEN_W, w);
+		splat_raster->SetInt(SCREEN_H, h);
+		splat_raster->SetInt("tiles_x", (int)tiles_x);
+		splat_raster->SetInt("tiles_y", (int)tiles_y);
+		splat_raster->SetFloat("surface_alpha", e.cloud->surface_alpha);
+		splat_raster->SetFloat(TIME, frame_time);
+		splat_raster->SetData(MATERIAL, &splat_material, sizeof(MaterialProps));
+		if (sky != nullptr) {
+			splat_raster->SetFloat("cloud_density", sky->sky->cloud_density);
+			splat_raster->SetMatrix4x4("spot_view", sky->sky->dir_light->GetSpotMatrix());
+		}
+		splat_raster->SetSamplerState(BASIC_SAMPLER, dxcore->basic_sampler);
+		splat_raster->SetSamplerState(PCF_SAMPLER, dxcore->shadow_sampler);
+		splat_raster->SetShaderResourceView("rgbaNoise", rgba_noise_texture.SRV());
+		PrepareLights(splat_raster);
+		//SRVs, not the UAVs the preprocess wrote them through: nothing here writes them
+		//back, and a read-only bind does not serialize against the other UAV users.
+		splat_raster->SetShaderResourceView("splat_views", splat_views.SRV());
+		splat_raster->SetShaderResourceView("tile_counts", splat_tile_counts.SRV());
+		splat_raster->SetShaderResourceView("tile_lists", splat_tile_lists.SRV());
+		splat_raster->SetUnorderedAccessView("scene_out", scene_uav);
+		splat_raster->SetUnorderedAccessView("light_out", current_light_map->UAV());
+		splat_raster->SetUnorderedAccessView("depth_out", depth_map.UAV());
+		splat_raster->CopyAllBufferData();
+		splat_raster->SetShader();
+		//One group per tile, and the group is the tile: SPLAT_TILE_SIZE^2 threads, one
+		//per pixel of it.
+		context->Dispatch(tiles_x, tiles_y, 1);
+		splat_raster->SetShaderResourceView("splat_views", nullptr);
+		splat_raster->SetShaderResourceView("tile_counts", nullptr);
+		splat_raster->SetShaderResourceView("tile_lists", nullptr);
+		splat_raster->SetShaderResourceView("rgbaNoise", nullptr);
+		//Released before the next cloud's preprocess reads depth_map as an SRV, and
+		//before anything downstream binds these three as inputs.
+		splat_raster->SetUnorderedAccessView("scene_out", nullptr);
+		splat_raster->SetUnorderedAccessView("light_out", nullptr);
+		splat_raster->SetUnorderedAccessView("depth_out", nullptr);
+		UnprepareLights(splat_raster);
+	}
+	context->CSSetShader(nullptr, nullptr, 0);
 }
 
 void RenderSystem::ProcessAntiAlias() {
@@ -3078,6 +3301,10 @@ void RenderSystem::Draw() {
 			CopyTexture(*prev_light_map, *current_light_map);
 			DrawScene(w, h, camera_position, view, projection, first_pass_texture.SRV(), second_pass_target, render_pass2_tree);
 		}
+		//After every DrawScene, so the clouds test against a complete depth buffer and
+		//composite over the finished scene colour; before ProcessMotion and everything
+		//after it, which build the frame out of the buffers this writes into.
+		DrawSplats(w, h, camera_position, view, projection);
 		ProcessMotion();
 		ProcessRT();
 		ProcessGI();

@@ -29,6 +29,28 @@ SOFTWARE.
 SamplerState basicSampler;
 SamplerComparisonState PCFSampler;
 
+//A compute shader has no implicit derivatives, so Sample is illegal in one - and fxc
+//rejects it at *compile* time, on a branch that can never execute, not merely when the
+//branch is taken. SplatRasterCS includes the pixel-side lighting headers so a Gaussian
+//is lit by exactly the same CalcDirectional/CalcPoint the pixel shaders use, rather than
+//by a second copy of the lighting that would drift away from it, so every texture read
+//on that path goes through this macro.
+//
+//Defining it here rather than next to the calls, because the callers are spread across
+//PixelFunctions.hlsli and MultiTexture.hlsli and this is the header both of them already
+//include first. Everything else in the lighting path is derivative-free already - the
+//shadow lookups are SampleCmpLevelZero, which is legal in compute.
+//
+//The compute build takes the explicit mip-0 path. That is not a compromise for the splat
+//pass: it reads no mipped material texture at all (a splat's colour is per splat and its
+//specular intensity is a per-cloud constant), so the guarded branches are ones it never
+//enters.
+#ifdef HB_COMPUTE_LIGHTING
+#define PF_SAMPLE(tex, samp, uv) tex.SampleLevel(samp, uv, 0)
+#else
+#define PF_SAMPLE(tex, samp, uv) tex.Sample(samp, uv)
+#endif
+
 #include "Defines.hlsli"
 #include "QuickNoise.hlsli"
 #include "NoiseSimplex.hlsli"
