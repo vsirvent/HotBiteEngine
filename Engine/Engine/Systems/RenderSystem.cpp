@@ -382,7 +382,11 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		if (splat_bin == nullptr) {
 			throw std::exception("splat_bin shader.Init failed");
 		}
-		splat_scan = ShaderFactory::Get()->GetShader<SimpleComputeShader>("SplatScanCS.cso");
+		splat_compact = ShaderFactory::Get()->GetShader<SimpleComputeShader>("SplatCompactCS.cso");
+	if (splat_compact == nullptr) {
+		throw std::exception("splat_compact shader.Init failed");
+	}
+	splat_scan = ShaderFactory::Get()->GetShader<SimpleComputeShader>("SplatScanCS.cso");
 		if (splat_scan == nullptr) {
 			throw std::exception("splat_scan shader.Init failed");
 		}
@@ -1656,6 +1660,15 @@ bool RenderSystem::EnsureSplatBuffers(uint32_t splat_count, uint32_t tiles_x, ui
 		LOG_ERROR("RenderSystem::EnsureSplatBuffers: splat_stats.Init failed");
 		return false;
 	}
+	//Three uints, and independent of the tile count - created once, like the stats.
+	//`true` is the DispatchIndirect flag: SplatCompactCS builds the group count in
+	//element 0 with an InterlockedAdd, and the scan and the rasterizer are launched
+	//straight off it without the CPU ever seeing the number.
+	if (!splat_dispatch_args.IsValid() &&
+		FAILED(splat_dispatch_args.Init(3, DXGI_FORMAT_R32_UINT, 4, true))) {
+		LOG_ERROR("RenderSystem::EnsureSplatBuffers: splat_dispatch_args.Init failed");
+		return false;
+	}
 	if (tiles_x != splat_tiles_x || tiles_y != splat_tiles_y) {
 		const uint32_t tiles = tiles_x * tiles_y;
 		//All per tile or per (tile, bucket): at 1080p that is 8160 tiles, so under 1.2 MB
@@ -1664,12 +1677,14 @@ bool RenderSystem::EnsureSplatBuffers(uint32_t splat_count, uint32_t tiles_x, ui
 		if (FAILED(splat_tile_depth.Init(tiles)) ||
 			FAILED(splat_tile_total.Init(tiles)) ||
 			FAILED(splat_tile_base.Init(tiles)) ||
+			FAILED(splat_tile_list.Init(tiles)) ||
 			FAILED(splat_bucket_offsets.Init(tiles * SPLAT_DEPTH_BUCKETS))) {
 			LOG_ERROR("RenderSystem::EnsureSplatBuffers: tile buffer Init failed for %ux%u tiles",
 				tiles_x, tiles_y);
 			splat_tile_depth.Release();
 			splat_tile_total.Release();
 			splat_tile_base.Release();
+			splat_tile_list.Release();
 			splat_bucket_offsets.Release();
 			splat_tiles_x = 0;
 			splat_tiles_y = 0;
@@ -1858,6 +1873,10 @@ void RenderSystem::DrawSplats(int w, int h, const float3& camera_position, const
 		//nothing touches rejects every splat rather than accepting them all.
 		splat_tile_depth.Clear(SPLAT_NO_DEPTH);
 		splat_stats.Clear(0);
+		//Zeroes the group count SplatCompactCS accumulates into element 0. Y and Z are
+		//written by that shader rather than cleared, a single Clear having only one
+		//value to give every element.
+		splat_dispatch_args.Clear(0);
 
 		const float3 albedo_tint{ e.cloud->albedo_scale, e.cloud->albedo_scale, e.cloud->albedo_scale };
 		splat_preprocess->SetMatrix4x4(WORLD, e.transform->world_matrix);
@@ -1915,6 +1934,25 @@ void RenderSystem::DrawSplats(int w, int h, const float3& camera_position, const
 		splat_preprocess->SetUnorderedAccessView("splat_views", nullptr);
 		splat_preprocess->SetUnorderedAccessView("tile_depth", nullptr);
 
+		// --- compact the covered tiles ------------------------------------------------
+		//tile_depth is final now, so which tiles this cloud touches is known, and the two
+		//passes that want one group per tile can be launched over just those. One thread
+		//per tile - 32 groups at 1080p against the 8160 the scan alone used to take.
+		splat_compact->SetInt("tile_count", (int)tile_total_count);
+		splat_compact->SetShaderResourceView("tile_depth", splat_tile_depth.SRV());
+		splat_compact->SetUnorderedAccessView("tile_list", splat_tile_list.UAV());
+		splat_compact->SetUnorderedAccessView("tile_total", splat_tile_total.UAV());
+		splat_compact->SetUnorderedAccessView("dispatch_args", splat_dispatch_args.UAV());
+		splat_compact->CopyAllBufferData();
+		splat_compact->SetShader();
+		context->Dispatch((tile_total_count + SPLAT_COMPACT_GROUP - 1) / SPLAT_COMPACT_GROUP, 1, 1);
+		splat_compact->SetShaderResourceView("tile_depth", nullptr);
+		splat_compact->SetUnorderedAccessView("tile_list", nullptr);
+		splat_compact->SetUnorderedAccessView("tile_total", nullptr);
+		//Released before the DispatchIndirect calls below: a buffer supplying indirect
+		//arguments may not be bound as a UAV at the time it is read as arguments.
+		splat_compact->SetUnorderedAccessView("dispatch_args", nullptr);
+
 		// --- bin what is near enough to each tile's own nearest splat -----------------
 		//The cull window, in quantization steps rather than world units so the shader
 		//compares two integers against exactly what the pass above wrote. Rounded up and
@@ -1964,12 +2002,17 @@ void RenderSystem::DrawSplats(int w, int h, const float3& camera_position, const
 		//those for a single group to do it. That decomposition is what avoids a general
 		//multi-block scan with block sums and a third pass.
 		splat_scan->SetInt("tile_count", (int)tile_total_count);
+		splat_scan->SetShaderResourceView("tile_list", splat_tile_list.SRV());
 		splat_scan->SetUnorderedAccessView("bucket_offsets", splat_bucket_offsets.UAV());
 		splat_scan->SetUnorderedAccessView("tile_total", splat_tile_total.UAV());
 		splat_scan->SetUnorderedAccessView("splat_stats", splat_stats.UAV());
 		splat_scan->CopyAllBufferData();
 		splat_scan->SetShader();
-		context->Dispatch(tile_total_count, 1, 1);
+		//One group per *covered* tile. The count is in the argument buffer and the CPU
+		//never learns it - reading it back to size an ordinary Dispatch would cost a
+		//pipeline stall every frame, which is the whole reason this is indirect.
+		context->DispatchIndirect(splat_dispatch_args.Buffer(), 0);
+		splat_scan->SetShaderResourceView("tile_list", nullptr);
 		splat_scan->SetUnorderedAccessView("bucket_offsets", nullptr);
 		splat_scan->SetUnorderedAccessView("tile_total", nullptr);
 		splat_scan->SetUnorderedAccessView("splat_stats", nullptr);
@@ -2033,6 +2076,12 @@ void RenderSystem::DrawSplats(int w, int h, const float3& camera_position, const
 		//surface it finds to a band boundary - see the note in its pass 1.
 		splat_raster->SetFloat("splat_quant_min", depth_min);
 		splat_raster->SetFloat("splat_quant_range", depth_range);
+		//The SAME divisor the binning was given a few lines up. The rasterizer derives
+		//each entry's band from the quantized depth exactly as SplatBinCS derived the
+		//bucket it filed that entry into, so the bands it sees are monotonic along the
+		//slice; handing these two different values silently reintroduces the frame-to-
+		//frame flicker described in the shader.
+		splat_raster->SetInt("splat_bucket_span_steps", (int)bucket_span_steps);
 		//inverse(world) * prev_world, so the rasterizer can take a world position of this
 		//cloud back to where that point was last frame without storing a previous position
 		//per splat. Built from world_xmmatrix and the *untransposed* previous matrix, then
@@ -2063,6 +2112,7 @@ void RenderSystem::DrawSplats(int w, int h, const float3& camera_position, const
 		splat_raster->SetShaderResourceView("tile_total", splat_tile_total.SRV());
 		splat_raster->SetShaderResourceView("splat_entries", splat_entries.SRV());
 		splat_raster->SetShaderResourceView("tile_depth", splat_tile_depth.SRV());
+		splat_raster->SetShaderResourceView("tile_list", splat_tile_list.SRV());
 		splat_raster->SetUnorderedAccessView("scene_out", scene_uav);
 		splat_raster->SetUnorderedAccessView("light_out", current_light_map->UAV());
 		splat_raster->SetUnorderedAccessView("depth_out", depth_map.UAV());
@@ -2075,9 +2125,14 @@ void RenderSystem::DrawSplats(int w, int h, const float3& camera_position, const
 		splat_raster->SetUnorderedAccessView("splat_stats", splat_stats.UAV());
 		splat_raster->CopyAllBufferData();
 		splat_raster->SetShader();
-		//One group per tile, and the group is the tile: SPLAT_TILE_SIZE^2 threads, one
-		//per pixel of it.
-		context->Dispatch(tiles_x, tiles_y, 1);
+		//One group per *covered* tile, and the group is the tile: SPLAT_TILE_SIZE^2
+		//threads, one per pixel of it. Indirect and one-dimensional over the same
+		//compacted list and the same argument the scan used - which is why the shader
+		//rebuilds its pixel coordinates from the tile index instead of taking them off
+		//SV_DispatchThreadID. Before this, a cloud covering four tiles still launched
+		//8160 groups, 8156 of them to read tile_total and retire.
+		context->DispatchIndirect(splat_dispatch_args.Buffer(), 0);
+		splat_raster->SetShaderResourceView("tile_list", nullptr);
 		splat_raster->SetShaderResourceView("splat_views", nullptr);
 		splat_raster->SetShaderResourceView("tile_base", nullptr);
 		splat_raster->SetShaderResourceView("tile_total", nullptr);
@@ -3866,7 +3921,8 @@ const char* RenderSystem::DebugBufferName(eDebugBuffer buffer) {
 	static const char* names[(int)eDebugBuffer::COUNT] = {
 		"off", "scene", "light", "bloom", "emission", "reflection", "refraction",
 		"indirect", "volumetric", "dust", "lens_flare", "depth", "position", "normal",
-		"motion", "gi_cache", "gi_cache_conf"
+		"motion", "gi_cache", "gi_cache_conf", "ray_sources", "ray_dispersion",
+		"ray_reflex", "ray_density", "ray_opacity"
 	};
 	const int i = (int)buffer;
 	return (i >= 0 && i < (int)eDebugBuffer::COUNT) ? names[i] : "off";

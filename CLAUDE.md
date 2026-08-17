@@ -522,6 +522,42 @@ noise, and cannot tell which stage introduced what. Pair one with the matching b
 view — `render debug_buffer indirect gi_denoise 0` is how you see ReSTIR's real sample
 density.
 
+**The `ray_*` views show the ray tracing *source* targets — where the rays to run are
+stored.** `rt_ray_sources0/1` is the pair every tracing pass reads before it traces
+anything: a `RaySource` per pixel, world position and normal in the two `xyz` halves
+(which `position`/`normal` have always shown) with four material scalars packed as fixed
+point into the two `w` channels by `ShaderStructs.hlsli`'s `getColor0`/`getColor1`.
+`ray_dispersion`/`ray_reflex`/`ray_density`/`ray_opacity` show those four on one
+cold-to-hot ramp, and `ray_sources` shows the tracers' own accept/reject decision as one
+colour per class. It is the view that separates "this material does not reflect" from
+"nothing wrote a ray source here" — the frame renders the two identically, and the mask
+is decoded through `fromColor` and gated by the same predicates as `RayTraceCS`
+(reflections/refractions, which additionally needs `dispersion` in `[0,1)`) and
+`GIRayTraceCS` (indirect, which does not), so a class disagreeing with what a tracer
+does is a bug in one of the three.
+
+Three things there that are not guessable:
+
+- **A decoded 1.0 is not `<= 1.0`.** `fromColor` divides by `1000.0f`, fxc rewrites that
+  as a multiply by the reciprocal, and `0.001f` is not exactly 1/1000 — so a value stored
+  as exactly 1.0 decodes to 1.00000005. Tested against a bare `> 1.0f`, the out-of-range
+  flag fired on *every* opacity and density in a normal scene (both default to 1.0 and
+  are by far the commonest values either takes), which reads as the whole scene being
+  broken rather than as a boundary nit. `RAY_SCALAR_TOP_SLACK` is the tolerance, chosen
+  above that error and below the packing's own 0.001 step. The tracers compare the same
+  decoded value against the same `1.0f`, so their behaviour is unchanged and the mask
+  deliberately mirrors it rather than correcting it.
+- **These four honour `debug_gain`** — the exception the `motion` view already was.
+  Their ranges differ per scalar, so there is no single natural display range: dispersion,
+  reflex and opacity read directly at gain 1, while density is an index of refraction
+  starting at 1.0 and wants ~0.5.
+- **The demo scene's terrain is amber, and that is correct.** `Dirt`, `Grass` and `Floor`
+  have `specular: 0.0`, so `dispersion = saturate(1 - spec)` is 1.0 and the reflection
+  tracer rejects them while ReSTIR still gathers from them. Its sky *dome* is ordinary
+  geometry drawn by `MainRenderPS`, so it writes ray sources and is classified too —
+  `SkyPS` declares the two-target `RenderTarget`, so only where no dome covers the
+  background does a ray view come out black.
+
 **ReSTIR's ray pick must be jittered inside its stratum, and its phase must be
 hashed.** `GIRayTraceCS` traces only 1–2 of a pixel's `ray_count` (16) cached
 directions per frame, picking each by inverse-CDF from the pdf cache and weighting it

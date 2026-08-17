@@ -1,14 +1,7 @@
-10:06:12.309 [INFO ] [t4144] ShaderCompiler.cpp:214: ShaderCompiler: source folder C:\Users\vicen\Documents\GitHub\HotBiteEngine\Engine\Engine\Core\Shaders (64 shader sources indexed)
-10:06:12.315 [INFO ] [t4144] ShaderCompiler.cpp:214: ShaderCompiler: source folder C:\Users\vicen\Documents\GitHub\HotBiteEngine\Tests (69 shader sources indexed)
-10:06:12.315 [INFO ] [t4144] ShaderReload.cpp:217: ShaderReload: 69 shader sources
+15:02:18.488 [INFO ] [t59896] ShaderCompiler.cpp:214: ShaderCompiler: source folder C:\Users\vicen\Documents\GitHub\HotBiteEngine\Engine\Engine\Core\Shaders (65 shader sources indexed)
+15:02:18.501 [INFO ] [t59896] ShaderCompiler.cpp:214: ShaderCompiler: source folder C:\Users\vicen\Documents\GitHub\HotBiteEngine\Tests (70 shader sources indexed)
+15:02:18.501 [INFO ] [t59896] ShaderReload.cpp:217: ShaderReload: 70 shader sources
   C:\Users\vicen\Documents\GitHub\HotBiteEngine\Engine\Engine\Core\Shaders
   C:\Users\vicen\Documents\GitHub\HotBiteEngine\Tests
-10:06:18.556 [INFO ] [t4144] Material.cpp:326: Engine: sizeof(MaterialData)=928 alignof(MaterialData)=16 offsetof(props)=96
-10:06:27.826 [INFO ] [t4144] SplatCloud.cpp:374: SplatCloudData::Load: ..\..\..\Tests\DemoGame\assets\Objects\oct.ply -> 'oct', 1841339 splats, box (-0.33 -0.01 -0.32)-(0.33 1.01 0.31)
-10:06:28.024 [INFO ] [t4144] SplatCloud.cpp:492: SplatCloudData::Prepare: 'oct' uploaded, 1841339 splats, 140.5 MB
-10:06:32.598 [WARN ] [t4144] Base.cpp:681: Material::FromJson: unknown material 'Marble' (entity 33), keeping the current one
-10:06:32.598 [WARN ] [t4144] Base.cpp:681: Material::FromJson: unknown material 'Marble' (entity 30), keeping the current one
-10:06:32.598 [WARN ] [t4144] Base.cpp:681: Material::FromJson: unknown material 'Marble' (entity 31), keeping the current one
-10:06:32.598 [WARN ] [t4144] Base.cpp:681: Material::FromJson: unknown material 'Marble' (entity 32), keeping the current one
-10:06:36.076 [INFO ] [t4144] ShaderCompiler.cpp:214: ShaderCompiler: source folder C:\Users\vicen\Documents\GitHub\HotBiteEngine\Tests\DemoGame (69 shader sources indexed)
-10:06:36.076 [INFO ] [t4144] ShaderReload.cpp:369: ShaderReload: 5 shader sources in the project folder
+15:02:19.118 [INFO ] [t59896] Material.cpp:326: Engine: sizeof(MaterialData)=928 alignof(MaterialData)=16 offsetof(props)=96
+15:02:22.893 [INFO ] [t59896] ShaderCompiler.cpp:214: ShaderCompiler: source folder C:\Users\vicen\AppData\Local\Temp\HotBiteEditorTests\20260817-150218\18-engine-render.tests\project (70 shader sources indexed)

@@ -207,6 +207,17 @@ namespace HotBite {
 					MOTION,         //screen-space motion, velocity-buffer encoding
 					GI_CACHE,       //world radiance cache, looked up per visible pixel
 					GI_CACHE_CONF,  //that cache's confidence, as a cold-to-hot ramp
+					//The ray source pair (rt_ray_sources0/1): the two targets every ray
+					//tracing pass reads to decide whether to trace from a pixel and with
+					//what. POSITION and NORMAL above already show their xyz halves -
+					//these show the four scalars packed into the two w channels, plus the
+					//mask that combines them into the tracers' own accept/reject
+					//decision. See DebugRayMaskColor in RenderDebug.hlsli.
+					RAY_SOURCES,     //which pixels trace, and why the rest do not
+					RAY_DISPERSION,  //surface roughness; >=1 means no reflection ray
+					RAY_REFLEX,      //MaterialProps::rt_reflex; 0 means no ray at all
+					RAY_DENSITY,     //refraction index, for the refracted ray
+					RAY_OPACITY,     //below 1 is what spawns a refraction ray
 					COUNT
 				};
 
@@ -526,6 +537,7 @@ namespace HotBite {
 				//front to back at bucket granularity as a side effect of the layout.
 				Core::SimpleComputeShader* splat_preprocess = nullptr;
 				Core::SimpleComputeShader* splat_bin = nullptr;
+				Core::SimpleComputeShader* splat_compact = nullptr;
 				Core::SimpleComputeShader* splat_scan = nullptr;
 				Core::SimpleComputeShader* splat_base = nullptr;
 				Core::SimpleComputeShader* splat_raster = nullptr;
@@ -560,8 +572,11 @@ namespace HotBite {
 				//Depth bands a tile's slice is ordered into. Only the layout depends on
 				//this - the rasterizer's results are order-independent - so it trades
 				//early-out sharpness against the size of the histogram.
-				static constexpr uint32_t SPLAT_DEPTH_BUCKETS = 32;
+				static constexpr uint32_t SPLAT_DEPTH_BUCKETS = 128;
 				static constexpr uint32_t SPLAT_SCAN_GROUP = 256;
+				//Threads per group in SplatCompactCS, one tile each. Must match
+				//SPLAT_COMPACT_GROUP in SplatCommon.hlsli.
+				static constexpr uint32_t SPLAT_COMPACT_GROUP = 256;
 				static constexpr uint32_t SPLAT_MAX_DEPTH_STEP = (1u << 10) - 1u;
 				//tile_depth is cleared to this, so the first splat to touch a tile wins
 				//the InterlockedMin and a tile nothing touches rejects everything.
@@ -626,6 +641,12 @@ namespace HotBite {
 				//point - covering the worst tile of a 1.8M splat capture the old way
 				//would have cost 780 MB.
 				Core::RWTypedBuffer splat_entries;
+				//The tiles this cloud actually covers, densely packed, and the
+				//(groups, 1, 1) argument that launches one group per entry of it.
+				//SplatScanCS and SplatRasterCS are dispatched indirectly over these
+				//instead of over the whole tile grid - see SplatCompactCS.
+				Core::RWTypedBuffer splat_tile_list;
+				Core::RWTypedBuffer splat_dispatch_args;
 				Core::RWByteBuffer splat_stats;
 				uint32_t splat_views_capacity = 0;
 				uint32_t splat_entries_capacity = 0;

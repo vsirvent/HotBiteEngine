@@ -24,6 +24,9 @@ SOFTWARE.
 
 #include "../Common/Utils.hlsli"
 #include "../Common/RenderDebug.hlsli"
+//For fromColor(): the ray source views decode the same packed pair the ray tracers
+//read, through the same function, rather than reproducing the layout here.
+#include "../Common/ShaderStructs.hlsli"
 
 cbuffer externalData : register(b0)
 {
@@ -239,6 +242,36 @@ float4 DebugBufferColor(uint buffer_id, float2 tpos, float2 pixel, uint w, uint 
     case RT_DEBUG_BUFFER_GI_CACHE_CONF: {
         float4 v = RCLookup(positions[pixel].xyz, normals[pixel].xyz, cameraPosition);
         return float4(DebugCacheConfidenceColor(v.w, v.w > 0.0f), 1.0f);
+    }
+    //The RaySource pair, decoded exactly as the ray tracers decode it. `positions` and
+    //`normals` *are* rt_ray_sources0/1 - the same two targets, which is why no extra
+    //binding was needed for these - so the xyz halves are already the POSITION and
+    //NORMAL views above and these five show what is packed alongside them: the four
+    //scalars that decide whether a pixel traces, and the mask that combines them.
+    case RT_DEBUG_BUFFER_RAY_SOURCES: {
+        RaySource ray = fromColor(positions[pixel], normals[pixel]);
+        return float4(DebugRayMaskColor(dist2(ray.normal), ray.reflex, ray.dispersion,
+                                        ray.opacity, Epsilon), 1.0f);
+    }
+    case RT_DEBUG_BUFFER_RAY_DISPERSION: {
+        RaySource ray = fromColor(positions[pixel], normals[pixel]);
+        return float4(DebugRayScalarColor(ray.dispersion, dist2(ray.normal) > Epsilon,
+                                          debug_gain), 1.0f);
+    }
+    case RT_DEBUG_BUFFER_RAY_REFLEX: {
+        RaySource ray = fromColor(positions[pixel], normals[pixel]);
+        return float4(DebugRayScalarColor(ray.reflex, dist2(ray.normal) > Epsilon,
+                                          debug_gain), 1.0f);
+    }
+    case RT_DEBUG_BUFFER_RAY_DENSITY: {
+        RaySource ray = fromColor(positions[pixel], normals[pixel]);
+        return float4(DebugRayScalarColor(ray.density, dist2(ray.normal) > Epsilon,
+                                          debug_gain), 1.0f);
+    }
+    case RT_DEBUG_BUFFER_RAY_OPACITY: {
+        RaySource ray = fromColor(positions[pixel], normals[pixel]);
+        return float4(DebugRayScalarColor(ray.opacity, dist2(ray.normal) > Epsilon,
+                                          debug_gain), 1.0f);
     }
     }
     return float4(saturate(c * debug_gain), 1.0f);

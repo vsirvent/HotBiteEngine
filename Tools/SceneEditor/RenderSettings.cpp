@@ -25,7 +25,11 @@ namespace HotBiteEditor {
 			"Off", "Scene colour", "Direct light", "Bloom", "Emission",
 			"RT reflections", "RT refractions", "Indirect (GI)", "Volumetric light",
 			"Dust", "Lens flare", "Depth", "World position", "World normal", "Motion vectors",
-			"GI cache (world)", "GI cache confidence"
+			"GI cache (world)", "GI cache confidence",
+			//The ray source pair. "Mask" first because it is the one that answers a
+			//question on its own; the four scalars are what it is made of.
+			"Ray sources (mask)", "Ray dispersion", "Ray reflex", "Ray density",
+			"Ray opacity"
 		};
 		static_assert(IM_ARRAYSIZE(DEBUG_BUFFER_LABELS) ==
 			(int)RenderSystem::eDebugBuffer::COUNT,
@@ -178,8 +182,9 @@ namespace HotBiteEditor {
 					"Anti-aliasing, motion blur, depth of field and the lens\n"
 					"effects are suppressed while a buffer is selected.");
 			}
-			//Only meaningful for the HDR colour buffers; depth/position/normal are
-			//mapped, not exposed, so the slider does nothing for them.
+			//Meaningful for the HDR colour buffers, and for the motion and ray scalar
+			//ramps, whose ranges have no natural display scale. depth/position/normal
+			//and the two cache views are mapped, not exposed, so it does nothing there.
 			ImGui::BeginDisabled(!rs->IsDebugBufferActive());
 			float gain = rs->GetDebugGain();
 			ImGui::SetNextItemWidth(140.0f);
@@ -199,6 +204,52 @@ namespace HotBiteEditor {
 			}
 
 			ImGui::EndMenu();
+		}
+
+		//These MUST match the RAY_DEBUG_* colours in
+		//Shaders/Common/RenderDebug.hlsli. The shader paints the classes; this only
+		//names them, and a legend that disagrees with the screen is worse than none.
+		static const ImVec4 RAY_RT_OFF_COLOR = ImVec4(0.10f, 0.12f, 0.55f, 1.0f);
+		static const ImVec4 RAY_NO_REFLEX_COLOR = ImVec4(0.25f, 0.45f, 0.85f, 1.0f);
+		static const ImVec4 RAY_GI_ONLY_COLOR = ImVec4(0.95f, 0.60f, 0.10f, 1.0f);
+		static const ImVec4 RAY_REFLECT_COLOR = ImVec4(0.15f, 0.85f, 0.25f, 1.0f);
+		static const ImVec4 RAY_REFRACT_COLOR = ImVec4(0.15f, 0.85f, 0.85f, 1.0f);
+		static const ImVec4 RAY_NO_SOURCE_COLOR = ImVec4(0.05f, 0.05f, 0.05f, 1.0f);
+
+		static void SwatchRow(const ImVec4& color, const char* text)
+		{
+			ImGui::ColorButton("##swatch", color,
+				ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoDragDrop |
+				ImGuiColorEditFlags_NoAlpha | ImGuiColorEditFlags_NoBorder,
+				ImVec2(14.0f, 14.0f));
+			ImGui::SameLine();
+			ImGui::TextUnformatted(text);
+		}
+
+		//What the ray source mask is showing: which pixels the tracers accept, and for
+		//the ones they reject, which test rejected them. Ordered from "traces the most"
+		//down to "traces nothing", because that is the direction you read it in when
+		//asking why a surface has no reflection.
+		static void DrawRayMaskLegend()
+		{
+			ImGui::TextUnformatted("rt_ray_sources0/1, as the tracers read them:");
+			SwatchRow(RAY_REFRACT_COLOR, "reflection + refraction + GI");
+			SwatchRow(RAY_REFLECT_COLOR, "reflection + GI");
+			SwatchRow(RAY_GI_ONLY_COLOR, "GI only - dispersion >= 1, too rough to reflect");
+			SwatchRow(RAY_NO_REFLEX_COLOR, "no rays - the material's rt_reflex is 0");
+			SwatchRow(RAY_RT_OFF_COLOR, "no rays - ray tracing off on this material");
+			SwatchRow(RAY_NO_SOURCE_COLOR, "black: no ray source written here");
+		}
+
+		//The four packed scalars share one ramp, and unlike the other mapped views they
+		//honour the gain - their ranges differ per scalar, so there is no single natural
+		//display range to bake in.
+		static void DrawRayScalarLegend(float gain, const char* line1, const char* line2)
+		{
+			ImGui::Text("x %.2f gain: blue 0, green 0.5, red 1, magenta above 1.", gain);
+			ImGui::TextUnformatted("Black where no ray source was written.");
+			ImGui::TextUnformatted(line1);
+			ImGui::TextUnformatted(line2);
 		}
 
 		void DrawOverlay(SceneEditorApp& app)
@@ -249,6 +300,29 @@ namespace HotBiteEditor {
 					ImGui::Text("screen motion x %.2f gain; grey = not moving,",
 						rs->GetDebugGain());
 					ImGui::TextUnformatted("red/green = +x/+y, blue = nothing drawn");
+					break;
+				case RenderSystem::eDebugBuffer::RAY_SOURCES:
+					DrawRayMaskLegend();
+					break;
+				case RenderSystem::eDebugBuffer::RAY_DISPERSION:
+					DrawRayScalarLegend(rs->GetDebugGain(),
+						"1 - specular intensity, and 2.0 where the material has ray",
+						"tracing off. At or above 1 no reflection ray is traced.");
+					break;
+				case RenderSystem::eDebugBuffer::RAY_REFLEX:
+					DrawRayScalarLegend(rs->GetDebugGain(),
+						"MaterialProps::rt_reflex, the share of the reflection kept.",
+						"0 traces nothing at all here - not even indirect light.");
+					break;
+				case RenderSystem::eDebugBuffer::RAY_DENSITY:
+					DrawRayScalarLegend(rs->GetDebugGain(),
+						"refraction index, 1.0 and up - try 0.5x gain to fit the ramp.",
+						"Only read where opacity is below 1.");
+					break;
+				case RenderSystem::eDebugBuffer::RAY_OPACITY:
+					DrawRayScalarLegend(rs->GetDebugGain(),
+						"surface opacity. Below 1 is what spawns a refraction ray,",
+						"so anything at the top of the ramp refracts nothing.");
 					break;
 				default:
 					ImGui::Text("raw buffer x %.2f gain, clamped to 0..1", rs->GetDebugGain());

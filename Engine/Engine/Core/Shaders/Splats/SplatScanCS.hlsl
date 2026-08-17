@@ -1,5 +1,11 @@
 // Turns one tile's bucket histogram into one tile's bucket offsets. One group per
-// tile, one thread per depth bucket.
+// *covered* tile, one thread per depth bucket.
+//
+// Dispatched indirectly over the list SplatCompactCS built, not over the screen grid:
+// at 1080p the grid is 8160 tiles and a cloud is routinely in a handful of them, so the
+// overwhelming majority of the groups existed to scan 128 zeros. Gating the work inside
+// the shader was tried and does not help - the cost is the launch, not the scan - so
+// the groups are not launched at all.
 //
 // Two-level, and this is the level that costs nothing: a tile has only
 // SPLAT_DEPTH_BUCKETS counters, so its exclusive scan fits in a single group with no
@@ -18,6 +24,10 @@ cbuffer externalData : register(b0)
 	uint scan_pad2;
 }
 
+// The covered tiles, densely packed by SplatCompactCS. This group's tile is the entry
+// at its group index - the dispatch has exactly one group per entry.
+Buffer<uint> tile_list : register(t0);
+
 // In: this tile's per-bucket counts. Out: each bucket's offset within the tile.
 RWBuffer<uint> bucket_offsets : register(u0);
 // Out: how many entries this tile holds in total, which is what SplatBaseCS scans.
@@ -32,7 +42,10 @@ groupshared uint g_scan[SPLAT_DEPTH_BUCKETS];
 [numthreads(SPLAT_DEPTH_BUCKETS, 1, 1)]
 void main(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
 {
-	uint tile = gid.x;
+	// The bound is against a stale or oversized list rather than against the dispatch,
+	// which is exact by construction; it costs one comparison and keeps a bad list from
+	// scanning another tile's histogram.
+	uint tile = tile_list[gid.x];
 	if (tile >= tile_count) {
 		return;
 	}

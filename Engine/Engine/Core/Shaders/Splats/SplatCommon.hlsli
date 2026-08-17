@@ -80,6 +80,9 @@ struct SplatView
 // (one per bucket of one tile); this is SplatBaseCS, which scans the per-tile totals.
 #define SPLAT_SCAN_GROUP 256
 
+// Threads per group in SplatCompactCS, which is one thread per tile of the screen.
+#define SPLAT_COMPACT_GROUP 256
+
 // A pool entry is a bare splat index. Nothing is packed alongside it: depth ordering
 // is carried by *where* the entry sits in its tile's slice, and the rasterizer reads
 // the real float depth off the SplatView it loads anyway. The packed (depth, index)

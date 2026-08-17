@@ -99,7 +99,10 @@ cbuffer splatData : register(b1)
 	// band boundaries the entries were filed against.
 	float splat_quant_min;
 	float splat_quant_range;
-	float splat_pad0;
+	// The divisor SplatBinCS was given to turn a quantized depth delta into a bucket
+	// index. It MUST be the same value, or this pass computes a different band for an
+	// entry than the bucket it was filed into - see the note at the band computation.
+	uint splat_bucket_span_steps;
 	float splat_pad1;
 }
 
@@ -112,6 +115,10 @@ StructuredBuffer<SplatView> splat_views : register(t20);
 Buffer<uint> tile_base  : register(t21);
 Buffer<uint> tile_total : register(t22);
 Buffer<uint> splat_entries : register(t23);
+// The covered tiles, densely packed by SplatCompactCS. The dispatch is indirect over
+// this list rather than over the screen's tile grid, so a group exists only where there
+// is something to rasterize - see the note on the pixel coordinates in main().
+Buffer<uint> tile_list : register(t25);
 // The tile's nearest splat, quantized. The bands are measured from it, so it is what
 // this pass needs to snap the surface depth to a band boundary.
 Buffer<uint> tile_depth : register(t24);
@@ -140,11 +147,21 @@ RWByteAddressBuffer splat_stats : register(u3);
 // then reads all 256 out of groupshared, which turns 256 scattered loads per splat
 // into one. 256 * 60 bytes = 15 KB of the 32 KB budget.
 groupshared SplatView g_batch[256];
+// The band each batch entry belongs to, computed ONCE per entry by the thread that
+// loads it rather than 256 times by every thread that reads it. That matters because
+// the band has to come from an integer divide (see the note where it is filled) and
+// this is the innermost loop in the pass. 1 KB on top of the batch's 15 KB.
+groupshared uint g_band[256];
 
 [numthreads(SPLAT_TILE_SIZE, SPLAT_TILE_SIZE, 1)]
-void main(uint3 gid : SV_GroupID, uint3 dtid : SV_DispatchThreadID, uint gi : SV_GroupIndex)
+void main(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID, uint gi : SV_GroupIndex)
 {
-	uint tile = gid.y * tiles_x + gid.x;
+	// The dispatch is a ONE-DIMENSIONAL indirect one over the compacted tile list, so
+	// neither SV_GroupID.xy nor SV_DispatchThreadID carries a screen position any more -
+	// the group index selects a tile out of the list and the pixel has to be rebuilt from
+	// that tile's place in the grid. Reading the pixel off SV_DispatchThreadID as this
+	// used to would put every group in the first row of tiles.
+	uint tile = tile_list[gid.x];
 	uint count = tile_total[tile];
 	if (count == 0) {
 		return;
@@ -155,7 +172,7 @@ void main(uint3 gid : SV_GroupID, uint3 dtid : SV_DispatchThreadID, uint gi : SV
 		splat_stats.InterlockedAdd(24, 1, ignored);
 	}
 
-	int2 px = int2(dtid.xy);
+	int2 px = int2(tile % tiles_x, tile / tiles_x) * SPLAT_TILE_SIZE + int2(gtid.xy);
 	bool on_screen = (px.x < screenW && px.y < screenH);
 	float2 pixel_centre = float2(px) + 0.5f;
 
@@ -211,15 +228,15 @@ void main(uint3 gid : SV_GroupID, uint3 dtid : SV_DispatchThreadID, uint gi : SV
 	bool started = false;
 	bool crossed = false;
 	// The band being accumulated, and the first one that covered this pixel at all.
-	float cur_band = -1.0f;
-	float first_band = 0.0f;
+	// Bucket indices, so 0xFFFFFFFF is a sentinel no band can take (they are < 128).
+	uint cur_band = 0xFFFFFFFFu;
+	uint first_band = 0u;
 
 	// Where this tile's bands start, in world units. tile_depth holds the quantized
 	// depth of its nearest splat, which is the origin SplatBinCS measured bands from.
 	const uint tile_near_q = tile_depth[tile];
 	const float near_world = splat_quant_min +
 		((float)tile_near_q / (float)SPLAT_MAX_DEPTH_STEP) * splat_quant_range;
-	const float inv_band = 1.0f / max(1e-6f, splat_bucket_width);
 
 	// Off-screen threads start finished. They still have to reach every barrier - a
 	// group where some threads have returned and others are waiting on
@@ -233,21 +250,46 @@ void main(uint3 gid : SV_GroupID, uint3 dtid : SV_DispatchThreadID, uint gi : SV
 		if (load < count) {
 			// A pool entry is a bare splat index; its depth ordering is carried by
 			// where it sits in the slice, and its real depth comes off the SplatView.
-			g_batch[gi] = splat_views[splat_entries[base + load]];
+			SplatView sv = splat_views[splat_entries[base + load]];
+			g_batch[gi] = sv;
+			// THE BAND MUST BE THE BUCKET THE BINNING FILED THIS ENTRY INTO, and it has
+			// to be derived the same way SplatBinCS derived it - from the QUANTIZED
+			// depth, through the shared helper.
+			//
+			// Recomputing it from the float depth instead (floor((view_depth -
+			// near_world) / bucket_width), which is what this did) looks equivalent and
+			// is not: the binning bucketed round(u * SPLAT_MAX_DEPTH_STEP) while that
+			// bucketed the continuous u, and the two disagree by one band whenever the
+			// value lands within half a quantization step of a band boundary - about 6%
+			// of entries, plus every entry whose depth quantizes just below the tile's
+			// own near_q, where the float band goes negative and the integer one clamps
+			// to 0.
+			//
+			// A disagreement is not a cosmetic off-by-one. It makes `band` NON-MONOTONIC
+			// along the slice, so the band-boundary test below fires in the MIDDLE of a
+			// bucket - and inside a bucket the entries are in whatever order the binning
+			// atomics produced, which changes every frame. The crossing was then declared
+			// against a partial, order-dependent sum, exactly the bug the header says
+			// this pass was rewritten to remove, reintroduced through the back door.
+			// Measured on the demo scene's cloud with a frozen clock and a fixed camera:
+			// 0.16% of the viewport changing every frame, max delta 151/255.
+			g_band[gi] = SplatDepthBucket(
+				QuantizeSplatDepth(sv.view_depth, splat_quant_min, splat_quant_range),
+				tile_near_q, splat_bucket_span_steps);
 		}
 		GroupMemoryBarrierWithGroupSync();
 
 		uint n = min(256u, count - b * 256);
 		for (i = 0; !done && i < n; ++i) {
 			SplatView s = g_batch[i];
-			float band = floor((s.view_depth - near_world) * inv_band);
+			uint band = g_band[i];
 
 			// A band boundary: everything before this band is in, so this is the one
 			// point at which the crossing may be declared.
 			if (!crossed && band != cur_band) {
 				if (started && acc_w >= surface_alpha) {
 					crossed = true;
-					surf = near_world + (cur_band + 1.0f) * splat_bucket_width;
+					surf = near_world + ((float)cur_band + 1.0f) * splat_bucket_width;
 					limit = surf + splat_depth_slab;
 				}
 				cur_band = band;
@@ -292,7 +334,7 @@ void main(uint3 gid : SV_GroupID, uint3 dtid : SV_DispatchThreadID, uint gi : SV
 	// background genuinely behind it. It keeps whatever partial alpha it gathered, and
 	// its surface is the first band that covered it.
 	if (!crossed && started) {
-		surf = near_world + (first_band + 1.0f) * splat_bucket_width;
+		surf = near_world + ((float)first_band + 1.0f) * splat_bucket_width;
 	}
 	// Past the last barrier, so returning here is safe.
 	if (!contributes || acc_w < SPLAT_MIN_ALPHA) {

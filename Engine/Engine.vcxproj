@@ -596,6 +596,12 @@
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Compute</ShaderType>
       <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
     </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\Splats\SplatCompactCS.hlsl">
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Compute</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|x64'">5.0</ShaderModel>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Compute</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
+    </FxCompile>
     <FxCompile Include="Engine\Core\Shaders\Splats\SplatScanCS.hlsl">
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Compute</ShaderType>
       <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|x64'">5.0</ShaderModel>
@@ -758,10 +764,20 @@
     <ItemGroup>
       <SplatCommonDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\Splats\SplatPreprocessCS.hlsl" />
       <SplatCommonDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\Splats\SplatBinCS.hlsl" />
+      <SplatCommonDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\Splats\SplatCompactCS.hlsl" />
       <SplatCommonDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\Splats\SplatScanCS.hlsl" />
       <SplatCommonDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\Splats\SplatBaseCS.hlsl" />
       <SplatCommonDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\Splats\SplatRasterCS.hlsl" />
     </ItemGroup>
     <Touch Files="@(SplatCommonDependent)" Condition="Exists('$(SplatCommonHeader)') And $([System.IO.File]::GetLastWriteTime('$(SplatCommonHeader)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('%(SplatCommonDependent.FullPath)').Ticks)" />
+    <PropertyGroup>
+      <RenderDebugHeader>$(MSBuildThisFileDirectory)Engine\Core\Shaders\Common\RenderDebug.hlsli</RenderDebugHeader>
+    </PropertyGroup>
+    <ItemGroup>
+      <RenderDebugDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\TextureMixerCS.hlsl" />
+      <RenderDebugDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\Radiance\GIAverageCS.hlsl" />
+      <RenderDebugDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\RayTrace\DenoiserCS.hlsl" />
+    </ItemGroup>
+    <Touch Files="@(RenderDebugDependent)" Condition="Exists('$(RenderDebugHeader)') And $([System.IO.File]::GetLastWriteTime('$(RenderDebugHeader)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('%(RenderDebugDependent.FullPath)').Ticks)" />
   </Target>
 </Project>

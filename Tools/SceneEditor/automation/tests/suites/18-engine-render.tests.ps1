@@ -50,6 +50,67 @@ function Get-MotionShare {
     }
 }
 
+# The ray source views (`ray_sources` and the four `ray_*` scalars) read
+# rt_ray_sources0/1 - the two targets that record, per pixel, where a ray would
+# start and whether it is traced at all. Black is their shared "no ray source
+# written here" colour: SkyPS declares the two-target `RenderTarget`, not
+# `RenderTargetRT`, so the sky never writes the pair and stays at the cleared zero.
+# Sampling only the non-black pixels is therefore "sampling the geometry".
+#
+# Returns the channel means over those pixels plus two shape measures: TopShare,
+# how much of the frame its six commonest colours cover (a classification image
+# collapses onto a few, a ramp does not), and GreenShare, the share in the mask's
+# "reflection + GI" class. Everything asserted from this is a comparison *between*
+# channels of one pixel, which survives the monotone per-channel transform between
+# the mixer's output and the back buffer; an absolute level would not.
+function Measure-RayView {
+    param([string]$Name)
+    $path = Shot $Name
+    Add-Type -AssemblyName System.Drawing
+    $bmp = New-Object System.Drawing.Bitmap($path)
+    try {
+        # The lower half of the frame, where the ground slab and the troll are: the
+        # top of the view is sky, which writes no ray source and would only dilute
+        # every share with pixels that carry no information.
+        $x0 = [int]($bmp.Width * 0.18); $x1 = [int]($bmp.Width * 0.82)
+        $y0 = [int]($bmp.Height * 0.45); $y1 = [int]($bmp.Height * 0.95)
+        $counts = @{}
+        $total = 0; $drawn = 0; $green = 0
+        $r = 0.0; $g = 0.0; $b = 0.0
+        for ($y = $y0; $y -lt $y1; $y += 4) {
+            for ($x = $x0; $x -lt $x1; $x += 4) {
+                $p = $bmp.GetPixel($x, $y)
+                $total++
+                if ($p.R -lt 24 -and $p.G -lt 24 -and $p.B -lt 24) { continue }
+                $drawn++
+                $r += $p.R; $g += $p.G; $b += $p.B
+                # RAY_DEBUG_REFLECT is (0.15, 0.85, 0.25) - green with both other
+                # channels well below it. RAY_DEBUG_REFRACT is green-dominant too but
+                # has blue equal to green, so requiring blue to be clearly lower
+                # keeps the two classes apart.
+                if ($p.G -gt $p.R + 40 -and $p.G -gt $p.B + 40) { $green++ }
+                $key = '{0}-{1}-{2}' -f [int]($p.R / 16), [int]($p.G / 16), [int]($p.B / 16)
+                $counts[$key] = 1 + $counts[$key]
+            }
+        }
+        if ($total -lt 100) { throw "the sampled region is too small ($total samples) - check the capture" }
+        if ($drawn -lt 50) { throw "the ray source view shows almost nothing drawn ($drawn of $total samples) - check the camera" }
+        $top = ($counts.Values | Sort-Object -Descending | Select-Object -First 6 |
+                Measure-Object -Sum).Sum
+        return [pscustomobject]@{
+            DrawnShare = $drawn / [double]$total
+            GreenShare = $green / [double]$drawn
+            TopShare   = $top / [double]$drawn
+            MeanR      = $r / $drawn
+            MeanG      = $g / $drawn
+            MeanB      = $b / $drawn
+        }
+    }
+    finally {
+        $bmp.Dispose()
+    }
+}
+
 # Puts the camera back where every measurement below expects it: the troll and a
 # good slice of the ground filling the middle of the view.
 function Reset-View {
@@ -260,6 +321,94 @@ Test 'a rig animating in place writes motion without moving' {
     Assert-Vector3Near -Expected @{ x = 0.0; y = 0.0; z = 0.0 } `
         -Actual (Get-Position -Session $Session -Entity $script:troll) -Tolerance 0.001 `
         -Message 'and it did not move an inch while doing it'
+    SendOk 'render debug_buffer off' | Out-Null
+}
+
+Test 'the ray source mask classifies the pixels the tracers trace from' {
+    # `ray_sources` shows rt_ray_sources0/1 - the pair every ray tracing pass reads
+    # to decide whether to trace from a pixel - as the tracers' own accept/reject
+    # decision, one legend colour per class. This fixture's materials all carry
+    # raytrace=true, rt_reflex=0.2, opacity=1 and a specular under 1, so every drawn
+    # pixel lands in the "reflection + GI" class (green): reflex is above zero, and
+    # dispersion (1 - specular) is inside [0,1).
+    Reset-View
+    SendOk "set_component $($script:troll) Mesh ""{'animation':''}""" | Out-Null
+    SendOk 'render debug_buffer ray_sources', 'render debug_gain 1' | Out-Null
+    Step-EditorFrames -Session $Session -Count 6
+    $m = Measure-RayView -Name 'ray-sources'
+
+    Assert-True -Condition ($m.DrawnShare -gt 0.2) `
+        -Message "the mask must classify the geometry, not come out black ($([Math]::Round($m.DrawnShare * 100, 1))% carries a class)"
+    # A classification image collapses onto a handful of colours; a continuous one
+    # does not. This is what separates "the mask is drawing its palette" from "some
+    # other buffer is bound here".
+    Assert-True -Condition ($m.TopShare -gt 0.9) `
+        -Message "the mask is a palette of classes, not a gradient ($([Math]::Round($m.TopShare * 100, 1))% in its top colours)"
+    Assert-True -Condition ($m.GreenShare -gt 0.8) `
+        -Message "every material here traces reflections, so the mask should be green ($([Math]::Round($m.GreenShare * 100, 1))%)"
+    SendOk 'render debug_buffer off' | Out-Null
+}
+
+Test 'the ray scalar views decode the packed material values' {
+    # The four scalars live in the *w* channels of the same two targets, packed as
+    # fixed point by ShaderStructs.hlsli's getColor0/getColor1. Nothing downstream
+    # validates that layout, so this reads the numbers back off the screen through
+    # the ramp: blue at 0, green at the middle, red at 1, magenta above it.
+    #
+    # Both assertions are on which channel is largest, never on an exact value - the
+    # frame reaches the back buffer through a chain that is monotone per channel, so
+    # a hue survives it and a level does not.
+    Reset-View
+    SendOk "set_component $($script:troll) Mesh ""{'animation':''}""" | Out-Null
+
+    # rt_reflex is 0.2 on every material in this fixture: low on the ramp at gain 1,
+    # at the top of it by gain 5.
+    SendOk 'render debug_buffer ray_reflex', 'render debug_gain 1' | Out-Null
+    Step-EditorFrames -Session $Session -Count 6
+    $low = Measure-RayView -Name 'ray-reflex-1x'
+    Assert-True -Condition ($low.MeanB -gt $low.MeanR) `
+        -Message "rt_reflex 0.2 sits at the cold end of the ramp (R $([int]$low.MeanR), B $([int]$low.MeanB))"
+    SendOk 'render debug_gain 5' | Out-Null
+    Step-EditorFrames -Session $Session -Count 6
+    $high = Measure-RayView -Name 'ray-reflex-5x'
+    Assert-True -Condition ($high.MeanR -gt $high.MeanB) `
+        -Message "5x gain must carry 0.2 to the hot end (R $([int]$high.MeanR), B $([int]$high.MeanB))"
+
+    # density is 1.0 everywhere here, which is the top of the ramp at gain 1 and its
+    # middle at 0.5 - the reading that says the fixed-point decode returns 1.0 and
+    # not some other number that happens to render.
+    SendOk 'render debug_buffer ray_density', 'render debug_gain 1' | Out-Null
+    Step-EditorFrames -Session $Session -Count 6
+    $top = Measure-RayView -Name 'ray-density-1x'
+    Assert-True -Condition ($top.MeanR -gt $top.MeanG -and $top.MeanR -gt $top.MeanB) `
+        -Message "density 1.0 is the top of the ramp (R $([int]$top.MeanR), G $([int]$top.MeanG), B $([int]$top.MeanB))"
+    SendOk 'render debug_gain 0.5' | Out-Null
+    Step-EditorFrames -Session $Session -Count 6
+    $mid = Measure-RayView -Name 'ray-density-half'
+    Assert-True -Condition ($mid.MeanG -gt $mid.MeanR) `
+        -Message "half gain puts 1.0 at the middle of the ramp (R $([int]$mid.MeanR), G $([int]$mid.MeanG))"
+    SendOk 'render debug_gain 1', 'render debug_buffer off' | Out-Null
+}
+
+Test 'the ray source views are distinct images' {
+    # Same premise as the G-buffer test above: each of these is a different quantity
+    # read out of the same two targets, so two of them coming out identical means a
+    # case is missing from the mixer's switch or is reading the wrong channel.
+    Reset-View
+    SendOk "set_component $($script:troll) Mesh ""{'animation':''}""" | Out-Null
+    SendOk 'render debug_gain 1' | Out-Null
+    $shots = @{}
+    foreach ($buffer in @('ray_sources', 'ray_reflex', 'ray_opacity', 'ray_dispersion')) {
+        SendOk "render debug_buffer $buffer" | Out-Null
+        Step-EditorFrames -Session $Session -Count 4
+        $shots[$buffer] = Shot "raysrc-$buffer"
+    }
+    foreach ($pair in @(@('ray_sources', 'ray_reflex'), @('ray_reflex', 'ray_opacity'),
+                        @('ray_opacity', 'ray_dispersion'))) {
+        $diff = Get-ImageDifference -PathA $shots[$pair[0]] -PathB $shots[$pair[1]]
+        Assert-True -Condition ($diff.DifferingShare -gt 0.1) `
+            -Message "$($pair[0]) and $($pair[1]) should differ, only $([Math]::Round($diff.DifferingShare * 100, 1))% of pixels do"
+    }
     SendOk 'render debug_buffer off' | Out-Null
 }
 

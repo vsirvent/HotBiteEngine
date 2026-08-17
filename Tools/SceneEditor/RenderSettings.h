@@ -31,10 +31,12 @@ namespace HotBiteEditor {
 		// autofocus drives both focus and amplitude).
 		//
 		// Buffer debugging: debug_buffer (off|scene|light|bloom|emission|reflection|
-		// refraction|indirect|volumetric|dust|lens_flare|depth|position|normal),
-		// debug_gain (float, exposure for the HDR colour buffers), and gi_denoise /
-		// rt_denoise (0 bypasses that denoiser, so its buffer carries the raw traced
-		// signal).
+		// refraction|indirect|volumetric|dust|lens_flare|depth|position|normal|motion|
+		// gi_cache|gi_cache_conf|ray_sources|ray_dispersion|ray_reflex|ray_density|
+		// ray_opacity - the authoritative list is RenderSystem::DebugBufferName),
+		// debug_gain (float, exposure for the HDR colour buffers and the scale for the
+		// motion and ray scalar ramps), and gi_denoise / rt_denoise (0 bypasses that
+		// denoiser, so its buffer carries the raw traced signal).
 		bool Set(SceneEditorApp& app, const std::string& key, const std::string& value, std::string& error);
 
 		// One-line JSON of the current settings (for the automation channel).

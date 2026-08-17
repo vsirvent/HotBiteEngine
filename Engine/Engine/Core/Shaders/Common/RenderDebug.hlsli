@@ -58,6 +58,15 @@ SOFTWARE.
 #define RT_DEBUG_BUFFER_MOTION      14u
 #define RT_DEBUG_BUFFER_GI_CACHE    15u
 #define RT_DEBUG_BUFFER_GI_CACHE_CONF 16u
+//The RaySource pair (rt_ray_sources0/1): what every ray tracing pass reads to
+//decide whether to trace from a pixel, and with what. RAY_SOURCES is the mask -
+//which pixels actually run rays - and the four below are the packed scalars that
+//decide it. See DebugRayMaskColor.
+#define RT_DEBUG_BUFFER_RAY_SOURCES    17u
+#define RT_DEBUG_BUFFER_RAY_DISPERSION 18u
+#define RT_DEBUG_BUFFER_RAY_REFLEX     19u
+#define RT_DEBUG_BUFFER_RAY_DENSITY    20u
+#define RT_DEBUG_BUFFER_RAY_OPACITY    21u
 
 #define DebugBuffer(d)   ((d) & RT_DEBUG_BUFFER_MASK)
 #define DebugFlag(d, f)  (((d) & (f)) != 0u)
@@ -121,6 +130,81 @@ float3 DebugCacheConfidenceColor(float confidence, bool present)
         return float3(0.0f, 0.0f, 0.0f);
     }
     float c = saturate(confidence);
+    return float3(c, 1.0f - abs(c * 2.0f - 1.0f), 1.0f - c);
+}
+
+//The ray source mask: which pixels the ray tracing passes will actually trace from,
+//and for the ones they skip, why. This is the view that answers "why is there no
+//reflection here" without a capture - a pixel that stores no ray source, one whose
+//material turned ray tracing off, and one that is simply too rough to reflect are
+//three different things and render identically in the frame.
+//
+//The classes mirror the reject predicates in RayTraceCS.hlsl (reflections and
+//refractions) and GIRayTraceCS.hlsl (ReSTIR indirect). Both bail on a zero reflex or
+//a zero-length normal; only the reflection tracer also requires dispersion in
+//[0,1), which is why a fully rough surface still gathers indirect light. Keep this in
+//step with those two shaders, and the colours in step with the legend in
+//Tools/SceneEditor/RenderSettings.cpp.
+#define RAY_DEBUG_NO_SOURCE  float3(0.00f, 0.00f, 0.00f)  //nothing drew a ray source
+#define RAY_DEBUG_RT_OFF     float3(0.10f, 0.12f, 0.55f)  //material has ray tracing off
+#define RAY_DEBUG_NO_REFLEX  float3(0.25f, 0.45f, 0.85f)  //rt_reflex is 0
+#define RAY_DEBUG_GI_ONLY    float3(0.95f, 0.60f, 0.10f)  //too rough to reflect; GI runs
+#define RAY_DEBUG_REFLECT    float3(0.15f, 0.85f, 0.25f)  //reflection + GI
+#define RAY_DEBUG_REFRACT    float3(0.15f, 0.85f, 0.85f)  //reflection + refraction + GI
+
+//`normal_len2` is dist2 of the stored normal, computed by the caller so this header
+//stays free of the maths helpers - it is included by passes that do not have them.
+float3 DebugRayMaskColor(float normal_len2, float reflex, float dispersion,
+                         float opacity, float epsilon)
+{
+    if (normal_len2 <= epsilon) {
+        return RAY_DEBUG_NO_SOURCE;
+    }
+    if (reflex <= epsilon) {
+        //A pixel with no reflex traces nothing at all - not even indirect light. The
+        //two ways to get there are worth separating: the pixel shader writes the
+        //dispersion sentinel (2.0, so anything past 1.5 after quantization) when the
+        //material's RAYTRACING_ENABLED flag is clear or rt is disabled globally,
+        //while an rt-enabled material with rt_reflex at 0 keeps its real dispersion.
+        return dispersion >= 1.5f ? RAY_DEBUG_RT_OFF : RAY_DEBUG_NO_REFLEX;
+    }
+    if (dispersion < 0.0f || dispersion >= 1.0f) {
+        return RAY_DEBUG_GI_ONLY;
+    }
+    //A translucent surface additionally spawns refraction rays at the hit.
+    return opacity < 1.0f ? RAY_DEBUG_REFRACT : RAY_DEBUG_REFLECT;
+}
+
+//One of the packed RaySource scalars, on the same cold-to-hot ramp as the cache
+//confidence: blue at 0, green at the middle, red at the top of the range. Black
+//where there is no ray source at all, so an empty pixel is not read as a zero.
+//
+//These honour debug_gain, unlike the other mapped views, because the ranges differ
+//per scalar: dispersion, reflex and opacity are naturally 0..1 and read directly at
+//gain 1, while density is an index of refraction starting at 1.0 and wants ~0.5.
+//Magenta flags a value above the ramp, which is also how the dispersion sentinel
+//(2.0, "ray tracing off here") shows up at gain 1.
+//
+//That flag needs a tolerance, and the reason is not floating point in general but
+//one specific rewrite: fromColor decodes with `/ 1000.0f`, which fxc turns into a
+//multiply by the reciprocal, and 0.001f is not exactly 1/1000 - so a value stored
+//as exactly 1.0 comes back as 1.00000005. Tested against a bare 1.0 that made
+//*every* opacity and density in a normal scene (both 1.0 by default, and by far the
+//commonest values either takes) render as "above the range" instead of as the top of
+//the ramp. The tolerance sits well above that error and well below the packing's own
+//0.001 step, so the first genuinely out-of-range value still flags.
+#define RAY_SCALAR_TOP_SLACK 5e-4f
+
+float3 DebugRayScalarColor(float value, bool present, float gain)
+{
+    if (!present) {
+        return float3(0.0f, 0.0f, 0.0f);
+    }
+    float v = value * gain;
+    if (v > 1.0f + RAY_SCALAR_TOP_SLACK) {
+        return float3(1.0f, 0.0f, 1.0f);
+    }
+    float c = saturate(v);
     return float3(c, 1.0f - abs(c * 2.0f - 1.0f), 1.0f - c);
 }
 

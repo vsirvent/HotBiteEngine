@@ -6,7 +6,11 @@
 # mirror in Shaders/Common/RenderDebug.hlsli and the editor's label list.
 $DebugBuffers = @('off', 'scene', 'light', 'bloom', 'emission', 'reflection', 'refraction',
                   'indirect', 'volumetric', 'dust', 'lens_flare', 'depth', 'position',
-                  'normal', 'motion', 'gi_cache', 'gi_cache_conf')
+                  'normal', 'motion', 'gi_cache', 'gi_cache_conf',
+                  # The ray source pair (rt_ray_sources0/1): the mask of which pixels
+                  # trace rays, and the four packed scalars that decide it.
+                  'ray_sources', 'ray_dispersion', 'ray_reflex', 'ray_density',
+                  'ray_opacity')
 
 Test 'render dumps every setting the Render menu has' {
     $r = Get-Render -Session $Session

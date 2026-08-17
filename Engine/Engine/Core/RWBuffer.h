@@ -308,8 +308,16 @@ namespace HotBite {
 
 				//`element_bytes` must match `format`; they are separate arguments only
 				//because DXGI has no size-of-format query.
+				//
+				//`indirect_args` additionally makes the buffer legal as the argument
+				//buffer of DispatchIndirect/DrawIndirect, which is what lets a shader
+				//decide how many thread groups the *next* dispatch launches without a
+				//readback. The flag is compatible with a UAV and a typed view (only
+				//MISC_BUFFER_STRUCTURED is excluded), so such a buffer is still written
+				//and cleared like any other - the splat tile compaction builds its group
+				//count with an InterlockedAdd straight into element 0.
 				HRESULT Init(uint32_t element_count, DXGI_FORMAT format = DXGI_FORMAT_R32_UINT,
-					uint32_t element_bytes = 4) {
+					uint32_t element_bytes = 4, bool indirect_args = false) {
 					Release();
 					ID3D11Device* device = Core::DXCore::Get()->device;
 					count = element_count;
@@ -319,7 +327,7 @@ namespace HotBite {
 					bd.ByteWidth = element_bytes * count;
 					bd.BindFlags = D3D11_BIND_UNORDERED_ACCESS | D3D11_BIND_SHADER_RESOURCE;
 					bd.CPUAccessFlags = 0;
-					bd.MiscFlags = 0;
+					bd.MiscFlags = indirect_args ? D3D11_RESOURCE_MISC_DRAWINDIRECT_ARGS : 0;
 					bd.StructureByteStride = 0;
 
 					HRESULT hr = device->CreateBuffer(&bd, nullptr, &buffer);
@@ -363,6 +371,9 @@ namespace HotBite {
 
 				ID3D11UnorderedAccessView* UAV() const { return uav; }
 				ID3D11ShaderResourceView* SRV() const { return srv; }
+				//Only DispatchIndirect wants this, and only on a buffer built with
+				//`indirect_args`; everything else goes through the two views.
+				ID3D11Buffer* Buffer() const { return buffer; }
 			};
 		}
 	}
