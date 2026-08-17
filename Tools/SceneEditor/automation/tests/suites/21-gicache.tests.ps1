@@ -45,6 +45,42 @@ function Reset-View {
     Step-EditorFrames -Session $Session -Count 30
 }
 
+# The window the two debug-view tests measure: the ground in the lower half of the
+# Reset-View frame, which faces the camera and is close to it.
+#
+# Deliberately NOT the middle of the frame, and the reason is the whole subtlety of
+# testing this cache. Two kinds of pixel legitimately resolve no cell, and both are
+# concentrated up there:
+#
+#  - sky. There is no surface, so there is no cell, and the lookup saying so is the
+#    correct answer. In Reset-View's frame the horizon sits just under half way up,
+#    so a middle-of-frame sample is ~30% sky before anything else is counted.
+#  - ground at grazing incidence, near the horizon. One screen pixel there spans a
+#    large world-space area, so the region covers far more cells than the deposits
+#    can fill: GIRayTraceCS runs at a third of the render resolution and deposits
+#    one cell per traced pixel, so cells-per-pixel rising is coverage falling.
+#
+# Neither is the failure this pair of tests exists to catch, which is the mixer and
+# the tracer keying *different* cells - that shows up as everything missing,
+# including the ground under the camera. Measured here: 16% miss in this band
+# against 70% in the middle of the frame, on a cache that is working.
+$CacheBand = @{ Left = 0.25; Top = 0.65; Right = 0.75; Bottom = 0.95 }
+
+# Fails with a readable message when $CacheBand has slid off the geometry - a
+# camera or fixture change, not a cache one. Worth its own check because in the
+# value view "no surface here" and "no cell here" are the same blue, so a band that
+# has drifted onto the sky reads exactly like the bug the test hunts for. The depth
+# pre-pass is black where nothing was drawn, which tells the two apart.
+function Assert-BandOnGeometry {
+    SendOk 'render debug_buffer depth', 'render debug_gain 1' | Out-Null
+    Step-EditorFrames -Session $Session -Count 4
+    $depth = Get-ImageStats -Path (Shot 'gi_cache_band_depth') @CacheBand
+    Assert-True -Condition ($depth.LitShare -gt 0.9) `
+        -Message ("the sample band is not on geometry any more " +
+                  "($([Math]::Round($depth.LitShare * 100)) % drawn) - the view changed, " +
+                  'so what follows would be measuring the sky')
+}
+
 Test 'gi_cache_info reports the table and its occupancy' {
     Reset-View
     $info = Wait-CacheStat { param($i) $i.live -gt 0 }
@@ -124,17 +160,20 @@ Test 'moving the camera reaches new surfaces and adds cells' {
 Test 'the cache debug view resolves a cell for the surfaces on screen' {
     Reset-View
     # gi_cache paints blue (0,0,~153) where the lookup found no cell at all. So a
-    # frame that is mostly blue means the mixer's hash disagrees with the tracer's -
-    # which is a real failure mode, and the one this catches: the two run at
-    # different resolutions off different textures and must still key the same cell.
+    # band of solid geometry coming back mostly blue means the mixer's hash
+    # disagrees with the tracer's - which is a real failure mode, and the one this
+    # catches: the two run at different resolutions off different textures and must
+    # still key the same cell. See $CacheBand for why it is measured over the ground
+    # rather than over the middle of the frame.
+    Assert-BandOnGeometry
     SendOk 'render debug_buffer gi_cache', 'render debug_gain 8' | Out-Null
     Step-EditorFrames -Session $Session -Count 10
     $path = Shot 'gi_cache_view'
     Add-Type -AssemblyName System.Drawing
     $bmp = New-Object System.Drawing.Bitmap($path)
     try {
-        $x0 = [int]($bmp.Width * 0.25); $x1 = [int]($bmp.Width * 0.75)
-        $y0 = [int]($bmp.Height * 0.30); $y1 = [int]($bmp.Height * 0.70)
+        $x0 = [int]($bmp.Width * $CacheBand.Left); $x1 = [int]($bmp.Width * $CacheBand.Right)
+        $y0 = [int]($bmp.Height * $CacheBand.Top); $y1 = [int]($bmp.Height * $CacheBand.Bottom)
         $miss = 0; $total = 0
         for ($y = $y0; $y -lt $y1; $y += 4) {
             for ($x = $x0; $x -lt $x1; $x += 4) {
@@ -154,14 +193,18 @@ Test 'the cache debug view resolves a cell for the surfaces on screen' {
 
 Test 'the confidence view separates a resolved cell from no cell at all' {
     Reset-View
-    # Black is "no cell"; anything else is the cold-to-hot ramp. A settled view
-    # should be overwhelmingly not-black, and that is the difference between the
-    # cache not working and the cache not having got there yet.
+    # Black is "no cell"; anything else is the cold-to-hot ramp. Settled ground in
+    # front of the camera should be overwhelmingly not-black, and that is the
+    # difference between the cache not working and the cache not having got there
+    # yet. Same band as the value view above, for the same reasons - and the two
+    # agree pixel for pixel on which points have a cell, which is itself the check
+    # that the views are two readings of one table.
+    Assert-BandOnGeometry
     SendOk 'render debug_buffer gi_cache_conf' | Out-Null
     Step-EditorFrames -Session $Session -Count 30
     $path = Shot 'gi_cache_conf_view'
-    $stats = Get-ImageStats -Path $path -Left 0.25 -Top 0.30 -Right 0.75 -Bottom 0.70
-    Assert-True -Condition ($stats.LitShare -gt 0.5) -Message "only $($stats.LitShare) of the view has a cell"
+    $stats = Get-ImageStats -Path $path @CacheBand
+    Assert-True -Condition ($stats.LitShare -gt 0.5) -Message "only $($stats.LitShare) of the band has a cell"
     SendOk 'render debug_buffer off' | Out-Null
 }
 

@@ -134,7 +134,17 @@ void CameraSystem::Update(CameraData& entity, int64_t elapsed_nsec, int64_t tota
 			parent_pos = parent_transform.position;
 		}
 	}
-	if (entity.transform->dirty == true) {
+	//Its own change detection beside the shared flag: see Components::Camera's
+	//last_position/last_direction/last_rotation. Transform::dirty is cleared by
+	//whichever system reaches it first, and for a camera rig that also has a Mesh
+	//(any placed from a template) that can be StaticMeshSystem on another timer -
+	//which would leave the commanded pose applied to the Transform and never
+	//reaching the view matrix, permanently.
+	const bool pose_changed = !entity.camera->pose_measured ||
+		entity.transform->position != entity.camera->last_position ||
+		entity.camera->direction != entity.camera->last_direction ||
+		entity.camera->rotation != entity.camera->last_rotation;
+	if (entity.transform->dirty == true || pose_changed) {
 		vector3d pos = XMVectorSet(entity.transform->position.x, entity.transform->position.y, entity.transform->position.z, 1.0f);
 		entity.camera->xm_rotation = XMQuaternionRotationRollPitchYaw(entity.camera->rotation.x, entity.camera->rotation.y, entity.camera->rotation.z);
 
@@ -172,6 +182,12 @@ void CameraSystem::Update(CameraData& entity, int64_t elapsed_nsec, int64_t tota
 		XMStoreFloat4x4(&entity.camera->view_projection, XMMatrixTranspose(entity.camera->xm_view_projection));
 		updated = true;
 		entity.transform->dirty = false;
+		//What this update was built from, so the next tick can tell whether anything
+		//actually moved without depending on a flag someone else may have cleared.
+		entity.camera->last_position = entity.transform->position;
+		entity.camera->last_direction = entity.camera->direction;
+		entity.camera->last_rotation = entity.camera->rotation;
+		entity.camera->pose_measured = true;
 		Event ev(this, EVENT_ID_CAMERA_MOVED);
 		ev.SetParam<CameraData*>(EVENT_PARAM_CAMERA_DATA, &entity);
 		coordinator->SendEvent(ev);

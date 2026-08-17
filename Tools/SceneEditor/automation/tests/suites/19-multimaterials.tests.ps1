@@ -27,7 +27,29 @@ function Set-SlabView {
     # set_scale reads the pre-scale mesh. A short settle plus a couple of frames
     # covers it the same way 18-engine-render's Reset-View does.
     Start-Sleep -Milliseconds 400
-    Step-EditorFrames -Session $Session -Count 3
+    # Then wait for the rendered camera, not just for frames to pass. This used to be
+    # load-bearing rather than defensive: CameraSystem and StaticMeshSystem both
+    # cleared Transform::dirty, on different timers, and camera_rig is a mesh entity
+    # too - so when the mesh timer won, the commanded pose reached the Transform and
+    # never reached the view matrix, for the rest of the session. The slab then came
+    # out 396 px wide instead of 678 and every render assertion below was quietly
+    # measuring a different picture. The engine has its own change detection now
+    # (Components::Camera::last_position), so this should never spin - it stays
+    # because a pose that silently does not arrive is worth failing loudly on.
+    $want = @(-4.0, 6.0, -9.0)
+    for ($i = 0; $i -lt 30; $i += 2) {
+        $cam = Get-Camera -Session $Session
+        $d = [Math]::Sqrt((($cam.world_position[0] - $want[0]) * ($cam.world_position[0] - $want[0])) +
+                          (($cam.world_position[1] - $want[1]) * ($cam.world_position[1] - $want[1])) +
+                          (($cam.world_position[2] - $want[2]) * ($cam.world_position[2] - $want[2])))
+        if ($d -le 0.2) {
+            Step-EditorFrames -Session $Session -Count 3
+            return
+        }
+        Step-EditorFrames -Session $Session -Count 2
+    }
+    throw ("the camera never reached the slab view (at " +
+           "$((Get-Camera -Session $Session).world_position -join ', '))")
 }
 
 Test 'multi_materials starts empty' {
@@ -254,12 +276,25 @@ Test 'a slope rule confines a layer to the faces it names - the "snow on flat gr
     SendOk "set_layer Blend 1 ""{'slope_enabled':true,'slope_min':0.6,'slope_max':1.0,'slope_fade':0.05}""" | Out-Null
     Step-EditorFrames -Session $Session -Count 2
     $shot = Shot 'blend-slope'
-    $top = Get-ImageStats -Path $shot -Left 0.30 -Top 0.10 -Right 0.70 -Bottom 0.30
-    # Left of centre and clear of the Materials panel, which a prior
-    # select_multi_material left open over the middle-right of the viewport.
-    $side = Get-ImageStats -Path $shot -Left 0.08 -Top 0.55 -Right 0.35 -Bottom 0.80
-    Assert-True -Condition ($top.MeanB -gt $top.MeanR) -Message "top face should read as layer 1 (TestBlue): R=$($top.MeanR) B=$($top.MeanB)"
-    Assert-True -Condition ($side.MeanR -gt $side.MeanB) -Message "side face should read as layer 0 (TestRed): R=$($side.MeanR) B=$($side.MeanB)"
+    # Both rectangles sit *inside* one face of the slab as Set-SlabView frames it
+    # (camera at -4,6,-9 looking at the origin): the top sample is well within the
+    # +Y face, the side sample within the red band the near face makes under it,
+    # left of the Materials panel a prior select_multi_material left open over the
+    # bottom-right. Measured, not guessed - each reads ~140 in its own channel and
+    # under 10 in the other.
+    $top = Get-ImageStats -Path $shot -Left 0.40 -Top 0.42 -Right 0.62 -Bottom 0.55
+    $side = Get-ImageStats -Path $shot -Left 0.55 -Top 0.64 -Right 0.65 -Bottom 0.69
+    # A sample that has slid off the slab reads near-black, and two near-zero means
+    # then decide the assertion by noise - which is exactly how this test used to
+    # fail (and, half the time, pass) while the render underneath was perfect. Say
+    # "the framing moved" rather than "the slope rule is broken".
+    foreach ($sample in @(@{ n = 'top'; s = $top }, @{ n = 'side'; s = $side })) {
+        Assert-True -Condition ($sample.s.LitShare -gt 0.95) `
+            -Message ("the $($sample.n) sample is not on the slab any more " +
+                      "($([Math]::Round($sample.s.LitShare * 100)) % lit) - Set-SlabView's framing changed")
+    }
+    Assert-True -Condition ($top.MeanB -gt $top.MeanR * 2.0) -Message "top face should read as layer 1 (TestBlue): R=$($top.MeanR) B=$($top.MeanB)"
+    Assert-True -Condition ($side.MeanR -gt $side.MeanB * 2.0) -Message "side face should read as layer 0 (TestRed): R=$($side.MeanR) B=$($side.MeanB)"
 
     SendOk "set_layer Blend 1 ""{'slope_enabled':false}""" | Out-Null
 }

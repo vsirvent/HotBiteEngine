@@ -295,13 +295,38 @@ Depth writes stay **on** in `DrawScene` because the pre-pass deliberately skips
 and the whole second-pass tree — all of which still have to occlude themselves.
 
 **A Gaussian splat cloud is drawn by a compute pass, not by the draw trees**
-(`RenderSystem::DrawSplats`, `Shaders/Splats/`). Two dispatches per visible cloud:
-`SplatPreprocessCS` projects every Gaussian and bins it into the 16x16 screen tiles it
-covers, then `SplatRasterCS` runs one group per tile and composites the result into the
-*same* targets `MainRenderPS` writes — scene colour, the light map and `depth_map`. So a
-cloud is lit by the level's own lights and shadows (it stores albedo/normal/spec rather
-than baked radiance), and it shows up in the ordinary frame and in the `scene`/`depth`
-debug buffers, never in a channel of its own.
+(`RenderSystem::DrawSplats`, `Shaders/Splats/`). Five dispatches per visible cloud:
+
+| pass | what it does |
+| --- | --- |
+| `SplatPreprocessCS` | projects every Gaussian; records the nearest one per 16x16 tile |
+| `SplatBinCS` pass 0 | histogram of (tile, depth bucket) |
+| `SplatScanCS` | scans each tile's buckets into offsets within that tile |
+| `SplatBaseCS` | scans the per-tile totals into each tile's base in a shared pool |
+| `SplatBinCS` pass 1 | scatters the entries into their slots |
+| `SplatRasterCS` | one group per tile, over that tile's contiguous slice |
+
+The rasterizer fills the *same* G-buffer `MainRenderPS` does — scene colour, light map,
+`depth_map`, the `rt_ray_sources0/1` pair (world position and normal, with material
+scalars packed into their `w`), and `position_map`/`prev_position_map` — so a cloud is lit
+by the level's own lights and shadows (it stores albedo/normal/spec rather than baked
+radiance), and it shows up in the ordinary frame and in every debug buffer, never in a
+channel of its own. Only `bloom_map` is skipped, a splat having no emission.
+
+Filling all of it is what makes a cloud exist to everything downstream: without the ray
+sources it cannot appear in a reflection or be gathered from by ReSTIR, and without the
+position pair `MotionCS` has nothing to difference. The eight UAVs that takes is exactly
+the D3D11 feature-level-11.0 limit, so anything added there has to displace something.
+
+Three things follow. `prev_position_map` needs `D3D11_BIND_UNORDERED_ACCESS` like
+`position_map` (both stay RTVs in `DrawScene`'s seven-target set; the flag only adds a
+second way to bind them, and the two are never bound at once). The previous position
+comes from a single `inverse(world) * prev_world` matrix constant rather than a per-splat
+previous position — every splat of a cloud shares one transform and there is no skinning,
+so it is exact and keeps `SplatView` at 60 bytes instead of growing 12 more times 1.8M.
+And `splat_material` carries `RAY_TRACING_ENABLED_FLAG`: the rasterizer clears every
+texture-map bit but keeps that one, because it is what decides whether the ray sources it
+writes are followed or skipped.
 
 It sits after both `DrawScene` calls and before `ProcessMotion`, and both halves matter:
 the preprocess rejects splats behind the depth pre-pass result, and the mixer downstream
@@ -310,24 +335,126 @@ composites into is `post_process_pipeline->RenderUAV()` — the same texture `Dr
 bound as an RTV — so the pass does nothing when no post-process chain is installed, and
 it can only run once the render targets are unbound.
 
-Four things there that are not guessable:
+**There is no per-tile capacity, and every previous attempt to have one failed the same
+way.** A tile's entries occupy a contiguous slice of one pool, at an offset the two scan
+passes hand it, so a tile takes exactly the room it needs. `splat_info` reports what the
+frame used.
 
-- **There is no sort, on purpose.** A 3DGS renderer composites back to front and needs
-  an ordering; this one is filling a G-buffer, which holds one surface per pixel however
-  it got there. Pass 1 takes the nearest depth with coverage, pass 2 averages everything
-  within `SPLAT_DEPTH_SLAB` behind it. Both are commutative, so the tile list can be in
-  any order. The cost is that you cannot see *through* a cloud.
-- **Neither pass may early-out of the batch loop.** Every thread has to keep reaching
-  `GroupMemoryBarrierWithGroupSync`, so the *work* is gated on a `contributes` flag and
-  the control flow is not — fxc rejects the alternative outright (X4026).
-- **`SplatView` is mirrored by `RenderSystem::SplatView` and nothing checks the stride.**
-  fxc packs a structured buffer element tightly on 4-byte boundaries, with none of the
-  cbuffer float4 rules, so it is 60 bytes and the C++ mirror is `static_assert`ed against
-  that. Read the number out of `fxc /dumpbin` (`dcl_resource_structured t20, 60`), never
-  off `sizeof()` on one side.
-- **The scratch buffers are sized for the largest cloud on screen and grown only**
-  (`EnsureSplatBuffers`), because the tile list is `tiles * SPLAT_MAX_PER_TILE` uints —
-  ~33 MB at 1080p. Nothing is allocated until a level actually contains a cloud.
+The history is worth keeping, because all three versions rendered a *plausible* cloud and
+the defect was only visible when magnified, or by binning image gradients on x mod 16:
+
+- **Fixed capacity, append, drop the excess.** The dropped share differed per tile and
+  changed every frame. Measured on a 1.8M splat capture: tile-boundary gradient 3.8x the
+  local gradient, 1.3% of the viewport flickering.
+- **Fixed capacity, `InterlockedMin` of a packed (depth, index) key into `ticket % cap`.**
+  Better — the survivors are biased near — but this is *not* "keep the nearest N", it is N
+  samples each biased near, drawn from groups the atomics formed. Raising capacity 1024 ->
+  4096 (33 -> 133 MB) only moved the ratio 3.8x -> 2.6x, and covering the worst tile
+  (45,665 entries) would have needed **780 MB**, since the buffer is tiles x capacity.
+- **A per-tile *cull*** — reject anything more than a window behind the tile's nearest
+  splat — which looked like a way to fit under capacity and was itself a per-tile
+  threshold, so it stepped at every tile boundary too. It also cost ~20% of real coverage.
+  Removing it took the ratio to **0.88x** (i.e. gone) with frames **bit-identical**.
+
+**The pass would otherwise cost the same at 100 units as at 2, and the reason is a
+one-line trap.** `SplatPreprocessCS` looks like it culls sub-pixel splats
+(`if (radius < 0.33f)`), and that test can never fire: the low-pass floor a few lines
+above adds `0.3` to both diagonal terms of the 2D covariance, so the smallest radius any
+splat can project to is `3·√0.4 ≈ 1.9 px` at any distance. Distance therefore never
+removes splats, it only *concentrates* them — measured on the 1.8M capture, `total_binned`
+stayed near 3.4M from 2 units to 100 while `tiles_used` fell 255 → 4, so one tile held
+1.24M entries and four thread groups did all the work to produce 197 pixels. 183 ms of a
+200 ms frame.
+
+`Components::SplatCloud::max_density` fixes it: the most splats worth drawing per screen
+pixel (16 by default). `DrawSplats` turns it into a keep probability against the cloud's
+projected area and `SplatPreprocessCS` drops the rest before loading anything, by a
+threshold on `SplatHash01(idx)` — the splat index and nothing else, so the subset is
+stable frame to frame (a frame term would make the cloud boil) and raising the density
+only ever *adds* splats to the set already drawn.
+
+| distance | before | after |
+| --- | --- | --- |
+| 2 | 22.2 ms | 20.4 ms (identical binning — the probability clamps to 1) |
+| 15 | 111.1 ms | 16.67 ms (vsync) |
+| 40 | 200 ms | 16.67 ms (vsync) |
+
+Two things about that knob. It is a *density*, so one number does both jobs — it thins a
+receding cloud, and it caps an over-dense capture at full size, which is how to optimise
+a model carrying more splats than its silhouette can show. And it must stay well above 1:
+the rasterizer *averages* albedo and normal so a random subset has the same mean, but
+coverage scales with the fraction kept, and too low a value stops `saturate(acc_w)`
+pinning a covered pixel's alpha to 1 — the cloud goes translucent rather than merely
+coarser. Around 4 is where that starts to show.
+
+A note for anyone testing it: the knob only binds where the cloud is *over* its density,
+so at a normal viewing distance every setting clamps to 1 and drops nothing. That is the
+correct answer and an untestable one — `23-splatrender` pushes the fixture cloud to 200
+units to get it into the range where the probability bites.
+
+Seven things there that are not guessable:
+
+- **Every result in the rasterizer is order-independent, deliberately.** The slice is
+  ordered only to *bucket* granularity, so anything depending on exact order depends on
+  atomic scheduling. `surface_depth` used to be "the entry at which a running coverage sum
+  crossed `surface_alpha`", which moved every frame and dragged the reconstructed world
+  position, the shadow lookup and `depth_map` with it. It is the alpha-weighted *mean*
+  depth of the slab now — same intent, expressed commutatively. Pass 1 is a `min`, pass 2
+  is a set of sums.
+- **The depth buckets must span the cloud's whole quantized range.** Narrowing them looks
+  free — finer bands exactly where the slab lives — but everything past the span clamps
+  into the last band as an unordered mass, and the early-out is only sound where the
+  ordering is real. At a 0.1 span that put the tile ratio back to 1.68x and returned 0.17%
+  flicker to a frame that was otherwise bit-identical. Spanning the range costs little: on
+  a cloud ~1 unit deep, 32 bands are ~0.03 against a 0.05 slab.
+- **The count and scatter passes are one shader with a flag** (`bin_pass`), not two
+  shaders. The first's histogram is the second's allocation, so a single pair enumerated
+  or bucketed differently writes into the neighbouring bucket's entries.
+- **Bindings do not survive an intervening dispatch.** D3D11 binding slots belong to the
+  *stage*; `SimpleShader`'s per-object API hides that. `SplatBaseCS` binds `tile_total` at
+  its `t0` and nulls it on cleanup — the same slot `SplatBinCS` holds `splat_views` in — so
+  the scatter read `splat_views` as null, every splat took the `radius == 0` reject path,
+  and the pool was never written. The frame came out empty while the counting pass still
+  reported correct totals. **Re-bind everything before every dispatch.**
+- **The pool readback is load-bearing, not diagnostic.** `total_binned` is what sizes the
+  pool, so unlike the radiance cache counters it is *not* keepalive-gated. Gated, the pool
+  only grew while a tool happened to be watching, and the automation fixture's cloud
+  rendered at 2.6% of its coverage. Entries per splat is not near 1 and cannot be a
+  multiplier: it is ~120 for a small cloud close up (large ellipses, many tiles each) and
+  under 2 for a 1.8M capture at a normal distance, so `SPLAT_POOL_MIN_ENTRIES` is a floor
+  and the measurement does the sizing.
+- **The depth quantization window is the cloud's bounding *sphere*, fitted per frame,
+  from `world_xmmatrix` and never `world_matrix`.** The stored matrix is *transposed* (the
+  convention shaders read `world` under), and `XMVector3TransformCoord` wants the
+  untransposed form — loading the wrong one still produces *a* number, so the fit silently
+  described nothing. It measured a 1.015-unit-deep cloud as 0.081, which saturated the
+  quantization and made both the ordering and the cull compare noise. Not the camera's
+  clip planes either (1023 steps over 0.01..1000 puts a whole cloud in one step), and not
+  the min/max over the eight box corners — the nearest point of a box to a camera outside
+  it is generally on a *face*, so that fit is too tight, and over-tight is the only
+  failure mode that matters.
+- **The rasterizer may not early-out of the batch loop.** Every thread has to keep
+  reaching `GroupMemoryBarrierWithGroupSync`, so the *work* is gated on a `done` flag and
+  the control flow is not — fxc rejects the alternative outright (X4026). `SPLAT_EARLY_OUT
+  0` disables both early-outs and must produce an identical image; it is how to separate
+  "the walk stops too soon" from "the binning is wrong", and it has earned its keep twice.
+
+**A 3DGS `.ply` is not in the engine's frame, and `SplatCloudData::Load` converts it.**
+The reference trainer works in COLMAP's convention — right-handed, X right, **Y down**,
+Z forward — and this engine is left-handed Y-up, so negating Y fixes the axis and the
+handedness in one step. Loaded raw a capture comes out upside down *and* mirrored, which
+reads as broken geometry rather than a frame mismatch, and rotating the entity 180° is
+not the same fix (it corrects the axis and leaves the mirror). The flip reaches three
+things and missing any one is silent: the position, the minor-axis normal, and the
+covariance as `Σ' = DΣD` with `D = diag(1,-1,1)` — which negates `Sxy` and `Syz`, and
+leaves the diagonal and `Sxz` alone. `BuildDefault` is authored in engine space and is
+not converted.
+
+**`splat_info` is the only way to see any of this.** A cloud that is over-binned, short of
+pool, or not rasterized at all renders a plausible surface either way. It reports
+`tiles_used`, `max_per_tile`, `total_binned`, `dropped` (non-zero means the pool was
+short), `capacity`, and — the pair that separates "not on screen" from "not rasterized" —
+`tiles_rastered` and `pixels_written`. It is a few frames stale, so poll it.
 
 `Core::RWStructuredBuffer` and `Core::RWTypedBuffer` (`Core/RWBuffer.h`) exist for this
 pass and are the non-raw counterparts of `RWByteBuffer`.
@@ -596,6 +723,17 @@ unrelated to the render tick. Two ways that goes wrong, and both were live:
 there; the other two are only written by the latch. `drawables` (a flat
 `EntityVector<DrawableEntity>`) exists for this: the render trees are keyed by shader and
 material, and the latch has to touch each entity exactly once.
+
+**Anything drawn outside the render trees needs its own line in that latch.** `drawables`
+is built from the trees, so a splat cloud — no `Mesh`, no `Material`, drawn by
+`DrawSplats` — is not in it, and its `prev_world_matrix` kept the zero it was constructed
+with. That is worse than a stale pose: `SplatRasterCS` reconstructs the previous position
+through `inverse(world) * prev_world`, so a zero matrix sends every point to `w = 0`, and
+the cloud reported **full-strength motion while standing still** (100% of its pixels
+deflected in the `motion` view; 0.1% after the fix). Every temporal pass downstream then
+reprojects it to nowhere. `LatchPreviousFrame` walks `splat_clouds` too; an entity
+carrying both a Mesh and a SplatCloud is latched by both loops, which is the same
+assignment twice.
 
 **A skinned mesh animating in place moves, and the pose is the only record of it.**
 `MainRenderVS` skins each vertex twice - once with `joints`, once with `prev_joints` - and
@@ -990,6 +1128,22 @@ indices against 291447 at full detail. The *raster* saving from the same chains 
 (`MainRenderPS` 3.00 -> 2.77 ms), and at the player's viewpoint the chains move the
 frame rate not at all - the frame there is the ray tracing pass, not the triangles.
 
+**`Transform::dirty` is cleared by whichever system consumes it first, so no system
+may rely on it alone.** `CameraSystem::Update` and `StaticMeshSystem::Update` both
+clear it, and they run on *different background timers* — while a camera rig is very
+often a mesh entity as well, because every template carries a Mesh and Bounds and a
+rig placed from one therefore does too. When the mesh timer won the race, the camera
+never recomputed: the commanded position sat in the Transform, the view matrix kept
+the old one, and nothing would ever dirty it again. The pose was not applied late, it
+was dropped for the rest of the session — the editor's camera silently stops
+responding to `camera_pos`, `focus` or a gizmo move, and only sometimes, which is why
+it read as flakiness in `19-multimaterials` and `20-lods` rather than as a bug.
+`Components::Camera` now keeps `last_position`/`last_direction`/`last_rotation` and
+recomputes when those differ, so the shared flag is an optimisation for it rather
+than its only signal. Anything else that grows a second consumer of `dirty` needs the
+same treatment; `StaticMeshSystem` already had it for the parent pose and the
+animation box.
+
 **A commanded camera pose is not in effect on the next frame**, and four of `20-lods`'
 switching tests were intermittently reading the level from *before* the move because of
 it (roughly one run in fifteen). `EditorCamera` applies the pose on its own tick, so
@@ -1255,6 +1409,26 @@ Three things follow from "belongs to no asset":
   Mesh-without-Bounds is only reachable this way, and the throw is out of an `Init()`
   nothing catches, on the *next* load — so the level that saved would not reopen. It now
   requires both components, a collider having nothing to be sized from without the box.
+
+**A model's name is a registry key, not the file name** — it defaults to the file stem
+and File/Import Model... now asks for it before loading anything, because it is the key
+the assets are filed under and renaming afterwards would mean re-registering them. A
+name that is not the stem is written to the level as `"name"` beside `"file"`, and such
+a model earns its `models` entry even when nothing uses it yet (the rule that a model
+must be *named by* something to be listed has nowhere else to recover the name from).
+The Asset Browser's folder scan therefore matches an already-listed file **by path** as
+well as by name, and runs after the level's own models are listed — otherwise the same
+`.fbx` is adopted a second time under its stem, loaded twice, and duplicated in the
+array on every save. `Remove` (`remove_model`) unregisters a model and drops it from the
+level; its meshes and materials stay loaded for the session, because they live in the
+same flat collections every other model points into (the reason `RemoveMaterial`
+retires rather than erases), and the file is left on disk. Not undoable, like the import.
+
+Fixed while doing this, and worth knowing because it was silent: `World::LoadModel`'s
+`.ply` branch **ignored `relative`**, so a level's own splat-cloud entry resolved
+nothing and registered an *empty* cloud. In the editor the folder scan then loaded the
+same file again under its stem and that copy is what everything used, which hid it
+completely; a game, having no folder scan, simply got no cloud.
 
 **A template may also be composed: it carries other templates as `parts`.** That is the
 troll with its sword, the house made of six pieces. A part is a *reference*

@@ -48,7 +48,9 @@ namespace HotBiteEditor {
 					continue;
 				}
 				if (!state.world->IsModelLoaded(m.name) && !m.file_path.empty()) {
-					state.world->LoadModel(m.file_path, false, false);
+					//Under the name the browser knows it by, which is the file stem
+					//unless the import gave it one of its own.
+					state.world->LoadModel(m.file_path, false, false, false, m.name);
 					loaded_any = true;
 				}
 				m.loaded = true;
@@ -61,6 +63,29 @@ namespace HotBiteEditor {
 
 		static void ScanModelsFolder(EditorState& state)
 		{
+			//What the level already pulled in, *before* the folder is walked. The order
+			//matters: these carry the name the level gave them, which for an import that
+			//was named is not the file stem - and the folder loop below recognizes a file
+			//it already has only by comparing paths against this list. Walk the folder
+			//first and the same .ply comes back a second time under its stem.
+			for (const std::string& name : state.world->ListModels()) {
+				if (FindModel(state, name) != nullptr) {
+					continue;
+				}
+				ModelAsset asset;
+				asset.name = name;
+				asset.loaded = true;
+				const World::ModelAssets* assets = state.world->GetModelAssets(name);
+				if (assets != nullptr && !assets->file.empty()) {
+					//As the level referenced it, which is relative to the assets path.
+					fs::path file(assets->file);
+					asset.file_path = file.is_absolute()
+						? file.string()
+						: (fs::path(state.world->GetAssetsPath()) / file).lexically_normal().string();
+				}
+				state.models.push_back(asset);
+			}
+
 			fs::path objects_dir = fs::path(state.project_root) / "Assets" / "Objects";
 			std::error_code ec;
 			if (fs::exists(objects_dir, ec)) {
@@ -81,36 +106,30 @@ namespace HotBiteEditor {
 					if (FindModel(state, name) != nullptr) {
 						continue;
 					}
+					//By path as well as by name: a model imported under a name of its
+					//own is already listed under that name, and matching only the stem
+					//would adopt the same file a second time - two entries, two loads,
+					//and a "models" array that grows a duplicate on every save.
+					const std::string path = entry.path().string();
+					bool already_listed = false;
+					for (const ModelAsset& m : state.models) {
+						std::error_code same;
+						if (!m.file_path.empty() &&
+							(m.file_path == path || fs::equivalent(m.file_path, path, same))) {
+							already_listed = true;
+							break;
+						}
+					}
+					if (already_listed) {
+						continue;
+					}
 					ModelAsset asset;
 					asset.name = name;
-					asset.file_path = entry.path().string();
+					asset.file_path = path;
 					state.models.push_back(asset);
 				}
 			}
 			LoadPendingModels(state);
-
-			//Models the level's own "models" array (or a pre-split "templates" array)
-			//pulled in live only in the World until now: the folder scan finds them only
-			//when they happen to sit in Assets/Objects, so a level loading an .fbx from
-			//anywhere else had assets nothing could account for. List them all, so "what
-			//this project has imported" is one answer rather than two.
-			for (const std::string& name : state.world->ListModels()) {
-				if (FindModel(state, name) != nullptr) {
-					continue;
-				}
-				ModelAsset asset;
-				asset.name = name;
-				asset.loaded = true;
-				const World::ModelAssets* assets = state.world->GetModelAssets(name);
-				if (assets != nullptr && !assets->file.empty()) {
-					//As the level referenced it, which is relative to the assets path.
-					fs::path file(assets->file);
-					asset.file_path = file.is_absolute()
-						? file.string()
-						: (fs::path(state.world->GetAssetsPath()) / file).lexically_normal().string();
-				}
-				state.models.push_back(asset);
-			}
 			std::sort(state.models.begin(), state.models.end(),
 				[](const ModelAsset& a, const ModelAsset& b) { return a.name < b.name; });
 		}
@@ -127,7 +146,8 @@ namespace HotBiteEditor {
 			}
 		}
 
-		bool ImportModel(EditorState& state, const std::string& fbx_path, std::string& error)
+		bool ImportModel(EditorState& state, const std::string& fbx_path,
+			const std::string& model_name, std::string& error)
 		{
 			if (state.world == nullptr || state.project_root.empty()) {
 				error = "no project open";
@@ -138,8 +158,16 @@ namespace HotBiteEditor {
 				error = "file not found: " + fbx_path;
 				return false;
 			}
-			const std::string name = fs::path(fbx_path).filename().replace_extension().string();
-			if (state.world->IsModelLoaded(name)) {
+			//The file stem unless the import was given a name. The name is the key the
+			//whole editor addresses a model by, so it has to be free.
+			const std::string name = model_name.empty()
+				? fs::path(fbx_path).filename().replace_extension().string()
+				: model_name;
+			if (name.find_first_of("\\/:*?\"<>|") != std::string::npos) {
+				error = "a model name cannot contain \\ / : * ? \" < > |";
+				return false;
+			}
+			if (state.world->IsModelLoaded(name) || FindModel(state, name) != nullptr) {
 				error = "a model named '" + name + "' is already imported";
 				return false;
 			}
@@ -176,6 +204,37 @@ namespace HotBiteEditor {
 			return true;
 		}
 
+		bool RemoveModel(EditorState& state, const std::string& name, std::string& error)
+		{
+			if (state.world == nullptr) {
+				error = "no project open";
+				return false;
+			}
+			ModelAsset* asset = FindModel(state, name);
+			if (asset == nullptr && !state.world->IsModelLoaded(name)) {
+				error = "unknown model: " + name;
+				return false;
+			}
+			//Deliberately outside the undo history, exactly like the import it undoes
+			//and like File/Import Model: what it takes away is a registration and a set
+			//of FBX nodes, and the assets the file contributed stay for the session (see
+			//World::RemoveModel). Nothing that draws changes; what changes is what the
+			//next load pulls in.
+			state.world->RemoveModel(name);
+			for (auto it = state.models.begin(); it != state.models.end(); ++it) {
+				if (it->name == name) {
+					state.models.erase(it);
+					break;
+				}
+			}
+			if (state.selected_model == name) {
+				state.selected_model.clear();
+			}
+			state.status_message = "Removed model: " + name +
+				" (its meshes stay loaded until the level is reopened)";
+			return true;
+		}
+
 		void ImportModelWithDialog(EditorState& state)
 		{
 			char file[MAX_PATH] = {};
@@ -193,10 +252,12 @@ namespace HotBiteEditor {
 			if (!GetOpenFileNameA(&ofn)) {
 				return;
 			}
-			std::string error;
-			if (!ImportModel(state, file, error)) {
-				state.status_message = "Import failed: " + error;
-			}
+			//The import itself is deferred to the naming modal Draw puts up (see
+			//pending_import_path): the name has to be settled *before* the file is
+			//loaded, because it is the registry key the assets are filed under.
+			state.pending_import_path = file;
+			state.pending_import_name =
+				fs::path(state.pending_import_path).filename().replace_extension().string();
 		}
 
 		//Spawns `inst` into the world and registers the save/selection bookkeeping.
@@ -484,6 +545,81 @@ namespace HotBiteEditor {
 			ImGui::SameLine();
 			if (ImGui::Button("Import Model...")) {
 				ImportModelWithDialog(state);
+			}
+			ImGui::SameLine();
+			ImGui::BeginDisabled(state.selected_model.empty());
+			if (ImGui::Button("Remove")) {
+				ImGui::OpenPopup("remove_model");
+			}
+			ImGui::EndDisabled();
+			if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled) &&
+				!state.selected_model.empty()) {
+				ImGui::SetTooltip("Take %s out of this level's assets. The file stays in\n"
+					"Assets/Objects; what goes is the level's reference to it.",
+					state.selected_model.c_str());
+			}
+			if (ImGui::BeginPopupModal("remove_model", nullptr,
+				ImGuiWindowFlags_AlwaysAutoResize)) {
+				ImGui::Text("Remove model '%s'?", state.selected_model.c_str());
+				//Said out loud because it is the surprising half: nothing on screen
+				//changes, and the templates built from it keep working for the session.
+				ImGui::TextDisabled("Its meshes, materials and clips stay loaded until the\n"
+					"level is reopened, and the file is left in Assets/Objects.\n"
+					"Templates still pointing at its meshes will lose them on reload.\n"
+					"This cannot be undone.");
+				if (ImGui::Button("Remove")) {
+					std::string error;
+					if (!RemoveModel(state, state.selected_model, error)) {
+						state.status_message = "Remove model failed: " + error;
+					}
+					ImGui::CloseCurrentPopup();
+				}
+				ImGui::SameLine();
+				if (ImGui::Button("Cancel")) {
+					ImGui::CloseCurrentPopup();
+				}
+				ImGui::EndPopup();
+			}
+
+			//The naming step of File/Import Model..., which runs between the file dialog
+			//and the load (see ImportModelWithDialog).
+			if (!state.pending_import_path.empty()) {
+				ImGui::OpenPopup("name_import");
+			}
+			if (ImGui::BeginPopupModal("name_import", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+				ImGui::Text("Import %s", fs::path(state.pending_import_path).filename().string().c_str());
+				char buf[128] = "";
+				strncpy_s(buf, state.pending_import_name.c_str(), sizeof(buf) - 1);
+				ImGui::SetNextItemWidth(320.0f);
+				if (ImGui::InputText("Name", buf, sizeof(buf))) {
+					state.pending_import_name = buf;
+				}
+				ImGui::TextDisabled("The name this project knows the model by. The meshes,\n"
+					"materials and clips inside it keep their own names.");
+				const bool taken = state.world->IsModelLoaded(state.pending_import_name) ||
+					FindModel(state, state.pending_import_name) != nullptr;
+				if (taken) {
+					ImGui::TextDisabled("A model called that is already imported.");
+				}
+				ImGui::BeginDisabled(state.pending_import_name.empty() || taken);
+				if (ImGui::Button("Import")) {
+					std::string error;
+					if (!ImportModel(state, state.pending_import_path,
+						state.pending_import_name, error)) {
+						state.status_message = "Import failed: " + error;
+					}
+					state.pending_import_path.clear();
+					state.pending_import_name.clear();
+					ImGui::CloseCurrentPopup();
+				}
+				ImGui::EndDisabled();
+				ImGui::SameLine();
+				if (ImGui::Button("Cancel")) {
+					state.pending_import_path.clear();
+					state.pending_import_name.clear();
+					ImGui::CloseCurrentPopup();
+				}
+				ImGui::EndPopup();
 			}
 		}
 

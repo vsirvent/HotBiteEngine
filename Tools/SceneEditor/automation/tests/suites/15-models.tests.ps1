@@ -115,3 +115,61 @@ Test 'a model registered in the level is written back to the models section' {
     Assert-True -Condition (@($files | Where-Object { $_ -like '*troll_tpose.fbx' }).Count -eq 1) `
         -Message 'the mesh model is listed once'
 }
+
+Test 'import_model can be given a name of its own, and it is the key everything uses' {
+    # The name is only a registry key - the meshes, materials and clips inside the
+    # file keep their own names - but it is the key the browser, the pickers and the
+    # level's "models" array all address the model by. Without this the name was the
+    # file stem and nothing else, so two files of the same stem were one model.
+    $src = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..\..\..\Tests\DemoGame\assets\troll\troll_tpose.fbx'))
+    if (-not (Test-Path $src)) { Skip-Test -Reason 'the troll assets are not in this checkout' }
+    $copy = Join-Path $ShotDir 'renamed_source.fbx'
+    Copy-Item $src $copy -Force
+    SendOk "import_model ""$copy"" hero_body" | Out-Null
+    $names = @((SendOk 'list_models')[0].Payload | ForEach-Object { ($_ -split ' ')[0] })
+    Assert-Contains -Collection $names -Value 'hero_body' -Message 'listed under the name it was given'
+    Assert-NotContains -Collection $names -Value 'renamed_source' -Message 'and not under the file stem'
+    # It really loaded, and the assets are attributed to the new name. Only the clip
+    # is new: a model reports what its load *added* to the world's flat collections
+    # (World::LoadModel's NewKeys diff), and this is a copy of a file the fixture has
+    # already imported, so its mesh and material were there before it.
+    Assert-Match -Pattern 'animations=1' -Actual ((SendOk 'list_models')[0].Payload |
+        Where-Object { $_ -like 'hero_body *' })
+}
+
+Test 'a named model survives the round trip under that name' {
+    SendOk 'menu "File/Save Level"' | Out-Null
+    $level = Get-Content $LevelPath -Raw | ConvertFrom-Json
+    $entry = @($level.world.models) | Where-Object { $_.name -eq 'hero_body' }
+    Assert-True -Condition ($null -ne $entry) -Message 'the name is written beside the file'
+    # A model nothing uses yet still earns its entry once it carries a name: the name
+    # exists nowhere else, and the file would only ever say the stem.
+    Assert-Match -Pattern 'renamed_source' -Actual $entry.file
+
+    $reloadDir = Join-Path (Split-Path -Parent $ShotDir) 'reload-named-model'
+    $reloaded = New-EditorSession -Exe $Session.Exe -Level $LevelPath -AutomationDir $reloadDir
+    try {
+        $r = Invoke-EditorCommand -Session $reloaded -Command 'list_models'
+        $names = @($r[0].Payload | ForEach-Object { ($_ -split ' ')[0] })
+        Assert-Contains -Collection $names -Value 'hero_body' -Message 'reloaded under its name'
+        # And exactly once: the folder scan must recognize a file it already has by
+        # path, or the same .fbx comes back a second time under its stem.
+        Assert-NotContains -Collection $names -Value 'renamed_source' -Message 'not adopted twice'
+    }
+    finally {
+        Close-EditorSession -Session $reloaded
+    }
+}
+
+Test 'remove_model takes a model out of the project and out of the level' {
+    SendOk 'remove_model hero_body' | Out-Null
+    $names = @((SendOk 'list_models')[0].Payload | ForEach-Object { ($_ -split ' ')[0] })
+    Assert-NotContains -Collection $names -Value 'hero_body' -Message 'gone from the browser'
+    Assert-Err -Result (Send 'remove_model hero_body')[0] -Pattern 'unknown model'
+    Assert-Err -Result (Send 'remove_model nope')[0] -Pattern 'unknown model'
+
+    SendOk 'menu "File/Save Level"' | Out-Null
+    $level = Get-Content $LevelPath -Raw | ConvertFrom-Json
+    $names = @($level.world.models | ForEach-Object { $_.name })
+    Assert-NotContains -Collection $names -Value 'hero_body' -Message 'and out of the saved level'
+}

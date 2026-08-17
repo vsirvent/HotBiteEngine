@@ -27,6 +27,22 @@ cbuffer externalData : register(b0)
 	uint   invert_normals;
 	float  near_plane;
 	float  far_plane;
+	// The window the tile-list sort key is quantized over: the near and far extent of
+	// this cloud's own transformed bounding box from the camera. Fitted per cloud per
+	// frame by RenderSystem, because quantizing over the camera's clip range instead
+	// would put a whole cloud inside one or two of the 1022 steps.
+	float  depth_quant_min;
+	float  depth_quant_range;
+	// Screen-coverage LOD: the fraction of this cloud's splats to keep this frame, 1 when
+	// it is close enough to need all of them. RenderSystem fits it to the cloud's
+	// projected area so the pass costs what the cloud covers rather than what it holds.
+	float  splat_keep_prob;
+	// 1 / splat_keep_prob. Restores the coverage the dropped splats would have
+	// contributed - see the note at the alpha it multiplies.
+	float  splat_alpha_comp;
+	// Same slab the rasterizer uses, for the coarse reject against opaque geometry.
+	float  splat_depth_slab;
+	float  preprocess_pad0;
 }
 
 StructuredBuffer<SplatVertex> splats : register(t0);
@@ -36,8 +52,20 @@ StructuredBuffer<SplatVertex> splats : register(t0);
 Texture2D<float> depthTexture : register(t1);
 
 RWStructuredBuffer<SplatView> splat_views : register(u0);
-RWBuffer<uint> tile_counts : register(u1);
-RWBuffer<uint> tile_lists  : register(u2);
+// Per tile, the quantized depth of the nearest splat touching it. SplatBinCS culls
+// against this, which is the whole reason this pass no longer bins: the near depth of
+// a tile is not known until every splat has been projected.
+RWBuffer<uint> tile_depth : register(u1);
+
+// A rejected splat is marked by a zero radius rather than left as whatever the last
+// frame wrote - SplatBinCS reads this buffer rather than re-deriving the projection,
+// so it needs to be able to tell a live entry from a stale one. Writing the single
+// field costs 4 bytes against the 60 a full SplatView store would, which matters at
+// a million-odd splats a frame.
+void RejectSplat(uint idx)
+{
+	splat_views[idx].radius = 0.0f;
+}
 
 [numthreads(256, 1, 1)]
 void main(uint3 tid : SV_DispatchThreadID)
@@ -47,10 +75,49 @@ void main(uint3 tid : SV_DispatchThreadID)
 		return;
 	}
 
+	// Screen-coverage LOD, before anything is loaded or projected - the whole point is to
+	// not do that work.
+	//
+	// This is the one thing that makes the pass scale with distance. There is no natural
+	// size cull: the low-pass floor a few lines below adds 0.3 to both diagonal terms of
+	// the 2D covariance, so the smallest radius any splat can project to is
+	// 3*sqrt(0.4) ~ 1.9 px however far away it is. Distance therefore never removes
+	// splats, it only concentrates them - at 40 units this cloud still binned 3.4M
+	// entries, but into 4 tiles instead of 255, so one tile held 1.24M of them and four
+	// thread groups did all the work to produce 197 pixels. That is 183 ms of a 200 ms
+	// frame.
+	//
+	// Dropping uniformly at random is close to free here, and specifically because the
+	// far case is the oversampled one: the rasterizer takes an alpha-weighted *average*
+	// of albedo and normal, and the mean of a random subset is the same mean. Coverage
+	// (acc_w) does scale with the fraction kept, which is why the target is a few dozen
+	// splats per pixel rather than one - well inside where saturate(acc_w) still pins
+	// alpha to 1, so the cloud does not go translucent as it recedes.
+	if (splat_keep_prob < 1.0f && SplatHash01(idx) >= splat_keep_prob) {
+		RejectSplat(idx);
+		return;
+	}
+
 	SplatVertex s = splats[idx];
 
-	float alpha = s.opacity * splat_opacity_scale;
+	// Scaled by 1/keep_prob, so a kept splat stands for the ones dropped alongside it.
+	//
+	// Without this the LOD quietly changes *coverage* and not just sampling. The
+	// rasterizer's albedo, normal and depth are all normalized by acc_w, so a random
+	// subset gives the same answer for those - but alpha is saturate(acc_w) itself, and
+	// acc_w falls with the fraction kept. Interior pixels are oversampled enough that
+	// saturate() hides it; a thin tentacle or a silhouette is not, so its alpha slips
+	// under surface_alpha, the G-buffer write is skipped and the terrain behind shows
+	// through the object. Measured on the demo capture at the default density 16: 1.4% of
+	// the cloud's pixels reverted to the background, and 9.1% at density 4.
+	//
+	// Deliberately unclamped. The estimator is unbiased - a splat kept with probability p
+	// carries 1/p of the weight - so the mean coverage is right at any density; what a
+	// low one costs is variance, which shows as a noisier edge rather than as holes in
+	// the middle of the object.
+	float alpha = s.opacity * splat_opacity_scale * splat_alpha_comp;
 	if (alpha < SPLAT_MIN_ALPHA) {
+		RejectSplat(idx);
 		return;
 	}
 
@@ -59,6 +126,7 @@ void main(uint3 tid : SV_DispatchThreadID)
 	// Behind or on the near plane: the projection divides by a number at or below
 	// zero and the splat would land somewhere arbitrary on screen.
 	if (view_pos.z <= near_plane) {
+		RejectSplat(idx);
 		return;
 	}
 
@@ -102,6 +170,7 @@ void main(uint3 tid : SV_DispatchThreadID)
 
 	float det = a * c - b * b;
 	if (det <= 0.0f) {
+		RejectSplat(idx);
 		return;
 	}
 	float inv_det = 1.0f / det;
@@ -117,12 +186,14 @@ void main(uint3 tid : SV_DispatchThreadID)
 	// Under a third of a pixel it cannot change any pixel it lands on by more than
 	// the alpha cutoff, and a distant cloud is mostly made of these.
 	if (radius < 0.33f) {
+		RejectSplat(idx);
 		return;
 	}
 
 	float2 lo = screen_xy - radius;
 	float2 hi = screen_xy + radius;
 	if (hi.x < 0.0f || hi.y < 0.0f || lo.x >= screenW || lo.y >= screenH) {
+		RejectSplat(idx);
 		return;
 	}
 
@@ -134,7 +205,8 @@ void main(uint3 tid : SV_DispatchThreadID)
 						  clamp(screen_xy.y, 0, (float)screenH - 1));
 	float opaque_dist = depthTexture[centre_px];
 	float view_depth = length(world_pos.xyz - cameraPosition);
-	if (view_depth > opaque_dist + SPLAT_DEPTH_SLAB) {
+	if (view_depth > opaque_dist + splat_depth_slab) {
+		RejectSplat(idx);
 		return;
 	}
 
@@ -149,9 +221,12 @@ void main(uint3 tid : SV_DispatchThreadID)
 	v.radius = radius;
 	splat_views[idx] = v;
 
-	// Bin. Order within a tile is irrelevant - the rasterizer is order-independent
-	// by construction (min depth, then a weighted average inside a slab), which is
-	// the whole reason there is no sort pass between here and it.
+	// Record how near this splat is in every tile it touches. Nothing is binned here:
+	// the cull SplatBinCS applies is against the *tile's* nearest splat, and that is
+	// not known until every splat in the cloud has been projected. Hence the split -
+	// this pass ends at a minimum, the next one bins against it.
+	uint q = QuantizeSplatDepth(view_depth, depth_quant_min, depth_quant_range);
+
 	int tx0 = max(0, (int)(lo.x) / SPLAT_TILE_SIZE);
 	int ty0 = max(0, (int)(lo.y) / SPLAT_TILE_SIZE);
 	int tx1 = min((int)tiles_x - 1, (int)(hi.x) / SPLAT_TILE_SIZE);
@@ -159,15 +234,7 @@ void main(uint3 tid : SV_DispatchThreadID)
 
 	for (int ty = ty0; ty <= ty1; ++ty) {
 		for (int tx = tx0; tx <= tx1; ++tx) {
-			uint tile = ty * tiles_x + tx;
-			uint slot;
-			InterlockedAdd(tile_counts[tile], 1, slot);
-			if (slot < SPLAT_MAX_PER_TILE) {
-				tile_lists[tile * SPLAT_MAX_PER_TILE + slot] = idx;
-			}
-			// Past capacity the count still climbs, on purpose: the rasterizer
-			// clamps when it reads, and the excess is what tells the CPU the tile
-			// overflowed rather than hiding it.
+			InterlockedMin(tile_depth[ty * tiles_x + tx], q);
 		}
 	}
 }

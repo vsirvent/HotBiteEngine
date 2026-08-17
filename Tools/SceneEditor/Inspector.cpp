@@ -16,6 +16,7 @@
 #include <Components/Physics.h>
 #include <Components/Particles.h>
 #include <Components/Sky.h>
+#include <Core/SplatCloud.h>
 #include <DirectXMath.h>
 #include <algorithm>
 #include <cmath>
@@ -1341,6 +1342,109 @@ namespace HotBiteEditor {
 			ImGui::Text("Emitters: %d", (int)p.data.GetData().size());
 		}
 
+		static void DrawSplatCloud(EditorState& state, Coordinator* c, Entity e)
+		{
+			SplatCloud& cloud = c->GetComponent<SplatCloud>(e);
+			const std::string entity_name = EntityName(c, e);
+			Core::SplatCloudData* data = cloud.data;
+			const std::string cloud_name = (data != nullptr) ? data->GetName() : std::string();
+
+			//Which cloud asset this entity draws. A picker over the level's imported
+			//.ply clouds for exactly the reason the Mesh section's is one: the name has
+			//to resolve against a loaded asset, and one that does not leaves the entity
+			//holding the stand-in sphere - which looks like the component not working
+			//rather than like a name that was never found.
+			const std::vector<std::string> clouds = TemplateOps::ListSplatClouds(state);
+			if (ImGui::BeginCombo("Cloud", cloud_name.empty() ? "(none)" : cloud_name.c_str())) {
+				for (const std::string& option : clouds) {
+					if (ImGui::Selectable(option.c_str(), option == cloud_name) &&
+						option != cloud_name) {
+						nlohmann::json block =
+							ComponentOps::GetValue(state, entity_name, SplatCloud::NAME);
+						block["name"] = option;
+						std::string error;
+						if (!ComponentOps::SetValue(state, entity_name, SplatCloud::NAME,
+							block, error)) {
+							state.status_message = "Set splat cloud failed: " + error;
+						}
+					}
+				}
+				if (clouds.empty()) {
+					ImGui::TextDisabled("(this level has no splat clouds)");
+				}
+				ImGui::EndCombo();
+			}
+			if (ImGui::IsItemHovered()) {
+				ImGui::SetTooltip("The imported .ply this entity draws. File/Import Model...\n"
+					"brings one in; like a mesh, the cloud is a shared asset and\n"
+					"everything below is this entity's own multiplier over it.");
+			}
+			if (data == nullptr) {
+				ImGui::TextDisabled("(no cloud data)");
+				return;
+			}
+			ImGui::Text("Splats: %u", (unsigned)data->Count());
+
+			//Per entity, and all of them written straight into the live component - the
+			//splat pass reads them from there every frame, so the edit is visible while
+			//the drag is still happening. MarkEdited/RecordEdit is what gets it saved
+			//and undone (see SectionEdit).
+			SectionEdit edit(state, entity_name, SplatCloud::NAME);
+			edit.Track(ImGui::DragFloat("Opacity", &cloud.opacity_scale, 0.01f, 0.0f, 8.0f));
+			if (ImGui::IsItemHovered()) {
+				ImGui::SetTooltip("Scales every splat's alpha - the fade-out knob, and the only\n"
+					"way to make a cloud translucent without re-importing it.");
+			}
+			edit.Track(ImGui::DragFloat("Albedo", &cloud.albedo_scale, 0.01f, 0.0f, 8.0f));
+			if (ImGui::IsItemHovered()) {
+				ImGui::SetTooltip("Scales every splat's colour. A capture's colours are radiance\n"
+					"being reinterpreted as reflectance, so they routinely land too\n"
+					"bright or too dark next to authored materials.");
+			}
+			edit.Track(ImGui::DragFloat("Specular", &cloud.spec_intensity, 0.01f, 0.0f, 16.0f));
+			edit.Track(ImGui::Checkbox("Invert normals", &cloud.invert_normals));
+			if (ImGui::IsItemHovered()) {
+				ImGui::SetTooltip("The import points normals away from the cloud's centroid:\n"
+					"right for an object scanned from outside, backwards for a\n"
+					"room scanned from within.");
+			}
+			//A slider rather than a drag, and bounded away from both ends: at 0 the
+			//nearest floater is declared the surface and at 1 the crossing never
+			//happens, so both read as "the depth write is broken". Written here as well
+			//as in FromJson because this path never goes through it.
+			edit.Track(ImGui::SliderFloat("Surface alpha", &cloud.surface_alpha, 0.01f, 0.99f));
+			if (ImGui::IsItemHovered()) {
+				ImGui::SetTooltip("Where along the front-to-back accumulation the surface is:\n"
+					"the depth written to the G-buffer is where accumulated alpha\n"
+					"crosses this.");
+			}
+			//Logarithmic, because the useful range is a fraction of a percent of the
+			//cloud's depth at one end and the whole of it at the other, and a linear
+			//slider spends nearly all its travel in the part that looks the same.
+			edit.Track(ImGui::SliderFloat("Depth slab", &cloud.depth_slab, 0.001f, 1.0f,
+										  "%.3f", ImGuiSliderFlags_Logarithmic));
+			if (ImGui::IsItemHovered()) {
+				ImGui::SetTooltip("How far past the surface the pass keeps gathering, as a fraction\n"
+					"of the cloud's own depth extent. A surface thickness: too much\n"
+					"averages the surface behind this one in, so the cloud reads as\n"
+					"semi-transparent and its depth sits behind it; too little only\n"
+					"makes the average noisier.");
+			}
+			//Floored at 1 for the same reason FromJson floors it: below that the cloud
+			//stops covering pixels rather than merely getting coarser, which reads as it
+			//not rendering.
+			edit.Track(ImGui::DragFloat("Max density", &cloud.max_density, 0.25f, 1.0f, 256.0f));
+			if (ImGui::IsItemHovered()) {
+				ImGui::SetTooltip("Most splats worth drawing per screen pixel. The renderer keeps\n"
+					"a stable random subset sized to hold this many over the area the\n"
+					"cloud projects to, so cost follows what it covers rather than\n"
+					"what it holds - and an over-dense capture is thinned even at\n"
+					"full size. Lower to optimise a model, raise if a receding cloud\n"
+					"looks translucent rather than merely coarser.");
+			}
+			edit.Commit();
+		}
+
 		static void DrawLighted(Coordinator* c, Entity e)
 		{
 			const Lighted& l = c->GetConstComponent<Lighted>(e);
@@ -1363,6 +1467,7 @@ namespace HotBiteEditor {
 				{ Transform::NAME,        [](EditorState& s, Coordinator* c, Entity e) { DrawTransform(s, c, e); } },
 				{ Bounds::NAME,           [](EditorState& s, Coordinator* c, Entity e) { DrawBounds(c, e); } },
 				{ Mesh::NAME,             [](EditorState& s, Coordinator* c, Entity e) { DrawMesh(s, c, e); } },
+				{ SplatCloud::NAME,       [](EditorState& s, Coordinator* c, Entity e) { DrawSplatCloud(s, c, e); } },
 				{ Material::NAME,         [](EditorState& s, Coordinator* c, Entity e) { DrawMaterial(s, c, e); } },
 				{ AmbientLight::NAME,     [](EditorState& s, Coordinator* c, Entity e) { DrawAmbientLight(s, c, e); } },
 				{ DirectionalLight::NAME, [](EditorState& s, Coordinator* c, Entity e) { DrawDirectionalLight(s, c, e); } },

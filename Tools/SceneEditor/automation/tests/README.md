@@ -145,6 +145,27 @@ accumulates temporally (GI/ReSTIR/autofocus), so two captures of the same settle
 scene differ by a few percent of pixels. `Step-EditorFrames` before capturing, and
 compare shares rather than exact images.
 
+**A commanded camera pose can be lost, not just late - wait for it.** `camera_pos`
+is applied by `EditorCamera` on its own tick, and if the suite moves on before that
+happens the pose does not arrive a few frames later, it never arrives: the rest of
+the session renders from the level's default camera. It is silent, it lasts the
+whole file, and what it produces is a *plausible* picture of the wrong thing - in
+`19-multimaterials` the slab came out 396 px wide instead of 678, so every render
+assertion was measuring a different image and the failure surfaced on whichever one
+had the least margin. Poll the `camera` readout until the rig is where it was sent
+(`Set-CameraDistance` in `20-lods`, `Set-SlabView` in `19-multimaterials`) rather
+than stepping a fixed number of frames.
+
+**A sample rectangle that has slid off its subject fails as noise, not as a miss.**
+Every `Get-ImageStats` region is a fraction of the *whole editor window*, panels
+included, so a region can quietly end up measuring the sky, the background or an
+ImGui panel - and then an assertion like "blue beats red" is decided by a handful of
+near-black pixels. Three tests were failing this way (two comparing means of ~0.5
+against ~0.4 on empty background, one counting the Debug Buffer legend as motion).
+When a region is asserted on, assert that it is *on* its subject too: `LitShare`
+against the frame, or the depth buffer (`Assert-BandOnGeometry` in `21-gicache`),
+so a framing change reports itself instead of turning into a coin flip.
+
 **Motion vectors need the max over a run of frames, not one capture.**
 `StaticMeshSystem` and `Mesh::Update` recompute on the background tick, which does
 not line up with the render tick, so a given frame of a move may have no motion in

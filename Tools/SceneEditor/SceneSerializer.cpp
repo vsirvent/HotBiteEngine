@@ -369,15 +369,30 @@ namespace HotBiteEditor {
 					? (std::string("Objects\\") + fs::path(file_path).filename().string())
 					: rel.string();
 				};
-			auto list_model = [&jw](const std::string& reference, bool triangulate) {
+			auto list_model = [&jw](const std::string& reference, bool triangulate,
+				const std::string& name) {
+				//The name is written only when it is not the file stem, which is what
+				//World::LoadModel falls back to: every level that never renamed a model
+				//keeps the two-key entry it has always had.
+				const bool named =
+					name != fs::path(reference).filename().replace_extension().string();
 				for (auto& entry : jw["models"]) {
 					if (entry.contains("file") && entry["file"] == reference) {
+						if (named) {
+							entry["name"] = name;
+						}
+						else {
+							entry.erase("name");
+						}
 						return;
 					}
 				}
 				json entry;
 				entry["file"] = reference;
 				entry["triangulate"] = triangulate;
+				if (named) {
+					entry["name"] = name;
+				}
 				jw["models"].push_back(entry);
 			};
 			//An inline template's definition lives here rather than in a file, so its
@@ -490,13 +505,47 @@ namespace HotBiteEditor {
 				const World::ModelAssets* assets = state.world->GetModelAssets(m.name);
 				const bool listed_before = assets != nullptr && !assets->file.empty() &&
 					!fs::path(assets->file).is_absolute();
-				if (!listed_before && models_in_use.count(m.name) == 0) {
+				//A model imported under a name of its own always earns its entry, used or
+				//not: that name is authoring data and the file is the only other place it
+				//could come from - and the file says the stem. Everything else still has
+				//to be named by something (see above), or opening a project would mean
+				//loading every asset in it.
+				const bool named = !m.file_path.empty() &&
+					m.name != fs::path(m.file_path).filename().replace_extension().string();
+				if (!listed_before && !named && models_in_use.count(m.name) == 0) {
 					continue;
 				}
 				const std::string reference = (assets != nullptr && !assets->file.empty() &&
 					!fs::path(assets->file).is_absolute())
 					? assets->file : model_reference(m.file_path);
-				list_model(reference, assets != nullptr && assets->triangulate);
+				list_model(reference, assets != nullptr && assets->triangulate, m.name);
+			}
+			//A model the user removed has to *leave* the array, and this section merges
+			//into what the file already had rather than rewriting it - so an entry whose
+			//model is no longer in the project would otherwise sit there and be loaded
+			//again on the next open. Keyed by the file reference, which is what an entry
+			//actually carries; a model still in the project keeps its entry whether or
+			//not this save had a reason to write it.
+			{
+				std::set<std::string> project_models;
+				for (const auto& m : state.models) {
+					const World::ModelAssets* assets = state.world->GetModelAssets(m.name);
+					if (assets != nullptr && !assets->file.empty() &&
+						!fs::path(assets->file).is_absolute()) {
+						project_models.insert(assets->file);
+					}
+					if (!m.file_path.empty()) {
+						project_models.insert(model_reference(m.file_path));
+					}
+				}
+				json kept = json::array();
+				for (auto& entry : jw["models"]) {
+					if (!entry.contains("file") || !entry["file"].is_string() ||
+						project_models.count(entry["file"].get<std::string>()) != 0) {
+						kept.push_back(entry);
+					}
+				}
+				jw["models"] = kept;
 			}
 			//Every .fbx that used to sit in "templates" now lives in "models", so the
 			//old entries go. Their assets are still loaded - by the array above - and

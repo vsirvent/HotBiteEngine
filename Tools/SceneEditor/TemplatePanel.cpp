@@ -126,6 +126,23 @@ namespace HotBiteEditor {
 			return names;
 		}
 
+		std::vector<std::string> ListSplatClouds(const EditorState& state) {
+			std::vector<std::string> names;
+			if (state.world == nullptr) {
+				return names;
+			}
+			//The peer of ListMeshes over the world's splat cloud assets, and filtered the
+			//same way: the stand-in cloud is what an unassigned component is already
+			//drawing, not something to pick.
+			for (const std::string& name : state.world->GetSplatClouds().Keys()) {
+				if (!name.empty() && !IsInternalAsset(name)) {
+					names.push_back(name);
+				}
+			}
+			std::sort(names.begin(), names.end());
+			return names;
+		}
+
 		std::vector<AvailableClip> ListAvailableClips(const EditorState& state) {
 			std::vector<AvailableClip> clips;
 			if (state.world == nullptr) {

@@ -94,7 +94,8 @@ directory so relative asset paths in level files resolve the same way the other 
 | `list_templates` | every template (all of them placeable, all of them editable), with `in=file`/`in=level`, plus `unsaved` and `[selected]` |
 | `list_models` | every imported model (`.fbx`), with how many meshes, materials and animation clips each brought in, and `[selected]`. Models are assets, not objects: nothing here can be placed |
 | `model_info <name>` | one model's contents, one asset per line (`mesh` / `material` / `animation`) |
-| `import_model <.fbx path>` | same as File/Import Model...: copies the file into `<assets>/Objects/`, loads its assets, creates no template |
+| `import_model <.fbx path> [name]` | same as File/Import Model...: copies the file into `<assets>/Objects/`, loads its assets, creates no template. `name` is what the project knows the model by — the file stem when omitted, which is what it always used to be. It is only a registry key: the meshes, materials and clips inside the file keep their own names. A named import is written to the level's `models` array as `"name"` beside `"file"`, and earns its entry there even when nothing uses it yet (the name exists nowhere else) |
+| `remove_model <name>` | takes a model out of the project: it stops being listed and stops being saved with the level. Its meshes, materials and clips stay loaded until the level is reopened (they live in shared collections other models point into) and the file is left in `<assets>/Objects/`, so what this removes is the level's reference. **Not undoable**, like the import it reverses |
 | `select_model <name>` | selects a model in the Asset Browser's Models section |
 | `create_template_from_model <model> [template name]` | builds a template out of the model's first mesh node — its mesh, its material and its own rotation/scale. The path from an imported file to something placeable; fails for an animation-only model, which has no mesh |
 | `select_template <name>` | selects a template |
@@ -108,6 +109,7 @@ directory so relative asset paths in level files resolve the same way the other 
 | `duplicate_template <source> <new name>` | copies an authored template |
 | `remove_template <name>` | unregisters it. Objects already placed stay for the session but will not reload; the `.tpl` file is unlinked only when templates are saved, so this is undoable until then |
 | `list_meshes` | the mesh assets a template's Mesh can point at, with the animations each already offers |
+| `list_splat_clouds` | the Gaussian splat cloud assets a `SplatCloud` component can point at, with the splat count of each — what the Components panel's Cloud picker offers. The generated stand-in is left out, exactly as `list_meshes` leaves out the default cube: it is what an unassigned component is already drawing |
 | `list_animations` | every animation clip the imported models carry, with the model each came from — what `template_add_animation` picks from |
 | `template_mesh <template> <mesh>` | points the template at a mesh. The animation library is kept: a re-exported rig plays the same roles |
 | `template_material <template> <material>` | points the template at a material |

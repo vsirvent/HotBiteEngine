@@ -310,6 +310,10 @@ namespace HotBiteEditor {
 		// internal "__default_*" stand-in.
 		std::vector<std::string> ListMeshes(const EditorState& state);
 
+		// The same for Gaussian splat cloud assets (imported .ply files), which a
+		// SplatCloud component points at exactly as a Mesh points at a mesh.
+		std::vector<std::string> ListSplatClouds(const EditorState& state);
+
 		// Names of the objects currently placed from a template. Worth asking before
 		// removing one: those objects stay in the scene for the session but cannot be
 		// rebuilt on the next load, since the record that recreates them names a

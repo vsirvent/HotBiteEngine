@@ -306,7 +306,11 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 			nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("position_map.Init failed");
 		}
-		if (FAILED(prev_position_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT))) {
+		//UNORDERED_ACCESS for the same reason position_map has it: SplatRasterCS fills the
+		//whole G-buffer from compute, and a cloud with no previous position would report
+		//zero motion however fast it moved.
+		if (FAILED(prev_position_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT,
+			nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("prev_position_map.Init failed");
 		}
 		if (FAILED(bloom_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R11G11B10_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
@@ -373,6 +377,18 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		splat_preprocess = ShaderFactory::Get()->GetShader<SimpleComputeShader>("SplatPreprocessCS.cso");
 		if (splat_preprocess == nullptr) {
 			throw std::exception("splat_preprocess shader.Init failed");
+		}
+		splat_bin = ShaderFactory::Get()->GetShader<SimpleComputeShader>("SplatBinCS.cso");
+		if (splat_bin == nullptr) {
+			throw std::exception("splat_bin shader.Init failed");
+		}
+		splat_scan = ShaderFactory::Get()->GetShader<SimpleComputeShader>("SplatScanCS.cso");
+		if (splat_scan == nullptr) {
+			throw std::exception("splat_scan shader.Init failed");
+		}
+		splat_base = ShaderFactory::Get()->GetShader<SimpleComputeShader>("SplatBaseCS.cso");
+		if (splat_base == nullptr) {
+			throw std::exception("splat_base shader.Init failed");
 		}
 		splat_raster = ShaderFactory::Get()->GetShader<SimpleComputeShader>("SplatRasterCS.cso");
 		if (splat_raster == nullptr) {
@@ -1188,6 +1204,19 @@ void RenderSystem::LatchPreviousFrame(const Components::Camera& camera) {
 		//all frame, so its skinning matrices are the only record that anything moved.
 		de.mesh->LatchPrevJoints();
 	}
+	//Splat clouds separately, because `drawables` is built from the render trees and a
+	//cloud is not in them - it has no Mesh and no Material, and DrawSplats draws it. Left
+	//out, its prev_world_matrix keeps the zero it was constructed with, and a zero matrix
+	//is not merely a stale pose: SplatRasterCS reconstructs the previous position through
+	//inverse(world) * prev_world, which then sends every point to w = 0. The cloud reports
+	//full-strength motion while standing still, and every temporal pass downstream
+	//reprojects it to nowhere.
+	//
+	//An entity carrying both a Mesh and a SplatCloud is latched by both loops, which is
+	//the same assignment twice.
+	for (SplatEntity& se : splat_clouds.GetData()) {
+		se.transform->prev_world_matrix = se.transform->world_matrix;
+	}
 }
 
 void RenderSystem::DrawParticles(int w, int h, const float3& camera_position, const matrix& view, const matrix& projection, RenderParticleTree& tree) {
@@ -1622,19 +1651,26 @@ bool RenderSystem::EnsureSplatBuffers(uint32_t splat_count, uint32_t tiles_x, ui
 		}
 		splat_views_capacity = splat_count;
 	}
+	//A fixed 16 bytes, so it is created once rather than tracked against anything.
+	if (splat_stats.SizeBytes() == 0 && FAILED(splat_stats.Init(SPLAT_STATS_BYTES, true))) {
+		LOG_ERROR("RenderSystem::EnsureSplatBuffers: splat_stats.Init failed");
+		return false;
+	}
 	if (tiles_x != splat_tiles_x || tiles_y != splat_tiles_y) {
 		const uint32_t tiles = tiles_x * tiles_y;
-		//SPLAT_MAX_PER_TILE entries per tile, flat: a tile's list is a fixed slice at
-		//tile * SPLAT_MAX_PER_TILE, because DX11 cannot allocate mid-frame and a tile
-		//that wants more drops the overflow. At 1080p that is 8160 tiles and ~33 MB,
-		//which is the price of the sort-free design and is only paid once a level
-		//actually contains a splat cloud - nothing here is allocated before then.
-		if (FAILED(splat_tile_counts.Init(tiles)) ||
-			FAILED(splat_tile_lists.Init(tiles * SPLAT_MAX_PER_TILE))) {
+		//All per tile or per (tile, bucket): at 1080p that is 8160 tiles, so under 1.2 MB
+		//for the lot. The entry pool is the only large allocation and it is sized by
+		//content below, not by tiles.
+		if (FAILED(splat_tile_depth.Init(tiles)) ||
+			FAILED(splat_tile_total.Init(tiles)) ||
+			FAILED(splat_tile_base.Init(tiles)) ||
+			FAILED(splat_bucket_offsets.Init(tiles * SPLAT_DEPTH_BUCKETS))) {
 			LOG_ERROR("RenderSystem::EnsureSplatBuffers: tile buffer Init failed for %ux%u tiles",
 				tiles_x, tiles_y);
-			splat_tile_counts.Release();
-			splat_tile_lists.Release();
+			splat_tile_depth.Release();
+			splat_tile_total.Release();
+			splat_tile_base.Release();
+			splat_bucket_offsets.Release();
 			splat_tiles_x = 0;
 			splat_tiles_y = 0;
 			return false;
@@ -1642,11 +1678,41 @@ bool RenderSystem::EnsureSplatBuffers(uint32_t splat_count, uint32_t tiles_x, ui
 		splat_tiles_x = tiles_x;
 		splat_tiles_y = tiles_y;
 	}
+
+	//The pool. Grown from what the GPU reported it actually needed last time it was
+	//asked, and never shrunk - the readback is several frames stale and a cloud the
+	//camera is swinging past would otherwise thrash. `wanted` is a floor rather than an
+	//exact size: the first frame has no measurement, and a frame that came up short
+	//still has to allocate for what it *asked* for, not for what it managed to write.
+	//The floor matters more than the per-splat term, and not for the reason it looks
+	//like. Entries per splat is not near 1: a splat is binned into every tile its 3
+	//sigma ellipse touches, and a *small* cloud close to the camera has the largest
+	//ellipses - the automation fixture's 600-splat sphere projects each splat ~68 px
+	//across, which is ~72 tiles apiece, or 120 entries per splat. A big capture seen
+	//from a normal distance sits under 2. No single multiplier covers both, which is
+	//why the measurement below is what actually sizes this and the floor only has to
+	//carry a small cloud until the measurement lands.
+	uint32_t wanted = max(splat_count, SPLAT_POOL_MIN_ENTRIES);
+	if (splat_stats_cpu.total_binned > 0) {
+		wanted = max(wanted, (uint32_t)(splat_stats_cpu.total_binned * SPLAT_POOL_MARGIN));
+	}
+	if (wanted > splat_entries_capacity) {
+		if (FAILED(splat_entries.Init(wanted))) {
+			LOG_ERROR("RenderSystem::EnsureSplatBuffers: splat_entries.Init failed for %u entries (%.1f MB)",
+				wanted, (float)(wanted * sizeof(uint32_t)) / (1024.0f * 1024.0f));
+			splat_entries.Release();
+			splat_entries_capacity = 0;
+			return false;
+		}
+		splat_entries_capacity = wanted;
+	}
 	return true;
 }
 
 void RenderSystem::DrawSplats(int w, int h, const float3& camera_position, const matrix& view, const matrix& projection) {
-	if (splat_clouds.GetData().empty() || splat_preprocess == nullptr || splat_raster == nullptr) {
+	if (splat_clouds.GetData().empty() || splat_preprocess == nullptr ||
+		splat_bin == nullptr || splat_scan == nullptr || splat_base == nullptr ||
+		splat_raster == nullptr) {
 		return;
 	}
 	//The scene colour this composites into is the post-process chain's own texture -
@@ -1664,6 +1730,7 @@ void RenderSystem::DrawSplats(int w, int h, const float3& camera_position, const
 
 	const uint32_t tiles_x = ((uint32_t)w + SPLAT_TILE_SIZE - 1) / SPLAT_TILE_SIZE;
 	const uint32_t tiles_y = ((uint32_t)h + SPLAT_TILE_SIZE - 1) / SPLAT_TILE_SIZE;
+	const uint32_t tile_total_count = tiles_x * tiles_y;
 
 	//The scratch buffers hold one cloud at a time, so they are sized for the largest
 	//one about to be drawn rather than for the sum. Measured before anything is
@@ -1707,7 +1774,12 @@ void RenderSystem::DrawSplats(int w, int h, const float3& camera_position, const
 	splat_material.opacity = 1.0f;
 	splat_material.density = 1.0f;
 	splat_material.emission = 0.0f;
-	splat_material.flags = 0;
+	//Ray tracing on, and it is the one flag that matters here: the rasterizer clears
+	//every texture-map bit but keeps this one, and it decides whether the ray sources a
+	//splat pixel writes are ones the tracers follow or ones they skip. Off, a cloud
+	//fills the G-buffer and still cannot be seen in a reflection or gathered from by
+	//ReSTIR.
+	splat_material.flags = RAY_TRACING_ENABLED_FLAG;
 
 	for (SplatEntity& e : splat_clouds.GetData()) {
 		if (!e.base->visible || e.cloud->data == nullptr || !e.cloud->data->Prepared()) {
@@ -1717,10 +1789,75 @@ void RenderSystem::DrawSplats(int w, int h, const float3& camera_position, const
 		if (count == 0) {
 			continue;
 		}
+		//The window the depth quantization spans: how near and how far this
+		//cloud reaches from the camera. Fitted per cloud rather than taken from the
+		//camera's clip planes, because 1022 steps spread over 0.01..1000 would put a
+		//whole cloud inside one or two of them and the sort would order nothing.
+		//
+		//Via the cloud's bounding *sphere*, and that is not a shortcut. The obvious fit -
+		//min and max over the distances to the eight transformed box corners - gets the
+		//far end right and the near end wrong, because the nearest point of a box to a
+		//camera outside it is generally on a face, not at a corner. Over-tight is the one
+		//failure mode that matters here: the shader saturates, so every splat nearer than
+		//the fit quantizes to step 0, the whole front of the cloud ties in the sort, and
+		//`nearest` becomes an arbitrary pick that drags surface_depth, the reconstructed
+		//world position and therefore the lighting with it. A sphere around the corners
+		//is always conservative, and a slightly loose range only costs quantization
+		//resolution the 1022 steps have to spare.
+		const float3 bmin = e.cloud->data->min_dimensions;
+		const float3 bmax = e.cloud->data->max_dimensions;
+		const vector3d cam = XMLoadFloat3(&camera_position);
+		//world_xmmatrix, NOT world_matrix. The latter is stored transposed, because that
+		//is the convention every shader reads `world` under (see SplatCloudSystem's
+		//ComposeTransform) - and XMVector3TransformCoord wants the untransposed form, so
+		//loading the stored one puts the translation in the wrong place and returns a
+		//point unrelated to the cloud. It fails quietly: the fit still produces *a*
+		//number, so the depth quantization and the tile cull both go on comparing values
+		//that no longer describe anything.
+		const matrix cloud_world = e.transform->world_xmmatrix;
+		const float3 local_centre{ (bmin.x + bmax.x) * 0.5f,
+								   (bmin.y + bmax.y) * 0.5f,
+								   (bmin.z + bmax.z) * 0.5f };
+		const vector3d centre = XMVector3TransformCoord(XMLoadFloat3(&local_centre), cloud_world);
+		float radius = 0.0f;
+		for (int c = 0; c < 8; ++c) {
+			const float3 corner{ (c & 1) ? bmax.x : bmin.x,
+								 (c & 2) ? bmax.y : bmin.y,
+								 (c & 4) ? bmax.z : bmin.z };
+			const vector3d wp = XMVector3TransformCoord(XMLoadFloat3(&corner), cloud_world);
+			radius = max(radius, XMVectorGetX(XMVector3Length(XMVectorSubtract(wp, centre))));
+		}
+		const float centre_dist = XMVectorGetX(XMVector3Length(XMVectorSubtract(centre, cam)));
+		//Clamped at zero for a camera inside the cloud, where the nearest splat is
+		//underfoot rather than a sphere radius away.
+		const float depth_min = max(0.0f, centre_dist - radius);
+		const float depth_max = centre_dist + radius;
+		//A degenerate range (a single-point cloud) would divide by zero in the shader and
+		//quantize everything to one step, which is correct-but-useless rather than wrong -
+		//the floor just keeps it finite.
+		const float depth_range = max(1e-3f, depth_max - depth_min);
+		//The slab, fitted to this cloud rather than fixed in world units - the component
+		//authors it as a fraction of the cloud's own depth extent, see the note on
+		//Components::SplatCloud::depth_slab. Both passes get the same value: the
+		//rasterizer's tail past the surface it found, and the preprocess pass's slack on
+		//the coarse reject against the depth pre-pass, which is the same thickness
+		//measured from the other side.
+		const float depth_slab =
+			depth_range * max(SPLAT_SLAB_MIN_FRACTION, e.cloud->depth_slab);
+		//World size of one quantization step, which is the slack the rasterizer's
+		//front-to-back walk gives its occlusion cutoff.
+		const float depth_step = depth_range / (float)SPLAT_MAX_DEPTH_STEP;
+
 		// --- project every Gaussian and bin it into the tiles it covers ---------------
-		//Zeroed per cloud, not per frame: the bins describe one cloud's splats and the
-		//rasterizer consumes them before the next cloud refills them.
-		splat_tile_counts.Clear(0);
+		//Reset per cloud, not per frame: the structure describes one cloud's splats and
+		//the rasterizer consumes it before the next cloud refills it. The entry pool is
+		//deliberately NOT cleared - every entry a tile's slice contains is written by the
+		//scatter, and the pool is far the largest buffer here.
+		splat_bucket_offsets.Clear(0);
+		//All ones, so the first splat to touch a tile wins the InterlockedMin and a tile
+		//nothing touches rejects every splat rather than accepting them all.
+		splat_tile_depth.Clear(SPLAT_NO_DEPTH);
+		splat_stats.Clear(0);
 
 		const float3 albedo_tint{ e.cloud->albedo_scale, e.cloud->albedo_scale, e.cloud->albedo_scale };
 		splat_preprocess->SetMatrix4x4(WORLD, e.transform->world_matrix);
@@ -1738,22 +1875,144 @@ void RenderSystem::DrawSplats(int w, int h, const float3& camera_position, const
 		splat_preprocess->SetInt("invert_normals", e.cloud->invert_normals ? 1 : 0);
 		splat_preprocess->SetFloat("near_plane", near_z);
 		splat_preprocess->SetFloat("far_plane", far_z);
+		splat_preprocess->SetFloat("depth_quant_min", depth_min);
+		splat_preprocess->SetFloat("depth_quant_range", depth_range);
+		//Screen-coverage LOD. The cloud's bounding sphere projects to a disc of this many
+		//pixels; past `max_density` splats over each of them the extra ones only refine an
+		//average that has already converged, so keep that many and drop the rest before
+		//they are loaded.
+		//
+		//One expression covers both jobs the density knob has. It falls with distance
+		//because the area does - which is what stops a cloud costing the same 3.4M binned
+		//entries at 100 units as at 2 - and it binds at full size for a capture carrying
+		//more splats than its silhouette can show, which is how an over-dense model is
+		//thinned without re-importing it. Clamped to 1, so a cloud that is not over its
+		//density is untouched and this costs one comparison per splat.
+		const float screen_radius_px =
+			(radius / max(near_z, centre_dist)) / max(1e-4f, tan_half_v) * ((float)h * 0.5f);
+		const float area_px = XM_PI * screen_radius_px * screen_radius_px;
+		const float keep_prob = (count > 0)
+			? min(1.0f, (max(1.0f, e.cloud->max_density) * area_px) / (float)count)
+			: 1.0f;
+		splat_preprocess->SetFloat("splat_keep_prob", keep_prob);
+		//Computed here rather than as a reciprocal per splat, and it is what keeps the
+		//LOD from changing how much of a pixel the cloud covers.
+		splat_preprocess->SetFloat("splat_alpha_comp", 1.0f / max(1e-6f, keep_prob));
+		splat_preprocess->SetFloat("splat_depth_slab", depth_slab);
 		splat_preprocess->SetShaderResourceView("splats", *(e.cloud->data->SRV()));
 		//The depth pre-pass result, for the coarse reject. Read here and *written* by
 		//the rasterizer below, which is why it is unbound before that dispatch rather
 		//than left for D3D to unbind with a hazard warning.
 		splat_preprocess->SetShaderResourceView(DEPTH_TEXTURE, depth_map.SRV());
 		splat_preprocess->SetUnorderedAccessView("splat_views", splat_views.UAV());
-		splat_preprocess->SetUnorderedAccessView("tile_counts", splat_tile_counts.UAV());
-		splat_preprocess->SetUnorderedAccessView("tile_lists", splat_tile_lists.UAV());
+		splat_preprocess->SetUnorderedAccessView("tile_depth", splat_tile_depth.UAV());
 		splat_preprocess->CopyAllBufferData();
 		splat_preprocess->SetShader();
-		context->Dispatch((count + SPLAT_PREPROCESS_GROUP - 1) / SPLAT_PREPROCESS_GROUP, 1, 1);
+		const uint32_t splat_groups = (count + SPLAT_PREPROCESS_GROUP - 1) / SPLAT_PREPROCESS_GROUP;
+		context->Dispatch(splat_groups, 1, 1);
 		splat_preprocess->SetShaderResourceView("splats", nullptr);
 		splat_preprocess->SetShaderResourceView(DEPTH_TEXTURE, nullptr);
 		splat_preprocess->SetUnorderedAccessView("splat_views", nullptr);
-		splat_preprocess->SetUnorderedAccessView("tile_counts", nullptr);
-		splat_preprocess->SetUnorderedAccessView("tile_lists", nullptr);
+		splat_preprocess->SetUnorderedAccessView("tile_depth", nullptr);
+
+		// --- bin what is near enough to each tile's own nearest splat -----------------
+		//The cull window, in quantization steps rather than world units so the shader
+		//compares two integers against exactly what the pass above wrote. Rounded up and
+		//floored at one step: a window of zero steps would keep only splats that quantize
+		//identically to the tile minimum, which is a far tighter test than intended.
+		//The depth bands span the cloud's WHOLE quantized range, so no entry is ever
+		//clamped into the last one. That is a correctness requirement, not a tuning
+		//choice. A narrower span looks better on paper - finer bands exactly where the
+		//rasterizer's slab lives - but everything past it piles into the final band as an
+		//unordered mass, and the rasterizer's early-out is only sound where the ordering
+		//is real. A pixel whose surface fell inside that mass had its accumulation cut
+		//short at whatever entry the atomics happened to put first: tile-shaped, because
+		//the bands are measured from a per-tile minimum, and flickering, because atomic
+		//order changes every frame. Measured at a 0.1 span it put the tile-edge ratio
+		//back to 1.68x and returned 0.17% flicker to a frame that was otherwise
+		//bit-identical.
+		//
+		//Spanning the range costs less resolution than it appears to: 32 bands over the
+		//cloud's depth are each a fraction of the slab, so the walk still stops after a
+		//handful of them.
+		const float bucket_span_world = depth_range;
+		const uint32_t bucket_span_steps = SPLAT_MAX_DEPTH_STEP;
+		splat_bin->SetInt("splat_count", (int)count);
+		splat_bin->SetInt("tiles_x", (int)tiles_x);
+		splat_bin->SetInt("tiles_y", (int)tiles_y);
+		splat_bin->SetFloat("depth_quant_min", depth_min);
+		splat_bin->SetFloat("depth_quant_range", depth_range);
+		splat_bin->SetInt("bucket_span_steps", (int)bucket_span_steps);
+		splat_bin->SetInt("entry_capacity", (int)splat_entries_capacity);
+		splat_bin->SetShaderResourceView("splat_views", splat_views.SRV());
+		splat_bin->SetShaderResourceView("tile_depth", splat_tile_depth.SRV());
+		splat_bin->SetUnorderedAccessView("bucket_offsets", splat_bucket_offsets.UAV());
+		splat_bin->SetUnorderedAccessView("splat_stats", splat_stats.UAV());
+
+		//Pass 0: histogram only. tile_base does not exist yet, and splat_entries is not
+		//written, so neither is bound.
+		splat_bin->SetInt("bin_pass", 0);
+		splat_bin->CopyAllBufferData();
+		splat_bin->SetShader();
+		context->Dispatch(splat_groups, 1, 1);
+		splat_bin->SetUnorderedAccessView("bucket_offsets", nullptr);
+
+		// --- turn the histogram into an allocation ------------------------------------
+		//Two levels. A tile has only SPLAT_DEPTH_BUCKETS counters, so its scan fits in one
+		//group with nothing spilled; the per-tile totals that leaves behind are the only
+		//thing that has to be scanned across the whole frame, and there are few enough of
+		//those for a single group to do it. That decomposition is what avoids a general
+		//multi-block scan with block sums and a third pass.
+		splat_scan->SetInt("tile_count", (int)tile_total_count);
+		splat_scan->SetUnorderedAccessView("bucket_offsets", splat_bucket_offsets.UAV());
+		splat_scan->SetUnorderedAccessView("tile_total", splat_tile_total.UAV());
+		splat_scan->SetUnorderedAccessView("splat_stats", splat_stats.UAV());
+		splat_scan->CopyAllBufferData();
+		splat_scan->SetShader();
+		context->Dispatch(tile_total_count, 1, 1);
+		splat_scan->SetUnorderedAccessView("bucket_offsets", nullptr);
+		splat_scan->SetUnorderedAccessView("tile_total", nullptr);
+		splat_scan->SetUnorderedAccessView("splat_stats", nullptr);
+
+		splat_base->SetInt("tile_count", (int)tile_total_count);
+		splat_base->SetShaderResourceView("tile_total", splat_tile_total.SRV());
+		splat_base->SetUnorderedAccessView("tile_base", splat_tile_base.UAV());
+		splat_base->SetUnorderedAccessView("splat_stats", splat_stats.UAV());
+		splat_base->CopyAllBufferData();
+		splat_base->SetShader();
+		context->Dispatch(1, 1, 1);
+		splat_base->SetShaderResourceView("tile_total", nullptr);
+		splat_base->SetUnorderedAccessView("tile_base", nullptr);
+		splat_base->SetUnorderedAccessView("splat_stats", nullptr);
+
+		//Pass 1: the same enumeration again, writing this time. bucket_offsets now holds
+		//each bucket's start within its tile and is used as the cursor.
+		//
+		//EVERY binding is re-established here, including the two that were already set
+		//before pass 0. D3D11 binding slots belong to the *stage*, not to the shader
+		//object SimpleShader hangs its API on, so the scan dispatches in between - which
+		//bind their own resources at their own t0/t1 and then null them on cleanup -
+		//leave this shader's slots holding whatever they last set. Relying on a binding
+		//to survive an intervening dispatch is what made the scatter read splat_views as
+		//null: every splat came back with radius 0, took the reject path, and the pool
+		//was never written at all. Nothing about that is visible except as an empty
+		//frame, since the counting pass had already produced correct-looking totals.
+		splat_bin->SetInt("bin_pass", 1);
+		splat_bin->SetShaderResourceView("splat_views", splat_views.SRV());
+		splat_bin->SetShaderResourceView("tile_depth", splat_tile_depth.SRV());
+		splat_bin->SetShaderResourceView("tile_base", splat_tile_base.SRV());
+		splat_bin->SetUnorderedAccessView("bucket_offsets", splat_bucket_offsets.UAV());
+		splat_bin->SetUnorderedAccessView("splat_entries", splat_entries.UAV());
+		splat_bin->SetUnorderedAccessView("splat_stats", splat_stats.UAV());
+		splat_bin->CopyAllBufferData();
+		splat_bin->SetShader();
+		context->Dispatch(splat_groups, 1, 1);
+		splat_bin->SetShaderResourceView("splat_views", nullptr);
+		splat_bin->SetShaderResourceView("tile_depth", nullptr);
+		splat_bin->SetShaderResourceView("tile_base", nullptr);
+		splat_bin->SetUnorderedAccessView("bucket_offsets", nullptr);
+		splat_bin->SetUnorderedAccessView("splat_entries", nullptr);
+		splat_bin->SetUnorderedAccessView("splat_stats", nullptr);
 
 		// --- rasterize the bins, lit by the scene's own lights ------------------------
 		splat_raster->SetMatrix4x4(WORLD, e.transform->world_matrix);
@@ -1766,6 +2025,27 @@ void RenderSystem::DrawSplats(int w, int h, const float3& camera_position, const
 		splat_raster->SetInt("tiles_x", (int)tiles_x);
 		splat_raster->SetInt("tiles_y", (int)tiles_y);
 		splat_raster->SetFloat("surface_alpha", e.cloud->surface_alpha);
+		//The slice is ordered only to bucket granularity, so this is the slack both of
+		//the rasterizer's early-outs carry.
+		splat_raster->SetFloat("splat_bucket_width", bucket_span_world / (float)SPLAT_DEPTH_BUCKETS);
+		splat_raster->SetFloat("splat_depth_slab", depth_slab);
+		//The quantization window and the tile near-depths, so the rasterizer can snap the
+		//surface it finds to a band boundary - see the note in its pass 1.
+		splat_raster->SetFloat("splat_quant_min", depth_min);
+		splat_raster->SetFloat("splat_quant_range", depth_range);
+		//inverse(world) * prev_world, so the rasterizer can take a world position of this
+		//cloud back to where that point was last frame without storing a previous position
+		//per splat. Built from world_xmmatrix and the *untransposed* previous matrix, then
+		//transposed on the way out - the same convention `world` is uploaded under.
+		//prev_world_matrix is latched once per frame by LatchPreviousFrame, so on a frame
+		//where the cloud has not moved this comes out as the identity and the two position
+		//maps agree, which is exactly zero motion.
+		const matrix prev_world = XMMatrixTranspose(XMLoadFloat4x4(&e.transform->prev_world_matrix));
+		const matrix prev_from_world = XMMatrixMultiply(
+			XMMatrixInverse(nullptr, e.transform->world_xmmatrix), prev_world);
+		float4x4 prev_from_world_t;
+		XMStoreFloat4x4(&prev_from_world_t, XMMatrixTranspose(prev_from_world));
+		splat_raster->SetMatrix4x4("prev_world_from_world", prev_from_world_t);
 		splat_raster->SetFloat(TIME, frame_time);
 		splat_raster->SetData(MATERIAL, &splat_material, sizeof(MaterialProps));
 		if (sky != nullptr) {
@@ -1779,26 +2059,65 @@ void RenderSystem::DrawSplats(int w, int h, const float3& camera_position, const
 		//SRVs, not the UAVs the preprocess wrote them through: nothing here writes them
 		//back, and a read-only bind does not serialize against the other UAV users.
 		splat_raster->SetShaderResourceView("splat_views", splat_views.SRV());
-		splat_raster->SetShaderResourceView("tile_counts", splat_tile_counts.SRV());
-		splat_raster->SetShaderResourceView("tile_lists", splat_tile_lists.SRV());
+		splat_raster->SetShaderResourceView("tile_base", splat_tile_base.SRV());
+		splat_raster->SetShaderResourceView("tile_total", splat_tile_total.SRV());
+		splat_raster->SetShaderResourceView("splat_entries", splat_entries.SRV());
+		splat_raster->SetShaderResourceView("tile_depth", splat_tile_depth.SRV());
 		splat_raster->SetUnorderedAccessView("scene_out", scene_uav);
 		splat_raster->SetUnorderedAccessView("light_out", current_light_map->UAV());
 		splat_raster->SetUnorderedAccessView("depth_out", depth_map.UAV());
+		//The rest of the G-buffer, in the same targets DrawScene bound as render targets
+		//5/6 and 3/4. Bound as UAVs here and as RTVs there, never both at once.
+		splat_raster->SetUnorderedAccessView("rt_ray0_out", rt_ray_sources0.UAV());
+		splat_raster->SetUnorderedAccessView("rt_ray1_out", rt_ray_sources1.UAV());
+		splat_raster->SetUnorderedAccessView("position_out", position_map.UAV());
+		splat_raster->SetUnorderedAccessView("prev_position_out", prev_position_map.UAV());
+		splat_raster->SetUnorderedAccessView("splat_stats", splat_stats.UAV());
 		splat_raster->CopyAllBufferData();
 		splat_raster->SetShader();
 		//One group per tile, and the group is the tile: SPLAT_TILE_SIZE^2 threads, one
 		//per pixel of it.
 		context->Dispatch(tiles_x, tiles_y, 1);
 		splat_raster->SetShaderResourceView("splat_views", nullptr);
-		splat_raster->SetShaderResourceView("tile_counts", nullptr);
-		splat_raster->SetShaderResourceView("tile_lists", nullptr);
+		splat_raster->SetShaderResourceView("tile_base", nullptr);
+		splat_raster->SetShaderResourceView("tile_total", nullptr);
+		splat_raster->SetShaderResourceView("splat_entries", nullptr);
+		splat_raster->SetShaderResourceView("tile_depth", nullptr);
 		splat_raster->SetShaderResourceView("rgbaNoise", nullptr);
 		//Released before the next cloud's preprocess reads depth_map as an SRV, and
 		//before anything downstream binds these three as inputs.
 		splat_raster->SetUnorderedAccessView("scene_out", nullptr);
 		splat_raster->SetUnorderedAccessView("light_out", nullptr);
 		splat_raster->SetUnorderedAccessView("depth_out", nullptr);
+		splat_raster->SetUnorderedAccessView("rt_ray0_out", nullptr);
+		splat_raster->SetUnorderedAccessView("rt_ray1_out", nullptr);
+		splat_raster->SetUnorderedAccessView("position_out", nullptr);
+		splat_raster->SetUnorderedAccessView("prev_position_out", nullptr);
+		splat_raster->SetUnorderedAccessView("splat_stats", nullptr);
 		UnprepareLights(splat_raster);
+
+		//Never blocks: the copy taken this frame is read several frames from now, and a
+		//failed map leaves the previous reading in place - the right answer for counters
+		//nothing is gated on. Only while something is asking, for the same reason the
+		//radiance cache readback is gated.
+		//Unconditional, unlike the radiance cache counters this is otherwise modelled on.
+		//`total_binned` is not a diagnostic here - it is what EnsureSplatBuffers sizes the
+		//entry pool from - so gating it on something having asked for stats means the pool
+		//never grows unless a tool happens to be watching. That is exactly what happened:
+		//the automation fixture's cloud rendered at 2.6% of its coverage because nothing
+		//in the suite calls splat_info, so the measurement never landed and the pool stayed
+		//at its floor. A 32-byte CopyResource and a non-blocking Map, only on frames that
+		//actually drew a cloud, is the right price for a value the frame depends on.
+		splat_stats_cpu.capacity = splat_entries_capacity;
+		uint32_t raw[SPLAT_STATS_BYTES / sizeof(uint32_t)] = {};
+		if (splat_stats.Readback(raw, sizeof(raw))) {
+			splat_stats_cpu.tiles_used = raw[0];
+			splat_stats_cpu.max_per_tile = raw[1];
+			splat_stats_cpu.total_binned = raw[2];
+			splat_stats_cpu.dropped = raw[5];
+			splat_stats_cpu.tiles_rastered = raw[6];
+			splat_stats_cpu.pixels_written = raw[7];
+		}
 	}
 	context->CSSetShader(nullptr, nullptr, 0);
 }

@@ -59,7 +59,19 @@ function Set-CameraDistance {
     $tolerance = $Distance * 0.01 + 0.01
     for ($i = 0; $i -lt 30; $i += 2) {
         $cam = Get-Camera -Session $Session
-        if ([Math]::Abs([double]$cam.distance - $Distance) -le $tolerance) {
+        # world_position, not distance. `distance` is the rig's focus distance and
+        # follows the command almost at once; `world_position` is the camera the
+        # frame was actually drawn from, and SelectLods measures coverage from that
+        # one. They used to be able to disagree forever - CameraSystem shared
+        # Transform::dirty with StaticMeshSystem on a different timer, so a pose
+        # could reach the Transform and never the view matrix (fixed in
+        # Components::Camera, which now tracks its own inputs). Waiting on the
+        # rendered pose is what makes this test say so if it ever comes back.
+        $rendered = [Math]::Sqrt(($cam.world_position[0] * $cam.world_position[0]) +
+                                 ($cam.world_position[1] * $cam.world_position[1]) +
+                                 ($cam.world_position[2] * $cam.world_position[2]))
+        if ([Math]::Abs([double]$cam.distance - $Distance) -le $tolerance -and
+            [Math]::Abs($rendered - $Distance) -le $tolerance) {
             # There, and then a few frames for the render (and SelectLods with it) to
             # have run at the new pose.
             Step-EditorFrames -Session $Session -Count 3
@@ -67,13 +79,35 @@ function Set-CameraDistance {
         }
         Step-EditorFrames -Session $Session -Count 2
     }
-    throw ("camera never reached distance $Distance " +
-           "(at $((Get-Camera -Session $Session).distance))")
+    $cam = Get-Camera -Session $Session
+    throw ("camera never reached distance $Distance (focus $($cam.distance), " +
+           "rendered at $($cam.world_position -join ', '))")
 }
 
 function Set-Chain {
     param([string]$Entity, [string]$Json)
     SendOk "set_component $Entity Mesh ""$Json""" | Out-Null
+}
+
+# Steps frames until `Entity` is drawn at level `Want`, up to a limit. The selection
+# happens on the render thread from a screen coverage that settles over a few frames,
+# with a 10% hysteresis margin on top, so a fixed frame count is a race. Throws if it
+# never gets there, which is the regression this guards.
+#
+# Defined up here with the other helpers, not next to its first user: a suite file is
+# executed top to bottom and a Test body runs as it is reached, so a function declared
+# below one is simply not defined yet when that test runs.
+function Wait-Lod {
+    param([string]$Entity, [int]$Want, [int]$MaxFrames = 30)
+    for ($i = 0; $i -lt $MaxFrames; $i += 2) {
+        $lod = Get-Lod $Entity
+        if ([int]$lod.current -eq $Want) { return $lod }
+        Step-EditorFrames -Session $Session -Count 2
+    }
+    $l = Get-Lod $Entity
+    throw ("$Entity never reached level $Want after $MaxFrames frames " +
+           "(current=$($l.current) enabled=$($l.enabled) levels=$($l.levels) " +
+           "mode=$($l.mode) bias=$($l.bias) index_count=$($l.index_count))")
 }
 
 #--- the chain ----------------------------------------------------------------
@@ -138,11 +172,19 @@ Test 'a skinned mesh will not take an unskinned stand-in' {
 
 #--- switching: screen area ---------------------------------------------------
 
+# Every switching test below reads the level through Wait-Lod rather than Get-Lod,
+# and that is not belt-and-braces. Set-CameraDistance returns when the *rig* reports
+# the requested distance, but the level is chosen by SelectLods on the render thread
+# from a screen coverage that settles over a few frames, with 10% of hysteresis on
+# top - so "the camera is there" and "the frame has been drawn from there" are
+# several frames apart, and a fixed count is a race that only shows up under load
+# (it took a full-suite run to reproduce). Wait-Lod still throws if the level never
+# arrives, with the readout in the message, so nothing is being papered over.
+
 Test 'up close the full mesh is drawn' {
     Set-Chain 'dome_a' "{'lod_mode':'auto','lod_bias':1.0}"
     Set-CameraDistance 8
-    $lod = Get-Lod 'dome_a'
-    Assert-Equal -Expected '0' -Actual $lod.current -Message 'current level'
+    $lod = Wait-Lod -Entity 'dome_a' -Want 0
     Assert-Equal -Expected $FullVertices -Actual ([int]$lod.index_count) -Message 'index count'
 }
 
@@ -151,8 +193,7 @@ Test 'far enough away the coarse level takes over' {
     # level 1 has 1.25% of the vertices, so it is eligible once the model covers
     # about 1.25% of the viewport, which is what 600 units away does here.
     Set-CameraDistance 600
-    $lod = Get-Lod 'dome_a'
-    Assert-Equal -Expected '1' -Actual $lod.current -Message 'current level'
+    $lod = Wait-Lod -Entity 'dome_a' -Want 1
     # The selection has to reach the draw call and not just the readout: these are
     # the three arguments DrawIndexed is given.
     Assert-Equal -Expected $CoarseVertices -Actual ([int]$lod.index_count) -Message 'index count'
@@ -160,8 +201,7 @@ Test 'far enough away the coarse level takes over' {
 
 Test 'coming back moves it back up' {
     Set-CameraDistance 8
-    $lod = Get-Lod 'dome_a'
-    Assert-Equal -Expected '0' -Actual $lod.current -Message 'current level'
+    $lod = Wait-Lod -Entity 'dome_a' -Want 0
     Assert-Equal -Expected $FullVertices -Actual ([int]$lod.index_count) -Message 'index count'
 }
 
@@ -169,10 +209,9 @@ Test 'the quality bias holds the full mesh further out' {
     # Same camera as the test that dropped to level 1, but asking for 200x the
     # detail - so the coverage that was enough for the coarse level no longer is.
     Set-CameraDistance 600
-    Assert-Equal -Expected '1' -Actual (Get-Lod 'dome_a').current -Message 'level at bias 1'
+    Wait-Lod -Entity 'dome_a' -Want 1 | Out-Null
     Set-Chain 'dome_a' "{'lod_bias':200.0}"
-    Step-EditorFrames -Session $Session -Count 3
-    Assert-Equal -Expected '0' -Actual (Get-Lod 'dome_a').current -Message 'level at bias 200'
+    Assert-Equal -Expected '0' -Actual (Wait-Lod -Entity 'dome_a' -Want 0).current -Message 'level at bias 200'
     Set-Chain 'dome_a' "{'lod_bias':1.0}"
 }
 
@@ -185,19 +224,18 @@ Test 'in distance mode each level takes over at the distance set on it' {
     Assert-Near -Expected 50.0 -Actual $lod.Chain[1].Distance -Message 'the authored switch point'
 
     Set-CameraDistance 8
-    Assert-Equal -Expected '0' -Actual (Get-Lod 'dome_a').current -Message 'inside the switch distance'
+    Assert-Equal -Expected '0' -Actual (Wait-Lod -Entity 'dome_a' -Want 0).current -Message 'inside the switch distance'
     Set-CameraDistance 120
-    Assert-Equal -Expected '1' -Actual (Get-Lod 'dome_a').current -Message 'beyond it'
+    Assert-Equal -Expected '1' -Actual (Wait-Lod -Entity 'dome_a' -Want 1).current -Message 'beyond it'
 }
 
 Test 'the distance rule ignores how big the model is on screen' {
     # The point of the mode: at 120 units the model covers far more of the screen
     # than the 1.25% the automatic rule would demand, and it is still on level 1.
     Set-CameraDistance 120
-    Assert-Equal -Expected '1' -Actual (Get-Lod 'dome_a').current -Message 'coarse under the distance rule'
+    Assert-Equal -Expected '1' -Actual (Wait-Lod -Entity 'dome_a' -Want 1).current -Message 'coarse under the distance rule'
     Set-Chain 'dome_a' "{'lod_mode':'auto'}"
-    Step-EditorFrames -Session $Session -Count 3
-    Assert-Equal -Expected '0' -Actual (Get-Lod 'dome_a').current -Message 'full detail under the area rule'
+    Assert-Equal -Expected '0' -Actual (Wait-Lod -Entity 'dome_a' -Want 0).current -Message 'full detail under the area rule'
 }
 
 #--- per entity ---------------------------------------------------------------
@@ -208,8 +246,11 @@ Test 'lod_enabled pins one entity to full detail without touching the others' {
     Set-Chain 'dome_a' "{'lod_mode':'distance','lod_enabled':false}"
     Set-Chain 'dome_b' "{'lod_enabled':true}"
     Set-CameraDistance 120
+    # dome_b is the one that has to move; dome_a is asserted to have stayed put, so
+    # it is read directly rather than waited for - waiting for a level something is
+    # supposed to already be at would hide the opposite failure.
+    $b = Wait-Lod -Entity 'dome_b' -Want 1
     $a = Get-Lod 'dome_a'
-    $b = Get-Lod 'dome_b'
     Assert-Equal -Expected '0' -Actual $a.enabled -Message 'dome_a opted out'
     Assert-Equal -Expected '0' -Actual $a.current -Message 'and is pinned to level 0'
     Assert-Equal -Expected $FullVertices -Actual ([int]$a.index_count) -Message 'drawing the full mesh'
@@ -424,23 +465,6 @@ Test 'a skinned mesh generates a level skinned to the same skeleton' {
 # geometry the last PrepareRT handed them, summed in triangle indices over the
 # objects it sent, and it is the only place any of this is observable: a ray hitting
 # the wrong geometry produces a reflection that still looks like a reflection.
-
-# Steps frames until `Entity` is drawn at level `Want`, up to a limit. The selection
-# happens on the render thread from a screen coverage that settles over a few frames,
-# with a 10% hysteresis margin on top, so a fixed frame count is a race. Throws if it
-# never gets there, which is the regression this guards.
-function Wait-Lod {
-    param([string]$Entity, [int]$Want, [int]$MaxFrames = 30)
-    for ($i = 0; $i -lt $MaxFrames; $i += 2) {
-        $lod = Get-Lod $Entity
-        if ([int]$lod.current -eq $Want) { return $lod }
-        Step-EditorFrames -Session $Session -Count 2
-    }
-    $l = Get-Lod $Entity
-    throw ("$Entity never reached level $Want after $MaxFrames frames " +
-           "(current=$($l.current) enabled=$($l.enabled) levels=$($l.levels) " +
-           "mode=$($l.mode) bias=$($l.bias) index_count=$($l.index_count))")
-}
 
 # rt_info, after enough frames for the ray tracing thread to have re-prepared the
 # scene with whatever was just changed.

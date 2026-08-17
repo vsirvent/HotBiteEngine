@@ -301,10 +301,28 @@ namespace HotBite {
 			// those assets (see the block below), and instances are templates placed in a
 			// scene. The three are separate registries, and a level file lists models in
 			// "models" and templates in "templates".
+			// `name` is what the model registers under, and it is only a registry key:
+			// the meshes, materials and clips inside the file keep their own names.
+			// Empty means the file stem, which is what every caller wanted before a
+			// model could be named - two files of the same stem in different folders
+			// used to be one model, and an imported "untitled.fbx" could only ever be
+			// called "untitled".
 			virtual void LoadModel(const std::string& model_file, bool triangulate, bool relative,
-							bool use_animation_names = false);
+							bool use_animation_names = false, const std::string& name = "");
 			virtual bool IsModelLoaded(const std::string& name) const;
-			// Every loaded model name (the file stem), sorted.
+			// Unregisters a model: it stops being listed, stops being saved with the
+			// level, and its FBX nodes are destroyed.
+			//
+			// What it deliberately does NOT do is unload the meshes, materials and
+			// animation clips the file contributed. They live in flat, shared
+			// collections that anything may hold a pointer into - a template's Mesh, an
+			// entity's Material - and erasing from those relocates the neighbours, so
+			// this would dangle assets belonging to other models (the same reason
+			// RemoveMaterial retires instead of erasing). They stay for the session and
+			// are simply not there on the next load, which is the contract
+			// RemoveTemplate already has.
+			virtual bool RemoveModel(const std::string& name);
+			// Every loaded model name, sorted.
 			virtual std::vector<std::string> ListModels() const;
 			// What `name` brought in, or null when no such model was loaded.
 			virtual const ModelAssets* GetModelAssets(const std::string& name) const;

@@ -82,7 +82,7 @@ Test 'SplatCloud serializes every field, not only the ones that differ from defa
     # changing nothing. Mesh's "smooth" documents the same trap.
     $splat = Get-Component -Session $Session -Entity 'box_a' -Component 'SplatCloud'
     foreach ($field in @('name', 'opacity_scale', 'albedo_scale', 'spec_intensity',
-                         'invert_normals', 'surface_alpha')) {
+                         'invert_normals', 'surface_alpha', 'max_density')) {
         Assert-True -Condition ($null -ne $splat.$field) -Message "SplatCloud.$field is serialized"
     }
     # Every one of these is at its default, which is precisely the case that would
@@ -142,6 +142,26 @@ Test 'surface_alpha is clamped away from both ends' {
     Assert-True -Condition ([double]$high.surface_alpha -lt 1.0) -Message 'clamped off one'
 
     SendOk "set_component box_a SplatCloud ""{'surface_alpha':0.5}""" | Out-Null
+}
+
+Test 'max_density is floored at one splat per pixel' {
+    # The screen-coverage LOD keeps a random subset of the cloud sized to hold
+    # max_density splats over the area it projects to. At 0 that subset is empty and
+    # the cloud stops rendering entirely - which reads as the component being broken
+    # rather than as a density of zero - so the edit refuses it, exactly as
+    # surface_alpha refuses its degenerate ends.
+    SendOk "set_component box_a SplatCloud ""{'max_density':0.0}""" | Out-Null
+    $low = Get-Component -Session $Session -Entity 'box_a' -Component 'SplatCloud'
+    Assert-True -Condition ([double]$low.max_density -ge 1.0) -Message 'floored at one per pixel'
+
+    # No upper clamp: a value above what the cloud actually has per pixel simply
+    # means "keep everything", which the renderer expresses by clamping the keep
+    # probability to 1 rather than by bounding this.
+    SendOk "set_component box_a SplatCloud ""{'max_density':64.0}""" | Out-Null
+    Assert-Near -Expected 64.0 `
+        -Actual (Get-Component -Session $Session -Entity 'box_a' -Component 'SplatCloud').max_density
+
+    SendOk "set_component box_a SplatCloud ""{'max_density':16.0}""" | Out-Null
 }
 
 Test 'a SplatCloud edit is undoable' {
@@ -212,6 +232,21 @@ Test 'import_model accepts a .ply and registers it under the file stem' {
     Assert-Match -Actual $line -Pattern 'splat_clouds=1'
     Assert-Match -Actual $line -Pattern 'splats=12'
     Assert-Match -Actual $line -Pattern 'meshes=0'
+}
+
+Test 'list_splat_clouds offers the imported clouds and not the stand-in' {
+    # What the Components panel's SplatCloud picker is built from - the peer of
+    # list_meshes, and the reason that field is a picker rather than a text box: the
+    # name has to resolve against a loaded asset, and one that does not silently
+    # leaves the entity on the stand-in sphere.
+    $r = SendOk 'list_splat_clouds'
+    Assert-Match -Pattern '^\d+ splat clouds$' -Actual $r[0].Text
+    $names = @($r[0].Payload | ForEach-Object { ($_ -split ' ')[0] })
+    Assert-Contains -Collection $names -Value 'testcloud' -Message 'the imported cloud is offered'
+    # The generated stand-in is what an unassigned component is already drawing, not
+    # something to pick - exactly as the mesh picker hides the default cube.
+    Assert-NotContains -Collection $names -Value $DefaultCloud -Message 'the stand-in is not an asset'
+    Assert-Match -Pattern 'splats=12' -Actual ($r[0].Payload | Where-Object { $_ -match '^testcloud\b' })
 }
 
 Test 'an imported cloud is namable by a component and carries its splats' {

@@ -49,22 +49,129 @@ struct SplatView
 // the per-tile setup cost, 32x32 is the DX11 group cap and leaves no headroom.
 #define SPLAT_TILE_SIZE 16
 
-// Per-tile list capacity. A tile that wants more than this drops the overflow
-// rather than growing - DX11 cannot allocate mid-frame - and the drop is counted so
-// splat_info can report it instead of it showing up as a hole in the cloud.
-#define SPLAT_MAX_PER_TILE 1024
+// There is no per-tile capacity. A tile's entries live in a contiguous slice of one
+// global pool, at an offset a prefix sum hands it, so a tile takes exactly the room
+// it needs and a dense one cannot crowd out a sparse one.
+//
+// What that replaced is worth recording, because the failure was invisible until
+// somebody looked at a magnified screenshot. A fixed capacity is sized for the worst
+// tile *times every tile* - covering the 24k-entry tile a 1.8M splat capture produces
+// would have cost 780 MB - so in practice it was set far below what tiles wanted, and
+// the excess was dropped. The dropped fraction differed per tile, so the surface lost
+// a different share of itself on each side of every tile boundary: a 16x16 grid,
+// flickering, on an image that otherwise looked like a plausible cloud.
+//
+// Depth buckets. A tile's slice is ordered front to back at bucket granularity, and
+// that ordering is a *side effect of the layout* rather than a sort - the histogram is
+// over (tile, bucket) instead of (tile), so the scatter drops each entry into its own
+// depth band for free. It is what lets the rasterizer stop walking a tile early.
+// Nothing depends on the order being exact: entries inside one bucket are in whatever
+// order the atomics produced, and the rasterizer's accumulation is commutative.
+//
+// The bands are measured from each tile's own nearest splat and span the cloud's WHOLE
+// quantized depth range. Narrowing the span looks better on paper - finer bands exactly
+// where the rasterizer's slab lives - and is a correctness bug: everything past the span
+// clamps into the last band as an unordered mass, and both the early-out and the two
+// prefix decisions (the surface, and where the pixel became opaque) are only sound where
+// the ordering is real. Measured at a 0.1 span it put the tile-edge gradient ratio back
+// to 1.68x and returned 0.17% flicker to an otherwise bit-identical frame.
+#define SPLAT_DEPTH_BUCKETS 128
+
+// Threads per group in the scan passes. SplatScanCS uses SPLAT_DEPTH_BUCKETS threads
+// (one per bucket of one tile); this is SplatBaseCS, which scans the per-tile totals.
+#define SPLAT_SCAN_GROUP 256
+
+// A pool entry is a bare splat index. Nothing is packed alongside it: depth ordering
+// is carried by *where* the entry sits in its tile's slice, and the rasterizer reads
+// the real float depth off the SplatView it loads anyway. The packed (depth, index)
+// key the sort-based predecessor needed is gone with the sort.
+//
+// The quantized depth still exists, but only as the currency the near-depth pass and
+// the binning passes compare in. It is a *priority*, never a value, so 10 bits is
+// ample. RenderSystem fits the range to the cloud's own bounding sphere each frame
+// rather than to the camera's clip planes, which at 0.01/1000 would put an entire
+// cloud inside one step.
+#define SPLAT_DEPTH_BITS 10
+#define SPLAT_MAX_DEPTH_STEP ((1u << SPLAT_DEPTH_BITS) - 1u)
+// tile_depth is cleared to this, so the first splat to touch a tile wins the
+// InterlockedMin and a tile nothing touches keeps a depth no splat can be within.
+#define SPLAT_NO_DEPTH 0xFFFFFFFFu
+
+// Three passes quantize the same depth and they must agree exactly - the near-depth
+// pass writes one of these into tile_depth, and the counting and scattering passes
+// both compare against it - so the arithmetic lives here rather than three times.
+uint QuantizeSplatDepth(float view_depth, float quant_min, float quant_range)
+{
+	float d01 = (view_depth - quant_min) / max(1e-6f, quant_range);
+	return (uint)(saturate(d01) * (float)SPLAT_MAX_DEPTH_STEP + 0.5f);
+}
+
+// Which depth band of a tile an entry belongs in: where it sits inside the span
+// measured from that tile's nearest splat. Nothing is ever rejected by this - entries
+// past the last band clamp into it - because the span is anchored to a per-tile
+// minimum, and anything that *discards* against a per-tile threshold steps at every
+// tile boundary and draws the 16x16 grid this design exists to avoid.
+//
+// This MUST return the same answer in the counting pass and the scattering pass. They
+// run over the same splats with the same inputs, and the histogram the first builds is
+// the exact allocation the second writes into - a single entry disagreeing would write
+// past a bucket's slice and into the next one's. That is why both passes are the same
+// shader with a flag rather than two shaders that look alike.
+uint SplatDepthBucket(uint q, uint near_q, uint bucket_span_steps)
+{
+	uint delta = (q > near_q) ? (q - near_q) : 0u;
+	uint bucket = (delta * SPLAT_DEPTH_BUCKETS) / max(1u, bucket_span_steps);
+	return min(bucket, (uint)(SPLAT_DEPTH_BUCKETS - 1));
+}
+
+
+// A splat's keep/drop draw for the screen-coverage LOD. PCG-style integer hash, and it
+// takes the splat index and NOTHING ELSE - no frame counter, no camera. The decision has
+// to be the same every frame or the cloud boils, and because it is a threshold on a
+// fixed per-splat value, raising the keep probability only ever *adds* splats to the set
+// already being drawn, so moving toward a cloud fades detail in rather than reshuffling
+// it.
+float SplatHash01(uint x)
+{
+	x = x * 747796405u + 2891336453u;
+	uint w = ((x >> ((x >> 28u) + 4u)) ^ x) * 277803737u;
+	w = (w >> 22u) ^ w;
+	return (float)w * (1.0f / 4294967296.0f);
+}
 
 // Below this the Gaussian contributes under ~1/255 and is skipped. Not an
 // occlusion test - it is a coverage test, and it is what lets the accumulation
 // loops terminate early on the great majority of splat/pixel pairs.
 #define SPLAT_MIN_ALPHA (1.0f / 255.0f)
 
-// How far behind the nearest surface a splat may still contribute, in world units.
-// This is what replaces a depth sort: everything inside the slab is averaged by
-// weight, everything behind it is occluded. Too small and a curved surface loses
-// its own silhouette splats; too large and the far side of a thin shell bleeds
-// through.
-#define SPLAT_DEPTH_SLAB 0.05f
+// Where the rasterizer's accumulation stops for having nothing left to see. It is the
+// sum of Gaussian weights, not a 1-T transmittance, and the value is 1 EXACTLY because
+// the pass writes its opacity as saturate(acc_w) - past that point the composite
+// already replaces what is behind the pixel entirely, so every further entry can only
+// drag albedo, normal and depth toward a surface this one occludes. Change one of the
+// two and the other stops meaning the same thing.
+#define SPLAT_OPAQUE_ALPHA 1.0f
+
+// How far behind the *surface* a splat may still contribute is NOT a constant here any
+// more - it is splat_depth_slab, a uniform RenderSystem fits to the cloud's own depth
+// extent from Components::SplatCloud::depth_slab. A fixed world value cannot work: it
+// has to express a surface thickness, and that scales with the capture. Nor can one
+// global fraction, which is why it is authored per cloud.
+//
+// The failure that used to make it dangerous to shrink is gone. When the slab was
+// measured from the nearest splat with any coverage it decided which surface filled a
+// pixel, so at an internal depth jump - a tentacle crossing in front of another - the
+// near surface contributed only its grazing edge, the surface actually covering the
+// pixel sat beyond the slab, and the pixel wrote nothing: the background showed through
+// as a 1-2 px seam tracing every overlap (332 of them in one view of a 1-unit capture
+// at 0.05). The surface is found by a coverage threshold now and the slab is applied
+// only afterwards, so no value of it can stop a pixel finding a surface.
+//
+// What is left is a tail over the surface's own splats, and there too small is now the
+// benign end - a slightly noisier average - while too large is the one with a symptom:
+// the next surface back is averaged in, the cloud reads as semi-transparent and the
+// depth it writes sits behind the object. It also costs time, and a tenth of the
+// cloud's depth was enough to hang the driver on a 1.8M splat capture.
 
 // Evaluates the 2D Gaussian at `d` pixels from the splat centre.
 float SplatWeight(float3 conic, float2 d)

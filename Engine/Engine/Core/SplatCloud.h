@@ -159,13 +159,18 @@ namespace HotBite {
 				 * implementation emits, and every trainer and capture tool after it:
 				 * x/y/z, nx/ny/nz, f_dc_0..2, f_rest_0..44, opacity, scale_0..2, rot_0..3.
 				 *
-				 * Four conversions happen here rather than per frame, and each one is a
+				 * Five conversions happen here rather than per frame, and each one is a
 				 * decode the format requires rather than a choice:
 				 *
 				 *  - opacity is stored pre-sigmoid, so it is put through the logistic.
 				 *  - scales are stored as logs, so they are exponentiated.
 				 *  - the rotation quaternion is stored (w,x,y,z) and unnormalized.
 				 *  - f_dc are SH degree-0 coefficients, so colour is 0.5 + C0 * f_dc.
+				 *  - the file is in the trainer's COLMAP frame - right-handed, Y *down* -
+				 *    and this engine is left-handed Y-up, so Y is negated on the position,
+				 *    the normal and the covariance. Without it a capture loads upside down
+				 *    and mirrored, which reads as a broken mesh rather than as a frame
+				 *    mismatch.
 				 *
 				 * Then two that ARE choices, and are the whole point of this component:
 				 *

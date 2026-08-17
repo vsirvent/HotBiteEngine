@@ -15,12 +15,26 @@ namespace HotBiteEditor {
 		// and template commands so both see the same lists.
 		void EnsureAssetsScanned(EditorState& state);
 
-		// Imports one .fbx as a model: copies it into Assets/Objects when it comes
-		// from outside the project, loads it and selects it. This is File/Import
-		// Model...; it deliberately creates no template (TemplateOps::CreateFromModel
-		// is the next step, one click away in the panel).
-		bool ImportModel(EditorState& state, const std::string& fbx_path, std::string& error);
+		// Imports one .fbx (or splat .ply) as a model: copies it into Assets/Objects
+		// when it comes from outside the project, loads it and selects it. This is
+		// File/Import Model...; it deliberately creates no template
+		// (TemplateOps::CreateFromModel is the next step, one click away in the panel).
+		//
+		// `model_name` is what the project will know it by - empty means the file
+		// stem, which is what it always used to be. It is decided here rather than
+		// afterwards because it is the key the model's assets are registered under.
+		bool ImportModel(EditorState& state, const std::string& fbx_path,
+			const std::string& model_name, std::string& error);
+		// Picks the file, then leaves the naming modal for Draw to put up: the name is
+		// settled before anything is loaded.
 		void ImportModelWithDialog(EditorState& state);
+
+		// Takes a model out of the project: it stops being listed and stops being
+		// written to the level. Its meshes, materials and clips stay loaded for the
+		// session (see World::RemoveModel) and its file is left in Assets/Objects, so
+		// what this really removes is the level's reference to it. Outside the undo
+		// history, like the import it reverses.
+		bool RemoveModel(EditorState& state, const std::string& name, std::string& error);
 
 		// The world point the middle of the viewport is aimed at: the first surface
 		// the view-center ray hits (the same raycast a viewport click runs), or a

@@ -87,6 +87,26 @@ namespace HotBite {
 				float3 rotation = {};
 				float3 final_position = {};
 				float3 last_parent_pos = {};
+
+				//The three inputs CameraSystem last built its matrices from, and its own
+				//change detection.
+				//
+				//Transform::dirty cannot serve as one, and the reason is worth knowing
+				//before removing this: it is a single flag that every system consuming it
+				//*clears*, and a camera entity is very often a mesh entity too - every rig
+				//placed from a template carries a Mesh and Bounds, because a template has
+				//to. CameraSystem runs on the background timer and StaticMeshSystem on a
+				//different one, so when the mesh timer fires first it clears the flag and
+				//the camera never recomputes. Nothing dirties the transform again, so the
+				//commanded pose is not applied late - it is dropped for the rest of the
+				//session, and the editor's camera simply stops responding to a move.
+				//That is intermittent by construction: it depends on which timer wins.
+				float3 last_position = {};
+				float3 last_direction = {};
+				float3 last_rotation = {};
+				//Whether the three above have ever been filled in (a camera legitimately
+				//sits at the origin looking down -Z, which is what they zero-initialize to).
+				bool pose_measured = false;
 				vector3d xm_direction;
 				// Rotation quaternion
 				vector4d xm_rotation;

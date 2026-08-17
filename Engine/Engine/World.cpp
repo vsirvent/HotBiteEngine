@@ -890,8 +890,12 @@ bool World::IsTemplateLoaded(const std::string& template_name) {
 }
 
 void World::LoadModel(const std::string& model_file, bool triangulate, bool relative,
-	bool use_animation_names) {
-	const std::string name = std::filesystem::path(model_file).filename().replace_extension().string();
+	bool use_animation_names, const std::string& model_name) {
+	//The file stem is the default and was for a long time the only option, so it stays
+	//the answer whenever a caller does not care (every game, and the folder scan).
+	const std::string name = model_name.empty()
+		? std::filesystem::path(model_file).filename().replace_extension().string()
+		: model_name;
 
 	//A Gaussian splat cloud is a model file like any other as far as the three asset
 	//layers are concerned: it registers under its file stem, contributes an asset,
@@ -907,7 +911,16 @@ void World::LoadModel(const std::string& model_file, bool triangulate, bool rela
 			//unregister what the first call loaded.
 			return;
 		}
-		if (LoadSplatCloud(model_file, name) == nullptr) {
+		//`relative` means the reference is against the world's assets path, which is
+		//how a level writes it - and this branch used to ignore it, so a level's own
+		//cloud entry read nothing and registered an empty cloud. It was invisible
+		//because the editor's folder scan then loaded the same file again under its
+		//stem and that copy is the one everything used; a game, with no folder scan,
+		//just got no cloud.
+		const std::string cloud_file = relative
+			? (std::filesystem::path(path) / model_file).string()
+			: model_file;
+		if (LoadSplatCloud(cloud_file, name) == nullptr) {
 			return;
 		}
 		ModelAssets splat_assets;
@@ -956,6 +969,23 @@ void World::LoadTemplate(const std::string& template_file, bool triangulate, boo
 
 bool World::IsModelLoaded(const std::string& name) const {
 	return model_entities.find(name) != model_entities.end();
+}
+
+bool World::RemoveModel(const std::string& name) {
+	auto it = model_entities.find(name);
+	if (it == model_entities.end()) {
+		return false;
+	}
+	//The FBX nodes this file registered in the templates coordinator. A template built
+	//from the model copied the MeshData pointer rather than referencing these, so it
+	//keeps working; what stops working is placing an instance straight off the model,
+	//which only a pre-split level does.
+	for (ECS::Entity e : it->second) {
+		templates_coordinator->DestroyEntity(e);
+	}
+	model_entities.erase(it);
+	model_assets.erase(name);
+	return true;
 }
 
 std::vector<std::string> World::ListModels() const {
@@ -2493,7 +2523,11 @@ bool World::Load(const std::string& scene_file, float* progress, std::function<v
 					printf("World::Load: model entry without a \"file\", skipping.\n");
 					continue;
 				}
-				LoadModel(m["file"], m.value("triangulate", false), true);
+				//"name" is optional and is only there when the import was given one:
+				//without it the stem is the key, which is what every level written
+				//before models could be named relies on.
+				LoadModel(m["file"], m.value("triangulate", false), true, false,
+					m.value("name", std::string()));
 			}
 		}
 

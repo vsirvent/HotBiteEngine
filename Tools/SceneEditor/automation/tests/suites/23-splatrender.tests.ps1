@@ -68,6 +68,32 @@ function Reset-SplatView {
     SendOk 'camera_rot 0 0 0', 'camera_pos 0 0 -3', 'camera_target 0 0 0' | Out-Null
 }
 
+# What the binning did, once it has settled.
+#
+# splat_info comes from a GPU readback several frames behind the frame that produced
+# it (Core::RWByteBuffer::Readback maps a slot from a few frames ago rather than
+# stalling), so reading it straight after a change reports the state from before the
+# change. Poll until two consecutive readings agree rather than sleeping a guessed
+# number of frames.
+function Get-SplatInfo {
+    param($Session, [int]$Tries = 20)
+    $prev = $null
+    for ($i = 0; $i -lt $Tries; $i++) {
+        Step-EditorFrames -Session $Session -Count 3
+        $line = (SendOk 'splat_info')[0].Text
+        $cur = @{}
+        foreach ($m in [regex]::Matches($line, '(\w+)=(\d+)')) {
+            $cur[$m.Groups[1].Value] = [int64]$m.Groups[2].Value
+        }
+        if ($null -ne $prev -and $prev.total_binned -eq $cur.total_binned -and
+            $prev.pixels_written -eq $cur.pixels_written) {
+            return [pscustomobject]$cur
+        }
+        $prev = $cur
+    }
+    return [pscustomobject]$prev
+}
+
 # The share of the middle of the view that is lit. The fixture's cubes are parked
 # and its level is otherwise empty, so with the camera above this is the cloud's
 # coverage and nothing else.
@@ -151,6 +177,44 @@ Test 'a placed splat cloud reaches the frame' {
         -Message "the cloud should cover the middle of the view ($([Math]::Round($with * 100, 1))% lit)"
     Assert-True -Condition ($without -lt $with - 0.15) `
         -Message "and the same view without it should be darker (with $([Math]::Round($with * 100, 1))%, without $([Math]::Round($without * 100, 1))%)"
+}
+
+Test 'max_density thins the cloud without removing it' {
+    # The screen-coverage LOD, which is what stops the pass costing the same for a
+    # cloud two units away and a hundred: it keeps a stable random subset sized to
+    # hold max_density splats over the area the cloud projects to. splat_info reports
+    # what reached the tiles, which is the only place the subset is visible - a
+    # thinned cloud still looks like the cloud.
+    #
+    # Measured with the cloud pushed well back, and that is not incidental. The knob
+    # binds only where the cloud is *over* its density, and this fixture's 600 splats
+    # are nowhere near dense over the area they cover from the default view - at any
+    # setting the keep probability clamps to 1 and nothing is dropped, which is the
+    # correct answer and an untestable one. Far away the same 600 splats fall on a
+    # couple of hundred pixels, and the knob starts to bite. 60 units is not enough -
+    # the projected disc is still wider than 600 px there and every splat survives at
+    # any setting.
+    Reset-Cloud
+    Move-Entity -Entity $script:cloud -Position '0 0 200'
+    $full = Get-SplatInfo -Session $Session
+    SendOk "set_component $($script:cloud) SplatCloud ""{'max_density':1.0}""" | Out-Null
+    $thin = Get-SplatInfo -Session $Session
+
+    Assert-True -Condition ($thin.total_binned -lt $full.total_binned) `
+        -Message "a lower density should bin fewer splats (full $($full.total_binned), thinned $($thin.total_binned))"
+    # Still drawn: the subset is smaller, not empty. That is the failure the floor in
+    # FromJson exists to prevent, checked here in the pass rather than in the edit.
+    Assert-True -Condition ($thin.pixels_written -gt 0) `
+        -Message "and the cloud should still be rasterized ($($thin.pixels_written) pixels)"
+
+    # Raising it back restores exactly the same set, which is the property that keeps
+    # a cloud from boiling as the camera moves: the subset is a threshold on a stable
+    # per-splat hash, so changing the density adds and removes splats rather than
+    # reshuffling which ones are drawn.
+    SendOk "set_component $($script:cloud) SplatCloud ""{'max_density':16.0}""" | Out-Null
+    $back = Get-SplatInfo -Session $Session
+    Assert-Equal -Expected $full.total_binned -Actual $back.total_binned `
+        -Message 'and raising it back gives the same set'
 }
 
 Test 'the cloud follows its transform' {

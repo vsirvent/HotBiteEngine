@@ -260,6 +260,27 @@ bool SplatCloudData::Load(const std::string& file, const std::string& asset_name
 		s.cov_offdiag.y = r00 * r20 * ax + r01 * r21 * ay + r02 * r22 * az;  //Sxz
 		s.cov_offdiag.z = r10 * r20 * ax + r11 * r21 * ay + r12 * r22 * az;  //Syz
 
+		//Into the engine's frame. A 3DGS .ply comes out of the COLMAP/OpenCV convention
+		//the reference trainer works in: right-handed, X right, **Y down**, Z forward.
+		//This engine is left-handed Y-up (XMMatrixPerspectiveFovLH / XMMatrixLookToLH
+		//throughout), so negating Y converts the axis and the handedness in one step.
+		//
+		//Loaded raw - which is what happened before - a capture renders upside down AND
+		//mirrored, and the two together read as "the mesh is inverted" rather than as a
+		//convention error. Rotating the entity 180 degrees is not the same fix: it
+		//corrects the axis and leaves the handedness flipped, so the model stays
+		//mirrored.
+		//
+		//This is a change of basis by D = diag(1,-1,1), so the covariance follows as
+		//Sigma' = D * Sigma * D: the diagonal is untouched (D squares to the identity on
+		//it) and the two off-diagonal terms carrying exactly one Y index flip sign. Sxz
+		//carries none and does not. Applying it here rather than to the quaternion keeps
+		//the sign rule next to the matrix it acts on, and avoids reasoning about what a
+		//handedness flip does to a rotation.
+		s.position.y = -s.position.y;
+		s.cov_offdiag.x = -s.cov_offdiag.x;  //Sxy
+		s.cov_offdiag.z = -s.cov_offdiag.z;  //Syz
+
 		//SH degree 0 -> colour, then kept as albedo. Clamped at zero because a
 		//negative coefficient is legal in the fit but a negative albedo is not, and it
 		//would drive the lighting negative rather than merely looking wrong.
@@ -281,6 +302,11 @@ bool SplatCloudData::Load(const std::string& file, const std::string& asset_name
 		if (sx <= sy && sx <= sz) { axis = { r00, r10, r20 }; }
 		else if (sy <= sx && sy <= sz) { axis = { r01, r11, r21 }; }
 		else { axis = { r02, r12, r22 }; }
+		//Still in the file's frame - it is read off R, which was built before the basis
+		//change above - so it takes the same Y flip. Missed, the normals would disagree
+		//with the geometry by a mirror and the cloud would light as though the sun were
+		//on the other side of it.
+		axis.y = -axis.y;
 		minor_axis.push_back(axis);
 
 		cx += s.position.x;

@@ -156,6 +156,24 @@ namespace HotBite {
 					uint32_t entries = 0;   //table size, so a caller can form a ratio
 				};
 
+				//What the splat binning did this frame, read back off the GPU. A splat
+				//cloud that is over per-tile capacity does not fail visibly - it renders
+				//a plausible surface with parts of it missing - so this is the only way
+				//to tell "the capacity is enough" from "the capacity is not".
+				//
+				//`max_per_tile` is uncapped, so it is the number to size the capacity
+				//against; `overflow_tiles` at anything other than 0 means splats were
+				//lost. Two frames stale by construction (Core::RWByteBuffer::Readback).
+				struct SplatStats {
+					uint32_t tiles_used = 0;      //tiles holding at least one splat
+					uint32_t max_per_tile = 0;    //entries in the deepest tile
+					uint32_t total_binned = 0;    //(splat, tile) pairs that survived the cull
+					uint32_t dropped = 0;         //entries lost because the pool was short
+					uint32_t capacity = 0;        //pool size in entries, to form a ratio
+					uint32_t tiles_rastered = 0;  //tiles the rasterizer actually ran over
+					uint32_t pixels_written = 0;  //pixels it wrote
+				};
+
 				enum class eRtQuality {
 					OFF,
 					LOW,
@@ -489,11 +507,27 @@ namespace HotBite {
 				bool rt_prepare = false;
 				std::thread rt_thread;
 
-				//Gaussian splat clouds. Two dispatches per visible cloud: SplatPreprocessCS
-				//projects every Gaussian and bins it into the screen tiles it covers, then
-				//SplatRasterCS runs one group per tile and writes the lit result into the
-				//same targets MainRenderPS fills.
+				//Gaussian splat clouds, in five dispatches per visible cloud:
+				//
+				//  SplatPreprocessCS  project every Gaussian; record how near it is in
+				//                     each tile it covers
+				//  SplatBinCS  pass 0 histogram of (tile, depth bucket), culling what is
+				//                     too far behind a tile's own nearest splat
+				//  SplatScanCS        scan each tile's buckets -> offsets within the tile
+				//  SplatBaseCS        scan the per-tile totals -> each tile's base in the
+				//                     shared entry pool
+				//  SplatBinCS  pass 1 scatter the entries into their slots
+				//  SplatRasterCS      one group per tile, over that tile's contiguous
+				//                     slice, into the targets MainRenderPS fills
+				//
+				//The histogram-scan-scatter replaced a fixed per-tile capacity plus a
+				//bitonic sort. It costs one extra pass over the splats and removes both:
+				//a tile takes exactly the room it needs, and its slice comes out ordered
+				//front to back at bucket granularity as a side effect of the layout.
 				Core::SimpleComputeShader* splat_preprocess = nullptr;
+				Core::SimpleComputeShader* splat_bin = nullptr;
+				Core::SimpleComputeShader* splat_scan = nullptr;
+				Core::SimpleComputeShader* splat_base = nullptr;
 				Core::SimpleComputeShader* splat_raster = nullptr;
 
 				//Mirrors `SplatView` in Shaders/Splats/SplatCommon.hlsli field for field.
@@ -517,25 +551,91 @@ namespace HotBite {
 				static_assert(sizeof(SplatView) == 60,
 					"SplatView must match the 60-byte stride SplatCommon.hlsli is compiled with");
 
-				//Both mirror SplatCommon.hlsli, and both are load-bearing on the CPU side:
-				//the tile size sets the rasterizer's dispatch dimensions and the per-tile
-				//capacity sets how large the list buffer has to be.
+				//All of these mirror SplatCommon.hlsli. There is deliberately no per-tile
+				//capacity among them any more: a tile's entries live in a contiguous
+				//slice of one shared pool, at an offset the scan passes hand it.
 				static constexpr uint32_t SPLAT_TILE_SIZE = 16;
-				static constexpr uint32_t SPLAT_MAX_PER_TILE = 1024;
-				//Threads per group in SplatPreprocessCS, which is one splat per thread.
+				//Threads per group in SplatPreprocessCS and SplatBinCS, one splat each.
 				static constexpr uint32_t SPLAT_PREPROCESS_GROUP = 256;
+				//Depth bands a tile's slice is ordered into. Only the layout depends on
+				//this - the rasterizer's results are order-independent - so it trades
+				//early-out sharpness against the size of the histogram.
+				static constexpr uint32_t SPLAT_DEPTH_BUCKETS = 128;
+				static constexpr uint32_t SPLAT_SCAN_GROUP = 256;
+				static constexpr uint32_t SPLAT_MAX_DEPTH_STEP = (1u << 10) - 1u;
+				//tile_depth is cleared to this, so the first splat to touch a tile wins
+				//the InterlockedMin and a tile nothing touches rejects everything.
+				static constexpr uint32_t SPLAT_NO_DEPTH = 0xFFFFFFFFu;
+				//How far past the surface the rasterizer keeps gathering is
+				//Components::SplatCloud::depth_slab now - a fraction of the cloud's own
+				//depth extent, authored per cloud, because one global fraction cannot suit
+				//both a scanned object and a room scan (a surface is a large share of a
+				//small object's depth and a tiny share of a room's). Read that field's
+				//comment for what it means; the floor here is only against a component
+				//poked to zero from outside FromJson.
+				//
+				//This is a tail, not a search window, and that distinction is what fixed
+				//the seams. It used to be measured from the nearest splat with any
+				//coverage, which made it do two incompatible jobs: wide enough to reach
+				//the surface *behind* a depth jump (or the pixel wrote nothing and the
+				//background showed through as a 1-2 px seam along every overlap), yet
+				//narrow enough not to average front and back together everywhere else.
+				//Measured on a 1-unit capture: 0.05 left 332 seam pixels in one view, 0.30
+				//cleared them but rendered the cloud visibly semitransparent, and 0.50
+				//hung the driver. The surface is found by a coverage threshold now
+				//(SplatRasterCS), so this only has to span the surface itself - and it can
+				//no longer cause a seam at all, the tail being applied only once a surface
+				//has already been found.
+				static constexpr float SPLAT_SLAB_MIN_FRACTION = 0.001f;
+
+				//Floor for the entry pool, holding until the GPU has reported what it
+				//actually needed. Entries per splat varies far too much for a multiplier:
+				//a splat is binned into every tile its 3 sigma ellipse touches, so a
+				//*small* cloud close up has the largest ellipses and the highest ratio
+				//(the automation fixture's 600-splat sphere runs at ~120 entries a splat)
+				//while a 1.8M capture at a normal distance sits under 2. So this is a
+				//floor, the measurement does the sizing, and 256k entries costs 1 MB.
+				static constexpr uint32_t SPLAT_POOL_MIN_ENTRIES = 262144;
+				//Headroom over the measured requirement, so a pool that is exactly big
+				//enough this frame does not have to grow again the moment the camera
+				//moves a little closer.
+				static constexpr float SPLAT_POOL_MARGIN = 1.25f;
 
 				//The projected splats of the cloud currently being drawn, and the tile
-				//bins pointing into them. One cloud at a time - each needs its own world
-				//matrix, and the rasterizer consumes the bins before the next cloud
+				//structure pointing into them. One cloud at a time - each needs its own
+				//world matrix, and the rasterizer consumes the bins before the next cloud
 				//refills them - so these are sized for the *largest* cloud on screen
 				//rather than for all of them, and grown on demand by EnsureSplatBuffers.
 				Core::RWStructuredBuffer splat_views;
-				Core::RWTypedBuffer splat_tile_counts;
-				Core::RWTypedBuffer splat_tile_lists;
+				//Per tile, the quantized depth of the nearest splat touching it, which is
+				//what SplatBinCS culls against.
+				Core::RWTypedBuffer splat_tile_depth;
+				//tiles * SPLAT_DEPTH_BUCKETS. The histogram after pass 0, each bucket's
+				//offset within its tile after the scan, and the scatter's cursors after
+				//pass 1 - one array through all three lives, because they are the same
+				//numbers being refined.
+				Core::RWTypedBuffer splat_bucket_offsets;
+				Core::RWTypedBuffer splat_tile_total;
+				Core::RWTypedBuffer splat_tile_base;
+				//The pool itself: one uint per (splat, tile) pair that survived the cull.
+				//Sized by content rather than by tiles * capacity, which is the whole
+				//point - covering the worst tile of a 1.8M splat capture the old way
+				//would have cost 780 MB.
+				Core::RWTypedBuffer splat_entries;
+				Core::RWByteBuffer splat_stats;
 				uint32_t splat_views_capacity = 0;
+				uint32_t splat_entries_capacity = 0;
 				uint32_t splat_tiles_x = 0;
 				uint32_t splat_tiles_y = 0;
+
+				//NOT keepalive-gated, unlike the radiance cache counters this is otherwise
+				//modelled on. `total_binned` is what EnsureSplatBuffers sizes the entry
+				//pool from, so it is load-bearing rather than diagnostic and has to be read
+				//on every frame that draws a cloud - gating it meant the pool only grew
+				//while a tool happened to be watching, which rendered the automation
+				//fixture's cloud at 2.6% of its coverage.
+				static constexpr uint32_t SPLAT_STATS_BYTES = 32;
+				SplatStats splat_stats_cpu;
 
 				//Copy texture shader
 				Core::SimpleComputeShader* copy_texture = nullptr;
@@ -769,6 +869,12 @@ namespace HotBite {
 				//Drop every cell. Call whenever the scene the cache describes is
 				//replaced wholesale - a level load - rather than merely changed.
 				void ResetRadianceCache() { rcache_reset = true; }
+
+				//Always live while a cloud is being drawn - the readback these come from
+				//also sizes the entry pool, so it is never switched off. Still a few
+				//frames stale by construction (Core::RWByteBuffer::Readback), so a caller
+				//that changes something and reads immediately sees the state before it.
+				SplatStats GetSplatStats() const { return splat_stats_cpu; }
 
 				void EnableNormalMaterialMapping(bool enabled);
 				bool IsEnabledEnableNormalMaterialMapping() const;

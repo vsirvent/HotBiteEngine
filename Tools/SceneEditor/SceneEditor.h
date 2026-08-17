@@ -237,6 +237,13 @@ namespace HotBiteEditor {
 		std::vector<ModelAsset> models;
 		std::string selected_model;
 
+		// File/Import Model... between picking the file and naming it. The name is
+		// asked for before the load rather than after, because it is the key the
+		// model's assets are registered under and renaming afterwards would mean
+		// re-registering them; empty when no import is pending.
+		std::string pending_import_path;
+		std::string pending_import_name;
+
 		// Templates panel state (see TemplatePanel.h). An authored template lives in
 		// its own .tpl file under Assets/Templates/, a shared asset the level merely
 		// references - so, like materials, template edits are written by File/Save

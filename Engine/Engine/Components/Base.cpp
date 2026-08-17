@@ -961,6 +961,8 @@ namespace HotBite {
 				j["spec_intensity"] = spec_intensity;
 				j["invert_normals"] = invert_normals;
 				j["surface_alpha"] = surface_alpha;
+				j["depth_slab"] = depth_slab;
+				j["max_density"] = max_density;
 				return j;
 			}
 
@@ -1012,6 +1014,23 @@ namespace HotBite {
 					//so nothing is written at all. Both read as "the depth write is broken".
 					const float a = j["surface_alpha"].get<float>();
 					surface_alpha = (a < 0.01f) ? 0.01f : ((a > 0.99f) ? 0.99f : a);
+				}
+				if (j.contains("depth_slab") && j["depth_slab"].is_number()) {
+					//Clamped away from zero and off the whole cloud. At 0 the tail stops at
+					//the band boundary the crossing was declared at, which truncates the
+					//surface's own splats and leaves the average noisy; at 1 every splat
+					//behind the surface is averaged in, which is the milky, too-deep result
+					//this knob exists to avoid. Neither end fails loudly.
+					const float s = j["depth_slab"].get<float>();
+					depth_slab = (s < 0.001f) ? 0.001f : ((s > 1.0f) ? 1.0f : s);
+				}
+				if (j.contains("max_density") && j["max_density"].is_number()) {
+					//Floored rather than allowed to reach 0, which would keep no splats at
+					//all and read as "the cloud stopped rendering" rather than as a density
+					//of zero. One splat per pixel is already far coarser than anything
+					//worth authoring.
+					const float d = j["max_density"].get<float>();
+					max_density = (d < 1.0f) ? 1.0f : d;
 				}
 				//An added-from-scratch component with nothing named: give it the stand-in
 				//rather than leaving a null for the splat pass to skip, which looks like the

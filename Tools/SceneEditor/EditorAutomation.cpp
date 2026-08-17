@@ -21,6 +21,7 @@
 #include <Components/Physics.h>
 #include <Systems/RenderSystem.h>
 #include <Core/Json.h>
+#include <Core/SplatCloud.h>
 #include <algorithm>
 #include <mutex>
 #include <filesystem>
@@ -554,6 +555,31 @@ namespace HotBiteEditor {
 						<< " hits=" << stats.hits
 						<< " misses=" << stats.misses
 						<< " entries=" << stats.entries;
+					response_lines.push_back(os.str());
+				}
+			}
+			else if (cmd == "splat_info") {
+				//What the splat binning did last frame. A cloud over per-tile capacity
+				//renders a plausible surface with parts of it missing rather than
+				//failing, so `max_per_tile` against `capacity` is the only way to tell
+				//"the capacity is enough" from "the capacity is not" - and
+				//`overflow_tiles` at anything but 0 means splats were dropped.
+				//
+				//Two frames stale, like gi_cache_info, and asking is what turns the
+				//readback on: poll it rather than reading it once after a change.
+				Systems::RenderSystem* rs =
+					(state.world != nullptr) ? state.world->GetSystem<Systems::RenderSystem>().get() : nullptr;
+				if (rs == nullptr) {
+					response_lines.push_back("ERR no render system");
+				}
+				else {
+					const Systems::RenderSystem::SplatStats stats = rs->GetSplatStats();
+					std::ostringstream os;
+					os << "OK tiles_used=" << stats.tiles_used
+						<< " max_per_tile=" << stats.max_per_tile
+						<< " total_binned=" << stats.total_binned
+						<< " dropped=" << stats.dropped
+						<< " capacity=" << stats.capacity << " tiles_rastered=" << stats.tiles_rastered << " pixels_written=" << stats.pixels_written;
 					response_lines.push_back(os.str());
 				}
 			}
@@ -1386,9 +1412,22 @@ namespace HotBiteEditor {
 			}
 			else if (cmd == "import_model") {
 				if (args.size() < 2) {
-					response_lines.push_back("ERR usage: import_model <path to .fbx>");
+					response_lines.push_back("ERR usage: import_model <path to .fbx> [name]");
 				}
-				else if (AssetBrowser::ImportModel(state, args[1], error)) {
+				else if (AssetBrowser::ImportModel(state, args[1],
+					args.size() > 2 ? args[2] : std::string(), error)) {
+					response_lines.push_back("OK " + state.status_message);
+				}
+				else {
+					response_lines.push_back("ERR " + error);
+				}
+			}
+			else if (cmd == "remove_model") {
+				AssetBrowser::EnsureAssetsScanned(state);
+				if (args.size() < 2) {
+					response_lines.push_back("ERR usage: remove_model <model name>");
+				}
+				else if (AssetBrowser::RemoveModel(state, args[1], error)) {
 					response_lines.push_back("OK " + state.status_message);
 				}
 				else {
@@ -1439,6 +1478,21 @@ namespace HotBiteEditor {
 						for (size_t i = 0; i < animations.size(); ++i) {
 							os << (i == 0 ? "" : ",") << animations[i];
 						}
+					}
+					response_lines.push_back(os.str());
+				}
+			}
+			else if (cmd == "list_splat_clouds") {
+				//The peer of list_meshes for the splat path: what the Components panel's
+				//SplatCloud picker offers, and so what a script can point one at.
+				const std::vector<std::string> clouds = TemplateOps::ListSplatClouds(state);
+				response_lines.push_back("OK " + std::to_string(clouds.size()) + " splat clouds");
+				for (const std::string& cloud : clouds) {
+					std::ostringstream os;
+					os << cloud;
+					const Core::SplatCloudData* data = state.world->GetSplatClouds().Get(cloud);
+					if (data != nullptr) {
+						os << " splats=" << data->Count();
 					}
 					response_lines.push_back(os.str());
 				}
