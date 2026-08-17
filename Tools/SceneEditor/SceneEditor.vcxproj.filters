@@ -119,6 +119,9 @@
     <ClCompile Include="PhysicsPreview.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="MeshOps.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="SceneEditor.h">
@@ -236,6 +239,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="ViewportOverlay.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="MeshOps.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

@@ -166,7 +166,7 @@
                         "albedo_scale": 1.0,
                         "invert_normals": false,
                         "max_density": 16.0,
-                        "name": "cliff",
+                        "name": "oct",
                         "opacity_scale": 1.0,
                         "spec_intensity": 0.10000000149011612,
                         "surface_alpha": 0.5
@@ -174,8 +174,8 @@
                 },
                 "name": "Cliff",
                 "position": {
-                    "x": -57.191558837890625,
-                    "y": 12.666009902954102,
+                    "x": -78.0501937866211,
+                    "y": 26.631839752197266,
                     "z": -111.00949096679688
                 },
                 "rotation": {
@@ -185,9 +185,9 @@
                     "z": 0.0
                 },
                 "scale": {
-                    "x": 0.7038468718528748,
-                    "y": 0.7038468718528748,
-                    "z": 0.7038468718528748
+                    "x": 0.37544333934783936,
+                    "y": 0.37544333934783936,
+                    "z": 0.37544333934783936
                 }
             }
         ],
@@ -334,8 +334,8 @@
                     "Transform": {
                         "position": {
                             "x": -49.1337890625,
-                            "y": 16.702022552490234,
-                            "z": -104.92393493652344
+                            "y": 18.935882568359375,
+                            "z": -105.31448364257813
                         },
                         "rotation": {
                             "w": -5.338507946817117e-08,
@@ -366,7 +366,7 @@
                     "Transform": {
                         "position": {
                             "x": -69.06522369384766,
-                            "y": 17.509233474731445,
+                            "y": 16.750648498535156,
                             "z": -112.87857055664063
                         },
                         "rotation": {
@@ -896,9 +896,21 @@
             },
             {
                 "components": {
+                    "AmbientLight": {
+                        "color_down": {
+                            "x": 0.16176468133926392,
+                            "y": 0.16176468133926392,
+                            "z": 0.16176468133926392
+                        },
+                        "color_up": {
+                            "x": 0.009999999776482582,
+                            "y": 0.009999999776482582,
+                            "z": 0.009999999776482582
+                        }
+                    },
                     "DirectionalLight": {
                         "cascade_split_lambda": 0.8299999833106995,
-                        "cascades": 2,
+                        "cascades": 1,
                         "cast_shadow": true,
                         "caster_extrusion": 500.0,
                         "color": {
@@ -906,13 +918,13 @@
                             "y": 1.0,
                             "z": 1.0
                         },
-                        "density": 15.0,
+                        "density": 0.0,
                         "direction": {
-                            "x": 0.09115869551897049,
-                            "y": 0.3482365608215332,
-                            "z": 0.9329637289047241
+                            "x": 0.8583745360374451,
+                            "y": 0.5078325271606445,
+                            "z": 0.0727967768907547
                         },
-                        "fog": true,
+                        "fog": false,
                         "intensity": 1.0,
                         "inverse_shadow": false,
                         "position": {
@@ -925,7 +937,7 @@
                         "shadow_distance": 450.0
                     },
                     "Sky": {
-                        "cloud_density": 0.699999988079071,
+                        "cloud_density": 0.5929999947547913,
                         "day_backcolor": {
                             "x": 0.019999999552965164,
                             "y": 0.019999999552965164,
@@ -941,8 +953,8 @@
                             "y": 0.0,
                             "z": 0.0
                         },
-                        "second_of_day": 30000.10546875,
-                        "second_speed": 1.0
+                        "second_of_day": 30513.791015625,
+                        "second_speed": 0.0
                     }
                 },
                 "name": "Sky"
@@ -952,11 +964,11 @@
                     "SplatCloud": {
                         "albedo_scale": 1.0,
                         "invert_normals": false,
-                        "max_density": 16.0,
+                        "max_density": 58.75,
                         "name": "oct",
                         "opacity_scale": 1.0,
-                        "spec_intensity": 0.10000000149011612,
-                        "surface_alpha": 0.5
+                        "spec_intensity": 0.0,
+                        "surface_alpha": 0.9900000095367432
                     }
                 },
                 "name": "oct_inst_0",
@@ -998,33 +1010,33 @@
                     "SplatCloud": {
                         "albedo_scale": 1.0,
                         "invert_normals": false,
-                        "max_density": 16.0,
+                        "max_density": 58.75,
                         "name": "oct",
                         "opacity_scale": 1.0,
-                        "spec_intensity": 0.10000000149011612,
-                        "surface_alpha": 0.5
+                        "spec_intensity": 0.0,
+                        "surface_alpha": 0.9900000095367432
                     }
                 },
                 "name": "oct_inst_0",
                 "position": {
-                    "x": -25.111597061157227,
-                    "y": 69.21544647216797,
-                    "z": -137.26968383789063
+                    "x": -59.48112487792969,
+                    "y": 14.286093711853027,
+                    "z": -110.20272827148438
                 },
                 "remove": [
                     "Material",
                     "Mesh"
                 ],
                 "rotation": {
-                    "w": 1.0,
-                    "x": 0.0,
+                    "w": 0.9999549984931946,
+                    "x": 0.009484926238656044,
                     "y": 0.0,
                     "z": 0.0
                 },
                 "scale": {
-                    "x": 1.0,
-                    "y": 1.0,
-                    "z": 1.0
+                    "x": 10.314962387084961,
+                    "y": 10.314962387084961,
+                    "z": 10.314962387084961
                 },
                 "template": "oct"
             },
@@ -1033,11 +1045,11 @@
                     "SplatCloud": {
                         "albedo_scale": 1.0,
                         "invert_normals": false,
-                        "max_density": 16.0,
+                        "max_density": 58.75,
                         "name": "oct",
                         "opacity_scale": 1.0,
-                        "spec_intensity": 0.10000000149011612,
-                        "surface_alpha": 0.5
+                        "spec_intensity": 0.0,
+                        "surface_alpha": 0.9900000095367432
                     }
                 },
                 "name": "oct_inst_0",
@@ -1165,7 +1177,7 @@
             },
             {
                 "file": "assets\\Objects\\scene.ply",
-                "name": "cliff",
+                "name": "girl",
                 "triangulate": false
             }
         ],

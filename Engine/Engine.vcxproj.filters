@@ -203,14 +203,14 @@
     <ClCompile Include="Engine\Core\BVH.cpp">
       <Filter>Engine\Core</Filter>
     </ClCompile>
+    <ClCompile Include="Engine\Core\SplatCloud.cpp">
+      <Filter>Engine\Core</Filter>
+    </ClCompile>
     <ClCompile Include="Engine\Components\PhysicsSerialization.cpp">
-      <Filter>Engine</Filter>
+      <Filter>Engine\Core</Filter>
     </ClCompile>
     <ClCompile Include="Engine\Core\MeshSimplify.cpp">
-      <Filter>Engine</Filter>
-    </ClCompile>
-    <ClCompile Include="Engine\Core\SplatCloud.cpp">
-      <Filter>Engine</Filter>
+      <Filter>Engine\Core</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -661,5 +661,6 @@
     <FxCompile Include="Engine\Core\Shaders\Splats\SplatBaseCS.hlsl">
       <Filter>Engine\Core\Shaders\Splat</Filter>
     </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\Splats\SplatCompactCS.hlsl" />
   </ItemGroup>
 </Project>
