@@ -1,14 +1,14 @@
-03:21:32.371 [INFO ] [t12876] ShaderCompiler.cpp:214: ShaderCompiler: source folder C:\Users\vicen\Documents\GitHub\HotBiteEngine\Engine\Engine\Core\Shaders (64 shader sources indexed)
-03:21:32.378 [INFO ] [t12876] ShaderCompiler.cpp:214: ShaderCompiler: source folder C:\Users\vicen\Documents\GitHub\HotBiteEngine\Tests (69 shader sources indexed)
-03:21:32.378 [INFO ] [t12876] ShaderReload.cpp:217: ShaderReload: 69 shader sources
+10:06:12.309 [INFO ] [t4144] ShaderCompiler.cpp:214: ShaderCompiler: source folder C:\Users\vicen\Documents\GitHub\HotBiteEngine\Engine\Engine\Core\Shaders (64 shader sources indexed)
+10:06:12.315 [INFO ] [t4144] ShaderCompiler.cpp:214: ShaderCompiler: source folder C:\Users\vicen\Documents\GitHub\HotBiteEngine\Tests (69 shader sources indexed)
+10:06:12.315 [INFO ] [t4144] ShaderReload.cpp:217: ShaderReload: 69 shader sources
   C:\Users\vicen\Documents\GitHub\HotBiteEngine\Engine\Engine\Core\Shaders
   C:\Users\vicen\Documents\GitHub\HotBiteEngine\Tests
-03:21:37.660 [INFO ] [t12876] Material.cpp:326: Engine: sizeof(MaterialData)=928 alignof(MaterialData)=16 offsetof(props)=96
-03:21:47.344 [INFO ] [t12876] SplatCloud.cpp:374: SplatCloudData::Load: ..\..\..\Tests\DemoGame\assets\Objects\oct.ply -> 'oct', 1841339 splats, box (-0.33 -0.01 -0.32)-(0.33 1.01 0.31)
-03:21:47.570 [INFO ] [t12876] SplatCloud.cpp:492: SplatCloudData::Prepare: 'oct' uploaded, 1841339 splats, 140.5 MB
-03:21:51.925 [WARN ] [t12876] Base.cpp:681: Material::FromJson: unknown material 'Marble' (entity 33), keeping the current one
-03:21:51.925 [WARN ] [t12876] Base.cpp:681: Material::FromJson: unknown material 'Marble' (entity 30), keeping the current one
-03:21:51.925 [WARN ] [t12876] Base.cpp:681: Material::FromJson: unknown material 'Marble' (entity 31), keeping the current one
-03:21:51.925 [WARN ] [t12876] Base.cpp:681: Material::FromJson: unknown material 'Marble' (entity 32), keeping the current one
-03:21:55.072 [INFO ] [t12876] ShaderCompiler.cpp:214: ShaderCompiler: source folder C:\Users\vicen\Documents\GitHub\HotBiteEngine\Tests\DemoGame (69 shader sources indexed)
-03:21:55.072 [INFO ] [t12876] ShaderReload.cpp:369: ShaderReload: 5 shader sources in the project folder
+10:06:18.556 [INFO ] [t4144] Material.cpp:326: Engine: sizeof(MaterialData)=928 alignof(MaterialData)=16 offsetof(props)=96
+10:06:27.826 [INFO ] [t4144] SplatCloud.cpp:374: SplatCloudData::Load: ..\..\..\Tests\DemoGame\assets\Objects\oct.ply -> 'oct', 1841339 splats, box (-0.33 -0.01 -0.32)-(0.33 1.01 0.31)
+10:06:28.024 [INFO ] [t4144] SplatCloud.cpp:492: SplatCloudData::Prepare: 'oct' uploaded, 1841339 splats, 140.5 MB
+10:06:32.598 [WARN ] [t4144] Base.cpp:681: Material::FromJson: unknown material 'Marble' (entity 33), keeping the current one
+10:06:32.598 [WARN ] [t4144] Base.cpp:681: Material::FromJson: unknown material 'Marble' (entity 30), keeping the current one
+10:06:32.598 [WARN ] [t4144] Base.cpp:681: Material::FromJson: unknown material 'Marble' (entity 31), keeping the current one
+10:06:32.598 [WARN ] [t4144] Base.cpp:681: Material::FromJson: unknown material 'Marble' (entity 32), keeping the current one
+10:06:36.076 [INFO ] [t4144] ShaderCompiler.cpp:214: ShaderCompiler: source folder C:\Users\vicen\Documents\GitHub\HotBiteEngine\Tests\DemoGame (69 shader sources indexed)
+10:06:36.076 [INFO ] [t4144] ShaderReload.cpp:369: ShaderReload: 5 shader sources in the project folder

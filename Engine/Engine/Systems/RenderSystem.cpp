@@ -1836,14 +1836,14 @@ void RenderSystem::DrawSplats(int w, int h, const float3& camera_position, const
 		//quantize everything to one step, which is correct-but-useless rather than wrong -
 		//the floor just keeps it finite.
 		const float depth_range = max(1e-3f, depth_max - depth_min);
-		//The slab, fitted to this cloud rather than fixed in world units - the component
-		//authors it as a fraction of the cloud's own depth extent, see the note on
-		//Components::SplatCloud::depth_slab. Both passes get the same value: the
-		//rasterizer's tail past the surface it found, and the preprocess pass's slack on
-		//the coarse reject against the depth pre-pass, which is the same thickness
-		//measured from the other side.
-		const float depth_slab =
-			depth_range * max(SPLAT_SLAB_MIN_FRACTION, e.cloud->depth_slab);
+		//The slab: a world thickness, not a share of this cloud's depth - see the note on
+		//SPLAT_SLAB_WORLD. Floored at one depth band, because the tail cannot usefully be
+		//finer than the granularity the slice is ordered to - the band the surface was
+		//declared at the end of is the one holding the rest of that surface's own splats,
+		//so a tail shorter than it would cut into the surface being measured. Both passes
+		//get the same value.
+		const float band_world = depth_range / (float)SPLAT_DEPTH_BUCKETS;
+		const float depth_slab = max(SPLAT_SLAB_WORLD, band_world);
 		//World size of one quantization step, which is the slack the rasterizer's
 		//front-to-back walk gives its occlusion cutoff.
 		const float depth_step = depth_range / (float)SPLAT_MAX_DEPTH_STEP;

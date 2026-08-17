@@ -72,6 +72,9 @@
     <Filter Include="Engine\Core\Shaders\DoFBoke">
       <UniqueIdentifier>{bf606861-2003-454a-ab74-7da83189dc71}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Engine\Core\Shaders\Splat">
+      <UniqueIdentifier>{38c40529-315d-4de7-93aa-07c84133d025}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Engine\Core\DXCore.cpp">
@@ -204,6 +207,9 @@
       <Filter>Engine</Filter>
     </ClCompile>
     <ClCompile Include="Engine\Core\MeshSimplify.cpp">
+      <Filter>Engine</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\Core\SplatCloud.cpp">
       <Filter>Engine</Filter>
     </ClCompile>
   </ItemGroup>
@@ -406,6 +412,7 @@
     <ClInclude Include="Engine\Core\MeshSimplify.h" />
     <ClInclude Include="Engine\ECS\ComponentRegistry.h" />
     <ClInclude Include="Engine\ECS\Serialization.h" />
+    <ClInclude Include="Engine\Core\SplatCloud.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
@@ -465,6 +472,9 @@
     </None>
     <None Include="Engine\Core\Shaders\Common\RadianceCache.hlsli">
       <Filter>Engine\Core\Shaders\RayTrace</Filter>
+    </None>
+    <None Include="Engine\Core\Shaders\Splats\SplatCommon.hlsli">
+      <Filter>Engine\Core\Shaders\Splat</Filter>
     </None>
   </ItemGroup>
   <ItemGroup>
@@ -635,6 +645,21 @@
     <FxCompile Include="Engine\Core\Shaders\MaterialPreview\MaterialPreviewPS.hlsl" />
     <FxCompile Include="Engine\Core\Shaders\Radiance\RadianceCacheResolveCS.hlsl">
       <Filter>Engine\Core\Shaders\RayTrace</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\Splats\SplatScanCS.hlsl">
+      <Filter>Engine\Core\Shaders\Splat</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\Splats\SplatRasterCS.hlsl">
+      <Filter>Engine\Core\Shaders\Splat</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\Splats\SplatPreprocessCS.hlsl">
+      <Filter>Engine\Core\Shaders\Splat</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\Splats\SplatBinCS.hlsl">
+      <Filter>Engine\Core\Shaders\Splat</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\Splats\SplatBaseCS.hlsl">
+      <Filter>Engine\Core\Shaders\Splat</Filter>
     </FxCompile>
   </ItemGroup>
 </Project>

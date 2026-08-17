@@ -1418,18 +1418,6 @@ namespace HotBiteEditor {
 					"the depth written to the G-buffer is where accumulated alpha\n"
 					"crosses this.");
 			}
-			//Logarithmic, because the useful range is a fraction of a percent of the
-			//cloud's depth at one end and the whole of it at the other, and a linear
-			//slider spends nearly all its travel in the part that looks the same.
-			edit.Track(ImGui::SliderFloat("Depth slab", &cloud.depth_slab, 0.001f, 1.0f,
-										  "%.3f", ImGuiSliderFlags_Logarithmic));
-			if (ImGui::IsItemHovered()) {
-				ImGui::SetTooltip("How far past the surface the pass keeps gathering, as a fraction\n"
-					"of the cloud's own depth extent. A surface thickness: too much\n"
-					"averages the surface behind this one in, so the cloud reads as\n"
-					"semi-transparent and its depth sits behind it; too little only\n"
-					"makes the average noisier.");
-			}
 			//Floored at 1 for the same reason FromJson floors it: below that the cloud
 			//stops covering pixels rather than merely getting coarser, which reads as it
 			//not rendering.

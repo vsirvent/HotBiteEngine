@@ -578,6 +578,7 @@
             "c:\\program files (x86)\\windows kits\\10\\include\\10.0.26100.0\\um\\d3d10_1shader.h",
             "c:\\users\\vicen\\documents\\github\\hotbiteengine\\engine\\engine\\core\\scheduler.h",
             "c:\\users\\vicen\\documents\\github\\hotbiteengine\\engine\\engine\\core\\utils.h",
+            "c:\\users\\vicen\\documents\\github\\hotbiteengine\\engine\\engine\\core\\log.h",
             "c:\\program files (x86)\\windows kits\\10\\include\\10.0.26100.0\\ucrt\\inttypes.h",
             "c:\\program files\\microsoft visual studio\\18\\insiders\\vc\\tools\\msvc\\14.51.36231\\include\\queue",
             "c:\\program files\\microsoft visual studio\\18\\insiders\\vc\\tools\\msvc\\14.51.36231\\include\\deque",
@@ -609,6 +610,7 @@
             "c:\\program files (x86)\\windows kits\\10\\include\\10.0.26100.0\\um\\dwrite_2.h",
             "c:\\program files (x86)\\windows kits\\10\\include\\10.0.26100.0\\um\\dwrite_1.h",
             "c:\\program files (x86)\\windows kits\\10\\include\\10.0.26100.0\\um\\dwrite.h",
+            "c:\\users\\vicen\\documents\\github\\hotbiteengine\\engine\\engine\\core\\shadercompiler.h",
             "c:\\program files (x86)\\windows kits\\10\\include\\10.0.26100.0\\um\\d3dcompiler.h",
             "c:\\program files (x86)\\windows kits\\10\\include\\10.0.26100.0\\um\\d3d11shader.h",
             "c:\\program files (x86)\\windows kits\\10\\include\\10.0.26100.0\\um\\d3d12shader.h",
@@ -621,6 +623,7 @@
             "c:\\users\\vicen\\documents\\github\\hotbiteengine\\engine\\engine\\systems\\rendersystem.h",
             "c:\\users\\vicen\\documents\\github\\hotbiteengine\\engine\\engine\\ecs\\entityvector.h",
             "c:\\users\\vicen\\documents\\github\\hotbiteengine\\engine\\engine\\components\\base.h",
+            "c:\\users\\vicen\\documents\\github\\hotbiteengine\\engine\\engine\\core\\splatcloud.h",
             "c:\\users\\vicen\\documents\\github\\hotbiteengine\\engine\\engine\\components\\camera.h",
             "c:\\users\\vicen\\documents\\github\\hotbiteengine\\engine\\engine\\components\\particles.h",
             "c:\\users\\vicen\\documents\\github\\hotbiteengine\\engine\\engine\\core\\particles.h",
@@ -635,7 +638,8 @@
             "c:\\program files (x86)\\windows kits\\10\\include\\10.0.26100.0\\ucrt\\assert.h",
             "c:\\program files (x86)\\windows kits\\10\\include\\10.0.26100.0\\um\\directxpackedvector.h",
             "c:\\program files (x86)\\windows kits\\10\\include\\10.0.26100.0\\um\\directxpackedvector.inl",
-            "c:\\users\\vicen\\documents\\github\\hotbiteengine\\solution\\packages\\directxtk_desktop_2019.2022.12.16.1\\include\\simplemath.inl"
+            "c:\\users\\vicen\\documents\\github\\hotbiteengine\\solution\\packages\\directxtk_desktop_2019.2022.12.16.1\\include\\simplemath.inl",
+            "c:\\users\\vicen\\documents\\github\\hotbiteengine\\engine\\engine\\core\\rwbuffer.h"
         ],
         "ImportedModules": [],
         "ImportedHeaderUnits": []

@@ -502,30 +502,6 @@ namespace HotBite {
 				//depth would be a third state neither flag describes.
 				float surface_alpha = 0.5f;
 
-				//How far past that surface the rasterizer keeps gathering, as a fraction
-				//of this cloud's own depth extent (its bounding sphere's diameter, fitted
-				//per frame by RenderSystem::DrawSplats).
-				//
-				//It is a *surface thickness*: the crossing is declared at a depth band
-				//boundary, so the splats making up the surface straddle it and the tail is
-				//what lets the averaged albedo, normal and depth include the rest of them
-				//instead of truncating at a band edge. Everything past that is a different
-				//surface, and averaging it in is what makes a cloud read as
-				//semi-transparent and drags the written depth behind where the object is.
-				//
-				//A fraction rather than world units, because a thickness scales with the
-				//capture - the 0.05 world units that suited a 1-unit object is nothing on a
-				//room scan. Per cloud rather than one global fraction for the same reason
-				//in the other direction: the extent an object's surface occupies is a large
-				//share of a small object and a tiny share of a room, so no single fraction
-				//suits both. Lower it if a cloud looks milky or its depth sits behind it;
-				//raise it if a surface looks eroded or noisy.
-				//
-				//It cannot cause the seams the pre-coverage-threshold version could: the
-				//tail is only applied *after* the surface has been found, so no value of
-				//this can stop a pixel finding one.
-				float depth_slab = 0.02f;
-
 				//The most splats this cloud is worth drawing per screen pixel. The
 				//renderer keeps a stable random subset of the cloud sized to hold this
 				//many over the area it projects to, and drops the rest before they are

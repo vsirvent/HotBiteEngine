@@ -68,13 +68,12 @@ struct SplatView
 // Nothing depends on the order being exact: entries inside one bucket are in whatever
 // order the atomics produced, and the rasterizer's accumulation is commutative.
 //
-// The bands are measured from each tile's own nearest splat and span the cloud's WHOLE
-// quantized depth range. Narrowing the span looks better on paper - finer bands exactly
-// where the rasterizer's slab lives - and is a correctness bug: everything past the span
-// clamps into the last band as an unordered mass, and both the early-out and the two
-// prefix decisions (the surface, and where the pixel became opaque) are only sound where
-// the ordering is real. Measured at a 0.1 span it put the tile-edge gradient ratio back
-// to 1.68x and returned 0.17% flicker to an otherwise bit-identical frame.
+// The bands are measured from each tile's own nearest splat and span a small multiple
+// of SPLAT_DEPTH_SLAB (SPLAT_BUCKET_SPAN_SLACK in RenderSystem.h), not the cloud's
+// whole depth. Spanning the cloud would drop every entry of a given tile into two or
+// three bands and order nothing; spanning the slab puts the resolution exactly where
+// the rasterizer's early-out needs it, and everything further back - which the
+// per-pixel slab will reject anyway - is clamped into the last band.
 #define SPLAT_DEPTH_BUCKETS 128
 
 // Threads per group in the scan passes. SplatScanCS uses SPLAT_DEPTH_BUCKETS threads
@@ -144,34 +143,26 @@ float SplatHash01(uint x)
 // loops terminate early on the great majority of splat/pixel pairs.
 #define SPLAT_MIN_ALPHA (1.0f / 255.0f)
 
-// Where the rasterizer's accumulation stops for having nothing left to see. It is the
-// sum of Gaussian weights, not a 1-T transmittance, and the value is 1 EXACTLY because
-// the pass writes its opacity as saturate(acc_w) - past that point the composite
-// already replaces what is behind the pixel entirely, so every further entry can only
-// drag albedo, normal and depth toward a surface this one occludes. Change one of the
-// two and the other stops meaning the same thing.
-#define SPLAT_OPAQUE_ALPHA 1.0f
-
-// How far behind the *surface* a splat may still contribute is NOT a constant here any
-// more - it is splat_depth_slab, a uniform RenderSystem fits to the cloud's own depth
-// extent from Components::SplatCloud::depth_slab. A fixed world value cannot work: it
-// has to express a surface thickness, and that scales with the capture. Nor can one
-// global fraction, which is why it is authored per cloud.
+// How far behind the surface a splat may still contribute is NOT a constant here - it
+// is splat_depth_slab, which RenderSystem hands over as a WORLD thickness
+// (SPLAT_SLAB_WORLD, floored at one depth band). It used to be a fraction of the
+// cloud's own depth extent, which is the wrong thing to measure: a surface is the same
+// couple of centimetres thick whatever the size of the capture it was cut out of.
 //
 // The failure that used to make it dangerous to shrink is gone. When the slab was
 // measured from the nearest splat with any coverage it decided which surface filled a
 // pixel, so at an internal depth jump - a tentacle crossing in front of another - the
 // near surface contributed only its grazing edge, the surface actually covering the
 // pixel sat beyond the slab, and the pixel wrote nothing: the background showed through
-// as a 1-2 px seam tracing every overlap (332 of them in one view of a 1-unit capture
-// at 0.05). The surface is found by a coverage threshold now and the slab is applied
-// only afterwards, so no value of it can stop a pixel finding a surface.
+// as a 1-2 px seam tracing every overlap, 332 of them in one view of a 1-unit capture.
+// The surface is found by a coverage threshold now and the slab is applied only
+// afterwards, so no value of it can stop a pixel finding a surface.
 //
-// What is left is a tail over the surface's own splats, and there too small is now the
-// benign end - a slightly noisier average - while too large is the one with a symptom:
-// the next surface back is averaged in, the cloud reads as semi-transparent and the
-// depth it writes sits behind the object. It also costs time, and a tenth of the
-// cloud's depth was enough to hang the driver on a 1.8M splat capture.
+// What is left is a tail over the surface's own splats, so too small is now the benign
+// end - a slightly noisier average - and too large is the one with a symptom: the next
+// surface back is averaged in, the cloud reads as semi-transparent and the depth it
+// writes sits behind the object. It costs time as well, and a tenth of the cloud's
+// depth was enough to hang the driver on a 1.8M splat capture.
 
 // Evaluates the 2D Gaussian at `d` pixels from the splat centre.
 float SplatWeight(float3 conic, float2 d)

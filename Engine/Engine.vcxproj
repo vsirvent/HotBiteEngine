@@ -295,6 +295,7 @@
     <None Include="Engine\Core\Shaders\Common\Utils.hlsli" />
     <None Include="Engine\Core\Shaders\GUI\GUICommon.hlsli" />
     <None Include="Engine\Core\Shaders\MainRender\MainRenderPS.hlsli" />
+    <None Include="Engine\Core\Shaders\Splats\SplatCommon.hlsli" />
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
@@ -750,8 +751,7 @@
       <RadianceCacheDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\Radiance\RadianceCacheResolveCS.hlsl" />
       <RadianceCacheDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\Radiance\GIAverageCS.hlsl" />
     </ItemGroup>
-    <Touch Files="@(RadianceCacheDependent)"
-           Condition="Exists('$(RadianceCacheHeader)') And $([System.IO.File]::GetLastWriteTime('$(RadianceCacheHeader)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('%(RadianceCacheDependent.FullPath)').Ticks)" />
+    <Touch Files="@(RadianceCacheDependent)" Condition="Exists('$(RadianceCacheHeader)') And $([System.IO.File]::GetLastWriteTime('$(RadianceCacheHeader)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('%(RadianceCacheDependent.FullPath)').Ticks)" />
     <PropertyGroup>
       <SplatCommonHeader>$(MSBuildThisFileDirectory)Engine\Core\Shaders\Splats\SplatCommon.hlsli</SplatCommonHeader>
     </PropertyGroup>
@@ -762,7 +762,6 @@
       <SplatCommonDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\Splats\SplatBaseCS.hlsl" />
       <SplatCommonDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\Splats\SplatRasterCS.hlsl" />
     </ItemGroup>
-    <Touch Files="@(SplatCommonDependent)"
-           Condition="Exists('$(SplatCommonHeader)') And $([System.IO.File]::GetLastWriteTime('$(SplatCommonHeader)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('%(SplatCommonDependent.FullPath)').Ticks)" />
+    <Touch Files="@(SplatCommonDependent)" Condition="Exists('$(SplatCommonHeader)') And $([System.IO.File]::GetLastWriteTime('$(SplatCommonHeader)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('%(SplatCommonDependent.FullPath)').Ticks)" />
   </Target>
 </Project>

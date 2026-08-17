@@ -560,19 +560,22 @@ namespace HotBite {
 				//Depth bands a tile's slice is ordered into. Only the layout depends on
 				//this - the rasterizer's results are order-independent - so it trades
 				//early-out sharpness against the size of the histogram.
-				static constexpr uint32_t SPLAT_DEPTH_BUCKETS = 128;
+				static constexpr uint32_t SPLAT_DEPTH_BUCKETS = 32;
 				static constexpr uint32_t SPLAT_SCAN_GROUP = 256;
 				static constexpr uint32_t SPLAT_MAX_DEPTH_STEP = (1u << 10) - 1u;
 				//tile_depth is cleared to this, so the first splat to touch a tile wins
 				//the InterlockedMin and a tile nothing touches rejects everything.
 				static constexpr uint32_t SPLAT_NO_DEPTH = 0xFFFFFFFFu;
-				//How far past the surface the rasterizer keeps gathering is
-				//Components::SplatCloud::depth_slab now - a fraction of the cloud's own
-				//depth extent, authored per cloud, because one global fraction cannot suit
-				//both a scanned object and a room scan (a surface is a large share of a
-				//small object's depth and a tiny share of a room's). Read that field's
-				//comment for what it means; the floor here is only against a component
-				//poked to zero from outside FromJson.
+				//How far past the surface the rasterizer keeps gathering, in WORLD UNITS
+				//and not as a fraction of anything. A surface is a surface: the splats
+				//making up the one covering a pixel are spread over a couple of
+				//centimetres whether they were captured as part of an octopus or as part
+				//of a room, so the tail that collects them is a fixed thickness. Scaling
+				//it by the cloud's own depth extent - which is what this was - makes the
+				//tail grow with the size of the capture for no reason connected to what it
+				//is measuring: on a 1-unit object 5% is 0.05 and about right, on a 20-unit
+				//room scan the same 5% is a metre, which averages whole pieces of
+				//furniture into one pixel.
 				//
 				//This is a tail, not a search window, and that distinction is what fixed
 				//the seams. It used to be measured from the nearest splat with any
@@ -580,13 +583,14 @@ namespace HotBite {
 				//the surface *behind* a depth jump (or the pixel wrote nothing and the
 				//background showed through as a 1-2 px seam along every overlap), yet
 				//narrow enough not to average front and back together everywhere else.
-				//Measured on a 1-unit capture: 0.05 left 332 seam pixels in one view, 0.30
-				//cleared them but rendered the cloud visibly semitransparent, and 0.50
-				//hung the driver. The surface is found by a coverage threshold now
-				//(SplatRasterCS), so this only has to span the surface itself - and it can
-				//no longer cause a seam at all, the tail being applied only once a surface
-				//has already been found.
-				static constexpr float SPLAT_SLAB_MIN_FRACTION = 0.001f;
+				//The surface is found by a coverage threshold now (SplatRasterCS), and
+				//the tail is applied only *after* one has been found, so no value here can
+				//stop a pixel finding a surface - which is what makes it safe to be this
+				//tight. What is left for it to do is collect the rest of the splats of the
+				//surface already found, and anything past that is a different surface:
+				//averaged in, it is what makes a cloud read as semi-transparent and drags
+				//the depth it writes behind where the object is.
+				static constexpr float SPLAT_SLAB_WORLD = 0.02f;
 
 				//Floor for the entry pool, holding until the GPU has reported what it
 				//actually needed. Entries per splat varies far too much for a multiplier:

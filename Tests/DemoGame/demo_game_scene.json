@@ -917,6 +917,17 @@
                 "name": "Sky"
             },
             {
+                "components": {
+                    "SplatCloud": {
+                        "albedo_scale": 1.0,
+                        "invert_normals": false,
+                        "max_density": 16.0,
+                        "name": "oct",
+                        "opacity_scale": 1.0,
+                        "spec_intensity": 0.10000000149011612,
+                        "surface_alpha": 0.5
+                    }
+                },
                 "name": "oct_inst_0",
                 "remove": [
                     "Material",
@@ -952,26 +963,72 @@
                 "template": "troll"
             },
             {
+                "components": {
+                    "SplatCloud": {
+                        "albedo_scale": 1.0,
+                        "invert_normals": false,
+                        "max_density": 16.0,
+                        "name": "oct",
+                        "opacity_scale": 1.0,
+                        "spec_intensity": 0.10000000149011612,
+                        "surface_alpha": 0.5
+                    }
+                },
                 "name": "oct_inst_0",
                 "position": {
-                    "x": 86.34980010986328,
-                    "y": 37.80672836303711,
-                    "z": 146.35745239257813
+                    "x": -63.269142150878906,
+                    "y": 16.494529724121094,
+                    "z": -112.2410888671875
                 },
                 "remove": [
                     "Material",
                     "Mesh"
                 ],
                 "rotation": {
-                    "w": 0.7915887832641602,
+                    "w": 1.0,
                     "x": 0.0,
-                    "y": -0.6110541224479675,
+                    "y": 0.0,
                     "z": 0.0
                 },
                 "scale": {
-                    "x": 0.7405487895011902,
-                    "y": 0.6408005356788635,
-                    "z": 0.7405487895011902
+                    "x": 3.087986946105957,
+                    "y": 3.087986946105957,
+                    "z": 3.087986946105957
+                },
+                "template": "oct"
+            },
+            {
+                "components": {
+                    "SplatCloud": {
+                        "albedo_scale": 1.0,
+                        "invert_normals": false,
+                        "max_density": 16.0,
+                        "name": "oct",
+                        "opacity_scale": 1.0,
+                        "spec_intensity": 0.10000000149011612,
+                        "surface_alpha": 0.5
+                    }
+                },
+                "name": "oct_inst_0",
+                "position": {
+                    "x": -25.111597061157227,
+                    "y": 70.26985168457031,
+                    "z": -137.26968383789063
+                },
+                "remove": [
+                    "Material",
+                    "Mesh"
+                ],
+                "rotation": {
+                    "w": 1.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "scale": {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 1.0
                 },
                 "template": "oct"
             }

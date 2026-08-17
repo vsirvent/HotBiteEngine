@@ -18,18 +18,15 @@
 // running coverage sum crossed surface_alpha", which moved frame to frame and dragged
 // the reconstructed world position, the shadow lookup and depth_map with it.
 //
-// One walk, accumulating alpha-weighted sums - including sum(w * view_depth), so
-// surface_depth is the weighted *mean* depth of what was gathered, a commutative
-// quantity with no notion of "first".
+//   pass 1  nearest = min(view_depth) over the entries covering this pixel
+//   pass 2  alpha-weighted sums over the entries within splat_depth_slab of it,
+//           including sum(w * view_depth) - so surface_depth is the weighted *mean*
+//           depth of the slab, a commutative quantity with no notion of "first".
 //
-// The bucket order is used for two things, and neither can get the sums wrong. One is
-// an early-out: the walk stops once an entry is far enough past the tail that no later
-// entry can be inside it, with one bucket width of slack because the ordering is
-// coarse, so being approximate costs a few extra entries walked and never a wrong
-// result. The other is the pair of decisions that need a front-to-back prefix - where
-// the surface is, and where the pixel became opaque - and both are taken only at a
-// *band boundary*, where the prefix is a sum over a fixed set and so is order-
-// independent again.
+// The bucket order is then used for one thing only, and one it cannot get wrong: an
+// early-out. Both passes stop once an entry is far enough past what they care about
+// that no later entry can matter, with one bucket width of slack because the ordering
+// is coarse. Being approximate costs a few extra entries walked, never a wrong result.
 //
 // The cost of the whole design is that you cannot see *through* a splat cloud - which
 // the G-buffer could not represent anyway.
@@ -37,15 +34,9 @@
 #define HB_COMPUTE_LIGHTING 1
 
 // Diagnostic switch. 0 walks each tile's whole slice instead of stopping early, which
-// must produce an identical image - the early-out is bounded by slack that makes it
-// conservative. Flipping this is how to tell "the walk stops too soon" from "the
+// must produce an identical image - the early-outs are bounded by slack that makes
+// them conservative. Flipping this is how to tell "the walk stops too soon" from "the
 // binning is wrong"; it found the answer once already.
-//
-// It covers the *distance* early-out only. The opaque one below is not under it,
-// because that one changes which entries are gathered by design - a pixel that is
-// already opaque must not keep averaging in the surface behind it - so putting it here
-// would mean this switch no longer produced an identical image and stopped being able
-// to answer the question it exists for.
 #define SPLAT_EARLY_OUT 1
 
 #include "SplatCommon.hlsli"
@@ -252,40 +243,14 @@ void main(uint3 gid : SV_GroupID, uint3 dtid : SV_DispatchThreadID, uint gi : SV
 			float band = floor((s.view_depth - near_world) * inv_band);
 
 			// A band boundary: everything before this band is in, so this is the one
-			// point at which the crossing may be declared - and the one point at which
-			// the walk may stop for being opaque.
-			if (band != cur_band) {
-				if (!crossed && started && acc_w >= surface_alpha) {
+			// point at which the crossing may be declared.
+			if (!crossed && band != cur_band) {
+				if (started && acc_w >= surface_alpha) {
 					crossed = true;
 					surf = near_world + (cur_band + 1.0f) * splat_bucket_width;
 					limit = surf + splat_depth_slab;
 				}
-				// The pixel is already fully covered, so nothing behind it can be seen
-				// through it - `alpha` below is saturate(acc_w), so at 1 the composite
-				// replaces what is behind entirely, and every further entry would only
-				// pull albedo, normal and depth toward a surface this one occludes. That
-				// is the milky, too-deep look, and the slab alone cannot prevent it: a
-				// tail wide enough to span a thick surface also reaches the next surface
-				// wherever this one is thin.
-				//
-				// AT A BAND BOUNDARY, exactly like the crossing above and for the same
-				// reason. Coverage accumulated before a band is a sum over a fixed set,
-				// so both this test and the set it stops at are order-independent;
-				// stopping the moment acc_w crossed *inside* a band would keep whichever
-				// entries the binning atomics happened to put first, which changes every
-				// frame - the flicker this pass was rewritten to remove.
-				//
-				// Deliberately not under SPLAT_EARLY_OUT: this is what the pass means by
-				// a surface rather than an optimisation of it, so it holds in both
-				// settings of that switch and leaves its "identical image" contract
-				// intact.
-				if (crossed && acc_w >= SPLAT_OPAQUE_ALPHA) {
-					done = true;
-				}
 				cur_band = band;
-				if (done) {
-					continue;
-				}
 			}
 
 #if SPLAT_EARLY_OUT
