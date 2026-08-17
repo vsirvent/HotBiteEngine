@@ -572,7 +572,7 @@ namespace HotBite {
 				//Depth bands a tile's slice is ordered into. Only the layout depends on
 				//this - the rasterizer's results are order-independent - so it trades
 				//early-out sharpness against the size of the histogram.
-				static constexpr uint32_t SPLAT_DEPTH_BUCKETS = 128;
+				static constexpr uint32_t SPLAT_DEPTH_BUCKETS = 64;
 				static constexpr uint32_t SPLAT_SCAN_GROUP = 256;
 				//Threads per group in SplatCompactCS, one tile each. Must match
 				//SPLAT_COMPACT_GROUP in SplatCommon.hlsli.

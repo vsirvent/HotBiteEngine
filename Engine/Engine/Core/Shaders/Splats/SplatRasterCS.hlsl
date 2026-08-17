@@ -340,11 +340,36 @@ void main(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID, uint gi : SV_Gr
 	if (!contributes || acc_w < SPLAT_MIN_ALPHA) {
 		return;
 	}
+	float surface_depth = acc_depth / acc_w;
+
+	// --- occlusion, PER PIXEL ------------------------------------------------------
+	// depth_out is depth_map: the world distance to the opaque surface at this pixel,
+	// written by the depth pre-pass and cleared to FLT_MAX, so a pixel with nothing
+	// behind it passes and a cloud still draws against the background.
+	//
+	// This is the test that was missing, and it is not the same as either of the two
+	// that were already here:
+	//
+	//  - SplatPreprocessCS rejects a splat whose CENTRE is more than a slab behind the
+	//    opaque depth AT ITS CENTRE PIXEL. That is per splat, not per pixel, so it only
+	//    catches splats that are wholly behind something. A splat straddling an
+	//    occluder's silhouette has a visible centre and survives with all of its
+	//    coverage, including the part that should be hidden.
+	//  - The G-buffer block below tested depth, so position/normal/depth/ray sources
+	//    were correct. Only scene_out and light_out were written unconditionally - so
+	//    the cloud's COLOUR was composited over geometry standing in front of it while
+	//    the depth buffer said, correctly, that the geometry was nearer. That is why
+	//    the artifact shows in the lit image and not in the depth view.
+	//
+	// Taken here rather than at the writes so an occluded pixel also skips the lighting
+	// loops below, which are the expensive part of this shader.
+	if (surface_depth >= depth_out[px]) {
+		return;
+	}
 	{
 		uint ignored;
 		splat_stats.InterlockedAdd(28, 1, ignored);
 	}
-	float surface_depth = acc_depth / acc_w;
 
 	float3 albedo = acc_albedo / acc_w;
 	float3 normal = normalize(acc_normal);
@@ -407,12 +432,12 @@ void main(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID, uint gi : SV_Gr
 
 	// --- the G-buffer ------------------------------------------------------------
 	// One surface per pixel, so unlike scene and light there is nothing to blend into:
-	// either this cloud owns the pixel or the geometry behind it does. It owns it when
-	// it covers the pixel at all (a partial edge leaves the surface behind it in place)
-	// AND it is in front, which is the same depth test the write itself performs -
-	// hoisted out of the old min() so that every G-buffer channel agrees with the depth
-	// rather than each deciding separately.
-	if (alpha > surface_alpha && surface_depth < depth_out[px]) {
+	// either this cloud owns the pixel or the geometry behind it does. Being in front is
+	// no longer part of this test because the occlusion early-out above already
+	// established it - one thread owns one pixel and nothing between here and there
+	// writes depth_out - so what is left is the coverage rule: a partial edge leaves the
+	// surface behind it in place.
+	if (alpha > surface_alpha) {
 		depth_out[px] = surface_depth;
 
 		// Where this point was last frame. For a cloud that is one matrix - no skinning
