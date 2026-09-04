@@ -579,7 +579,8 @@ namespace HotBiteEditor {
 						<< " max_per_tile=" << stats.max_per_tile
 						<< " total_binned=" << stats.total_binned
 						<< " dropped=" << stats.dropped
-						<< " capacity=" << stats.capacity << " tiles_rastered=" << stats.tiles_rastered << " pixels_written=" << stats.pixels_written;
+						<< " capacity=" << stats.capacity << " tiles_rastered=" << stats.tiles_rastered << " pixels_written=" << stats.pixels_written
+						<< " entries_walked=" << stats.entries_walked;
 					response_lines.push_back(os.str());
 				}
 			}

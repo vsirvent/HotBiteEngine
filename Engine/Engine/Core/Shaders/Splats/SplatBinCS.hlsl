@@ -31,8 +31,11 @@ cbuffer externalData : register(b0)
 	uint  bin_pass;            // 0 = count, 1 = scatter
 	float depth_quant_min;
 	float depth_quant_range;
-	// SPLAT_BUCKET_SPAN_SLACK * SPLAT_DEPTH_SLAB, converted to quantization steps by
-	// RenderSystem so this pass compares integers against what tile_depth holds.
+	// The cloud's whole quantized depth range (SPLAT_MAX_DEPTH_STEP), so the bands this
+	// pass files entries into span everything and nothing is clamped into the last one.
+	// In quantization steps, so the comparison is against exactly what tile_depth holds.
+	// SplatRasterCS MUST be handed the same value - it re-derives each entry's band from
+	// this to know which bucket the entry was filed in.
 	uint  bucket_span_steps;
 	uint  entry_capacity;      // size of the pool, in entries
 }

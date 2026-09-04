@@ -495,11 +495,18 @@ namespace HotBite {
 				//two, so it is a switch rather than a heuristic.
 				bool invert_normals = false;
 
-				//Where along the front-to-back accumulation the surface is declared to be:
-				//the depth written to the G-buffer is the one at which accumulated alpha
-				//crosses this. A cloud always writes it - whether the object renders at all
-				//is Base::visible's job, and a splat cloud that contributed colour but no
-				//depth would be a third state neither flag describes.
+				//How opaque the cloud has to be at a pixel before it owns that pixel's
+				//G-buffer - depth, world position, normal and the ray sources. Below it the
+				//cloud still contributes colour, over whatever is behind it, but leaves the
+				//surface record to that. A cloud always writes something: whether the object
+				//renders at all is Base::visible's job, and a splat cloud that contributed
+				//colour but no depth would be a third state neither flag describes.
+				//
+				//It used to decide something else as well - where along the front-to-back
+				//accumulation the surface was declared to be, and so which splats were
+				//averaged into it. SplatRasterCS composites with transmittance now, which
+				//settles that per splat rather than by a threshold, so this is purely the
+				//ownership test.
 				float surface_alpha = 0.5f;
 
 				//The most splats this cloud is worth drawing per screen pixel. The

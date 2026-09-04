@@ -172,6 +172,14 @@ namespace HotBite {
 					uint32_t capacity = 0;        //pool size in entries, to form a ratio
 					uint32_t tiles_rastered = 0;  //tiles the rasterizer actually ran over
 					uint32_t pixels_written = 0;  //pixels it wrote
+					//(pixel, entry) pairs the front-to-back walk examined, summed over
+					//every thread. The ONLY evidence the transmittance early-out works:
+					//a walk that stops at the opaque surface and one that reads every
+					//entry render the same image by construction, so nothing in the
+					//frame can distinguish them. Compare against tiles_rastered * 256 *
+					//the average slice length to see how much of the slice is being
+					//skipped - on a dense cloud most of it.
+					uint32_t entries_walked = 0;
 				};
 
 				enum class eRtQuality {
@@ -569,10 +577,18 @@ namespace HotBite {
 				static constexpr uint32_t SPLAT_TILE_SIZE = 16;
 				//Threads per group in SplatPreprocessCS and SplatBinCS, one splat each.
 				static constexpr uint32_t SPLAT_PREPROCESS_GROUP = 256;
-				//Depth bands a tile's slice is ordered into. Only the layout depends on
-				//this - the rasterizer's results are order-independent - so it trades
-				//early-out sharpness against the size of the histogram.
-				static constexpr uint32_t SPLAT_DEPTH_BUCKETS = 128;
+				//Depth bands a tile's slice is ordered into, which is the precision of
+				//the counting sort the binning performs - see the note in
+				//SplatCommon.hlsli. At 1024 over a span of SPLAT_MAX_DEPTH_STEP the
+				//bucket index IS the quantized depth, so the slice is exactly sorted
+				//and two entries sharing a bucket share a depth. That is a requirement
+				//now rather than a luxury: SplatRasterCS composites with transmittance,
+				//which is order-dependent.
+				//
+				//Costs tiles * this uints, cleared per cloud per frame - 7.1 MB at
+				//1080p, 57 MB at 2560x1377 - and pins SplatScanCS at the 1024-thread
+				//D3D11 group cap, since that dispatch is one thread per bucket.
+				static constexpr uint32_t SPLAT_DEPTH_BUCKETS = 1024;
 				static constexpr uint32_t SPLAT_SCAN_GROUP = 256;
 				//Threads per group in SplatCompactCS, one tile each. Must match
 				//SPLAT_COMPACT_GROUP in SplatCommon.hlsli.
@@ -605,6 +621,12 @@ namespace HotBite {
 				//surface already found, and anything past that is a different surface:
 				//averaged in, it is what makes a cloud read as semi-transparent and drags
 				//the depth it writes behind where the object is.
+				//
+				//It may not go to zero, however tempting the simplification looks - the
+				//header of SplatRasterCS carries the A/B. This value also has a SECOND
+				//consumer that has nothing to do with the tail: SplatPreprocessCS's coarse
+				//reject of a splat behind the opaque depth, where it is the slack that
+				//keeps a splat straddling a silhouette from being thrown away whole.
 				static constexpr float SPLAT_SLAB_WORLD = 0.02f;
 
 				//Floor for the entry pool, holding until the GPU has reported what it

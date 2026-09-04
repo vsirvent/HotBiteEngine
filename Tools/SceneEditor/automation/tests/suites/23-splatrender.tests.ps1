@@ -64,6 +64,52 @@ function New-RenderPly {
     $w.Dispose(); $body.Dispose()
 }
 
+# A cloud built to expose an ORDERING bug, which the one above cannot. Two properties
+# do that and both are required:
+#
+#  - dense, so many splats land on one pixel AND share a depth quantization step. The
+#    binning sorts to one step, so a step is where the residual disorder lives - the
+#    entries in it are adjacent but in whatever order the atomics produced.
+#  - a DIFFERENT COLOUR PER SPLAT. This is the half that is easy to miss and it cost a
+#    round here: alpha compositing two co-located splats in either order gives the same
+#    answer when their colours agree, so the 600-splat shell above - every splat the
+#    same bright grey - renders identically however it is ordered. A guard written
+#    against it passes with a deliberately broken composite.
+function New-VariedPly {
+    param([string]$Path, [int]$Count = 40000, [double]$LogScale = -3.4)
+    $props = @('x', 'y', 'z', 'rot_0', 'rot_1', 'rot_2', 'rot_3',
+               'scale_0', 'scale_1', 'scale_2', 'opacity', 'f_dc_0', 'f_dc_1', 'f_dc_2')
+    $header = "ply`nformat binary_little_endian 1.0`nelement vertex $Count`n"
+    foreach ($p in $props) { $header += "property float $p`n" }
+    $header += "end_header`n"
+
+    $body = New-Object System.IO.MemoryStream
+    $w = New-Object System.IO.BinaryWriter($body)
+    $golden = 2.39996322972865332
+    for ($i = 0; $i -lt $Count; $i++) {
+        $y = 1.0 - 2.0 * ($i + 0.5) / $Count
+        $r = [Math]::Sqrt([Math]::Max(0.0, 1.0 - $y * $y))
+        $theta = $golden * $i
+        $w.Write([float]([Math]::Cos($theta) * $r * 0.5))
+        $w.Write([float]($y * 0.5))
+        $w.Write([float]([Math]::Sin($theta) * $r * 0.5))
+        $w.Write([float]1.0); $w.Write([float]0.0); $w.Write([float]0.0); $w.Write([float]0.0)
+        $w.Write([float]$LogScale); $w.Write([float]$LogScale); $w.Write([float]$LogScale)
+        $w.Write([float]4.0)
+        # Hashed off the index, so neighbours differ sharply rather than varying
+        # smoothly - a smooth gradient would make adjacent splats nearly the same
+        # colour and blunt the very thing this is for.
+        $h = ($i * 2654435761) -band 0xFFFFFF
+        $w.Write([float](0.6 + 2.2 * (($h -band 0xFF) / 255.0)))
+        $w.Write([float](0.6 + 2.2 * ((($h -shr 8) -band 0xFF) / 255.0)))
+        $w.Write([float](0.6 + 2.2 * ((($h -shr 16) -band 0xFF) / 255.0)))
+    }
+    $w.Flush()
+    $bytes = [System.Text.Encoding]::ASCII.GetBytes($header) + $body.ToArray()
+    [IO.File]::WriteAllBytes($Path, $bytes)
+    $w.Dispose(); $body.Dispose()
+}
+
 function Reset-SplatView {
     SendOk 'camera_rot 0 0 0', 'camera_pos 0 0 -3', 'camera_target 0 0 0' | Out-Null
 }
@@ -298,6 +344,133 @@ Test 'the cloud writes the depth buffer, not only colour' {
     SendOk 'render debug_buffer off' | Out-Null
     Assert-True -Condition ($diff.DifferingShare -gt 0.5) `
         -Message "the cloud should appear in the depth buffer where it is drawn, only $([Math]::Round($diff.DifferingShare * 100, 1))% of those pixels differ"
+}
+
+Test 'the cloud renders opaque, not as alpha rings' {
+    # That the surface the rasterizer accumulates is thick enough to make a covered
+    # pixel OPAQUE, which no other test here looks at: every assertion above is about
+    # coverage (does the cloud reach the frame, follow its transform, write depth) and
+    # a cloud at half alpha satisfies all of them.
+    #
+    # The failure this guards is specific and was reached by deleting
+    # splat_depth_slab - the tail SplatRasterCS gathers past the band where coverage
+    # crosses surface_alpha. It looks removable: the crossing band already holds the
+    # surface. What it actually does is carry acc_w past 1, where saturate() flattens
+    # it. Without it a pixel's alpha is the sum over bands 0..k exactly, which is a
+    # step function of which band the crossing landed in - so the object comes out in
+    # concentric alpha rings at about half opacity. The G-buffer is untouched by that
+    # (the depth view stays bit-identical, and the set of pixels passing the
+    # `alpha > surface_alpha` gate does not change by one pixel, since the crossing
+    # guarantees acc_w >= surface_alpha either way), so every other test in this file
+    # passes while the cloud renders visibly wrong.
+    #
+    # Read off `ray_opacity`, whose red channel IS the alpha the rasterizer wrote
+    # (DebugRayScalarColor maps c to (c, 1-|2c-1|, 1-c)) - so an opaque cloud is pure
+    # red and green is the signature of alpha near 0.5. Green rather than red is the
+    # measure because red saturates: the ringed cloud is still red at its very centre,
+    # and only the mid-radius band structure separates the two - MeanR moves 251 -> 236
+    # over the same pair, which is no margin at all. Measured on this fixture, one
+    # build each way: MeanG 13.6 with the tail, 61.1 without, so the threshold sits
+    # about halfway in the log sense rather than next to either.
+    Reset-Cloud
+    SendOk 'render debug_buffer ray_opacity', 'render debug_gain 1' | Out-Null
+    Step-EditorFrames -Session $Session -Count 8
+    $s = Get-ImageStats -Path (Shot 'opacity-rings') -Left 0.40 -Top 0.35 -Right 0.60 -Bottom 0.65
+    SendOk 'render debug_buffer off' | Out-Null
+
+    # The region has to be ON the cloud, or "not green" is a statement about the
+    # background - the trap the suite README calls out.
+    Assert-True -Condition ($s.MeanR -gt 150) `
+        -Message "the sample region should be on the cloud (MeanR $([Math]::Round($s.MeanR, 1)))"
+    Assert-True -Condition ($s.MeanG -lt 35) `
+        -Message ("a covered pixel should be opaque, not half-alpha: green means alpha ~0.5 " +
+                  "(MeanG $([Math]::Round($s.MeanG, 1)), MeanR $([Math]::Round($s.MeanR, 1)))")
+}
+
+Test 'the walk stops at the opaque surface instead of reading every entry' {
+    # SplatRasterCS composites front to back and stops once transmittance is under
+    # SPLAT_MIN_T, since nothing behind an opaque surface can move an accumulator by
+    # more than that. This is the only test of it, and it needs a counter because the
+    # feature is invisible by construction: a walk that stops early and one that reads
+    # the whole slice render the SAME image - that is the point of it - so no
+    # screenshot can tell them apart.
+    #
+    # `entries_walked` is the (pixel, entry) pairs examined, summed over every thread.
+    # The reference is total_binned * 256: one thread per pixel of a 16x16 tile, each
+    # reading every entry of its tile's slice. With the early-out compiled out
+    # (SPLAT_EARLY_OUT 0) the counter equals that exactly, which is what makes it a
+    # sound denominator rather than an estimate.
+    #
+    # The bound is loose on purpose. Threads whose pixel the cloud misses never build
+    # any transmittance and so always walk their tile in full, so the ratio depends on
+    # how much of each covered tile the cloud actually fills - a silhouette tile drags
+    # it up. Measured on this fixture it sits far below the bound; the test is asking
+    # "does the early-out fire at all", not pinning a performance number.
+    Reset-Cloud
+    $info = Get-SplatInfo -Session $Session
+    $full = [double]$info.total_binned * 256.0
+    Assert-True -Condition ($info.total_binned -gt 0) `
+        -Message 'the cloud has to be binned for this to mean anything'
+    Assert-True -Condition ($info.entries_walked -gt 0) `
+        -Message 'the rasterizer has to have walked something'
+    $ratio = $info.entries_walked / $full
+    Assert-True -Condition ($ratio -lt 0.75) `
+        -Message ("the walk should stop at the opaque surface, not read every entry: " +
+                  "walked $($info.entries_walked) of $([int64]$full) ($([Math]::Round($ratio * 100, 1))%)")
+}
+
+Test 'the composite is stable frame to frame' {
+    # Guards the one thing that made transmittance compositing hard here. The binning
+    # sorts to a quantization step, so entries sharing a step are adjacent but in
+    # whatever order the atomics produced, and that order changes every frame. Alpha
+    # compositing is order-dependent EVEN BETWEEN CO-LOCATED SPLATS - c1*a1 +
+    # c2*a2*(1-a1) is not the same as swapping them - so a naive front-to-back walk
+    # boils. SplatRasterCS gathers each run of equal-depth entries into one layer and
+    # composites it with a mean and a product, both symmetric, which removes it.
+    #
+    # Nothing in this pass is temporal, so on a frozen scene consecutive frames should
+    # be identical bar the engine's own GI/denoiser floor.
+    #
+    # It needs its OWN cloud - dense and per-splat coloured, see New-VariedPly. Written
+    # against the suite's usual 600-splat shell this passed with a deliberately broken
+    # composite, because that shell is one flat colour and co-located splats of one
+    # colour composite the same in any order. The subject has to be able to show the
+    # bug before the assertion means anything.
+    Reset-Cloud
+    if (-not $script:varied) {
+        $ply = Join-Path $Assets 'Objects\variedcloud.ply'
+        New-VariedPly -Path $ply
+        SendOk "import_model ""$ply""" | Out-Null
+        SendOk 'create_template_from_model variedcloud varied_obj' | Out-Null
+        SendOk 'place varied_obj' | Out-Null
+        $names = Get-EntityNames -Session $Session
+        $script:varied = @($names | Where-Object { $_ -match '^varied_obj' })[0]
+        Assert-True -Condition ($null -ne $script:varied) -Message 'the varied cloud was placed'
+        Remove-StandInMesh -Entity $script:varied
+    }
+    # The plain cloud out of shot, the varied one in it and close enough that a pixel
+    # sees many splats.
+    Move-Entity -Entity $script:cloud -Position $Parked
+    Move-Entity -Entity $script:varied -Position '0 0 0'
+    SendOk 'camera_rot 0 0 0', 'camera_pos 0 0 -2', 'camera_target 0 0 0' | Out-Null
+
+    Step-EditorFrames -Session $Session -Count 12
+    $shots = @()
+    for ($f = 0; $f -lt 4; $f++) { $shots += (Shot "stable-f$f") }
+
+    $worst = 0.0
+    for ($f = 0; $f -lt $shots.Count - 1; $f++) {
+        # Over the cloud itself, not the whole window: a share diluted by the empty
+        # background and the ImGui panels would pass whatever the cloud did.
+        $d = Get-ImageDifference -PathA $shots[$f] -PathB $shots[$f + 1] `
+            -Left 0.40 -Top 0.35 -Right 0.60 -Bottom 0.65 -Threshold 8
+        if ($d.DifferingShare -gt $worst) { $worst = $d.DifferingShare }
+    }
+    Move-Entity -Entity $script:varied -Position $Parked
+    Move-Entity -Entity $script:cloud -Position '0 0 0'
+    Assert-True -Condition ($worst -lt 0.02) `
+        -Message ("consecutive frames of a frozen cloud should agree; worst pair " +
+                  "differed on $([Math]::Round($worst * 100, 3))% of the cloud")
 }
 
 Test 'opacity_scale fades the cloud out' {

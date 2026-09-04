@@ -12,12 +12,19 @@ Solution\build.bat [Debug|Release] [x64]          # whole solution
 
 To build a single project (much faster), target it directly. The x64 configurations
 use PlatformToolset v145, which only the VS 18 install provides — VS2022's MSBuild
-fails with MSB8020, so use that one (check which edition is actually installed —
-`Get-ChildItem 'C:\Program Files\Microsoft Visual Studio\18'` — rather than trusting
-this path; it is **Insiders** on this machine, and a note here once said Community):
+fails with MSB8020, so use that one. **Check which edition is actually installed**
+rather than trusting the path below — this note has now been wrong in both
+directions, so run it, do not read it:
 
 ```powershell
-& 'C:\Program Files\Microsoft Visual Studio\18\Insiders\MSBuild\Current\Bin\MSBuild.exe' `
+Get-ChildItem 'C:\Program Files\Microsoft Visual Studio\18' | Select-Object Name
+```
+
+As of 2026-09-02 that answers **Community** (`Run-Tests.ps1`'s own error message
+assumes the same):
+
+```powershell
+& 'C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe' `
     Solution\HotBiteEngine.sln /m /t:SceneEditor /p:Configuration=Debug /p:Platform=x64
 ```
 
@@ -90,7 +97,7 @@ There are two, and which ones apply depends on what was touched:
 
 | changed | run |
 | --- | --- |
-| Scene Editor only | the editor suite (the Marbles checkout here has no `automation/` at all, and its sources no longer compile against the current `Physics::Init` — so the game suite is unavailable, not merely skipped) |
+| Scene Editor only | the editor suite |
 | a game (Marbles, DemoGame) only | that game's suite |
 | **the engine** (`Engine/`) | **both** — an engine change reaches every consumer, and the two suites cover different parts of it (the editor exercises authoring and serialization, the game exercises gameplay, physics and level loading) |
 
@@ -104,6 +111,13 @@ Tools\SceneEditor\automation\tests\Run-Tests.ps1 -Test '*undo*'     # one test
 ..\Marbles\Marbles\automation\tests\Run-Tests.ps1
 ..\Marbles\Marbles\automation\tests\Run-Tests.ps1 -Suite '03-levels*'
 ```
+
+Marbles is a project **in this solution**, so build it here (`/t:Marbles`) before
+running its suite — `Solution\x64\Release\Marbles.exe` is what the runner drives, and
+a stale one measures the engine it was linked against rather than the one you changed.
+A note here once said that checkout had no `automation/` and no longer compiled; both
+were false as of 2026-09-02 — it builds clean and the suite runs 36/36 in under two
+minutes. Verify before believing either claim again.
 
 Running the game suite after an engine change is not belt-and-braces: the engine
 bugs found this way — a `float4` typedef whose `alignas` silently did nothing
@@ -392,15 +406,57 @@ so at a normal viewing distance every setting clamps to 1 and drops nothing. Tha
 correct answer and an untestable one — `23-splatrender` pushes the fixture cloud to 200
 units to get it into the range where the probability bites.
 
+**The binning IS a parallel counting sort by depth, and `SPLAT_DEPTH_BUCKETS` is its
+precision.** Histogram, prefix scan, scatter — that is a counting sort already, so making
+the slice finer means widening the radix digit, never bolting a comparison sort onto the
+end. At **1024** buckets over a span of `SPLAT_MAX_DEPTH_STEP` (1023) the bucket index
+*equals* the quantized depth, so the sort is exact and two entries sharing a bucket share
+a depth. Going finer means more `SPLAT_DEPTH_BITS`, not more buckets, and the two have to
+move together or the 1:1 property silently degrades to an approximation. It costs
+`tiles * 1024` uints of histogram — 7.1 MB at 1080p, 57 MB at the 2560x1377 the editor
+runs at, cleared per cloud per frame — and pins `SplatScanCS` at the 1024-thread D3D11
+group cap, that dispatch being one thread per bucket.
+
+That exactness is what lets `SplatRasterCS` composite front to back with **transmittance**
+(`w = a * T`, `T *= (1 - a)`, stop when `T < SPLAT_MIN_T`) instead of summing
+order-independently. Occlusion between splats then falls out on its own, so nothing
+decides where "the surface" ends: the slab, the band width, the tile near-depths and the
+crossing test are all gone from that shader, and `surface_alpha` does one job, gating
+whether the cloud owns the pixel's G-buffer. It still accumulates *material* — a 3DGS
+renderer composites baked colour, this one fills a G-buffer and lets the engine light it.
+
+**Co-located splats must be composited as ONE layer, and this is the trap.** "They are at
+the same depth so the order cannot matter" is false: alpha compositing is order-dependent
+even between co-located splats, since `c1*a1 + c2*a2*(1-a1)` is not the same as swapping
+them unless the colours or the alphas agree. A naive walk therefore boils on exactly the
+residual the sort cannot remove. Measured on a 60k fixture, frozen clock and fixed camera,
+consecutive frames: **0.002% of pixels differing became 0.42%, worst delta 21/255 became
+100** — the same magnitude as the 0.17%, 0.51% and 1.3% flickers every earlier version of
+this pass was rewritten to remove. So each run of equal-depth entries is gathered and
+composited once, as `sum(c*a)/sum(a)` and `1 - prod(1-a)`, both symmetric. That returns it
+to 0.002%. `SplatWalk` in the shader is that two-level state.
+
+Two smaller things from the same work. `SPLAT_MAX_ALPHA` is not cosmetic — `alpha` carries
+`opacity_scale`, which is unbounded above, and an `a` over 1 makes `(1 - a)` negative,
+which flips the sign of everything behind it rather than merely brightening a pixel. And
+the layer flush divides by `max(sum(a), 1e-20)` because **fxc flattens that branch** (it
+warns X4008), so the divide runs for an empty layer too and `0/0` puts a NaN into an
+accumulator that survives every later add.
+
+**`entries_walked` in `splat_info` is the only evidence the early-out works**, because a
+walk that stops at the opaque surface and one that reads every entry produce the same
+image by construction. With `SPLAT_EARLY_OUT 0` it is exactly `total_binned * 256`; with it
+on, the 60k fixture walks 11.5% of that at 2 units and 15.7% at 6. The two are not
+bit-identical — the difference is bounded by `SPLAT_MIN_T`, so check the distribution
+(13.85% of pixels at >= 1/255, 0.0003% at >= 48) rather than the max.
+
 Seven things there that are not guessable:
 
-- **Every result in the rasterizer is order-independent, deliberately.** The slice is
-  ordered only to *bucket* granularity, so anything depending on exact order depends on
-  atomic scheduling. `surface_depth` used to be "the entry at which a running coverage sum
-  crossed `surface_alpha`", which moved every frame and dragged the reconstructed world
-  position, the shadow lookup and `depth_map` with it. It is the alpha-weighted *mean*
-  depth of the slab now — same intent, expressed commutatively. Pass 1 is a `min`, pass 2
-  is a set of sums.
+- **Every result in the rasterizer used to be order-independent, deliberately** — see the
+  transmittance note above for why it no longer is, and what had to be true first. The
+  history is still worth knowing: `surface_depth` was once "the entry at which a running
+  coverage sum crossed `surface_alpha`", which moved every frame and dragged the
+  reconstructed world position, the shadow lookup and `depth_map` with it.
 - **The depth buckets must span the cloud's whole quantized range.** Narrowing them looks
   free — finer bands exactly where the slab lives — but everything past the span clamps
   into the last band as an unordered mass, and the early-out is only sound where the

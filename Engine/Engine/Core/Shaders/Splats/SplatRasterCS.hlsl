@@ -9,34 +9,78 @@
 // holds one surface per pixel however it is filled, so the question is not "what is
 // the correct alpha composite" but "which surface is in front and what is it made of".
 //
-// EVERY RESULT HERE IS ORDER-INDEPENDENT, and that is deliberate rather than
-// incidental. The slice arrives ordered front to back only at *bucket* granularity -
-// SPLAT_DEPTH_BUCKETS bands across the cull window, with entries inside one band in
-// whatever order the binning atomics produced - so anything that depended on the exact
-// order would depend on atomic scheduling, which changes every frame. That is the bug
-// this pass was rewritten to remove: `surface_depth` used to be "the entry at which a
-// running coverage sum crossed surface_alpha", which moved frame to frame and dragged
-// the reconstructed world position, the shadow lookup and depth_map with it.
+// THE SLICE IS EXACTLY SORTED, and everything below depends on it. The binning is a
+// parallel counting sort by quantized depth (histogram, prefix scan, scatter) and its
+// radix is SPLAT_DEPTH_BUCKETS - at 1024 over a span of SPLAT_MAX_DEPTH_STEP the bucket
+// index equals the quantized depth, so entries sharing a bucket share a *depth* and
+// there is no order between them left to get wrong. See the note in SplatCommon.hlsli.
 //
-//   pass 1  nearest = min(view_depth) over the entries covering this pixel
-//   pass 2  alpha-weighted sums over the entries within splat_depth_slab of it,
-//           including sum(w * view_depth) - so surface_depth is the weighted *mean*
-//           depth of the slab, a commutative quantity with no notion of "first".
+// That is what buys front-to-back alpha compositing. Walking the slice in order:
 //
-// The bucket order is then used for one thing only, and one it cannot get wrong: an
-// early-out. Both passes stop once an entry is far enough past what they care about
-// that no later entry can matter, with one bucket width of slack because the ordering
-// is coarse. Being approximate costs a few extra entries walked, never a wrong result.
+//   a = the splat's alpha at this pixel      (centre opacity x the 2D Gaussian)
+//   w = a * T                                 the share of the pixel it actually wins
+//   T *= (1 - a)                              what is still visible behind it
+//
+// and every accumulator is weighted by w rather than by a. The difference is occlusion
+// *between splats*: a splat behind an already-opaque surface gets w near zero on its
+// own, so nothing has to decide where "the surface" ends. `alpha` for the pixel is
+// 1 - T, which telescopes to sum(w) exactly and is therefore in [0,1] by construction
+// with no saturate() anywhere.
+//
+// WHAT IS ACCUMULATED IS STILL MATERIAL, NOT RADIANCE. A 3DGS renderer composites baked
+// colour and is done; this one is filling a G-buffer, so it composites albedo, normal
+// and spec and lets the engine light the result with the level's own lights, shadows and
+// ray tracing. Compositing radiance here would take the cloud out of all of that.
+//
+// The early-out falls out of the same state: once T is under SPLAT_MIN_T nothing further
+// back can move any accumulator by more than that, so the walk stops. This is the
+// "stop at the opaque surface" the design is for, and unlike the band-boundary test it
+// replaced it is exact rather than granular.
+//
+// WHAT THIS REPLACED, because the failure mode is instructive and cheap to recreate.
+// The predecessor was deliberately order-INdependent: it summed alpha-weighted material
+// over every entry up to the band where coverage crossed surface_alpha, plus a tail
+// (`splat_depth_slab`) of about a band past it. That worked, but only because the tail
+// carried the coverage sum past 1 where saturate() flattened it. Deleting the tail and
+// stopping at the crossing band - which looks like a clean simplification and was built
+// and measured - drew the object in concentric alpha rings at about half opacity:
+// 31.95% of the frame changed at 1.6 units, mean |delta| 19.8/255. The cause was that
+// alpha was a sum over bands 0..k and therefore a step function of *which band* the
+// crossing landed in. Transmittance has no such threshold anywhere, which is why the
+// rings cannot come back: nothing in this walk is band-granular any more, and the
+// rasterizer no longer knows what a band is.
+//
+// It also means `surface_alpha` now does exactly one job - gating whether the cloud owns
+// the pixel's G-buffer - where it used to also decide which splats formed the surface.
 //
 // The cost of the whole design is that you cannot see *through* a splat cloud - which
 // the G-buffer could not represent anyway.
 
 #define HB_COMPUTE_LIGHTING 1
 
-// Diagnostic switch. 0 walks each tile's whole slice instead of stopping early, which
-// must produce an identical image - the early-outs are bounded by slack that makes
-// them conservative. Flipping this is how to tell "the walk stops too soon" from "the
-// binning is wrong"; it found the answer once already.
+// Diagnostic switch. 0 walks each tile's whole slice instead of stopping once the
+// remaining transmittance can no longer matter. Flipping it is how to tell "the walk
+// stops too soon" from "the binning is wrong"; it found the answer once already.
+//
+// It is NOT bit-identical, unlike the band-granular early-out it replaced, because
+// continuing to composite keeps adding contributions of size T*a - so the difference is
+// bounded by SPLAT_MIN_T rather than being zero, and the check is on the distribution
+// rather than on the max. Measured on the 60k fixture at 2 units:
+//
+//   >= 1/255   13.85% of pixels     the tolerance itself
+//   >= 3/255    0.83%
+//   >= 8/255    0.0026%  (93 px)
+//   >= 48/255   0.0003%  (11 px)
+//
+// The handful of large ones are terminator pixels, where `normal` is renormalized after
+// the walk so a late layer of any weight can rotate it slightly, and N.L is near zero
+// there. If that tail ever matters, SPLAT_MIN_T is the knob - it costs walk length
+// roughly in proportion.
+//
+// The same run is what shows the early-out is worth having at all, via `entries_walked`
+// in splat_info: with it off that counter is exactly total_binned * 256 (every thread
+// reads every entry of its tile), and with it on the fixture walks 11.5% of that at 2
+// units and 15.7% at 6.
 #define SPLAT_EARLY_OUT 1
 
 #include "SplatCommon.hlsli"
@@ -78,15 +122,18 @@ cbuffer splatData : register(b1)
 {
 	uint tiles_x;
 	uint tiles_y;
+	// How opaque the cloud has to be at a pixel before it owns that pixel's G-buffer.
+	// Its ONLY job now: the walk composites front to back and lets transmittance decide
+	// what a splat is worth, so nothing here declares where a surface begins or ends.
 	float surface_alpha;
-	// World width of one depth bucket. The slice is ordered only to this granularity,
-	// so both early-outs carry exactly this much slack: an entry can be out of order
-	// with its neighbours by less than a bucket, never by more.
-	float splat_bucket_width;
-	// How far behind a pixel's nearest splat another may still contribute. Fitted to the
-	// cloud's depth extent by RenderSystem - see the note in SplatCommon.hlsli for why a
-	// world constant leaves seams at every internal depth jump.
-	float splat_depth_slab;
+	// The depth quantization window the binning used. NOT to reconstruct a band - the
+	// walk never asks where an entry sits in the depth range - but to recover each
+	// entry's quantized depth, which is what says whether two adjacent entries are
+	// co-located and must be composited as one layer. It has to be the same window
+	// SplatBinCS was given or the grouping disagrees with the sort that produced it.
+	float splat_quant_min;
+	float splat_quant_range;
+	float splat_pad0;
 	// Takes a world position of this cloud to where that point was last frame:
 	// inverse(world) * prev_world, in the same row-vector convention `world` uses.
 	//
@@ -95,16 +142,12 @@ cbuffer splatData : register(b1)
 	// stays 60 bytes instead of growing 12 more times 1.8M splats. It is exact: there is
 	// no skinning or per-splat animation for this to approximate.
 	matrix prev_world_from_world;
-	// The depth quantization window the binning used, so this pass can reconstruct the
-	// band boundaries the entries were filed against.
-	float splat_quant_min;
-	float splat_quant_range;
-	// The divisor SplatBinCS was given to turn a quantized depth delta into a bucket
-	// index. It MUST be the same value, or this pass computes a different band for an
-	// entry than the bucket it was filed into - see the note at the band computation.
-	uint splat_bucket_span_steps;
-	float splat_pad1;
 }
+// The depth quantization window, the bucket span and tile_depth were all here to let
+// this pass re-derive which band the binning filed an entry into. Nothing needs a band
+// any more: the slice is exactly sorted, so the walk consumes it in order and never asks
+// where an entry sits in the depth range. That also frees a texture register in a shader
+// that reads eight resources.
 
 #include "../Common/MultiTexture.hlsli"
 #include "../Common/PixelFunctions.hlsli"
@@ -119,9 +162,6 @@ Buffer<uint> splat_entries : register(t23);
 // this list rather than over the screen's tile grid, so a group exists only where there
 // is something to rasterize - see the note on the pixel coordinates in main().
 Buffer<uint> tile_list : register(t25);
-// The tile's nearest splat, quantized. The bands are measured from it, so it is what
-// this pass needs to snap the surface depth to a band boundary.
-Buffer<uint> tile_depth : register(t24);
 
 // The same seven targets MainRenderPS writes, minus bloom (a splat has no emission).
 // A cloud that filled only scene/light/depth was invisible to everything downstream
@@ -147,11 +187,115 @@ RWByteAddressBuffer splat_stats : register(u3);
 // then reads all 256 out of groupshared, which turns 256 scattered loads per splat
 // into one. 256 * 60 bytes = 15 KB of the 32 KB budget.
 groupshared SplatView g_batch[256];
-// The band each batch entry belongs to, computed ONCE per entry by the thread that
-// loads it rather than 256 times by every thread that reads it. That matters because
-// the band has to come from an integer divide (see the note where it is filled) and
-// this is the innermost loop in the pass. 1 KB on top of the batch's 15 KB.
-groupshared uint g_band[256];
+// The quantized depth of each batch entry, computed ONCE by the thread that loads it
+// rather than 256 times by every thread that reads it. It is what identifies a
+// co-located group below - two entries are co-located exactly when this matches, since
+// the binning's bucket index and this value are the same number. 1 KB on top of the
+// batch's 15 KB.
+groupshared uint g_q[256];
+// Entries this group's threads actually examined, summed for `splat_info`. Reduced in
+// groupshared first and pushed to the global counter once per GROUP: one atomic per
+// thread would be ~1M of them a frame onto a single address, which is a measurable cost
+// for a diagnostic. Without it the early-out is unobservable - a walk that stops at the
+// opaque surface and one that reads the whole slice produce the same image, which is
+// the point of it, so the only evidence it works at all is this number.
+groupshared uint g_walked;
+
+// --- the front-to-back walk ---------------------------------------------------------
+// Two levels, and the second one is not an optimisation - it is what keeps the result
+// from depending on atomic scheduling.
+//
+// The slice is sorted to one quantization step, so entries sharing a step are adjacent
+// but in whatever order the binning atomics produced, and that order changes every
+// frame. IT IS TEMPTING TO CALL THAT HARMLESS BECAUSE THEY ARE AT THE SAME DEPTH. It is
+// not: alpha compositing is order-dependent even between co-located splats -
+// c1*a1 + c2*a2*(1-a1) is not c2*a2 + c1*a1*(1-a2) unless the colours or the alphas
+// agree - so a naive composite boils. Measured on the 60k fixture, frozen clock and
+// fixed camera, consecutive frames: 0.002% of pixels differing became 0.42%, worst
+// delta 21/255 became 100. That is the same magnitude as the flicker every earlier
+// version of this pass was rewritten to remove (0.17%, 0.51%, 1.3%).
+//
+// So a run of equal-depth entries is gathered as ONE layer and composited once:
+//
+//   material   sum(c_i * a_i) / sum(a_i)     a mean, commutative
+//   coverage   1 - prod(1 - a_i)             the layer's own alpha, commutative
+//
+// Both are symmetric in the entries, so the answer no longer depends on their order,
+// and transmittance still advances exactly once per distinct depth. Which is the
+// physically sensible reading anyway: things at the same distance do not occlude each
+// other in a fixed sequence, they share the pixel.
+struct SplatWalk
+{
+	// Composited so far, each term already weighted by its layer's a * T.
+	float3 albedo;
+	float3 normal;
+	float  spec;
+	float  depth;
+	float  T;
+	// The layer being gathered: everything seen so far at quantized depth `q`.
+	float3 g_albedo;
+	float3 g_normal;
+	float  g_spec;
+	float  g_depth;
+	float  g_alpha;   // sum(a_i), the material normalizer
+	float  g_trans;   // prod(1 - a_i), the layer's transmittance
+	uint   q;
+};
+
+SplatWalk SplatWalkInit()
+{
+	SplatWalk k;
+	k.albedo = 0.0f; k.normal = 0.0f; k.spec = 0.0f; k.depth = 0.0f;
+	k.T = 1.0f;
+	k.g_albedo = 0.0f; k.g_normal = 0.0f; k.g_spec = 0.0f; k.g_depth = 0.0f;
+	k.g_alpha = 0.0f; k.g_trans = 1.0f;
+	// A sentinel no quantized depth can take, so the first entry always opens a layer.
+	k.q = 0xFFFFFFFFu;
+	return k;
+}
+
+// Composites the gathered layer and starts an empty one. Safe to call on an empty
+// layer, which is what makes it usable both on a depth change and once at the end.
+void SplatWalkFlush(inout SplatWalk k)
+{
+	if (k.g_alpha > 0.0f) {
+		float a = 1.0f - k.g_trans;
+		float w = a * k.T;
+		// One divide for the whole layer: the group sums are alpha-weighted, so
+		// dividing by the alpha sum turns them into the layer's mean material, and w
+		// then scales that by what the layer is worth against everything in front.
+		//
+		// The max() is not belt-and-braces. fxc FLATTENS this branch - it warned
+		// X4008 "floating point division by zero" on the bare divide - so the divide
+		// executes for an empty layer too, and on that path w is 0 and g_alpha is 0.
+		// 0/0 is NaN, `g_albedo * NaN` is NaN, and a NaN reaching an accumulator does
+		// not stay local: it survives every later add and the pixel is dead for the
+		// rest of the walk. Guarding the value rather than the control flow is the
+		// only form of this that is safe under flattening.
+		float s = w / max(k.g_alpha, 1e-20f);
+		k.albedo += k.g_albedo * s;
+		k.normal += k.g_normal * s;
+		k.spec += k.g_spec * s;
+		k.depth += k.g_depth * s;
+		k.T *= k.g_trans;
+	}
+	k.g_albedo = 0.0f; k.g_normal = 0.0f; k.g_spec = 0.0f; k.g_depth = 0.0f;
+	k.g_alpha = 0.0f; k.g_trans = 1.0f;
+}
+
+void SplatWalkAdd(inout SplatWalk k, SplatView s, float a, uint q)
+{
+	if (q != k.q) {
+		SplatWalkFlush(k);
+		k.q = q;
+	}
+	k.g_albedo += s.albedo * a;
+	k.g_normal += s.normal * a;
+	k.g_spec += s.spec * a;
+	k.g_depth += s.view_depth * a;
+	k.g_alpha += a;
+	k.g_trans *= (1.0f - a);
+}
 
 [numthreads(SPLAT_TILE_SIZE, SPLAT_TILE_SIZE, 1)]
 void main(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID, uint gi : SV_GroupIndex)
@@ -179,64 +323,11 @@ void main(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID, uint gi : SV_Gr
 	uint batches = (count + 255) / 256;
 	uint b, i;
 
-	// --- one walk: find the surface and accumulate it -----------------------------
-	// The surface is the depth at which coverage accumulated front to back first
-	// reaches surface_alpha, and everything up to it plus a short tail is what gets
-	// averaged.
-	//
-	// NOT the nearest splat with any coverage, which is what this used to take, and the
-	// difference is the whole reason the pass stopped leaving seams. A fixed slab
-	// measured from the nearest splat has two jobs pulling against each other: at an
-	// internal depth jump - a tentacle crossing in front of another - the near geometry
-	// contributes only its grazing edge, so the slab has to be wide enough to reach the
-	// surface *behind* it or the pixel writes nothing and the background shows through.
-	// But a slab that wide averages front and back together everywhere else and the
-	// cloud goes milky. Measured on a 1-unit capture: 0.05 of its depth left 332 seam
-	// pixels in one view, 0.30 cleared them but rendered the object semitransparent, and
-	// 0.50 hung the driver. A coverage threshold has no such conflict - a grazing edge
-	// simply never reaches it, so the walk carries on by itself until something does.
-	//
-	// THE CROSSING IS DECLARED ONLY AT A BAND BOUNDARY, and that is what makes an
-	// order-dependent quantity safe here. A running total is a prefix, so it needs the
-	// front-to-back order, and the slice has that only to band granularity - entries
-	// inside one band are in whatever order the atomics produced, which changes every
-	// frame. Taking the crossing splat's own depth let the surface wander inside a band
-	// frame to frame, moving the accumulated set: 0.51% of the lit frame and 1.21% of
-	// the normal buffer flickering on a frozen clock and a fixed camera.
-	//
-	// The band is immune to that. Coverage accumulated *before* a band is a sum over a
-	// fixed set, so it is order-independent; whether the total crosses inside a given
-	// band follows from that, so it is order-independent too. Only the position within
-	// the band is not, and that is exactly what is discarded.
-	//
-	// One walk rather than two. The predecessor found the crossing in one pass and
-	// re-walked to accumulate; once the answer became band-granular the two collapse,
-	// because the set pass 2 wanted is "every band up to the crossing band, plus the
-	// tail" - which is precisely what has already been accumulated by the time the
-	// boundary is reached. Deferring the test to the boundary is what makes that exact
-	// rather than approximate: if a mid-band prefix crosses inside band k then the full
-	// band sum does too, and the coverage before band k is below the threshold either
-	// way, so both formulations name the same band.
-	float3 acc_albedo = 0.0f;
-	float3 acc_normal = 0.0f;
-	float acc_spec = 0.0f;
-	float acc_w = 0.0f;
-	float acc_depth = 0.0f;
-	float surf = 0.0f;
-	// No ceiling until the surface has been found; the walk is bounded by the slice.
-	float limit = 1e30f;
-	bool started = false;
-	bool crossed = false;
-	// The band being accumulated, and the first one that covered this pixel at all.
-	// Bucket indices, so 0xFFFFFFFF is a sentinel no band can take (they are < 128).
-	uint cur_band = 0xFFFFFFFFu;
-	uint first_band = 0u;
-
-	// Where this tile's bands start, in world units. tile_depth holds the quantized
-	// depth of its nearest splat, which is the origin SplatBinCS measured bands from.
-	const uint tile_near_q = tile_depth[tile];
-	const float near_world = splat_quant_min +
-		((float)tile_near_q / (float)SPLAT_MAX_DEPTH_STEP) * splat_quant_range;
+	// --- one walk: composite the slice front to back ------------------------------
+	// All the state lives in the struct: what has been composited, plus the co-located
+	// layer currently being gathered. See the note where SplatWalk is declared for why
+	// the second level exists.
+	SplatWalk k = SplatWalkInit();
 
 	// Off-screen threads start finished. They still have to reach every barrier - a
 	// group where some threads have returned and others are waiting on
@@ -244,6 +335,11 @@ void main(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID, uint gi : SV_Gr
 	// "thread sync operation must be in non-varying flow control") - so the *work* is
 	// gated on a flag and the control flow is not.
 	bool done = !on_screen;
+	uint walked = 0;
+	if (gi == 0) {
+		g_walked = 0;
+	}
+	GroupMemoryBarrierWithGroupSync();
 
 	for (b = 0; b < batches; ++b) {
 		uint load = b * 256 + gi;
@@ -252,95 +348,71 @@ void main(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID, uint gi : SV_Gr
 			// where it sits in the slice, and its real depth comes off the SplatView.
 			SplatView sv = splat_views[splat_entries[base + load]];
 			g_batch[gi] = sv;
-			// THE BAND MUST BE THE BUCKET THE BINNING FILED THIS ENTRY INTO, and it has
-			// to be derived the same way SplatBinCS derived it - from the QUANTIZED
-			// depth, through the shared helper.
-			//
-			// Recomputing it from the float depth instead (floor((view_depth -
-			// near_world) / bucket_width), which is what this did) looks equivalent and
-			// is not: the binning bucketed round(u * SPLAT_MAX_DEPTH_STEP) while that
-			// bucketed the continuous u, and the two disagree by one band whenever the
-			// value lands within half a quantization step of a band boundary - about 6%
-			// of entries, plus every entry whose depth quantizes just below the tile's
-			// own near_q, where the float band goes negative and the integer one clamps
-			// to 0.
-			//
-			// A disagreement is not a cosmetic off-by-one. It makes `band` NON-MONOTONIC
-			// along the slice, so the band-boundary test below fires in the MIDDLE of a
-			// bucket - and inside a bucket the entries are in whatever order the binning
-			// atomics produced, which changes every frame. The crossing was then declared
-			// against a partial, order-dependent sum, exactly the bug the header says
-			// this pass was rewritten to remove, reintroduced through the back door.
-			// Measured on the demo scene's cloud with a frozen clock and a fixed camera:
-			// 0.16% of the viewport changing every frame, max delta 151/255.
-			g_band[gi] = SplatDepthBucket(
-				QuantizeSplatDepth(sv.view_depth, splat_quant_min, splat_quant_range),
-				tile_near_q, splat_bucket_span_steps);
+			// The same quantization SplatBinCS sorted on, so equal values here are
+			// exactly the entries it filed into one bucket - which, the radix being a
+			// full 10 bits, is one depth step. Recovered rather than stored: it costs a
+			// madd and a convert once per entry against 4 bytes per splat on a buffer
+			// that can hold 1.8M of them.
+			g_q[gi] = QuantizeSplatDepth(sv.view_depth, splat_quant_min, splat_quant_range);
 		}
 		GroupMemoryBarrierWithGroupSync();
 
 		uint n = min(256u, count - b * 256);
 		for (i = 0; !done && i < n; ++i) {
 			SplatView s = g_batch[i];
-			uint band = g_band[i];
+			++walked;
 
-			// A band boundary: everything before this band is in, so this is the one
-			// point at which the crossing may be declared.
-			if (!crossed && band != cur_band) {
-				if (started && acc_w >= surface_alpha) {
-					crossed = true;
-					surf = near_world + ((float)cur_band + 1.0f) * splat_bucket_width;
-					limit = surf + splat_depth_slab;
-				}
-				cur_band = band;
-			}
-
-#if SPLAT_EARLY_OUT
-			// Past the tail, and the slice is ordered, so nothing further can be inside
-			// it - with one band of slack, because the ordering is only that fine.
-			if (s.view_depth > limit + splat_bucket_width) {
-				done = true;
-				continue;
-			}
-#endif
-			// The exact test, applied whether or not the early-out let an extra band
-			// through, so the slack costs entries walked and never a wrong sum.
-			if (s.view_depth > limit) {
-				continue;
-			}
 			float2 d = pixel_centre - s.screen_xy;
 			if (dot(d, d) > s.radius * s.radius) {
 				continue;
 			}
-			float w = s.alpha * SplatWeight(s.conic, d);
-			if (w < SPLAT_MIN_ALPHA) {
+			// The splat's alpha AT THIS PIXEL: its centre opacity shaped by the 2D
+			// Gaussian. Clamped below 1 because `alpha` already carries the component's
+			// opacity_scale, which is not bounded above - and an `a` over 1 would make
+			// (1 - a) negative, which does not merely brighten a pixel, it flips the
+			// sign of every contribution behind it.
+			float a = min(s.alpha * SplatWeight(s.conic, d), SPLAT_MAX_ALPHA);
+			if (a < SPLAT_MIN_ALPHA) {
 				continue;
 			}
-			if (!started) {
-				started = true;
-				first_band = band;
+			SplatWalkAdd(k, s, a, g_q[i]);
+#if SPLAT_EARLY_OUT
+			// The opaque surface has been reached: everything further back is behind it
+			// and can move an accumulator by at most T, which is under a 255th of what
+			// is already there. Tested on the composited T, so it only fires on a layer
+			// boundary - a half-gathered layer has not advanced T yet, which is exactly
+			// the granularity that keeps this from depending on intra-layer order.
+			if (k.T < SPLAT_MIN_T) {
+				done = true;
 			}
-			acc_albedo += s.albedo * w;
-			acc_normal += s.normal * w;
-			acc_spec += s.spec * w;
-			acc_depth += s.view_depth * w;
-			acc_w += w;
+#endif
 		}
 		GroupMemoryBarrierWithGroupSync();
 	}
+	// The last layer never met a depth change to close it.
+	SplatWalkFlush(k);
 
-	bool contributes = on_screen && started;
-	// A pixel whose coverage never reached the threshold - a silhouette edge with the
-	// background genuinely behind it. It keeps whatever partial alpha it gathered, and
-	// its surface is the first band that covered it.
-	if (!crossed && started) {
-		surf = near_world + ((float)first_band + 1.0f) * splat_bucket_width;
+	// Reduce the walk lengths before anything returns - every thread of the group has to
+	// reach both of these, and the alpha test below lets threads out.
+	uint ignored_walk;
+	InterlockedAdd(g_walked, walked, ignored_walk);
+	GroupMemoryBarrierWithGroupSync();
+	if (gi == 0) {
+		uint ignored;
+		splat_stats.InterlockedAdd(12, g_walked, ignored);
 	}
+
+	// The pixel's coverage against whatever is behind the cloud. Each layer contributed
+	// a * T and the product of the (1 - a) factors is T, so the weights sum to 1 - T
+	// exactly - which makes this both the alpha and the right normalizer for the means
+	// below. A silhouette edge simply ends up with a small one; nothing special is done
+	// for it, and nothing here needs a saturate(), T only ever falling.
+	float alpha = 1.0f - k.T;
 	// Past the last barrier, so returning here is safe.
-	if (!contributes || acc_w < SPLAT_MIN_ALPHA) {
+	if (!on_screen || alpha < SPLAT_MIN_ALPHA) {
 		return;
 	}
-	float surface_depth = acc_depth / acc_w;
+	float surface_depth = k.depth / alpha;
 
 	// --- occlusion, PER PIXEL ------------------------------------------------------
 	// depth_out is depth_map: the world distance to the opaque surface at this pixel,
@@ -371,12 +443,12 @@ void main(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID, uint gi : SV_Gr
 		splat_stats.InterlockedAdd(28, 1, ignored);
 	}
 
-	float3 albedo = acc_albedo / acc_w;
-	float3 normal = normalize(acc_normal);
-	float spec = acc_spec / acc_w;
-	// Total coverage, not the weight sum: several overlapping splats can sum well
-	// past one, and this is the pixel's opacity against what is behind it.
-	float alpha = saturate(acc_w);
+	// Transmittance-weighted means. The normalizer is the same `alpha` computed above,
+	// because the weights and the coverage are the same sum - no saturate() and no
+	// second accumulator.
+	float3 albedo = k.albedo / alpha;
+	float3 normal = normalize(k.normal);
+	float spec = k.spec / alpha;
 
 	// --- light it, with the scene's own lights -----------------------------------
 	// The whole reason this component stores material rather than baked radiance:

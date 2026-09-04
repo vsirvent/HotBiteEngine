@@ -64,17 +64,40 @@ struct SplatView
 // Depth buckets. A tile's slice is ordered front to back at bucket granularity, and
 // that ordering is a *side effect of the layout* rather than a sort - the histogram is
 // over (tile, bucket) instead of (tile), so the scatter drops each entry into its own
-// depth band for free. It is what lets the rasterizer stop walking a tile early.
-// Nothing depends on the order being exact: entries inside one bucket are in whatever
-// order the atomics produced, and the rasterizer's accumulation is commutative.
+// depth band for free.
 //
-// The bands are measured from each tile's own nearest splat and span a small multiple
-// of SPLAT_DEPTH_SLAB (SPLAT_BUCKET_SPAN_SLACK in RenderSystem.h), not the cloud's
-// whole depth. Spanning the cloud would drop every entry of a given tile into two or
-// three bands and order nothing; spanning the slab puts the resolution exactly where
-// the rasterizer's early-out needs it, and everything further back - which the
-// per-pixel slab will reject anyway - is clamped into the last band.
-#define SPLAT_DEPTH_BUCKETS 128
+// WHICH IS TO SAY THE BINNING *IS* A PARALLEL COUNTING SORT BY DEPTH, and this constant
+// is its precision - the width of the single radix digit it sorts on. That is the whole
+// reason there is no separate sort pass: histogram, prefix scan, scatter is a counting
+// sort already, and making the slice finer is a matter of widening the digit rather
+// than of bolting a comparison sort onto the end.
+//
+// The bands are measured from each tile's own nearest splat and span the cloud's WHOLE
+// quantized depth range, so nothing is ever clamped into the last one. Narrowing the
+// span to put finer bands where the surface lives was tried and reverted: everything
+// past a narrow span piles into the final band as an unordered mass, and the
+// rasterizer's walk is only sound where the ordering is real. RenderSystem.cpp carries
+// the measurement at the line that sets bucket_span_steps.
+//
+// 1024 IS NOT AN ARBITRARY INCREASE - IT IS THE POINT WHERE THE SORT BECOMES EXACT.
+// The span is SPLAT_MAX_DEPTH_STEP (1023) and SplatDepthBucket divides
+// `delta * SPLAT_DEPTH_BUCKETS / span`, so at 1024 buckets over 1023 steps the bucket
+// index equals the quantized depth delta for every value it can take (delta 1023 is the
+// one that would land on 1024 and is clamped back). One bucket per quantization step:
+// two entries sharing a bucket have *identical* stored depth, so no ordering exists
+// between them to get wrong, and no comparison sort could separate them either.
+//
+// It follows that going finer means more depth BITS, not more buckets - and that this
+// number and SPLAT_DEPTH_BITS have to move together or the 1:1 property quietly breaks
+// back into an approximation. It was 128 (a 7-bit digit) while the rasterizer's
+// accumulation was commutative and only needed bands for an early-out; transmittance
+// compositing is order-dependent, so the digit had to widen to the full 10.
+//
+// The cost is the histogram, which is tiles * this: 7.1 MB at 1080p and 57 MB at the
+// 2560x1377 the editor runs at, cleared once per cloud per frame. SplatScanCS is one
+// thread per bucket, so this also pins that dispatch at the 1024-thread D3D11 group
+// cap - it cannot go higher without restructuring that scan.
+#define SPLAT_DEPTH_BUCKETS 1024
 
 // Threads per group in the scan passes. SplatScanCS uses SPLAT_DEPTH_BUCKETS threads
 // (one per bucket of one tile); this is SplatBaseCS, which scans the per-tile totals.
@@ -146,6 +169,22 @@ float SplatHash01(uint x)
 // loops terminate early on the great majority of splat/pixel pairs.
 #define SPLAT_MIN_ALPHA (1.0f / 255.0f)
 
+// Ceiling on a splat's per-pixel alpha in the compositing walk. Not a stylistic clamp:
+// SplatView::alpha carries Components::SplatCloud::opacity_scale, which is not bounded
+// above, so `a` can exceed 1 - and then (1 - a) is NEGATIVE, which does not brighten a
+// pixel, it flips the sign of everything composited behind it and drives transmittance
+// away from zero instead of toward it. Just under 1 rather than 1 so a single splat can
+// never take transmittance to exactly zero, which would make every later weight
+// identically 0 and hide an ordering bug behind a degenerate case.
+#define SPLAT_MAX_ALPHA 0.999f
+
+// Where the front-to-back walk stops: once this little of the background still shows
+// through, nothing further back can move an accumulator by more than this fraction of
+// what is already there. The direct analogue of SPLAT_MIN_ALPHA, one splat versus the
+// whole remaining slice, and the reason the pass costs what the visible surface costs
+// rather than what the tile holds.
+#define SPLAT_MIN_T (1.0f / 255.0f)
+
 // How far behind the surface a splat may still contribute is NOT a constant here - it
 // is splat_depth_slab, which RenderSystem hands over as a WORLD thickness
 // (SPLAT_SLAB_WORLD, floored at one depth band). It used to be a fraction of the
@@ -166,6 +205,14 @@ float SplatHash01(uint x)
 // surface back is averaged in, the cloud reads as semi-transparent and the depth it
 // writes sits behind the object. It costs time as well, and a tenth of the cloud's
 // depth was enough to hang the driver on a 1.8M splat capture.
+//
+// "BENIGN" DOES NOT EXTEND TO ZERO, and that was measured rather than assumed - see
+// the header of SplatRasterCS for the numbers. Removing the tail entirely and stopping
+// the walk at the crossing band is a tempting simplification (it deletes a cbuffer
+// field, two float comparisons and three variables) and it is wrong: the tail is what
+// carries acc_w past 1, where saturate() flattens it. Without it a pixel's alpha is
+// the sum over bands 0..k and therefore a STEP FUNCTION of which band the crossing
+// landed in - concentric alpha rings across the object, and a cloud at half opacity.
 
 // Evaluates the 2D Gaussian at `d` pixels from the splat centre.
 float SplatWeight(float3 conic, float2 d)

@@ -1671,9 +1671,14 @@ bool RenderSystem::EnsureSplatBuffers(uint32_t splat_count, uint32_t tiles_x, ui
 	}
 	if (tiles_x != splat_tiles_x || tiles_y != splat_tiles_y) {
 		const uint32_t tiles = tiles_x * tiles_y;
-		//All per tile or per (tile, bucket): at 1080p that is 8160 tiles, so under 1.2 MB
-		//for the lot. The entry pool is the only large allocation and it is sized by
-		//content below, not by tiles.
+		//Four of these are one uint per tile and cost nothing - 130 KB at 1080p for the
+		//lot. bucket_offsets is the exception and is now the second largest allocation
+		//the pass makes: tiles * SPLAT_DEPTH_BUCKETS, which at 1024 buckets is 7.1 MB at
+		//1080p and 57 MB at the 2560x1377 the editor runs at. That is the price of the
+		//binning being an exact sort rather than a 128-band approximation, and it is
+		//paid per resolution rather than per cloud - but it is also cleared once per
+		//cloud per frame, so a level with several clouds pays the clear each time.
+		//The entry pool below is still the largest, and it is sized by content.
 		if (FAILED(splat_tile_depth.Init(tiles)) ||
 			FAILED(splat_tile_total.Init(tiles)) ||
 			FAILED(splat_tile_base.Init(tiles)) ||
@@ -1859,9 +1864,6 @@ void RenderSystem::DrawSplats(int w, int h, const float3& camera_position, const
 		//get the same value.
 		const float band_world = depth_range / (float)SPLAT_DEPTH_BUCKETS;
 		const float depth_slab = max(SPLAT_SLAB_WORLD, band_world);
-		//World size of one quantization step, which is the slack the rasterizer's
-		//front-to-back walk gives its occlusion cutoff.
-		const float depth_step = depth_range / (float)SPLAT_MAX_DEPTH_STEP;
 
 		// --- project every Gaussian and bin it into the tiles it covers ---------------
 		//Reset per cloud, not per frame: the structure describes one cloud's splats and
@@ -1970,10 +1972,13 @@ void RenderSystem::DrawSplats(int w, int h, const float3& camera_position, const
 		//back to 1.68x and returned 0.17% flicker to a frame that was otherwise
 		//bit-identical.
 		//
-		//Spanning the range costs less resolution than it appears to: 32 bands over the
-		//cloud's depth are each a fraction of the slab, so the walk still stops after a
-		//handful of them.
-		const float bucket_span_world = depth_range;
+		//Spanning the range costs no resolution at all now, which is the point of the
+		//pairing: SPLAT_DEPTH_BUCKETS is 1024 and the span is SPLAT_MAX_DEPTH_STEP
+		//(1023), so SplatDepthBucket's `delta * buckets / span` returns the quantized
+		//delta itself. One bucket per quantization step, i.e. the counting sort is exact
+		//and two entries sharing a bucket share a depth - which is what SplatRasterCS's
+		//front-to-back compositing needs, order-dependent as it is. These two constants
+		//have to move together; see the note on SPLAT_DEPTH_BUCKETS.
 		const uint32_t bucket_span_steps = SPLAT_MAX_DEPTH_STEP;
 		splat_bin->SetInt("splat_count", (int)count);
 		splat_bin->SetInt("tiles_x", (int)tiles_x);
@@ -2067,21 +2072,16 @@ void RenderSystem::DrawSplats(int w, int h, const float3& camera_position, const
 		splat_raster->SetInt(SCREEN_H, h);
 		splat_raster->SetInt("tiles_x", (int)tiles_x);
 		splat_raster->SetInt("tiles_y", (int)tiles_y);
+		//The bucket span, the tile near-depths, the slab and the band width are all gone:
+		//the walk composites the slice in order and never asks where an entry sits in the
+		//depth range. The quantization WINDOW stays, and for a different reason than it
+		//used to - the rasterizer re-derives each entry's quantized depth to find which
+		//entries are co-located, since a run at one depth has to be composited as a single
+		//layer or the result depends on the order the binning atomics happened to produce.
+		//It must be the same window SplatBinCS was given a few lines up.
 		splat_raster->SetFloat("surface_alpha", e.cloud->surface_alpha);
-		//The slice is ordered only to bucket granularity, so this is the slack both of
-		//the rasterizer's early-outs carry.
-		splat_raster->SetFloat("splat_bucket_width", bucket_span_world / (float)SPLAT_DEPTH_BUCKETS);
-		splat_raster->SetFloat("splat_depth_slab", depth_slab);
-		//The quantization window and the tile near-depths, so the rasterizer can snap the
-		//surface it finds to a band boundary - see the note in its pass 1.
 		splat_raster->SetFloat("splat_quant_min", depth_min);
 		splat_raster->SetFloat("splat_quant_range", depth_range);
-		//The SAME divisor the binning was given a few lines up. The rasterizer derives
-		//each entry's band from the quantized depth exactly as SplatBinCS derived the
-		//bucket it filed that entry into, so the bands it sees are monotonic along the
-		//slice; handing these two different values silently reintroduces the frame-to-
-		//frame flicker described in the shader.
-		splat_raster->SetInt("splat_bucket_span_steps", (int)bucket_span_steps);
 		//inverse(world) * prev_world, so the rasterizer can take a world position of this
 		//cloud back to where that point was last frame without storing a previous position
 		//per splat. Built from world_xmmatrix and the *untransposed* previous matrix, then
@@ -2111,7 +2111,6 @@ void RenderSystem::DrawSplats(int w, int h, const float3& camera_position, const
 		splat_raster->SetShaderResourceView("tile_base", splat_tile_base.SRV());
 		splat_raster->SetShaderResourceView("tile_total", splat_tile_total.SRV());
 		splat_raster->SetShaderResourceView("splat_entries", splat_entries.SRV());
-		splat_raster->SetShaderResourceView("tile_depth", splat_tile_depth.SRV());
 		splat_raster->SetShaderResourceView("tile_list", splat_tile_list.SRV());
 		splat_raster->SetUnorderedAccessView("scene_out", scene_uav);
 		splat_raster->SetUnorderedAccessView("light_out", current_light_map->UAV());
@@ -2137,7 +2136,6 @@ void RenderSystem::DrawSplats(int w, int h, const float3& camera_position, const
 		splat_raster->SetShaderResourceView("tile_base", nullptr);
 		splat_raster->SetShaderResourceView("tile_total", nullptr);
 		splat_raster->SetShaderResourceView("splat_entries", nullptr);
-		splat_raster->SetShaderResourceView("tile_depth", nullptr);
 		splat_raster->SetShaderResourceView("rgbaNoise", nullptr);
 		//Released before the next cloud's preprocess reads depth_map as an SRV, and
 		//before anything downstream binds these three as inputs.
@@ -2169,6 +2167,7 @@ void RenderSystem::DrawSplats(int w, int h, const float3& camera_position, const
 			splat_stats_cpu.tiles_used = raw[0];
 			splat_stats_cpu.max_per_tile = raw[1];
 			splat_stats_cpu.total_binned = raw[2];
+			splat_stats_cpu.entries_walked = raw[3];
 			splat_stats_cpu.dropped = raw[5];
 			splat_stats_cpu.tiles_rastered = raw[6];
 			splat_stats_cpu.pixels_written = raw[7];
