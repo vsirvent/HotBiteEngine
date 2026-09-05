@@ -65,6 +65,15 @@ namespace {
 	//object's surface gives that it never fires on one.
 	constexpr float NORMAL_CENTROID_MIN_COS = 0.1f;
 
+	//How much of a Gaussian's own trained (minor-axis) normal survives the blend with
+	//the neighbourhood fit below - the rest, 1 - this, is the fit. The trained axis is
+	//the shortest axis of a fitted ellipsoid, not a direct measurement of the surface,
+	//and comes out visibly noisier than the neighbourhood agrees on; the fit alone is
+	//what a plain point cloud already uses (see EstimatePointCloudNormals below), so a
+	//low weight here just means "mostly trust the same thing a point cloud does,
+	//nudged by what the actual training settled on".
+	constexpr float GAUSSIAN_NORMAL_WEIGHT = 0.3f;
+
 	struct PlyProperty {
 		std::string name;
 		//Size in bytes of the scalar. Only float/double/int-family appear in the splat
@@ -90,11 +99,15 @@ namespace {
 		return 1.0f / (1.0f + expf(-x));
 	}
 
-	//--- Normal estimation for a plain point cloud --------------------------------
+	//--- Normal estimation for a plain point cloud (and a Gaussian's own blend) ----
 	//
 	// A trained Gaussian carries its own normal: it is flat against the surface it
-	// fits, so the minor axis of its ellipsoid points across that surface. A plain
-	// coloured point cloud carries no shape per point at all - no scale_*, no rot_* -
+	// fits, so the minor axis of its ellipsoid points across that surface. In practice
+	// that axis is noisier than the neighbourhood agrees on - it comes from whatever
+	// the fit settled on for one splat, not a measurement of the surface - so it is
+	// blended with the same neighbourhood fit a plain point cloud relies on entirely
+	// (GAUSSIAN_NORMAL_WEIGHT above), rather than trusted alone. A plain coloured
+	// point cloud carries no shape per point at all - no scale_*, no rot_* -
 	// so every splat falls back to an identity rotation and an isotropic scale, which
 	// is a *sphere*, and a sphere has no minor axis. The tie-break in the derivation
 	// then picks the same basis column for every point in the file, so the whole cloud
@@ -891,33 +904,66 @@ bool SplatCloudData::Load(const std::string& file, const std::string& asset_name
 		(float)(cz / (double)vertex_count)
 	};
 
-	//A point cloud's normals come from the neighbourhood rather than from the point.
-	//Run on the positions as they now stand - already through the Y flip above - so
-	//what comes back is in engine space and takes no second flip.
 	//A point cloud's normals come from the neighbourhood rather than from the point, in
 	//two steps: fit the plane, then make the signs agree along the neighbour graph. The
 	//second is not a refinement of the first - the fit is already right without it - it
 	//is what stops neighbouring points choosing opposite sides of the same surface. Both
 	//run on the positions as they now stand, already through the Y flip above, so what
-	//comes out is in engine space and takes no second flip.
+	//comes out is in engine space and takes no second flip. A Gaussian only takes the
+	//first step (see GAUSSIAN_NORMAL_WEIGHT) - it already has its own per-splat axis to
+	//agree with, so the second step's graph-propagated agreement is a point cloud's
+	//problem to solve, not its.
 	bool normals_oriented = false;
-	if (!is_gaussian) {
+	{
 		const auto started = std::chrono::steady_clock::now();
+		//Written into its own vector rather than minor_axis directly: for a Gaussian,
+		//minor_axis already holds the trained per-splat axis (pushed above) and this
+		//fit is only going in to be blended with it, not to replace it.
+		std::vector<float3> fitted_axis;
 		std::vector<uint32_t> neighbours;
-		EstimatePointCloudNormals(splats, minor_axis, neighbours);
+		EstimatePointCloudNormals(splats, fitted_axis, neighbours);
 		const double fit_ms = std::chrono::duration<double, std::milli>(
 			std::chrono::steady_clock::now() - started).count();
 
-		const auto oriented_at = std::chrono::steady_clock::now();
-		OrientNormalsConsistently(splats, neighbours, minor_axis);
-		const double orient_ms = std::chrono::duration<double, std::milli>(
-			std::chrono::steady_clock::now() - oriented_at).count();
+		if (is_gaussian) {
+			//The fit's sign is ambiguous per splat - it comes from an eigenvector, not
+			//a measurement - so there is nothing to propagate it against here the way
+			//OrientNormalsConsistently does for a point cloud. Instead each fitted axis
+			//is flipped to agree with that same splat's own trained axis before the
+			//blend, which is a real reference (if a noisy one) precisely because it is
+			//per splat rather than derived from the neighbourhood.
+			for (size_t i = 0; i < minor_axis.size(); ++i) {
+				float3& trained = minor_axis[i];
+				float3 fitted = fitted_axis[i];
+				const float d = trained.x * fitted.x + trained.y * fitted.y + trained.z * fitted.z;
+				if (d < 0.0f) {
+					fitted.x = -fitted.x; fitted.y = -fitted.y; fitted.z = -fitted.z;
+				}
+				trained.x = GAUSSIAN_NORMAL_WEIGHT * trained.x + (1.0f - GAUSSIAN_NORMAL_WEIGHT) * fitted.x;
+				trained.y = GAUSSIAN_NORMAL_WEIGHT * trained.y + (1.0f - GAUSSIAN_NORMAL_WEIGHT) * fitted.y;
+				trained.z = GAUSSIAN_NORMAL_WEIGHT * trained.z + (1.0f - GAUSSIAN_NORMAL_WEIGHT) * fitted.z;
+			}
+			//normals_oriented stays false: the blended axis still gets the centroid-facing
+			//pass below, exactly as the trained axis alone always has - blending in the
+			//fit changes how noisy the direction is, not how its sign gets resolved.
+			LOG_INFO("SplatCloudData::Load: blended %llu gaussian normals with a neighbourhood fit "
+				"(%.0f%% trained) in %.0f ms",
+				(unsigned long long)splats.size(), GAUSSIAN_NORMAL_WEIGHT * 100.0f, fit_ms);
+		}
+		else {
+			minor_axis = std::move(fitted_axis);
 
-		normals_oriented = true;
-		LOG_INFO("SplatCloudData::Load: fitted %llu point-cloud normals from %u neighbours in %.0f ms, "
-			"oriented along a %u-neighbour graph in %.0f ms",
-			(unsigned long long)splats.size(), (unsigned)PCA_NEIGHBOURS, fit_ms,
-			(unsigned)PCA_ORIENT_NEIGHBOURS, orient_ms);
+			const auto oriented_at = std::chrono::steady_clock::now();
+			OrientNormalsConsistently(splats, neighbours, minor_axis);
+			const double orient_ms = std::chrono::duration<double, std::milli>(
+				std::chrono::steady_clock::now() - oriented_at).count();
+
+			normals_oriented = true;
+			LOG_INFO("SplatCloudData::Load: fitted %llu point-cloud normals from %u neighbours in %.0f ms, "
+				"oriented along a %u-neighbour graph in %.0f ms",
+				(unsigned long long)splats.size(), (unsigned)PCA_NEIGHBOURS, fit_ms,
+				(unsigned)PCA_ORIENT_NEIGHBOURS, orient_ms);
+		}
 	}
 
 	//Second pass: orient the normals and measure the bounds.

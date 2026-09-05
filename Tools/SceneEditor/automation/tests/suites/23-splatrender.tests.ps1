@@ -692,6 +692,42 @@ function Get-Band {
     }
 }
 
+#--- gaussian normal blending --------------------------------------------------
+# New-RenderPly's scale_0/1/2 are all equal - a sphere, not a flattened ellipsoid -
+# so SplatCloudData::Load's minor-axis tie-break picks the same basis column for
+# every splat in it. Taken alone that is indistinguishable from the "one normal for
+# the whole cloud" failure a plain point cloud has (see above): every splat trained
+# on this fixture reports the same axis. GAUSSIAN_NORMAL_WEIGHT blends that trained
+# axis with the same neighbourhood fit a point cloud relies on entirely, so even
+# with a degenerate trained axis the rendered normal must still sweep across the
+# shell - dampened by the 30% share the (here, constant) trained axis keeps, but
+# not erased by it.
+
+Test 'a gaussian cloud with a degenerate trained axis still gets a normal that sweeps with the surface' {
+    Reset-Cloud
+    SendOk 'camera_pos 0 0 -1.2' | Out-Null
+    Step-EditorFrames -Session $Session -Count 8
+    SendOk 'render debug_buffer normal' | Out-Null
+    Step-EditorFrames -Session $Session -Count 6
+    $shot = Shot 'gaussian-normal-varies'
+    SendOk 'render debug_buffer off' | Out-Null
+
+    $upper = Get-Band -Path $shot -Channel 'G' -Left 0.46 -Top 0.36 -Right 0.54 -Bottom 0.43
+    $lower = Get-Band -Path $shot -Channel 'G' -Left 0.46 -Top 0.57 -Right 0.54 -Bottom 0.64
+    Assert-True -Condition (($upper - $lower) -gt 15) `
+        -Message ("the top of the sphere should still face further up than the bottom despite " +
+                  "the fixture's degenerate trained axis (green $([Math]::Round($upper, 1)) " +
+                  "above, $([Math]::Round($lower, 1)) below)")
+
+    $left  = Get-Band -Path $shot -Channel 'R' -Left 0.36 -Top 0.46 -Right 0.43 -Bottom 0.54
+    $right = Get-Band -Path $shot -Channel 'R' -Left 0.57 -Top 0.46 -Right 0.64 -Bottom 0.54
+    Assert-True -Condition (($right - $left) -gt 15) `
+        -Message ("the right of the sphere should still face further right than the left " +
+                  "(red $([Math]::Round($left, 1)) at left, $([Math]::Round($right, 1)) at right)")
+
+    Reset-Cloud
+}
+
 Test 'a point cloud .ply renders with normals fitted from its neighbours' {
     # The whole point. The normal buffer maps [-1,1] to [0,255], so a normal with no
     # component along an axis reads as 127 on that channel.
