@@ -131,6 +131,7 @@ namespace HotBiteEditor {
 			j["selected_template"] = state.selected_template;
 			static const char* GIZMO_MODE_NAME[3] = { "translate", "rotate", "scale" };
 			j["gizmo_mode"] = GIZMO_MODE_NAME[(int)state.gizmo_mode];
+			j["mask_paint_brush_mode"] = state.mask_paint_brush_mode;
 			j["grid_snap_enabled"] = state.grid_snap_enabled;
 			j["grid_size"] = state.grid_size;
 			j["grid_rotation_step_degrees"] = state.grid_rotation_step_degrees;
@@ -1141,6 +1142,41 @@ namespace HotBiteEditor {
 			else if (cmd == "paint_mask_cancel") {
 				MaskPaint::Cancel(state);
 				response_lines.push_back("OK paint session cancelled");
+			}
+			//Simulates the viewport brush (MaskPaint::TryPaintAtScreenPoint) at a
+			//screen pixel instead of a literal mouse drag - a simulated "drag" is
+			//just several of these at moving x,y, the same philosophy as
+			//camera_orbit/camera_pan simulating a mouse drag for the camera.
+			else if (cmd == "paint_stroke_screen") {
+				if (!MaskPaint::Active()) {
+					response_lines.push_back("ERR no paint session is open (paint_mask_begin first)");
+				}
+				else {
+					float args4[4];
+					if (!ParseFloats(args, 1, 4, args4)) {
+						response_lines.push_back("ERR usage: paint_stroke_screen <x> <y> <radius> <strength>"
+							" (x,y in screen pixels, radius in mesh UV units, strength -1..1)");
+					}
+					else {
+						ImVec2 mouse(args4[0], args4[1]);
+						if (MaskPaint::TryPaintAtScreenPoint(state, mouse, ImGui::GetIO().DisplaySize,
+							args4[2], args4[3], error)) {
+							response_lines.push_back("OK dab at " + args[1] + "," + args[2]);
+						}
+						else {
+							response_lines.push_back("ERR " + error);
+						}
+					}
+				}
+			}
+			else if (cmd == "set_mask_paint_brush_mode") {
+				if (args.size() < 2) {
+					response_lines.push_back("ERR usage: set_mask_paint_brush_mode <0|1>");
+				}
+				else {
+					state.mask_paint_brush_mode = (args[1] != "0");
+					response_lines.push_back("OK");
+				}
 			}
 			else if (cmd == "create_group") {
 				if (args.size() < 2) {

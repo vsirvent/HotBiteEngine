@@ -1,6 +1,7 @@
 #pragma once
 
 #include "SceneEditor.h"
+#include "imgui.h"
 
 namespace HotBiteEditor {
 	namespace SelectionGizmo {
@@ -46,5 +47,12 @@ namespace HotBiteEditor {
 		// swept since mouse-down (Rotate), or a scale factor since mouse-down
 		// (Scale). No-op when nothing in the selection is editable.
 		void SimulateDrag(EditorState& state, GizmoMode mode, int axis, float amount);
+
+		// World-space picking ray from the camera through a screen pixel (`mouse`,
+		// in the same pixel space as `display`/ImGui's io.DisplaySize). False when
+		// there is no camera to cast from. Shared with MaskPaint's viewport brush,
+		// which needs the identical unprojection the gizmo/click-picking already use.
+		bool ComputeMouseRay(HotBite::Engine::ECS::Coordinator* c, const ImVec2& display,
+			const ImVec2& mouse, HotBite::Engine::vector3d& origin, HotBite::Engine::vector3d& dir);
 	}
 }

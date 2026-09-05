@@ -292,6 +292,13 @@ namespace HotBiteEditor {
 		// tool targets when a session is started without an explicit index.
 		int selected_multi_material_layer = 0;
 
+		// While a MaskPaint session is open, holding the left mouse button over the
+		// viewport paints at the cursor instead of driving SelectionGizmo's own
+		// click-to-select/handle-drag (see MaskPaint::UpdateBrush and this flag's
+		// check in SelectionGizmo::Draw). Off by default so opening the panel to
+		// paint a mask doesn't immediately steal the viewport from the gizmo.
+		bool mask_paint_brush_mode = false;
+
 		// Entity grouping shown as a tree in the Entities panel: every group name
 		// (kept even while empty) plus the group each entity name belongs to
 		// (entities absent from the map are ungrouped). Keyed by entity *name*

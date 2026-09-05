@@ -1,6 +1,7 @@
 #pragma once
 
 #include "SceneEditor.h"
+#include "imgui.h"
 
 #include <d3d11.h>
 #include <string>
@@ -74,5 +75,24 @@ namespace HotBiteEditor {
 		// index `layer_index` when the paint button is pressed and none is open yet for
 		// this layer.
 		void DrawSection(EditorState& state, const std::string& multi_material, int layer_index);
+
+		// Raycasts from a screen pixel (`mouse`, in `display`'s pixel space - the same
+		// convention SelectionGizmo::ComputeMouseRay takes) against every entity whose
+		// Material resolves to the session's multi-material, and on the nearest hit
+		// dabs PaintStroke at that surface point's UV. False (no paint applied, `error`
+		// set) with no session open, no camera, no entity wearing this multi-material,
+		// or nothing under the cursor within range - matching every other "nothing
+		// happened" path in this file. The one CPU mesh raycast in the editor
+		// (Core::RaycastMeshUV) that returns an exact UV rather than an AABB guess.
+		bool TryPaintAtScreenPoint(EditorState& state, const ImVec2& mouse, const ImVec2& display,
+			float radius, float strength, std::string& error);
+
+		// Per-frame hook for the interactive brush (EditorState::mask_paint_brush_mode,
+		// toggled from DrawSection): while a session is open, the mode is on, and the
+		// mouse isn't over a panel, paints at the current mouse position on every held
+		// frame - a drag is just this firing every frame the button is down. Call once
+		// per frame regardless of session/mode state (both are checked internally),
+		// same as SelectionGizmo::Draw.
+		void UpdateBrush(EditorState& state);
 	}
 }

@@ -170,6 +170,7 @@
     <ClCompile Include="Engine\Core\DXCore.cpp" />
     <ClCompile Include="Engine\Core\Material.cpp" />
     <ClCompile Include="Engine\Core\Mesh.cpp" />
+    <ClCompile Include="Engine\Core\MeshRaycast.cpp" />
     <ClCompile Include="Engine\Core\MeshSimplify.cpp" />
     <ClCompile Include="Engine\Core\PhysicsCommon.cpp" />
     <ClCompile Include="Engine\Core\PostProcess.cpp" />
@@ -221,6 +222,7 @@
     <ClInclude Include="Engine\Core\Json.h" />
     <ClInclude Include="Engine\Core\Material.h" />
     <ClInclude Include="Engine\Core\Mesh.h" />
+    <ClInclude Include="Engine\Core\MeshRaycast.h" />
     <ClInclude Include="Engine\Core\MeshSimplify.h" />
     <ClInclude Include="Engine\Core\Particles.h" />
     <ClInclude Include="Engine\Core\PhysicsCommon.h" />

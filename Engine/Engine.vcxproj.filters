@@ -143,6 +143,9 @@
     <ClCompile Include="Engine\Core\Mesh.cpp">
       <Filter>Engine\Core</Filter>
     </ClCompile>
+    <ClCompile Include="Engine\Core\MeshRaycast.cpp">
+      <Filter>Engine\Core</Filter>
+    </ClCompile>
     <ClCompile Include="Engine\Core\Utils.cpp">
       <Filter>Engine\Core</Filter>
     </ClCompile>
@@ -323,6 +326,9 @@
       <Filter>Engine\Loader</Filter>
     </ClInclude>
     <ClInclude Include="Engine\Core\Mesh.h">
+      <Filter>Engine\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\Core\MeshRaycast.h">
       <Filter>Engine\Core</Filter>
     </ClInclude>
     <ClInclude Include="Engine\Core\Log.h">

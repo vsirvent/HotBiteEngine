@@ -6,6 +6,7 @@
 #include "Inspector.h"
 #include "AssetBrowser.h"
 #include "MaterialPanel.h"
+#include "MaskPaint.h"
 #include "MaterialPreview.h"
 #include "ModelPreview.h"
 #include "TemplatePanel.h"
@@ -573,6 +574,7 @@ namespace HotBiteEditor {
 			RenderSettings::DrawOverlay(*this);
 			GridOverlay::Draw(state);
 			SelectionGizmo::Draw(state);
+			MaskPaint::UpdateBrush(state);
 			DrawDeleteRequest();
 			DrawGridSettingsPopup();
 		}

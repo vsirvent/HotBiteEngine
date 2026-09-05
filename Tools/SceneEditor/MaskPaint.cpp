@@ -1,11 +1,14 @@
 #include "MaskPaint.h"
 #include "MultiMaterialPanel.h"
 #include "EditorHistory.h"
+#include "SelectionGizmo.h"
 
 #include "imgui.h"
 #include <World.h>
+#include <Components/Base.h>
 #include <Core/DXCore.h>
 #include <Core/Material.h>
+#include <Core/MeshRaycast.h>
 #include <Systems/RenderSystem.h>
 
 #include <DirectXTex.h>
@@ -15,6 +18,9 @@
 #include <filesystem>
 
 using namespace HotBite::Engine;
+using namespace HotBite::Engine::ECS;
+using namespace HotBite::Engine::Components;
+using namespace DirectX;
 
 namespace HotBiteEditor {
 	namespace MaskPaint {
@@ -155,6 +161,33 @@ namespace HotBiteEditor {
 
 			int ChannelOffset(int channel) {
 				return (std::max)(0, (std::min)(3, channel));
+			}
+
+			//Entities the viewport brush may paint on: a multi-material's "wearers" are
+			//its users' materials (MaterialData::multi_material), not anything
+			//MultiMaterialData tracks itself, so this walks every entity looking for a
+			//Material pointing at `mm`. Narrowing to these before any raycast is what
+			//keeps a click on some unrelated object from ever painting with that
+			//object's UVs, and bounds the raycast cost to "however many instances wear
+			//this multi-material" regardless of scene size.
+			std::vector<Entity> FindCandidateEntities(EditorState& state, Core::MultiMaterialData* mm) {
+				std::vector<Entity> out;
+				Coordinator* c = (state.world != nullptr) ? state.world->GetCoordinator() : nullptr;
+				if (c == nullptr || mm == nullptr) {
+					return out;
+				}
+				for (const auto& [name, e] : c->GetEntites()) {
+					if (!c->ContainsComponent<Base>(e) || !c->GetComponent<Base>(e).visible ||
+						!c->ContainsComponent<Material>(e) || !c->ContainsComponent<Mesh>(e) ||
+						!c->ContainsComponent<Transform>(e) || !c->ContainsComponent<Bounds>(e)) {
+						continue;
+					}
+					const Material& mat = c->GetComponent<Material>(e);
+					if (mat.data != nullptr && mat.data->multi_material == mm) {
+						out.push_back(e);
+					}
+				}
+				return out;
 			}
 		}
 
@@ -328,6 +361,84 @@ namespace HotBiteEditor {
 			}
 		}
 
+		bool TryPaintAtScreenPoint(EditorState& state, const ImVec2& mouse, const ImVec2& display,
+			float radius, float strength, std::string& error) {
+			if (!active) {
+				error = "no paint session is open";
+				return false;
+			}
+			Coordinator* c = (state.world != nullptr) ? state.world->GetCoordinator() : nullptr;
+			if (c == nullptr) {
+				error = "no scene loaded";
+				return false;
+			}
+			Core::MultiMaterialData* mm = state.world->GetMultiMaterial(session.multi_material);
+			std::vector<Entity> candidates = FindCandidateEntities(state, mm);
+			if (candidates.empty()) {
+				error = "no entity in the scene uses " + session.multi_material;
+				return false;
+			}
+			vector3d ray_origin, ray_dir;
+			if (!SelectionGizmo::ComputeMouseRay(c, display, mouse, ray_origin, ray_dir)) {
+				error = "no camera to cast a ray from";
+				return false;
+			}
+			float3 origin, dir;
+			XMStoreFloat3(&origin, ray_origin);
+			XMStoreFloat3(&dir, ray_dir);
+
+			//Generous but bounded - RaycastMeshUV measures world-space distance from
+			//the transformed hit point (see its own comment), not a normalized ray
+			//parameter, so there is no natural "whole scene" sentinel to reuse here.
+			constexpr float kMaxDistance = 10000.0f;
+			bool any_hit = false;
+			Core::MeshRayHit best;
+			for (Entity e : candidates) {
+				const Bounds& bounds = c->GetComponent<Bounds>(e);
+				float aabb_dist = 0.0f;
+				if (!bounds.final_box.Intersects(ray_origin, ray_dir, aabb_dist)) {
+					continue; //cheap reject before paying for the per-triangle test
+				}
+				Mesh& mesh = c->GetComponent<Mesh>(e);
+				Core::MeshData* mesh_data = mesh.GetData();
+				if (mesh_data == nullptr) {
+					continue;
+				}
+				//world_xmmatrix, not world_matrix/world_inv_matrix - those are
+				//pre-transposed for HLSL (see RaycastMeshUV's own warning).
+				const Transform& transform = c->GetComponent<Transform>(e);
+				matrix world_inverse = XMMatrixInverse(nullptr, transform.world_xmmatrix);
+				Core::MeshRayHit hit = Core::RaycastMeshUV(*mesh_data, transform.world_xmmatrix,
+					world_inverse, origin, dir, kMaxDistance);
+				if (hit.hit && (!any_hit || hit.distance < best.distance)) {
+					best = hit;
+					any_hit = true;
+				}
+			}
+			if (!any_hit) {
+				error = "no surface using " + session.multi_material + " is under the cursor";
+				return false;
+			}
+			PaintStroke(best.uv.x, best.uv.y, radius, strength);
+			return true;
+		}
+
+		void UpdateBrush(EditorState& state) {
+			if (!active || !state.mask_paint_brush_mode) {
+				return;
+			}
+			ImGuiIO& io = ImGui::GetIO();
+			if (io.WantCaptureMouse || !ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+				return;
+			}
+			//A miss (empty sky, an object wearing some other multi-material) is
+			//expected near the surface's edge while dragging - silently doing
+			//nothing matches every other "off target" case in this file, rather
+			//than spamming the status line on every held frame.
+			std::string error;
+			TryPaintAtScreenPoint(state, io.MousePos, io.DisplaySize, brush_radius, brush_strength, error);
+		}
+
 		bool Commit(EditorState& state, std::string& error) {
 			if (!active) {
 				error = "no paint session is open";
@@ -400,6 +511,7 @@ namespace HotBiteEditor {
 			ReleaseGpu();
 			session = Session{};
 			active = false;
+			state.mask_paint_brush_mode = false;
 			return true;
 		}
 
@@ -416,6 +528,7 @@ namespace HotBiteEditor {
 			ReleaseGpu();
 			session = Session{};
 			active = false;
+			state.mask_paint_brush_mode = false;
 		}
 
 		void End(EditorState& state) {
@@ -448,9 +561,12 @@ namespace HotBiteEditor {
 				session.file_path.c_str());
 			ImGui::SliderFloat("Brush radius", &brush_radius, 0.005f, 0.5f, "%.3f");
 			ImGui::SliderFloat("Brush strength", &brush_strength, -1.0f, 1.0f);
-			ImGui::TextDisabled("Click-drag isn't wired to the viewport yet - paint by UV "
-				"through the automation channel's paint_mask command, or drag the sliders "
-				"below to dab the canvas center for a quick preview.");
+			ImGui::Checkbox("Paint in viewport (hold left-click and drag)", &state.mask_paint_brush_mode);
+			if (state.mask_paint_brush_mode) {
+				ImGui::TextDisabled("Dragging over a surface using %s paints it; the "
+					"gizmo won't respond to clicks while this is on.",
+					session.multi_material.c_str());
+			}
 			if (ImGui::Button("Dab center")) {
 				PaintStroke(0.5f, 0.5f, brush_radius, brush_strength);
 			}

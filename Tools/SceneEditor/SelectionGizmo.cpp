@@ -107,6 +107,20 @@ namespace HotBiteEditor {
 			dir = XMVector3Normalize(far_point - origin);
 		}
 
+		bool ComputeMouseRay(Coordinator* c, const ImVec2& display, const ImVec2& mouse,
+			vector3d& origin, vector3d& dir)
+		{
+			if (c == nullptr) {
+				return false;
+			}
+			auto camera_system = c->GetSystem<CameraSystem>();
+			if (camera_system == nullptr || camera_system->GetCameras().GetData().empty()) {
+				return false;
+			}
+			MouseRay(camera_system->GetCameras().GetData()[0].camera, display, mouse, origin, dir);
+			return true;
+		}
+
 		//Parameter t of the point on line P0 + axis*t closest to the ray C + r*s
 		//(both directions normalized). False when the axis is near-parallel to the
 		//view ray, where the closest-point problem degenerates.
@@ -620,7 +634,10 @@ namespace HotBiteEditor {
 			//Hover test of the selection's handles in screen space (skipped while a
 			//panel owns the mouse or a drag is running).
 			int hot_axis = drag.active ? drag.axis : -1;
-			bool mouse_free = !drag.active && !io.WantCaptureMouse;
+			//The mask-paint brush (MaskPaint::UpdateBrush) owns left-click-and-drag
+			//over the viewport while it's on, the same kind of mode-exclusivity the
+			//translate/rotate/scale tools already have with each other.
+			bool mouse_free = !drag.active && !io.WantCaptureMouse && !state.mask_paint_brush_mode;
 			if (mouse_free && geom.valid) {
 				float best = PICK_DISTANCE;
 				if (mode == GizmoMode::Rotate) {
