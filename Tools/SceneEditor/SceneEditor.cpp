@@ -334,9 +334,13 @@ namespace HotBiteEditor {
 			[this]() { return level_loaded; },
 			[this]() { state.grid_snap_enabled = !state.grid_snap_enabled; },
 			[this]() { return state.grid_snap_enabled; } });
+		menu_commands.push_back({ "View/Grid Lines",
+			[this]() { return level_loaded; },
+			[this]() { state.grid_lines_visible = !state.grid_lines_visible; },
+			[this]() { return state.grid_lines_visible; } });
 		menu_commands.push_back({ "View/Grid Settings...",
 			[this]() { return level_loaded; },
-			[this]() { ImGui::OpenPopup("Grid Settings"); },
+			[this]() { grid_settings_requested = true; },
 			nullptr });
 		//View: physics collider wireframes (see PhysicsDebug.h). Two entries acting
 		//as a radio group - clicking the active one turns the overlay off - because
@@ -648,10 +652,16 @@ namespace HotBiteEditor {
 	//the values are worth tuning before switching snapping on.
 	void SceneEditorApp::DrawGridSettingsPopup()
 	{
+		static constexpr const char* POPUP = "Grid Settings";
+		if (grid_settings_requested) {
+			grid_settings_requested = false;
+			ImGui::OpenPopup(POPUP);
+		}
 		ImVec2 center = ImGui::GetMainViewport()->GetCenter();
 		ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-		if (ImGui::BeginPopupModal("Grid Settings", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+		if (ImGui::BeginPopupModal(POPUP, nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
 			ImGui::Checkbox("Enabled", &state.grid_snap_enabled);
+			ImGui::Checkbox("Show grid lines", &state.grid_lines_visible);
 			ImGui::DragFloat("Position step", &state.grid_size, 0.05f, 0.01f, 1000.0f, "%.2f world units");
 			ImGui::DragFloat("Rotation step", &state.grid_rotation_step_degrees, 0.5f, 0.1f, 180.0f, "%.1f degrees");
 			ImGui::DragFloat("Scale step", &state.grid_scale_step, 0.01f, 0.01f, 10.0f, "%.2f");

@@ -9,6 +9,30 @@ Test 'grid snap is off by default and the View menu toggles it' {
     Assert-Equal -Expected 'False' -Actual (Get-State -Session $Session).grid_snap_enabled
 }
 
+Test 'grid lines are hidden by default and independent of grid snap' {
+    # GridOverlay::Draw is gated on grid_lines_visible, not grid_snap_enabled -
+    # showing the reference lines and snapping to them are separate switches.
+    Assert-Equal -Expected 'False' -Actual (Get-State -Session $Session).grid_lines_visible
+    SendOk 'menu "View/Grid Snap"' | Out-Null
+    Assert-Equal -Expected 'False' -Actual (Get-State -Session $Session).grid_lines_visible `
+        -Message 'enabling snap must not also show the lines'
+    SendOk 'menu "View/Grid Snap"' | Out-Null
+
+    SendOk 'menu "View/Grid Lines"' | Out-Null
+    Assert-Equal -Expected 'True' -Actual (Get-State -Session $Session).grid_lines_visible
+    SendOk 'menu "View/Grid Lines"' | Out-Null
+    Assert-Equal -Expected 'False' -Actual (Get-State -Session $Session).grid_lines_visible
+
+    SendOk 'set_grid_visible 1' | Out-Null
+    Assert-Equal -Expected 'True' -Actual (Get-State -Session $Session).grid_lines_visible
+    SendOk 'set_grid_visible 0' | Out-Null
+    Assert-Equal -Expected 'False' -Actual (Get-State -Session $Session).grid_lines_visible
+}
+
+Test 'set_grid_visible validates its arguments' {
+    Assert-Err -Result (Send 'set_grid_visible')[0] -Pattern 'usage:'
+}
+
 Test 'set_grid_size sets the three step values' {
     SendOk 'set_grid_size 2 30 0.25' | Out-Null
     $state = Get-State -Session $Session
@@ -119,6 +143,7 @@ Test 'place view snaps the drop position when grid snap is on' {
 Test 'grid settings persist in the level file' {
     SendOk 'set_grid_size 3 20 0.4' | Out-Null
     SendOk 'menu "View/Grid Snap"' | Out-Null
+    SendOk 'menu "View/Grid Lines"' | Out-Null
     SendOk 'menu "File/Save Level"' | Out-Null
     $level = Get-Content $LevelPath -Raw | ConvertFrom-Json
     Assert-True -Condition ($null -ne $level.editor.grid) -Message 'editor.grid is written'
@@ -126,6 +151,8 @@ Test 'grid settings persist in the level file' {
     Assert-Near -Expected 3.0 -Actual $level.editor.grid.size
     Assert-Near -Expected 20.0 -Actual $level.editor.grid.rotation_step_degrees
     Assert-Near -Expected 0.4 -Actual $level.editor.grid.scale_step
+    Assert-Equal -Expected 'True' -Actual $level.editor.grid.lines_visible
     SendOk 'menu "View/Grid Snap"' | Out-Null
+    SendOk 'menu "View/Grid Lines"' | Out-Null
     SendOk 'set_grid_size 1 15 0.1' | Out-Null
 }

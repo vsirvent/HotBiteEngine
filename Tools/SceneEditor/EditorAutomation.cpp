@@ -133,6 +133,7 @@ namespace HotBiteEditor {
 			j["gizmo_mode"] = GIZMO_MODE_NAME[(int)state.gizmo_mode];
 			j["mask_paint_brush_mode"] = state.mask_paint_brush_mode;
 			j["grid_snap_enabled"] = state.grid_snap_enabled;
+			j["grid_lines_visible"] = state.grid_lines_visible;
 			j["grid_size"] = state.grid_size;
 			j["grid_rotation_step_degrees"] = state.grid_rotation_step_degrees;
 			j["grid_scale_step"] = state.grid_scale_step;
@@ -1269,6 +1270,17 @@ namespace HotBiteEditor {
 					if (args.size() >= 4) {
 						try { state.grid_scale_step = std::stof(args[3]); } catch (...) {}
 					}
+					response_lines.push_back("OK");
+				}
+			}
+			//Whether GridOverlay draws the reference lines - independent of
+			//grid_snap_enabled (also scriptable via `menu "View/Grid Lines"`).
+			else if (cmd == "set_grid_visible") {
+				if (args.size() < 2) {
+					response_lines.push_back("ERR usage: set_grid_visible <0|1>");
+				}
+				else {
+					state.grid_lines_visible = (args[1] != "0");
 					response_lines.push_back("OK");
 				}
 			}

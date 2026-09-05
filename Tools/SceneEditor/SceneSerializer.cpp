@@ -627,13 +627,14 @@ namespace HotBiteEditor {
 			level["editor"]["groups"] = groups;
 
 			//5) Grid snapping (SceneEditor.h's grid_snap_enabled/grid_size/
-			//   grid_rotation_step_degrees/grid_scale_step) - editor-only view
-			//   state, same "editor" block as the groups above.
+			//   grid_rotation_step_degrees/grid_scale_step/grid_lines_visible) -
+			//   editor-only view state, same "editor" block as the groups above.
 			level["editor"]["grid"] = {
 				{ "enabled", state.grid_snap_enabled },
 				{ "size", state.grid_size },
 				{ "rotation_step_degrees", state.grid_rotation_step_degrees },
 				{ "scale_step", state.grid_scale_step },
+				{ "lines_visible", state.grid_lines_visible },
 			};
 
 			std::ofstream out(state.current_level_path);
@@ -674,6 +675,7 @@ namespace HotBiteEditor {
 			state.grid_size = 1.0f;
 			state.grid_rotation_step_degrees = 15.0f;
 			state.grid_scale_step = 0.1f;
+			state.grid_lines_visible = false;
 			state.renamed_entities.clear();
 			state.cloned_entities.clear();
 			state.created_entities.clear();
@@ -877,6 +879,7 @@ namespace HotBiteEditor {
 				state.grid_size = grid.value("size", state.grid_size);
 				state.grid_rotation_step_degrees = grid.value("rotation_step_degrees", state.grid_rotation_step_degrees);
 				state.grid_scale_step = grid.value("scale_step", state.grid_scale_step);
+				state.grid_lines_visible = grid.value("lines_visible", state.grid_lines_visible);
 			}
 		}
 

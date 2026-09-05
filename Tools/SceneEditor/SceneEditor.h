@@ -189,6 +189,10 @@ namespace HotBiteEditor {
 		float grid_size = 1.0f;                    // world units a translate snaps to
 		float grid_rotation_step_degrees = 15.0f;  // degrees a rotate drag snaps to
 		float grid_scale_step = 0.1f;              // scale-factor step a scale drag snaps to
+		// Whether GridOverlay draws the reference lines - independent of snapping
+		// itself, so the lines can be hidden while snapping stays on (or shown to
+		// judge alignment without anything actually snapping).
+		bool grid_lines_visible = false;
 		ColliderView collider_view = ColliderView::Off;
 		// Which shadow debug tint the scene is rendered with (see ShadowDebug.h). View
 		// state, so it records no undo history - but unlike the collider overlay it
@@ -431,6 +435,16 @@ namespace HotBiteEditor {
 
 		// Set by RequestOpenLevel, consumed by the render tick (see the constructor).
 		std::string pending_level_path;
+
+		// Set by the View/Grid Settings... menu action, consumed by
+		// DrawGridSettingsPopup. ImGui::OpenPopup has to be called from the same ID
+		// stack context BeginPopupModal is (see that function) - a menu action runs
+		// nested inside BeginMenu's own ID scope, a different context from the one
+		// DrawGridSettingsPopup calls BeginPopupModal from, so the two would never
+		// agree on the popup's ID if OpenPopup were called directly from the menu
+		// action. Routing it through a flag, the same way delete_requested reaches
+		// DrawDeleteRequest, keeps both calls in the one context that matters.
+		bool grid_settings_requested = false;
 
 		void DrawMenuBar();
 		void DrawDeleteRequest();

@@ -18,18 +18,38 @@ RenderTargetRT MainRenderPS(GSOutput input)
 
 	float3 normal = input.normal;
 
-	//World-aligned tiling: project onto whichever world plane the surface faces
-	//most (dominant-axis, not blended triplanar - see Material.h's
+	//World-aligned tiling: project onto whichever plane the surface faces most
+	//(dominant-axis, not blended triplanar - see Material.h's
 	//WORLD_UV_ENABLED_FLAG comment for why), so a texture's apparent size stays
 	//fixed in world units instead of stretching with the mesh's authored UV or
 	//the entity's scale. Ordinary materials only: a multi-material already has
 	//its own world-space-aware layer rules (MultiTexture.hlsli's getValues).
+	//
+	//The sample point is the object's own local position with only its scale
+	//re-applied - not the raw world position - so turning the object carries
+	//the texture with it (glued to the surface) instead of the pattern sliding
+	//across it under a projection fixed to the world axes; scaling still tiles
+	//more of it, which a plain local-space coordinate (never touched by
+	//Transform::scale) could not do on its own. `world_inv` undoes the whole
+	//transform - translation, rotation and scale - back to raw mesh space;
+	//re-multiplying by the per-axis scale magnitude (each row of `world` is a
+	//local axis after scale+rotation, so its length is exactly that axis's
+	//scale - exact here because Transform never introduces shear) restores
+	//only the scale. The dominant axis is still chosen from the world-space
+	//normal: that only ever picks which face is being shaded, and doing it in
+	//whichever frame is fine as long as the sampled coordinate itself is the
+	//one that must not rotate.
 	if ((material.flags & WORLD_UV_ENABLED_FLAG) && multi_texture_count == 0 && material.world_uv_scale > 0.0f) {
+		matrix world_inv = inverse(world);
+		float3 local_pos = mul(float4(wpos.xyz, 1.0f), world_inv).xyz;
+		float3 world_scale = float3(length(world[0].xyz), length(world[1].xyz), length(world[2].xyz));
+		float3 scaled_local_pos = local_pos * world_scale;
+
 		float3 an = abs(normal);
 		float s = 1.0f / material.world_uv_scale;
-		if (an.x >= an.y && an.x >= an.z)      { input.uv = wpos.zy * s; }
-		else if (an.y >= an.x && an.y >= an.z) { input.uv = wpos.xz * s; }
-		else                                    { input.uv = wpos.xy * s; }
+		if (an.x >= an.y && an.x >= an.z)      { input.uv = scaled_local_pos.zy * s; }
+		else if (an.y >= an.x && an.y >= an.z) { input.uv = scaled_local_pos.xz * s; }
+		else                                    { input.uv = scaled_local_pos.xy * s; }
 	}
 
 	float calculated_values[MAX_MULTI_TEXTURE];

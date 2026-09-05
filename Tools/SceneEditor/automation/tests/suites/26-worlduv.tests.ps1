@@ -97,3 +97,30 @@ Test 'world_uv_scale changes the tile size, not just whether tiling is on' {
 
     SendOk 'set_material_world_uv TestChecker 0 1' | Out-Null
 }
+
+Test 'the tiling turns with the object instead of staying fixed to world axes' {
+    # Regression coverage for a real bug: the sample point used to be raw world
+    # position, so an object's own rotation had no effect on the pattern (it
+    # looked painted onto the world, not onto the surface) - only translation and
+    # the size of the object moved the sample coordinates at all. Now the sample
+    # point is the object's local position with only its scale re-applied
+    # (MainRenderPS.hlsli), so turning the object must change what is rendered.
+    SendOk 'set_material box_a TestChecker' | Out-Null
+    Set-BoxView
+    SendOk 'set_material_world_uv TestChecker 1 1' | Out-Null
+
+    SendOk 'set_rotation 0 0 0' | Out-Null
+    $shotA = Join-Path $ShotDir 'worlduv_rot0.png'
+    SendOk "screenshot $shotA" | Out-Null
+
+    SendOk 'set_rotation 0 25 0' | Out-Null
+    $shotB = Join-Path $ShotDir 'worlduv_rot25.png'
+    SendOk "screenshot $shotB" | Out-Null
+
+    $diff = Get-ImageDifference -PathA $shotA -PathB $shotB
+    Assert-True -Condition ($diff.DifferingShare -gt 0.1) `
+        -Message "expected rotating the object to change the tiling (differing=$($diff.DifferingShare), mean=$($diff.MeanDelta))"
+
+    SendOk 'set_rotation 0 0 0' | Out-Null
+    SendOk 'set_material_world_uv TestChecker 0 1' | Out-Null
+}
