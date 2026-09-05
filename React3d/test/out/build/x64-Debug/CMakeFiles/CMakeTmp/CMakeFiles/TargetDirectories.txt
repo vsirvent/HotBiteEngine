@@ -1,3 +1,0 @@
-C:/Users/Vicen/source/repos/vsirvent/React3d/test/out/build/x64-Debug/CMakeFiles/CMakeTmp/CMakeFiles/cmTC_5fc61.dir
-C:/Users/Vicen/source/repos/vsirvent/React3d/test/out/build/x64-Debug/CMakeFiles/CMakeTmp/CMakeFiles/edit_cache.dir
-C:/Users/Vicen/source/repos/vsirvent/React3d/test/out/build/x64-Debug/CMakeFiles/CMakeTmp/CMakeFiles/rebuild_cache.dir

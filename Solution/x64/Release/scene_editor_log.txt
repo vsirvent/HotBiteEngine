@@ -1,8 +1,0 @@
-12:41:09.722 [INFO ] [t22456] DXCore.cpp:390: DXCore: D3D feature level 11.1, extended UAV slots (64 compute UAV slots)
-12:41:09.736 [INFO ] [t22456] ShaderCompiler.cpp:214: ShaderCompiler: source folder C:\Users\Vicen\source\repos\HotBiteEngine\Engine\Engine\Core\Shaders (65 shader sources indexed)
-12:41:09.750 [INFO ] [t22456] ShaderCompiler.cpp:214: ShaderCompiler: source folder C:\Users\Vicen\source\repos\HotBiteEngine\Tests (70 shader sources indexed)
-12:41:09.750 [INFO ] [t22456] ShaderReload.cpp:217: ShaderReload: 70 shader sources
-  C:\Users\Vicen\source\repos\HotBiteEngine\Engine\Engine\Core\Shaders
-  C:\Users\Vicen\source\repos\HotBiteEngine\Tests
-12:41:10.115 [INFO ] [t22456] Material.cpp:326: Engine: sizeof(MaterialData)=928 alignof(MaterialData)=16 offsetof(props)=96
-12:41:10.194 [INFO ] [t22456] ShaderCompiler.cpp:214: ShaderCompiler: source folder C:\Users\Vicen\AppData\Local\Temp\HotBiteEditorTests\20260905-123433\24-createentity.tests\project (70 shader sources indexed)
