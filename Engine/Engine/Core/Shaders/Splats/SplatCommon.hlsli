@@ -64,7 +64,7 @@ struct SplatView
 // Depth buckets. A tile's slice is ordered front to back at bucket granularity, and
 // that ordering is a *side effect of the layout* rather than a sort - the histogram is
 // over (tile, bucket) instead of (tile), so the scatter drops each entry into its own
-// depth band for free.
+// depth bucket for free.
 //
 // WHICH IS TO SAY THE BINNING *IS* A PARALLEL COUNTING SORT BY DEPTH, and this constant
 // is its precision - the width of the single radix digit it sorts on. That is the whole
@@ -72,25 +72,39 @@ struct SplatView
 // sort already, and making the slice finer is a matter of widening the digit rather
 // than of bolting a comparison sort onto the end.
 //
-// The bands are measured from each tile's own nearest splat and span the cloud's WHOLE
-// quantized depth range, so nothing is ever clamped into the last one. Narrowing the
-// span to put finer bands where the surface lives was tried and reverted: everything
-// past a narrow span piles into the final band as an unordered mass, and the
-// rasterizer's walk is only sound where the ordering is real. RenderSystem.cpp carries
-// the measurement at the line that sets bucket_span_steps.
+// The bucket is the cloud's own quantized depth (QuantizeSplatDepth, over the near/far
+// window RenderSystem fits to the cloud's bounding sphere each frame) with no per-tile
+// window or step size on top: every tile's entries are sorted against the same global
+// near/far span, so nothing is ever clamped or piled into a bucket it does not belong
+// in. An earlier version anchored each tile's bands to its own nearest splat instead
+// (tile_depth, still kept for SplatCompactCS's occupancy test - see its header), which
+// needed a second constant, the number of quantization steps one band spans, to turn
+// the per-tile delta back into a bucket index. That bought nothing: the span was always
+// set to the cloud's whole range (the only value that does not clamp entries into the
+// last bucket - see the paragraph below on why a narrower one was reverted), so the
+// per-tile offset it computed was mathematically a shift of the same global bucket
+// index, never a finer one. Binning directly on the global quantized depth is the same
+// result with one fewer buffer read, one fewer cbuffer field, and no per-tile state to
+// keep in step with it.
 //
 // 1024 IS NOT AN ARBITRARY INCREASE - IT IS THE POINT WHERE THE SORT BECOMES EXACT.
-// The span is SPLAT_MAX_DEPTH_STEP (1023) and SplatDepthBucket divides
-// `delta * SPLAT_DEPTH_BUCKETS / span`, so at 1024 buckets over 1023 steps the bucket
-// index equals the quantized depth delta for every value it can take (delta 1023 is the
-// one that would land on 1024 and is clamped back). One bucket per quantization step:
-// two entries sharing a bucket have *identical* stored depth, so no ordering exists
-// between them to get wrong, and no comparison sort could separate them either.
+// SPLAT_DEPTH_BUCKETS is 1024 and QuantizeSplatDepth's output span is SPLAT_MAX_DEPTH_STEP
+// (1023), so the bucket index equals the quantized depth for every value it can take: one
+// bucket per quantization step, two entries sharing a bucket have *identical* stored
+// depth, so no ordering exists between them to get wrong, and no comparison sort could
+// separate them either.
+//
+// Narrowing that window to put finer buckets where a cloud's surface actually lives was
+// tried and reverted, for the same reason a per-tile window was: everything past a
+// narrow window piles into the final bucket as an unordered mass, and the rasterizer's
+// walk is only sound where the ordering is real. Measured at a 0.1x window it put the
+// tile-edge gradient ratio back to 1.68x and returned 0.17% flicker to a frame that was
+// otherwise bit-identical.
 //
 // It follows that going finer means more depth BITS, not more buckets - and that this
 // number and SPLAT_DEPTH_BITS have to move together or the 1:1 property quietly breaks
 // back into an approximation. It was 128 (a 7-bit digit) while the rasterizer's
-// accumulation was commutative and only needed bands for an early-out; transmittance
+// accumulation was commutative and only needed buckets for an early-out; transmittance
 // compositing is order-dependent, so the digit had to widen to the full 10.
 //
 // The cost is the histogram, which is tiles * this: 7.1 MB at 1080p and 57 MB at the
@@ -111,44 +125,28 @@ struct SplatView
 // the real float depth off the SplatView it loads anyway. The packed (depth, index)
 // key the sort-based predecessor needed is gone with the sort.
 //
-// The quantized depth still exists, but only as the currency the near-depth pass and
-// the binning passes compare in. It is a *priority*, never a value, so 10 bits is
+// The quantized depth still exists, but only as the currency the binning passes and the
+// rasterizer's co-location test share. It is a *priority*, never a value, so 10 bits is
 // ample. RenderSystem fits the range to the cloud's own bounding sphere each frame
 // rather than to the camera's clip planes, which at 0.01/1000 would put an entire
-// cloud inside one step.
+// cloud inside one step. It IS the bucket index directly - see the note on
+// SPLAT_DEPTH_BUCKETS above - so nothing derives a bucket from it beyond this function.
 #define SPLAT_DEPTH_BITS 10
 #define SPLAT_MAX_DEPTH_STEP ((1u << SPLAT_DEPTH_BITS) - 1u)
 // tile_depth is cleared to this, so the first splat to touch a tile wins the
-// InterlockedMin and a tile nothing touches keeps a depth no splat can be within.
+// InterlockedMin and a tile nothing touches keeps a depth no splat can be within. Used
+// only for SplatCompactCS's occupancy test now - see its header.
 #define SPLAT_NO_DEPTH 0xFFFFFFFFu
 
-// Three passes quantize the same depth and they must agree exactly - the near-depth
-// pass writes one of these into tile_depth, and the counting and scattering passes
-// both compare against it - so the arithmetic lives here rather than three times.
+// Every pass that needs a splat's priority - SplatPreprocessCS's per-tile minimum,
+// SplatBinCS's bucket index, SplatRasterCS's co-location test - quantizes the same
+// view_depth over the same near/far window and must agree exactly, so the arithmetic
+// lives here rather than three times.
 uint QuantizeSplatDepth(float view_depth, float quant_min, float quant_range)
 {
 	float d01 = (view_depth - quant_min) / max(1e-6f, quant_range);
 	return (uint)(saturate(d01) * (float)SPLAT_MAX_DEPTH_STEP + 0.5f);
 }
-
-// Which depth band of a tile an entry belongs in: where it sits inside the span
-// measured from that tile's nearest splat. Nothing is ever rejected by this - entries
-// past the last band clamp into it - because the span is anchored to a per-tile
-// minimum, and anything that *discards* against a per-tile threshold steps at every
-// tile boundary and draws the 16x16 grid this design exists to avoid.
-//
-// This MUST return the same answer in the counting pass and the scattering pass. They
-// run over the same splats with the same inputs, and the histogram the first builds is
-// the exact allocation the second writes into - a single entry disagreeing would write
-// past a bucket's slice and into the next one's. That is why both passes are the same
-// shader with a flag rather than two shaders that look alike.
-uint SplatDepthBucket(uint q, uint near_q, uint bucket_span_steps)
-{
-	uint delta = (q > near_q) ? (q - near_q) : 0u;
-	uint bucket = (delta * SPLAT_DEPTH_BUCKETS) / max(1u, bucket_span_steps);
-	return min(bucket, (uint)(SPLAT_DEPTH_BUCKETS - 1));
-}
-
 
 // A splat's keep/drop draw for the screen-coverage LOD. PCG-style integer hash, and it
 // takes the splat index and NOTHING ELSE - no frame counter, no camera. The decision has

@@ -163,10 +163,10 @@ Buffer<uint> splat_entries : register(t23);
 // is something to rasterize - see the note on the pixel coordinates in main().
 Buffer<uint> tile_list : register(t25);
 
-// The same seven targets MainRenderPS writes, minus bloom (a splat has no emission).
-// A cloud that filled only scene/light/depth was invisible to everything downstream
-// that works off the G-buffer: no motion vector however fast it moved, no ray-traced
-// reflection of it, and nothing for ReSTIR to gather indirect light from.
+// The same targets MainRenderPS writes, bloom included. A cloud that filled only
+// scene/light/depth was invisible to everything downstream that works off the G-buffer:
+// no motion vector however fast it moved, no ray-traced reflection of it, and nothing
+// for ReSTIR to gather indirect light from.
 RWTexture2D<float4> scene_out : register(u0);
 RWTexture2D<float4> light_out : register(u1);
 RWTexture2D<float>  depth_out : register(u2);
@@ -182,6 +182,16 @@ RWTexture2D<float4> prev_position_out : register(u7);
 // pixels it wrote. Without them "the cloud is not on screen" and "the cloud is not
 // being rasterized" look identical from outside, which cost a debugging round.
 RWByteAddressBuffer splat_stats : register(u3);
+// Emission behind the cloud. This is the ninth UAV and the reason the device asks for
+// feature level 11_1 (11_0 caps a compute shader at eight) - see
+// DXCore::SupportsExtendedUAVSlots. On an 11_0 device DrawSplats leaves it unbound,
+// which is legal: the writes below are discarded and the bloom simply is not occluded,
+// exactly as it was before this existed.
+//
+// A splat emits nothing of its own, so unlike scene_out and light_out there is nothing
+// to lerp *towards* - the cloud can only take emission away, in the proportion it hides
+// whatever is behind it.
+RWTexture2D<float4> bloom_out : register(u8);
 
 // Cooperative batch. Each thread fetches one splat of the batch and every thread
 // then reads all 256 out of groupshared, which turns 256 scattered loads per splat
@@ -501,6 +511,20 @@ void main(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID, uint gi : SV_Gr
 	// pre-multiplied colour into scene would have it lit a second time.
 	scene_out[px] = float4(lerp(scene_out[px].rgb, albedo, alpha), 1.0f);
 	light_out[px] = float4(lerp(light_out[px].rgb, lum, alpha), 1.0f);
+
+	// Emission is the one channel a splat only ever subtracts from. bloom_map holds what
+	// the geometry passes emitted at this pixel, and the mixer adds it back after a blur
+	// (TextureMixerCS: ... + b + ...); with the cloud composited into scene but not into
+	// bloom, a fire behind the cloud had its colour correctly hidden and its *glow* added
+	// on top regardless - so it read as shining through the model.
+	//
+	// alpha is 1 - T, the share of the pixel the cloud won, so 1 - alpha is exactly the
+	// transmittance still reaching the camera from behind it. Scaling by that is the same
+	// compositing the two lerps above do, against an emission of zero. Unconditional
+	// rather than gated on surface_alpha, because this is a blend and not a claim on the
+	// pixel: a cloud edge covering a third of a pixel should dim the glow behind it by a
+	// third, exactly as it dims the colour.
+	bloom_out[px] = float4(bloom_out[px].rgb * (1.0f - alpha), 1.0f);
 
 	// --- the G-buffer ------------------------------------------------------------
 	// One surface per pixel, so unlike scene and light there is nothing to blend into:

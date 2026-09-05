@@ -489,6 +489,17 @@ namespace HotBite {
 				//recovered.
 				float spec_intensity = 0.1f;
 
+				//Scales every splat's size (its covariance, so quadratically). A trained
+				//3DGS .ply has no use for this - scale is per-splat data the reference
+				//trainer fit - but a plain coloured point cloud (no Gaussian parameters at
+				//all: see SplatCloudData::Load) has none of its own, so the loader gives
+				//every point the same guessed radius from the cloud's extent and point
+				//count. That guess is baked into the loaded data at import time and cannot
+				//itself be undone without reimporting; this is the live knob on top of it,
+				//for the case the guess reads too sparse (gaps between points) or too dense
+				//(a blurred, over-thick surface).
+				float point_size_scale = 1.0f;
+
 				//Flips every normal. The import points normals away from the cloud centroid,
 				//which is right for an object scanned from the outside and exactly backwards
 				//for a room scanned from within; nothing in the point set distinguishes the

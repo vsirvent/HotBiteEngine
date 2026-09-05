@@ -42,7 +42,11 @@ cbuffer externalData : register(b0)
 	float  splat_alpha_comp;
 	// Same slab the rasterizer uses, for the coarse reject against opaque geometry.
 	float  splat_depth_slab;
-	float  preprocess_pad0;
+	// Scales every splat's size (its covariance, so applied squared below). 1 for a
+	// trained 3DGS cloud, where scale is per-splat data; the live knob on a plain
+	// coloured point cloud, where SplatCloudData::Load has no real footprint to draw
+	// from and baked in a guessed radius at import time - see Components::SplatCloud.
+	float  point_size_scale;
 }
 
 StructuredBuffer<SplatVertex> splats : register(t0);
@@ -139,11 +143,17 @@ void main(uint3 tid : SV_DispatchThreadID)
 	// out because the covariance is stored as its upper triangle rather than as a
 	// matrix: rebuilding a full float3x3 to multiply it and then discarding the
 	// symmetric half costs more than this does.
+	//
+	// point_size_scale is a linear size multiplier and covariance is variance, so it
+	// enters squared - applied here rather than to M so it scales the splat about its
+	// own centre instead of also dragging every splat's position toward or away from
+	// the object's origin the way growing the world matrix would.
 	float3x3 M = (float3x3)world;
+	float size2 = point_size_scale * point_size_scale;
 	float3x3 sigma = float3x3(
 		s.cov_diag.x,    s.cov_offdiag.x, s.cov_offdiag.y,
 		s.cov_offdiag.x, s.cov_diag.y,    s.cov_offdiag.z,
-		s.cov_offdiag.y, s.cov_offdiag.z, s.cov_diag.z);
+		s.cov_offdiag.y, s.cov_offdiag.z, s.cov_diag.z) * size2;
 	float3x3 sigma_w = mul(mul(M, sigma), transpose(M));
 
 	// The EWA projection: the 2D screen covariance is J W Sigma W^T J^T, with W the

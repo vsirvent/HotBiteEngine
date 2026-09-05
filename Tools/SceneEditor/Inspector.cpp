@@ -1402,6 +1402,14 @@ namespace HotBiteEditor {
 					"bright or too dark next to authored materials.");
 			}
 			edit.Track(ImGui::DragFloat("Specular", &cloud.spec_intensity, 0.01f, 0.0f, 16.0f));
+			edit.Track(ImGui::DragFloat("Point size", &cloud.point_size_scale, 0.01f, 0.01f, 8.0f));
+			if (ImGui::IsItemHovered()) {
+				ImGui::SetTooltip("Scales every splat's size. Only a trained 3DGS .ply carries a\n"
+					"real size per splat; a plain coloured point cloud (no Gaussian\n"
+					"parameters at all) has none of its own, so the import guessed one\n"
+					"from the cloud's extent and point count. Raise if points show gaps,\n"
+					"lower if the surface looks blurred or over-thick.");
+			}
 			edit.Track(ImGui::Checkbox("Invert normals", &cloud.invert_normals));
 			if (ImGui::IsItemHovered()) {
 				ImGui::SetTooltip("The import points normals away from the cloud's centroid:\n"

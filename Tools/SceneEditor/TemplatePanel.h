@@ -61,9 +61,10 @@ namespace HotBiteEditor {
 			nlohmann::json parts = nlohmann::json::array();
 		};
 
-		// Components an authored template always carries, because they are exactly
-		// what World::SpawnInstance reads off it when cloning. They are editable but
-		// never removable: a template that cannot be spawned is not a template.
+		// Base and Transform: the two components a template can never be without,
+		// exactly ComponentPolicy::Mandatory and exactly what a bare Add/Entity gets.
+		// Everything else (Mesh, Material, Bounds, anything a game registers) is an
+		// ordinary addable/removable component on a template, same as on any entity.
 		bool IsMandatory(const std::string& component);
 
 		// The project's template names, sorted - what this panel offers for editing.

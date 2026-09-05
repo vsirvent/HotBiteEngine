@@ -23,6 +23,7 @@ SOFTWARE.
 */
 
 #include "DXCore.h"
+#include "Log.h"
 #include "Scheduler.h"
 #include "Texture.h"
 #include "PostProcess.h"
@@ -330,20 +331,63 @@ HRESULT DXCore::InitDirectX()
 		}
 	}
 
+	//Asked for explicitly, 11.1 first, rather than left as the null array this used to
+	//pass. The null array is documented to try 11_1 too, but only when the D3D11.1
+	//runtime is present, and what it actually produced here was a **11_0** device on
+	//hardware that supports 11_1 - which is not a cosmetic difference:
+	//
+	//  D3D11_PS_CS_UAV_REGISTER_COUNT (feature level 11_0) = 8 UAVs
+	//  D3D11_1_UAV_SLOT_COUNT         (feature level 11_1) = 64
+	//
+	//and SplatRasterCS needs nine. It fills the whole G-buffer - scene, light, depth,
+	//the two ray sources, position and previous position - plus its own stat counters,
+	//which is exactly eight, so bloom (the one target it skipped, leaving emission
+	//behind a cloud glowing through it) had nowhere to bind.
+	//
+	//11_1 is not required. A device that comes back 11_0 keeps working, and RenderSystem
+	//checks the level before binding that ninth UAV; see SupportsExtendedUAVSlots.
+	const D3D_FEATURE_LEVEL wanted[] = {
+		D3D_FEATURE_LEVEL_11_1,
+		D3D_FEATURE_LEVEL_11_0,
+		D3D_FEATURE_LEVEL_10_1,
+		D3D_FEATURE_LEVEL_10_0,
+	};
+
 	hr = D3D11CreateDeviceAndSwapChain(
 		adapter,					// Video adapter (physical GPU) to use, or null for default
 		D3D_DRIVER_TYPE_UNKNOWN,	// We want to use the hardware (GPU)
 		0,							// Used when doing software rendering
 		deviceFlags,				// Any special options
-		0,							// Optional array of possible verisons we want as fallbacks
-		0,							// The number of fallbacks in the above param
+		wanted,						// Versions we accept, best first
+		ARRAYSIZE(wanted),			// The number of entries in the above param
 		D3D11_SDK_VERSION,			// Current version of the SDK
 		&swapDesc,					// Address of swap chain options
 		&swapChain,					// Pointer to our Swap Chain pointer
 		&device,					// Pointer to our Device pointer
 		&dxFeatureLevel,			// This will hold the actual feature level the app will use
 		&context);					// Pointer to our Device Context pointer
+
+	//A machine without the D3D11.1 runtime rejects the whole call for naming 11_1 at
+	//all - E_INVALIDARG, rather than quietly falling through to the next entry - so the
+	//retry drops it and asks for the rest.
+	if (hr == E_INVALIDARG) {
+		hr = D3D11CreateDeviceAndSwapChain(
+			adapter, D3D_DRIVER_TYPE_UNKNOWN, 0, deviceFlags,
+			&wanted[1], ARRAYSIZE(wanted) - 1, D3D11_SDK_VERSION,
+			&swapDesc, &swapChain, &device, &dxFeatureLevel, &context);
+	}
 	if (FAILED(hr)) return hr;
+
+	//Worth a line of its own: a device that lands on 11_0 is not broken, but it silently
+	//loses the ninth UAV slot, and the only symptom is emission glowing through a splat
+	//cloud - which looks like a bloom bug rather than like a device capability.
+	//The enum packs the version as nibbles - D3D_FEATURE_LEVEL_11_1 is 0xb100 - so these
+	//are shifted out and printed as decimal rather than letting %x render 11 as 'b'.
+	LOG_INFO("DXCore: D3D feature level %u.%u, %s (%u compute UAV slots)",
+		(unsigned)(dxFeatureLevel >> 12), (unsigned)((dxFeatureLevel >> 8) & 0xF),
+		SupportsExtendedUAVSlots() ? "extended UAV slots" : "8-UAV limit",
+		SupportsExtendedUAVSlots() ? (unsigned)D3D11_1_UAV_SLOT_COUNT
+								   : (unsigned)D3D11_PS_CS_UAV_REGISTER_COUNT);
 
 	context->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 	ScreenDraw::Init(context);

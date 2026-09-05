@@ -85,10 +85,11 @@ namespace HotBite {
 				float3 albedo = {};
 				float pad1 = 0.0f;
 
-				//Model-space surface normal, derived at import as the minor axis of the
-				//covariance ellipsoid - see SplatCloudData::Load. A .ply's own nx/ny/nz are
-				//present in the format and are almost always zero or noise, so they are not
-				//trusted.
+				//Model-space surface normal, derived at import - as the minor axis of the
+				//covariance ellipsoid for a trained Gaussian, or by fitting a plane to the
+				//neighbouring points for a plain point cloud, which has no ellipsoid to read
+				//one off. See SplatCloudData::Load. A .ply's own nx/ny/nz are present in the
+				//format and are almost always zero or noise, so they are not trusted.
 				float3 normal = { 0.0f, 1.0f, 0.0f };
 				float pad2 = 0.0f;
 			};
@@ -186,6 +187,25 @@ namespace HotBite {
 				 *    the surface normal. Sign is genuinely ambiguous (an ellipsoid has no
 				 *    facing) and is resolved toward the cloud centroid, which is right for a
 				 *    scan of an object seen from outside and wrong for one seen from inside.
+				 *
+				 * A .ply that is NOT a trained 3DGS capture also loads, as long as it carries
+				 * a vertex colour: a plain x/y/z/red/green/blue point cloud, which is what a
+				 * scanner or a photogrammetry tool exports. Three of the decodes above have
+				 * nothing to read, and the substitutes are not defaults so much as the only
+				 * meaningful answers - full opacity (a point is not a soft Gaussian), a fixed
+				 * unit scale for point_size_scale to be dialled against, and the file's own
+				 * colour as albedo with no SH to invert.
+				 *
+				 * The normal is the one that cannot be substituted, and is why this is more
+				 * than a parsing branch. With no scale and no rotation every splat is a
+				 * *sphere*, and a sphere has no minor axis to be the normal - the derivation
+				 * above degenerates to handing the entire file one direction. So a point
+				 * cloud's normals are fitted from the neighbourhood instead: the k nearest
+				 * points, and the normal of the plane through them (the eigenvector of the
+				 * smallest eigenvalue of their covariance). It is the standard point-cloud
+				 * estimator, it costs a spatial index and a small eigensolve per point at
+				 * load time, and it is the only place the information exists - a single
+				 * coloured point does not know which way its surface faces.
 				 */
 				bool Load(const std::string& file, const std::string& asset_name);
 

@@ -1920,6 +1920,7 @@ void RenderSystem::DrawSplats(int w, int h, const float3& camera_position, const
 		//LOD from changing how much of a pixel the cloud covers.
 		splat_preprocess->SetFloat("splat_alpha_comp", 1.0f / max(1e-6f, keep_prob));
 		splat_preprocess->SetFloat("splat_depth_slab", depth_slab);
+		splat_preprocess->SetFloat("point_size_scale", e.cloud->point_size_scale);
 		splat_preprocess->SetShaderResourceView("splats", *(e.cloud->data->SRV()));
 		//The depth pre-pass result, for the coarse reject. Read here and *written* by
 		//the rasterizer below, which is why it is unbound before that dispatch rather
@@ -1955,40 +1956,20 @@ void RenderSystem::DrawSplats(int w, int h, const float3& camera_position, const
 		//arguments may not be bound as a UAV at the time it is read as arguments.
 		splat_compact->SetUnorderedAccessView("dispatch_args", nullptr);
 
-		// --- bin what is near enough to each tile's own nearest splat -----------------
-		//The cull window, in quantization steps rather than world units so the shader
-		//compares two integers against exactly what the pass above wrote. Rounded up and
-		//floored at one step: a window of zero steps would keep only splats that quantize
-		//identically to the tile minimum, which is a far tighter test than intended.
-		//The depth bands span the cloud's WHOLE quantized range, so no entry is ever
-		//clamped into the last one. That is a correctness requirement, not a tuning
-		//choice. A narrower span looks better on paper - finer bands exactly where the
-		//rasterizer's slab lives - but everything past it piles into the final band as an
-		//unordered mass, and the rasterizer's early-out is only sound where the ordering
-		//is real. A pixel whose surface fell inside that mass had its accumulation cut
-		//short at whatever entry the atomics happened to put first: tile-shaped, because
-		//the bands are measured from a per-tile minimum, and flickering, because atomic
-		//order changes every frame. Measured at a 0.1 span it put the tile-edge ratio
-		//back to 1.68x and returned 0.17% flicker to a frame that was otherwise
-		//bit-identical.
-		//
-		//Spanning the range costs no resolution at all now, which is the point of the
-		//pairing: SPLAT_DEPTH_BUCKETS is 1024 and the span is SPLAT_MAX_DEPTH_STEP
-		//(1023), so SplatDepthBucket's `delta * buckets / span` returns the quantized
-		//delta itself. One bucket per quantization step, i.e. the counting sort is exact
-		//and two entries sharing a bucket share a depth - which is what SplatRasterCS's
-		//front-to-back compositing needs, order-dependent as it is. These two constants
-		//have to move together; see the note on SPLAT_DEPTH_BUCKETS.
-		const uint32_t bucket_span_steps = SPLAT_MAX_DEPTH_STEP;
+		// --- bin every splat by its own quantized depth --------------------------------
+		//Bucket index IS the quantized depth: SPLAT_DEPTH_BUCKETS is 1024 over a
+		//SPLAT_MAX_DEPTH_STEP (1023) quantization, one bucket per step, so binning needs
+		//nothing beyond the near/far window every splat's depth is already quantized
+		//against - no per-tile window, no separate step-size constant. See the note on
+		//SPLAT_DEPTH_BUCKETS in SplatCommon.hlsli for why an earlier, per-tile-relative
+		//version of this bought no precision and was removed.
 		splat_bin->SetInt("splat_count", (int)count);
 		splat_bin->SetInt("tiles_x", (int)tiles_x);
 		splat_bin->SetInt("tiles_y", (int)tiles_y);
 		splat_bin->SetFloat("depth_quant_min", depth_min);
 		splat_bin->SetFloat("depth_quant_range", depth_range);
-		splat_bin->SetInt("bucket_span_steps", (int)bucket_span_steps);
 		splat_bin->SetInt("entry_capacity", (int)splat_entries_capacity);
 		splat_bin->SetShaderResourceView("splat_views", splat_views.SRV());
-		splat_bin->SetShaderResourceView("tile_depth", splat_tile_depth.SRV());
 		splat_bin->SetUnorderedAccessView("bucket_offsets", splat_bucket_offsets.UAV());
 		splat_bin->SetUnorderedAccessView("splat_stats", splat_stats.UAV());
 
@@ -2047,7 +2028,6 @@ void RenderSystem::DrawSplats(int w, int h, const float3& camera_position, const
 		//frame, since the counting pass had already produced correct-looking totals.
 		splat_bin->SetInt("bin_pass", 1);
 		splat_bin->SetShaderResourceView("splat_views", splat_views.SRV());
-		splat_bin->SetShaderResourceView("tile_depth", splat_tile_depth.SRV());
 		splat_bin->SetShaderResourceView("tile_base", splat_tile_base.SRV());
 		splat_bin->SetUnorderedAccessView("bucket_offsets", splat_bucket_offsets.UAV());
 		splat_bin->SetUnorderedAccessView("splat_entries", splat_entries.UAV());
@@ -2056,7 +2036,6 @@ void RenderSystem::DrawSplats(int w, int h, const float3& camera_position, const
 		splat_bin->SetShader();
 		context->Dispatch(splat_groups, 1, 1);
 		splat_bin->SetShaderResourceView("splat_views", nullptr);
-		splat_bin->SetShaderResourceView("tile_depth", nullptr);
 		splat_bin->SetShaderResourceView("tile_base", nullptr);
 		splat_bin->SetUnorderedAccessView("bucket_offsets", nullptr);
 		splat_bin->SetUnorderedAccessView("splat_entries", nullptr);
@@ -2122,6 +2101,13 @@ void RenderSystem::DrawSplats(int w, int h, const float3& camera_position, const
 		splat_raster->SetUnorderedAccessView("position_out", position_map.UAV());
 		splat_raster->SetUnorderedAccessView("prev_position_out", prev_position_map.UAV());
 		splat_raster->SetUnorderedAccessView("splat_stats", splat_stats.UAV());
+		//The ninth UAV, and the only one that needs asking permission for: a compute
+		//shader may bind more than eight only at feature level 11_1. Left unbound on an
+		//11_0 device the shader's writes to it are discarded, so the cloud renders exactly
+		//as it did before and the bloom behind it is simply not occluded.
+		if (dxcore->SupportsExtendedUAVSlots()) {
+			splat_raster->SetUnorderedAccessView("bloom_out", bloom_map.UAV());
+		}
 		splat_raster->CopyAllBufferData();
 		splat_raster->SetShader();
 		//One group per *covered* tile, and the group is the tile: SPLAT_TILE_SIZE^2
@@ -2147,6 +2133,9 @@ void RenderSystem::DrawSplats(int w, int h, const float3& camera_position, const
 		splat_raster->SetUnorderedAccessView("position_out", nullptr);
 		splat_raster->SetUnorderedAccessView("prev_position_out", nullptr);
 		splat_raster->SetUnorderedAccessView("splat_stats", nullptr);
+		if (dxcore->SupportsExtendedUAVSlots()) {
+			splat_raster->SetUnorderedAccessView("bloom_out", nullptr);
+		}
 		UnprepareLights(splat_raster);
 
 		//Never blocks: the copy taken this frame is read several frames from now, and a

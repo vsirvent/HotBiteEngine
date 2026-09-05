@@ -1,0 +1,3 @@
+- Allow grid placement in the editor, so we can align correctly objects in the scene
+- We need to be able to set materials that do not stretch with the model dimensions, for example for a wall I want to keep the bricks size and just have more bricks when I scale the wall. 
+- We also need to be able to draw the masks with brushes directly in the object, the idea is that I can have a complex material that can blend different textures in a terrain for example with parts with snow, grass and terrain blended. 

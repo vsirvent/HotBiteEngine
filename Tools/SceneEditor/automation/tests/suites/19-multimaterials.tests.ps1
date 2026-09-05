@@ -278,12 +278,14 @@ Test 'a slope rule confines a layer to the faces it names - the "snow on flat gr
     $shot = Shot 'blend-slope'
     # Both rectangles sit *inside* one face of the slab as Set-SlabView frames it
     # (camera at -4,6,-9 looking at the origin): the top sample is well within the
-    # +Y face, the side sample within the red band the near face makes under it,
-    # left of the Materials panel a prior select_multi_material left open over the
-    # bottom-right. Measured, not guessed - each reads ~140 in its own channel and
-    # under 10 in the other.
+    # +Y face, the side sample within the red triangle the near face makes below
+    # it - centred on that triangle's widest row so a few pixels of drift in the
+    # camera settle or the Materials panel's width (which starts around x=0.546,
+    # clipping the triangle's right side) cannot walk the rectangle off the face
+    # and onto either. Measured, not guessed - each reads ~140 in its own channel
+    # and under 10 in the other.
     $top = Get-ImageStats -Path $shot -Left 0.40 -Top 0.42 -Right 0.62 -Bottom 0.55
-    $side = Get-ImageStats -Path $shot -Left 0.55 -Top 0.64 -Right 0.65 -Bottom 0.69
+    $side = Get-ImageStats -Path $shot -Left 0.42 -Top 0.72 -Right 0.48 -Bottom 0.76
     # A sample that has slid off the slab reads near-black, and two near-zero means
     # then decide the assertion by noise - which is exactly how this test used to
     # fail (and, half the time, pass) while the render underneath was perfect. Say

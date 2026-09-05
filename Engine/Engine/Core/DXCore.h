@@ -158,6 +158,18 @@ namespace HotBite {
 
 			public:
 
+				//Whether a compute shader may bind more than 8 UAVs at once.
+				//
+				//Feature level 11_0 caps a CS at D3D11_PS_CS_UAV_REGISTER_COUNT = 8;
+				//11_1 raises it to D3D11_1_UAV_SLOT_COUNT = 64. SplatRasterCS wants nine -
+				//the whole G-buffer, bloom included, plus its stat counters - so this is
+				//what decides whether the bloom of something behind a splat cloud is
+				//occluded by it or glows through it. Everything else in the engine fits
+				//inside eight and never consults this.
+				bool SupportsExtendedUAVSlots() const {
+					return dxFeatureLevel >= D3D_FEATURE_LEVEL_11_1;
+				}
+
 				ID3D11Device* device = nullptr;
 				ID3D11DeviceContext* context = nullptr;
 				ID3D11SamplerState* basic_sampler = nullptr;

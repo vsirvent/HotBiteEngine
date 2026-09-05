@@ -27,12 +27,22 @@ SOFTWARE.
 
 #include <algorithm>
 #include <cfloat>
+#include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <cstring>
 #include <fstream>
+#include <functional>
+#include <queue>
 #include <sstream>
+#include <thread>
 #include <unordered_map>
+#include <utility>
 
+//float3 is a HotBite::Engine typedef, not a ::Core one. Load's own body reaches it
+//through the enclosing namespace of SplatCloudData, but the file-scope helpers below
+//are in an anonymous namespace and need it brought in explicitly.
+using namespace HotBite::Engine;
 using namespace HotBite::Engine::Core;
 
 namespace {
@@ -46,6 +56,14 @@ namespace {
 	//sigma a Gaussian contributes under 1% and the rasterizer's own alpha cutoff
 	//removes it, so this is where the cloud visually ends.
 	constexpr float BOUNDS_SIGMA = 3.0f;
+
+	//How much of the outward direction a normal must carry before "point it away from
+	//the cloud centroid" is taken as evidence of anything. Below this the two are near
+	//enough to perpendicular that the sign is being read off the fit's error rather
+	//than off the geometry. 0.1 is about 6 degrees off perpendicular - well under the
+	//error of a plane fitted to a noisy scan, and far enough from the ~1.0 a closed
+	//object's surface gives that it never fires on one.
+	constexpr float NORMAL_CENTROID_MIN_COS = 0.1f;
 
 	struct PlyProperty {
 		std::string name;
@@ -70,6 +88,485 @@ namespace {
 
 	float Sigmoid(float x) {
 		return 1.0f / (1.0f + expf(-x));
+	}
+
+	//--- Normal estimation for a plain point cloud --------------------------------
+	//
+	// A trained Gaussian carries its own normal: it is flat against the surface it
+	// fits, so the minor axis of its ellipsoid points across that surface. A plain
+	// coloured point cloud carries no shape per point at all - no scale_*, no rot_* -
+	// so every splat falls back to an identity rotation and an isotropic scale, which
+	// is a *sphere*, and a sphere has no minor axis. The tie-break in the derivation
+	// then picks the same basis column for every point in the file, so the whole cloud
+	// comes out with one normal, split into two halves by the sign resolution. That is
+	// what "the normals are broken" looks like, and no amount of fixing the derivation
+	// helps: the information is not in the point.
+	//
+	// It is in the *neighbouring* points. This fits a plane to each point's k nearest
+	// neighbours and takes its normal - the standard estimator (PCL, Open3D and
+	// MeshLab all do this), and the eigenvector of the smallest eigenvalue of the
+	// neighbourhood's covariance is exactly that plane's normal: the direction the
+	// neighbourhood is thinnest in, which for points sampled off a surface is across
+	// it.
+	//
+	// Note this is the covariance of *where the neighbours are*, and has nothing to do
+	// with SplatVertex::cov_diag/cov_offdiag, which is the shape of one Gaussian. The
+	// two are unrelated quantities that happen to share a name.
+
+	//Neighbours per fit. Enough that the plane is fitted to the surface rather than to
+	//the scanner's noise, few enough that it stays local - a larger neighbourhood
+	//starts rounding off real creases, which is the one error that cannot be filtered
+	//out afterwards.
+	constexpr uint32_t PCA_NEIGHBOURS = 24;
+
+	//Neighbours per point kept for the sign-propagation graph (see
+	//OrientNormalsConsistently). Fewer than the fit uses, and for a different reason:
+	//the fit wants enough samples to average the noise out, the graph wants edges short
+	//enough that the two normals really are describing the same piece of surface. It is
+	//also what that pass costs in memory, at 4 bytes each per point.
+	constexpr uint32_t PCA_ORIENT_NEIGHBOURS = 8;
+
+	//Ceiling on the acceleration grid. The cell size below is derived from the point
+	//spacing, which is cubic in the extent and overshoots badly on a real capture (a
+	//million points across a room asks for tens of millions of cells, almost all of
+	//them empty air). Past this the cell grows instead; the only cost is more
+	//candidates to sift per query.
+	constexpr size_t PCA_MAX_CELLS = 2u * 1024u * 1024u;
+
+	//How far the cell block around a point may be widened looking for neighbours. Only
+	//reached where the cloud is far sparser than average - an outlier off on its own.
+	constexpr int32_t PCA_MAX_RINGS = 8;
+
+	//Below this the threads cost more to start than the fit costs to run.
+	constexpr size_t PCA_MIN_THREADED = 8192;
+
+	//A uniform grid over the point set, in CSR form: the points of cell c are
+	//point_index[cell_start[c] .. cell_start[c+1]). Chosen over a k-d tree because a
+	//scan is near-uniformly dense, which is the case a grid is built for, and because
+	//the build is two counting passes rather than a recursive partition.
+	struct PointGrid {
+		float3 origin = {};
+		float cell = 1.0f;
+		int32_t dim[3] = { 1, 1, 1 };
+		std::vector<uint32_t> cell_start;
+		std::vector<uint32_t> point_index;
+
+		int32_t Axis(float v, float o, int32_t n) const {
+			const int32_t c = (int32_t)floorf((v - o) / cell);
+			return (c < 0) ? 0 : ((c >= n) ? n - 1 : c);
+		}
+		void CellOf(const float3& p, int32_t out[3]) const {
+			out[0] = Axis(p.x, origin.x, dim[0]);
+			out[1] = Axis(p.y, origin.y, dim[1]);
+			out[2] = Axis(p.z, origin.z, dim[2]);
+		}
+		size_t Linear(int32_t x, int32_t y, int32_t z) const {
+			return ((size_t)z * (size_t)dim[1] + (size_t)y) * (size_t)dim[0] + (size_t)x;
+		}
+	};
+
+	void BuildPointGrid(const std::vector<SplatVertex>& pts, PointGrid& g) {
+		float3 bmin = { FLT_MAX, FLT_MAX, FLT_MAX };
+		float3 bmax = { -FLT_MAX, -FLT_MAX, -FLT_MAX };
+		for (const SplatVertex& s : pts) {
+			bmin.x = fminf(bmin.x, s.position.x); bmax.x = fmaxf(bmax.x, s.position.x);
+			bmin.y = fminf(bmin.y, s.position.y); bmax.y = fmaxf(bmax.y, s.position.y);
+			bmin.z = fminf(bmin.z, s.position.z); bmax.z = fmaxf(bmax.z, s.position.z);
+		}
+		g.origin = bmin;
+
+		const float ex = fmaxf(0.0f, bmax.x - bmin.x);
+		const float ey = fmaxf(0.0f, bmax.y - bmin.y);
+		const float ez = fmaxf(0.0f, bmax.z - bmin.z);
+		const float longest = fmaxf(ex, fmaxf(ey, ez));
+
+		//Scanned points lie on a *surface*, not through a volume, so the spacing between
+		//neighbours goes as extent/sqrt(N) rather than the extent/cbrt(N) a volume fill
+		//would give. Three spacings to a cell puts a handful of points in each, so the
+		//3x3x3 block searched below holds several times PCA_NEIGHBOURS.
+		g.cell = (longest > 0.0f) ? (float)(3.0 * (double)longest / sqrt((double)pts.size())) : 1.0f;
+		//Degenerate input - every point coincident, or a NaN in the file. Any positive
+		//cell works: the grid collapses to one cell and every query sees every point.
+		if (!(g.cell > 0.0f)) { g.cell = 1.0f; }
+
+		auto dims_for = [&](float c, int32_t d[3]) {
+			d[0] = (int32_t)floorf(ex / c) + 1;
+			d[1] = (int32_t)floorf(ey / c) + 1;
+			d[2] = (int32_t)floorf(ez / c) + 1;
+		};
+		dims_for(g.cell, g.dim);
+		for (int guard = 0; guard < 64; ++guard) {
+			const double cells = (double)g.dim[0] * (double)g.dim[1] * (double)g.dim[2];
+			if (cells <= (double)PCA_MAX_CELLS) { break; }
+			g.cell *= 1.5f;
+			dims_for(g.cell, g.dim);
+		}
+
+		//Counting sort into the CSR layout: count into the slot one past the cell, prefix
+		//sum in place so cell_start is its own offset table, then scatter through a
+		//cursor copy.
+		const size_t cells = (size_t)g.dim[0] * (size_t)g.dim[1] * (size_t)g.dim[2];
+		g.cell_start.assign(cells + 1, 0);
+		int32_t c[3];
+		for (const SplatVertex& s : pts) {
+			g.CellOf(s.position, c);
+			++g.cell_start[g.Linear(c[0], c[1], c[2]) + 1];
+		}
+		for (size_t i = 1; i <= cells; ++i) {
+			g.cell_start[i] += g.cell_start[i - 1];
+		}
+		std::vector<uint32_t> cursor(g.cell_start.begin(), g.cell_start.end() - 1);
+		g.point_index.resize(pts.size());
+		for (uint32_t i = 0; i < (uint32_t)pts.size(); ++i) {
+			g.CellOf(pts[i].position, c);
+			g.point_index[cursor[g.Linear(c[0], c[1], c[2])]++] = i;
+		}
+	}
+
+	//Eigenvector of the smallest eigenvalue of a symmetric 3x3, by cyclic Jacobi. The
+	//matrix is destroyed.
+	//
+	//Closed-form eigenvalues plus a cross product is faster and is what a lot of normal
+	//estimators reach for, but it loses the eigenvector in exactly the case this needs
+	//it most: a neighbourhood flat enough that its two in-plane eigenvalues are nearly
+	//equal, which is every well-sampled planar patch. Jacobi has no such case.
+	float3 SmallestEigenvector(float a[3][3]) {
+		float v[3][3] = { { 1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f, 1.0f } };
+		for (int sweep = 0; sweep < 16; ++sweep) {
+			if (fabsf(a[0][1]) + fabsf(a[0][2]) + fabsf(a[1][2]) < 1e-20f) { break; }
+			for (int p = 0; p < 2; ++p) {
+				for (int q = p + 1; q < 3; ++q) {
+					const float apq = a[p][q];
+					if (fabsf(apq) < 1e-20f) { continue; }
+					const float theta = (a[q][q] - a[p][p]) / (2.0f * apq);
+					const float t = ((theta >= 0.0f) ? 1.0f : -1.0f) /
+						(fabsf(theta) + sqrtf(theta * theta + 1.0f));
+					const float cs = 1.0f / sqrtf(t * t + 1.0f);
+					const float sn = t * cs;
+					const int r = 3 - p - q;
+					const float arp = a[r][p];
+					const float arq = a[r][q];
+					a[p][p] -= t * apq;
+					a[q][q] += t * apq;
+					a[p][q] = a[q][p] = 0.0f;
+					a[r][p] = a[p][r] = cs * arp - sn * arq;
+					a[r][q] = a[q][r] = sn * arp + cs * arq;
+					for (int k = 0; k < 3; ++k) {
+						const float vkp = v[k][p];
+						const float vkq = v[k][q];
+						v[k][p] = cs * vkp - sn * vkq;
+						v[k][q] = sn * vkp + cs * vkq;
+					}
+				}
+			}
+		}
+		int m = 0;
+		if (a[1][1] < a[m][m]) { m = 1; }
+		if (a[2][2] < a[m][m]) { m = 2; }
+		return float3{ v[0][m], v[1][m], v[2][m] };
+	}
+
+	//Fills out_axis with an un-oriented surface normal per point - an axis, with the
+	//sign still to be resolved, exactly like the minor axis of a Gaussian - and
+	//out_neighbours with each point's nearest PCA_ORIENT_NEIGHBOURS (UINT32_MAX where a
+	//point has fewer), which is the graph OrientNormalsConsistently propagates the sign
+	//along. The neighbours are free here: the search has already gathered and
+	//partitioned the candidates, and finding them again later would mean a second pass
+	//over the whole cloud.
+	//
+	//Positions are read in whatever frame they are already in, so running this after the
+	//loader's Y flip gives normals in engine space with no second flip needed (a mirror
+	//applied to the points is inherited exactly by a plane fitted through them).
+	void EstimatePointCloudNormals(const std::vector<SplatVertex>& pts,
+		std::vector<float3>& out_axis, std::vector<uint32_t>& out_neighbours) {
+		out_axis.assign(pts.size(), float3{ 0.0f, 1.0f, 0.0f });
+		out_neighbours.assign(pts.size() * (size_t)PCA_ORIENT_NEIGHBOURS, UINT32_MAX);
+		//Three points define the plane; below that there is nothing to fit and every
+		//point keeps the default.
+		if (pts.size() < 4) { return; }
+
+		PointGrid grid;
+		BuildPointGrid(pts, grid);
+
+		const size_t k = (pts.size() - 1 < (size_t)PCA_NEIGHBOURS) ? pts.size() - 1 : (size_t)PCA_NEIGHBOURS;
+
+		auto worker = [&](size_t first, size_t last) {
+			//Reused across points: this runs once per point of a capture that may hold
+			//millions, and a per-point allocation would dominate the pass.
+			std::vector<std::pair<float, uint32_t>> cand;
+			for (size_t i = first; i < last; ++i) {
+				const float3& p = pts[i].position;
+				int32_t c[3];
+				grid.CellOf(p, c);
+
+				//Widen the block of cells until it holds enough candidates. Deliberately
+				//approximate: a true k-NN would keep widening until the k-th distance fits
+				//inside the block. Not worth it - the fit averages a whole neighbourhood,
+				//so swapping one far neighbour for another at a similar distance moves the
+				//plane by far less than the scan's own noise already does.
+				for (int32_t ring = 1; ring <= PCA_MAX_RINGS; ++ring) {
+					const int32_t x0 = (c[0] - ring > 0) ? c[0] - ring : 0;
+					const int32_t y0 = (c[1] - ring > 0) ? c[1] - ring : 0;
+					const int32_t z0 = (c[2] - ring > 0) ? c[2] - ring : 0;
+					const int32_t x1 = (c[0] + ring < grid.dim[0] - 1) ? c[0] + ring : grid.dim[0] - 1;
+					const int32_t y1 = (c[1] + ring < grid.dim[1] - 1) ? c[1] + ring : grid.dim[1] - 1;
+					const int32_t z1 = (c[2] + ring < grid.dim[2] - 1) ? c[2] + ring : grid.dim[2] - 1;
+
+					cand.clear();
+					for (int32_t z = z0; z <= z1; ++z) {
+						for (int32_t y = y0; y <= y1; ++y) {
+							const size_t row = grid.Linear(x0, y, z);
+							for (int32_t x = x0; x <= x1; ++x) {
+								const size_t cellidx = row + (size_t)(x - x0);
+								for (uint32_t e = grid.cell_start[cellidx]; e < grid.cell_start[cellidx + 1]; ++e) {
+									const uint32_t j = grid.point_index[e];
+									if ((size_t)j == i) { continue; }
+									const float dx = pts[j].position.x - p.x;
+									const float dy = pts[j].position.y - p.y;
+									const float dz = pts[j].position.z - p.z;
+									cand.emplace_back(dx * dx + dy * dy + dz * dz, j);
+								}
+							}
+						}
+					}
+					if (cand.size() >= k) { break; }
+					//The block already covers the whole grid - widening it again would
+					//re-scan the same points forever.
+					if (x0 == 0 && y0 == 0 && z0 == 0 &&
+						x1 == grid.dim[0] - 1 && y1 == grid.dim[1] - 1 && z1 == grid.dim[2] - 1) {
+						break;
+					}
+				}
+				if (cand.size() < 3) { continue; }
+
+				const size_t take = (k < cand.size()) ? k : cand.size();
+				if (take < cand.size()) {
+					std::nth_element(cand.begin(), cand.begin() + take, cand.end(),
+						[](const std::pair<float, uint32_t>& a, const std::pair<float, uint32_t>& b) {
+							return a.first < b.first;
+						});
+				}
+
+				//The closest few of those, in order, for the orientation graph. nth_element
+				//only partitions, so the k nearest are in the front of the range but in no
+				//order within it - the graph wants the *nearest* neighbours specifically,
+				//since an edge between two points far apart on a curved surface is exactly
+				//the one whose sign should not be trusted.
+				const size_t keep = (take < (size_t)PCA_ORIENT_NEIGHBOURS) ? take : (size_t)PCA_ORIENT_NEIGHBOURS;
+				std::partial_sort(cand.begin(), cand.begin() + keep, cand.begin() + take,
+					[](const std::pair<float, uint32_t>& a, const std::pair<float, uint32_t>& b) {
+						return a.first < b.first;
+					});
+				uint32_t* nb = &out_neighbours[i * (size_t)PCA_ORIENT_NEIGHBOURS];
+				for (size_t t = 0; t < keep; ++t) { nb[t] = cand[t].second; }
+
+				//Covariance about the neighbourhood's own centroid, not about the point
+				//being fitted - a point sitting off the surface would otherwise tilt its
+				//own plane toward itself. The point is included in the set, which is what
+				//keeps a fit on a sharply curved patch anchored where it is being asked
+				//about.
+				double mx = p.x, my = p.y, mz = p.z;
+				for (size_t t = 0; t < take; ++t) {
+					const float3& q = pts[cand[t].second].position;
+					mx += q.x; my += q.y; mz += q.z;
+				}
+				const double inv = 1.0 / (double)(take + 1);
+				mx *= inv; my *= inv; mz *= inv;
+
+				double cxx = 0.0, cyy = 0.0, czz = 0.0, cxy = 0.0, cxz = 0.0, cyz = 0.0;
+				auto accumulate = [&](const float3& q) {
+					const double dx = (double)q.x - mx;
+					const double dy = (double)q.y - my;
+					const double dz = (double)q.z - mz;
+					cxx += dx * dx; cyy += dy * dy; czz += dz * dz;
+					cxy += dx * dy; cxz += dx * dz; cyz += dy * dz;
+				};
+				accumulate(p);
+				for (size_t t = 0; t < take; ++t) {
+					accumulate(pts[cand[t].second].position);
+				}
+
+				//Left unnormalized by the point count: an eigenvector does not change
+				//under a uniform scale of the matrix.
+				float m[3][3] = {
+					{ (float)cxx, (float)cxy, (float)cxz },
+					{ (float)cxy, (float)cyy, (float)cyz },
+					{ (float)cxz, (float)cyz, (float)czz }
+				};
+				out_axis[i] = SmallestEigenvector(m);
+			}
+		};
+
+		unsigned int threads = std::thread::hardware_concurrency();
+		if (threads == 0) { threads = 1; }
+		if (pts.size() < PCA_MIN_THREADED || threads <= 1) {
+			worker(0, pts.size());
+			return;
+		}
+
+		//Every thread reads the grid and writes a disjoint span of out_axis, so there is
+		//nothing to lock. Load runs off the render thread already (SplatCloudData::Prepare
+		//is the half that must not), so this is free to take the machine.
+		std::vector<std::thread> pool;
+		pool.reserve(threads);
+		const size_t chunk = (pts.size() + threads - 1) / threads;
+		for (unsigned int t = 0; t < threads; ++t) {
+			const size_t first = (size_t)t * chunk;
+			if (first >= pts.size()) { break; }
+			const size_t last = ((first + chunk) < pts.size()) ? (first + chunk) : pts.size();
+			pool.emplace_back(worker, first, last);
+		}
+		for (std::thread& th : pool) { th.join(); }
+	}
+
+	//A canonical sign for a direction that nothing else orients. Used only where the
+	//centroid rule has no signal at all, and its one job is to be *consistent*: two
+	//nearly parallel normals must come out the same way round. It is not "correct",
+	//because nothing local can be.
+	float3 OrientTowards(const float3& n, const float3& reference) {
+		if (n.x * reference.x + n.y * reference.y + n.z * reference.z < 0.0f) {
+			return float3{ -n.x, -n.y, -n.z };
+		}
+		return n;
+	}
+
+	//--- Making the signs agree ---------------------------------------------------
+	//
+	// A fitted plane gives an AXIS, not a direction: the eigenvector is as valid
+	// negated, and the fit has no opinion at all about which side of the surface is
+	// out. Deciding that per point - "point it away from the cloud centroid", which is
+	// what a Gaussian's minor axis gets - is wrong in a way that is worse than being
+	// upside down, because neighbouring points decide *independently*. On anything that
+	// is not a single convex blob seen from outside (a scanned scene: several objects,
+	// concavities, a floor running through the middle of the cloud) whole regions come
+	// out inverted against their neighbours, and the joins between them are hard edges
+	// in the normal buffer - patches of the opposite colour sitting inside a smooth
+	// gradient. No amount of improving the *fit* touches it; the fit was already right.
+	//
+	// So the sign is propagated along the neighbour graph instead, which is Hoppe et
+	// al.'s construction (Surface Reconstruction from Unorganized Points, 1992) and
+	// still what PCL and Open3D do: grow a minimum spanning tree over the k-NN graph
+	// with each edge weighted 1 - |dot(ni, nj)|, and flip each point as it is reached to
+	// agree with the neighbour that reached it. The weight is what makes it an MST
+	// rather than a flood fill, and it is the whole trick: the cheapest edges are the
+	// ones between nearly parallel normals, so the traversal crosses flat ground first
+	// and only steps over a crease when it has no other way in - by which point both
+	// sides of the crease are already settled and cannot drag a region with them.
+	//
+	// That fixes agreement, not absolute direction: a component can still come out
+	// inside-out as a whole, which is one flip rather than thousands and is what
+	// SplatCloud::invert_normals is for.
+
+	//Orients axes in place. `neighbours` is the graph from EstimatePointCloudNormals.
+	void OrientNormalsConsistently(const std::vector<SplatVertex>& pts,
+		const std::vector<uint32_t>& neighbours, std::vector<float3>& axes) {
+		const size_t n = pts.size();
+		if (n == 0) { return; }
+
+		std::vector<uint8_t> visited(n, 0);
+		//Lazy Prim: `best_w` is the cheapest edge found into a node so far, and an entry
+		//is only pushed when it improves on that. Without it every edge of the graph is
+		//queued (8n of them) and the queue, not the traversal, is the cost of the pass.
+		std::vector<float> best_w(n, FLT_MAX);
+		std::vector<uint32_t> best_from(n, UINT32_MAX);
+
+		using Entry = std::pair<float, uint32_t>;
+		std::priority_queue<Entry, std::vector<Entry>, std::greater<Entry>> pq;
+
+		//Reused across components rather than allocated per component - a scanned scene
+		//is one component per object and there can be thousands of them.
+		std::vector<uint32_t> component;
+
+		for (size_t seed = 0; seed < n; ++seed) {
+			if (visited[seed]) { continue; }
+
+			//A new connected component. The graph is not connected in general and that is
+			//not a defect: two objects a metre apart genuinely share no neighbour, and
+			//nothing about one of them implies which way round the other should be. Each
+			//gets its own traversal and its own global sign below.
+			component.clear();
+			best_w[seed] = 0.0f;
+			best_from[seed] = UINT32_MAX;
+			pq.push(Entry(0.0f, (uint32_t)seed));
+
+			while (!pq.empty()) {
+				const Entry e = pq.top();
+				pq.pop();
+				const uint32_t i = e.second;
+				if (visited[i]) { continue; }
+				visited[i] = 1;
+				component.push_back(i);
+
+				//Agree with whoever reached us. The parent is always already visited and
+				//therefore already final, so this never has to be revisited.
+				if (best_from[i] != UINT32_MAX) {
+					const float3& parent = axes[best_from[i]];
+					float3& ni = axes[i];
+					if (ni.x * parent.x + ni.y * parent.y + ni.z * parent.z < 0.0f) {
+						ni.x = -ni.x; ni.y = -ni.y; ni.z = -ni.z;
+					}
+				}
+
+				const uint32_t* nb = &neighbours[(size_t)i * (size_t)PCA_ORIENT_NEIGHBOURS];
+				for (uint32_t t = 0; t < PCA_ORIENT_NEIGHBOURS; ++t) {
+					const uint32_t j = nb[t];
+					if (j == UINT32_MAX || visited[j]) { continue; }
+					//|dot|, so the weight does not depend on signs that have not been
+					//decided yet - which is what lets the tree be built and the flipping
+					//be done in the same walk.
+					const float d = fabsf(axes[i].x * axes[j].x + axes[i].y * axes[j].y + axes[i].z * axes[j].z);
+					const float w = 1.0f - d;
+					if (w < best_w[j]) {
+						best_w[j] = w;
+						best_from[j] = i;
+						pq.push(Entry(w, j));
+					}
+				}
+			}
+
+			//The component now agrees with itself and may still be inside-out as a whole.
+			//Point it away from its OWN centroid, not the cloud's: in a scene the cloud
+			//centroid sits in the air between the objects and says nothing useful about
+			//any of them.
+			double ccx = 0.0, ccy = 0.0, ccz = 0.0;
+			for (const uint32_t i : component) {
+				ccx += pts[i].position.x; ccy += pts[i].position.y; ccz += pts[i].position.z;
+			}
+			const double inv = 1.0 / (double)component.size();
+			const float3 cc = { (float)(ccx * inv), (float)(ccy * inv), (float)(ccz * inv) };
+
+			//Averaged as a cosine so the test is against NORMAL_CENTROID_MIN_COS on the
+			//same footing a single point would be: a sum of raw dot products is dominated
+			//by whichever points happen to sit furthest out.
+			double mean_cos = 0.0;
+			uint32_t highest = component[0];
+			for (const uint32_t i : component) {
+				const float3& p = pts[i].position;
+				const float ox = p.x - cc.x, oy = p.y - cc.y, oz = p.z - cc.z;
+				const float ol = sqrtf(ox * ox + oy * oy + oz * oz);
+				if (ol > 1e-8f) {
+					mean_cos += (double)((axes[i].x * ox + axes[i].y * oy + axes[i].z * oz) / ol);
+				}
+				if (p.y > pts[highest].position.y) { highest = i; }
+			}
+			mean_cos *= inv;
+
+			bool flip;
+			if (fabs(mean_cos) > (double)NORMAL_CENTROID_MIN_COS) {
+				flip = (mean_cos < 0.0);
+			}
+			else {
+				//A flat component - a floor, a wall, a single scanned facade - where the
+				//outward direction lies in the surface and the centroid rule means
+				//nothing. Hoppe's own tie-break: the topmost point of a surface faces up.
+				flip = (axes[highest].y < 0.0f);
+			}
+			if (flip) {
+				for (const uint32_t i : component) {
+					axes[i].x = -axes[i].x; axes[i].y = -axes[i].y; axes[i].z = -axes[i].z;
+				}
+			}
+		}
 	}
 }
 
@@ -165,16 +662,38 @@ bool SplatCloudData::Load(const std::string& file, const std::string& asset_name
 	}
 
 	auto has = [&](const char* n) { return offset_of.find(n) != offset_of.end(); };
-	//The minimum a splat needs. Normals are deliberately not required - see the header.
-	const char* required[] = { "x", "y", "z", "opacity",
-							   "scale_0", "scale_1", "scale_2",
-							   "rot_0", "rot_1", "rot_2", "rot_3",
-							   "f_dc_0", "f_dc_1", "f_dc_2" };
-	for (const char* r : required) {
+
+	//x/y/z are the one thing every splat needs no matter where the rest of its
+	//parameters come from.
+	const char* position_required[] = { "x", "y", "z" };
+	for (const char* r : position_required) {
 		if (!has(r)) {
-			LOG_ERROR("SplatCloudData::Load: %s is missing required property '%s'; is it a 3DGS .ply?", file.c_str(), r);
+			LOG_ERROR("SplatCloudData::Load: %s is missing required property '%s'", file.c_str(), r);
 			return false;
 		}
+	}
+
+	//A trained 3DGS splat. Normals are deliberately not required - see the header.
+	const char* gaussian_required[] = { "opacity",
+										"scale_0", "scale_1", "scale_2",
+										"rot_0", "rot_1", "rot_2", "rot_3",
+										"f_dc_0", "f_dc_1", "f_dc_2" };
+	bool is_gaussian = true;
+	for (const char* r : gaussian_required) {
+		if (!has(r)) { is_gaussian = false; break; }
+	}
+
+	//Not every .ply carries Gaussian parameters - a plain coloured point cloud (the
+	//shape a 3D scanner like Artec or a photogrammetry tool exports) has only a
+	//position and a colour per vertex. That is still worth drawing as a splat cloud:
+	//below, a missing scale/rotation/opacity falls back to an isotropic, opaque,
+	//constant-radius blob per point rather than failing the load outright.
+	const bool has_color = has("red") && has("green") && has("blue");
+	if (!is_gaussian && !has_color) {
+		LOG_ERROR("SplatCloudData::Load: %s has no Gaussian splat properties (e.g. 'opacity') "
+			"and no red/green/blue vertex colour to fall back to a plain point cloud; "
+			"is it a 3DGS .ply?", file.c_str());
+		return false;
 	}
 
 	std::vector<uint8_t> raw(stride * (size_t)vertex_count);
@@ -204,6 +723,24 @@ bool SplatCloudData::Load(const std::string& file, const std::string& asset_name
 		}
 	};
 
+	//Reads one colour channel normalized to [0,1], scaling by whatever integer width
+	//the file stored it as (uchar is what every scanner/photogrammetry exporter uses);
+	//a float/double channel is assumed already normalized.
+	auto read_color = [&](const uint8_t* base, const char* name) -> float {
+		auto it = offset_of.find(name);
+		if (it == offset_of.end()) { return 1.0f; }
+		const PlyProperty* p = prop_of[name];
+		const uint8_t* at = base + it->second;
+		if (p->is_float) { float v; memcpy(&v, at, 4); return v; }
+		if (p->is_double) { double v; memcpy(&v, at, 8); return (float)v; }
+		switch (p->size) {
+		case 1: return (float)*at / 255.0f;
+		case 2: { uint16_t v; memcpy(&v, at, 2); return (float)v / 65535.0f; }
+		case 4: { uint32_t v; memcpy(&v, at, 4); return (float)v / 4294967295.0f; }
+		default: return 0.0f;
+		}
+	};
+
 	splats.clear();
 	splats.reserve((size_t)vertex_count);
 
@@ -220,12 +757,28 @@ bool SplatCloudData::Load(const std::string& file, const std::string& asset_name
 
 		SplatVertex s;
 		s.position = { read_f(base, "x"), read_f(base, "y"), read_f(base, "z") };
-		s.opacity = Sigmoid(read_f(base, "opacity"));
 
-		//The file stores log-scales; exponentiate to get world units.
-		float sx = expf(read_f(base, "scale_0"));
-		float sy = expf(read_f(base, "scale_1"));
-		float sz = expf(read_f(base, "scale_2"));
+		//The file stores log-scales; exponentiate to get world units. A point cloud
+		//has no scale_0-2 of its own, and read_f already answers a missing property
+		//with 0 - so this falls back to expf(0) = 1 world unit with no special case
+		//needed. That is deliberately not tuned to the cloud's size: guessing a
+		//"denser" radius from the point count and extent was tried and produced
+		//wildly wrong results on real captures, whereas a fixed, predictable
+		//baseline is one the component's point_size_scale can be dialled against
+		//(Components::SplatCloud, Tools/SceneEditor/Inspector.cpp's "Point size").
+		//Opacity is likewise forced to full for a point cloud - it has no notion of
+		//a soft, translucent Gaussian, and leaving it at the missing-field default
+		//(Sigmoid(0) = 0.5) would render every point half-see-through instead of as
+		//a solid surface.
+		if (!is_gaussian) {
+			s.opacity = 1.0f;
+		}
+		else {
+			s.opacity = Sigmoid(read_f(base, "opacity"));
+		}
+		const float sx = expf(read_f(base, "scale_0"));
+		const float sy = expf(read_f(base, "scale_1"));
+		const float sz = expf(read_f(base, "scale_2"));
 
 		//3DGS stores the rotation as (w, x, y, z) and does not guarantee it normalized.
 		float qw = read_f(base, "rot_0");
@@ -281,12 +834,20 @@ bool SplatCloudData::Load(const std::string& file, const std::string& asset_name
 		s.cov_offdiag.x = -s.cov_offdiag.x;  //Sxy
 		s.cov_offdiag.z = -s.cov_offdiag.z;  //Syz
 
-		//SH degree 0 -> colour, then kept as albedo. Clamped at zero because a
-		//negative coefficient is legal in the fit but a negative albedo is not, and it
-		//would drive the lighting negative rather than merely looking wrong.
-		s.albedo.x = fmaxf(0.0f, 0.5f + SH_C0 * read_f(base, "f_dc_0"));
-		s.albedo.y = fmaxf(0.0f, 0.5f + SH_C0 * read_f(base, "f_dc_1"));
-		s.albedo.z = fmaxf(0.0f, 0.5f + SH_C0 * read_f(base, "f_dc_2"));
+		if (is_gaussian) {
+			//SH degree 0 -> colour, then kept as albedo. Clamped at zero because a
+			//negative coefficient is legal in the fit but a negative albedo is not, and
+			//it would drive the lighting negative rather than merely looking wrong.
+			s.albedo.x = fmaxf(0.0f, 0.5f + SH_C0 * read_f(base, "f_dc_0"));
+			s.albedo.y = fmaxf(0.0f, 0.5f + SH_C0 * read_f(base, "f_dc_1"));
+			s.albedo.z = fmaxf(0.0f, 0.5f + SH_C0 * read_f(base, "f_dc_2"));
+		}
+		else {
+			//No SH coefficients to invert - the file's own vertex colour is the albedo.
+			s.albedo.x = read_color(base, "red");
+			s.albedo.y = read_color(base, "green");
+			s.albedo.z = read_color(base, "blue");
+		}
 
 		//A capture carries no specular information at all - a radiance field folds
 		//every highlight into the colour it fitted. So this is a constant the material
@@ -298,16 +859,24 @@ bool SplatCloudData::Load(const std::string& file, const std::string& asset_name
 		//The minor axis: the basis column belonging to the smallest scale. A trained
 		//Gaussian is flat against the surface it represents, so its shortest axis is
 		//the surface normal.
-		float3 axis;
-		if (sx <= sy && sx <= sz) { axis = { r00, r10, r20 }; }
-		else if (sy <= sx && sy <= sz) { axis = { r01, r11, r21 }; }
-		else { axis = { r02, r12, r22 }; }
-		//Still in the file's frame - it is read off R, which was built before the basis
-		//change above - so it takes the same Y flip. Missed, the normals would disagree
-		//with the geometry by a mirror and the cloud would light as though the sun were
-		//on the other side of it.
-		axis.y = -axis.y;
-		minor_axis.push_back(axis);
+		//
+		//Only a trained Gaussian, though. A point cloud has no scale_* or rot_* at all,
+		//so sx == sy == sz and R is the identity - the ellipsoid is a sphere, which has
+		//no minor axis, and this derivation would hand every point in the file the same
+		//basis column. Those clouds are filled in below instead, from the neighbouring
+		//points, which is the only place the information exists.
+		if (is_gaussian) {
+			float3 axis;
+			if (sx <= sy && sx <= sz) { axis = { r00, r10, r20 }; }
+			else if (sy <= sx && sy <= sz) { axis = { r01, r11, r21 }; }
+			else { axis = { r02, r12, r22 }; }
+			//Still in the file's frame - it is read off R, which was built before the basis
+			//change above - so it takes the same Y flip. Missed, the normals would disagree
+			//with the geometry by a mirror and the cloud would light as though the sun were
+			//on the other side of it.
+			axis.y = -axis.y;
+			minor_axis.push_back(axis);
+		}
 
 		cx += s.position.x;
 		cy += s.position.y;
@@ -322,6 +891,35 @@ bool SplatCloudData::Load(const std::string& file, const std::string& asset_name
 		(float)(cz / (double)vertex_count)
 	};
 
+	//A point cloud's normals come from the neighbourhood rather than from the point.
+	//Run on the positions as they now stand - already through the Y flip above - so
+	//what comes back is in engine space and takes no second flip.
+	//A point cloud's normals come from the neighbourhood rather than from the point, in
+	//two steps: fit the plane, then make the signs agree along the neighbour graph. The
+	//second is not a refinement of the first - the fit is already right without it - it
+	//is what stops neighbouring points choosing opposite sides of the same surface. Both
+	//run on the positions as they now stand, already through the Y flip above, so what
+	//comes out is in engine space and takes no second flip.
+	bool normals_oriented = false;
+	if (!is_gaussian) {
+		const auto started = std::chrono::steady_clock::now();
+		std::vector<uint32_t> neighbours;
+		EstimatePointCloudNormals(splats, minor_axis, neighbours);
+		const double fit_ms = std::chrono::duration<double, std::milli>(
+			std::chrono::steady_clock::now() - started).count();
+
+		const auto oriented_at = std::chrono::steady_clock::now();
+		OrientNormalsConsistently(splats, neighbours, minor_axis);
+		const double orient_ms = std::chrono::duration<double, std::milli>(
+			std::chrono::steady_clock::now() - oriented_at).count();
+
+		normals_oriented = true;
+		LOG_INFO("SplatCloudData::Load: fitted %llu point-cloud normals from %u neighbours in %.0f ms, "
+			"oriented along a %u-neighbour graph in %.0f ms",
+			(unsigned long long)splats.size(), (unsigned)PCA_NEIGHBOURS, fit_ms,
+			(unsigned)PCA_ORIENT_NEIGHBOURS, orient_ms);
+	}
+
 	//Second pass: orient the normals and measure the bounds.
 	//
 	//An ellipsoid's minor axis has no sign - it is an axis, not a direction - and the
@@ -333,6 +931,16 @@ bool SplatCloudData::Load(const std::string& file, const std::string& asset_name
 	float3 bmin = { FLT_MAX, FLT_MAX, FLT_MAX };
 	float3 bmax = { -FLT_MAX, -FLT_MAX, -FLT_MAX };
 
+	//Where the centroid gives no signal at all (below), the sign is resolved against
+	//this instead - the first splat's own axis, whichever way round it happens to be.
+	//An arbitrary reference is the point: it makes a flat cloud, which is the case that
+	//degenerates, come out agreeing with itself rather than dithering.
+	float3 degenerate_ref = { 0.0f, 1.0f, 0.0f };
+	for (const float3& a : minor_axis) {
+		const float l = sqrtf(a.x * a.x + a.y * a.y + a.z * a.z);
+		if (l > 1e-8f) { degenerate_ref = { a.x / l, a.y / l, a.z / l }; break; }
+	}
+
 	for (size_t i = 0; i < splats.size(); ++i) {
 		SplatVertex& s = splats[i];
 		float3 n = minor_axis[i];
@@ -340,11 +948,29 @@ bool SplatCloudData::Load(const std::string& file, const std::string& asset_name
 		if (nlen > 1e-8f) { n.x /= nlen; n.y /= nlen; n.z /= nlen; }
 		else { n = { 0.0f, 1.0f, 0.0f }; }
 
-		const float3 out = { s.position.x - centroid.x,
-							 s.position.y - centroid.y,
-							 s.position.z - centroid.z };
-		if (n.x * out.x + n.y * out.y + n.z * out.z < 0.0f) {
-			n.x = -n.x; n.y = -n.y; n.z = -n.z;
+		//A point cloud's normals are already oriented, per connected component, by
+		//something that looked at far more than this one point. Re-running the centroid
+		//rule over the top would undo exactly the agreement that pass exists to produce.
+		if (!normals_oriented) {
+			const float3 out = { s.position.x - centroid.x,
+								 s.position.y - centroid.y,
+								 s.position.z - centroid.z };
+			const float outlen = sqrtf(out.x * out.x + out.y * out.y + out.z * out.z);
+			const float d = n.x * out.x + n.y * out.y + n.z * out.z;
+			//The centroid rule only says anything where the normal has a real component
+			//along the outward direction. On a flat cloud the outward direction lies *in*
+			//the surface, so d is whatever the fit's own error made it and the sign comes
+			//out as per-point noise: neighbouring splats face opposite ways and the cloud
+			//renders as static rather than as a surface. Falling back to a fixed reference
+			//is not more correct - nothing local is - but it is consistent, which is the
+			//difference between a cloud lit the wrong way round (invert_normals fixes
+			//that) and a cloud that cannot be lit at all.
+			if (fabsf(d) > NORMAL_CENTROID_MIN_COS * outlen) {
+				if (d < 0.0f) { n.x = -n.x; n.y = -n.y; n.z = -n.z; }
+			}
+			else {
+				n = OrientTowards(n, degenerate_ref);
+			}
 		}
 		s.normal = n;
 
@@ -369,8 +995,9 @@ bool SplatCloudData::Load(const std::string& file, const std::string& asset_name
 	name = asset_name;
 	source_file = file;
 
-	LOG_INFO("SplatCloudData::Load: %s -> '%s', %llu splats, box (%.2f %.2f %.2f)-(%.2f %.2f %.2f)",
+	LOG_INFO("SplatCloudData::Load: %s -> '%s', %llu %s splats, box (%.2f %.2f %.2f)-(%.2f %.2f %.2f)",
 		file.c_str(), asset_name.c_str(), (unsigned long long)splats.size(),
+		is_gaussian ? "gaussian" : "point cloud",
 		bmin.x, bmin.y, bmin.z, bmax.x, bmax.y, bmax.z);
 
 	return true;

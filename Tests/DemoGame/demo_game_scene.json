@@ -166,8 +166,9 @@
                         "albedo_scale": 1.0,
                         "invert_normals": false,
                         "max_density": 16.0,
-                        "name": "oct",
+                        "name": "__default_splat_cloud",
                         "opacity_scale": 1.0,
+                        "point_size_scale": 1.0,
                         "spec_intensity": 0.10000000149011612,
                         "surface_alpha": 0.5
                     }
@@ -188,6 +189,37 @@
                     "x": 0.37544333934783936,
                     "y": 0.37544333934783936,
                     "z": 0.37544333934783936
+                }
+            },
+            {
+                "components": {
+                    "SplatCloud": {
+                        "albedo_scale": 0.9300000071525574,
+                        "invert_normals": false,
+                        "max_density": 1.0,
+                        "name": "Doom combat scene",
+                        "opacity_scale": 1.0,
+                        "point_size_scale": 0.3700000047683716,
+                        "spec_intensity": 1.5,
+                        "surface_alpha": 0.9900000095367432
+                    }
+                },
+                "name": "Entity",
+                "position": {
+                    "x": 6.153111934661865,
+                    "y": 27.271514892578125,
+                    "z": 29.93627166748047
+                },
+                "rotation": {
+                    "w": -1.1920928955078125e-07,
+                    "x": 0.0,
+                    "y": -0.0,
+                    "z": 0.9999998807907104
+                },
+                "scale": {
+                    "x": 0.10000000149011612,
+                    "y": 0.10000000149011612,
+                    "z": 0.10000000149011612
                 }
             }
         ],
@@ -920,16 +952,16 @@
                         },
                         "density": 0.0,
                         "direction": {
-                            "x": 0.8583745360374451,
-                            "y": 0.5078325271606445,
-                            "z": 0.0727967768907547
+                            "x": 0.6705251336097717,
+                            "y": 0.697075366973877,
+                            "z": 0.2539328336715698
                         },
                         "fog": false,
                         "intensity": 1.0,
                         "inverse_shadow": false,
                         "position": {
                             "x": 0.0,
-                            "y": 0.0,
+                            "y": -0.15000000596046448,
                             "z": 0.0
                         },
                         "range": 0.0,
@@ -955,6 +987,24 @@
                         },
                         "second_of_day": 30513.791015625,
                         "second_speed": 0.0
+                    },
+                    "Transform": {
+                        "position": {
+                            "x": 0.0,
+                            "y": 0.0,
+                            "z": 0.0
+                        },
+                        "rotation": {
+                            "w": 0.4604783058166504,
+                            "x": 0.8003256916999817,
+                            "y": 0.3826870918273926,
+                            "z": 0.03144735097885132
+                        },
+                        "scale": {
+                            "x": 1.0,
+                            "y": 1.0,
+                            "z": 1.0
+                        }
                     }
                 },
                 "name": "Sky"
@@ -965,8 +1015,9 @@
                         "albedo_scale": 1.0,
                         "invert_normals": false,
                         "max_density": 58.75,
-                        "name": "oct",
+                        "name": "__default_splat_cloud",
                         "opacity_scale": 1.0,
+                        "point_size_scale": 1.0,
                         "spec_intensity": 0.0,
                         "surface_alpha": 0.9900000095367432
                     }
@@ -1011,8 +1062,9 @@
                         "albedo_scale": 1.0,
                         "invert_normals": false,
                         "max_density": 58.75,
-                        "name": "oct",
+                        "name": "__default_splat_cloud",
                         "opacity_scale": 1.0,
+                        "point_size_scale": 1.0,
                         "spec_intensity": 0.0,
                         "surface_alpha": 0.9900000095367432
                     }
@@ -1046,8 +1098,9 @@
                         "albedo_scale": 1.0,
                         "invert_normals": false,
                         "max_density": 58.75,
-                        "name": "oct",
+                        "name": "__default_splat_cloud",
                         "opacity_scale": 1.0,
+                        "point_size_scale": 1.0,
                         "spec_intensity": 0.0,
                         "surface_alpha": 0.9900000095367432
                     }
@@ -1169,15 +1222,6 @@
             },
             {
                 "file": ".\\Assets\\troll\\troll_death.fbx",
-                "triangulate": false
-            },
-            {
-                "file": "assets\\Objects\\oct.ply",
-                "triangulate": false
-            },
-            {
-                "file": "assets\\Objects\\scene.ply",
-                "name": "girl",
                 "triangulate": false
             }
         ],

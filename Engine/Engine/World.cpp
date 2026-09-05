@@ -1085,11 +1085,14 @@ std::vector<std::string> World::ListTemplates() const {
 	return names;
 }
 
-//The components a template *entity* carries, in the order they must be applied.
+//The components a template *entity* can carry, in the order they must be applied.
 //
 //This is exactly the set SpawnInstance reads off the template when it clones one,
 //and nothing else: everything a template can hold beyond this is applied to the
-//spawned entity instead (see the CreateTemplate contract in World.h).
+//spawned entity instead (see the CreateTemplate contract in World.h). Base and
+//Transform are the only two forced unconditionally, matching CreateEmptyEntity's
+//contract - Mesh/Material/Bounds are added only when the caller's JSON actually
+//authors them, and removed if a redefinition drops a key that was there before.
 //
 //Order matters twice over. Mesh precedes Bounds because a Bounds block with no
 //extents measures itself from the entity's mesh, and Material precedes nothing but
@@ -1152,10 +1155,6 @@ bool World::CreateTemplate(const std::string& name, const nlohmann::json& compon
 		templates_coordinator->AddComponent<Components::Base>(e,
 			Components::Base{ .name = name, .id = e, .draw_method = Components::eDrawMethod::DRAW_SCREEN });
 		templates_coordinator->AddComponent<Components::Transform>(e, Components::Transform{});
-		templates_coordinator->AddComponent<Components::Bounds>(e, Components::Bounds{});
-		templates_coordinator->AddComponent<Components::Mesh>(e);
-		templates_coordinator->AddComponent<Components::Material>(e);
-		templates_coordinator->AddComponent<Components::Lighted>(e);
 	}
 
 	//Applied against the templates coordinator, not the scene one: MakeSerializeContext
@@ -1170,19 +1169,37 @@ bool World::CreateTemplate(const std::string& name, const nlohmann::json& compon
 		if (desc == nullptr) {
 			continue;
 		}
+		//Base and Transform are the two the registry itself marks entity-mandatory,
+		//so they stay forced regardless of what the caller authored - matching
+		//CreateEmptyEntity's contract. Everything else (Mesh/Material/Bounds) is
+		//add-or-update when authored and removed when it is not, so a template ends
+		//up carrying exactly what its JSON says - nothing the caller did not ask for,
+		//and nothing left behind by an earlier definition that has since dropped it.
+		const bool always_present = std::string(component) == Components::Base::NAME ||
+			std::string(component) == Components::Transform::NAME;
 		const bool authored_block = components.contains(component);
-		//A template whose bounds are not authored measures them from its mesh, and
-		//has to do so again every time the mesh is swapped. Zero extents is the
-		//signal Bounds::FromJson takes as "measure me"; without clearing them first,
-		//a redefinition would keep the *previous* mesh's box and cull or mis-collide
-		//every instance placed afterwards.
-		if (!authored_block && std::string(component) == Components::Bounds::NAME) {
+		if (!always_present && !authored_block) {
+			if (desc->has(templates_coordinator, e)) {
+				desc->remove(ctx, e);
+			}
+			continue;
+		}
+		//A Bounds block with no extents measures itself from the entity's mesh, and
+		//has to do so again every time the mesh is swapped or Bounds is freshly
+		//added. Zero extents is the signal Bounds::FromJson takes as "measure me";
+		//without clearing them first, a redefinition would keep the *previous*
+		//mesh's box and cull or mis-collide every instance placed afterwards. Gated
+		//on the incoming block being empty - one with real numbers is trusted as-is
+		//- and on Bounds already existing, since a freshly added one starts zeroed.
+		if (std::string(component) == Components::Bounds::NAME && authored_block &&
+			components[component].empty() && desc->has(templates_coordinator, e)) {
 			templates_coordinator->GetComponent<Components::Bounds>(e).local_box.Extents =
 				{ 0.0f, 0.0f, 0.0f };
 		}
-		//An absent block is still applied, as an empty one: Mesh and Material turn
-		//that into the default cube / white material, which is what makes a template
-		//with nothing authored yet immediately placeable.
+		//An absent Base/Transform block is still applied, as an empty one: FromJson
+		//treats a missing key as "leave alone." A present Mesh/Material/Bounds block
+		//that is itself empty turns into the default cube / white material / a
+		//re-measured box - what makes "just add Mesh" immediately useful.
 		desc->apply(ctx, e, authored_block ? components[component] : nlohmann::json::object());
 	}
 
@@ -2239,18 +2256,36 @@ ECS::Entity World::SpawnTemplateEntities(const std::string& name, const std::str
 
 	int part_index = 0;
 	for (ECS::Entity te : parts) {
+		const bool has_mesh = templates_coordinator->ContainsComponent<Components::Mesh>(te);
+		const bool has_bounds = templates_coordinator->ContainsComponent<Components::Bounds>(te);
+		const bool has_material = templates_coordinator->ContainsComponent<Components::Material>(te);
+		const bool has_transform = templates_coordinator->ContainsComponent<Components::Transform>(te);
 		//Skinned FBX templates can register non-renderable nodes (armatures, empties)
-		//alongside their meshes; those have no Mesh/Bounds to clone, and asking for
-		//them throws. Skip them - the part keeps its index so multi-part instance
-		//names stay stable regardless of where the non-mesh nodes sort.
-		if (!templates_coordinator->ContainsComponent<Components::Mesh>(te) ||
-			!templates_coordinator->ContainsComponent<Components::Bounds>(te) ||
-			!templates_coordinator->ContainsComponent<Components::Transform>(te)) {
+		//alongside their meshes; those have no Mesh/Bounds to clone, and there is
+		//another part in the same template that does - so this only skips in the
+		//genuine multi-part case. A single-entity template (every authored template,
+		//and any simple one-node FBX import) is never skipped for lacking Mesh, or a
+		//template with nothing authored yet would spawn nothing at all. The part
+		//keeps its index either way, so multi-part instance names stay stable
+		//regardless of where the non-mesh nodes sort.
+		if (parts.size() > 1 && (!has_mesh || !has_bounds || !has_transform)) {
 			++part_index;
 			continue;
 		}
-		const Components::Bounds& tbounds = templates_coordinator->GetConstComponent<Components::Bounds>(te);
+		if (!has_transform) {
+			//Transform is entity-mandatory, so this is a guard rather than a real
+			//gate - nothing below has anywhere to place an entity without it.
+			++part_index;
+			continue;
+		}
 		const Components::Transform& tt = templates_coordinator->GetConstComponent<Components::Transform>(te);
+		//Default-constructed (zeroed) when the template has none of its own, which
+		//only Physics below can end up reading - a degenerate collider rather than a
+		//crash, the same tolerance a scene entity with Physics but no Bounds gets.
+		Components::Bounds tbounds{};
+		if (has_bounds) {
+			tbounds = templates_coordinator->GetConstComponent<Components::Bounds>(te);
+		}
 
 		//Multi-part templates (several FBX nodes sharing the same template name) get a
 		//stable "_<index>" suffix so each part keeps a unique, reload-safe name.
@@ -2258,20 +2293,24 @@ ECS::Entity World::SpawnTemplateEntities(const std::string& name, const std::str
 		ECS::Entity e = coordinator->CreateEntity(instance_name);
 
 		coordinator->AddComponent<Components::Base>(e, Components::Base{ .name = instance_name, .id = e, .draw_method = Components::eDrawMethod::DRAW_SCREEN });
-		coordinator->AddComponent<Components::Bounds>(e, tbounds);
-		coordinator->AddComponent<Components::Mesh>(e);
+		if (has_bounds) {
+			coordinator->AddComponent<Components::Bounds>(e, tbounds);
+		}
+		if (has_mesh) {
+			coordinator->AddComponent<Components::Mesh>(e);
+			Components::Mesh& mesh = coordinator->GetComponent<Components::Mesh>(e);
+			mesh.SetData(templates_coordinator->GetComponent<Components::Mesh>(te).GetData());
+		}
 		coordinator->AddComponent<Components::Lighted>(e);
-		coordinator->AddComponent<Components::Material>(e);
-
-		Components::Mesh& mesh = coordinator->GetComponent<Components::Mesh>(e);
-		mesh.SetData(templates_coordinator->GetComponent<Components::Mesh>(te).GetData());
-
-		Components::Material& mat = coordinator->GetComponent<Components::Material>(e);
-		mat.data = templates_coordinator->GetComponent<Components::Material>(te).data;
-		if (!material_name.empty()) {
-			Core::MaterialData* named = materials.Get(material_name);
-			if (named != nullptr) {
-				mat.data = named;
+		if (has_material) {
+			coordinator->AddComponent<Components::Material>(e);
+			Components::Material& mat = coordinator->GetComponent<Components::Material>(e);
+			mat.data = templates_coordinator->GetComponent<Components::Material>(te).data;
+			if (!material_name.empty()) {
+				Core::MaterialData* named = materials.Get(material_name);
+				if (named != nullptr) {
+					mat.data = named;
+				}
 			}
 		}
 

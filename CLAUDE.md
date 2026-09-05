@@ -540,12 +540,16 @@ matrix sends every splat to the origin with `w = 0`, which renders as a cloud we
 the world origin rather than as an error. The exclusions are mutual and are what keeps two
 background threads from composing one matrix from different inputs.
 
-A trap for anything testing this: `TemplatePanel::IsMandatory` makes `Mesh`, `Material`
-and `Bounds` mandatory on a **template**, so a template built from a `.ply` carries a
-stand-in cube and every placed cloud arrives wearing one. That cube sits exactly where the
-cloud is *and* hands the entity back to `StaticMeshSystem` — so a transform test written
-against a freshly placed instance passes whether `SplatCloudSystem` exists or not.
-`23-splatrender` strips it (`Remove-StandInMesh`) and asserts it is gone.
+A trap this used to have, worth knowing even though it is fixed: `Mesh`/`Material`/
+`Bounds` used to be forced onto every template (`TemplateOps::IsMandatory`), so a
+template built from a `.ply` carried a stand-in cube and every placed cloud arrived
+wearing one — sitting exactly where the cloud is *and* handing the entity back to
+`StaticMeshSystem`, so a transform test written against a freshly placed instance
+passed whether `SplatCloudSystem` existed or not. Templates now start with only
+`Base`+`Transform`, exactly like `Add/Entity` (see "Templates start minimal" below),
+so a splat template built from a model with no mesh nodes has no stand-in cube to
+begin with. `23-splatrender`'s `Remove-StandInMesh` is a defensive no-op kept in case
+that ever changes.
 
 **Buffer debugging lives in the texture mixer, not in a pass of its own.**
 `TextureMixerCS` is where every contribution to the frame — scene colour, direct light,
@@ -1568,11 +1572,36 @@ untouched here).
 
 `World::CreateTemplate` (see the contract in `World.h`) keeps a template in two halves
 on purpose: a template *entity* in the templates coordinator holding only what
-`SpawnInstance` clones (Base/Transform/Bounds/Mesh/Material/Lighted), and the full
-component JSON, which `SpawnInstance` applies to each spawned entity. Physics must stay
-off the template entity — applying it there would create a rigid body for something that
-is not in the scene. A template's mandatory components (`TemplateOps::IsMandatory`)
-cannot be removed, since a template that cannot be spawned is not a template.
+`SpawnInstance` clones — Base/Transform always, Mesh/Material/Bounds when the caller's
+JSON actually authors them — and the full component JSON, which `SpawnInstance` applies
+to each spawned entity. Physics must stay off the template entity — applying it there
+would create a rigid body for something that is not in the scene.
+
+**Templates start minimal, exactly like `Add/Entity`.** `TemplateOps::IsMandatory`
+used to force `Mesh`, `Material` and `Bounds` onto every template — a template built
+from a `.ply` with no mesh nodes got a stand-in cube it never asked for, and a
+mesh-less scene entity could not become a template at all (`CreateFromEntity`/
+`CreateFromSelection` refused it outright: *"has no Mesh, so it cannot become a
+template"*). Both were symptoms of one fact: `World::SpawnTemplateEntities` used to
+require `Mesh`+`Bounds`+`Transform` on a template entity to spawn anything from it —
+not a defensive fallback, a hard skip that dropped the whole instance silently.
+
+Now `IsMandatory` is just `Base`+`Transform` — the two `ComponentPolicy::Mandatory`
+already requires on any entity — and `SpawnTemplateEntities` spawns a single-entity
+template (every authored template, and any simple one-node FBX import) regardless of
+what else it does or does not carry, adding `Bounds`/`Mesh`/`Material` to the instance
+only when the template actually has them. The multi-part FBX case is unchanged: a
+skinned import's non-renderable armature/empty nodes are still skipped when there is
+another part in the same template that does carry a mesh. `CreateFromEntity`/
+`CreateFromSelection` no longer require a source `Mesh` either —
+`SerializeEntityAsTemplate` already copied only components the source entity actually
+had, so the one thing standing between that and "a template carries exactly what its
+source did" was the refusal itself.
+
+A template that adds `Physics` without ever adding `Bounds` gets a zeroed local box —
+not a crash: `Physics::AddCollider`'s `MIN_EXTENT` clamp already treats a zero-extent
+box as a thin one rather than a degenerate shape, the same tolerance a scene entity
+with `Physics` but no `Bounds` gets.
 
 The editor surface for parts is the Templates panel's **Parts** section
 (`TemplatePanel::DrawPartsSection`, ops in `TemplateOps::AddPart`/`RemovePart`/`SetPart`),

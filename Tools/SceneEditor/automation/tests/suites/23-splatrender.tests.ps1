@@ -5,15 +5,17 @@
 # of asserting that a cloud renders. This is the pass: RenderSystem::DrawSplats,
 # SplatPreprocessCS (project and bin) and SplatRasterCS (rasterize and light).
 #
-# The subject is a cloud imported from a .ply and placed through a template, with
-# the template's stand-in cube then taken off the instance (Remove-StandInMesh, and
-# read its comment - the cube is mandatory on a template, so every placed cloud
-# arrives wearing one). What is left is an entity with a SplatCloud and no Mesh,
-# which is the case SplatCloudSystem exists for: Transform::world_matrix is written
-# by StaticMeshSystem (needs Mesh and Bounds) and PhysicsSystem (needs a body), so
+# The subject is a cloud imported from a .ply and placed through a template.
+# Remove-StandInMesh is a no-op today (a splat template built from a model with no
+# mesh nodes no longer gets a stand-in cube at all - see 22-splats.tests.ps1's
+# "Create Template turns an imported cloud into a placeable object"), kept as a
+# defensive call in case a future template genuinely does carry one. Either way,
+# what these tests exercise is an entity with a SplatCloud and no Mesh, which is
+# the case SplatCloudSystem exists for: Transform::world_matrix is written by
+# StaticMeshSystem (needs Mesh and Bounds) and PhysicsSystem (needs a body), so
 # without that system a cloud entity's matrix is never composed at all - and a zero
-# matrix sends every splat to the origin with w = 0. Left on, the cube would both
-# be measured instead of the cloud and hand the transform back to StaticMeshSystem,
+# matrix sends every splat to the origin with w = 0. A stray cube would both be
+# measured instead of the cloud and hand the transform back to StaticMeshSystem,
 # which is to say every test below would pass without the pass working.
 #
 # Two properties of the pass shape the assertions:
@@ -110,6 +112,45 @@ function New-VariedPly {
     $w.Dispose(); $body.Dispose()
 }
 
+# A .ply that is NOT a trained 3DGS capture: positions and a vertex colour, and
+# nothing else - no scale_*, no rot_*, no opacity, no f_dc_*. This is what a 3D
+# scanner or a photogrammetry tool exports, and what SplatCloudData::Load has to fit
+# normals for, every splat in it being an isotropic sphere with no minor axis to read
+# one off.
+#
+# A sphere shell again, and deliberately so: every normal on it is different and each
+# one is known in advance from where the point sits, which is what makes the fit
+# checkable at all. Denser than the Gaussian fixture because the fit is over the
+# NEIGHBOURS - 24 of them - so a handful of points scattered over a shell would be
+# fitting a plane through most of the model.
+function New-PointCloudPly {
+    param([string]$Path, [int]$Count = 4000, [double]$Radius = 0.5)
+    $header = "ply`nformat binary_little_endian 1.0`nelement vertex $Count`n" +
+              "property float x`nproperty float y`nproperty float z`n" +
+              "property uchar red`nproperty uchar green`nproperty uchar blue`n" +
+              "end_header`n"
+
+    $body = New-Object System.IO.MemoryStream
+    $w = New-Object System.IO.BinaryWriter($body)
+    $golden = 2.39996322972865332
+    for ($i = 0; $i -lt $Count; $i++) {
+        $y = 1.0 - 2.0 * ($i + 0.5) / $Count
+        $r = [Math]::Sqrt([Math]::Max(0.0, 1.0 - $y * $y))
+        $theta = $golden * $i
+        $w.Write([float]([Math]::Cos($theta) * $r * $Radius))
+        $w.Write([float]($y * $Radius))
+        $w.Write([float]([Math]::Sin($theta) * $r * $Radius))
+        # One flat bright grey. The colour is not what is being measured here and a
+        # varying one would show up in the lit frame as texture that could be mistaken
+        # for shading.
+        $w.Write([byte]220); $w.Write([byte]220); $w.Write([byte]220)
+    }
+    $w.Flush()
+    $bytes = [System.Text.Encoding]::ASCII.GetBytes($header) + $body.ToArray()
+    [IO.File]::WriteAllBytes($Path, $bytes)
+    $w.Dispose(); $body.Dispose()
+}
+
 function Reset-SplatView {
     SendOk 'camera_rot 0 0 0', 'camera_pos 0 0 -3', 'camera_target 0 0 0' | Out-Null
 }
@@ -154,16 +195,19 @@ function Move-Entity {
     SendOk "select $Entity", "set_position $Position", 'deselect' | Out-Null
 }
 
-# Takes the stand-in cube off a placed cloud instance, and asserts it is gone.
+# Takes the stand-in cube off a placed cloud instance, if it has one, and asserts
+# it is gone either way.
 #
-# TemplatePanel::IsMandatory makes Mesh, Material and Bounds mandatory on a
-# *template* - they are what World::SpawnInstance clones - so a template built from
-# a .ply carries a default cube alongside its cloud, and every instance is placed
-# wearing one. That cube is not a bug, but it is fatal to this suite twice over: it
-# sits exactly where the cloud is and would be measured instead of it, and an entity
-# with a Mesh and a Bounds is one StaticMeshSystem owns, so the transform test would
-# pass whether SplatCloudSystem exists or not. Both are silent, so this asserts
-# rather than tries.
+# A template used to force Mesh/Material/Bounds onto every template
+# (TemplateOps::IsMandatory), so one built from a .ply carried a default cube
+# alongside its cloud and every instance was placed wearing one - not a bug, but
+# fatal to this suite twice over: the cube sits exactly where the cloud is and
+# would be measured instead of it, and an entity with a Mesh and a Bounds is one
+# StaticMeshSystem owns, so the transform test would pass whether SplatCloudSystem
+# exists or not. Templates no longer force those components on (see
+# 22-splats.tests.ps1), so a splat template built from a model with no mesh nodes
+# has none to begin with - this is now a defensive no-op, kept in case that ever
+# changes, both being silent enough that this asserts rather than tries.
 function Remove-StandInMesh {
     param([string]$Entity)
     $before = SendOk "components $Entity"
@@ -205,7 +249,7 @@ function Initialize-Suite {
 function Reset-Cloud {
     Initialize-Suite
     SendOk "select $($script:cloud)", 'set_position 0 0 0', 'set_scale 1 1 1' | Out-Null
-    SendOk "set_component $($script:cloud) SplatCloud ""{'opacity_scale':1.0,'albedo_scale':1.0,'invert_normals':false,'surface_alpha':0.5}""" | Out-Null
+    SendOk "set_component $($script:cloud) SplatCloud ""{'opacity_scale':1.0,'albedo_scale':1.0,'point_size_scale':1.0,'invert_normals':false,'surface_alpha':0.5}""" | Out-Null
     SendOk "set_component $($script:cloud) Base ""{'visible':true}""" | Out-Null
     SendOk 'deselect', 'render debug_buffer off', 'render debug_gain 1' | Out-Null
     Reset-SplatView
@@ -505,6 +549,45 @@ Test 'albedo_scale changes the colour without changing the coverage' {
         -Message "albedo_scale should not change what the cloud covers ($([Math]::Round($bright.LitShare * 100, 1))% -> $([Math]::Round($dim.LitShare * 100, 1))%)"
 }
 
+Test 'point_size_scale grows and shrinks the cloud''s screen footprint' {
+    # A direct per-splat radius multiplier - it grows or shrinks the silhouette
+    # itself. Measured pushed far back, the way max_density's test is, and for a
+    # second reason on top of that one's: splat_stats_cpu is one struct, overwritten
+    # by whichever cloud RenderSystem::DrawSplats draws last that frame, not indexed
+    # by cloud - so with the varied cloud from 'the composite is stable frame to
+    # frame' now sitting parked (off screen but still Base.visible) in the same
+    # scene, splat_info can report ITS all-zero stats instead of this cloud's
+    # whenever it draws second. A screenshot has no such ambiguity: it shows
+    # whatever is actually on screen, which is this cloud alone.
+    Reset-Cloud
+    Move-Entity -Entity $script:cloud -Position '0 0 80'
+    $base = Get-CloudShare 'point-size-base'
+    # The pass is not temporal (nothing here accumulates between frames - see 'the
+    # composite is stable frame to frame' above), so this is a deterministic
+    # geometric measurement rather than something with a stochastic floor to clear:
+    # a real change reads as a clean ratio, not as noise to out-margin. Asserted as a
+    # ratio rather than a percentage-point delta because the baseline itself is a
+    # small share of the view at this distance - a fixed point delta tuned for that
+    # would either miss a real change here or be too loose to mean anything nearer.
+    Assert-True -Condition ($base -gt 0.001) `
+        -Message "the baseline should itself be measurable ($([Math]::Round($base * 100, 3))% lit) - recalibrate the distance if this fires"
+
+    SendOk "set_component $($script:cloud) SplatCloud ""{'point_size_scale':8.0}""" | Out-Null
+    $grown = Get-CloudShare 'point-size-grown'
+    Assert-True -Condition ($grown -gt $base * 1.5) `
+        -Message ("a larger point size should cover more of the view " +
+                  "($([Math]::Round($base * 100, 3))% -> $([Math]::Round($grown * 100, 3))%)")
+
+    SendOk "set_component $($script:cloud) SplatCloud ""{'point_size_scale':0.2}""" | Out-Null
+    $shrunk = Get-CloudShare 'point-size-shrunk'
+    Assert-True -Condition ($shrunk -lt $base * 0.67) `
+        -Message ("a smaller point size should cover less of the view " +
+                  "($([Math]::Round($base * 100, 3))% -> $([Math]::Round($shrunk * 100, 3))%)")
+
+    SendOk "set_component $($script:cloud) SplatCloud ""{'point_size_scale':1.0}""" | Out-Null
+    Move-Entity -Entity $script:cloud -Position '0 0 0'
+}
+
 Test 'a second cloud draws too' {
     # The pass loops over entities, sizing its scratch buffers for the largest cloud
     # and re-binning per cloud. A loop that left the previous cloud's tile counts in
@@ -548,4 +631,170 @@ Test 'opaque geometry in front of a cloud hides it' {
     Move-Entity -Entity 'box_c' -Position $Parked
     Assert-True -Condition ($diff.DifferingShare -gt 0.05) `
         -Message "a cube in front of the cloud should change the frame, only $([Math]::Round($diff.DifferingShare * 100, 1))% of pixels differ"
+}
+
+#--- point-cloud normals ------------------------------------------------------
+# A plain coloured point cloud carries no per-point shape at all, so the minor-axis
+# derivation a trained Gaussian's normal comes from has nothing to work with: every
+# splat is an isotropic sphere, the tie-break picks the same basis column for all of
+# them, and the whole cloud comes out with ONE normal, split into two halves by the
+# sign resolution. SplatCloudData::Load fits those normals from the neighbouring
+# points instead - the plane through the k nearest, as the smallest eigenvector of
+# their covariance - which is the only place the information exists.
+#
+# The assertions are all on `render debug_buffer normal`, which for a splat shows the
+# normal the rasterizer wrote into rt_ray_sources1: the same value the lighting reads,
+# not a debug path of its own.
+
+# Imports the point cloud, makes a template and places one, parking the Gaussian cloud
+# so the two are never in shot together. Runs once.
+function Initialize-PointCloud {
+    if ($script:pcloud) { return }
+    Initialize-Suite
+    $ply = Join-Path $Assets 'Objects\pointcloud.ply'
+    New-PointCloudPly -Path $ply
+    SendOk "import_model ""$ply""" | Out-Null
+    SendOk 'create_template_from_model pointcloud point_obj' | Out-Null
+    SendOk 'place point_obj' | Out-Null
+    $names = Get-EntityNames -Session $Session
+    $script:pcloud = @($names | Where-Object { $_ -match '^point_obj' })[0]
+    Assert-True -Condition ($null -ne $script:pcloud) -Message 'the point cloud instance was placed'
+    Remove-StandInMesh -Entity $script:pcloud
+}
+
+# The point cloud alone, framed to fill the view.
+#
+# point_size_scale is doing real work here and is not cosmetic. A point cloud has no
+# scale_* to read, so every splat falls back to exp(0) = one world unit, twice the
+# radius of this whole shell. Left there the model is a single overlapping blob whose
+# normals average out to nothing, which would fail these tests with the fit working
+# perfectly. 0.07 is about the Gaussian fixture's exp(-2.6), so neighbours overlap
+# just enough to read as a surface.
+function Reset-PointCloud {
+    Initialize-PointCloud
+    Move-Entity -Entity $script:cloud -Position $Parked
+    SendOk "select $($script:pcloud)", 'set_position 0 0 0', 'set_scale 1 1 1' | Out-Null
+    SendOk "set_component $($script:pcloud) SplatCloud ""{'opacity_scale':1.0,'albedo_scale':1.0,'point_size_scale':0.07,'invert_normals':false,'surface_alpha':0.5}""" | Out-Null
+    SendOk 'deselect' | Out-Null
+    SendOk 'camera_rot 0 0 0', 'camera_pos 0 0 -1.2', 'camera_target 0 0 0' | Out-Null
+    SendOk 'render debug_gain 1' | Out-Null
+}
+
+# Mean of one channel over a band of the frame, given in fractions of the image.
+function Get-Band {
+    param([string]$Path, [string]$Channel,
+          [double]$Left, [double]$Top, [double]$Right, [double]$Bottom)
+    $s = Get-ImageStats -Path $Path -Left $Left -Top $Top -Right $Right -Bottom $Bottom -Step 2
+    switch ($Channel) {
+        'R' { return $s.MeanR }
+        'G' { return $s.MeanG }
+        'B' { return $s.MeanB }
+    }
+}
+
+Test 'a point cloud .ply renders with normals fitted from its neighbours' {
+    # The whole point. The normal buffer maps [-1,1] to [0,255], so a normal with no
+    # component along an axis reads as 127 on that channel.
+    #
+    # Before the fit existed, every splat of a point cloud got the same normal - world
+    # +X or -X - which is to say the green channel of this buffer was 127 everywhere,
+    # on every point cloud, whatever shape it was. On a sphere seen head on the fitted
+    # normals must instead sweep with the surface: green high above the equator (the
+    # normal tilts up), low below it, and the two far apart.
+    Reset-PointCloud
+    Step-EditorFrames -Session $Session -Count 8
+    SendOk 'render debug_buffer normal' | Out-Null
+    Step-EditorFrames -Session $Session -Count 6
+    $shot = Shot 'pointcloud-normal'
+    SendOk 'render debug_buffer off' | Out-Null
+
+    $upper = Get-Band -Path $shot -Channel 'G' -Left 0.46 -Top 0.36 -Right 0.54 -Bottom 0.43
+    $lower = Get-Band -Path $shot -Channel 'G' -Left 0.46 -Top 0.57 -Right 0.54 -Bottom 0.64
+    Assert-True -Condition (($upper - $lower) -gt 30) `
+        -Message ("the top of the sphere should face further up than the bottom " +
+                  "(green $([Math]::Round($upper, 1)) above, $([Math]::Round($lower, 1)) below)")
+
+    # And the same across, on red. A cloud that came out with one normal for every
+    # splat would pass NEITHER; one that kept the old +X/-X split would pass this and
+    # fail the green pair above, which is why both are here.
+    $left  = Get-Band -Path $shot -Channel 'R' -Left 0.36 -Top 0.46 -Right 0.43 -Bottom 0.54
+    $right = Get-Band -Path $shot -Channel 'R' -Left 0.57 -Top 0.46 -Right 0.64 -Bottom 0.54
+    Assert-True -Condition (($right - $left) -gt 30) `
+        -Message ("the right of the sphere should face further right than the left " +
+                  "(red $([Math]::Round($left, 1)) at left, $([Math]::Round($right, 1)) at right)")
+}
+
+Test 'point cloud normals are continuous rather than per-point noise' {
+    # The other failure this can have, and it is not the one above. The fit gives an
+    # AXIS, not a direction, and the sign is resolved by pointing it away from the
+    # cloud centroid - which says nothing at all where the surface runs through the
+    # centroid, and there the sign comes out of the fit's own error, one point at a
+    # time. Neighbouring splats then face opposite ways and the cloud renders as
+    # static rather than as a surface.
+    #
+    # Measured directly: neighbouring pixels of the normal buffer must be near each
+    # other. Across a row through the middle of the model the step from one pixel to
+    # the next is a few units on a fitted surface and ~128 on a sign that is dithering.
+    #
+    # Note this one does NOT discriminate the failure the test above catches, and was
+    # checked against it: a cloud where every splat shares one normal is perfectly
+    # continuous (two regions, one boundary between them) and passes this happily. The
+    # two guard different halves - that a normal was fitted at all, and that its sign
+    # was resolved consistently - and neither substitutes for the other.
+    Reset-PointCloud
+    Step-EditorFrames -Session $Session -Count 8
+    SendOk 'render debug_buffer normal' | Out-Null
+    Step-EditorFrames -Session $Session -Count 6
+    $shot = Shot 'pointcloud-normal-continuity'
+    SendOk 'render debug_buffer off' | Out-Null
+
+    Add-Type -AssemblyName System.Drawing
+    $bmp = New-Object System.Drawing.Bitmap($shot)
+    try {
+        $y = [int]($bmp.Height * 0.5)
+        $x0 = [int]($bmp.Width * 0.42)
+        $x1 = [int]($bmp.Width * 0.58)
+        $jumps = 0; $steps = 0
+        $prev = $bmp.GetPixel($x0, $y)
+        for ($x = $x0 + 1; $x -lt $x1; $x++) {
+            $p = $bmp.GetPixel($x, $y)
+            $d = [Math]::Max([Math]::Abs($p.R - $prev.R),
+                 [Math]::Max([Math]::Abs($p.G - $prev.G), [Math]::Abs($p.B - $prev.B)))
+            if ($d -gt 60) { $jumps++ }
+            $steps++
+            $prev = $p
+        }
+        $share = $jumps / [double]$steps
+        Assert-True -Condition ($share -lt 0.15) `
+            -Message ("normals across the model should vary smoothly, " +
+                      "$([Math]::Round($share * 100, 1))% of neighbouring pixels jump")
+    }
+    finally {
+        $bmp.Dispose()
+    }
+}
+
+Test 'invert_normals still flips a fitted point cloud' {
+    # The escape hatch for the half of the orientation nothing local can decide: a
+    # room scanned from inside comes out with every normal facing the wall. It acts on
+    # a fitted normal exactly as it does on a Gaussian's minor axis, so the buffer must
+    # come back mirrored about mid-grey rather than merely different.
+    Reset-PointCloud
+    Step-EditorFrames -Session $Session -Count 8
+    SendOk 'render debug_buffer normal' | Out-Null
+    Step-EditorFrames -Session $Session -Count 6
+    $before = Get-Band -Path (Shot 'pointcloud-normal-out') -Channel 'G' `
+                       -Left 0.46 -Top 0.36 -Right 0.54 -Bottom 0.43
+
+    SendOk "set_component $($script:pcloud) SplatCloud ""{'invert_normals':true}""" | Out-Null
+    Step-EditorFrames -Session $Session -Count 6
+    $after = Get-Band -Path (Shot 'pointcloud-normal-in') -Channel 'G' `
+                      -Left 0.46 -Top 0.36 -Right 0.54 -Bottom 0.43
+    SendOk "set_component $($script:pcloud) SplatCloud ""{'invert_normals':false}""" | Out-Null
+    SendOk 'render debug_buffer off' | Out-Null
+
+    Assert-True -Condition ((($before - 127.5) * ($after - 127.5)) -lt 0) `
+        -Message ("inverting should put the normal on the other side of mid-grey " +
+                  "(green $([Math]::Round($before, 1)) -> $([Math]::Round($after, 1)))")
+    Move-Entity -Entity $script:pcloud -Position $Parked
 }

@@ -82,14 +82,33 @@ Test 'SplatCloud serializes every field, not only the ones that differ from defa
     # changing nothing. Mesh's "smooth" documents the same trap.
     $splat = Get-Component -Session $Session -Entity 'box_a' -Component 'SplatCloud'
     foreach ($field in @('name', 'opacity_scale', 'albedo_scale', 'spec_intensity',
-                         'invert_normals', 'surface_alpha', 'max_density')) {
+                         'point_size_scale', 'invert_normals', 'surface_alpha', 'max_density')) {
         Assert-True -Condition ($null -ne $splat.$field) -Message "SplatCloud.$field is serialized"
     }
     # Every one of these is at its default, which is precisely the case that would
     # be missing if ToJson wrote conditionally.
     Assert-Near -Expected 1.0 -Actual $splat.opacity_scale
     Assert-Near -Expected 1.0 -Actual $splat.albedo_scale
+    Assert-Near -Expected 1.0 -Actual $splat.point_size_scale
     Assert-Equal -Expected 'False' -Actual $splat.invert_normals
+}
+
+Test 'point_size_scale edits and is floored above zero' {
+    # The multiplier a plain point-cloud import (no Gaussian parameters, so no real
+    # per-splat size) is tuned through, since the loader's guessed radius is baked
+    # into the cloud data at import time and cannot itself be edited live.
+    SendOk "set_component box_a SplatCloud ""{'point_size_scale':2.5}""" | Out-Null
+    $splat = Get-Component -Session $Session -Entity 'box_a' -Component 'SplatCloud'
+    Assert-Near -Expected 2.5 -Actual $splat.point_size_scale
+
+    # Floored well above zero rather than allowed to reach it: the value is squared
+    # into a covariance in SplatPreprocessCS, and zero collapses every splat to the
+    # same singular conic a splat seen edge-on is rejected for.
+    SendOk "set_component box_a SplatCloud ""{'point_size_scale':-1.0}""" | Out-Null
+    $splat = Get-Component -Session $Session -Entity 'box_a' -Component 'SplatCloud'
+    Assert-Near -Expected 0.01 -Actual $splat.point_size_scale -Message 'a non-positive value is floored, not rejected'
+
+    SendOk "set_component box_a SplatCloud ""{'point_size_scale':1.0}""" | Out-Null
 }
 
 Test 'whether a cloud renders is Base.visible, not a flag of its own' {
@@ -267,16 +286,16 @@ Test 'Create Template turns an imported cloud into a placeable object' {
     Assert-True -Condition ($null -ne $blocks['SplatCloud']) -Message 'the template carries the cloud'
     Assert-Equal -Expected 'testcloud' -Actual $blocks['SplatCloud'].name
 
-    # KNOWN LIMITATION, asserted so it is visible rather than surprising: the
-    # template also carries the built-in cube. World::CreateTemplate gives every
-    # template a Mesh so that one with nothing authored is immediately placeable,
-    # and SpawnInstance/GetTemplateEntity both require a template entity to have
-    # Mesh + Bounds + Transform - so a splat template cannot simply drop it without
-    # reworking those two. Until the splat render pass exists this is invisible
-    # anyway; once it does, a splat object rendering *inside a white cube* is the
-    # symptom, and this assertion is the note explaining why.
-    Assert-True -Condition ($null -ne $blocks['Mesh']) `
-        -Message 'a splat template still gets the stand-in cube (see comment)'
+    # FIXED, was a KNOWN LIMITATION: this used to also carry the built-in cube,
+    # because World::CreateTemplate gave every template a Mesh unconditionally (so
+    # one with nothing authored was immediately placeable) and
+    # SpawnInstance/GetTemplateEntity required Mesh+Bounds+Transform to spawn
+    # anything at all. Neither is true any more - a template carries only what its
+    # JSON authors, and SpawnTemplateEntities spawns a single-entity template
+    # regardless of what it does or does not have - so a splat template built from
+    # a model with no mesh nodes genuinely has none.
+    Assert-True -Condition ($null -eq $blocks['Mesh']) `
+        -Message 'a splat template no longer carries a stand-in cube'
 }
 
 Test 'a splat template can be placed in the level' {

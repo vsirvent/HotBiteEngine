@@ -14,16 +14,45 @@ Test 'list_templates reports both storage forms' {
     Assert-Match -Pattern 'in=level' -Actual (TemplateLine -Name 'tf_box') -Message 'inline in the level'
 }
 
-Test 'create_template makes a placeable default cube' {
+Test 'create_template makes a bare template, like Add/Entity' {
+    # Base+Transform only - the two the component registry itself marks
+    # entity-mandatory. A template used to force Mesh/Material/Bounds on top of
+    # these so it was immediately a placeable cube; now it starts exactly as
+    # minimal as a bare scene entity and the user adds whatever it needs.
     SendOk 'create_template widget' | Out-Null
     Assert-Match -Pattern 'unsaved' -Actual (TemplateLine -Name 'widget')
     $blocks = Get-TemplateInfo -Session $Session -Template 'widget'
-    foreach ($c in @('Base', 'Transform', 'Mesh', 'Material', 'Bounds')) {
+    foreach ($c in @('Base', 'Transform')) {
         Assert-True -Condition $blocks.ContainsKey($c) -Message "a new template declares $c"
     }
+    foreach ($c in @('Mesh', 'Material', 'Bounds')) {
+        Assert-False -Condition $blocks.ContainsKey($c) -Message "a new template no longer forces $c"
+    }
+    # Still placeable - an invisible marker with nothing to render, exactly as a
+    # bare Add/Entity would be, since World::SpawnTemplateEntities no longer needs
+    # Mesh/Bounds to spawn something.
     $placed = Get-PlacedInstance -Result (Send 'place widget')[0]
     Assert-Contains -Collection (Get-EntityNames -Session $Session) -Value $placed.Name -Message 'after place'
     Assert-Near -Expected 0.0 -Actual $placed.X -Tolerance 0.0001 -Message 'origin placement is reproducible'
+}
+
+Test 'Mesh, Material and Bounds are ordinary addable/removable components on a template' {
+    foreach ($c in @('Mesh', 'Material', 'Bounds')) {
+        SendOk "template_add_component widget $c" | Out-Null
+    }
+    $blocks = Get-TemplateInfo -Session $Session -Template 'widget'
+    foreach ($c in @('Mesh', 'Material', 'Bounds')) {
+        Assert-True -Condition $blocks.ContainsKey($c) -Message "$c was added"
+    }
+    # Placeable as the built-in cube now, the same shape the old forced defaulting
+    # produced - the difference is that this was asked for, not assumed.
+    $placed = Get-PlacedInstance -Result (Send 'place widget')[0]
+    Assert-Contains -Collection (Get-EntityNames -Session $Session) -Value $placed.Name
+
+    SendOk 'template_remove_component widget Bounds' | Out-Null
+    Assert-False -Condition (Get-TemplateInfo -Session $Session -Template 'widget').ContainsKey('Bounds') `
+        -Message 'Bounds can be removed again, like any other component'
+    SendOk 'template_add_component widget Bounds' | Out-Null
 }
 
 Test 'create_template rejects a duplicate name' {
@@ -64,8 +93,8 @@ Test 'template_add_component and template_remove_component' {
     Assert-False -Condition (Get-TemplateInfo -Session $Session -Template 'widget').ContainsKey('Physics')
 }
 
-Test 'the components that make a template placeable cannot be removed' {
-    foreach ($c in @('Base', 'Transform', 'Mesh', 'Material', 'Bounds')) {
+Test 'Base and Transform cannot be removed' {
+    foreach ($c in @('Base', 'Transform')) {
         Assert-Err -Result (Send "template_remove_component widget $c")[0] -Message "$c is mandatory"
     }
 }
@@ -108,6 +137,25 @@ Test 'template_from_entity captures a scene entity' {
     $blocks = Get-TemplateInfo -Session $Session -Template 'from_box'
     Assert-True -Condition $blocks.ContainsKey('Mesh') -Message 'the entity mesh came across'
     Assert-Near -Expected 1.5 -Actual $blocks['Transform'].scale.x -Tolerance 0.001
+}
+
+Test 'template_from_entity carries only what the source entity actually has' {
+    # A mesh-less entity (Add/Entity's bare Base+Transform) used to be refused
+    # outright - "has no Mesh, so it cannot become a template" - purely because a
+    # mesh-less template used to be unspawnable. Now it is accepted, and
+    # SerializeEntityAsTemplate copies only what is actually there: no Mesh, no
+    # Material, no Bounds sneaked in on top of the source entity's real component
+    # set.
+    SendOk 'menu "Add/Entity"' | Out-Null
+    SendOk 'template_from_entity Entity from_marker' | Out-Null
+    $blocks = Get-TemplateInfo -Session $Session -Template 'from_marker'
+    foreach ($c in @('Base', 'Transform')) {
+        Assert-True -Condition $blocks.ContainsKey($c) -Message "from_marker carries $c"
+    }
+    foreach ($c in @('Mesh', 'Material', 'Bounds')) {
+        Assert-False -Condition $blocks.ContainsKey($c) -Message "from_marker does not gain $c"
+    }
+    Assert-Ok -Result (Send 'place from_marker')[0] -Message 'a mesh-less template is still placeable'
 }
 
 Test 'template_storage moves a template between .tpl and inline' {

@@ -81,10 +81,13 @@ namespace HotBiteEditor {
 		}
 
 		bool IsMandatory(const std::string& component) {
-			//Exactly what World::SpawnInstance reads off a template entity to clone it.
-			return component == Base::NAME || component == Transform::NAME ||
-				component == Mesh::NAME || component == Material::NAME ||
-				component == Bounds::NAME;
+			//The two the component registry itself marks entity-mandatory - exactly
+			//ComponentPolicy::Mandatory, and exactly what a bare Add/Entity gets. A
+			//template used to force Mesh/Material/Bounds on top of these (so it was
+			//always immediately placeable), but World::SpawnTemplateEntities no
+			//longer needs them to spawn something: a template starts this minimal
+			//and everything else is added like any other component.
+			return component == Base::NAME || component == Transform::NAME;
 		}
 
 		std::string TemplateFilePath(const EditorState& state, const std::string& name) {
@@ -744,12 +747,11 @@ namespace HotBiteEditor {
 				error = "a template named '" + template_name + "' already exists";
 				return false;
 			}
-			if (!c->ContainsComponent<Mesh>(e) || !c->ContainsComponent<Transform>(e)) {
-				//Without a mesh there is nothing for SpawnInstance to clone, so the
-				//template would register but never place anything.
-				error = entity_name + " has no Mesh/Transform, so it cannot become a template";
-				return false;
-			}
+			//No Mesh requirement: World::SpawnTemplateEntities spawns a template
+			//entity whatever components it does or does not carry, and
+			//SerializeEntityAsTemplate below already copies only what the source
+			//entity actually has - so a template made from a mesh-less entity (a
+			//marker, a trigger volume) faithfully carries nothing more than that.
 
 			nlohmann::json components = SerializeEntityAsTemplate(state, c, e);
 
@@ -851,9 +853,8 @@ namespace HotBiteEditor {
 			if (pivot_root) {
 				//No one of the pieces *is* the object, so the template's own body is an
 				//invisible marker at the root's pose: something to select, move and
-				//rotate the assembly by. It keeps the default cube CreateTemplate gives
-				//every template - hidden rather than absent, because a template with no
-				//mesh is not spawnable at all (see World::SpawnInstance).
+				//rotate the assembly by. Genuinely mesh-less - World::SpawnTemplateEntities
+				//no longer needs a stand-in cube to spawn something.
 				components[Base::NAME] = { {"visible", false}, {"cast_shadow", false},
 										   {"draw_depth", false} };
 				components[Transform::NAME] = {
@@ -863,10 +864,9 @@ namespace HotBiteEditor {
 					{"scale", {{"x", 1.0f}, {"y", 1.0f}, {"z", 1.0f}}} };
 			}
 			else {
-				if (!c->ContainsComponent<Mesh>(root)) {
-					error = root_entity + " has no Mesh, so it cannot be the root of a template";
-					return false;
-				}
+				//No Mesh requirement here either - see the matching note in
+				//CreateFromEntity, which this falls back on for any part that is not
+				//already a placed instance.
 				components = SerializeEntityAsTemplate(state, c, root);
 			}
 

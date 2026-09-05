@@ -135,19 +135,32 @@ Write-Json -File (Join-Path $assets 'Templates\tf_marker.tpl') -Value @{
     components = @{
         Transform = @{ scale = @{ x = 0.5; y = 0.5; z = 0.5 } }
         Material  = @{ name = 'TestBlue' }
+        # A template no longer gets Mesh/Bounds for free (see tf_box below) -
+        # authored explicitly so this still renders as a visible, collidable box
+        # exactly as it did when CreateTemplate defaulted them in.
+        Mesh      = @{}
+        Bounds    = @{}
     }
 }
 
 #--- the level ----------------------------------------------------------------
 $templates = @(
     # A Camera component is what makes EditorCamera find a camera at all; without
-    # one every camera_* command answers "no camera (load a level first)".
+    # one every camera_* command answers "no camera (load a level first)". Mesh/
+    # Material/Bounds are authored explicitly (see tf_box) so camera_rig stays the
+    # same visible, selectable mesh entity it always was.
     @{ name = 'tf_camera'; components = @{
-        Camera = @{ position = @{ x = 12.0; y = 9.0; z = -14.0 }
-                    direction = @{ x = 0.0; y = 1.0; z = 0.0 } } } },
-    # No Mesh/Material block: CreateTemplate substitutes the built-in cube and the
-    # default white material, which is what makes an FBX-free fixture possible.
-    @{ name = 'tf_box'; components = @{} },
+        Camera   = @{ position = @{ x = 12.0; y = 9.0; z = -14.0 }
+                      direction = @{ x = 0.0; y = 1.0; z = 0.0 } }
+        Mesh     = @{}
+        Material = @{}
+        Bounds   = @{} } },
+    # A template only carries what it authors now - CreateTemplate no longer
+    # defaults in Mesh/Material/Bounds for a template that does not ask for them.
+    # Authoring all three as empty blocks is what asks for "give me the built-in
+    # cube and the default white material", exactly what this fixture always
+    # rendered as; it is what makes an FBX-free fixture possible.
+    @{ name = 'tf_box'; components = @{ Mesh = @{}; Material = @{}; Bounds = @{} } },
     @{ file = 'Templates\tf_marker.tpl' }
 )
 $instances = @(
@@ -178,9 +191,12 @@ if ($Kind -eq 'models' -or $Kind -eq 'lods') {
     )
     $materialFiles += 'troll\troll.mat'
     # A ground slab, so the render suite has something for shadows to fall on and
-    # something filling the middle of the view to measure.
+    # something filling the middle of the view to measure. Mesh/Bounds authored
+    # explicitly (see tf_box) - the built-in cube, scaled flat by the instance below.
     $templates += @{ name = 'tf_ground'; components = @{
+        Mesh     = @{}
         Material = @{ name = 'TestRed' }
+        Bounds   = @{}
         Physics  = @{ type = 'STATIC'; shape = 'BOX' }
     } }
     $instances += @{ name = 'ground'; template = 'tf_ground'
@@ -191,6 +207,9 @@ if ($Kind -eq 'models' -or $Kind -eq 'lods') {
                        clips = @{ idle = 'troll_idle'; walk = 'troll_walk' }
                        animation = 'idle'; animation_loop = $true; animation_speed = 1.0 }
         Material  = @{ name = 'TrollMaterial' }
+        # Bounds is no longer implied by Mesh alone - authored empty so it still
+        # auto-measures from the mesh, which the DYNAMIC/CAPSULE collider needs.
+        Bounds    = @{}
         # Scale and the -90 degrees about X that stands a Z-up export upright,
         # matching Tests/DemoGame/Templates/troll.tpl - so world-space assertions
         # ("the collider is taller than it is wide") mean what they say.
@@ -235,6 +254,9 @@ if ($Kind -eq 'lods') {
     $templates += @{ name = 'tf_dome'; components = @{
         Mesh      = @{ name = 'Space' }
         Material  = @{ name = 'TestRed' }
+        # Authored empty so it still auto-measures from the mesh - Bounds is no
+        # longer implied by Mesh alone, and a LOD chain needs a real one to switch.
+        Bounds    = @{}
         Transform = @{ scale = @{ x = 0.02; y = 0.02; z = 0.02 } }
     } }
     $instances += @{ name = 'dome_a'; template = 'tf_dome'

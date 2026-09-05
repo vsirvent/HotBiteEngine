@@ -959,6 +959,7 @@ namespace HotBite {
 				j["opacity_scale"] = opacity_scale;
 				j["albedo_scale"] = albedo_scale;
 				j["spec_intensity"] = spec_intensity;
+				j["point_size_scale"] = point_size_scale;
 				j["invert_normals"] = invert_normals;
 				j["surface_alpha"] = surface_alpha;
 				j["max_density"] = max_density;
@@ -1002,6 +1003,14 @@ namespace HotBite {
 				}
 				if (j.contains("spec_intensity") && j["spec_intensity"].is_number()) {
 					spec_intensity = j["spec_intensity"].get<float>();
+				}
+				if (j.contains("point_size_scale") && j["point_size_scale"].is_number()) {
+					//Floored well above zero: the covariance it scales is squared against
+					//this, so a value at or below zero collapses every splat to a singular
+					//(non-invertible) conic in SplatPreprocessCS, which is the same
+					//degenerate case a splat seen edge-on hits and is rejected for.
+					const float p = j["point_size_scale"].get<float>();
+					point_size_scale = (p < 0.01f) ? 0.01f : p;
 				}
 				if (j.contains("invert_normals") && j["invert_normals"].is_boolean()) {
 					invert_normals = j["invert_normals"].get<bool>();

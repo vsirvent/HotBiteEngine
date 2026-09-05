@@ -29,19 +29,15 @@ cbuffer externalData : register(b0)
 	uint  tiles_x;
 	uint  tiles_y;
 	uint  bin_pass;            // 0 = count, 1 = scatter
+	// The near/far window every splat's bucket index is quantized over - the same one
+	// SplatPreprocessCS and SplatRasterCS use, so a splat's bucket here, its priority
+	// there and its co-location group in the rasterizer are all the same number.
 	float depth_quant_min;
 	float depth_quant_range;
-	// The cloud's whole quantized depth range (SPLAT_MAX_DEPTH_STEP), so the bands this
-	// pass files entries into span everything and nothing is clamped into the last one.
-	// In quantization steps, so the comparison is against exactly what tile_depth holds.
-	// SplatRasterCS MUST be handed the same value - it re-derives each entry's band from
-	// this to know which bucket the entry was filed in.
-	uint  bucket_span_steps;
 	uint  entry_capacity;      // size of the pool, in entries
 }
 
 StructuredBuffer<SplatView> splat_views : register(t0);
-Buffer<uint> tile_depth : register(t1);
 // Where each tile's slice starts in the pool. Only read in the scatter pass - it does
 // not exist yet during the count.
 Buffer<uint> tile_base : register(t2);
@@ -82,27 +78,14 @@ void main(uint3 tid : SV_DispatchThreadID)
 		for (int tx = tx0; tx <= tx1; ++tx) {
 			uint tile = ty * tiles_x + tx;
 
-			// The tile's nearest splat, which is what the depth bands are measured from.
-			// Nothing is rejected against it, and that is a deliberate reversal: an
-			// earlier version culled everything more than a window behind it, and
-			// because the window is anchored to a *per-tile* minimum, the threshold
-			// stepped at every tile boundary and so did the set of splats that
-			// survived. That drew the 16x16 grid this pass exists to not draw - the
-			// same artifact the fixed per-tile capacity used to cause, from a different
-			// direction. It also cost real coverage: removing it raised the pixels this
-			// pass writes by about a fifth.
-			//
-			// Bucketing against the same value is safe where culling was not, because
-			// a bucket only decides *where in the slice* an entry lands, and the
-			// rasterizer's accumulation is order-independent. Entries past the last
-			// band are clamped into it rather than dropped.
-			uint near_q = tile_depth[tile];
-			if (near_q == SPLAT_NO_DEPTH) {
-				near_q = q;
-			}
-
-			uint slot = tile * SPLAT_DEPTH_BUCKETS +
-						SplatDepthBucket(q, near_q, bucket_span_steps);
+			// q is already the bucket: SPLAT_DEPTH_BUCKETS buckets over a
+			// SPLAT_MAX_DEPTH_STEP-wide quantization is exactly one bucket per step (see
+			// SplatCommon.hlsli), so every tile sorts against the same global near/far
+			// window instead of one re-based on its own nearest splat. Nothing is
+			// rejected here, matching the tile-relative scheme this replaced: an even
+			// earlier version culled against a per-tile threshold, which stepped at
+			// every tile boundary and drew a 16x16 grid over the cloud.
+			uint slot = tile * SPLAT_DEPTH_BUCKETS + q;
 			uint at;
 			InterlockedAdd(bucket_offsets[slot], 1, at);
 

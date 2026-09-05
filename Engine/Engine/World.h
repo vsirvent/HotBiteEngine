@@ -355,10 +355,14 @@ namespace HotBite {
 			// It is stored in two halves, and they deliberately hold different things:
 			//
 			//   - a template *entity* in the templates coordinator, carrying only what
-			//     SpawnInstance clones (Base/Transform/Bounds/Mesh/Material/Lighted).
-			//     Components that own engine resources are kept off it on purpose: a
-			//     Physics block applied to a template entity would create a rigid body
-			//     in the physics world for something that is not in the scene at all.
+			//     SpawnInstance clones (Base/Transform always; Mesh/Material/Bounds
+			//     when the caller actually authors them - a template starts out
+			//     carrying only Base+Transform, exactly like CreateEmptyEntity, and
+			//     Mesh/Material/Bounds are added, updated or removed one at a time as
+			//     the authored JSON gains or drops their keys). Components that own
+			//     engine resources are kept off it on purpose: a Physics block applied
+			//     to a template entity would create a rigid body in the physics world
+			//     for something that is not in the scene at all.
 			//
 			//   - the full component JSON, applied by SpawnInstance to every entity
 			//     spawned from the template. That is what carries Physics, the selected

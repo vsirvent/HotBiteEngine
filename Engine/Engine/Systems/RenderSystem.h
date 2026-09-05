@@ -648,8 +648,11 @@ namespace HotBite {
 				//refills them - so these are sized for the *largest* cloud on screen
 				//rather than for all of them, and grown on demand by EnsureSplatBuffers.
 				Core::RWStructuredBuffer splat_views;
-				//Per tile, the quantized depth of the nearest splat touching it, which is
-				//what SplatBinCS culls against.
+				//Per tile, the quantized depth of the nearest splat touching it. SplatBinCS
+				//bins directly on each splat's own global quantized depth now (see the
+				//note on SPLAT_DEPTH_BUCKETS in SplatCommon.hlsli), so this buffer's only
+				//remaining reader is SplatCompactCS's occupancy test - a tile still
+				//holding SPLAT_NO_DEPTH is exactly one no splat touched.
 				Core::RWTypedBuffer splat_tile_depth;
 				//tiles * SPLAT_DEPTH_BUCKETS. The histogram after pass 0, each bucket's
 				//offset within its tile after the scan, and the scatter's cursors after
