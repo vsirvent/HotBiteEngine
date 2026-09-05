@@ -34,5 +34,17 @@ namespace HotBiteEditor {
 			const HotBite::Engine::float3& ray_origin,
 			const HotBite::Engine::float3& ray_dir,
 			float* out_distance = nullptr);
+
+		// Applies one gizmo interaction to the current selection without a live
+		// mouse drag - the same math and undo/history bookkeeping a real drag
+		// produces (including grid snapping), for automation and tests that need
+		// to exercise translate/rotate/scale without a literal mouse-driven
+		// session (see EditorAutomation.cpp's simulate_gizmo_drag). `axis` is
+		// 0/1/2 for X/Y/Z, or -1 for the scale tool's uniform handle (ignored in
+		// Translate/Rotate). `amount` is exactly what a real drag would have
+		// measured: a world-space distance along the axis (Translate), radians
+		// swept since mouse-down (Rotate), or a scale factor since mouse-down
+		// (Scale). No-op when nothing in the selection is editable.
+		void SimulateDrag(EditorState& state, GizmoMode mode, int axis, float amount);
 	}
 }

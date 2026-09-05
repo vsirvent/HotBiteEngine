@@ -51,6 +51,7 @@
     <ClCompile Include="RenderSettings.cpp" />
     <ClCompile Include="RenderDocIntegration.cpp" />
     <ClCompile Include="SelectionGizmo.cpp" />
+    <ClCompile Include="GridOverlay.cpp" />
     <ClCompile Include="Selection.cpp" />
     <ClCompile Include="PhysicsDebug.cpp" />
     <ClCompile Include="ShaderReload.cpp" />
@@ -88,6 +89,8 @@
     <ClInclude Include="RenderSettings.h" />
     <ClInclude Include="RenderDocIntegration.h" />
     <ClInclude Include="SelectionGizmo.h" />
+    <ClInclude Include="GridOverlay.h" />
+    <ClInclude Include="GridSnap.h" />
     <ClInclude Include="Selection.h" />
     <ClInclude Include="PhysicsDebug.h" />
     <ClInclude Include="ShaderReload.h" />

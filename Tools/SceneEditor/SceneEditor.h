@@ -180,6 +180,15 @@ namespace HotBiteEditor {
 		std::vector<HotBite::Engine::ECS::Entity> selected_entities;
 		HotBite::Engine::float3 inspector_euler_degrees{ 0.0f, 0.0f, 0.0f };
 		GizmoMode gizmo_mode = GizmoMode::Translate;
+
+		// Grid snapping for the gizmo (SelectionGizmo.cpp) and template placement
+		// (AssetBrowser.cpp's ViewCenterPosition). Persisted per level under
+		// "editor"/"grid" alongside entity_groups below (see SceneSerializer.cpp) -
+		// it is editor-only state the engine loader never reads.
+		bool grid_snap_enabled = false;
+		float grid_size = 1.0f;                    // world units a translate snaps to
+		float grid_rotation_step_degrees = 15.0f;  // degrees a rotate drag snaps to
+		float grid_scale_step = 0.1f;              // scale-factor step a scale drag snaps to
 		ColliderView collider_view = ColliderView::Off;
 		// Which shadow debug tint the scene is rendered with (see ShadowDebug.h). View
 		// state, so it records no undo history - but unlike the collider overlay it
@@ -418,6 +427,7 @@ namespace HotBiteEditor {
 
 		void DrawMenuBar();
 		void DrawDeleteRequest();
+		void DrawGridSettingsPopup();
 
 		// Updates the overlay and paints one frame of it. Called for every phase
 		// World::Load reports plus the editor-side steps that follow it.

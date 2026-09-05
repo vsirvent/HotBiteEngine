@@ -626,6 +626,16 @@ namespace HotBiteEditor {
 			}
 			level["editor"]["groups"] = groups;
 
+			//5) Grid snapping (SceneEditor.h's grid_snap_enabled/grid_size/
+			//   grid_rotation_step_degrees/grid_scale_step) - editor-only view
+			//   state, same "editor" block as the groups above.
+			level["editor"]["grid"] = {
+				{ "enabled", state.grid_snap_enabled },
+				{ "size", state.grid_size },
+				{ "rotation_step_degrees", state.grid_rotation_step_degrees },
+				{ "scale_step", state.grid_scale_step },
+			};
+
 			std::ofstream out(state.current_level_path);
 			out << level.dump(4);
 			out.close();
@@ -657,6 +667,13 @@ namespace HotBiteEditor {
 		{
 			state.entity_groups.clear();
 			state.entity_group_of.clear();
+			//Grid snapping is per-level view state (like the groups above); reset to
+			//the EditorState defaults so a level with no "grid" block - or none at
+			//all, on File/New - doesn't inherit whatever a previously open level had.
+			state.grid_snap_enabled = false;
+			state.grid_size = 1.0f;
+			state.grid_rotation_step_degrees = 15.0f;
+			state.grid_scale_step = 0.1f;
 			state.renamed_entities.clear();
 			state.cloned_entities.clear();
 			state.created_entities.clear();
@@ -833,20 +850,33 @@ namespace HotBiteEditor {
 				}
 			}
 
-			if (!level.contains("editor") || !level["editor"].contains("groups") ||
-				!level["editor"]["groups"].is_object()) {
+			if (!level.contains("editor")) {
 				return;
 			}
-			for (const auto& [group, members] : level["editor"]["groups"].items()) {
-				state.entity_groups.insert(group);
-				if (!members.is_array()) {
-					continue;
-				}
-				for (const auto& m : members) {
-					if (m.is_string()) {
-						state.entity_group_of[m.get<std::string>()] = group;
+			const json& editor = level["editor"];
+
+			if (editor.contains("groups") && editor["groups"].is_object()) {
+				for (const auto& [group, members] : editor["groups"].items()) {
+					state.entity_groups.insert(group);
+					if (!members.is_array()) {
+						continue;
+					}
+					for (const auto& m : members) {
+						if (m.is_string()) {
+							state.entity_group_of[m.get<std::string>()] = group;
+						}
 					}
 				}
+			}
+
+			//Grid snapping - defaults (see EditorState) apply as-is to a level saved
+			//before this existed, so every key is read with value().
+			if (editor.contains("grid") && editor["grid"].is_object()) {
+				const json& grid = editor["grid"];
+				state.grid_snap_enabled = grid.value("enabled", state.grid_snap_enabled);
+				state.grid_size = grid.value("size", state.grid_size);
+				state.grid_rotation_step_degrees = grid.value("rotation_step_degrees", state.grid_rotation_step_degrees);
+				state.grid_scale_step = grid.value("scale_step", state.grid_scale_step);
 			}
 		}
 

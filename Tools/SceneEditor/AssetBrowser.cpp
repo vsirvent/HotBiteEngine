@@ -1,6 +1,7 @@
 #include "AssetBrowser.h"
 #include "EditorHistory.h"
 #include "EditorLayout.h"
+#include "GridSnap.h"
 #include "Inspector.h"
 #include "Selection.h"
 #include "SelectionGizmo.h"
@@ -409,6 +410,13 @@ namespace HotBiteEditor {
 				//Sit the object's underside on the surface instead of burying its
 				//middle in it.
 				out.y -= bottom_offset;
+			}
+			if (state.grid_snap_enabled) {
+				//World-space XZ only: Y already rests on whatever surface was hit
+				//(or sits at a fixed view-ray distance with nothing hit), and
+				//snapping it too would either bury the object or float it.
+				out.x = GridSnap::SnapValue(out.x, state.grid_size);
+				out.z = GridSnap::SnapValue(out.z, state.grid_size);
 			}
 			out = { out.x - base_position.x, out.y - base_position.y, out.z - base_position.z };
 			return true;

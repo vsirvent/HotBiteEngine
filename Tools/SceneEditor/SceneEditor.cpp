@@ -16,6 +16,7 @@
 #include "RenderSettings.h"
 #include "RenderDocIntegration.h"
 #include "SelectionGizmo.h"
+#include "GridOverlay.h"
 #include "Selection.h"
 #include "PhysicsDebug.h"
 #include "ShadowDebug.h"
@@ -325,6 +326,17 @@ namespace HotBiteEditor {
 			[this]() { return level_loaded; },
 			[this]() { state.show_log_panel = !state.show_log_panel; },
 			[this]() { return state.show_log_panel; } });
+		//View: grid snapping for the gizmo (SelectionGizmo.cpp) and template
+		//placement (AssetBrowser.cpp). "Grid Settings..." opens a popup with the
+		//three step values; see DrawGridSettingsPopup.
+		menu_commands.push_back({ "View/Grid Snap",
+			[this]() { return level_loaded; },
+			[this]() { state.grid_snap_enabled = !state.grid_snap_enabled; },
+			[this]() { return state.grid_snap_enabled; } });
+		menu_commands.push_back({ "View/Grid Settings...",
+			[this]() { return level_loaded; },
+			[this]() { ImGui::OpenPopup("Grid Settings"); },
+			nullptr });
 		//View: physics collider wireframes (see PhysicsDebug.h). Two entries acting
 		//as a radio group - clicking the active one turns the overlay off - because
 		//"all" is expensive enough on a terrain-heavy scene to want the selection-only
@@ -559,8 +571,10 @@ namespace HotBiteEditor {
 			PhysicsDebug::Draw(state);
 			ShadowDebug::Draw(state);
 			RenderSettings::DrawOverlay(*this);
+			GridOverlay::Draw(state);
 			SelectionGizmo::Draw(state);
 			DrawDeleteRequest();
+			DrawGridSettingsPopup();
 		}
 		//A View/Reset Layout request has now been consumed by every visible panel.
 		state.apply_default_layout = false;
@@ -621,6 +635,26 @@ namespace HotBiteEditor {
 				ImGui::CloseCurrentPopup();
 			}
 			else if (cancel) {
+				ImGui::CloseCurrentPopup();
+			}
+			ImGui::EndPopup();
+		}
+	}
+
+	//The three grid-snap step values (SceneEditor.h's grid_size/grid_rotation_step_degrees/
+	//grid_scale_step), opened from View/Grid Settings.... Not gated on grid_snap_enabled -
+	//the values are worth tuning before switching snapping on.
+	void SceneEditorApp::DrawGridSettingsPopup()
+	{
+		ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+		ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+		if (ImGui::BeginPopupModal("Grid Settings", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+			ImGui::Checkbox("Enabled", &state.grid_snap_enabled);
+			ImGui::DragFloat("Position step", &state.grid_size, 0.05f, 0.01f, 1000.0f, "%.2f world units");
+			ImGui::DragFloat("Rotation step", &state.grid_rotation_step_degrees, 0.5f, 0.1f, 180.0f, "%.1f degrees");
+			ImGui::DragFloat("Scale step", &state.grid_scale_step, 0.01f, 0.01f, 10.0f, "%.2f");
+			ImGui::Separator();
+			if (ImGui::Button("Close", ImVec2(90.0f, 0.0f)) || ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
 				ImGui::CloseCurrentPopup();
 			}
 			ImGui::EndPopup();

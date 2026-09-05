@@ -2,6 +2,7 @@
 #include "EditorHistory.h"
 #include "ProjectBrowser.h"
 #include "Inspector.h"
+#include "SelectionGizmo.h"
 #include "AssetBrowser.h"
 #include "MaterialPanel.h"
 #include "MultiMaterialPanel.h"
@@ -130,6 +131,10 @@ namespace HotBiteEditor {
 			j["selected_template"] = state.selected_template;
 			static const char* GIZMO_MODE_NAME[3] = { "translate", "rotate", "scale" };
 			j["gizmo_mode"] = GIZMO_MODE_NAME[(int)state.gizmo_mode];
+			j["grid_snap_enabled"] = state.grid_snap_enabled;
+			j["grid_size"] = state.grid_size;
+			j["grid_rotation_step_degrees"] = state.grid_rotation_step_degrees;
+			j["grid_scale_step"] = state.grid_scale_step;
 			static const char* COLLIDER_VIEW_NAME[3] = { "off", "selection", "all" };
 			j["collider_view"] = COLLIDER_VIEW_NAME[(int)state.collider_view];
 			j["placed_instances"] = state.placed_instances.size();
@@ -1166,6 +1171,64 @@ namespace HotBiteEditor {
 					else {
 						response_lines.push_back("ERR " + error);
 					}
+				}
+			}
+			//--- Grid snapping (see GridSnap.h / SelectionGizmo.cpp). Toggling is also
+			//scriptable for free via `menu "View/Grid Snap"` once registered; these two
+			//exist for setting the numeric step values, which have no menu equivalent.
+			else if (cmd == "set_grid_snap") {
+				if (args.size() < 2) {
+					response_lines.push_back("ERR usage: set_grid_snap <0|1>");
+				}
+				else {
+					state.grid_snap_enabled = (args[1] != "0");
+					response_lines.push_back("OK");
+				}
+			}
+			else if (cmd == "set_grid_size") {
+				float size = 0.0f;
+				if (!ParseFloats(args, 1, 1, &size)) {
+					response_lines.push_back("ERR usage: set_grid_size <size> [rotation_deg] [scale_step]");
+				}
+				else {
+					state.grid_size = size;
+					if (args.size() >= 3) {
+						try { state.grid_rotation_step_degrees = std::stof(args[2]); } catch (...) {}
+					}
+					if (args.size() >= 4) {
+						try { state.grid_scale_step = std::stof(args[3]); } catch (...) {}
+					}
+					response_lines.push_back("OK");
+				}
+			}
+			//Applies one gizmo interaction (translate/rotate/scale) to the current
+			//selection without a literal mouse drag - see SelectionGizmo::SimulateDrag.
+			//Exercises the exact same math and grid-snap path a real drag does, the
+			//same way camera_orbit/camera_pan simulate a mouse drag for the camera.
+			else if (cmd == "simulate_gizmo_drag") {
+				float amount = 0.0f;
+				if (args.size() < 4) {
+					response_lines.push_back("ERR usage: simulate_gizmo_drag <translate|rotate|scale> <x|y|z|uniform> <amount>"
+						" (amount is world units for translate, degrees for rotate, a factor for scale)");
+				}
+				else if (args[1] != "translate" && args[1] != "rotate" && args[1] != "scale") {
+					response_lines.push_back("ERR unknown mode: " + args[1] + " (translate|rotate|scale)");
+				}
+				else if (args[2] != "x" && args[2] != "y" && args[2] != "z" && args[2] != "uniform") {
+					response_lines.push_back("ERR unknown axis: " + args[2] + " (x|y|z|uniform)");
+				}
+				else if (!ParseFloats(args, 3, 1, &amount)) {
+					response_lines.push_back("ERR amount must be a number");
+				}
+				else {
+					GizmoMode mode = (args[1] == "translate") ? GizmoMode::Translate
+						: (args[1] == "rotate") ? GizmoMode::Rotate : GizmoMode::Scale;
+					int axis = (args[2] == "x") ? 0 : (args[2] == "y") ? 1 : (args[2] == "z") ? 2 : -1;
+					if (mode == GizmoMode::Rotate) {
+						amount = DirectX::XMConvertToRadians(amount);
+					}
+					SelectionGizmo::SimulateDrag(state, mode, axis, amount);
+					response_lines.push_back("OK");
 				}
 			}
 			else if (cmd == "rename") {

@@ -3,6 +3,7 @@
 #include "EditorHistory.h"
 #include "Selection.h"
 #include "ViewportOverlay.h"
+#include "GridSnap.h"
 
 #include "imgui.h"
 #include <Components/Base.h>
@@ -385,8 +386,11 @@ namespace HotBiteEditor {
 		static void ApplyTranslate(EditorState& state, const vector3d& axis_dir, float distance)
 		{
 			for (const auto& target : drag.targets) {
-				ApplyToTarget(state, target, target.start_pivot + axis_dir * distance,
-					target.before.rotation, target.before.scale);
+				vector3d world_pivot = target.start_pivot + axis_dir * distance;
+				if (state.grid_snap_enabled) {
+					world_pivot = GridSnap::SnapVector3(world_pivot, state.grid_size);
+				}
+				ApplyToTarget(state, target, world_pivot, target.before.rotation, target.before.scale);
 			}
 		}
 
@@ -397,6 +401,12 @@ namespace HotBiteEditor {
 		//this is exactly a local-axis spin.
 		static void ApplyRotate(EditorState& state, const vector3d& axis_dir, float angle)
 		{
+			if (state.grid_snap_enabled) {
+				//Snap the total angle swept since mouse-down, not the composed
+				//quaternion afterwards - that avoids any Euler/gimbal ambiguity and
+				//matches "angle" already being measured from the drag's own start.
+				angle = GridSnap::SnapAngleRadians(angle, state.grid_rotation_step_degrees);
+			}
 			vector4d delta = XMQuaternionRotationNormal(axis_dir, angle);
 			for (const auto& target : drag.targets) {
 				vector3d offset = target.start_pivot - drag.start_pivot;
@@ -429,6 +439,11 @@ namespace HotBiteEditor {
 				}
 				else {
 					(&scale.x)[axis] *= factor;
+				}
+				if (state.grid_snap_enabled) {
+					scale.x = GridSnap::SnapScale(scale.x, state.grid_scale_step);
+					scale.y = GridSnap::SnapScale(scale.y, state.grid_scale_step);
+					scale.z = GridSnap::SnapScale(scale.z, state.grid_scale_step);
 				}
 				vector3d offset = target.start_pivot - drag.start_pivot;
 				vector3d pivot = drag.start_pivot + offset * factor;
@@ -517,6 +532,45 @@ namespace HotBiteEditor {
 			//must be unit length for them to come out in world units.
 			dir = XMVector3Normalize(dir);
 			return Pick(c, origin, dir, out_distance);
+		}
+
+		void SimulateDrag(EditorState& state, GizmoMode mode, int axis, float amount)
+		{
+			Geometry geom = ComputeGeometry(state);
+			if (!geom.valid) {
+				return;
+			}
+			DragState d;
+			d.mode = mode;
+			d.axis = axis;
+			d.axis_dir = (axis >= 0 && axis < 3) ? geom.axis_dir[axis] : XMVectorZero();
+			d.start_pivot = geom.origin;
+			d.targets = CaptureDragTargets(state);
+			if (d.targets.empty()) {
+				return;
+			}
+			//ApplyTranslate/ApplyRotate/ApplyScale read the module-level `drag` for
+			//their target list, exactly as the interactive per-frame update does.
+			drag = d;
+			if (mode == GizmoMode::Translate) {
+				ApplyTranslate(state, d.axis_dir, amount);
+			}
+			else if (mode == GizmoMode::Rotate) {
+				ApplyRotate(state, d.axis_dir, amount);
+			}
+			else {
+				ApplyScale(state, axis, amount);
+			}
+			//One atomic action from automation's point of view - record it now
+			//rather than leaving `drag` looking like an in-progress interactive one.
+			std::vector<std::string> names;
+			std::vector<Inspector::TransformSnapshot> befores;
+			for (const auto& target : drag.targets) {
+				names.push_back(target.name);
+				befores.push_back(target.before);
+			}
+			Inspector::RecordTransformEdits(state, names, befores);
+			drag = DragState();
 		}
 
 		void Draw(EditorState& state)
