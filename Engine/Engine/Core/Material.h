@@ -248,8 +248,21 @@ namespace HotBite {
 #define BLEND_ENABLED_FLAG (1 << 10)
 #define PARALLAX_SHADOW_ENABLED_FLAG (1 << 11)
 #define RAY_TRACING_ENABLED_FLAG (1 << 12)
+//World-aligned texture tiling (MainRenderPS.hlsli): samples the diffuse/normal/
+//spec/ao/emission/opacity maps by a world-space planar projection along the
+//surface's dominant axis instead of the mesh's authored UV, so scaling the
+//entity changes how much geometry is covered rather than stretching the
+//texture across it - see world_uv_scale below. Ordinary materials only; a
+//multi-material's own per-layer uv_scale is unaffected.
+#define WORLD_UV_ENABLED_FLAG (1 << 9)
 				unsigned int flags = RAY_TRACING_ENABLED_FLAG;
-				float2 padding = {};
+				//World units per texture repeat when WORLD_UV_ENABLED_FLAG is set (a
+				//tile size, not a frequency - bigger is coarser). Unused, and safely
+				//ignored, otherwise. Replaces what used to be plain padding, so this
+				//struct's size and HLSL row layout (mirrored by MaterialColor in
+				//PixelCommon.hlsli) are unchanged.
+				float world_uv_scale = 1.0f;
+				float world_uv_reserved = 0.0f;
 			};
 
 			struct MaterialShaders {

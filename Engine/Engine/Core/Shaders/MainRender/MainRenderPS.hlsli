@@ -17,6 +17,21 @@ RenderTargetRT MainRenderPS(GSOutput input)
 	float4 lightColor = { 0.0f, 0.0f, 0.0f, 1.0f };
 
 	float3 normal = input.normal;
+
+	//World-aligned tiling: project onto whichever world plane the surface faces
+	//most (dominant-axis, not blended triplanar - see Material.h's
+	//WORLD_UV_ENABLED_FLAG comment for why), so a texture's apparent size stays
+	//fixed in world units instead of stretching with the mesh's authored UV or
+	//the entity's scale. Ordinary materials only: a multi-material already has
+	//its own world-space-aware layer rules (MultiTexture.hlsli's getValues).
+	if ((material.flags & WORLD_UV_ENABLED_FLAG) && multi_texture_count == 0 && material.world_uv_scale > 0.0f) {
+		float3 an = abs(normal);
+		float s = 1.0f / material.world_uv_scale;
+		if (an.x >= an.y && an.x >= an.z)      { input.uv = wpos.zy * s; }
+		else if (an.y >= an.x && an.y >= an.z) { input.uv = wpos.xz * s; }
+		else                                    { input.uv = wpos.xy * s; }
+	}
+
 	float calculated_values[MAX_MULTI_TEXTURE];
 
 	if (multi_texture_count > 0) {

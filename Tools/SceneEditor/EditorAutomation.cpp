@@ -708,6 +708,41 @@ namespace HotBiteEditor {
 					response_lines.push_back("ERR " + error);
 				}
 			}
+			//World-aligned texture tiling (see Material.h's WORLD_UV_ENABLED_FLAG and
+			//MainRenderPS.hlsli). Goes through the same snapshot/undo path a panel
+			//edit would (MaterialOps::GetSnapshot/ApplySnapshot/RecordEdit), since
+			//there is no automation command yet for editing an arbitrary material
+			//property and this is the smallest reuse of that machinery.
+			else if (cmd == "set_material_world_uv") {
+				if (args.size() < 4) {
+					response_lines.push_back("ERR usage: set_material_world_uv <material name> <0|1> <scale>");
+				}
+				else {
+					MaterialOps::MaterialSnapshot before;
+					if (!MaterialOps::GetSnapshot(state, args[1], before)) {
+						response_lines.push_back("ERR material not found: " + args[1]);
+					}
+					else {
+						float scale = 0.0f;
+						if (!ParseFloats(args, 3, 1, &scale)) {
+							response_lines.push_back("ERR scale must be a number");
+						}
+						else {
+							MaterialOps::MaterialSnapshot after = before;
+							if (args[2] != "0") { after.props.flags |= WORLD_UV_ENABLED_FLAG; }
+							else { after.props.flags &= ~WORLD_UV_ENABLED_FLAG; }
+							after.props.world_uv_scale = scale;
+							if (MaterialOps::ApplySnapshot(state, args[1], after, error)) {
+								MaterialOps::RecordEdit(state, args[1], before);
+								response_lines.push_back("OK");
+							}
+							else {
+								response_lines.push_back("ERR " + error);
+							}
+						}
+					}
+				}
+			}
 			else if (cmd == "shaders") {
 				if (args.size() < 2) {
 					response_lines.push_back("ERR usage: shaders <material name>");

@@ -8,8 +8,11 @@ function MaterialLine {
 }
 
 Test 'materials lists every material with its file and user count' {
+    # TestRed, TestBlue, TestChecker (see New-TestProject.ps1) - the third exists
+    # for 26-worlduv.tests.ps1's tiling-frequency checks, which need a texture
+    # with actual pattern detail rather than a flat colour.
     $r = SendOk 'materials'
-    Assert-Equal -Expected '2 materials' -Actual $r[0].Text
+    Assert-Equal -Expected '3 materials' -Actual $r[0].Text
     Assert-Match -Pattern 'file=materials\\test\.mat' -Actual (MaterialLine -Name 'TestRed')
     Assert-Match -Pattern 'users=0' -Actual (MaterialLine -Name 'TestRed')
 }
@@ -48,7 +51,7 @@ Test 'set_material rejects an unknown material or entity' {
 
 Test 'create_material adds a white material to an existing .mat file' {
     SendOk 'create_material TestGreen materials\test.mat' | Out-Null
-    Assert-Equal -Expected '3 materials' -Actual (SendOk 'materials')[0].Text
+    Assert-Equal -Expected '4 materials' -Actual (SendOk 'materials')[0].Text
     Assert-Match -Pattern 'file=materials\\test\.mat' -Actual (MaterialLine -Name 'TestGreen')
     Assert-Match -Pattern 'unsaved' -Actual (MaterialLine -Name 'TestGreen') -Message 'the .mat file is now dirty'
 }
@@ -75,7 +78,7 @@ Test 'save_materials writes the .mat file, and the level save does not' {
 Test 'remove_material retires it and reassigns its users' {
     SendOk 'set_material box_c TestGreen' | Out-Null
     SendOk 'remove_material TestGreen' | Out-Null
-    Assert-Equal -Expected '2 materials' -Actual (SendOk 'materials')[0].Text
+    Assert-Equal -Expected '3 materials' -Actual (SendOk 'materials')[0].Text
     $material = Get-Component -Session $Session -Entity 'box_c' -Component 'Material'
     Assert-NotEqual -Expected 'TestGreen' -Actual $material.name -Message 'the user was reassigned'
     Assert-Err -Result (Send 'select_material TestGreen')[0] -Message 'a retired material is gone from the panel'
@@ -83,7 +86,7 @@ Test 'remove_material retires it and reassigns its users' {
 
 Test 'remove_material is undoable, users included' {
     SendOk 'undo' | Out-Null
-    Assert-Equal -Expected '3 materials' -Actual (SendOk 'materials')[0].Text
+    Assert-Equal -Expected '4 materials' -Actual (SendOk 'materials')[0].Text
     Assert-Equal -Expected 'TestGreen' -Actual (Get-Component -Session $Session -Entity 'box_c' -Component 'Material').name
 }
 

@@ -82,6 +82,26 @@ function New-SolidTexture {
 New-SolidTexture -Path (Join-Path $assets 'materials\test_red.png') -R 220 -G 40 -B 30
 New-SolidTexture -Path (Join-Path $assets 'materials\test_blue.png') -R 40 -G 80 -B 230
 
+# A high-contrast repeating pattern, unlike the flat colours above - world-space
+# tiling (WORLD_UV_ENABLED_FLAG) and mesh-UV tiling are only visually
+# distinguishable through a texture whose *frequency* changes with the mapping;
+# a solid colour samples the same regardless of which UV reaches it.
+function New-CheckerTexture {
+    param([string]$Path, [int]$Size = 16, [int]$Cell = 4)
+    $bmp = New-Object System.Drawing.Bitmap $Size, $Size
+    $black = [System.Drawing.Color]::FromArgb(255, 20, 20, 20)
+    $white = [System.Drawing.Color]::FromArgb(255, 235, 235, 235)
+    for ($y = 0; $y -lt $Size; $y++) {
+        for ($x = 0; $x -lt $Size; $x++) {
+            $even = ((([int]($x / $Cell)) + ([int]($y / $Cell))) % 2) -eq 0
+            $bmp.SetPixel($x, $y, $(if ($even) { $white } else { $black }))
+        }
+    }
+    $bmp.Save($Path, [System.Drawing.Imaging.ImageFormat]::Png)
+    $bmp.Dispose()
+}
+New-CheckerTexture -Path (Join-Path $assets 'materials\test_checker.png')
+
 $standardShaders = @{
     draw_vs   = 'MainRenderVS.cso'
     draw_hs   = 'MainRenderHS.cso'
@@ -124,7 +144,8 @@ function New-MaterialRecord {
 Write-Json -File (Join-Path $assets 'materials\test.mat') -Value @{
     root      = 'materials\'
     materials = @((New-MaterialRecord -Name 'TestRed'  -Diffuse '#FF4030FF' -DiffuseTexture 'test_red.png'),
-                  (New-MaterialRecord -Name 'TestBlue' -Diffuse '#3050FFFF' -DiffuseTexture 'test_blue.png'))
+                  (New-MaterialRecord -Name 'TestBlue' -Diffuse '#3050FFFF' -DiffuseTexture 'test_blue.png'),
+                  (New-MaterialRecord -Name 'TestChecker' -Diffuse '#FFFFFFFF' -DiffuseTexture 'test_checker.png'))
 }
 
 #--- a file-backed template ---------------------------------------------------

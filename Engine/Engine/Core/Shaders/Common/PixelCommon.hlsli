@@ -146,8 +146,13 @@ struct MaterialColor
 #define BLEND_ENABLED_FLAG 1 << 10
 #define PARALLAX_SHADOW_ENABLED_FLAG 1 << 11
 #define RAYTRACING_ENABLED 1 << 12
+#define WORLD_UV_ENABLED_FLAG 1 << 9
 	uint flags;
-	float2 padding;
+	//World units per texture repeat when WORLD_UV_ENABLED_FLAG is set - see
+	//Core::MaterialProps::world_uv_scale. These two replace what used to be a
+	//plain float2 padding; world_uv_reserved stays unused.
+	float world_uv_scale;
+	float world_uv_reserved;
 };
 
 struct AmbientLight

@@ -434,6 +434,7 @@ namespace HotBite {
 				props.opacity = j.value("opacity", 1.0f);
 				props.density = j.value("density", 1.0f);
 				props.rt_reflex = j.value("rt_reflex", 0.2f);
+				props.world_uv_scale = j.value("world_uv_scale", 1.0f);
 				props.flags = 0;
 
 				tessellation_type = j.value("tess_type", 0);
@@ -454,6 +455,9 @@ namespace HotBite {
 				}
 				if (j.value("parallax_shadows", false)) {
 					props.flags |= PARALLAX_SHADOW_ENABLED_FLAG;
+				}
+				if (j.value("world_uv_enabled", false)) {
+					props.flags |= WORLD_UV_ENABLED_FLAG;
 				}
 				SetTexture(diffuse, texture_names.diffuse_texname, root, j.value("diffuse_textname", ""));
 				SetTexture(high, texture_names.high_textname, root, j.value("high_textname", ""));
@@ -580,6 +584,7 @@ namespace HotBite {
 				j["opacity"] = props.opacity;
 				j["density"] = props.density;
 				j["rt_reflex"] = props.rt_reflex;
+				j["world_uv_scale"] = props.world_uv_scale;
 
 				j["tess_type"] = tessellation_type;
 				j["tess_factor"] = tessellation_factor;
@@ -589,13 +594,14 @@ namespace HotBite {
 				//stack the key still named.
 				j["multi_material"] = multi_material_name;
 
-				//Only the four flags Load() sets from the file are written back; the rest
+				//Only the flags Load() sets from the file are written back; the rest
 				//of props.flags is derived from which texture maps are present and is
 				//recomputed by UpdateFlags() on load.
 				j["raytrace"] = (props.flags & RAY_TRACING_ENABLED_FLAG) != 0;
 				j["alpha_enabled"] = (props.flags & ALPHA_ENABLED_FLAG) != 0;
 				j["blend_enabled"] = (props.flags & BLEND_ENABLED_FLAG) != 0;
 				j["parallax_shadows"] = (props.flags & PARALLAX_SHADOW_ENABLED_FLAG) != 0;
+				j["world_uv_enabled"] = (props.flags & WORLD_UV_ENABLED_FLAG) != 0;
 
 				j["diffuse_textname"] = relative(texture_names.diffuse_texname);
 				j["high_textname"] = relative(texture_names.high_textname);

@@ -665,9 +665,10 @@ namespace HotBiteEditor {
 			track(ImGui::DragFloat("Parallax angles", &p.parallax_angle_steps, 1.0f, 0.0f, 64.0f));
 			track(ImGui::DragFloat("Displace", &m->displacement_scale, 0.01f));
 			track(ImGui::DragFloat("Tessellate", &m->tessellation_factor, 0.1f, 0.0f, 64.0f));
+			track(ImGui::DragFloat("World tile size", &p.world_uv_scale, 0.01f, 0.01f, 1000.0f));
 
-			//The four flags the .mat file actually carries; the rest of props.flags
-			//is derived from which texture maps are present (MaterialData::Init).
+			//The flags the .mat file actually carries; the rest of props.flags is
+			//derived from which texture maps are present (MaterialData::Init).
 			auto flag_checkbox = [&](const char* label, unsigned int flag) {
 				bool on = (p.flags & flag) != 0;
 				if (ImGui::Checkbox(label, &on)) {
@@ -680,6 +681,9 @@ namespace HotBiteEditor {
 			flag_checkbox("Alpha", ALPHA_ENABLED_FLAG);
 			flag_checkbox("Blend", BLEND_ENABLED_FLAG);
 			flag_checkbox("Parallax shadows", PARALLAX_SHADOW_ENABLED_FLAG);
+			//World tile size above is this flag's tile size in world units; ordinary
+			//materials only (MainRenderPS.hlsli skips it when multi_texture_count > 0).
+			flag_checkbox("World-aligned tiling", WORLD_UV_ENABLED_FLAG);
 
 			if (activated && !pending_valid) {
 				pending_before = frame_before;
