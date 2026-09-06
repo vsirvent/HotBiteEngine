@@ -1,0 +1,4987 @@
+{
+    "editor": {
+        "grid": {
+            "enabled": false,
+            "lines_visible": false,
+            "rotation_step_degrees": 15.0,
+            "scale_step": 0.10000000149011612,
+            "size": 1.0
+        },
+        "groups": {}
+    },
+    "world": {
+        "clones": [],
+        "created_entities": [],
+        "entities": [
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r0_c0_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r0_c0_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r0_c0_lod3"
+                            }
+                        ],
+                        "name": "Tile_r0_c0",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r0_c0"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r0_c1_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r0_c1_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r0_c1_lod3"
+                            }
+                        ],
+                        "name": "Tile_r0_c1",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r0_c1"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r0_c2_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r0_c2_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r0_c2_lod3"
+                            }
+                        ],
+                        "name": "Tile_r0_c2",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r0_c2"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r0_c3_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r0_c3_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r0_c3_lod3"
+                            }
+                        ],
+                        "name": "Tile_r0_c3",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r0_c3"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r0_c4_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r0_c4_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r0_c4_lod3"
+                            }
+                        ],
+                        "name": "Tile_r0_c4",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r0_c4"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r0_c5_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r0_c5_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r0_c5_lod3"
+                            }
+                        ],
+                        "name": "Tile_r0_c5",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r0_c5"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r0_c6_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r0_c6_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r0_c6_lod3"
+                            }
+                        ],
+                        "name": "Tile_r0_c6",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r0_c6"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r1_c0_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r1_c0_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r1_c0_lod3"
+                            }
+                        ],
+                        "name": "Tile_r1_c0",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r1_c0"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r1_c1_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r1_c1_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r1_c1_lod3"
+                            }
+                        ],
+                        "name": "Tile_r1_c1",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r1_c1"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r1_c2_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r1_c2_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r1_c2_lod3"
+                            }
+                        ],
+                        "name": "Tile_r1_c2",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r1_c2"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r1_c3_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r1_c3_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r1_c3_lod3"
+                            }
+                        ],
+                        "name": "Tile_r1_c3",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r1_c3"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r1_c4_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r1_c4_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r1_c4_lod3"
+                            }
+                        ],
+                        "name": "Tile_r1_c4",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r1_c4"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r1_c5_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r1_c5_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r1_c5_lod3"
+                            }
+                        ],
+                        "name": "Tile_r1_c5",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r1_c5"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r1_c6_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r1_c6_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r1_c6_lod3"
+                            }
+                        ],
+                        "name": "Tile_r1_c6",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r1_c6"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r2_c0_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r2_c0_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r2_c0_lod3"
+                            }
+                        ],
+                        "name": "Tile_r2_c0",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r2_c0"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r2_c1_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r2_c1_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r2_c1_lod3"
+                            }
+                        ],
+                        "name": "Tile_r2_c1",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r2_c1"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r2_c2_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r2_c2_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r2_c2_lod3"
+                            }
+                        ],
+                        "name": "Tile_r2_c2",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r2_c2"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r2_c3_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r2_c3_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r2_c3_lod3"
+                            }
+                        ],
+                        "name": "Tile_r2_c3",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r2_c3"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r2_c4_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r2_c4_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r2_c4_lod3"
+                            }
+                        ],
+                        "name": "Tile_r2_c4",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r2_c4"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r2_c5_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r2_c5_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r2_c5_lod3"
+                            }
+                        ],
+                        "name": "Tile_r2_c5",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r2_c5"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r2_c6_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r2_c6_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r2_c6_lod3"
+                            }
+                        ],
+                        "name": "Tile_r2_c6",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r2_c6"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r3_c0_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r3_c0_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r3_c0_lod3"
+                            }
+                        ],
+                        "name": "Tile_r3_c0",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r3_c0"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r3_c1_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r3_c1_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r3_c1_lod3"
+                            }
+                        ],
+                        "name": "Tile_r3_c1",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r3_c1"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r3_c2_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r3_c2_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r3_c2_lod3"
+                            }
+                        ],
+                        "name": "Tile_r3_c2",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r3_c2"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r3_c3_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r3_c3_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r3_c3_lod3"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r3_c3_lod4"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r3_c3_lod5"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r3_c3_lod6"
+                            }
+                        ],
+                        "name": "Tile_r3_c3",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r3_c3"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r3_c4_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r3_c4_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r3_c4_lod3"
+                            }
+                        ],
+                        "name": "Tile_r3_c4",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r3_c4"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r3_c5_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r3_c5_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r3_c5_lod3"
+                            }
+                        ],
+                        "name": "Tile_r3_c5",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r3_c5"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r3_c6_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r3_c6_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r3_c6_lod3"
+                            }
+                        ],
+                        "name": "Tile_r3_c6",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r3_c6"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r4_c0_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r4_c0_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r4_c0_lod3"
+                            }
+                        ],
+                        "name": "Tile_r4_c0",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r4_c0"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r4_c1_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r4_c1_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r4_c1_lod3"
+                            }
+                        ],
+                        "name": "Tile_r4_c1",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r4_c1"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r4_c2_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r4_c2_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r4_c2_lod3"
+                            }
+                        ],
+                        "name": "Tile_r4_c2",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r4_c2"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r4_c3_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r4_c3_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r4_c3_lod3"
+                            }
+                        ],
+                        "name": "Tile_r4_c3",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r4_c3"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r4_c4_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r4_c4_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r4_c4_lod3"
+                            }
+                        ],
+                        "name": "Tile_r4_c4",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r4_c4"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r4_c5_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r4_c5_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r4_c5_lod3"
+                            }
+                        ],
+                        "name": "Tile_r4_c5",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r4_c5"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r4_c6_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r4_c6_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r4_c6_lod3"
+                            }
+                        ],
+                        "name": "Tile_r4_c6",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r4_c6"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r5_c0_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r5_c0_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r5_c0_lod3"
+                            }
+                        ],
+                        "name": "Tile_r5_c0",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r5_c0"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r5_c1_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r5_c1_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r5_c1_lod3"
+                            }
+                        ],
+                        "name": "Tile_r5_c1",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r5_c1"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r5_c2_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r5_c2_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r5_c2_lod3"
+                            }
+                        ],
+                        "name": "Tile_r5_c2",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r5_c2"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r5_c3_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r5_c3_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r5_c3_lod3"
+                            }
+                        ],
+                        "name": "Tile_r5_c3",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r5_c3"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r5_c4_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r5_c4_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r5_c4_lod3"
+                            }
+                        ],
+                        "name": "Tile_r5_c4",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r5_c4"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r5_c5_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r5_c5_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r5_c5_lod3"
+                            }
+                        ],
+                        "name": "Tile_r5_c5",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r5_c5"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r5_c6_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r5_c6_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r5_c6_lod3"
+                            }
+                        ],
+                        "name": "Tile_r5_c6",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r5_c6"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r6_c0_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r6_c0_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r6_c0_lod3"
+                            }
+                        ],
+                        "name": "Tile_r6_c0",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r6_c0"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r6_c1_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r6_c1_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r6_c1_lod3"
+                            }
+                        ],
+                        "name": "Tile_r6_c1",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r6_c1"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r6_c2_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r6_c2_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r6_c2_lod3"
+                            }
+                        ],
+                        "name": "Tile_r6_c2",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r6_c2"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r6_c3_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r6_c3_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r6_c3_lod3"
+                            }
+                        ],
+                        "name": "Tile_r6_c3",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r6_c3"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r6_c4_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r6_c4_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r6_c4_lod3"
+                            }
+                        ],
+                        "name": "Tile_r6_c4",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r6_c4"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r6_c5_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r6_c5_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r6_c5_lod3"
+                            }
+                        ],
+                        "name": "Tile_r6_c5",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r6_c5"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r6_c6_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r6_c6_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r6_c6_lod3"
+                            }
+                        ],
+                        "name": "Tile_r6_c6",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r6_c6"
+            }
+        ],
+        "generated_meshes": [
+            {
+                "file": "GeneratedMeshes\\Tile_r3_c3_lod1.hbmesh",
+                "name": "Tile_r3_c3_lod1",
+                "ratio": 0.5,
+                "source": "Tile_r3_c3"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r3_c3_lod2.hbmesh",
+                "name": "Tile_r3_c3_lod2",
+                "ratio": 0.2499416619539261,
+                "source": "Tile_r3_c3"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r3_c3_lod3.hbmesh",
+                "name": "Tile_r3_c3_lod3",
+                "ratio": 0.12494166940450668,
+                "source": "Tile_r3_c3"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r0_c0_lod1.hbmesh",
+                "name": "Tile_r0_c0_lod1",
+                "ratio": 0.5,
+                "source": "Tile_r0_c0"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r0_c0_lod2.hbmesh",
+                "name": "Tile_r0_c0_lod2",
+                "ratio": 0.2499416619539261,
+                "source": "Tile_r0_c0"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r0_c0_lod3.hbmesh",
+                "name": "Tile_r0_c0_lod3",
+                "ratio": 0.12496666610240936,
+                "source": "Tile_r0_c0"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r0_c1_lod1.hbmesh",
+                "name": "Tile_r0_c1_lod1",
+                "ratio": 0.5,
+                "source": "Tile_r0_c1"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r0_c1_lod2.hbmesh",
+                "name": "Tile_r0_c1_lod2",
+                "ratio": 0.249958336353302,
+                "source": "Tile_r0_c1"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r0_c1_lod3.hbmesh",
+                "name": "Tile_r0_c1_lod3",
+                "ratio": 0.12494999915361404,
+                "source": "Tile_r0_c1"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r0_c2_lod1.hbmesh",
+                "name": "Tile_r0_c2_lod1",
+                "ratio": 0.5,
+                "source": "Tile_r0_c2"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r0_c2_lod2.hbmesh",
+                "name": "Tile_r0_c2_lod2",
+                "ratio": 0.24995000660419464,
+                "source": "Tile_r0_c2"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r0_c2_lod3.hbmesh",
+                "name": "Tile_r0_c2_lod3",
+                "ratio": 0.12493333220481873,
+                "source": "Tile_r0_c2"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r0_c3_lod1.hbmesh",
+                "name": "Tile_r0_c3_lod1",
+                "ratio": 0.5,
+                "source": "Tile_r0_c3"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r0_c3_lod2.hbmesh",
+                "name": "Tile_r0_c3_lod2",
+                "ratio": 0.24996666610240936,
+                "source": "Tile_r0_c3"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r0_c3_lod3.hbmesh",
+                "name": "Tile_r0_c3_lod3",
+                "ratio": 0.12493333220481873,
+                "source": "Tile_r0_c3"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r0_c4_lod1.hbmesh",
+                "name": "Tile_r0_c4_lod1",
+                "ratio": 0.5,
+                "source": "Tile_r0_c4"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r0_c4_lod2.hbmesh",
+                "name": "Tile_r0_c4_lod2",
+                "ratio": 0.24996666610240936,
+                "source": "Tile_r0_c4"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r0_c4_lod3.hbmesh",
+                "name": "Tile_r0_c4_lod3",
+                "ratio": 0.124958336353302,
+                "source": "Tile_r0_c4"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r0_c5_lod1.hbmesh",
+                "name": "Tile_r0_c5_lod1",
+                "ratio": 0.5,
+                "source": "Tile_r0_c5"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r0_c5_lod2.hbmesh",
+                "name": "Tile_r0_c5_lod2",
+                "ratio": 0.249958336353302,
+                "source": "Tile_r0_c5"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r0_c5_lod3.hbmesh",
+                "name": "Tile_r0_c5_lod3",
+                "ratio": 0.12494999915361404,
+                "source": "Tile_r0_c5"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r0_c6_lod1.hbmesh",
+                "name": "Tile_r0_c6_lod1",
+                "ratio": 0.5,
+                "source": "Tile_r0_c6"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r0_c6_lod2.hbmesh",
+                "name": "Tile_r0_c6_lod2",
+                "ratio": 0.24998334050178528,
+                "source": "Tile_r0_c6"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r0_c6_lod3.hbmesh",
+                "name": "Tile_r0_c6_lod3",
+                "ratio": 0.12497500330209732,
+                "source": "Tile_r0_c6"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r1_c0_lod1.hbmesh",
+                "name": "Tile_r1_c0_lod1",
+                "ratio": 0.5,
+                "source": "Tile_r1_c0"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r1_c0_lod2.hbmesh",
+                "name": "Tile_r1_c0_lod2",
+                "ratio": 0.24997499585151672,
+                "source": "Tile_r1_c0"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r1_c0_lod3.hbmesh",
+                "name": "Tile_r1_c0_lod3",
+                "ratio": 0.12497500330209732,
+                "source": "Tile_r1_c0"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r1_c1_lod1.hbmesh",
+                "name": "Tile_r1_c1_lod1",
+                "ratio": 0.5,
+                "source": "Tile_r1_c1"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r1_c1_lod2.hbmesh",
+                "name": "Tile_r1_c1_lod2",
+                "ratio": 0.25,
+                "source": "Tile_r1_c1"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r1_c1_lod3.hbmesh",
+                "name": "Tile_r1_c1_lod3",
+                "ratio": 0.125,
+                "source": "Tile_r1_c1"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r1_c2_lod1.hbmesh",
+                "name": "Tile_r1_c2_lod1",
+                "ratio": 0.5,
+                "source": "Tile_r1_c2"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r1_c2_lod2.hbmesh",
+                "name": "Tile_r1_c2_lod2",
+                "ratio": 0.24993333220481873,
+                "source": "Tile_r1_c2"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r1_c2_lod3.hbmesh",
+                "name": "Tile_r1_c2_lod3",
+                "ratio": 0.12491666525602341,
+                "source": "Tile_r1_c2"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r1_c3_lod1.hbmesh",
+                "name": "Tile_r1_c3_lod1",
+                "ratio": 0.5,
+                "source": "Tile_r1_c3"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r1_c3_lod2.hbmesh",
+                "name": "Tile_r1_c3_lod2",
+                "ratio": 0.249958336353302,
+                "source": "Tile_r1_c3"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r1_c3_lod3.hbmesh",
+                "name": "Tile_r1_c3_lod3",
+                "ratio": 0.124958336353302,
+                "source": "Tile_r1_c3"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r1_c4_lod1.hbmesh",
+                "name": "Tile_r1_c4_lod1",
+                "ratio": 0.5,
+                "source": "Tile_r1_c4"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r1_c4_lod2.hbmesh",
+                "name": "Tile_r1_c4_lod2",
+                "ratio": 0.24997499585151672,
+                "source": "Tile_r1_c4"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r1_c4_lod3.hbmesh",
+                "name": "Tile_r1_c4_lod3",
+                "ratio": 0.12493333220481873,
+                "source": "Tile_r1_c4"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r1_c5_lod1.hbmesh",
+                "name": "Tile_r1_c5_lod1",
+                "ratio": 0.5,
+                "source": "Tile_r1_c5"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r1_c5_lod2.hbmesh",
+                "name": "Tile_r1_c5_lod2",
+                "ratio": 0.24995000660419464,
+                "source": "Tile_r1_c5"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r1_c5_lod3.hbmesh",
+                "name": "Tile_r1_c5_lod3",
+                "ratio": 0.12497500330209732,
+                "source": "Tile_r1_c5"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r1_c6_lod1.hbmesh",
+                "name": "Tile_r1_c6_lod1",
+                "ratio": 0.5,
+                "source": "Tile_r1_c6"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r1_c6_lod2.hbmesh",
+                "name": "Tile_r1_c6_lod2",
+                "ratio": 0.24998334050178528,
+                "source": "Tile_r1_c6"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r1_c6_lod3.hbmesh",
+                "name": "Tile_r1_c6_lod3",
+                "ratio": 0.124958336353302,
+                "source": "Tile_r1_c6"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r2_c0_lod1.hbmesh",
+                "name": "Tile_r2_c0_lod1",
+                "ratio": 0.5,
+                "source": "Tile_r2_c0"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r2_c0_lod2.hbmesh",
+                "name": "Tile_r2_c0_lod2",
+                "ratio": 0.24998334050178528,
+                "source": "Tile_r2_c0"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r2_c0_lod3.hbmesh",
+                "name": "Tile_r2_c0_lod3",
+                "ratio": 0.12496666610240936,
+                "source": "Tile_r2_c0"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r2_c1_lod1.hbmesh",
+                "name": "Tile_r2_c1_lod1",
+                "ratio": 0.5,
+                "source": "Tile_r2_c1"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r2_c1_lod2.hbmesh",
+                "name": "Tile_r2_c1_lod2",
+                "ratio": 0.2499416619539261,
+                "source": "Tile_r2_c1"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r2_c1_lod3.hbmesh",
+                "name": "Tile_r2_c1_lod3",
+                "ratio": 0.12491666525602341,
+                "source": "Tile_r2_c1"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r2_c2_lod1.hbmesh",
+                "name": "Tile_r2_c2_lod1",
+                "ratio": 0.5,
+                "source": "Tile_r2_c2"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r2_c2_lod2.hbmesh",
+                "name": "Tile_r2_c2_lod2",
+                "ratio": 0.24997499585151672,
+                "source": "Tile_r2_c2"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r2_c2_lod3.hbmesh",
+                "name": "Tile_r2_c2_lod3",
+                "ratio": 0.12497500330209732,
+                "source": "Tile_r2_c2"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r2_c3_lod1.hbmesh",
+                "name": "Tile_r2_c3_lod1",
+                "ratio": 0.5,
+                "source": "Tile_r2_c3"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r2_c3_lod2.hbmesh",
+                "name": "Tile_r2_c3_lod2",
+                "ratio": 0.24995000660419464,
+                "source": "Tile_r2_c3"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r2_c3_lod3.hbmesh",
+                "name": "Tile_r2_c3_lod3",
+                "ratio": 0.12494999915361404,
+                "source": "Tile_r2_c3"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r2_c4_lod1.hbmesh",
+                "name": "Tile_r2_c4_lod1",
+                "ratio": 0.5,
+                "source": "Tile_r2_c4"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r2_c4_lod2.hbmesh",
+                "name": "Tile_r2_c4_lod2",
+                "ratio": 0.24997499585151672,
+                "source": "Tile_r2_c4"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r2_c4_lod3.hbmesh",
+                "name": "Tile_r2_c4_lod3",
+                "ratio": 0.12493333220481873,
+                "source": "Tile_r2_c4"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r2_c5_lod1.hbmesh",
+                "name": "Tile_r2_c5_lod1",
+                "ratio": 0.5,
+                "source": "Tile_r2_c5"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r2_c5_lod2.hbmesh",
+                "name": "Tile_r2_c5_lod2",
+                "ratio": 0.249958336353302,
+                "source": "Tile_r2_c5"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r2_c5_lod3.hbmesh",
+                "name": "Tile_r2_c5_lod3",
+                "ratio": 0.12493333220481873,
+                "source": "Tile_r2_c5"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r2_c6_lod1.hbmesh",
+                "name": "Tile_r2_c6_lod1",
+                "ratio": 0.5,
+                "source": "Tile_r2_c6"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r2_c6_lod2.hbmesh",
+                "name": "Tile_r2_c6_lod2",
+                "ratio": 0.24998334050178528,
+                "source": "Tile_r2_c6"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r2_c6_lod3.hbmesh",
+                "name": "Tile_r2_c6_lod3",
+                "ratio": 0.12498333305120468,
+                "source": "Tile_r2_c6"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r3_c0_lod1.hbmesh",
+                "name": "Tile_r3_c0_lod1",
+                "ratio": 0.5,
+                "source": "Tile_r3_c0"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r3_c0_lod2.hbmesh",
+                "name": "Tile_r3_c0_lod2",
+                "ratio": 0.2499416619539261,
+                "source": "Tile_r3_c0"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r3_c0_lod3.hbmesh",
+                "name": "Tile_r3_c0_lod3",
+                "ratio": 0.12489999830722809,
+                "source": "Tile_r3_c0"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r3_c1_lod1.hbmesh",
+                "name": "Tile_r3_c1_lod1",
+                "ratio": 0.5,
+                "source": "Tile_r3_c1"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r3_c1_lod2.hbmesh",
+                "name": "Tile_r3_c1_lod2",
+                "ratio": 0.2499416619539261,
+                "source": "Tile_r3_c1"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r3_c1_lod3.hbmesh",
+                "name": "Tile_r3_c1_lod3",
+                "ratio": 0.12492500245571136,
+                "source": "Tile_r3_c1"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r3_c2_lod1.hbmesh",
+                "name": "Tile_r3_c2_lod1",
+                "ratio": 0.5,
+                "source": "Tile_r3_c2"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r3_c2_lod2.hbmesh",
+                "name": "Tile_r3_c2_lod2",
+                "ratio": 0.24999167025089264,
+                "source": "Tile_r3_c2"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r3_c2_lod3.hbmesh",
+                "name": "Tile_r3_c2_lod3",
+                "ratio": 0.12493333220481873,
+                "source": "Tile_r3_c2"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r3_c3_lod4.hbmesh",
+                "name": "Tile_r3_c3_lod4",
+                "ratio": 0.062433332204818726,
+                "source": "Tile_r3_c3"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r3_c3_lod5.hbmesh",
+                "name": "Tile_r3_c3_lod5",
+                "ratio": 0.05000000074505806,
+                "source": "Tile_r3_c3"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r3_c3_lod6.hbmesh",
+                "name": "Tile_r3_c3_lod6",
+                "ratio": 0.05000000074505806,
+                "source": "Tile_r3_c3"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r3_c4_lod1.hbmesh",
+                "name": "Tile_r3_c4_lod1",
+                "ratio": 0.5,
+                "source": "Tile_r3_c4"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r3_c4_lod2.hbmesh",
+                "name": "Tile_r3_c4_lod2",
+                "ratio": 0.2499416619539261,
+                "source": "Tile_r3_c4"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r3_c4_lod3.hbmesh",
+                "name": "Tile_r3_c4_lod3",
+                "ratio": 0.12494999915361404,
+                "source": "Tile_r3_c4"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r3_c5_lod1.hbmesh",
+                "name": "Tile_r3_c5_lod1",
+                "ratio": 0.5,
+                "source": "Tile_r3_c5"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r3_c5_lod2.hbmesh",
+                "name": "Tile_r3_c5_lod2",
+                "ratio": 0.24998334050178528,
+                "source": "Tile_r3_c5"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r3_c5_lod3.hbmesh",
+                "name": "Tile_r3_c5_lod3",
+                "ratio": 0.12498333305120468,
+                "source": "Tile_r3_c5"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r3_c6_lod1.hbmesh",
+                "name": "Tile_r3_c6_lod1",
+                "ratio": 0.5,
+                "source": "Tile_r3_c6"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r3_c6_lod2.hbmesh",
+                "name": "Tile_r3_c6_lod2",
+                "ratio": 0.24998334050178528,
+                "source": "Tile_r3_c6"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r3_c6_lod3.hbmesh",
+                "name": "Tile_r3_c6_lod3",
+                "ratio": 0.12494999915361404,
+                "source": "Tile_r3_c6"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r4_c0_lod1.hbmesh",
+                "name": "Tile_r4_c0_lod1",
+                "ratio": 0.5,
+                "source": "Tile_r4_c0"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r4_c0_lod2.hbmesh",
+                "name": "Tile_r4_c0_lod2",
+                "ratio": 0.24999167025089264,
+                "source": "Tile_r4_c0"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r4_c0_lod3.hbmesh",
+                "name": "Tile_r4_c0_lod3",
+                "ratio": 0.12493333220481873,
+                "source": "Tile_r4_c0"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r4_c1_lod1.hbmesh",
+                "name": "Tile_r4_c1_lod1",
+                "ratio": 0.5,
+                "source": "Tile_r4_c1"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r4_c1_lod2.hbmesh",
+                "name": "Tile_r4_c1_lod2",
+                "ratio": 0.2499416619539261,
+                "source": "Tile_r4_c1"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r4_c1_lod3.hbmesh",
+                "name": "Tile_r4_c1_lod3",
+                "ratio": 0.12490833550691605,
+                "source": "Tile_r4_c1"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r4_c2_lod1.hbmesh",
+                "name": "Tile_r4_c2_lod1",
+                "ratio": 0.5,
+                "source": "Tile_r4_c2"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r4_c2_lod2.hbmesh",
+                "name": "Tile_r4_c2_lod2",
+                "ratio": 0.24996666610240936,
+                "source": "Tile_r4_c2"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r4_c2_lod3.hbmesh",
+                "name": "Tile_r4_c2_lod3",
+                "ratio": 0.12497500330209732,
+                "source": "Tile_r4_c2"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r4_c3_lod1.hbmesh",
+                "name": "Tile_r4_c3_lod1",
+                "ratio": 0.5,
+                "source": "Tile_r4_c3"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r4_c3_lod2.hbmesh",
+                "name": "Tile_r4_c3_lod2",
+                "ratio": 0.249958336353302,
+                "source": "Tile_r4_c3"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r4_c3_lod3.hbmesh",
+                "name": "Tile_r4_c3_lod3",
+                "ratio": 0.12496666610240936,
+                "source": "Tile_r4_c3"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r4_c4_lod1.hbmesh",
+                "name": "Tile_r4_c4_lod1",
+                "ratio": 0.5,
+                "source": "Tile_r4_c4"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r4_c4_lod2.hbmesh",
+                "name": "Tile_r4_c4_lod2",
+                "ratio": 0.24993333220481873,
+                "source": "Tile_r4_c4"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r4_c4_lod3.hbmesh",
+                "name": "Tile_r4_c4_lod3",
+                "ratio": 0.12489999830722809,
+                "source": "Tile_r4_c4"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r4_c5_lod1.hbmesh",
+                "name": "Tile_r4_c5_lod1",
+                "ratio": 0.5,
+                "source": "Tile_r4_c5"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r4_c5_lod2.hbmesh",
+                "name": "Tile_r4_c5_lod2",
+                "ratio": 0.24996666610240936,
+                "source": "Tile_r4_c5"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r4_c5_lod3.hbmesh",
+                "name": "Tile_r4_c5_lod3",
+                "ratio": 0.12497500330209732,
+                "source": "Tile_r4_c5"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r4_c6_lod1.hbmesh",
+                "name": "Tile_r4_c6_lod1",
+                "ratio": 0.5,
+                "source": "Tile_r4_c6"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r4_c6_lod2.hbmesh",
+                "name": "Tile_r4_c6_lod2",
+                "ratio": 0.24995000660419464,
+                "source": "Tile_r4_c6"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r4_c6_lod3.hbmesh",
+                "name": "Tile_r4_c6_lod3",
+                "ratio": 0.12496666610240936,
+                "source": "Tile_r4_c6"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r5_c0_lod1.hbmesh",
+                "name": "Tile_r5_c0_lod1",
+                "ratio": 0.5,
+                "source": "Tile_r5_c0"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r5_c0_lod2.hbmesh",
+                "name": "Tile_r5_c0_lod2",
+                "ratio": 0.24996666610240936,
+                "source": "Tile_r5_c0"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r5_c0_lod3.hbmesh",
+                "name": "Tile_r5_c0_lod3",
+                "ratio": 0.12493333220481873,
+                "source": "Tile_r5_c0"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r5_c1_lod1.hbmesh",
+                "name": "Tile_r5_c1_lod1",
+                "ratio": 0.5,
+                "source": "Tile_r5_c1"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r5_c1_lod2.hbmesh",
+                "name": "Tile_r5_c1_lod2",
+                "ratio": 0.24996666610240936,
+                "source": "Tile_r5_c1"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r5_c1_lod3.hbmesh",
+                "name": "Tile_r5_c1_lod3",
+                "ratio": 0.12496666610240936,
+                "source": "Tile_r5_c1"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r5_c2_lod1.hbmesh",
+                "name": "Tile_r5_c2_lod1",
+                "ratio": 0.5,
+                "source": "Tile_r5_c2"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r5_c2_lod2.hbmesh",
+                "name": "Tile_r5_c2_lod2",
+                "ratio": 0.25,
+                "source": "Tile_r5_c2"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r5_c2_lod3.hbmesh",
+                "name": "Tile_r5_c2_lod3",
+                "ratio": 0.12499167025089264,
+                "source": "Tile_r5_c2"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r5_c3_lod1.hbmesh",
+                "name": "Tile_r5_c3_lod1",
+                "ratio": 0.5,
+                "source": "Tile_r5_c3"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r5_c3_lod2.hbmesh",
+                "name": "Tile_r5_c3_lod2",
+                "ratio": 0.24998334050178528,
+                "source": "Tile_r5_c3"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r5_c3_lod3.hbmesh",
+                "name": "Tile_r5_c3_lod3",
+                "ratio": 0.12494999915361404,
+                "source": "Tile_r5_c3"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r5_c4_lod1.hbmesh",
+                "name": "Tile_r5_c4_lod1",
+                "ratio": 0.5,
+                "source": "Tile_r5_c4"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r5_c4_lod2.hbmesh",
+                "name": "Tile_r5_c4_lod2",
+                "ratio": 0.24995000660419464,
+                "source": "Tile_r5_c4"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r5_c4_lod3.hbmesh",
+                "name": "Tile_r5_c4_lod3",
+                "ratio": 0.124958336353302,
+                "source": "Tile_r5_c4"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r5_c5_lod1.hbmesh",
+                "name": "Tile_r5_c5_lod1",
+                "ratio": 0.5,
+                "source": "Tile_r5_c5"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r5_c5_lod2.hbmesh",
+                "name": "Tile_r5_c5_lod2",
+                "ratio": 0.24996666610240936,
+                "source": "Tile_r5_c5"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r5_c5_lod3.hbmesh",
+                "name": "Tile_r5_c5_lod3",
+                "ratio": 0.12493333220481873,
+                "source": "Tile_r5_c5"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r5_c6_lod1.hbmesh",
+                "name": "Tile_r5_c6_lod1",
+                "ratio": 0.5,
+                "source": "Tile_r5_c6"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r5_c6_lod2.hbmesh",
+                "name": "Tile_r5_c6_lod2",
+                "ratio": 0.25,
+                "source": "Tile_r5_c6"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r5_c6_lod3.hbmesh",
+                "name": "Tile_r5_c6_lod3",
+                "ratio": 0.12493333220481873,
+                "source": "Tile_r5_c6"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r6_c0_lod1.hbmesh",
+                "name": "Tile_r6_c0_lod1",
+                "ratio": 0.5,
+                "source": "Tile_r6_c0"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r6_c0_lod2.hbmesh",
+                "name": "Tile_r6_c0_lod2",
+                "ratio": 0.249958336353302,
+                "source": "Tile_r6_c0"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r6_c0_lod3.hbmesh",
+                "name": "Tile_r6_c0_lod3",
+                "ratio": 0.12497500330209732,
+                "source": "Tile_r6_c0"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r6_c1_lod1.hbmesh",
+                "name": "Tile_r6_c1_lod1",
+                "ratio": 0.5,
+                "source": "Tile_r6_c1"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r6_c1_lod2.hbmesh",
+                "name": "Tile_r6_c1_lod2",
+                "ratio": 0.24999167025089264,
+                "source": "Tile_r6_c1"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r6_c1_lod3.hbmesh",
+                "name": "Tile_r6_c1_lod3",
+                "ratio": 0.12493333220481873,
+                "source": "Tile_r6_c1"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r6_c2_lod1.hbmesh",
+                "name": "Tile_r6_c2_lod1",
+                "ratio": 0.5,
+                "source": "Tile_r6_c2"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r6_c2_lod2.hbmesh",
+                "name": "Tile_r6_c2_lod2",
+                "ratio": 0.24999167025089264,
+                "source": "Tile_r6_c2"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r6_c2_lod3.hbmesh",
+                "name": "Tile_r6_c2_lod3",
+                "ratio": 0.12499167025089264,
+                "source": "Tile_r6_c2"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r6_c3_lod1.hbmesh",
+                "name": "Tile_r6_c3_lod1",
+                "ratio": 0.5,
+                "source": "Tile_r6_c3"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r6_c3_lod2.hbmesh",
+                "name": "Tile_r6_c3_lod2",
+                "ratio": 0.249958336353302,
+                "source": "Tile_r6_c3"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r6_c3_lod3.hbmesh",
+                "name": "Tile_r6_c3_lod3",
+                "ratio": 0.12497500330209732,
+                "source": "Tile_r6_c3"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r6_c4_lod1.hbmesh",
+                "name": "Tile_r6_c4_lod1",
+                "ratio": 0.5,
+                "source": "Tile_r6_c4"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r6_c4_lod2.hbmesh",
+                "name": "Tile_r6_c4_lod2",
+                "ratio": 0.25,
+                "source": "Tile_r6_c4"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r6_c4_lod3.hbmesh",
+                "name": "Tile_r6_c4_lod3",
+                "ratio": 0.12496666610240936,
+                "source": "Tile_r6_c4"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r6_c5_lod1.hbmesh",
+                "name": "Tile_r6_c5_lod1",
+                "ratio": 0.5,
+                "source": "Tile_r6_c5"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r6_c5_lod2.hbmesh",
+                "name": "Tile_r6_c5_lod2",
+                "ratio": 0.249958336353302,
+                "source": "Tile_r6_c5"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r6_c5_lod3.hbmesh",
+                "name": "Tile_r6_c5_lod3",
+                "ratio": 0.12497500330209732,
+                "source": "Tile_r6_c5"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r6_c6_lod1.hbmesh",
+                "name": "Tile_r6_c6_lod1",
+                "ratio": 0.5,
+                "source": "Tile_r6_c6"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r6_c6_lod2.hbmesh",
+                "name": "Tile_r6_c6_lod2",
+                "ratio": 0.249958336353302,
+                "source": "Tile_r6_c6"
+            },
+            {
+                "file": "GeneratedMeshes\\Tile_r6_c6_lod3.hbmesh",
+                "name": "Tile_r6_c6_lod3",
+                "ratio": 0.12492500245571136,
+                "source": "Tile_r6_c6"
+            }
+        ],
+        "instances": [
+            {
+                "name": "camera_rig",
+                "position": {
+                    "x": 0.0,
+                    "y": 22.0,
+                    "z": -50.0
+                },
+                "rotation": {
+                    "w": 1.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "scale": {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 1.0
+                },
+                "template": "tf_camera"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r0_c0_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r0_c0_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r0_c0_lod3"
+                            }
+                        ],
+                        "name": "Tile_r0_c0",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r0_c0",
+                "position": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "rotation": {
+                    "w": 1.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "scale": {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 1.0
+                },
+                "template": "tf_Tile_r0_c0"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r0_c1_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r0_c1_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r0_c1_lod3"
+                            }
+                        ],
+                        "name": "Tile_r0_c1",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r0_c1",
+                "position": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "rotation": {
+                    "w": 1.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "scale": {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 1.0
+                },
+                "template": "tf_Tile_r0_c1"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r0_c2_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r0_c2_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r0_c2_lod3"
+                            }
+                        ],
+                        "name": "Tile_r0_c2",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r0_c2",
+                "position": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "rotation": {
+                    "w": 1.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "scale": {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 1.0
+                },
+                "template": "tf_Tile_r0_c2"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r0_c3_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r0_c3_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r0_c3_lod3"
+                            }
+                        ],
+                        "name": "Tile_r0_c3",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r0_c3",
+                "position": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "rotation": {
+                    "w": 1.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "scale": {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 1.0
+                },
+                "template": "tf_Tile_r0_c3"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r0_c4_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r0_c4_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r0_c4_lod3"
+                            }
+                        ],
+                        "name": "Tile_r0_c4",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r0_c4",
+                "position": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "rotation": {
+                    "w": 1.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "scale": {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 1.0
+                },
+                "template": "tf_Tile_r0_c4"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r0_c5_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r0_c5_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r0_c5_lod3"
+                            }
+                        ],
+                        "name": "Tile_r0_c5",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r0_c5",
+                "position": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "rotation": {
+                    "w": 1.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "scale": {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 1.0
+                },
+                "template": "tf_Tile_r0_c5"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r0_c6_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r0_c6_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r0_c6_lod3"
+                            }
+                        ],
+                        "name": "Tile_r0_c6",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r0_c6",
+                "position": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "rotation": {
+                    "w": 1.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "scale": {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 1.0
+                },
+                "template": "tf_Tile_r0_c6"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r1_c0_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r1_c0_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r1_c0_lod3"
+                            }
+                        ],
+                        "name": "Tile_r1_c0",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r1_c0",
+                "position": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "rotation": {
+                    "w": 1.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "scale": {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 1.0
+                },
+                "template": "tf_Tile_r1_c0"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r1_c1_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r1_c1_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r1_c1_lod3"
+                            }
+                        ],
+                        "name": "Tile_r1_c1",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r1_c1",
+                "position": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "rotation": {
+                    "w": 1.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "scale": {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 1.0
+                },
+                "template": "tf_Tile_r1_c1"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r1_c2_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r1_c2_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r1_c2_lod3"
+                            }
+                        ],
+                        "name": "Tile_r1_c2",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r1_c2",
+                "position": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "rotation": {
+                    "w": 1.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "scale": {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 1.0
+                },
+                "template": "tf_Tile_r1_c2"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r1_c3_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r1_c3_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r1_c3_lod3"
+                            }
+                        ],
+                        "name": "Tile_r1_c3",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r1_c3",
+                "position": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "rotation": {
+                    "w": 1.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "scale": {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 1.0
+                },
+                "template": "tf_Tile_r1_c3"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r1_c4_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r1_c4_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r1_c4_lod3"
+                            }
+                        ],
+                        "name": "Tile_r1_c4",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r1_c4",
+                "position": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "rotation": {
+                    "w": 1.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "scale": {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 1.0
+                },
+                "template": "tf_Tile_r1_c4"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r1_c5_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r1_c5_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r1_c5_lod3"
+                            }
+                        ],
+                        "name": "Tile_r1_c5",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r1_c5",
+                "position": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "rotation": {
+                    "w": 1.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "scale": {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 1.0
+                },
+                "template": "tf_Tile_r1_c5"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r1_c6_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r1_c6_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r1_c6_lod3"
+                            }
+                        ],
+                        "name": "Tile_r1_c6",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r1_c6",
+                "position": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "rotation": {
+                    "w": 1.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "scale": {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 1.0
+                },
+                "template": "tf_Tile_r1_c6"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r2_c0_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r2_c0_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r2_c0_lod3"
+                            }
+                        ],
+                        "name": "Tile_r2_c0",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r2_c0",
+                "position": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "rotation": {
+                    "w": 1.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "scale": {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 1.0
+                },
+                "template": "tf_Tile_r2_c0"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r2_c1_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r2_c1_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r2_c1_lod3"
+                            }
+                        ],
+                        "name": "Tile_r2_c1",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r2_c1",
+                "position": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "rotation": {
+                    "w": 1.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "scale": {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 1.0
+                },
+                "template": "tf_Tile_r2_c1"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r2_c2_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r2_c2_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r2_c2_lod3"
+                            }
+                        ],
+                        "name": "Tile_r2_c2",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r2_c2",
+                "position": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "rotation": {
+                    "w": 1.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "scale": {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 1.0
+                },
+                "template": "tf_Tile_r2_c2"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r2_c3_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r2_c3_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r2_c3_lod3"
+                            }
+                        ],
+                        "name": "Tile_r2_c3",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r2_c3",
+                "position": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "rotation": {
+                    "w": 1.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "scale": {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 1.0
+                },
+                "template": "tf_Tile_r2_c3"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r2_c4_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r2_c4_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r2_c4_lod3"
+                            }
+                        ],
+                        "name": "Tile_r2_c4",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r2_c4",
+                "position": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "rotation": {
+                    "w": 1.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "scale": {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 1.0
+                },
+                "template": "tf_Tile_r2_c4"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r2_c5_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r2_c5_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r2_c5_lod3"
+                            }
+                        ],
+                        "name": "Tile_r2_c5",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r2_c5",
+                "position": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "rotation": {
+                    "w": 1.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "scale": {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 1.0
+                },
+                "template": "tf_Tile_r2_c5"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r2_c6_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r2_c6_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r2_c6_lod3"
+                            }
+                        ],
+                        "name": "Tile_r2_c6",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r2_c6",
+                "position": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "rotation": {
+                    "w": 1.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "scale": {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 1.0
+                },
+                "template": "tf_Tile_r2_c6"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r3_c0_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r3_c0_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r3_c0_lod3"
+                            }
+                        ],
+                        "name": "Tile_r3_c0",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r3_c0",
+                "position": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "rotation": {
+                    "w": 1.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "scale": {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 1.0
+                },
+                "template": "tf_Tile_r3_c0"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r3_c1_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r3_c1_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r3_c1_lod3"
+                            }
+                        ],
+                        "name": "Tile_r3_c1",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r3_c1",
+                "position": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "rotation": {
+                    "w": 1.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "scale": {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 1.0
+                },
+                "template": "tf_Tile_r3_c1"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r3_c2_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r3_c2_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r3_c2_lod3"
+                            }
+                        ],
+                        "name": "Tile_r3_c2",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r3_c2",
+                "position": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "rotation": {
+                    "w": 1.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "scale": {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 1.0
+                },
+                "template": "tf_Tile_r3_c2"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r3_c3_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r3_c3_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r3_c3_lod3"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r3_c3_lod4"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r3_c3_lod5"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r3_c3_lod6"
+                            }
+                        ],
+                        "name": "Tile_r3_c3",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r3_c3",
+                "position": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "rotation": {
+                    "w": 1.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "scale": {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 1.0
+                },
+                "template": "tf_Tile_r3_c3"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r3_c4_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r3_c4_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r3_c4_lod3"
+                            }
+                        ],
+                        "name": "Tile_r3_c4",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r3_c4",
+                "position": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "rotation": {
+                    "w": 1.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "scale": {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 1.0
+                },
+                "template": "tf_Tile_r3_c4"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r3_c5_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r3_c5_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r3_c5_lod3"
+                            }
+                        ],
+                        "name": "Tile_r3_c5",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r3_c5",
+                "position": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "rotation": {
+                    "w": 1.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "scale": {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 1.0
+                },
+                "template": "tf_Tile_r3_c5"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r3_c6_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r3_c6_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r3_c6_lod3"
+                            }
+                        ],
+                        "name": "Tile_r3_c6",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r3_c6",
+                "position": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "rotation": {
+                    "w": 1.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "scale": {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 1.0
+                },
+                "template": "tf_Tile_r3_c6"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r4_c0_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r4_c0_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r4_c0_lod3"
+                            }
+                        ],
+                        "name": "Tile_r4_c0",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r4_c0",
+                "position": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "rotation": {
+                    "w": 1.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "scale": {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 1.0
+                },
+                "template": "tf_Tile_r4_c0"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r4_c1_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r4_c1_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r4_c1_lod3"
+                            }
+                        ],
+                        "name": "Tile_r4_c1",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r4_c1",
+                "position": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "rotation": {
+                    "w": 1.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "scale": {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 1.0
+                },
+                "template": "tf_Tile_r4_c1"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r4_c2_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r4_c2_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r4_c2_lod3"
+                            }
+                        ],
+                        "name": "Tile_r4_c2",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r4_c2",
+                "position": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "rotation": {
+                    "w": 1.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "scale": {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 1.0
+                },
+                "template": "tf_Tile_r4_c2"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r4_c3_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r4_c3_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r4_c3_lod3"
+                            }
+                        ],
+                        "name": "Tile_r4_c3",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r4_c3",
+                "position": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "rotation": {
+                    "w": 1.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "scale": {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 1.0
+                },
+                "template": "tf_Tile_r4_c3"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r4_c4_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r4_c4_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r4_c4_lod3"
+                            }
+                        ],
+                        "name": "Tile_r4_c4",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r4_c4",
+                "position": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "rotation": {
+                    "w": 1.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "scale": {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 1.0
+                },
+                "template": "tf_Tile_r4_c4"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r4_c5_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r4_c5_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r4_c5_lod3"
+                            }
+                        ],
+                        "name": "Tile_r4_c5",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r4_c5",
+                "position": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "rotation": {
+                    "w": 1.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "scale": {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 1.0
+                },
+                "template": "tf_Tile_r4_c5"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r4_c6_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r4_c6_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r4_c6_lod3"
+                            }
+                        ],
+                        "name": "Tile_r4_c6",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r4_c6",
+                "position": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "rotation": {
+                    "w": 1.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "scale": {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 1.0
+                },
+                "template": "tf_Tile_r4_c6"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r5_c0_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r5_c0_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r5_c0_lod3"
+                            }
+                        ],
+                        "name": "Tile_r5_c0",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r5_c0",
+                "position": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "rotation": {
+                    "w": 1.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "scale": {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 1.0
+                },
+                "template": "tf_Tile_r5_c0"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r5_c1_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r5_c1_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r5_c1_lod3"
+                            }
+                        ],
+                        "name": "Tile_r5_c1",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r5_c1",
+                "position": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "rotation": {
+                    "w": 1.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "scale": {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 1.0
+                },
+                "template": "tf_Tile_r5_c1"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r5_c2_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r5_c2_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r5_c2_lod3"
+                            }
+                        ],
+                        "name": "Tile_r5_c2",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r5_c2",
+                "position": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "rotation": {
+                    "w": 1.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "scale": {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 1.0
+                },
+                "template": "tf_Tile_r5_c2"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r5_c3_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r5_c3_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r5_c3_lod3"
+                            }
+                        ],
+                        "name": "Tile_r5_c3",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r5_c3",
+                "position": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "rotation": {
+                    "w": 1.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "scale": {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 1.0
+                },
+                "template": "tf_Tile_r5_c3"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r5_c4_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r5_c4_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r5_c4_lod3"
+                            }
+                        ],
+                        "name": "Tile_r5_c4",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r5_c4",
+                "position": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "rotation": {
+                    "w": 1.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "scale": {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 1.0
+                },
+                "template": "tf_Tile_r5_c4"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r5_c5_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r5_c5_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r5_c5_lod3"
+                            }
+                        ],
+                        "name": "Tile_r5_c5",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r5_c5",
+                "position": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "rotation": {
+                    "w": 1.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "scale": {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 1.0
+                },
+                "template": "tf_Tile_r5_c5"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r5_c6_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r5_c6_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r5_c6_lod3"
+                            }
+                        ],
+                        "name": "Tile_r5_c6",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r5_c6",
+                "position": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "rotation": {
+                    "w": 1.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "scale": {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 1.0
+                },
+                "template": "tf_Tile_r5_c6"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r6_c0_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r6_c0_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r6_c0_lod3"
+                            }
+                        ],
+                        "name": "Tile_r6_c0",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r6_c0",
+                "position": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "rotation": {
+                    "w": 1.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "scale": {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 1.0
+                },
+                "template": "tf_Tile_r6_c0"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r6_c1_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r6_c1_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r6_c1_lod3"
+                            }
+                        ],
+                        "name": "Tile_r6_c1",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r6_c1",
+                "position": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "rotation": {
+                    "w": 1.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "scale": {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 1.0
+                },
+                "template": "tf_Tile_r6_c1"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r6_c2_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r6_c2_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r6_c2_lod3"
+                            }
+                        ],
+                        "name": "Tile_r6_c2",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r6_c2",
+                "position": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "rotation": {
+                    "w": 1.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "scale": {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 1.0
+                },
+                "template": "tf_Tile_r6_c2"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r6_c3_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r6_c3_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r6_c3_lod3"
+                            }
+                        ],
+                        "name": "Tile_r6_c3",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r6_c3",
+                "position": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "rotation": {
+                    "w": 1.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "scale": {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 1.0
+                },
+                "template": "tf_Tile_r6_c3"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r6_c4_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r6_c4_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r6_c4_lod3"
+                            }
+                        ],
+                        "name": "Tile_r6_c4",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r6_c4",
+                "position": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "rotation": {
+                    "w": 1.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "scale": {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 1.0
+                },
+                "template": "tf_Tile_r6_c4"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r6_c5_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r6_c5_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r6_c5_lod3"
+                            }
+                        ],
+                        "name": "Tile_r6_c5",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r6_c5",
+                "position": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "rotation": {
+                    "w": 1.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "scale": {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 1.0
+                },
+                "template": "tf_Tile_r6_c5"
+            },
+            {
+                "components": {
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r6_c6_lod1"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r6_c6_lod2"
+                            },
+                            {
+                                "distance": 0.0,
+                                "name": "Tile_r6_c6_lod3"
+                            }
+                        ],
+                        "name": "Tile_r6_c6",
+                        "smooth": true
+                    }
+                },
+                "name": "Tile_r6_c6",
+                "position": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "rotation": {
+                    "w": 1.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "scale": {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 1.0
+                },
+                "template": "tf_Tile_r6_c6"
+            }
+        ],
+        "lights": [
+            {
+                "color_down": "038040048",
+                "color_up": "062065072",
+                "name": "ambient",
+                "type": "ambient"
+            },
+            {
+                "cast_shadow": true,
+                "color": "150148152",
+                "density": 6,
+                "direction": {
+                    "x": -0.25,
+                    "y": -0.85,
+                    "z": 0.15
+                },
+                "fog": true,
+                "name": "sun",
+                "resolution": 2,
+                "type": "directional"
+            }
+        ],
+        "material_files": [
+            "materials\\diablo.mat"
+        ],
+        "models": [
+            {
+                "file": "Objects\\terrain.fbx",
+                "triangulate": false
+            }
+        ],
+        "path": "C:\\Users\\Vicen\\source\\repos\\HotBiteEngine\\Tests\\DiabloLevel\\assets\\",
+        "removed_entities": [],
+        "templates": [
+            {
+                "components": {
+                    "Camera": {
+                        "direction": {
+                            "x": 0,
+                            "y": -0.3,
+                            "z": 1
+                        },
+                        "position": {
+                            "x": 0,
+                            "y": 22,
+                            "z": -50
+                        }
+                    }
+                },
+                "name": "tf_camera"
+            },
+            {
+                "components": {
+                    "Bounds": {},
+                    "Material": {
+                        "name": "GroundBase"
+                    },
+                    "Mesh": {
+                        "name": "Tile_r0_c0"
+                    }
+                },
+                "name": "tf_Tile_r0_c0"
+            },
+            {
+                "components": {
+                    "Bounds": {},
+                    "Material": {
+                        "name": "GroundBase"
+                    },
+                    "Mesh": {
+                        "name": "Tile_r0_c1"
+                    }
+                },
+                "name": "tf_Tile_r0_c1"
+            },
+            {
+                "components": {
+                    "Bounds": {},
+                    "Material": {
+                        "name": "GroundBase"
+                    },
+                    "Mesh": {
+                        "name": "Tile_r0_c2"
+                    }
+                },
+                "name": "tf_Tile_r0_c2"
+            },
+            {
+                "components": {
+                    "Bounds": {},
+                    "Material": {
+                        "name": "GroundBase"
+                    },
+                    "Mesh": {
+                        "name": "Tile_r0_c3"
+                    }
+                },
+                "name": "tf_Tile_r0_c3"
+            },
+            {
+                "components": {
+                    "Bounds": {},
+                    "Material": {
+                        "name": "GroundBase"
+                    },
+                    "Mesh": {
+                        "name": "Tile_r0_c4"
+                    }
+                },
+                "name": "tf_Tile_r0_c4"
+            },
+            {
+                "components": {
+                    "Bounds": {},
+                    "Material": {
+                        "name": "GroundBase"
+                    },
+                    "Mesh": {
+                        "name": "Tile_r0_c5"
+                    }
+                },
+                "name": "tf_Tile_r0_c5"
+            },
+            {
+                "components": {
+                    "Bounds": {},
+                    "Material": {
+                        "name": "GroundBase"
+                    },
+                    "Mesh": {
+                        "name": "Tile_r0_c6"
+                    }
+                },
+                "name": "tf_Tile_r0_c6"
+            },
+            {
+                "components": {
+                    "Bounds": {},
+                    "Material": {
+                        "name": "GroundBase"
+                    },
+                    "Mesh": {
+                        "name": "Tile_r1_c0"
+                    }
+                },
+                "name": "tf_Tile_r1_c0"
+            },
+            {
+                "components": {
+                    "Bounds": {},
+                    "Material": {
+                        "name": "GroundBase"
+                    },
+                    "Mesh": {
+                        "name": "Tile_r1_c1"
+                    }
+                },
+                "name": "tf_Tile_r1_c1"
+            },
+            {
+                "components": {
+                    "Bounds": {},
+                    "Material": {
+                        "name": "GroundBase"
+                    },
+                    "Mesh": {
+                        "name": "Tile_r1_c2"
+                    }
+                },
+                "name": "tf_Tile_r1_c2"
+            },
+            {
+                "components": {
+                    "Bounds": {},
+                    "Material": {
+                        "name": "GroundBase"
+                    },
+                    "Mesh": {
+                        "name": "Tile_r1_c3"
+                    }
+                },
+                "name": "tf_Tile_r1_c3"
+            },
+            {
+                "components": {
+                    "Bounds": {},
+                    "Material": {
+                        "name": "GroundBase"
+                    },
+                    "Mesh": {
+                        "name": "Tile_r1_c4"
+                    }
+                },
+                "name": "tf_Tile_r1_c4"
+            },
+            {
+                "components": {
+                    "Bounds": {},
+                    "Material": {
+                        "name": "GroundBase"
+                    },
+                    "Mesh": {
+                        "name": "Tile_r1_c5"
+                    }
+                },
+                "name": "tf_Tile_r1_c5"
+            },
+            {
+                "components": {
+                    "Bounds": {},
+                    "Material": {
+                        "name": "GroundBase"
+                    },
+                    "Mesh": {
+                        "name": "Tile_r1_c6"
+                    }
+                },
+                "name": "tf_Tile_r1_c6"
+            },
+            {
+                "components": {
+                    "Bounds": {},
+                    "Material": {
+                        "name": "GroundBase"
+                    },
+                    "Mesh": {
+                        "name": "Tile_r2_c0"
+                    }
+                },
+                "name": "tf_Tile_r2_c0"
+            },
+            {
+                "components": {
+                    "Bounds": {},
+                    "Material": {
+                        "name": "GroundBase"
+                    },
+                    "Mesh": {
+                        "name": "Tile_r2_c1"
+                    }
+                },
+                "name": "tf_Tile_r2_c1"
+            },
+            {
+                "components": {
+                    "Bounds": {},
+                    "Material": {
+                        "name": "GroundBase"
+                    },
+                    "Mesh": {
+                        "name": "Tile_r2_c2"
+                    }
+                },
+                "name": "tf_Tile_r2_c2"
+            },
+            {
+                "components": {
+                    "Bounds": {},
+                    "Material": {
+                        "name": "GroundBase"
+                    },
+                    "Mesh": {
+                        "name": "Tile_r2_c3"
+                    }
+                },
+                "name": "tf_Tile_r2_c3"
+            },
+            {
+                "components": {
+                    "Bounds": {},
+                    "Material": {
+                        "name": "GroundBase"
+                    },
+                    "Mesh": {
+                        "name": "Tile_r2_c4"
+                    }
+                },
+                "name": "tf_Tile_r2_c4"
+            },
+            {
+                "components": {
+                    "Bounds": {},
+                    "Material": {
+                        "name": "GroundBase"
+                    },
+                    "Mesh": {
+                        "name": "Tile_r2_c5"
+                    }
+                },
+                "name": "tf_Tile_r2_c5"
+            },
+            {
+                "components": {
+                    "Bounds": {},
+                    "Material": {
+                        "name": "GroundBase"
+                    },
+                    "Mesh": {
+                        "name": "Tile_r2_c6"
+                    }
+                },
+                "name": "tf_Tile_r2_c6"
+            },
+            {
+                "components": {
+                    "Bounds": {},
+                    "Material": {
+                        "name": "GroundBase"
+                    },
+                    "Mesh": {
+                        "name": "Tile_r3_c0"
+                    }
+                },
+                "name": "tf_Tile_r3_c0"
+            },
+            {
+                "components": {
+                    "Bounds": {},
+                    "Material": {
+                        "name": "GroundBase"
+                    },
+                    "Mesh": {
+                        "name": "Tile_r3_c1"
+                    }
+                },
+                "name": "tf_Tile_r3_c1"
+            },
+            {
+                "components": {
+                    "Bounds": {},
+                    "Material": {
+                        "name": "GroundBase"
+                    },
+                    "Mesh": {
+                        "name": "Tile_r3_c2"
+                    }
+                },
+                "name": "tf_Tile_r3_c2"
+            },
+            {
+                "components": {
+                    "Bounds": {},
+                    "Material": {
+                        "name": "GroundBase"
+                    },
+                    "Mesh": {
+                        "name": "Tile_r3_c3"
+                    }
+                },
+                "name": "tf_Tile_r3_c3"
+            },
+            {
+                "components": {
+                    "Bounds": {},
+                    "Material": {
+                        "name": "GroundBase"
+                    },
+                    "Mesh": {
+                        "name": "Tile_r3_c4"
+                    }
+                },
+                "name": "tf_Tile_r3_c4"
+            },
+            {
+                "components": {
+                    "Bounds": {},
+                    "Material": {
+                        "name": "GroundBase"
+                    },
+                    "Mesh": {
+                        "name": "Tile_r3_c5"
+                    }
+                },
+                "name": "tf_Tile_r3_c5"
+            },
+            {
+                "components": {
+                    "Bounds": {},
+                    "Material": {
+                        "name": "GroundBase"
+                    },
+                    "Mesh": {
+                        "name": "Tile_r3_c6"
+                    }
+                },
+                "name": "tf_Tile_r3_c6"
+            },
+            {
+                "components": {
+                    "Bounds": {},
+                    "Material": {
+                        "name": "GroundBase"
+                    },
+                    "Mesh": {
+                        "name": "Tile_r4_c0"
+                    }
+                },
+                "name": "tf_Tile_r4_c0"
+            },
+            {
+                "components": {
+                    "Bounds": {},
+                    "Material": {
+                        "name": "GroundBase"
+                    },
+                    "Mesh": {
+                        "name": "Tile_r4_c1"
+                    }
+                },
+                "name": "tf_Tile_r4_c1"
+            },
+            {
+                "components": {
+                    "Bounds": {},
+                    "Material": {
+                        "name": "GroundBase"
+                    },
+                    "Mesh": {
+                        "name": "Tile_r4_c2"
+                    }
+                },
+                "name": "tf_Tile_r4_c2"
+            },
+            {
+                "components": {
+                    "Bounds": {},
+                    "Material": {
+                        "name": "GroundBase"
+                    },
+                    "Mesh": {
+                        "name": "Tile_r4_c3"
+                    }
+                },
+                "name": "tf_Tile_r4_c3"
+            },
+            {
+                "components": {
+                    "Bounds": {},
+                    "Material": {
+                        "name": "GroundBase"
+                    },
+                    "Mesh": {
+                        "name": "Tile_r4_c4"
+                    }
+                },
+                "name": "tf_Tile_r4_c4"
+            },
+            {
+                "components": {
+                    "Bounds": {},
+                    "Material": {
+                        "name": "GroundBase"
+                    },
+                    "Mesh": {
+                        "name": "Tile_r4_c5"
+                    }
+                },
+                "name": "tf_Tile_r4_c5"
+            },
+            {
+                "components": {
+                    "Bounds": {},
+                    "Material": {
+                        "name": "GroundBase"
+                    },
+                    "Mesh": {
+                        "name": "Tile_r4_c6"
+                    }
+                },
+                "name": "tf_Tile_r4_c6"
+            },
+            {
+                "components": {
+                    "Bounds": {},
+                    "Material": {
+                        "name": "GroundBase"
+                    },
+                    "Mesh": {
+                        "name": "Tile_r5_c0"
+                    }
+                },
+                "name": "tf_Tile_r5_c0"
+            },
+            {
+                "components": {
+                    "Bounds": {},
+                    "Material": {
+                        "name": "GroundBase"
+                    },
+                    "Mesh": {
+                        "name": "Tile_r5_c1"
+                    }
+                },
+                "name": "tf_Tile_r5_c1"
+            },
+            {
+                "components": {
+                    "Bounds": {},
+                    "Material": {
+                        "name": "GroundBase"
+                    },
+                    "Mesh": {
+                        "name": "Tile_r5_c2"
+                    }
+                },
+                "name": "tf_Tile_r5_c2"
+            },
+            {
+                "components": {
+                    "Bounds": {},
+                    "Material": {
+                        "name": "GroundBase"
+                    },
+                    "Mesh": {
+                        "name": "Tile_r5_c3"
+                    }
+                },
+                "name": "tf_Tile_r5_c3"
+            },
+            {
+                "components": {
+                    "Bounds": {},
+                    "Material": {
+                        "name": "GroundBase"
+                    },
+                    "Mesh": {
+                        "name": "Tile_r5_c4"
+                    }
+                },
+                "name": "tf_Tile_r5_c4"
+            },
+            {
+                "components": {
+                    "Bounds": {},
+                    "Material": {
+                        "name": "GroundBase"
+                    },
+                    "Mesh": {
+                        "name": "Tile_r5_c5"
+                    }
+                },
+                "name": "tf_Tile_r5_c5"
+            },
+            {
+                "components": {
+                    "Bounds": {},
+                    "Material": {
+                        "name": "GroundBase"
+                    },
+                    "Mesh": {
+                        "name": "Tile_r5_c6"
+                    }
+                },
+                "name": "tf_Tile_r5_c6"
+            },
+            {
+                "components": {
+                    "Bounds": {},
+                    "Material": {
+                        "name": "GroundBase"
+                    },
+                    "Mesh": {
+                        "name": "Tile_r6_c0"
+                    }
+                },
+                "name": "tf_Tile_r6_c0"
+            },
+            {
+                "components": {
+                    "Bounds": {},
+                    "Material": {
+                        "name": "GroundBase"
+                    },
+                    "Mesh": {
+                        "name": "Tile_r6_c1"
+                    }
+                },
+                "name": "tf_Tile_r6_c1"
+            },
+            {
+                "components": {
+                    "Bounds": {},
+                    "Material": {
+                        "name": "GroundBase"
+                    },
+                    "Mesh": {
+                        "name": "Tile_r6_c2"
+                    }
+                },
+                "name": "tf_Tile_r6_c2"
+            },
+            {
+                "components": {
+                    "Bounds": {},
+                    "Material": {
+                        "name": "GroundBase"
+                    },
+                    "Mesh": {
+                        "name": "Tile_r6_c3"
+                    }
+                },
+                "name": "tf_Tile_r6_c3"
+            },
+            {
+                "components": {
+                    "Bounds": {},
+                    "Material": {
+                        "name": "GroundBase"
+                    },
+                    "Mesh": {
+                        "name": "Tile_r6_c4"
+                    }
+                },
+                "name": "tf_Tile_r6_c4"
+            },
+            {
+                "components": {
+                    "Bounds": {},
+                    "Material": {
+                        "name": "GroundBase"
+                    },
+                    "Mesh": {
+                        "name": "Tile_r6_c5"
+                    }
+                },
+                "name": "tf_Tile_r6_c5"
+            },
+            {
+                "components": {
+                    "Bounds": {},
+                    "Material": {
+                        "name": "GroundBase"
+                    },
+                    "Mesh": {
+                        "name": "Tile_r6_c6"
+                    }
+                },
+                "name": "tf_Tile_r6_c6"
+            }
+        ]
+    }
+}

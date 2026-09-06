@@ -1,0 +1,5 @@
+{
+    "ui": { "root": "assets\\Ui\\" },
+    "objects": { "root": "assets\\Objects\\" },
+    "solo": { "root": "assets\\Levels\\Solo\\", "levels": [ { "id": 1, "name": "Frozen Wastes" } ] }
+}

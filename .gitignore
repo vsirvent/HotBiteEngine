@@ -81,3 +81,8 @@ Tests/DemoGame/assets/particle_test.blend1
 Tests/DemoGame/assets/Objects/oct.ply
 Tests/DemoGame/assets/Objects/scene.ply
 Tests/DemoGame/assets/splats/oct.ply
+
+# LOD mesh cache: keyed by vertex/index counts, not content, and rebuilt
+# automatically from the "generated_meshes" recipe already saved in each
+# level.json the first time that level loads (see World::Load).
+GeneratedMeshes/
