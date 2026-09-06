@@ -20,6 +20,16 @@ function GetLayer {
 # four sides, which is what makes an orientation ("slope") rule visible at all on a
 # fixture with no real terrain mesh.
 function Set-SlabView {
+    # select_multi_material (above) leaves the floating Materials panel open for
+    # the rest of the session - nothing in this file ever closes it - and once
+    # open it can dock or be left sized well beyond the ~45%-of-viewport default
+    # SetNextWindowPos/Size only ever apply on its very first appearance
+    # (ImGuiCond_FirstUseEver). Measured directly: it has been seen covering the
+    # viewport from x=0 out past the "side" sample rectangle below, which then
+    # reads the panel's own near-black background instead of the slab. The render
+    # assertions below want the bare viewport, so close it first; nothing after
+    # this point needs it visible.
+    SendOk 'menu "View/Materials"' | Out-Null
     SendOk 'select box_a', 'set_scale 6 1 6', 'set_position 0 0 0',
            'camera_pos -4 6 -9', 'camera_target 0 0 0' | Out-Null
     # Transform edits are consumed by StaticMeshSystem on its own background tick

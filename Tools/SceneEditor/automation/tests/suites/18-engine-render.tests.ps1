@@ -27,7 +27,15 @@ function Get-MotionShare {
     $bmp = New-Object System.Drawing.Bitmap($path)
     try {
         $x0 = [int]($bmp.Width * 0.18); $x1 = [int]($bmp.Width * 0.82)
-        $y0 = [int]($bmp.Height * 0.05); $y1 = [int]($bmp.Height * 0.95)
+        # y0 starts below the "Debug Buffer" overlay (RenderSettings::DrawOverlay),
+        # not at the top of the frame: that panel is centred at the top of the
+        # viewport and drawn every frame a debug buffer view is active - which this
+        # measurement always runs under. Measured on a 793px-tall capture its dark
+        # background and legend text (up to five lines) run to about y=135 (17%);
+        # 0.05 sat inside it, so the panel's own near-black/white pixels - neither
+        # blue nor grey - were being counted as "moving" scene content on an
+        # otherwise still frame. 0.20 clears it with margin.
+        $y0 = [int]($bmp.Height * 0.20); $y1 = [int]($bmp.Height * 0.95)
         $moving = 0; $drawn = 0
         for ($y = $y0; $y -lt $y1; $y += 4) {
             for ($x = $x0; $x -lt $x1; $x += 4) {

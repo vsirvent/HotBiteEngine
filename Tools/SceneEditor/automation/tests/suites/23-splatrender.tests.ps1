@@ -551,16 +551,28 @@ Test 'albedo_scale changes the colour without changing the coverage' {
 
 Test 'point_size_scale grows and shrinks the cloud''s screen footprint' {
     # A direct per-splat radius multiplier - it grows or shrinks the silhouette
-    # itself. Measured pushed far back, the way max_density's test is, and for a
-    # second reason on top of that one's: splat_stats_cpu is one struct, overwritten
-    # by whichever cloud RenderSystem::DrawSplats draws last that frame, not indexed
-    # by cloud - so with the varied cloud from 'the composite is stable frame to
-    # frame' now sitting parked (off screen but still Base.visible) in the same
-    # scene, splat_info can report ITS all-zero stats instead of this cloud's
-    # whenever it draws second. A screenshot has no such ambiguity: it shows
-    # whatever is actually on screen, which is this cloud alone.
+    # itself. Measured pushed back rather than at the origin, for the same
+    # splat_stats_cpu-ambiguity reason max_density's test is: that struct is one
+    # instance, overwritten by whichever cloud RenderSystem::DrawSplats draws last
+    # that frame, not indexed by cloud - so with the varied cloud from 'the
+    # composite is stable frame to frame' now sitting parked (off screen but still
+    # Base.visible) in the same scene, splat_info can report ITS all-zero stats
+    # instead of this cloud's whenever it draws second. A screenshot has no such
+    # ambiguity: it shows whatever is actually on screen, which is this cloud alone.
+    #
+    # Not pushed nearly as far back as max_density's 200 units, though, and that
+    # distance is load-bearing rather than arbitrary: SplatPreprocessCS's low-pass
+    # floor (see the file header) puts a hard ~1.9px floor under any splat's
+    # projected radius, however small its variance, and at 80 units this cloud's
+    # own splats (world scale ~0.074, from New-RenderPly) already sit close enough
+    # to that floor at point_size_scale 1.0 that halving the scale changed nothing
+    # measurable - shrinking to 0.2 only reached 0.174% off a 0.203% baseline, an
+    # 86% ratio instead of the sub-67% a real 5x size cut should produce. 40 units
+    # gives the baseline enough headroom above the floor for the shrink to actually
+    # show (measured: 0.739% -> 0.464%, a 63% ratio) while keeping the baseline
+    # itself comfortably small, which the ratio-based assertions below still want.
     Reset-Cloud
-    Move-Entity -Entity $script:cloud -Position '0 0 80'
+    Move-Entity -Entity $script:cloud -Position '0 0 40'
     $base = Get-CloudShare 'point-size-base'
     # The pass is not temporal (nothing here accumulates between frames - see 'the
     # composite is stable frame to frame' above), so this is a deterministic
