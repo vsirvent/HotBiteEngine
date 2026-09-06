@@ -1,6 +1,7 @@
 #include "SceneSerializer.h"
 #include "AssetBrowser.h"
 #include "EntityOps.h"
+#include "MaterialPanel.h"
 #include "PhysicsPreview.h"
 #include "TemplatePanel.h"
 
@@ -136,16 +137,30 @@ namespace HotBiteEditor {
 
 			//Authored templates are written first, for one reason: the "templates"
 			//array below names their .tpl files, and a level that references a file
-			//which was never written cannot be reloaded. This is where templates differ
-			//from materials - a .mat is only ever referenced by name from data the level
-			//already carries, so leaving one unsaved costs nothing but the edit.
-			//Taken before the save, which clears it: dropping a removed template from
-			//the level's "templates" array below still has to know which ones went.
+			//which was never written cannot be reloaded. Taken before the save, which
+			//clears it: dropping a removed template from the level's "templates" array
+			//below still has to know which ones went.
 			const std::set<std::string> removed_templates = state.removed_templates;
 			if (TemplateOps::HasUnsavedTemplates(state)) {
 				std::string template_error;
 				if (!TemplateOps::SaveTemplates(state, template_error)) {
 					state.status_message = "Save failed: could not write templates: " + template_error;
+					return;
+				}
+			}
+
+			//Materials and multi-materials used to be left to their own explicit save
+			//(File/Save Materials) on the theory that a .mat is only ever referenced by
+			//name, never by a file the level needs to exist for reload - so leaving one
+			//unsaved "cost nothing but the edit". In practice that edit is exactly what
+			//a user saving their level expects to be safe, and nothing anywhere (not
+			//even File/Exit) warns that it silently is not - a multi-material's layers
+			//edited and never explicitly saved via File/Save Materials were gone on the
+			//next open. Flush them here too, the same as templates just above.
+			if (MaterialOps::HasUnsavedMaterials(state)) {
+				std::string material_error;
+				if (!MaterialOps::SaveMaterials(state, material_error)) {
+					state.status_message = "Save failed: could not write materials: " + material_error;
 					return;
 				}
 			}

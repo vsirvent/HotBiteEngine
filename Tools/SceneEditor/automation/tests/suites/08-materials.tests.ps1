@@ -60,19 +60,36 @@ Test 'create_material rejects a duplicate name' {
     Assert-Err -Result (Send 'create_material TestRed materials\test.mat')[0]
 }
 
-Test 'save_materials writes the .mat file, and the level save does not' {
+Test 'save_materials writes the .mat file directly' {
     $matPath = Join-Path $Assets 'materials\test.mat'
-    SendOk 'menu "File/Save Level"' | Out-Null
-    $mat = Get-Content $matPath -Raw | ConvertFrom-Json
-    $names = @($mat.materials | ForEach-Object { $_.name })
-    Assert-NotContains -Collection $names -Value 'TestGreen' `
-        -Message 'a .mat is a shared asset, not part of the level'
-
     SendOk 'save_materials' | Out-Null
     $mat = Get-Content $matPath -Raw | ConvertFrom-Json
     $names = @($mat.materials | ForEach-Object { $_.name })
     Assert-Contains -Collection $names -Value 'TestGreen' -Message 'saved materials'
     Assert-NotMatch -Pattern 'unsaved' -Actual (MaterialLine -Name 'TestGreen') -Message 'no longer dirty'
+}
+
+Test 'File/Save Level also flushes an unsaved material' {
+    # A .mat is a shared asset, not part of the level file - but a level save used
+    # to leave any material or multi-material edit unsaved with nothing anywhere
+    # (not even File/Exit) warning that it silently was, which read as "my level
+    # save lost my edits". SceneSerializer::Save now flushes dirty material files
+    # the same way it already flushed dirty templates.
+    $matPath = Join-Path $Assets 'materials\test.mat'
+    SendOk 'create_material TestYellow materials\test.mat' | Out-Null
+    Assert-Match -Pattern 'unsaved' -Actual (MaterialLine -Name 'TestYellow') -Message 'dirty before any save'
+
+    SendOk 'menu "File/Save Level"' | Out-Null
+    $mat = Get-Content $matPath -Raw | ConvertFrom-Json
+    $names = @($mat.materials | ForEach-Object { $_.name })
+    Assert-Contains -Collection $names -Value 'TestYellow' `
+        -Message 'File/Save Level should have written the dirty .mat file too'
+    Assert-NotMatch -Pattern 'unsaved' -Actual (MaterialLine -Name 'TestYellow') -Message 'no longer dirty'
+
+    # Clean up so the material counts the rest of this file asserts on on stay
+    # exactly what they were before this test existed.
+    SendOk 'remove_material TestYellow' | Out-Null
+    SendOk 'menu "File/Save Level"' | Out-Null
 }
 
 Test 'remove_material retires it and reassigns its users' {

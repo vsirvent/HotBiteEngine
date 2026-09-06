@@ -11,10 +11,12 @@ namespace HotBiteEditor {
 	// Material authoring: the "Materials" panel plus the operations behind it.
 	//
 	// Materials live in .mat files, which are shared assets referenced by a level -
-	// not part of the level file. So material edits are saved separately (File/Save
-	// Materials, or the panel's Save button), and saving the level neither saves nor
-	// discards them. Every edit marks the material's own .mat file dirty; only dirty
-	// files are rewritten.
+	// not part of the level file. So material edits are recorded separately from
+	// level edits (File/Save Materials, or the panel's Save button, writes only the
+	// dirty .mat files), but File/Save Level flushes any unsaved ones too - see
+	// SceneSerializer::Save - so a saved level never leaves an edited material or
+	// multi-material behind unsaved. Every edit marks the material's own .mat file
+	// dirty; only dirty files are rewritten.
 	//
 	// A material is keyed by *name* throughout, like entities: MaterialData pointers
 	// are shared between the entities using them and are not stable across a reload,

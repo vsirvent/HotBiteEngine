@@ -1291,8 +1291,12 @@ the troll template's 0.025 scale, a copy came out 40× too small.
 
 **Materials** are authored in the Materials panel (`Tools/SceneEditor/MaterialPanel.h`)
 and live in `.mat` files, which are shared assets referenced by a level rather than
-part of it — so they save through File/Save Materials (`save_materials`), *not*
-File/Save Level, and `World` tracks which `.mat` each material came from. Two traps:
+part of it — so they save separately from level data, through File/Save Materials
+(`save_materials`) or the panel's own Save button. File/Save Level flushes any
+dirty `.mat` files too (`SceneSerializer::Save`, the same as it already did for
+templates) — a level save alone used to leave a material or multi-material edit
+unwritten with nothing warning that it silently was, which read as "my level save
+lost my edits". `World` tracks which `.mat` each material came from. Two traps:
 `MaterialData::Save` round-trips the keys `Load` ignores via `source_json`, so don't
 rebuild the JSON from scratch; and `RemoveMaterial` retires a material instead of
 erasing it, because `FlatMap` removal relocates another element and would dangle every
@@ -1324,8 +1328,9 @@ same-material key change would leave the entity drawing twice).
 **A multi-material is a stack of material layers, and it belongs to a *material*, never
 to an entity** (`Core::MultiMaterialData`, authored in the Materials panel's
 Multi-Materials tab — `Tools/SceneEditor/MultiMaterialPanel.h`). It is a named asset like
-a material: stored in a `.mat` file's `multi_materials` array, saved by File/Save
-Materials, and worn by a material through `MaterialData::multi_material_name`. Non-null
+a material: stored in a `.mat` file's `multi_materials` array, saved the same way a
+material is (File/Save Materials, or flushed by File/Save Level if left dirty), and
+worn by a material through `MaterialData::multi_material_name`. Non-null
 `MaterialData::multi_material` is what makes `RenderSystem` take the multi-texture path,
 where the layers *replace* that material's own diffuse/normal/spec/ao/height maps (the
 rest of it — emission, opacity, flags, shaders — still applies).
@@ -1640,9 +1645,11 @@ A template is stored either in its own `.tpl` under `<assets>/Templates/`
 (referenced from the level's `templates` array) or inline in that array as
 `{"name", "components"}`; `TemplateOps::SetStorage` moves it between the two and
 `EditorState::inline_templates` records which is which. `.tpl` files save through
-File/Save Templates, *but* File/Save Level flushes them first (unlike materials),
-because the level names the files. `Tests/DemoGame/Templates/troll.tpl` is the
-worked example: mesh, four named animations, material, scale and a dynamic collider.
+File/Save Templates, *but* File/Save Level flushes them first, because the level
+names the files — and, since materials also get flushed on a level save (see
+above), the order is templates then materials rather than one or the other only.
+`Tests/DemoGame/Templates/troll.tpl` is the worked example: mesh, four named
+animations, material, scale and a dynamic collider.
 
 Two traps in the same area. `World::Load` creates templates *after* the materials and
 meshes sections, not in the templates phase — their blocks name materials and animation

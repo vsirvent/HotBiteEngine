@@ -255,6 +255,47 @@ Test 'save_materials writes multi_materials into the .mat file' {
     Assert-Equal -Expected 'Blend' -Actual $red.multi_material
 }
 
+Test 'File/Save Level also flushes an unsaved multi-material, and it survives a reload' {
+    # The reported bug this guards against: a multi-material's layers are edited
+    # (add_layer/set_layer/etc, all correctly marked dirty in memory - see
+    # MultiMaterialOps), the user saves the *level* rather than remembering the
+    # separate File/Save Materials, and the .mat file on disk - and so the edit -
+    # was never written. SceneSerializer::Save now flushes dirty material files
+    # the same way it already flushed dirty templates, so a level save alone must
+    # be enough; checked against a second process reloading the same files, since
+    # that is the only real proof a save is loadable.
+    SendOk 'create_multi_material SaveViaLevel materials\test.mat' | Out-Null
+    SendOk 'add_layer SaveViaLevel TestRed' | Out-Null
+    SendOk 'add_layer SaveViaLevel TestBlue' | Out-Null
+    SendOk "set_layer SaveViaLevel 1 ""{'value':0.75,'slope_enabled':true,'slope_min':0.6,'slope_max':1.0}""" | Out-Null
+    Assert-Match -Pattern 'unsaved' -Actual (MultiMaterialLine -Name 'SaveViaLevel') -Message 'dirty before any save'
+
+    SendOk 'menu "File/Save Level"' | Out-Null
+    Assert-NotMatch -Pattern 'unsaved' -Actual (MultiMaterialLine -Name 'SaveViaLevel') -Message 'no longer dirty in this session'
+
+    $matPath = Join-Path $Assets 'materials\test.mat'
+    $mat = Get-Content $matPath -Raw | ConvertFrom-Json
+    $onDisk = $mat.multi_materials | Where-Object { $_.name -eq 'SaveViaLevel' }
+    Assert-True -Condition ($null -ne $onDisk) -Message 'File/Save Level should have written the dirty .mat file too'
+    Assert-Equal -Expected 2 -Actual $onDisk.textures.Count
+    $onDiskLayer1 = $onDisk.textures | Where-Object { $_.layer -eq 1 }
+    Assert-Near -Expected 0.75 -Actual $onDiskLayer1.value -Tolerance 0.001
+
+    $reloadDir = Join-Path (Split-Path -Parent $ShotDir) 'reload-multimaterial'
+    $reloaded = New-EditorSession -Exe $Session.Exe -Level $LevelPath -AutomationDir $reloadDir
+    try {
+        $layer = GetLayer -MultiMaterial 'SaveViaLevel' -Index 1
+        Assert-Equal -Expected 'TestBlue' -Actual $layer.material -Message 'the layer reloaded'
+        Assert-Near -Expected 0.75 -Actual $layer.value -Tolerance 0.001
+        $reloadedMat = (Invoke-EditorCommand -Session $reloaded -Command 'materials')[0]
+        $reloadedNames = @($reloadedMat.Payload | ForEach-Object { ($_ -split ' ')[0] })
+        Assert-Contains -Collection $reloadedNames -Value 'TestRed' -Message 'the material wearing the stack reloaded too'
+    }
+    finally {
+        Close-EditorSession -Session $reloaded
+    }
+}
+
 # --- Rendering: this is the point of the feature, so it gets verified against real
 # frames, not just against the JSON the ops layer produces. Scene colour before
 # lighting was used to root-cause a real engine bug while building this (a stack

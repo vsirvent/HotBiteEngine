@@ -252,3 +252,111 @@ Test 'a cut entity is genuinely gone after save and reload' {
         Close-EditorSession -Session $reloaded
     }
 }
+
+Test 'a single File/Save Level catches every kind of edit at once' {
+    # Every test above covers one kind of edit at a time. Bug reports about saving
+    # look nothing like that - they are "I changed several different things and
+    # some of them were gone when I came back" - because each kind of edit lives
+    # in its own dirty-tracking bucket (component_deltas, dirty_templates,
+    # dirty_material_files, placed_instances, entity_groups, the grid fields...)
+    # and it is only the *union* of every bucket File/Save Level actually flushes
+    # that matters. A material or multi-material edit sitting in
+    # dirty_material_files with nothing to flush it is exactly the bug this test
+    # is named after - see SceneSerializer::Save's material-flushing block.
+    #
+    # So: touch one of each major kind in a single session, save the level exactly
+    # once (never save_materials or save_templates directly), and reload in a
+    # fresh process - the only real proof a save is both loadable and complete.
+
+    # An entity built from nothing (created_entities).
+    SendOk 'menu "Add/Entity"' | Out-Null
+    $created = (Get-State -Session $Session).selected_entity_name
+    SendOk "rename $created kitchen_sink_entity" | Out-Null
+    SendOk 'set_position 1 2 3' | Out-Null
+
+    # An existing FBX/JSON-authored entity, moved and renamed (the "entities"
+    # override array, keyed by authored name).
+    SendOk 'select box_a', 'set_position 9 0 0' | Out-Null
+    SendOk 'rename box_a kitchen_sink_box' | Out-Null
+
+    # A placed instance, moved.
+    $placed = Get-PlacedInstance -Result (Send 'place tf_box')[0]
+    $kitchenInstance = $placed.Name
+    SendOk "select $kitchenInstance", 'set_position -5 0 -5' | Out-Null
+
+    # A file-backed template, edited (dirty_templates).
+    SendOk 'create_template kitchen_sink_template' | Out-Null
+    SendOk 'template_storage kitchen_sink_template file' | Out-Null
+    SendOk "template_set kitchen_sink_template Transform ""{'scale':{'x':2.0,'y':2.0,'z':2.0}}""" | Out-Null
+
+    # A material (dirty_material_files) wearing a multi-material stack with an
+    # edited layer (the same file's dirty_material_files entry, from a different
+    # editor - this is the combination the reported bug was about).
+    SendOk 'create_material KitchenSinkMaterial materials\test.mat' | Out-Null
+    SendOk 'create_multi_material KitchenSinkBlend materials\test.mat' | Out-Null
+    SendOk 'add_layer KitchenSinkBlend TestRed' | Out-Null
+    SendOk "set_layer KitchenSinkBlend 0 ""{'value':0.6}""" | Out-Null
+    SendOk 'set_multi_material KitchenSinkMaterial KitchenSinkBlend' | Out-Null
+
+    # An entity group.
+    SendOk 'create_group KitchenSinkGroup' | Out-Null
+    SendOk "set_group $kitchenInstance KitchenSinkGroup" | Out-Null
+
+    # Editor-only view state (grid).
+    SendOk 'set_grid_size 0.5 30 0.2' | Out-Null
+
+    # The one save an actual user reaches for.
+    SendOk 'menu "File/Save Level"' | Out-Null
+
+    $reloadDir = Join-Path (Split-Path -Parent $ShotDir) 'reload-kitchen-sink'
+    $reloaded = New-EditorSession -Exe $Session.Exe -Level $LevelPath -AutomationDir $reloadDir
+    try {
+        $names = Get-EntityNames -Session $reloaded
+
+        Assert-Contains -Collection $names -Value 'kitchen_sink_entity' -Message 'the created entity reloaded'
+        Assert-Vector3Near -Expected @{ x = 1.0; y = 2.0; z = 3.0 } `
+            -Actual (Get-Position -Session $reloaded -Entity 'kitchen_sink_entity') -Tolerance 0.001
+
+        Assert-Contains -Collection $names -Value 'kitchen_sink_box' -Message 'the renamed/moved entity reloaded'
+        Assert-Vector3Near -Expected @{ x = 9.0; y = 0.0; z = 0.0 } `
+            -Actual (Get-Position -Session $reloaded -Entity 'kitchen_sink_box') -Tolerance 0.001
+
+        Assert-Contains -Collection $names -Value $kitchenInstance -Message 'the placed instance reloaded'
+        Assert-Vector3Near -Expected @{ x = -5.0; y = 0.0; z = -5.0 } `
+            -Actual (Get-Position -Session $reloaded -Entity $kitchenInstance) -Tolerance 0.001
+
+        $blocks = Get-TemplateInfo -Session $reloaded -Template 'kitchen_sink_template'
+        Assert-Near -Expected 2.0 -Actual $blocks['Transform'].scale.x -Tolerance 0.001 `
+            -Message 'the template edit reloaded'
+
+        $matNames = @((Invoke-EditorCommand -Session $reloaded -Command 'materials')[0].Payload |
+            ForEach-Object { ($_ -split ' ')[0] })
+        Assert-Contains -Collection $matNames -Value 'KitchenSinkMaterial' -Message 'the material reloaded'
+
+        $multiNames = @((Invoke-EditorCommand -Session $reloaded -Command 'multi_materials')[0].Payload |
+            ForEach-Object { ($_ -split ' ')[0] })
+        Assert-Contains -Collection $multiNames -Value 'KitchenSinkBlend' -Message 'the multi-material reloaded'
+        $layer = (Invoke-EditorCommand -Session $reloaded -Command 'layer KitchenSinkBlend 0')[0].Payload[0] |
+            ConvertFrom-Json
+        Assert-Equal -Expected 'TestRed' -Actual $layer.material -Message 'its layer reloaded'
+        Assert-Near -Expected 0.6 -Actual $layer.value -Tolerance 0.001 -Message 'and its edited value'
+
+        # The attachment (MaterialData::multi_material_name) lives in the
+        # material's own file, so confirm it on disk rather than through a
+        # dedicated command - same check the multi-materials suite uses.
+        $mat = Get-Content (Join-Path $Assets 'materials\test.mat') -Raw | ConvertFrom-Json
+        $sink = $mat.materials | Where-Object { $_.name -eq 'KitchenSinkMaterial' }
+        Assert-Equal -Expected 'KitchenSinkBlend' -Actual $sink.multi_material -Message 'the attachment reloaded'
+
+        $groups = (Invoke-EditorCommand -Session $reloaded -Command 'list_groups')[0]
+        Assert-Match -Pattern 'KitchenSinkGroup' -Actual ($groups.Payload -join "`n") -Message 'the group reloaded'
+
+        $state = Get-State -Session $reloaded
+        Assert-Near -Expected 0.5 -Actual $state.grid_size -Tolerance 0.001 -Message 'grid settings reloaded'
+        Assert-Near -Expected 30.0 -Actual $state.grid_rotation_step_degrees -Tolerance 0.001
+        Assert-Near -Expected 0.2 -Actual $state.grid_scale_step -Tolerance 0.001
+    }
+    finally {
+        Close-EditorSession -Session $reloaded
+    }
+}
