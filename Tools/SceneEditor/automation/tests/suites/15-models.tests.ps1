@@ -84,6 +84,45 @@ Test 'import_model copies the file in and registers its assets' {
     Assert-NotContains -Collection $templates -Value 'archer' -Message 'template list'
 }
 
+Test 'a mesh assigned directly to a scene entity keeps its model in the saved level' {
+    # A model's mesh can be pointed at directly on a plain entity - never through a
+    # template or a placed instance - which is exactly how a game's own player
+    # entity is often set up. SceneSerializer::Save used to credit a model as
+    # "in use" only from a template's or an instance's Mesh/Material block, so a
+    # model used only this way was silently dropped from "models" on save, and the
+    # mesh could not be found - and fell back to the default - on the next load.
+    $info = (SendOk 'model_info archer')[0].Payload
+    $meshLine = @($info | Where-Object { $_ -like 'mesh *' })[0]
+    Assert-True -Condition ($null -ne $meshLine) -Message 'archer supplies a mesh'
+    $meshName = ($meshLine -split ' ')[1]
+
+    SendOk 'menu "Add/Entity"' | Out-Null
+    $entity = (Get-State -Session $Session).selected_entity_name
+    SendOk "add_component $entity Mesh" | Out-Null
+    SendOk "set_component $entity Mesh ""{'name':'$meshName'}""" | Out-Null
+    Assert-Equal -Expected $meshName `
+        -Actual (Get-Component -Session $Session -Entity $entity -Component 'Mesh').name `
+        -Message 'assigned live'
+
+    SendOk 'menu "File/Save Level"' | Out-Null
+    $level = Get-Content $LevelPath -Raw | ConvertFrom-Json
+    $files = @($level.world.models | ForEach-Object { $_.file })
+    Assert-True -Condition (@($files | Where-Object { $_ -like '*archer.fbx' }).Count -eq 1) `
+        -Message 'the model supplying the direct mesh is still listed in "models"'
+
+    $reloadDir = Join-Path (Split-Path -Parent $ShotDir) 'reload-direct-mesh'
+    $reloaded = New-EditorSession -Exe $Session.Exe -Level $LevelPath -AutomationDir $reloadDir
+    try {
+        Assert-Contains -Collection (Get-EntityNames -Session $reloaded) -Value $entity -Message 'reloaded scene'
+        Assert-Equal -Expected $meshName `
+            -Actual (Get-Component -Session $reloaded -Entity $entity -Component 'Mesh').name `
+            -Message 'the mesh survives a reload instead of falling back to the default'
+    }
+    finally {
+        Close-EditorSession -Session $reloaded
+    }
+}
+
 Test 'import_model rejects a file that is not there' {
     Assert-Err -Result (Send 'import_model C:\nope\missing.fbx')[0]
     Assert-Err -Result (Send 'import_model')[0] -Pattern 'usage:'

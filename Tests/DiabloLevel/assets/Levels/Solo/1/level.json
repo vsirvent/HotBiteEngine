@@ -7,11 +7,109 @@
             "scale_step": 0.10000000149011612,
             "size": 1.0
         },
-        "groups": {}
+        "groups": {
+            "Terrain": [
+                "Tile_r0_c0",
+                "Tile_r0_c1",
+                "Tile_r0_c2",
+                "Tile_r0_c3",
+                "Tile_r0_c4",
+                "Tile_r0_c5",
+                "Tile_r0_c6",
+                "Tile_r1_c0",
+                "Tile_r1_c1",
+                "Tile_r1_c2",
+                "Tile_r1_c3",
+                "Tile_r1_c4",
+                "Tile_r1_c5",
+                "Tile_r1_c6",
+                "Tile_r2_c0",
+                "Tile_r2_c1",
+                "Tile_r2_c2",
+                "Tile_r2_c3",
+                "Tile_r2_c4",
+                "Tile_r2_c5",
+                "Tile_r2_c6",
+                "Tile_r3_c0",
+                "Tile_r3_c1",
+                "Tile_r3_c2",
+                "Tile_r3_c3",
+                "Tile_r3_c4",
+                "Tile_r3_c5",
+                "Tile_r3_c6",
+                "Tile_r4_c0",
+                "Tile_r4_c1",
+                "Tile_r4_c2",
+                "Tile_r4_c3",
+                "Tile_r4_c4",
+                "Tile_r4_c5",
+                "Tile_r4_c6",
+                "Tile_r5_c0",
+                "Tile_r5_c1",
+                "Tile_r5_c2",
+                "Tile_r5_c3",
+                "Tile_r5_c4",
+                "Tile_r5_c5",
+                "Tile_r5_c6",
+                "Tile_r6_c0",
+                "Tile_r6_c1",
+                "Tile_r6_c2",
+                "Tile_r6_c3",
+                "Tile_r6_c4",
+                "Tile_r6_c5",
+                "Tile_r6_c6"
+            ]
+        }
     },
     "world": {
         "clones": [],
-        "created_entities": [],
+        "created_entities": [
+            {
+                "components": {
+                    "Bounds": {
+                        "center": {
+                            "x": -0.016262054443359375,
+                            "y": 89.52552032470703,
+                            "z": -6.316316604614258
+                        },
+                        "extents": {
+                            "x": 90.47869873046875,
+                            "y": 90.11438751220703,
+                            "z": 68.30810546875
+                        }
+                    },
+                    "Lighted": {},
+                    "Material": {
+                        "name": "__default_material"
+                    },
+                    "Mesh": {
+                        "lod_bias": 1.0,
+                        "lod_enabled": true,
+                        "lod_mode": "auto",
+                        "lods": [],
+                        "name": "archer",
+                        "smooth": true
+                    }
+                },
+                "name": "Player",
+                "position": {
+                    "x": 0.0,
+                    "y": -0.48290205001831055,
+                    "z": 90.11137390136719
+                },
+                "rotation": {
+                    "w": 0.023518145084381104,
+                    "x": 0.0,
+                    "y": -0.9997233152389526,
+                    "z": 0.0
+                },
+                "scale": {
+                    "x": 0.20000000298023224,
+                    "y": 0.20000000298023224,
+                    "z": 0.20000000298023224
+                }
+            }
+        ],
         "entities": [
             {
                 "components": {
@@ -301,6 +399,9 @@
             },
             {
                 "components": {
+                    "Material": {
+                        "name": "GroundBase"
+                    },
                     "Mesh": {
                         "lod_bias": 1.0,
                         "lod_enabled": true,
@@ -1298,6 +1399,59 @@
                     }
                 },
                 "name": "Tile_r6_c6"
+            },
+            {
+                "components": {
+                    "AmbientLight": {
+                        "color_down": {
+                            "x": 0.0,
+                            "y": 0.0,
+                            "z": 0.0
+                        },
+                        "color_up": {
+                            "x": 0.10784316062927246,
+                            "y": 0.10784316062927246,
+                            "z": 0.10784316062927246
+                        }
+                    }
+                },
+                "name": "ambient",
+                "remove": [
+                    "DirectionalLight"
+                ]
+            },
+            {
+                "components": {
+                    "DirectionalLight": {
+                        "cascade_split_lambda": 0.8999999761581421,
+                        "cascades": 1,
+                        "cast_shadow": true,
+                        "caster_extrusion": 501.0,
+                        "color": {
+                            "x": 1.0,
+                            "y": 1.0,
+                            "z": 1.0
+                        },
+                        "density": 3.0,
+                        "direction": {
+                            "x": 0.3775752782821655,
+                            "y": 0.6109315752983093,
+                            "z": -0.6958444714546204
+                        },
+                        "fog": false,
+                        "intensity": 1.399999976158142,
+                        "inverse_shadow": false,
+                        "position": {
+                            "x": 0.0,
+                            "y": 0.0,
+                            "z": 0.0
+                        },
+                        "range": 0.0,
+                        "resolution": 1,
+                        "shadow_distance": 265.0
+                    }
+                },
+                "name": "sun"
             }
         ],
         "generated_meshes": [
@@ -2698,6 +2852,9 @@
             },
             {
                 "components": {
+                    "Material": {
+                        "name": "GroundBase"
+                    },
                     "Mesh": {
                         "lod_bias": 1.0,
                         "lod_enabled": true,
@@ -4372,9 +4529,13 @@
             {
                 "file": "Objects\\terrain.fbx",
                 "triangulate": false
+            },
+            {
+                "file": "Objects\\archer.fbx",
+                "triangulate": false
             }
         ],
-        "path": "C:\\Users\\Vicen\\source\\repos\\HotBiteEngine\\Tests\\DiabloLevel\\assets\\",
+        "path": "C:\\Users\\vicen\\Documents\\GitHub\\HotBiteEngine\\Tests\\DiabloLevel\\assets\\",
         "removed_entities": [],
         "templates": [
             {

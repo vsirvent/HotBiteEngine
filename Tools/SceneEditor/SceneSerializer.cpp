@@ -473,13 +473,14 @@ namespace HotBiteEditor {
 					}
 				}
 				};
-			for (const auto& t : state.templates) {
-				const json* components = state.world->GetTemplateComponents(t.name);
-				if (components == nullptr) {
-					continue;
-				}
-				if (components->contains(Mesh::NAME)) {
-					const json& mesh = (*components)[Mesh::NAME];
+			//Credits whatever model supplies a "components" block's Mesh/Material,
+			//exactly as a template's own components do below - shared so a mesh
+			//assigned straight onto a scene/created entity (never a template) earns
+			//its model's entry too, instead of being silently dropped from "models"
+			//while the entity's own Mesh block still names it.
+			auto credit_components = [&](const json& components) {
+				if (components.contains(Mesh::NAME)) {
+					const json& mesh = components[Mesh::NAME];
 					use_model_of(mesh.value("name", std::string()), false);
 					if (mesh.contains("clips") && mesh["clips"].is_object()) {
 						for (auto it = mesh["clips"].begin(); it != mesh["clips"].end(); ++it) {
@@ -489,13 +490,29 @@ namespace HotBiteEditor {
 						}
 					}
 				}
-				if (components->contains(Material::NAME)) {
-					use_model_of((*components)[Material::NAME].value("name", std::string()), false);
+				if (components.contains(Material::NAME)) {
+					use_model_of(components[Material::NAME].value("name", std::string()), false);
+				}
+				};
+			for (const auto& t : state.templates) {
+				const json* components = state.world->GetTemplateComponents(t.name);
+				if (components != nullptr) {
+					credit_components(*components);
 				}
 			}
 			for (const auto& inst : state.placed_instances) {
 				if (state.world->IsModelLoaded(inst.template_name)) {
 					models_in_use.insert(inst.template_name);
+				}
+			}
+			//Entities that get their own record (overridden/renamed scene entities,
+			//placed-instance overrides, clones and Add/Entity-created ones) may carry
+			//a Mesh/Material assigned directly rather than inherited from a template.
+			for (const json* array : { &jw["entities"], &instances, &clones, &created }) {
+				for (const auto& entry : *array) {
+					if (entry.contains("components")) {
+						credit_components(entry["components"]);
+					}
 				}
 			}
 			//Plus whatever the level already listed: a level that loads a model for a
