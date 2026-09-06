@@ -155,6 +155,88 @@ Test 'a composed template reloads with its parts' {
     }
 }
 
+Test 'render settings survive a save and reload, but the debug-only ones never do' {
+    # Dial every persistent toggle away from ApplyHighDefaults, including a manual
+    # DOF focus (autofocus off, so dof_focus/dof_amplitude are actually exercised),
+    # and also turn on a debug buffer view and a denoiser bypass - RenderSettings
+    # deliberately never saves those (RenderSettings.h: "Debug views are a tool,
+    # never a level's state"), so they must reset to the defaults on the next open.
+    SendOk 'render rt_quality low' | Out-Null
+    SendOk 'render rt_reflections 0' | Out-Null
+    SendOk 'render rt_refractions 0' | Out-Null
+    SendOk 'render rt_indirect 0' | Out-Null
+    SendOk 'render aa 0' | Out-Null
+    SendOk 'render motion_blur 0' | Out-Null
+    SendOk 'render dof 1' | Out-Null
+    SendOk 'render dof_autofocus 0' | Out-Null
+    SendOk 'render dof_focus 42' | Out-Null
+    SendOk 'render dof_amplitude 7.5' | Out-Null
+    SendOk 'render lens_flare 0' | Out-Null
+    SendOk 'render lens 0' | Out-Null
+    SendOk 'render lens_aberration 0.3' | Out-Null
+    SendOk 'render lens_grain 0.4' | Out-Null
+    SendOk 'render lens_vignette 0.5' | Out-Null
+    SendOk 'render wireframe 1' | Out-Null
+    SendOk 'render debug_buffer motion' | Out-Null
+    SendOk 'render gi_denoise 0' | Out-Null
+
+    SendOk 'menu "File/Save Level"' | Out-Null
+    $level = Get-Content $LevelPath -Raw | ConvertFrom-Json
+    $render = $level.editor.render
+    Assert-True -Condition ($null -ne $render) -Message 'the editor/render block is written'
+    Assert-Equal -Expected 'low' -Actual $render.rt_quality
+    Assert-Equal -Expected 'False' -Actual $render.rt_reflections
+    Assert-Equal -Expected 'False' -Actual $render.rt_refractions
+    Assert-Equal -Expected 'False' -Actual $render.rt_indirect
+    Assert-Equal -Expected 'False' -Actual $render.aa
+    Assert-Equal -Expected 'False' -Actual $render.motion_blur
+    Assert-Equal -Expected 'True' -Actual $render.dof
+    Assert-Equal -Expected 'False' -Actual $render.dof_autofocus
+    Assert-Near -Expected 42.0 -Actual $render.dof_focus -Tolerance 0.01
+    Assert-Near -Expected 7.5 -Actual $render.dof_amplitude -Tolerance 0.01
+    Assert-Equal -Expected 'False' -Actual $render.lens_flare
+    Assert-Equal -Expected 'False' -Actual $render.lens
+    Assert-Near -Expected 0.3 -Actual $render.lens_aberration -Tolerance 0.001
+    Assert-Near -Expected 0.4 -Actual $render.lens_grain -Tolerance 0.001
+    Assert-Near -Expected 0.5 -Actual $render.lens_vignette -Tolerance 0.001
+    Assert-Equal -Expected 'True' -Actual $render.wireframe
+    $savedKeys = @($render.PSObject.Properties.Name)
+    foreach ($debugKey in @('debug_buffer', 'debug_gain', 'gi_denoise', 'rt_denoise')) {
+        Assert-NotContains -Collection $savedKeys -Value $debugKey `
+            -Message 'a debug-only setting is never part of the saved level'
+    }
+
+    $reloadDir = Join-Path (Split-Path -Parent $ShotDir) 'reload-render'
+    $reloaded = New-EditorSession -Exe $Session.Exe -Level $LevelPath -AutomationDir $reloadDir
+    try {
+        $r = Get-Render -Session $reloaded
+        Assert-Equal -Expected 'low' -Actual $r.rt_quality -Message 'reloaded'
+        Assert-Equal -Expected 'False' -Actual $r.rt_reflections
+        Assert-Equal -Expected 'False' -Actual $r.rt_refractions
+        Assert-Equal -Expected 'False' -Actual $r.rt_indirect
+        Assert-Equal -Expected 'False' -Actual $r.aa
+        Assert-Equal -Expected 'False' -Actual $r.motion_blur
+        Assert-Equal -Expected 'True' -Actual $r.dof
+        Assert-Equal -Expected 'False' -Actual $r.dof_autofocus
+        Assert-Near -Expected 42.0 -Actual $r.dof_focus -Tolerance 0.01
+        Assert-Near -Expected 7.5 -Actual $r.dof_amplitude -Tolerance 0.01
+        Assert-Equal -Expected 'False' -Actual $r.lens_flare
+        Assert-Equal -Expected 'False' -Actual $r.lens
+        Assert-Near -Expected 0.3 -Actual $r.lens_aberration -Tolerance 0.001
+        Assert-Near -Expected 0.4 -Actual $r.lens_grain -Tolerance 0.001
+        Assert-Near -Expected 0.5 -Actual $r.lens_vignette -Tolerance 0.001
+        Assert-Equal -Expected 'True' -Actual $r.wireframe
+
+        # Debug tooling always comes back at ApplyHighDefaults, never at what the
+        # previous session happened to be showing.
+        Assert-Equal -Expected 'off' -Actual $r.debug_buffer -Message 'debug buffer resets on load'
+        Assert-Equal -Expected 'True' -Actual $r.gi_denoise -Message 'denoiser bypass resets on load'
+    }
+    finally {
+        Close-EditorSession -Session $reloaded
+    }
+}
+
 Test 'a cut entity is genuinely gone after save and reload' {
     SendOk 'cut box_b' | Out-Null
     SendOk 'menu "File/Save Level"' | Out-Null

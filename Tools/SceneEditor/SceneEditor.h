@@ -193,6 +193,15 @@ namespace HotBiteEditor {
 		// itself, so the lines can be hidden while snapping stays on (or shown to
 		// judge alignment without anything actually snapping).
 		bool grid_lines_visible = false;
+
+		// RenderSettings::ToJson's snapshot of the persistent render toggles (RT
+		// quality/reflections/refractions/indirect, AA, motion blur, DOF, lens
+		// effects, wireframe...), taken at save time and restored right after
+		// ApplyHighDefaults on the next load - same "editor"/"render" pattern as the
+		// grid above, so a level remembers what its author dialed in instead of
+		// reopening at the fixed defaults every time. Populated by LoadEditorData;
+		// empty means "nothing stored", which ApplyFromJson leaves at the defaults.
+		nlohmann::json render_settings;
 		ColliderView collider_view = ColliderView::Off;
 		// Which shadow debug tint the scene is rendered with (see ShadowDebug.h). View
 		// state, so it records no undo history - but unlike the collider overlay it

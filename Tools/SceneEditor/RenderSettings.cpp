@@ -462,6 +462,19 @@ namespace HotBiteEditor {
 
 		std::string Dump(SceneEditorApp& app)
 		{
+			json j = ToJson(app);
+			if (app.IsLevelLoaded()) {
+				RenderSystem* rs = GetRenderSystem(app);
+				j["debug_buffer"] = RenderSystem::DebugBufferName(rs->GetDebugBuffer());
+				j["debug_gain"] = rs->GetDebugGain();
+				j["gi_denoise"] = !rs->GetDebugFlag(RenderSystem::RT_DEBUG_NO_GI_DENOISE);
+				j["rt_denoise"] = !rs->GetDebugFlag(RenderSystem::RT_DEBUG_NO_RT_DENOISE);
+			}
+			return j.dump();
+		}
+
+		nlohmann::json ToJson(SceneEditorApp& app)
+		{
 			json j;
 			if (app.IsLevelLoaded()) {
 				RenderSystem* rs = GetRenderSystem(app);
@@ -482,17 +495,66 @@ namespace HotBiteEditor {
 				j["lens_grain"] = rs->GetLensGrain();
 				j["lens_vignette"] = rs->GetLensVignette();
 				j["wireframe"] = rs->GetWireframe();
-				j["debug_buffer"] = RenderSystem::DebugBufferName(rs->GetDebugBuffer());
-				j["debug_gain"] = rs->GetDebugGain();
-				j["gi_denoise"] = !rs->GetDebugFlag(RenderSystem::RT_DEBUG_NO_GI_DENOISE);
-				j["rt_denoise"] = !rs->GetDebugFlag(RenderSystem::RT_DEBUG_NO_RT_DENOISE);
 				Core::BaseDOFProcess* dof_effect = app.GetDofEffect();
 				if (dof_effect != nullptr) {
 					j["dof_focus"] = dof_effect->GetFocus();
 					j["dof_amplitude"] = dof_effect->GetAmplitude();
 				}
 			}
-			return j.dump();
+			return j;
+		}
+
+		void ApplyFromJson(SceneEditorApp& app, const nlohmann::json& j)
+		{
+			//No IsLevelLoaded() guard, deliberately: like ApplyHighDefaults, this runs
+			//from OpenLevel in the window after the post-process pipeline exists but
+			//before level_loaded is flipped to true, so that check would always fail.
+			if (!j.is_object()) {
+				return;
+			}
+			RenderSystem* rs = GetRenderSystem(app);
+
+			if (j.contains("rt_quality") && j["rt_quality"].is_string()) {
+				const std::string q = j["rt_quality"];
+				if (q == "off") { rs->SetRayTracingQuality(RenderSystem::eRtQuality::OFF); }
+				else if (q == "low") { rs->SetRayTracingQuality(RenderSystem::eRtQuality::LOW); }
+				else if (q == "mid") { rs->SetRayTracingQuality(RenderSystem::eRtQuality::MID); }
+				else if (q == "high") { rs->SetRayTracingQuality(RenderSystem::eRtQuality::HIGH); }
+			}
+			//The three RT flags always go through SetRayTracing together (it takes all
+			//three at once), so read back what ApplyHighDefaults already set for
+			//whichever of the three is missing from an older/hand-edited file.
+			if (j.contains("rt_reflections") || j.contains("rt_refractions") || j.contains("rt_indirect")) {
+				bool reflections, refractions, indirect;
+				rs->GetRayTracing(reflections, refractions, indirect);
+				reflections = j.value("rt_reflections", reflections);
+				refractions = j.value("rt_refractions", refractions);
+				indirect = j.value("rt_indirect", indirect);
+				rs->SetRayTracing(reflections, refractions, indirect);
+			}
+			if (j.contains("aa")) { rs->SetAA(j.value("aa", rs->GetAA())); }
+			if (j.contains("motion_blur")) { rs->SetMotionBlur(j.value("motion_blur", rs->GetMotionBlur())); }
+			if (j.contains("dof")) { rs->SetDOF(j.value("dof", rs->GetDOF())); }
+			if (j.contains("dof_autofocus")) { rs->SetDofAutofocus(j.value("dof_autofocus", rs->GetDofAutofocus())); }
+			if (j.contains("lens_flare")) { rs->SetLensFlare(j.value("lens_flare", rs->GetLensFlare())); }
+			if (j.contains("lens")) { rs->SetLensEffects(j.value("lens", rs->GetLensEffects())); }
+			if (j.contains("lens_aberration")) { rs->SetLensAberration(j.value("lens_aberration", rs->GetLensAberration())); }
+			if (j.contains("lens_grain")) { rs->SetLensGrain(j.value("lens_grain", rs->GetLensGrain())); }
+			if (j.contains("lens_vignette")) { rs->SetLensVignette(j.value("lens_vignette", rs->GetLensVignette())); }
+			if (j.contains("wireframe")) { rs->SetWireframe(j.value("wireframe", rs->GetWireframe())); }
+
+			Core::BaseDOFProcess* dof_effect = app.GetDofEffect();
+			if (dof_effect != nullptr) {
+				//A stored focus is a manual value; restoring it must not fight
+				//autofocus, which SetDofAutofocus(true) above may just have turned
+				//back on and which overrides the focus every frame while active.
+				if (j.contains("dof_focus")) {
+					dof_effect->SetFocus(j.value("dof_focus", dof_effect->GetFocus()));
+				}
+				if (j.contains("dof_amplitude")) {
+					dof_effect->SetAmplitude(j.value("dof_amplitude", dof_effect->GetAmplitude()));
+				}
+			}
 		}
 
 	}

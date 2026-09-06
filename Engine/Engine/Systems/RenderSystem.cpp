@@ -2209,11 +2209,21 @@ void RenderSystem::ProcessMix() {
 	mixer_shader->SetShaderResourceView("lightTexture", current_light_map->SRV());
 	mixer_shader->SetShaderResourceView("volLightTexture", vol_light_map.SRV());
 	mixer_shader->SetShaderResourceView("bloomTexture", bloom_map.SRV());
-	mixer_shader->SetShaderResourceView("emissionTexture", rt_texture_di_curr[RT_TEXTURE_EMISSION].SRV());
 	mixer_shader->SetShaderResourceView("dustTexture", dust_render_map.SRV());
 	mixer_shader->SetShaderResourceView("lensFlareTexture", lens_flare_map.SRV());
-	mixer_shader->SetShaderResourceView("rtTexture0", rt_texture_di_curr[RT_TEXTURE_REFLEX].SRV());
-	mixer_shader->SetShaderResourceView("rtTexture1", rt_texture_di_curr[RT_TEXTURE_REFRACT].SRV());
+	//rt_texture_di_curr is only ever assigned inside ProcessRT, which itself only runs
+	//while at least one of reflections/refractions is enabled (rt_enabled &
+	//(RT_REFLEX_ENABLE | RT_REFRACT_ENABLE)) - exactly the situation rt_texture_gi_curr
+	//is already guarded against below. This was read unconditionally instead, which is
+	//harmless once some earlier frame has run ProcessRT (a stale-but-valid pointer from
+	//last time reflections were on) but null-derefs on the very first frame of a
+	//session that starts with both flags off - e.g. a level whose saved render
+	//settings load that way.
+	if (rt_texture_di_curr != nullptr) {
+		mixer_shader->SetShaderResourceView("emissionTexture", rt_texture_di_curr[RT_TEXTURE_EMISSION].SRV());
+		mixer_shader->SetShaderResourceView("rtTexture0", rt_texture_di_curr[RT_TEXTURE_REFLEX].SRV());
+		mixer_shader->SetShaderResourceView("rtTexture1", rt_texture_di_curr[RT_TEXTURE_REFRACT].SRV());
+	}
 	if (rt_texture_gi_curr != nullptr)
 	{
 		mixer_shader->SetShaderResourceView("rtTexture2", rt_texture_gi_curr->SRV());

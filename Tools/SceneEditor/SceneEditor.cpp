@@ -161,7 +161,13 @@ namespace HotBiteEditor {
 			[this]() { TemplateOps::ImportTemplateWithDialog(state); } });
 		menu_commands.push_back({ "File/Save Level",
 			[this]() { return level_loaded; },
-			[this]() { SceneSerializer::Save(state); } });
+			[this]() {
+				//Snapshot the live render toggles into the state SceneSerializer::Save
+				//writes out - it has no reach into the DOF effect (a SceneEditorApp
+				//member, not EditorState's), so the settings have to be pulled here.
+				state.render_settings = RenderSettings::ToJson(*this);
+				SceneSerializer::Save(state);
+			} });
 		//Materials live in .mat files shared between levels, so they save separately
 		//from the level (see MaterialPanel.h). Enabled only when something is dirty.
 		menu_commands.push_back({ "File/Save Materials",
@@ -919,6 +925,12 @@ namespace HotBiteEditor {
 		lens_effect->SetNext(gui);
 		world.SetPostProcessPipeline(post_effect);
 		RenderSettings::ApplyHighDefaults(*this);
+		//Overlay whatever this level had stored (LoadEditorData above already parsed
+		//it into state.render_settings) on top of the defaults just applied - a level
+		//that never saved any, or one missing a given key, simply keeps today's
+		//default for it. Has to happen after ApplyHighDefaults, and after the DOF
+		//effect above exists (ApplyFromJson reads/writes it for dof_focus/dof_amplitude).
+		RenderSettings::ApplyFromJson(*this, state.render_settings);
 
 		// world.Run() already started in the constructor (with rendering disabled until
 		// now); flipping level_loaded lets our own render tick switch to driving

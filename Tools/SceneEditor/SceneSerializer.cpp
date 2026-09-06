@@ -654,6 +654,20 @@ namespace HotBiteEditor {
 				{ "lines_visible", state.grid_lines_visible },
 			};
 
+			//6) Render settings (RenderSettings::ToJson's snapshot, taken by the
+			//   File/Save Level handler right before calling here - the same
+			//   "editor" block as the grid and groups above, since these are the
+			//   session's dialed-in toggles rather than anything the engine loader
+			//   reads). Erased rather than written empty, so a level saved before a
+			//   level was ever loaded (there is none) or with nothing worth storing
+			//   does not gain a stray empty block.
+			if (state.render_settings.is_object() && !state.render_settings.empty()) {
+				level["editor"]["render"] = state.render_settings;
+			}
+			else {
+				level["editor"].erase("render");
+			}
+
 			std::ofstream out(state.current_level_path);
 			out << level.dump(4);
 			out.close();
@@ -693,6 +707,13 @@ namespace HotBiteEditor {
 			state.grid_rotation_step_degrees = 15.0f;
 			state.grid_scale_step = 0.1f;
 			state.grid_lines_visible = false;
+			//Render settings, same reasoning: reset here so a level with none stored
+			//applies RenderSettings::ApplyHighDefaults untouched rather than carrying
+			//over whatever a previously open level in this session had. Repopulated
+			//below if the file has an "editor"/"render" block; actually applied later,
+			//in SceneEditorApp::OpenLevel right after ApplyHighDefaults, once the DOF
+			//effect it may need exists.
+			state.render_settings = json::object();
 			state.renamed_entities.clear();
 			state.cloned_entities.clear();
 			state.created_entities.clear();
@@ -897,6 +918,14 @@ namespace HotBiteEditor {
 				state.grid_rotation_step_degrees = grid.value("rotation_step_degrees", state.grid_rotation_step_degrees);
 				state.grid_scale_step = grid.value("scale_step", state.grid_scale_step);
 				state.grid_lines_visible = grid.value("lines_visible", state.grid_lines_visible);
+			}
+
+			//Render settings - just carried as-is; RenderSettings::ApplyFromJson (called
+			//from SceneEditorApp::OpenLevel, after this and after ApplyHighDefaults) is
+			//what actually applies each field, since it needs the DOF effect that does
+			//not exist yet at this point in the load.
+			if (editor.contains("render") && editor["render"].is_object()) {
+				state.render_settings = editor["render"];
 			}
 		}
 

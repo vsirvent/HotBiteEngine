@@ -493,11 +493,15 @@ namespace HotBite {
 				static constexpr uint32_t RESTIR_TOTAL_RAYS = RESTIR_PIXEL_RAYS * RESTIR_KERNEL * RESTIR_KERNEL;
 
 
-				Core::RenderTexture2D* rt_texture_di_prev;
-				Core::RenderTexture2D* rt_texture_di_curr;
-				Core::RenderTexture2D* rt_texture_gi_prev;
-				Core::RenderTexture2D* rt_texture_gi_curr;
-				Core::RenderTexture2D* rt_texture_gi_tmp[2];
+				//Never default-initialized before: harmless while every caller happened
+				//to construct RenderSystem on fresh (so OS-zeroed) heap memory, but that
+				//is not something the type should rely on - see the null-guards in
+				//ProcessMix, which is exactly the code that was silently depending on it.
+				Core::RenderTexture2D* rt_texture_di_prev = nullptr;
+				Core::RenderTexture2D* rt_texture_di_curr = nullptr;
+				Core::RenderTexture2D* rt_texture_gi_prev = nullptr;
+				Core::RenderTexture2D* rt_texture_gi_curr = nullptr;
+				Core::RenderTexture2D* rt_texture_gi_tmp[2] = { nullptr, nullptr };
 				Core::RenderTexture2D* rt_texture_gi_trace = nullptr;
 
 				Core::RenderTexture2D rt_ray_sources0;

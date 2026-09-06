@@ -2,6 +2,8 @@
 
 #include "SceneEditor.h"
 
+#include <Core/Json.h>
+
 namespace HotBiteEditor {
 	// The editor's render feature control, mirroring how Marbles drives the engine
 	// (RenderSystem Set*/Get* plus the DOF stage of the post-process chain). All
@@ -41,5 +43,20 @@ namespace HotBiteEditor {
 
 		// One-line JSON of the current settings (for the automation channel).
 		std::string Dump(SceneEditorApp& app);
+
+		// The subset of Dump() worth carrying between sessions: every persistent
+		// toggle/slider, but never the four debug-only keys (debug_buffer,
+		// debug_gain, gi_denoise, rt_denoise) - a buffer view or a bypassed
+		// denoiser carried into a freshly opened level would look like the level
+		// rendering wrong, exactly why ApplyHighDefaults resets them. Read by
+		// SceneSerializer::Save (as the level's "editor"/"render" block); empty
+		// when no level is loaded.
+		nlohmann::json ToJson(SceneEditorApp& app);
+
+		// The inverse of ToJson: applies every field present in `j`, leaving
+		// anything absent at whatever ApplyHighDefaults already set. Call it right
+		// after ApplyHighDefaults on level load, once the post-process pipeline
+		// (and so the DOF effect dof_focus/dof_amplitude read from) exists.
+		void ApplyFromJson(SceneEditorApp& app, const nlohmann::json& j);
 	}
 }
