@@ -59,6 +59,24 @@
                 "Tile_r6_c5",
                 "Tile_r6_c6"
             ]
+        },
+        "render": {
+            "aa": true,
+            "dof": false,
+            "dof_amplitude": 5.0,
+            "dof_autofocus": true,
+            "dof_focus": 30.0,
+            "lens": true,
+            "lens_aberration": 0.0,
+            "lens_flare": true,
+            "lens_grain": 0.0,
+            "lens_vignette": 0.0,
+            "motion_blur": true,
+            "rt_indirect": false,
+            "rt_quality": "high",
+            "rt_reflections": false,
+            "rt_refractions": false,
+            "wireframe": false
         }
     },
     "world": {
@@ -1447,7 +1465,7 @@
                             "z": 0.0
                         },
                         "range": 0.0,
-                        "resolution": 1,
+                        "resolution": 2,
                         "shadow_distance": 265.0
                     }
                 },
