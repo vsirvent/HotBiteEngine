@@ -506,6 +506,62 @@ covariance as `Σ' = DΣD` with `D = diag(1,-1,1)` — which negates `Sxy` and `
 leaves the diagonal and `Sxz` alone. `BuildDefault` is authored in engine space and is
 not converted.
 
+**The EWA covariance projection needs the transpose of `world`/`view`, and getting it wrong
+is invisible until the camera turns.** `world` and `view` reach every shader in the engine's
+row-vector convention — the one `mul(float4(pos,1), world)` reads them under everywhere, and
+the one `SplatRasterCS` spells out explicitly where it transposes `view` to take a ray back
+out of view space. A covariance transforms as `A Σ Aᵀ` for a **column**-vector `A`, so the
+matrix in that product has to be the transpose of the one that multiplies a row vector —
+`SplatPreprocessCS` used `(float3x3)world`/`(float3x3)view` directly for both the
+world-space lift and the view-space Jacobian composition, rotating every splat's ellipsoid
+by the *inverse* of the camera's rotation instead of the camera's rotation. Positions and
+normals take the row-vector path and are untouched, which is why the cloud sits in the
+right place and the normal buffer looks clean — only the projected *shape* is wrong. The
+error is a pure rotation of the 2D footprint, so it is exactly zero at an unrotated camera
+and grows with how far the camera has turned, and it is an error in screen-space pixels, so
+it is sub-pixel and invisible at a distance and severe once a splat covers many pixels —
+reads as "the model looks fine far away but turns to fur up close," which is a description
+of viewing angle and distance, not of the asset. Reproduced with an A/B at one identical
+camera pose (position, target and rotation matched to five decimals) on the same binary,
+changing only whether those two casts are transposed: reverted, heavy directional streaking
+on every curved/foreshortened surface (backpack, hose, sleeve, boot); fixed, clean and
+sharp. Confirmed elsewhere first: neither `spec_intensity`, the directional light, nor
+`surface_alpha` changed the pattern at all when toggled, which is what ruled out lighting
+and pointed at geometry instead of shading.
+
+**The low-pass floor needs an alpha compensation, or it renders every fine splat as a
+bright dot instead of fading it in.** The floor a few lines below (`+0.3` on the screen
+covariance diagonal, see the `radius < 0.33f` note) forces a minimum ~1.9px projected
+radius on every splat to stop an edge-on one collapsing to a singular conic — but nothing
+scaled its opacity down to match the inflated footprint, so a splat trained smaller than
+the floor kept its full trained alpha at the new, larger size: a sub-pixel detail renders
+as a small, fully-opaque, visible dot rather than fading toward transparent the way a
+correctly-sized splat's edge does. This is the Mip-Splatting fix (Yu et al., CVPR 2024):
+scale alpha by `sqrt(det_original / det_dilated)`, computed before the floor is added to
+the diagonal. `det_dilated >= det_original` always (the floor only ever adds to a
+covariance's own variance), so the ratio needs no clamp beyond a `saturate()` against
+floating-point noise on a near-degenerate splat. A splat already larger than the floor is
+untouched (ratio near 1); a genuinely tiny or edge-on one now dims toward zero instead of
+clamping up to a bright dot.
+
+**A trained Gaussian's per-splat normal still needs the neighbour-graph propagation, not
+just the centroid heuristic, or it comes out as scattered sign flips on any non-convex
+shape.** The minor axis is an axis, not a direction, and standard 3DGS training gives no
+guarantee that neighbouring splats' axes agree in sign — nothing in the loss function
+depends on it. `SplatCloudData::Load` blended each trained axis with a neighbourhood fit
+(`GAUSSIAN_NORMAL_WEIGHT`) but then resolved the *sign* with the same per-splat "point away
+from the whole cloud's centroid" rule a plain point cloud falls back to — correct for a
+single convex blob, wrong for any local concavity (the crook of an arm, the underside of a
+strap, the inside of a helmet rim), each of which independently flips against its
+neighbours. `OrientNormalsConsistently` — the MST-over-the-k-NN-graph construction already
+built and used for a plain point cloud's *fitted* axis — is run on the *blended* Gaussian
+axis too now, and `normals_oriented` is set so the centroid pass is skipped for a Gaussian
+exactly as it already was for a point cloud (re-running it would undo the agreement the
+graph pass just produced). Visible in the `normal` debug buffer as scattered full-spectrum
+speckle before, smooth coherent gradients after, on a capture with real geometric
+complexity (a spacesuit's limbs, hose and backpack); a rendering of a simple convex object
+would not have shown it, because the centroid rule alone is already right there.
+
 **`splat_info` is the only way to see any of this.** A cloud that is over-binned, short of
 pool, or not rasterized at all renders a plausible surface either way. It reports
 `tiles_used`, `max_per_tile`, `total_binned`, `dropped` (non-zero means the pool was

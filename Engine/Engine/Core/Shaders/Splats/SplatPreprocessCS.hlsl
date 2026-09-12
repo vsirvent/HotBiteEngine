@@ -139,26 +139,45 @@ void main(uint3 tid : SV_DispatchThreadID)
 	float2 screen_xy = float2((ndc.x * 0.5f + 0.5f) * screenW,
 							  (0.5f - ndc.y * 0.5f) * screenH);
 
-	// Sigma_world = M * Sigma * M^T, with M the world matrix's upper 3x3. Written
-	// out because the covariance is stored as its upper triangle rather than as a
-	// matrix: rebuilding a full float3x3 to multiply it and then discarding the
-	// symmetric half costs more than this does.
+	// Sigma_world = A * Sigma * A^T, with A the world rotation/scale. Written out
+	// because the covariance is stored as its upper triangle rather than as a matrix:
+	// rebuilding a full float3x3 to multiply it and then discarding the symmetric half
+	// costs more than this does.
+	//
+	// A is the TRANSPOSE of the matrix's upper 3x3, and that is the whole trap here.
+	// `world` and `view` reach this shader in the engine's row-vector convention - the
+	// one every `mul(float4(pos, 1), world)` in the codebase reads them under, and the
+	// one SplatRasterCS spells out where it transposes `view` to take a ray back out of
+	// view space. A covariance transforms as A Sigma A^T for a COLUMN-vector A, so the
+	// matrix that belongs in that product is the transpose of the one that multiplies a
+	// row vector, and the same goes for the view rotation the Jacobian composes with
+	// below.
+	//
+	// Getting it wrong moves nothing and so hides well: positions and normals take the
+	// row-vector path and stay correct, the cloud lands in the right place, the normal
+	// buffer comes out smooth - only the *shapes* are wrong, each ellipsoid rotated into
+	// view space by the inverse of the camera's rotation rather than by it. That error
+	// vanishes when the camera is unrotated and grows as it turns, and since it is an
+	// error in a splat's screen footprint it is sub-pixel and invisible at a distance
+	// and ruinous up close, where it stretches every splat along the wrong axis and
+	// breaks the surface into fur.
 	//
 	// point_size_scale is a linear size multiplier and covariance is variance, so it
-	// enters squared - applied here rather than to M so it scales the splat about its
+	// enters squared - applied here rather than to A so it scales the splat about its
 	// own centre instead of also dragging every splat's position toward or away from
 	// the object's origin the way growing the world matrix would.
 	float3x3 M = (float3x3)world;
+	float3x3 Aw = transpose(M);
 	float size2 = point_size_scale * point_size_scale;
 	float3x3 sigma = float3x3(
 		s.cov_diag.x,    s.cov_offdiag.x, s.cov_offdiag.y,
 		s.cov_offdiag.x, s.cov_diag.y,    s.cov_offdiag.z,
 		s.cov_offdiag.y, s.cov_offdiag.z, s.cov_diag.z) * size2;
-	float3x3 sigma_w = mul(mul(M, sigma), transpose(M));
+	float3x3 sigma_w = mul(mul(Aw, sigma), transpose(Aw));
 
 	// The EWA projection: the 2D screen covariance is J W Sigma W^T J^T, with W the
 	// view rotation and J the Jacobian of the perspective divide at this point.
-	float3x3 W = (float3x3)view;
+	float3x3 W = transpose((float3x3)view);
 	float fx = projection._11 * screenW * 0.5f;
 	float fy = projection._22 * screenH * 0.5f;
 	float inv_z = 1.0f / view_pos.z;
@@ -174,6 +193,7 @@ void main(uint3 tid : SV_DispatchThreadID)
 	// A low-pass floor on the diagonal. Without it a splat seen edge-on projects to
 	// a near-singular conic whose inverse blows up, and the splat draws as a bright
 	// needle several pixels long - the classic 3DGS speckle.
+	float det_orig = cov2._11 * cov2._22 - cov2._12 * cov2._12;
 	float a = cov2._11 + 0.3f;
 	float b = cov2._12;
 	float c = cov2._22 + 0.3f;
@@ -186,6 +206,21 @@ void main(uint3 tid : SV_DispatchThreadID)
 	float inv_det = 1.0f / det;
 	// Inverse of the 2x2, which is what the rasterizer evaluates the Gaussian with.
 	float3 conic = float3(c * inv_det, -b * inv_det, a * inv_det);
+
+	// Mip-Splatting's compensation (Yu et al., CVPR 2024): the floor above grows
+	// the splat's screen footprint, and left uncompensated the grown splat keeps
+	// its full trained opacity at its centre - a splat trained smaller than the
+	// floor renders as a fully-opaque ~1.9px dot instead of fading in the way its
+	// true, sub-pixel size should. That is what makes individual splats visible
+	// as flat blobs rather than blending into fine surface detail, at any
+	// distance a scene has splats finer than the floor. Scaling alpha by
+	// sqrt(det_orig / det) undoes exactly the brightening the floor introduces -
+	// a splat already larger than the floor is untouched (the ratio is near 1),
+	// while a genuinely tiny or edge-on one dims toward zero instead of clamping
+	// up to a bright dot. det >= det_orig always (the floor only ever adds to a
+	// covariance's own variance), so the ratio needs no clamp beyond saturate()
+	// guarding the floating-point noise of a near-degenerate splat.
+	float alpha_comp = sqrt(saturate(det_orig / det));
 
 	// 3 sigma along the major axis: the larger eigenvalue of the 2x2, which for a
 	// symmetric matrix is (tr/2) + sqrt((tr/2)^2 - det).
@@ -226,7 +261,7 @@ void main(uint3 tid : SV_DispatchThreadID)
 	v.view_depth = view_depth;
 	v.albedo = s.albedo * albedo_tint;
 	v.normal = normalize(mul(s.normal, M)) * (invert_normals ? -1.0f : 1.0f);
-	v.alpha = alpha;
+	v.alpha = alpha * alpha_comp;
 	v.spec = splat_spec;
 	v.radius = radius;
 	splat_views[idx] = v;

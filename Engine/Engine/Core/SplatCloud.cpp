@@ -909,10 +909,17 @@ bool SplatCloudData::Load(const std::string& file, const std::string& asset_name
 	//second is not a refinement of the first - the fit is already right without it - it
 	//is what stops neighbouring points choosing opposite sides of the same surface. Both
 	//run on the positions as they now stand, already through the Y flip above, so what
-	//comes out is in engine space and takes no second flip. A Gaussian only takes the
-	//first step (see GAUSSIAN_NORMAL_WEIGHT) - it already has its own per-splat axis to
-	//agree with, so the second step's graph-propagated agreement is a point cloud's
-	//problem to solve, not its.
+	//comes out is in engine space and takes no second flip. A Gaussian takes the first
+	//step too (see GAUSSIAN_NORMAL_WEIGHT), blending in its own per-splat axis rather
+	//than trusting the fit alone - but standard 3DGS training gives that per-splat axis
+	//no guarantee of agreeing with its neighbours either, so it still needs the second
+	//step: on anything that is not a single convex blob (a limb, a strap, the inside of
+	//a helmet - anywhere "away from the whole cloud's centroid" is the wrong side for
+	//that one patch) the centroid-only fallback flips isolated splats against their
+	//surroundings, which is what a scattered, high-frequency salt-and-pepper pattern in
+	//the normal buffer looks like. The graph propagation runs on the blended axis
+	//instead of replacing it, so a trained splat still keeps its own signal - it is only
+	//the sign that neighbours are now made to agree on.
 	bool normals_oriented = false;
 	{
 		const auto started = std::chrono::steady_clock::now();
@@ -943,12 +950,24 @@ bool SplatCloudData::Load(const std::string& file, const std::string& asset_name
 				trained.y = GAUSSIAN_NORMAL_WEIGHT * trained.y + (1.0f - GAUSSIAN_NORMAL_WEIGHT) * fitted.y;
 				trained.z = GAUSSIAN_NORMAL_WEIGHT * trained.z + (1.0f - GAUSSIAN_NORMAL_WEIGHT) * fitted.z;
 			}
-			//normals_oriented stays false: the blended axis still gets the centroid-facing
-			//pass below, exactly as the trained axis alone always has - blending in the
-			//fit changes how noisy the direction is, not how its sign gets resolved.
+
+			//Blending only fixes each splat's sign against its OWN fit; nothing above
+			//makes one splat agree with the next, which is exactly what the centroid-only
+			//pass below cannot do on a non-convex shape (see the comment above this
+			//block). Run the same neighbour-graph propagation a plain point cloud relies
+			//on entirely, on top of the blended axis - normals_oriented then skips the
+			//centroid pass below for the same reason it does for a point cloud: it would
+			//undo the agreement this just produced.
+			const auto oriented_at = std::chrono::steady_clock::now();
+			OrientNormalsConsistently(splats, neighbours, minor_axis);
+			const double orient_ms = std::chrono::duration<double, std::milli>(
+				std::chrono::steady_clock::now() - oriented_at).count();
+			normals_oriented = true;
+
 			LOG_INFO("SplatCloudData::Load: blended %llu gaussian normals with a neighbourhood fit "
-				"(%.0f%% trained) in %.0f ms",
-				(unsigned long long)splats.size(), GAUSSIAN_NORMAL_WEIGHT * 100.0f, fit_ms);
+				"(%.0f%% trained) in %.0f ms, oriented along a %u-neighbour graph in %.0f ms",
+				(unsigned long long)splats.size(), GAUSSIAN_NORMAL_WEIGHT * 100.0f, fit_ms,
+				(unsigned)PCA_ORIENT_NEIGHBOURS, orient_ms);
 		}
 		else {
 			minor_axis = std::move(fitted_axis);
