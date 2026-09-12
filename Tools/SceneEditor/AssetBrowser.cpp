@@ -41,7 +41,8 @@ namespace HotBiteEditor {
 		//entities and meshes with copies whose vertex data was never uploaded to the GPU
 		//(Init() ran before this scan), which makes everything using them render as
 		//nothing.
-		static void LoadPendingModels(EditorState& state)
+		static void LoadPendingModels(EditorState& state,
+			std::function<void(float, const std::string&)> on_progress = nullptr)
 		{
 			bool loaded_any = false;
 			for (ModelAsset& m : state.models) {
@@ -50,8 +51,10 @@ namespace HotBiteEditor {
 				}
 				if (!state.world->IsModelLoaded(m.name) && !m.file_path.empty()) {
 					//Under the name the browser knows it by, which is the file stem
-					//unless the import gave it one of its own.
-					state.world->LoadModel(m.file_path, false, false, false, m.name);
+					//unless the import gave it one of its own. `on_progress` is only
+					//ever non-null for the single new entry File/Import Model... just
+					//pushed - a folder scan picking up several at once passes nothing.
+					state.world->LoadModel(m.file_path, false, false, false, m.name, on_progress);
 					loaded_any = true;
 				}
 				m.loaded = true;
@@ -156,7 +159,8 @@ namespace HotBiteEditor {
 		}
 
 		bool ImportModel(EditorState& state, const std::string& fbx_path,
-			const std::string& model_name, std::string& error)
+			const std::string& model_name, std::string& error,
+			std::function<void(float, const std::string&)> on_progress)
 		{
 			if (state.world == nullptr || state.project_root.empty()) {
 				error = "no project open";
@@ -199,7 +203,7 @@ namespace HotBiteEditor {
 			asset.name = name;
 			asset.file_path = dest.string();
 			state.models.push_back(asset);
-			LoadPendingModels(state);
+			LoadPendingModels(state, on_progress);
 			std::sort(state.models.begin(), state.models.end(),
 				[](const ModelAsset& a, const ModelAsset& b) { return a.name < b.name; });
 			state.selected_model = name;
@@ -483,7 +487,7 @@ namespace HotBiteEditor {
 		//file brought with it. A model is not placeable, so it has no Place button -
 		//"Create Template" is the whole path from an imported file to an object, and
 		//having it here is what makes the separation workable rather than a chore.
-		static void DrawModels(EditorState& state)
+		static void DrawModels(EditorState& state, SceneEditorApp& app)
 		{
 			if (state.models.empty()) {
 				ImGui::TextDisabled("No models imported.");
@@ -618,11 +622,11 @@ namespace HotBiteEditor {
 				}
 				ImGui::BeginDisabled(state.pending_import_name.empty() || taken);
 				if (ImGui::Button("Import")) {
-					std::string error;
-					if (!ImportModel(state, state.pending_import_path,
-						state.pending_import_name, error)) {
-						state.status_message = "Import failed: " + error;
-					}
+					//Queued rather than imported here: Draw runs inside an ImGui frame,
+					//and a complex model can take long enough that the import wants to
+					//paint its own progress overlay (SceneEditorApp::ImportModelWithProgress),
+					//which - like OpenLevel's - must not run nested inside another frame.
+					app.RequestImportModel(state.pending_import_path, state.pending_import_name);
 					state.pending_import_path.clear();
 					state.pending_import_name.clear();
 					ImGui::CloseCurrentPopup();
@@ -638,7 +642,7 @@ namespace HotBiteEditor {
 			}
 		}
 
-		void Draw(EditorState& state)
+		void Draw(EditorState& state, SceneEditorApp& app)
 		{
 			ImGui::Begin(EditorLayout::ASSET_BROWSER_WINDOW);
 
@@ -695,7 +699,7 @@ namespace HotBiteEditor {
 
 			ImGui::Spacing();
 			ImGui::SeparatorText("Models");
-			DrawModels(state);
+			DrawModels(state, app);
 
 			ImGui::End();
 		}

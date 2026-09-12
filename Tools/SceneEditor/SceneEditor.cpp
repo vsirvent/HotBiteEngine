@@ -40,6 +40,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 
 #pragma comment(lib, "Engine.lib")
 
@@ -125,6 +126,16 @@ namespace HotBiteEditor {
 				std::string path = pending_level_path;
 				pending_level_path.clear();
 				OpenLevel(path);
+			}
+			//Queued by the Asset Browser's Import button, for the same reason as the
+			//open/close pair above: ImportModelWithProgress paints its own frames.
+			if (!pending_model_import_path.empty()) {
+				std::string import_path = pending_model_import_path;
+				std::string import_name = pending_model_import_name;
+				pending_model_import_path.clear();
+				pending_model_import_name.clear();
+				std::string import_error;
+				ImportModelWithProgress(import_path, import_name, import_error);
 			}
 			//Remote-control commands run before the frame renders, so their effects
 			//(and any screenshot taken at the end of this same frame) are consistent.
@@ -607,7 +618,7 @@ namespace HotBiteEditor {
 				Inspector::Draw(state);
 			}
 			if (state.show_asset_browser) {
-				AssetBrowser::Draw(state);
+				AssetBrowser::Draw(state, *this);
 			}
 			if (state.show_material_panel) {
 				MaterialPanel::Draw(state);
@@ -935,7 +946,7 @@ namespace HotBiteEditor {
 		//A zero height auto-fits the content; the width is fixed so the bar does not
 		//jump around as the stage labels change length.
 		ImGui::SetNextWindowSize(ImVec2(560.0f, 0.0f), ImGuiCond_Always);
-		if (ImGui::Begin("Loading level", nullptr,
+		if (ImGui::Begin("Loading", nullptr,
 			ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
 			ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoDocking)) {
 			ImGui::TextUnformatted(loading_level.c_str());
@@ -965,6 +976,32 @@ namespace HotBiteEditor {
 	void SceneEditorApp::RequestOpenLevel(const std::string& level_json_path)
 	{
 		pending_level_path = level_json_path;
+	}
+
+	void SceneEditorApp::RequestImportModel(const std::string& fbx_path, const std::string& model_name)
+	{
+		pending_model_import_path = fbx_path;
+		pending_model_import_name = model_name;
+	}
+
+	bool SceneEditorApp::ImportModelWithProgress(const std::string& fbx_path,
+		const std::string& model_name, std::string& error)
+	{
+		loading_level = "Importing " + std::filesystem::path(fbx_path).filename().string();
+		ShowLoadingProgress(0.0f, "Reading model file...");
+		const bool ok = AssetBrowser::ImportModel(state, fbx_path, model_name, error,
+			[this](float fraction, const std::string& stage) {
+				ShowLoadingProgress(fraction, stage);
+			});
+		if (!ok) {
+			state.status_message = "Import failed: " + error;
+		}
+		//One last frame at 100% so the overlay does not disappear mid-progress - the
+		//import itself may finish (or bail out) well before it painted a 1.0 phase of
+		//its own, e.g. on the file-not-found/name-taken checks that run before any
+		//loading starts.
+		ShowLoadingProgress(1.0f, ok ? "Done" : "Failed");
+		return ok;
 	}
 
 	bool SceneEditorApp::OpenLevel(const std::string& level_json_path)

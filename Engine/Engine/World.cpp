@@ -320,7 +320,8 @@ std::set<Entity> World::LoadFBX(const std::string& file, bool triangulate, bool 
 	                Core::FlatMap<std::string, Core::MaterialData>& materials,
 	                Core::FlatMap<std::string, Core::MeshData>& meshes,
 	                Core::FlatMap<std::string, Core::ShapeData>& shapes,
-	                ECS::Coordinator* c, Core::VertexBuffer<Core::Vertex>* vb, bool use_animation_names) {
+	                ECS::Coordinator* c, Core::VertexBuffer<Core::Vertex>* vb, bool use_animation_names,
+	                std::function<void(float, const std::string&)> on_progress) {
 	std::string full_path_file;
 	std::set<Entity> entities;
 	if (!relative || file.find(":") != std::string::npos) {
@@ -329,12 +330,22 @@ std::set<Entity> World::LoadFBX(const std::string& file, bool triangulate, bool 
 	else {
 		full_path_file = path + file;
 	}
-	
+
 	if (!file.empty() && !loaded_files.contains(full_path_file)) {
 		loaded_files.insert(full_path_file);
 
+		//Coarse phase boundaries only - there is no visibility into fxsdk's own work to
+		//report anything finer, and the weights below are a guess at relative cost
+		//(meshes and animations are usually where a complex model's time actually goes),
+		//exactly like World::Load's own per-phase units.
+		auto report = [&on_progress](float p, const char* stage) {
+			if (on_progress != nullptr) { on_progress(p, stage); }
+			};
+		report(0.0f, "Reading FBX file...");
+
 		FBXLoader loader;
 		if (!loader.LoadScene(full_path_file, triangulate)) { throw "Load scene failed"; }
+		report(0.15f, "Loading materials...");
 
 		FbxScene* scene = loader.GetScene();
 		//Load materials
@@ -343,21 +354,25 @@ std::set<Entity> World::LoadFBX(const std::string& file, bool triangulate, bool 
 			loader.LoadMaterials(materials, n);
 		}
 		coordinator->SendEvent(this, EVENT_ID_MATERIALS_LOADED);
+		report(0.30f, "Loading meshes...");
 		//Load meshes
 		for (int i = 0; i < scene->GetRootNode()->GetChildCount(); ++i) {
 			fbxsdk::FbxNode* n = scene->GetRootNode()->GetChild(i);
 			loader.LoadMeshes(meshes, n, vb);
 		}
 		coordinator->SendEvent(this, EVENT_ID_MESHES_LOADED);
+		report(0.70f, "Loading collision shapes...");
 		//Load shapes
 		for (int i = 0; i < scene->GetRootNode()->GetChildCount(); ++i) {
 			fbxsdk::FbxNode* n = scene->GetRootNode()->GetChild(i);
 			loader.LoadShapes(shapes, n);
 		}
 		coordinator->SendEvent(this, EVENT_ID_SHAPES_LOADED);
+		report(0.80f, "Loading animations...");
 
 		//Load animations
 		loader.LoadSkeletons(file, animations, scene->GetRootNode(), use_animation_names);
+		report(0.90f, "Building scene entities...");
 
 		//Load scene entities
 		for (int i = 0; i < scene->GetRootNode()->GetChildCount(); ++i) {
@@ -890,7 +905,8 @@ bool World::IsTemplateLoaded(const std::string& template_name) {
 }
 
 void World::LoadModel(const std::string& model_file, bool triangulate, bool relative,
-	bool use_animation_names, const std::string& model_name) {
+	bool use_animation_names, const std::string& model_name,
+	std::function<void(float, const std::string&)> on_progress) {
 	//The file stem is the default and was for a long time the only option, so it stays
 	//the answer whenever a caller does not care (every game, and the folder scan).
 	const std::string name = model_name.empty()
@@ -906,9 +922,11 @@ void World::LoadModel(const std::string& model_file, bool triangulate, bool rela
 	std::transform(ext.begin(), ext.end(), ext.begin(),
 		[](unsigned char c) { return (char)std::tolower(c); });
 	if (ext == ".ply") {
+		if (on_progress != nullptr) { on_progress(0.0f, "Loading splat cloud..."); }
 		if (IsModelLoaded(name)) {
 			//Same dedup contract as the FBX path below: asking twice must not
 			//unregister what the first call loaded.
+			if (on_progress != nullptr) { on_progress(1.0f, "Done"); }
 			return;
 		}
 		//`relative` means the reference is against the world's assets path, which is
@@ -921,6 +939,7 @@ void World::LoadModel(const std::string& model_file, bool triangulate, bool rela
 			? (std::filesystem::path(path) / model_file).string()
 			: model_file;
 		if (LoadSplatCloud(cloud_file, name) == nullptr) {
+			if (on_progress != nullptr) { on_progress(1.0f, "Done"); }
 			return;
 		}
 		ModelAssets splat_assets;
@@ -932,6 +951,7 @@ void World::LoadModel(const std::string& model_file, bool triangulate, bool rela
 		//exactly what an animation-only .fbx does too, and GetTemplateEntities'
 		//fallback already copes with a model that spawns nothing by itself.
 		model_entities[name] = {};
+		if (on_progress != nullptr) { on_progress(1.0f, "Done"); }
 		return;
 	}
 
@@ -944,13 +964,14 @@ void World::LoadModel(const std::string& model_file, bool triangulate, bool rela
 	const std::set<std::string> animations_before = KeySet(animations);
 
 	std::set<ECS::Entity> entities = LoadFBX(model_file, triangulate, relative, materials, meshes,
-		shapes, templates_coordinator, vertex_buffer, use_animation_names);
+		shapes, templates_coordinator, vertex_buffer, use_animation_names, on_progress);
 	//LoadFBX dedups by path and returns nothing at all the second time a file is
 	//asked for, so registering that empty result would *unregister* a model the
 	//first call had loaded. A game that loads its own asset files after opening a
 	//level which already listed them (DemoGame does exactly this for its troll and
 	//zombie animation files) must not lose them to the second call.
 	if (entities.empty() && IsModelLoaded(name)) {
+		if (on_progress != nullptr) { on_progress(1.0f, "Done"); }
 		return;
 	}
 	ModelAssets assets;
@@ -961,6 +982,7 @@ void World::LoadModel(const std::string& model_file, bool triangulate, bool rela
 	assets.animation_sets = NewKeys(animations_before, animations);
 	model_assets[name] = std::move(assets);
 	model_entities[name] = std::move(entities);
+	if (on_progress != nullptr) { on_progress(1.0f, "Done"); }
 }
 
 void World::LoadTemplate(const std::string& template_file, bool triangulate, bool relative, bool use_animation_names) {

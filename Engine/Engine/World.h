@@ -229,11 +229,18 @@ namespace HotBite {
 			// source meshes - and before any template is created, because a template's
 			// Mesh block may name one of these in its LOD chain.
 			void LoadGeneratedMeshes(const nlohmann::json& entries);
+			// `on_progress`, when given, is called with a fraction in [0,1] and a short
+			// stage label after each coarse phase of the import (scene read, materials,
+			// meshes, shapes, animations, entities) - never with per-mesh/per-vertex
+			// granularity. Only fires when the file is actually loaded; a dedup skip
+			// (an already-loaded path) reports nothing, which is why LoadModel is the
+			// one that guarantees a final 1.0 regardless of which branch ran.
 			std::set<ECS::Entity> LoadFBX(const std::string& file, bool triangulate, bool relative,
 							Core::FlatMap<std::string, Core::MaterialData>& materials,
 							Core::FlatMap<std::string, Core::MeshData>& meshes,
 							Core::FlatMap<std::string, Core::ShapeData>& shapes,
-							ECS::Coordinator* c, Core::VertexBuffer<Core::Vertex>* vb, bool use_animation_names = false);
+							ECS::Coordinator* c, Core::VertexBuffer<Core::Vertex>* vb, bool use_animation_names = false,
+							std::function<void(float, const std::string&)> on_progress = nullptr);
 			void LoadInstances(const nlohmann::json& instances_json);
 			static void ParsePhysicsJson(const nlohmann::json& physics_json, Components::Physics& physics);
 			// The two halves of SpawnInstance. SpawnTemplateEntities creates the entities
@@ -307,8 +314,16 @@ namespace HotBite {
 			// model could be named - two files of the same stem in different folders
 			// used to be one model, and an imported "untitled.fbx" could only ever be
 			// called "untitled".
+			// `on_progress`, when given, is LoadFBX's phase callback (see its own comment):
+			// a fraction in [0,1] plus a short stage label, called after each coarse phase
+			// and guaranteed to end at 1.0 no matter which branch (FBX, splat .ply, or an
+			// already-loaded dedup skip) the file takes. Meant for a caller that blocks the
+			// UI thread for the load and wants to paint a progress overlay while it waits
+			// (see SceneEditorApp::ImportModelWithProgress) - every other caller passes
+			// nothing and gets the old silent behaviour.
 			virtual void LoadModel(const std::string& model_file, bool triangulate, bool relative,
-							bool use_animation_names = false, const std::string& name = "");
+							bool use_animation_names = false, const std::string& name = "",
+							std::function<void(float, const std::string&)> on_progress = nullptr);
 			virtual bool IsModelLoaded(const std::string& name) const;
 			// Unregisters a model: it stops being listed, stops being saved with the
 			// level, and its FBX nodes are destroyed.

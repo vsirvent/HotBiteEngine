@@ -4,7 +4,12 @@
 
 namespace HotBiteEditor {
 	namespace AssetBrowser {
-		void Draw(EditorState& state);
+		// `app` is only needed for the Import button in the naming popup: it queues
+		// through SceneEditorApp::RequestImportModel rather than importing in place,
+		// because Draw runs inside the ImGui frame and the import paints its own
+		// progress frames (see ImportModelWithProgress) - the same reason menu actions
+		// go through RequestOpenLevel instead of calling OpenLevel directly.
+		void Draw(EditorState& state, SceneEditorApp& app);
 
 		// Brings the project's asset layers into `state`: the .fbx files under
 		// Assets/Objects (and any the level itself loaded) as *models*, and the .tpl
@@ -23,8 +28,12 @@ namespace HotBiteEditor {
 		// `model_name` is what the project will know it by - empty means the file
 		// stem, which is what it always used to be. It is decided here rather than
 		// afterwards because it is the key the model's assets are registered under.
+		// `on_progress`, when given, is World::LoadModel's phase callback - see its
+		// comment in World.h. Blocking and synchronous either way; a caller that wants
+		// to paint an overlay while it runs is what the callback is for.
 		bool ImportModel(EditorState& state, const std::string& fbx_path,
-			const std::string& model_name, std::string& error);
+			const std::string& model_name, std::string& error,
+			std::function<void(float, const std::string&)> on_progress = nullptr);
 		// Picks the file, then leaves the naming modal for Draw to put up: the name is
 		// settled before anything is loaded.
 		void ImportModelWithDialog(EditorState& state);

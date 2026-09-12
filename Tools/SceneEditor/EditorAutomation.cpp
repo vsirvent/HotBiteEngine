@@ -1561,7 +1561,12 @@ namespace HotBiteEditor {
 				if (args.size() < 2) {
 					response_lines.push_back("ERR usage: import_model <path to .fbx> [name]");
 				}
-				else if (AssetBrowser::ImportModel(state, args[1],
+				//Through the same progress-painting path the Asset Browser's Import
+				//button now queues (SceneEditorApp::ImportModelWithProgress), rather than
+				//AssetBrowser::ImportModel directly - Execute already runs at the safe
+				//top-of-tick point OpenLevel requires (see "open_level" above), so this
+				//exercises the overlay frames the interactive path relies on.
+				else if (app.ImportModelWithProgress(args[1],
 					args.size() > 2 ? args[2] : std::string(), error)) {
 					response_lines.push_back("OK " + state.status_message);
 				}

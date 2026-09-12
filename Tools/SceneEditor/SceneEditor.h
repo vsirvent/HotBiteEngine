@@ -397,6 +397,19 @@ namespace HotBiteEditor {
 		// frame would trip ImGui's Begin/End balance.
 		void RequestOpenLevel(const std::string& level_json_path);
 
+		// Imports one .fbx (or splat .ply), painting the same loading overlay OpenLevel
+		// does - a complex model's FBX read, mesh build and skeleton import can take
+		// long enough to want one too (see World::LoadModel's on_progress callback and
+		// LoadFBX's phase breakdown). Blocks the calling thread and renders frames of
+		// its own, so it must NOT be called from inside an ImGui frame - the Asset
+		// Browser's Import button goes through RequestImportModel instead.
+		bool ImportModelWithProgress(const std::string& fbx_path, const std::string& model_name,
+			std::string& error);
+
+		// Queues a model import for the top of the next render tick, exactly like
+		// RequestOpenLevel does for a level.
+		void RequestImportModel(const std::string& fbx_path, const std::string& model_name);
+
 		// Tears down the current level's World, post-process pipeline and editor
 		// session state, returning to the empty pre-level screen. Destroys and
 		// reconstructs the World wholesale (mirroring Marbles' MarblesGame::ExitGame/
@@ -471,19 +484,25 @@ namespace HotBiteEditor {
 		HotBite::Engine::Core::LensEffect* lens_effect = nullptr;
 		UI::GUI* gui = nullptr;
 
-		// Loading overlay state. A level load blocks the thread that drives rendering,
-		// so the progress bar can only advance if the load itself paints frames: these
-		// are filled in from World::Load's OnLoadProgress callback (the same hook the
-		// demo game passes to World::Load) and drawn by RenderLoadingFrame.
+		// Loading overlay state. A level load (or a model import) blocks the thread that
+		// drives rendering, so the progress bar can only advance if the load itself
+		// paints frames: these are filled in from World::Load's/World::LoadModel's
+		// progress callback and drawn by RenderLoadingFrame.
 		float loading_progress = 0.0f; // 0..1
 		std::string loading_stage;     // what the load is doing right now
-		std::string loading_level;     // level file being loaded, shown as the caption
+		std::string loading_level;     // what is loading, shown as the caption - a level
+		                                // path or a model import description
 
 		// Set by RequestOpenLevel, consumed by the render tick (see the constructor).
 		std::string pending_level_path;
 		// Set by RequestCloseLevel, consumed by the render tick the same way and at
 		// the same safe point, before pending_level_path.
 		bool close_level_requested = false;
+
+		// Set by RequestImportModel, consumed by the render tick right after the level
+		// open/close pair above.
+		std::string pending_model_import_path;
+		std::string pending_model_import_name;
 
 		// Set by ConfirmDiscardChanges when there is something to lose; run by
 		// DrawCloseConfirmPopup once the user picks Save/Discard, cleared on Cancel.
