@@ -235,6 +235,13 @@ void main(uint3 tid : SV_DispatchThreadID)
 		return;
 	}
 
+	// See SPLAT_MAX_RADIUS_PX: uncapped, a splat within a few centimetres of the
+	// camera can cover every tile on screen, and every tile it covers costs a touch
+	// here plus an entry in every pass downstream. Clamped after the reject above
+	// rather than folded into it - a splat this large is exactly the ones worth
+	// keeping, just not worth tracking past this many tiles.
+	radius = min(radius, SPLAT_MAX_RADIUS_PX);
+
 	float2 lo = screen_xy - radius;
 	float2 hi = screen_xy + radius;
 	if (hi.x < 0.0f || hi.y < 0.0f || lo.x >= screenW || lo.y >= screenH) {

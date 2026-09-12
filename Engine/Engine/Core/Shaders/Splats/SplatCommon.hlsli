@@ -167,6 +167,33 @@ float SplatHash01(uint x)
 // loops terminate early on the great majority of splat/pixel pairs.
 #define SPLAT_MIN_ALPHA (1.0f / 255.0f)
 
+// Ceiling on a splat's projected 3-sigma radius, in pixels. The mirror image of the
+// 0.33px floor in SplatPreprocessCS: that one exists because there is no natural
+// distance cull (a splat's screen radius never shrinks below ~1.9px, however far away
+// it recedes - see the note there), so a receding cloud is bounded by thinning splats
+// out, not by their radius. Getting closer has the opposite problem and no floor to
+// save it: radius grows as ~1/distance with nothing to stop it, and every tile a
+// splat's AABB overlaps costs a touch in SplatPreprocessCS's per-splat loop plus an
+// entry in every one of the binning/rasterizing passes downstream - so one splat a
+// few centimetres from the eye can mark the *entire* tile grid, and the LOD in
+// RenderSystem::DrawSplats cannot rescue it: keep_prob is a per-cloud screen-coverage
+// estimate, and a camera this close makes that coverage read as "the whole screen",
+// which computes as "keep everything" - the opposite of what is needed. Measured on
+// the built-in stand-in cloud (2048 splats, radius 0.5): moving the camera from 3
+// units away to 1 unit away - both still outside the cloud - already ran
+// SplatPreprocessCS's tile loop over 4x the entries (13M -> 51M) and forced the
+// splat pool to grow to keep up, all before the degenerate "camera inside the
+// object" case is even reached.
+//
+// The clamp is on `radius` alone, not on the conic that shapes the actual Gaussian
+// falloff - SplatWeight is untouched, so a splat this size still fades exactly as it
+// would unclamped for as much of its extent as the cap allows. What is lost is the
+// tail beyond the cap, which is invisible even at this size for anything but a
+// splat the camera is inside of: a value this large only happens within a few
+// centimetres of the eye, where the object fills the frame regardless of how far a
+// single splat's fade technically extends past the edge of the screen.
+#define SPLAT_MAX_RADIUS_PX 256.0f
+
 // Ceiling on a splat's per-pixel alpha in the compositing walk. Not a stylistic clamp:
 // SplatView::alpha carries Components::SplatCloud::opacity_scale, which is not bounded
 // above, so `a` can exceed 1 - and then (1 - a) is NEGATIVE, which does not brighten a
