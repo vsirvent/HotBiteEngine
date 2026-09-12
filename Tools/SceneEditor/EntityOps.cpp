@@ -5,6 +5,7 @@
 #include "Selection.h"
 
 #include <Components/Base.h>
+#include <Components/Camera.h>
 #include <Components/Physics.h>
 #include <algorithm>
 #include <cctype>
@@ -239,13 +240,13 @@ namespace HotBiteEditor {
 			}
 		}
 
-		//First free "Entity", "Entity_1", ... The "_0" probe covers multi-part
+		//First free "<base>", "<base>_1", ... The "_0" probe covers multi-part
 		//instances, whose parts claim "<name>_<index>".
-		static std::string MakeCreatedName(EditorState& state)
+		static std::string MakeCreatedName(EditorState& state, const std::string& base = "Entity")
 		{
 			Coordinator* c = state.world->GetCoordinator();
 			for (int n = 0;; ++n) {
-				std::string candidate = std::string("Entity") + (n > 0 ? "_" + std::to_string(n) : "");
+				std::string candidate = base + (n > 0 ? "_" + std::to_string(n) : "");
 				if (c->GetEntityByName(candidate) == INVALID_ENTITY_ID &&
 					c->GetEntityByName(candidate + "_0") == INVALID_ENTITY_ID) {
 					return candidate;
@@ -328,6 +329,77 @@ namespace HotBiteEditor {
 				[name, where, index](EditorState& s) {
 					std::string err;
 					SpawnCreatedEntity(s, name, where, index, err);
+				} });
+			return true;
+		}
+
+		//Same as SpawnCreatedEntity, but also attaches a bare Camera - the one
+		//component the Components panel's Add Component picker can never put on an
+		//entity, because ComponentPolicy::Locked keeps it out of that list (nothing
+		//a user could type defines it: a camera's pose is derived from its Transform
+		//every frame). This mirrors what FBXLoader does for an imported camera node
+		//(Coordinator::AddComponent + NotifySignatureChange) rather than going
+		//through ComponentOps::AddComponent, which would refuse it the same way the
+		//UI does.
+		static bool SpawnCreatedCameraEntity(EditorState& state, const std::string& name,
+			const TransformSnapshot& where, size_t index, std::string& error)
+		{
+			if (!SpawnCreatedEntity(state, name, where, index, error)) {
+				return false;
+			}
+			Coordinator* c = state.world->GetCoordinator();
+			Entity e = c->GetEntityByName(name);
+			c->AddComponent<Camera>(e);
+			c->NotifySignatureChange(e);
+
+			//Recorded exactly like ComponentOps::AddComponent would have, so the
+			//level's created_entities record carries "Camera" and the component
+			//survives a save/reload.
+			ComponentDelta& delta = state.component_deltas[name];
+			delta.removed.erase(Camera::NAME);
+			delta.added[Camera::NAME] = nlohmann::json::object();
+			return true;
+		}
+
+		// Creates an entity carrying Base, Transform and a bare Camera: the "start
+		// from nothing" path CreateEmptyEntity offers, but for the one component
+		// that path can never be built up to in the Components panel afterwards.
+		// This is how a project with no camera template and nothing to import gets
+		// its first movable camera at all - see EditorCamera.h, whose viewport
+		// navigation needs one to exist.
+		bool CreateCameraEntity(EditorState& state, std::string& created_name, std::string& error)
+		{
+			Coordinator* c = state.world->GetCoordinator();
+			if (c == nullptr) {
+				error = "no scene loaded";
+				return false;
+			}
+			const std::string name = MakeCreatedName(state, "Camera");
+			const size_t index = state.created_entities.size();
+
+			//Same placement rule as CreateEmptyEntity: the middle of the view if
+			//there is already a camera to look with, the origin otherwise - which
+			//is the usual case here, since this exists to create the first one.
+			TransformSnapshot where;
+			bool hit_something = false;
+			float3 point{};
+			if (AssetBrowser::ViewCenterPoint(state, point, hit_something)) {
+				where.position = point;
+			}
+
+			if (!SpawnCreatedCameraEntity(state, name, where, index, error)) {
+				return false;
+			}
+			created_name = name;
+			state.status_message = "Created camera: " + name;
+			EditorHistory::Push({
+				"create camera " + name,
+				[name](EditorState& s) {
+					RemoveCreatedEntity(s, name);
+				},
+				[name, where, index](EditorState& s) {
+					std::string err;
+					SpawnCreatedCameraEntity(s, name, where, index, err);
 				} });
 			return true;
 		}

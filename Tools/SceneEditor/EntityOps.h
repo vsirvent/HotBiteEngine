@@ -57,6 +57,20 @@ namespace HotBiteEditor {
 		bool CreateEmptyEntity(EditorState& state, std::string& created_name,
 			std::string& error);
 
+		// Creates an entity carrying Base, Transform and a bare Camera - the one
+		// component that cannot be built up afterwards in the Components panel,
+		// because ComponentPolicy::Locked keeps it out of the Add Component list
+		// (a camera has nothing to author: its pose is derived from its Transform
+		// every frame). Ordinarily a camera comes from importing an .fbx authored
+		// with one, or from a hand-written template; this is what a brand-new
+		// project with neither uses to get its first movable camera at all - the
+		// editor's own viewport navigation (EditorCamera) needs one to exist.
+		//
+		// Named "Camera", "Camera_1", ... and recorded in
+		// EditorState::created_entities like CreateEmptyEntity.
+		bool CreateCameraEntity(EditorState& state, std::string& created_name,
+			std::string& error);
+
 		// Renames an entity, updating every piece of editor bookkeeping that is
 		// keyed by entity name (instance records, clone records and their sources,
 		// transform-override tracking, group membership, the clipboard, and the

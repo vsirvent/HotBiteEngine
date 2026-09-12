@@ -307,6 +307,22 @@ namespace HotBiteEditor {
 				}
 			} });
 
+		//Camera is ComponentPolicy::Locked, so the Components panel's Add Component
+		//picker refuses it (see EntityOps::CreateCameraEntity) - this is the one
+		//other way an entity comes into a level from nothing, for the one component
+		//that path can't reach. What a project normally gets a camera from (an
+		//imported .fbx, or a hand-authored template) needs either an asset to
+		//import or a template to already exist; a brand-new project has neither.
+		menu_commands.push_back({ "Add/Camera",
+			[this]() { return level_loaded; },
+			[this]() {
+				std::string name;
+				std::string error;
+				if (!EntityOps::CreateCameraEntity(state, name, error)) {
+					state.status_message = "Add camera failed: " + error;
+				}
+			} });
+
 		//View: panel visibility toggles and layout reset. All of them need a level:
 		//before one is open the editor is just the menu bar over an empty viewport.
 		menu_commands.push_back({ "View/Entities",
