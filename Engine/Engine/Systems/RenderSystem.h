@@ -766,6 +766,10 @@ namespace HotBite {
 				bool wireframe_enabled = false;
 				bool aa_enabled = true;
 				bool motion_blur_enabled = true;
+				//Multiplies the per-pixel motion vector before it is stepped along in
+				//MotionBlurCS, so it scales both the blur's reach and its own distance
+				//cap together - 1.0 leaves the shader's original tuning untouched.
+				float motion_blur_scale = 1.0f;
 				bool dof_enabled = true;
 				bool scene_enabled = true;
 				//Packed buffer selection + bypass flags, see eDebugBuffer.
@@ -951,6 +955,11 @@ namespace HotBite {
 				bool GetAA() const;
 				void SetMotionBlur(bool enabled);
 				bool GetMotionBlur() const;
+				//Scales the strength of the motion blur (1.0 = default tuning, 0 = no
+				//blur, >1 exaggerates it). Independent of the enable flag so a saved
+				//scale survives toggling the effect off and back on.
+				void SetMotionBlurScale(float scale);
+				float GetMotionBlurScale() const;
 				void SetDOF(bool enabled);
 				bool GetDOF() const;
 				//Depth of field autofocus (on by default). The focal distance is

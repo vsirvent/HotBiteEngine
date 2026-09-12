@@ -167,6 +167,7 @@ Test 'render settings survive a save and reload, but the debug-only ones never d
     SendOk 'render rt_indirect 0' | Out-Null
     SendOk 'render aa 0' | Out-Null
     SendOk 'render motion_blur 0' | Out-Null
+    SendOk 'render motion_blur_scale 2.2' | Out-Null
     SendOk 'render dof 1' | Out-Null
     SendOk 'render dof_autofocus 0' | Out-Null
     SendOk 'render dof_focus 42' | Out-Null
@@ -190,6 +191,7 @@ Test 'render settings survive a save and reload, but the debug-only ones never d
     Assert-Equal -Expected 'False' -Actual $render.rt_indirect
     Assert-Equal -Expected 'False' -Actual $render.aa
     Assert-Equal -Expected 'False' -Actual $render.motion_blur
+    Assert-Near -Expected 2.2 -Actual $render.motion_blur_scale -Tolerance 0.01
     Assert-Equal -Expected 'True' -Actual $render.dof
     Assert-Equal -Expected 'False' -Actual $render.dof_autofocus
     Assert-Near -Expected 42.0 -Actual $render.dof_focus -Tolerance 0.01
@@ -216,6 +218,7 @@ Test 'render settings survive a save and reload, but the debug-only ones never d
         Assert-Equal -Expected 'False' -Actual $r.rt_indirect
         Assert-Equal -Expected 'False' -Actual $r.aa
         Assert-Equal -Expected 'False' -Actual $r.motion_blur
+        Assert-Near -Expected 2.2 -Actual $r.motion_blur_scale -Tolerance 0.01
         Assert-Equal -Expected 'True' -Actual $r.dof
         Assert-Equal -Expected 'False' -Actual $r.dof_autofocus
         Assert-Near -Expected 42.0 -Actual $r.dof_focus -Tolerance 0.01

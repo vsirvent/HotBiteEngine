@@ -2280,6 +2280,7 @@ void RenderSystem::ProcessMotionBlur() {
 	motion_blur->SetMatrix4x4("prev_view_proj", prev_view_projection);
 	motion_blur->SetShaderResourceView("input", motion_blur_map.SRV());
 	motion_blur->SetInt("enabled", motion_blur_enabled && !IsDebugBufferActive());
+	motion_blur->SetFloat("blur_scale", motion_blur_scale);
 	motion_blur->SetUnorderedAccessView("output", post_process_pipeline->RenderUAV());
 	motion_blur->SetShaderResourceView("motionTexture", motion_texture.SRV());
 	motion_blur->CopyAllBufferData();
@@ -3844,6 +3845,14 @@ void RenderSystem::SetMotionBlur(bool enabled) {
 
 bool RenderSystem::GetMotionBlur() const {
 	return motion_blur_enabled;
+}
+
+void RenderSystem::SetMotionBlurScale(float scale) {
+	motion_blur_scale = scale;
+}
+
+float RenderSystem::GetMotionBlurScale() const {
+	return motion_blur_scale;
 }
 
 void RenderSystem::SetDOF(bool enabled) {

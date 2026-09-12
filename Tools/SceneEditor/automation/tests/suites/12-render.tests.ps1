@@ -15,7 +15,7 @@ $DebugBuffers = @('off', 'scene', 'light', 'bloom', 'emission', 'reflection', 'r
 Test 'render dumps every setting the Render menu has' {
     $r = Get-Render -Session $Session
     foreach ($key in @('rt_quality', 'rt_reflections', 'rt_refractions', 'rt_indirect',
-                       'aa', 'motion_blur', 'dof', 'dof_autofocus', 'dof_focus', 'dof_amplitude',
+                       'aa', 'motion_blur', 'motion_blur_scale', 'dof', 'dof_autofocus', 'dof_focus', 'dof_amplitude',
                        'lens_flare', 'lens', 'lens_aberration', 'lens_grain', 'lens_vignette',
                        'wireframe', 'debug_buffer', 'debug_gain', 'gi_denoise', 'rt_denoise')) {
         Assert-True -Condition ($null -ne $r.$key) -Message "render dumps $key"
@@ -79,6 +79,23 @@ Test 'setting dof_focus switches autofocus off, and the aperture is independent'
     Assert-Near -Expected 3.0 -Actual $r.dof_amplitude -Tolerance 0.001
     Assert-Equal -Expected 'False' -Actual $r.dof_autofocus -Message 'the aperture does not touch the mode'
     SendOk 'render dof_autofocus 1' | Out-Null
+}
+
+Test 'motion_blur_scale takes a float and rejects a negative one' {
+    $r = SendOk 'render motion_blur_scale 2.5'
+    Assert-Near -Expected 2.5 -Actual ($r[0].Text | ConvertFrom-Json).motion_blur_scale -Tolerance 0.001
+    Assert-Err -Result (Send 'render motion_blur_scale -1')[0] -Message 'motion_blur_scale below 0'
+    Assert-Err -Result (Send 'render motion_blur_scale nonsense')[0]
+    SendOk 'render motion_blur_scale 1' | Out-Null
+}
+
+Test 'motion_blur_scale is independent of the enable flag' {
+    SendOk 'render motion_blur_scale 3' | Out-Null
+    SendOk 'render motion_blur 0' | Out-Null
+    $r = Get-Render -Session $Session
+    Assert-Equal -Expected 'False' -Actual $r.motion_blur
+    Assert-Near -Expected 3.0 -Actual $r.motion_blur_scale -Tolerance 0.001 -Message 'the scale survives toggling the effect off'
+    SendOk 'render motion_blur 1', 'render motion_blur_scale 1' | Out-Null
 }
 
 Test 'every debug buffer name is accepted and reported back' {

@@ -11,6 +11,7 @@ cbuffer externalData : register(b0)
     matrix view_proj;
     matrix prev_view_proj;
     int enabled;
+    float blur_scale;
 }
 
 float2 GetPixelDir(float2 pixel) {
@@ -41,9 +42,9 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 Gid: SV_GroupID, uint3 Tid: SV
     float2 dir = GetPixelDir(input_pixel);
     float orig_speed = length(dir);
     float2 norm_dir = normalize(dir);
-    dir *= in_dimension.x;
+    dir *= in_dimension.x * blur_scale;
 
-    float max_speed = in_dimension.x * 0.05f;
+    float max_speed = in_dimension.x * 0.05f * blur_scale;
     float speed = length(dir);
 
     if (speed > max_speed) {

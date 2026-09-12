@@ -42,6 +42,7 @@ namespace HotBiteEditor {
 			rs->SetRayTracing(true, true, true);
 			rs->SetAA(true);
 			rs->SetMotionBlur(true);
+			rs->SetMotionBlurScale(1.0f);
 			rs->SetDOF(false);
 			rs->SetLensFlare(true);
 			//Camera artifacts start neutral: the editor shows the render as it is,
@@ -92,6 +93,13 @@ namespace HotBiteEditor {
 			if (ImGui::Checkbox("Motion blur", &motion_blur)) {
 				rs->SetMotionBlur(motion_blur);
 			}
+			ImGui::BeginDisabled(!motion_blur);
+			float motion_blur_scale = rs->GetMotionBlurScale();
+			ImGui::SetNextItemWidth(120.0f);
+			if (ImGui::SliderFloat("Motion blur scale", &motion_blur_scale, 0.0f, 4.0f)) {
+				rs->SetMotionBlurScale(motion_blur_scale);
+			}
+			ImGui::EndDisabled();
 			bool lens_flare = rs->GetLensFlare();
 			if (ImGui::Checkbox("Lens flare", &lens_flare)) {
 				rs->SetLensFlare(lens_flare);
@@ -389,6 +397,14 @@ namespace HotBiteEditor {
 				else { rs->SetWireframe(enabled); }
 				return true;
 			}
+			if (key == "motion_blur_scale") {
+				float v;
+				try { v = std::stof(value); }
+				catch (...) { error = key + " must be a float"; return false; }
+				if (v < 0.0f) { error = "motion_blur_scale must be >= 0"; return false; }
+				rs->SetMotionBlurScale(v);
+				return true;
+			}
 			if (key == "lens_aberration" || key == "lens_grain" || key == "lens_vignette") {
 				float v;
 				try { v = std::stof(value); }
@@ -487,6 +503,7 @@ namespace HotBiteEditor {
 				j["rt_indirect"] = indirect;
 				j["aa"] = rs->GetAA();
 				j["motion_blur"] = rs->GetMotionBlur();
+				j["motion_blur_scale"] = rs->GetMotionBlurScale();
 				j["dof"] = rs->GetDOF();
 				j["dof_autofocus"] = rs->GetDofAutofocus();
 				j["lens_flare"] = rs->GetLensFlare();
@@ -534,6 +551,7 @@ namespace HotBiteEditor {
 			}
 			if (j.contains("aa")) { rs->SetAA(j.value("aa", rs->GetAA())); }
 			if (j.contains("motion_blur")) { rs->SetMotionBlur(j.value("motion_blur", rs->GetMotionBlur())); }
+			if (j.contains("motion_blur_scale")) { rs->SetMotionBlurScale(j.value("motion_blur_scale", rs->GetMotionBlurScale())); }
 			if (j.contains("dof")) { rs->SetDOF(j.value("dof", rs->GetDOF())); }
 			if (j.contains("dof_autofocus")) { rs->SetDofAutofocus(j.value("dof_autofocus", rs->GetDofAutofocus())); }
 			if (j.contains("lens_flare")) { rs->SetLensFlare(j.value("lens_flare", rs->GetLensFlare())); }
