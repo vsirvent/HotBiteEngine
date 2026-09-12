@@ -179,6 +179,7 @@
     <ClCompile Include="Engine\Core\ShaderCompiler.cpp" />
     <ClCompile Include="Engine\Core\SimpleShader.cpp" />
     <ClCompile Include="Engine\Core\SplatCloud.cpp" />
+    <ClCompile Include="Engine\Core\SplatMeshReconstruction.cpp" />
     <ClCompile Include="Engine\Core\Texture.cpp" />
     <ClCompile Include="Engine\Core\Utils.cpp" />
     <ClCompile Include="Engine\Core\Log.cpp" />
@@ -232,6 +233,7 @@
     <ClInclude Include="Engine\Core\SimpleShader.h" />
     <ClInclude Include="Engine\Core\SpinLock.h" />
     <ClInclude Include="Engine\Core\SplatCloud.h" />
+    <ClInclude Include="Engine\Core\SplatMeshReconstruction.h" />
     <ClInclude Include="Engine\Core\Texture.h" />
     <ClInclude Include="Engine\Core\Utils.h" />
     <ClInclude Include="Engine\Core\Log.h" />

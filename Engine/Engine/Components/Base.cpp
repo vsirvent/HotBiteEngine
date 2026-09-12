@@ -475,6 +475,7 @@ namespace HotBite {
 				j["visible"] = visible;
 				j["scene_visible"] = scene_visible;
 				j["cast_shadow"] = cast_shadow;
+				j["shadow_caster_only"] = shadow_caster_only;
 				j["draw_depth"] = draw_depth;
 				j["is_static"] = is_static;
 				j["draw_method"] = (draw_method == eDrawMethod::DRAW_ALWAYS) ? "always" : "screen";
@@ -500,6 +501,7 @@ namespace HotBite {
 				visible = j.value("visible", visible);
 				scene_visible = j.value("scene_visible", scene_visible);
 				cast_shadow = j.value("cast_shadow", cast_shadow);
+				shadow_caster_only = j.value("shadow_caster_only", shadow_caster_only);
 				draw_depth = j.value("draw_depth", draw_depth);
 				is_static = j.value("is_static", is_static);
 				pass = j.value("pass", pass);
@@ -1036,6 +1038,13 @@ namespace HotBite {
 				//component silently not working.
 				if (data == nullptr) {
 					data = ctx.world->GetDefaultSplatCloud();
+				}
+				//Gives this entity its cloud's shadow/collision proxy immediately if one
+				//has already been generated (World::AttachSplatProxy is a silent no-op
+				//otherwise) - covers add_component/set_component on a live entity, which
+				//World::Init's own pass and SpawnTemplateEntities's own call do not reach.
+				if (ctx.entity != ECS::INVALID_ENTITY_ID) {
+					ctx.world->AttachSplatProxy(ctx.entity);
 				}
 			}
 		}

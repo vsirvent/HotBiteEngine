@@ -289,6 +289,12 @@ namespace HotBite {
 				ID3D11ShaderResourceView* DepthResource();
 				ID3D11DepthStencilView* DepthView();
 				bool CastShadow() const;
+				//Turns shadows on or off after Init. Off just stops the cascade fit
+				//(CastShadow() gates it); on allocates the depth maps if this light has
+				//never had them (constructed/loaded with shadows off), same as Init would.
+				//Returns false if the maps could not be allocated, in which case shadows
+				//stay off.
+				bool SetCastShadow(bool enable);
 				struct Data& GetData();
 				const D3D11_VIEWPORT& GetShadowViewPort() const;
 

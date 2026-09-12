@@ -108,6 +108,20 @@ namespace HotBite {
 			// be rebuilt.
 			static inline const char* GENERATED_MESH_DIR = "GeneratedMeshes";
 
+			// A splat cloud's inferred low-poly proxy - the mesh/shape pair
+			// GenerateSplatProxy builds out of the cloud's points (see
+			// Core::ReconstructSplatMesh) for AttachSplatProxy to give to every entity
+			// drawing that cloud. Recorded and cached exactly like GeneratedMesh, but
+			// keyed by a splat cloud rather than a source mesh, since the cache's
+			// validity check differs (splat count, not vertex/index counts).
+			struct GeneratedSplatProxy {
+				std::string mesh_name; // what it is registered as, in `meshes` and `shapes`
+				std::string source;    // the splat cloud it was built from
+				int resolution = 48;   // grid cells along the cloud's longest axis
+				float ratio = 0.35f;   // the post-reconstruction decimation target
+				std::string file;      // where the geometry is cached, assets-path relative
+			};
+
 		protected:
 			std::atomic<uint64_t> current_server_nsec = 0;
 			std::atomic<uint64_t> current_background_thread_nsec = 0;
@@ -174,6 +188,9 @@ namespace HotBite {
 			//The meshes in there that this world generated rather than imported, in
 			//creation order. See GeneratedMesh and GenerateMeshLod.
 			std::vector<GeneratedMesh> generated_meshes;
+			//One entry per splat cloud that has had a shadow/collision proxy generated
+			//for it. See GeneratedSplatProxy and GenerateSplatProxy.
+			std::vector<GeneratedSplatProxy> generated_splat_proxies;
 			//Gaussian splat clouds, keyed by asset name. A peer of `meshes`: shared,
 			//immutable geometry that a SplatCloud component points at. Unlike a MeshData,
 			//each one owns its own GPU buffer - splats never reach the input assembler, so
@@ -229,6 +246,12 @@ namespace HotBite {
 			// source meshes - and before any template is created, because a template's
 			// Mesh block may name one of these in its LOD chain.
 			void LoadGeneratedMeshes(const nlohmann::json& entries);
+			// The level's "generated_splat_proxies" section - the same shape as
+			// LoadGeneratedMeshes' own, keyed by a splat cloud instead of a source mesh.
+			// Runs after the splat clouds are loaded (their points are the recipe's
+			// input) and before any template is created, for the same reason
+			// LoadGeneratedMeshes does.
+			void LoadSplatProxies(const nlohmann::json& entries);
 			// `on_progress`, when given, is called with a fraction in [0,1] and a short
 			// stage label after each coarse phase of the import (scene read, materials,
 			// meshes, shapes, animations, entities) - never with per-mesh/per-vertex
@@ -578,6 +601,63 @@ namespace HotBite {
 			// The generated meshes this world holds, in creation order - what a level
 			// has to write out for a future load to find them again.
 			const std::vector<GeneratedMesh>& GetGeneratedMeshes() const { return generated_meshes; }
+
+			// Reconstructs an approximate low-poly surface out of `cloud_name`'s points
+			// (Core::ReconstructSplatMesh) and installs it as both a real MeshData
+			// (InstallGeneratedMesh - what AttachSplatProxy gives an entity as its
+			// shadow-caster-only Mesh) and a Core::ShapeData built the same way
+			// FBXLoader::LoadShapes builds one for an authored collision node (what lets
+			// a STATIC Physics component on that entity find real geometry through the
+			// existing GetEntityShape lookup, with no changes to Physics.cpp at all).
+			//
+			// `grid_resolution` is cells along the cloud's longest axis (Core::
+			// ReconstructSplatMesh's signed-distance grid); `ratio` is the share of the
+			// raw reconstruction's vertices the final decimation aims for, in (0, 1].
+			//
+			// Cached exactly like GenerateMeshLod (see GeneratedSplatProxy and the
+			// "generated_splat_proxies" section of Load): stored under GENERATED_MESH_DIR
+			// and keyed by the cloud's identity, so a reload reads a file instead of
+			// reconstructing the surface again.
+			//
+			// Calling this again for a cloud that already has a proxy builds a whole new
+			// mesh/shape pair under a new name (never overwrites the previous one's data
+			// in place) and re-attaches every entity already using that cloud to it, not
+			// just the next one placed - the old pair is superseded, not erased (see
+			// RemoveSplatProxy for why erasing is a different, careful operation, and
+			// AttachSplatProxy for how a live entity is repointed at the new pair). A
+			// generate that reused the previous mesh's name used to hand every live
+			// STATIC collider a set of triangle arrays that had just been overwritten out
+			// from under it - reactphysics3d's TriangleVertexArray keeps raw pointers into
+			// that data rather than copying it in, so the very next narrow-phase query
+			// read freed or rewritten memory. Same hazard on the mesh side: Core::MeshData
+			// does not support being re-initialized in place either.
+			virtual bool GenerateSplatProxy(const std::string& cloud_name, int grid_resolution,
+				float ratio, std::string& out_name, std::string& error);
+			// The generated splat proxies this world holds - what a level has to write
+			// out for a future load to find them again.
+			const std::vector<GeneratedSplatProxy>& GetGeneratedSplatProxies() const { return generated_splat_proxies; }
+			// Gives `e` its splat cloud's generated proxy: a Mesh+Bounds+Material (with
+			// Base::shadow_caster_only set, so it is never drawn in the color pass - see
+			// that flag's own comment) for the shadow passes, and a Core::ShapeData under
+			// `e`'s own name for a STATIC Physics collider. A silent no-op when `e` has
+			// no SplatCloud component, that component names no cloud, or the cloud has no
+			// generated proxy yet - so calling it speculatively (as World::Init and
+			// SpawnTemplateEntities both do, for every entity) is always safe.
+			virtual void AttachSplatProxy(ECS::Entity e);
+			// Undoes AttachSplatProxy on every entity currently wearing `cloud_name`'s
+			// proxy (an entity a caller has since repointed at a different Mesh of its
+			// own is left alone) and drops the level's record of it, so neither a save
+			// nor the next AttachSplatProxy call sees it any more: Mesh, Bounds and
+			// Material are removed, Base::shadow_caster_only is cleared, and the entity's
+			// own Core::ShapeData entry is dropped - rebuilding a live STATIC collider
+			// first if one was using it, so nothing is left referencing a shape that is
+			// about to disappear. The underlying MeshData/ShapeData/cache file are left
+			// registered but unreferenced, exactly like RemoveModel/RemoveMaterial leave
+			// their own assets - erasing either would relocate a neighbour in the FlatMap
+			// it lives in and dangle any pointer still into it.
+			//
+			// False, with `error` set, when `cloud_name` has no generated proxy.
+			virtual bool RemoveSplatProxy(const std::string& cloud_name, std::string& error);
 			// Rebuilds the GPU buffers when a SetMeshSmooth since the last flush left
 			// them stale, and does nothing otherwise - so it is safe (and meant) to be
 			// called every frame, between frames. Before Init() it only clears the

@@ -29,6 +29,7 @@ SOFTWARE.
 #include <Network/LockStepClient.h>
 #include <Core/PhysicsCommon.h>
 #include <Core/MeshSimplify.h>
+#include <Core/SplatMeshReconstruction.h>
 #include <Components/Sky.h>
 #include <Network/Commons.h>
 
@@ -1652,6 +1653,130 @@ namespace {
 		}
 		return !geometry.indices.empty();
 	}
+
+	//A splat cloud's generated proxy cache, the same shape as the LOD one above but
+	//keyed by the cloud's identity (its splat count) rather than a source mesh's
+	//vertex/index counts - a splat cloud has neither.
+	constexpr char SPLAT_PROXY_CACHE_MAGIC[8] = { 'H','B','S','P','L','P','R','X' };
+	constexpr uint32_t SPLAT_PROXY_CACHE_VERSION = 1;
+
+	bool WriteSplatProxyCache(const std::string& file, const std::string& source_name,
+		uint32_t source_splat_count, int32_t resolution, float ratio,
+		const Core::SimplifyResult& geometry) {
+		std::error_code ec;
+		std::filesystem::create_directories(std::filesystem::path(file).parent_path(), ec);
+		std::ofstream os(file, std::ios::binary | std::ios::trunc);
+		if (!os) {
+			return false;
+		}
+		os.write(SPLAT_PROXY_CACHE_MAGIC, sizeof(SPLAT_PROXY_CACHE_MAGIC));
+		WritePod(os, SPLAT_PROXY_CACHE_VERSION);
+		WritePod(os, (uint32_t)sizeof(Core::Vertex));
+		WritePod(os, source_splat_count);
+		WritePod(os, resolution);
+		WritePod(os, ratio);
+		WritePod(os, (uint32_t)geometry.vertices.size());
+		WritePod(os, (uint32_t)geometry.indices.size());
+		const uint32_t name_length = (uint32_t)source_name.size();
+		WritePod(os, name_length);
+		os.write(source_name.data(), name_length);
+		os.write(reinterpret_cast<const char*>(geometry.vertices.data()),
+			(std::streamsize)(geometry.vertices.size() * sizeof(Core::Vertex)));
+		os.write(reinterpret_cast<const char*>(geometry.indices.data()),
+			(std::streamsize)(geometry.indices.size() * sizeof(uint32_t)));
+		return (bool)os;
+	}
+
+	bool ReadSplatProxyCache(const std::string& file, const std::string& source_name,
+		uint32_t source_splat_count, int32_t resolution, float ratio,
+		Core::SimplifyResult& geometry) {
+		std::ifstream is(file, std::ios::binary);
+		if (!is) {
+			return false;
+		}
+		char magic[sizeof(SPLAT_PROXY_CACHE_MAGIC)] = {};
+		is.read(magic, sizeof(magic));
+		if (!is || memcmp(magic, SPLAT_PROXY_CACHE_MAGIC, sizeof(magic)) != 0) {
+			return false;
+		}
+		uint32_t version = 0, stride = 0, cached_splats = 0, vertex_count = 0, index_count = 0, name_length = 0;
+		int32_t cached_resolution = 0;
+		float cached_ratio = 0.0f;
+		if (!ReadPod(is, version) || !ReadPod(is, stride) || !ReadPod(is, cached_splats) ||
+			!ReadPod(is, cached_resolution) || !ReadPod(is, cached_ratio) ||
+			!ReadPod(is, vertex_count) || !ReadPod(is, index_count) || !ReadPod(is, name_length)) {
+			return false;
+		}
+		if (version != SPLAT_PROXY_CACHE_VERSION || stride != (uint32_t)sizeof(Core::Vertex)) {
+			return false;
+		}
+		std::string cached_source(name_length, '\0');
+		is.read(cached_source.data(), name_length);
+		if (!is || cached_source != source_name) {
+			return false;
+		}
+		//Identified by what the cloud *is* (its splat count) and the parameters that
+		//produced this geometry, not by a timestamp - see WriteLodCache's own comment.
+		if (cached_splats != source_splat_count || cached_resolution != resolution ||
+			fabsf(cached_ratio - ratio) > 1e-4f) {
+			return false;
+		}
+		if (vertex_count == 0 || index_count == 0) {
+			return false;
+		}
+		geometry.vertices.resize(vertex_count);
+		geometry.indices.resize(index_count);
+		is.read(reinterpret_cast<char*>(geometry.vertices.data()),
+			(std::streamsize)(vertex_count * sizeof(Core::Vertex)));
+		is.read(reinterpret_cast<char*>(geometry.indices.data()),
+			(std::streamsize)(index_count * sizeof(uint32_t)));
+		if (!is) {
+			geometry = Core::SimplifyResult{};
+			return false;
+		}
+		for (uint32_t index : geometry.indices) {
+			if (index >= vertex_count) {
+				geometry = Core::SimplifyResult{};
+				return false;
+			}
+		}
+		return true;
+	}
+
+	//Fills `shape` with a ConcaveMeshShape over `geometry`'s triangles, exactly the way
+	//FBXLoader::LoadShapes builds one for an authored collision node (same
+	//TriangleVertexArray/TriangleMesh/createConcaveMeshShape construction, including its
+	//odd-looking but already-proven sizeof(float) normal stride - Physics.cpp's own
+	//ScaledMesh construction uses the same one). Left empty (no `shape`) when there are
+	//fewer than 3 indices, which AddCollider already treats as "no mesh shape" safely.
+	void BuildProxyShapeData(const Core::SimplifyResult& geometry, Core::ShapeData& shape) {
+		shape.authored_scale = { 1.0f, 1.0f, 1.0f };
+		shape.vertices.clear();
+		shape.normals.clear();
+		shape.vertices.reserve(geometry.vertices.size());
+		shape.normals.reserve(geometry.vertices.size());
+		for (const Core::Vertex& v : geometry.vertices) {
+			shape.vertices.push_back(v.Position);
+			shape.normals.push_back(v.Normal);
+		}
+		shape.indices = geometry.indices;
+		if (shape.vertices.empty() || shape.indices.size() < 3) {
+			shape.shape = nullptr;
+			return;
+		}
+		reactphysics3d::TriangleVertexArray* array = new reactphysics3d::TriangleVertexArray(
+			(uint32_t)shape.vertices.size(),
+			shape.vertices.data(), (uint32_t)sizeof(float3),
+			shape.normals.data(), (uint32_t)sizeof(float),
+			(uint32_t)shape.indices.size() / 3, shape.indices.data(),
+			(uint32_t)sizeof(unsigned int) * 3,
+			reactphysics3d::TriangleVertexArray::VertexDataType::VERTEX_FLOAT_TYPE,
+			reactphysics3d::TriangleVertexArray::NormalDataType::NORMAL_FLOAT_TYPE,
+			reactphysics3d::TriangleVertexArray::IndexDataType::INDEX_INTEGER_TYPE);
+		reactphysics3d::TriangleMesh* triangle_mesh = Core::physics_common.createTriangleMesh();
+		triangle_mesh->addSubpart(array);
+		shape.shape = Core::physics_common.createConcaveMeshShape(triangle_mesh);
+	}
 }
 
 Core::MeshData* World::InstallGeneratedMesh(const std::string& name,
@@ -1810,6 +1935,294 @@ void World::LoadGeneratedMeshes(const nlohmann::json& entries) {
 			name.c_str(), source_name.c_str(), cached ? "cached" : "rebuilt",
 			geometry.vertices.size());
 	}
+}
+
+bool World::GenerateSplatProxy(const std::string& cloud_name, int grid_resolution,
+	float ratio, std::string& out_name, std::string& error) {
+	out_name.clear();
+	Core::SplatCloudData* cloud = splat_clouds.Get(cloud_name);
+	if (cloud == nullptr) {
+		error = "unknown splat cloud '" + cloud_name + "'";
+		return false;
+	}
+	if (!(ratio > 0.0f) || ratio > 1.0f) {
+		error = "ratio must be between 0 (exclusive) and 1";
+		return false;
+	}
+	if (grid_resolution < 4) {
+		error = "grid_resolution must be at least 4";
+		return false;
+	}
+
+	//Always a brand new name, never a reuse of a previous generation's - see this
+	//function's own header comment for why overwriting one in place used to crash
+	//the editor the second time "Generate" was pressed. `i` starts at 1 so the
+	//first-ever generation is still the plain "<cloud>_proxy" name everything
+	//else (the UI, the tests) expects.
+	std::string name;
+	for (int i = 1; ; ++i) {
+		const std::string candidate = (i == 1) ? (cloud_name + "_proxy")
+			: (cloud_name + "_proxy" + std::to_string(i));
+		if (meshes.Get(candidate) == nullptr) {
+			name = candidate;
+			break;
+		}
+		if (i > 1000) {
+			error = "no free name for '" + cloud_name + "'s proxy mesh";
+			return false;
+		}
+	}
+
+	Core::SimplifyResult geometry;
+	if (!Core::ReconstructSplatMesh(cloud->Splats(), cloud->min_dimensions, cloud->max_dimensions,
+		grid_resolution, ratio, geometry, error)) {
+		return false;
+	}
+
+	const std::string file = std::string(GENERATED_MESH_DIR) + "\\" + SafeFileStem(name) + ".hbmesh";
+	if (!WriteSplatProxyCache(path + file, cloud_name, cloud->Count(), grid_resolution, ratio, geometry)) {
+		LOG_WARN("World::GenerateSplatProxy: could not write '%s'", (path + file).c_str());
+	}
+
+	if (InstallGeneratedMesh(name, geometry.vertices, geometry.indices, {}, nullptr, false) == nullptr) {
+		error = "could not register the generated mesh";
+		return false;
+	}
+	//A brand new Core::ShapeData under the same brand new name - never a mutation of
+	//an existing one, for the same reason the name above is never reused: a live
+	//STATIC collider may still hold reactphysics3d structures built directly over
+	//the previous ShapeData's vertex/index arrays.
+	BuildProxyShapeData(geometry, *shapes.Create(name));
+
+	//The previous generation for this cloud, if any, is superseded here - not
+	//erased (see RemoveSplatProxy for why erasing is the careful, explicit
+	//operation): its MeshData/ShapeData stay registered, just unreferenced by any
+	//recipe from this point on.
+	for (auto it = generated_splat_proxies.begin(); it != generated_splat_proxies.end(); ++it) {
+		if (it->source == cloud_name) {
+			generated_splat_proxies.erase(it);
+			break;
+		}
+	}
+	generated_splat_proxies.push_back(GeneratedSplatProxy{ name, cloud_name, grid_resolution, ratio, file });
+
+	//Every entity already drawing this cloud is repointed at the new mesh/shape pair
+	//immediately, not just the next one placed - AttachSplatProxy rebuilds a live
+	//STATIC collider too, so nothing is left referencing the superseded one.
+	for (const auto& entry : coordinator->GetEntites()) {
+		const ECS::Entity e = entry.second;
+		if (coordinator->ContainsComponent<Components::SplatCloud>(e) &&
+			coordinator->GetConstComponent<Components::SplatCloud>(e).data == cloud) {
+			AttachSplatProxy(e);
+		}
+	}
+
+	out_name = name;
+	LOG_INFO("World::GenerateSplatProxy: '%s' from '%s' - %zu vertices, %zu triangles",
+		name.c_str(), cloud_name.c_str(), geometry.vertices.size(), geometry.indices.size() / 3);
+	return true;
+}
+
+void World::LoadSplatProxies(const nlohmann::json& entries) {
+	for (const json& entry : entries) {
+		const std::string name = entry.value("name", std::string());
+		const std::string source_name = entry.value("source", std::string());
+		const int resolution = entry.value("resolution", 48);
+		const float ratio = entry.value("ratio", 0.35f);
+		if (name.empty() || source_name.empty()) {
+			printf("World::Load: generated splat proxy entry without a \"name\" or \"source\", skipping.\n");
+			continue;
+		}
+		if (meshes.Get(name) != nullptr) {
+			//A model already registered a mesh of that name - see LoadGeneratedMeshes'
+			//own comment for why the generated one gives way.
+			printf("World::Load: generated splat proxy '%s' is already a mesh, skipping.\n", name.c_str());
+			continue;
+		}
+		Core::SplatCloudData* cloud = splat_clouds.Get(source_name);
+		if (cloud == nullptr) {
+			printf("World::Load: generated splat proxy '%s' comes from unknown splat cloud '%s', skipping.\n",
+				name.c_str(), source_name.c_str());
+			continue;
+		}
+		const std::string file = entry.value("file",
+			std::string(GENERATED_MESH_DIR) + "\\" + SafeFileStem(name) + ".hbmesh");
+
+		Core::SimplifyResult geometry;
+		const bool cached = ReadSplatProxyCache(path + file, source_name, cloud->Count(), resolution, ratio, geometry);
+		if (!cached) {
+			std::string rebuild_error;
+			if (!Core::ReconstructSplatMesh(cloud->Splats(), cloud->min_dimensions, cloud->max_dimensions,
+				resolution, ratio, geometry, rebuild_error)) {
+				printf("World::Load: generated splat proxy '%s' could not be rebuilt from '%s': %s\n",
+					name.c_str(), source_name.c_str(), rebuild_error.c_str());
+				continue;
+			}
+			//Rewritten so the next load is a read again - see WriteLodCache's own comment.
+			if (!WriteSplatProxyCache(path + file, source_name, cloud->Count(), resolution, ratio, geometry)) {
+				LOG_WARN("World::LoadSplatProxies: could not write '%s'", (path + file).c_str());
+			}
+		}
+		if (InstallGeneratedMesh(name, geometry.vertices, geometry.indices, {}, nullptr, false) == nullptr) {
+			continue;
+		}
+		BuildProxyShapeData(geometry, *shapes.Create(name));
+		generated_splat_proxies.push_back(GeneratedSplatProxy{ name, source_name, resolution, ratio, file });
+		LOG_INFO("World::LoadSplatProxies: '%s' from '%s' (%s) - %zu vertices",
+			name.c_str(), source_name.c_str(), cached ? "cached" : "rebuilt", geometry.vertices.size());
+	}
+}
+
+void World::AttachSplatProxy(ECS::Entity e) {
+	if (!coordinator->ContainsComponent<Components::SplatCloud>(e) ||
+		!coordinator->ContainsComponent<Components::Base>(e)) {
+		return;
+	}
+	const Components::SplatCloud& sc = coordinator->GetConstComponent<Components::SplatCloud>(e);
+	if (sc.data == nullptr) {
+		return;
+	}
+	GeneratedSplatProxy* proxy = nullptr;
+	for (GeneratedSplatProxy& p : generated_splat_proxies) {
+		if (p.source == sc.data->GetName()) { proxy = &p; break; }
+	}
+	if (proxy == nullptr) {
+		//No proxy generated for this cloud yet - not an error, every SplatCloud entity
+		//passes through here (World::Init, SpawnTemplateEntities) whether or not its
+		//cloud has ever had one built.
+		return;
+	}
+	Core::MeshData* mesh_data = meshes.Get(proxy->mesh_name);
+	Core::ShapeData* shape_template = shapes.Get(proxy->mesh_name);
+	if (mesh_data == nullptr || shape_template == nullptr) {
+		return;
+	}
+
+	Components::Base& base = coordinator->GetComponent<Components::Base>(e);
+
+	if (!coordinator->ContainsComponent<Components::Mesh>(e)) {
+		coordinator->AddComponent<Components::Mesh>(e);
+	}
+	coordinator->GetComponent<Components::Mesh>(e).SetData(mesh_data);
+
+	if (!coordinator->ContainsComponent<Components::Bounds>(e)) {
+		coordinator->AddComponent<Components::Bounds>(e);
+	}
+
+	if (!coordinator->ContainsComponent<Components::Material>(e)) {
+		coordinator->AddComponent<Components::Material>(e);
+		coordinator->GetComponent<Components::Material>(e).data = GetDefaultMaterial();
+	}
+
+	//Never drawn in the color pass - see Base::shadow_caster_only's own comment. Left
+	//to StaticMeshSystem to re-measure Bounds::local_box from the mesh just attached,
+	//exactly as it already does for any other Mesh+Bounds entity.
+	base.shadow_caster_only = true;
+	if (coordinator->ContainsComponent<Components::Transform>(e)) {
+		coordinator->GetComponent<Components::Transform>(e).dirty = true;
+	}
+
+	//One ShapeData per entity, named like an FBX collision node (see
+	//World::GetEntityShape) - a copy of the small canonical proxy shape rather than an
+	//alias, so every entity-creation path (place, clone, paste, load) picks it up
+	//through the ordinary per-name lookup with no alias bookkeeping of its own. The
+	//underlying CollisionShape* is shared across every copy, exactly as a clone already
+	//shares its source's shape via clone_shape_alias.
+	shapes.Insert(base.name, *shape_template);
+
+	//A STATIC body already alive (this cloud's proxy was just (re)generated after the
+	//entity already had one) picks up the shape immediately.
+	//
+	//A Physics component with no body yet is not the same as "not yet reached" -
+	//Physics::FromJson refuses to build one without a sibling Bounds
+	//("entity has no Bounds/Transform, cannot create a body"), and a Physics
+	//component added (interactively, or from a level record applied before this
+	//point) to a bare SplatCloud entity finds exactly that: no Bounds exists until
+	//this function just added one. Nothing else ever retries it afterward - unlike
+	//a mesh entity, this one was never going to get a second pass through
+	//World::Init or SpawnTemplateEntities - so this is the one place that can.
+	if (coordinator->ContainsComponent<Components::Physics>(e) &&
+		coordinator->ContainsComponent<Components::Bounds>(e) &&
+		coordinator->ContainsComponent<Components::Transform>(e)) {
+		Components::Physics& phys = coordinator->GetComponent<Components::Physics>(e);
+		const Components::Bounds& bounds = coordinator->GetConstComponent<Components::Bounds>(e);
+		const Components::Transform& transform = coordinator->GetConstComponent<Components::Transform>(e);
+		if (phys.body != nullptr) {
+			if (phys.type == reactphysics3d::BodyType::STATIC) {
+				phys.UpdateShape(shapes.Get(base.name), bounds.local_box, transform.scale, transform.rotation);
+			}
+		}
+		else {
+			Core::ShapeData* shape = (phys.type == reactphysics3d::BodyType::STATIC)
+				? shapes.Get(base.name) : nullptr;
+			phys.Init(phys_world, phys.type, shape, bounds.local_box, transform.position,
+				transform.scale, transform.rotation, phys.shape);
+		}
+	}
+
+	coordinator->NotifySignatureChange(e);
+}
+
+bool World::RemoveSplatProxy(const std::string& cloud_name, std::string& error) {
+	auto it = generated_splat_proxies.begin();
+	for (; it != generated_splat_proxies.end(); ++it) {
+		if (it->source == cloud_name) { break; }
+	}
+	if (it == generated_splat_proxies.end()) {
+		error = "no generated proxy for splat cloud '" + cloud_name + "'";
+		return false;
+	}
+	Core::MeshData* mesh_data = meshes.Get(it->mesh_name);
+
+	for (const auto& entry : coordinator->GetEntites()) {
+		const ECS::Entity e = entry.second;
+		if (!coordinator->ContainsComponent<Components::SplatCloud>(e) ||
+			!coordinator->ContainsComponent<Components::Mesh>(e) ||
+			!coordinator->ContainsComponent<Components::Base>(e)) {
+			continue;
+		}
+		//Only an entity genuinely wearing *this* proxy - one a caller has since
+		//pointed at a Mesh of its own is left alone, the same restraint
+		//AttachSplatProxy's own "already has Mesh" checks have.
+		if (coordinator->GetComponent<Components::Mesh>(e).GetData() != mesh_data) {
+			continue;
+		}
+		Components::Base& base = coordinator->GetComponent<Components::Base>(e);
+
+		//A live STATIC collider must drop the shape before it disappears from
+		//under it - the same use-after-free GenerateSplatProxy's own header
+		//comment describes, just triggered by removal instead of regeneration.
+		if (coordinator->ContainsComponent<Components::Physics>(e) &&
+			coordinator->ContainsComponent<Components::Bounds>(e) &&
+			coordinator->ContainsComponent<Components::Transform>(e)) {
+			Components::Physics& phys = coordinator->GetComponent<Components::Physics>(e);
+			if (phys.body != nullptr) {
+				const Components::Bounds& bounds = coordinator->GetConstComponent<Components::Bounds>(e);
+				const Components::Transform& transform = coordinator->GetConstComponent<Components::Transform>(e);
+				phys.UpdateShape(nullptr, bounds.local_box, transform.scale, transform.rotation);
+			}
+		}
+
+		coordinator->RemoveComponent<Components::Mesh>(e);
+		if (coordinator->ContainsComponent<Components::Bounds>(e)) {
+			coordinator->RemoveComponent<Components::Bounds>(e);
+		}
+		if (coordinator->ContainsComponent<Components::Material>(e)) {
+			coordinator->RemoveComponent<Components::Material>(e);
+		}
+		base.shadow_caster_only = false;
+		//Unlike the canonical copy under the proxy's own name (left registered,
+		//like RemoveModel/RemoveMaterial leave their own assets), nothing else
+		//ever looks an entity's own shapes[] entry up except by this exact name,
+		//so erasing it outright is safe - no long-lived Core::ShapeData* survives
+		//across a call the way a Components::Mesh::data pointer would.
+		shapes.Remove(base.name);
+
+		coordinator->NotifySignatureChange(e);
+	}
+
+	generated_splat_proxies.erase(it);
+	return true;
 }
 
 void World::FlushMeshBuffers() {
@@ -2372,6 +2785,10 @@ ECS::Entity World::SpawnTemplateEntities(const std::string& name, const std::str
 			record["components"].erase(Components::Transform::NAME);
 			ApplyComponents(e, record);
 		}
+		//A SplatCloud only ever arrives on a template instance through the authored
+		//component block just applied - a silent no-op when there is none, or its
+		//cloud has no generated proxy yet (see AttachSplatProxy's own comment).
+		AttachSplatProxy(e);
 
 		if (out_parts != nullptr) {
 			out_parts->push_back(e);
@@ -2590,6 +3007,15 @@ bool World::Load(const std::string& scene_file, float* progress, std::function<v
 				LoadModel(m["file"], m.value("triangulate", false), true, false,
 					m.value("name", std::string()));
 			}
+		}
+
+		//Splat clouds' inferred shadow/collision proxies - a mesh cache read the same
+		//way "generated_meshes" is (see LoadSplatProxies), but keyed by a splat cloud
+		//instead of a source mesh. After the models above (a cloud's points are what
+		//this reads) and before any template, since a template's SplatCloud-carrying
+		//entity is attached to its proxy (AttachSplatProxy) the moment it is spawned.
+		if (jw.contains("generated_splat_proxies")) {
+			LoadSplatProxies(jw["generated_splat_proxies"]);
 		}
 
 		//Load templates.
@@ -2983,6 +3409,11 @@ void World::Init() {
 
 	//Init physics
 	for (auto& e : coordinator->GetEntites()) {
+		//A SplatCloud entity authored directly (not through a template - those are
+		//covered by SpawnTemplateEntities' own call) gets its shadow/collision proxy
+		//attached here, before the Mesh+Bounds check below - a silent no-op when it
+		//carries no SplatCloud or that cloud has no generated proxy yet.
+		AttachSplatProxy(e.second);
 		Components::Base& base = coordinator->GetComponent<Components::Base>(e.second);
 		//Bounds as well as Mesh: a collider is sized from `local_box` and there is
 		//nothing to size it from without one. Every entity an FBX or a template

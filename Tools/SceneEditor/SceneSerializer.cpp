@@ -482,18 +482,20 @@ namespace HotBiteEditor {
 					const bool supplies = animation_clip
 						? contains(assets->animation_sets, set)
 						: (contains(assets->meshes, asset_name) ||
-						   contains(assets->materials, asset_name));
+						   contains(assets->materials, asset_name) ||
+						   contains(assets->splat_clouds, asset_name));
 					if (supplies) {
 						models_in_use.insert(m.name);
 						return;
 					}
 				}
 				};
-			//Credits whatever model supplies a "components" block's Mesh/Material,
-			//exactly as a template's own components do below - shared so a mesh
-			//assigned straight onto a scene/created entity (never a template) earns
-			//its model's entry too, instead of being silently dropped from "models"
-			//while the entity's own Mesh block still names it.
+			//Credits whatever model supplies a "components" block's Mesh/Material/
+			//SplatCloud, exactly as a template's own components do below - shared so
+			//an asset assigned straight onto a scene/created entity (never a
+			//template) earns its model's entry too, instead of being silently
+			//dropped from "models" while the entity's own component block still
+			//names it.
 			auto credit_components = [&](const json& components) {
 				if (components.contains(Mesh::NAME)) {
 					const json& mesh = components[Mesh::NAME];
@@ -508,6 +510,9 @@ namespace HotBiteEditor {
 				}
 				if (components.contains(Material::NAME)) {
 					use_model_of(components[Material::NAME].value("name", std::string()), false);
+				}
+				if (components.contains(SplatCloud::NAME)) {
+					use_model_of(components[SplatCloud::NAME].value("name", std::string()), false);
 				}
 				};
 			for (const auto& t : state.templates) {
@@ -640,6 +645,24 @@ namespace HotBiteEditor {
 					}
 					else {
 						jw["generated_meshes"] = generated;
+					}
+				}
+
+				//3c) Splat clouds' inferred shadow/collision proxies (World::
+				//    GenerateSplatProxy) - the same recipe-not-file convention as the
+				//    generated meshes above, for the same reason.
+				{
+					json generated = json::array();
+					for (const World::GeneratedSplatProxy& g : state.world->GetGeneratedSplatProxies()) {
+						generated.push_back(json{ {"name", g.mesh_name}, {"source", g.source},
+												  {"resolution", g.resolution}, {"ratio", g.ratio},
+												  {"file", g.file} });
+					}
+					if (generated.empty()) {
+						jw.erase("generated_splat_proxies");
+					}
+					else {
+						jw["generated_splat_proxies"] = generated;
 					}
 				}
 

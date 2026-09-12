@@ -8,6 +8,7 @@
 #include "MultiMaterialPanel.h"
 #include "MaskPaint.h"
 #include "MeshOps.h"
+#include "SplatOps.h"
 #include "TemplatePanel.h"
 #include "Outliner.h"
 #include "EntityOps.h"
@@ -637,6 +638,87 @@ namespace HotBiteEditor {
 						else {
 							response_lines.push_back("ERR " + error);
 						}
+					}
+				}
+			}
+			else if (cmd == "generate_splat_proxy") {
+				//Builds (or rebuilds) the selected entity's cloud's shadow/collision
+				//proxy (SplatOps::GenerateProxy), the Components panel's "Generate"
+				//button under Shadow / Collision Mesh. `resolution` and `percent` are
+				//both optional and default to the panel's own defaults.
+				Coordinator* c = state.world->GetCoordinator();
+				if (c == nullptr) {
+					response_lines.push_back("ERR no coordinator");
+				}
+				else if (state.selected_entity == INVALID_ENTITY_ID) {
+					response_lines.push_back("ERR nothing selected");
+				}
+				else if (!c->ContainsComponent<SplatCloud>(state.selected_entity)) {
+					response_lines.push_back("ERR selected entity has no SplatCloud");
+				}
+				else {
+					const std::string name = c->GetComponent<Base>(state.selected_entity).name;
+					int resolution = 48;
+					float ratio = 0.35f;
+					bool ok = true;
+					if (args.size() > 1) {
+						try { resolution = std::stoi(args[1]); }
+						catch (...) {
+							response_lines.push_back("ERR usage: generate_splat_proxy [<resolution>] [<percent>]");
+							ok = false;
+						}
+					}
+					if (ok && args.size() > 2) {
+						try { ratio = std::stof(args[2]) / 100.0f; }
+						catch (...) {
+							response_lines.push_back("ERR usage: generate_splat_proxy [<resolution>] [<percent>]");
+							ok = false;
+						}
+					}
+					if (ok) {
+						std::string generated;
+						std::string error;
+						if (SplatOps::GenerateProxy(state, name, resolution, ratio, generated, error)) {
+							Core::MeshData* proxy = state.world->GetMeshes().Get(generated);
+							std::ostringstream os;
+							os << "OK " << generated
+								<< " vertices=" << (proxy != nullptr ? proxy->vertexCount : 0)
+								<< " indices=" << (proxy != nullptr ? proxy->indexCount : 0);
+							response_lines.push_back(os.str());
+						}
+						else {
+							response_lines.push_back("ERR " + error);
+						}
+					}
+				}
+			}
+			else if (cmd == "remove_splat_proxy") {
+				//Takes the selected entity's cloud's proxy away from every entity
+				//wearing it (SplatOps::RemoveProxy), the Components panel's "Remove"
+				//button under Shadow / Collision Mesh.
+				Coordinator* c = state.world->GetCoordinator();
+				if (c == nullptr) {
+					response_lines.push_back("ERR no coordinator");
+				}
+				else if (state.selected_entity == INVALID_ENTITY_ID) {
+					response_lines.push_back("ERR nothing selected");
+				}
+				else if (!c->ContainsComponent<SplatCloud>(state.selected_entity)) {
+					response_lines.push_back("ERR selected entity has no SplatCloud");
+				}
+				else {
+					const std::string name = c->GetComponent<Base>(state.selected_entity).name;
+					//Named before the call, not read back from state.status_message
+					//afterward: SplatOps::RemoveProxy sets no status of its own (like
+					//MeshOps::GenerateLod, that is the caller's job), so reading it here
+					//would echo whatever an unrelated, earlier command left behind.
+					const Core::SplatCloudData* cloud_data = c->GetComponent<SplatCloud>(state.selected_entity).data;
+					const std::string cloud_name = (cloud_data != nullptr) ? cloud_data->GetName() : std::string();
+					if (SplatOps::RemoveProxy(state, name, error)) {
+						response_lines.push_back("OK removed splat proxy from '" + cloud_name + "'");
+					}
+					else {
+						response_lines.push_back("ERR " + error);
 					}
 				}
 			}

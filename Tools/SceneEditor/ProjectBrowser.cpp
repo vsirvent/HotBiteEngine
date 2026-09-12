@@ -85,31 +85,47 @@ namespace HotBiteEditor {
 		//anything to do with a Marbles-style level select screen; none of it is
 		//something the editor or engine actually requires.
 		//
-		//The one thing genuinely needed - an "Assets" folder for imported models to
-		//land in - is not created here either: World::Load only reads "path" out of
-		//the level for asset resolution, and AssetBrowser::ImportModel already creates
-		//Assets/Objects itself the first time something is actually imported. Naming
-		//it "Assets" (rather than, say, putting models next to the level file) is kept
-		//only because AssetBrowser's own scan/import code is hardcoded to that name -
-		//changing that would touch every existing project, which is a different and
-		//much larger change than what was asked for here.
+		//The "Assets" folder itself (for imported models, and now for the default
+		//material file below) is created up front rather than left for the first
+		//import: World::Load only reads "path" out of the level for asset resolution,
+		//and AssetBrowser::ImportModel would otherwise create Assets/Objects itself
+		//the first time something is actually imported. Naming it "Assets" (rather
+		//than, say, putting models next to the level file) is kept only because
+		//AssetBrowser's own scan/import code is hardcoded to that name - changing
+		//that would touch every existing project, which is a different and much
+		//larger change than what was asked for here.
 		static void ScaffoldNewLevel(const std::string& level_path)
 		{
 			fs::path level_file(level_path);
-			fs::create_directories(level_file.parent_path());
+			fs::path assets_dir = level_file.parent_path() / "Assets";
+			fs::create_directories(assets_dir);
+
+			//A brand new level starts with no material files, and World::CreateMaterial
+			//refuses to create anything outside one it already knows about - so with
+			//nothing here the Materials panel's Create Material dialog has nowhere to
+			//put a new material and dead-ends. One is scaffolded up front, named after
+			//the level and living in its Assets folder (the "path" declared below), so
+			//there is always somewhere to create into without hand-editing the level's
+			//JSON first.
+			std::string mat_name = level_file.stem().string() + ".mat";
+			json mat_file;
+			mat_file["root"] = "";
+			mat_file["materials"] = json::array();
+			std::ofstream mat_out((assets_dir / mat_name).string());
+			mat_out << mat_file.dump(4);
 
 			//Resolved against the process's working directory when relative, so an
 			//absolute path here is what makes a level scaffolded on any drive, in any
 			//folder, still resolve its own assets correctly.
 			json level;
-			level["world"]["path"] = (level_file.parent_path() / "Assets").string() + "\\";
+			level["world"]["path"] = assets_dir.string() + "\\";
 			level["world"]["lights"] = json::array({
 				{ {"type", "ambient"}, {"name", "ambient"}, {"color_up", "050050050"}, {"color_down", "020020020"} }
 			});
 			level["world"]["entities"] = json::array();
 			level["world"]["instances"] = json::array();
 			level["world"]["templates"] = json::array();
-			level["world"]["material_files"] = json::array();
+			level["world"]["material_files"] = json::array({ mat_name });
 
 			std::ofstream level_out(level_path);
 			level_out << level.dump(4);

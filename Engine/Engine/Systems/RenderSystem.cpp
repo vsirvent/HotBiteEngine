@@ -231,14 +231,32 @@ void RenderSystem::OnEntitySignatureChanged(ECS::Entity entity, const Signature&
 		DrawableEntity drawable{ coordinator, entity };
 		MaterialData* mat = drawable.mat->data;
 		ShaderKey key{ mat->shaders.vs, mat->shaders.hs, mat->shaders.ds, mat->shaders.gs, mat->shaders.ps };
+		//A shadow-caster-only entity (a splat cloud's inferred proxy mesh, see
+		//World::AttachSplatProxy) still needs its pass tracked below so it joins
+		//shadow_tree, but must never reach the main color pass or the camera's depth
+		//pre-pass - the cloud's own compute pass already paints its appearance, and a
+		//pre-pass write from an approximate proxy could misfire the splat
+		//preprocessor's occlusion test against it.
+		const bool color_pass = !drawable.base->shadow_caster_only;
 		if (drawable.base->pass == 1) {
-			AddDrawable(entity, key, drawable.mat, render_tree, drawable);
-			ShaderKey depth_key{ mat->depth_shaders.vs, mat->depth_shaders.hs, mat->depth_shaders.ds, mat->depth_shaders.gs, mat->depth_shaders.ps };
-			AddDrawable(entity, depth_key, drawable.mat, depth_tree, drawable);
+			if (color_pass) {
+				AddDrawable(entity, key, drawable.mat, render_tree, drawable);
+				ShaderKey depth_key{ mat->depth_shaders.vs, mat->depth_shaders.hs, mat->depth_shaders.ds, mat->depth_shaders.gs, mat->depth_shaders.ps };
+				AddDrawable(entity, depth_key, drawable.mat, depth_tree, drawable);
+			}
+			else {
+				RemoveDrawable(entity, render_tree);
+				RemoveDrawable(entity, depth_tree);
+			}
 			is_pass1 = true;
 		}
 		else if (drawable.base->pass == 2) {
-			AddDrawable(entity, key, drawable.mat, render_pass2_tree, drawable);
+			if (color_pass) {
+				AddDrawable(entity, key, drawable.mat, render_pass2_tree, drawable);
+			}
+			else {
+				RemoveDrawable(entity, render_pass2_tree);
+			}
 			is_pass2 = true;
 		}
 		else {

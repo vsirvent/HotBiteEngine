@@ -5,6 +5,7 @@
 #include "EntityOps.h"
 #include "MaterialPanel.h"
 #include "MeshOps.h"
+#include "SplatOps.h"
 #include "TemplatePanel.h"
 
 #include "imgui.h"
@@ -1148,7 +1149,12 @@ namespace HotBiteEditor {
 				l.SetInverse(inverse);
 			}
 			track(inverse_changed);
-			ImGui::Text("Casts shadow: %s", l.CastShadow() ? "yes" : "no");
+			bool cast_shadow = l.CastShadow();
+			const bool cast_shadow_changed = ImGui::Checkbox("Cast shadow", &cast_shadow);
+			if (cast_shadow_changed && !l.SetCastShadow(cast_shadow)) {
+				state.status_message = "Could not allocate shadow maps to cast shadows";
+			}
+			track(cast_shadow_changed);
 
 			//Shadow cascades. These reach the light through its own setters rather than
 			//through Data: the slice count reallocates the depth arrays, and the rest
@@ -1439,6 +1445,84 @@ namespace HotBiteEditor {
 					"looks translucent rather than merely coarser.");
 			}
 			edit.Commit();
+
+			//Building the inferred low-poly proxy the cloud needs to cast a shadow or
+			//carry a Physics component - see SplatOps.h. Outside the undo history, like
+			//MeshOps::GenerateLod above: the level records the recipe
+			//(World::GetGeneratedSplatProxies), not an edit on this entity.
+			ImGui::Spacing();
+			ImGui::SeparatorText("Shadow / Collision Mesh");
+			{
+				static std::string resolution_cloud;
+				static int resolution = 48;
+				static float ratio_percent = 35.0f;
+				if (resolution_cloud != cloud_name) {
+					resolution_cloud = cloud_name;
+					resolution = 48;
+					ratio_percent = 35.0f;
+				}
+				ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.3f);
+				ImGui::DragInt("##splat_proxy_resolution", &resolution, 1.0f, 4, 256);
+				if (ImGui::IsItemHovered()) {
+					ImGui::SetTooltip("Signed-distance grid cells along the cloud's longest axis.\n"
+						"Higher catches finer detail (and costs more to build); lower\n"
+						"rounds off small features.");
+				}
+				ImGui::SameLine();
+				ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.45f);
+				ImGui::DragFloat("##splat_proxy_ratio", &ratio_percent, 0.5f, 1.0f, 100.0f, "%.0f%%");
+				if (ImGui::IsItemHovered()) {
+					ImGui::SetTooltip("How much of the raw reconstruction's vertices the final\n"
+						"decimation keeps - the \"low poly\" target.");
+				}
+				ImGui::SameLine();
+				if (ImGui::Button("Generate")) {
+					std::string generated;
+					std::string error;
+					if (SplatOps::GenerateProxy(state, entity_name, resolution,
+						ratio_percent / 100.0f, generated, error)) {
+						state.status_message = "Generated splat proxy '" + generated + "'";
+					}
+					else {
+						state.status_message = "Generate splat proxy failed: " + error;
+					}
+				}
+				if (ImGui::IsItemHovered()) {
+					ImGui::SetTooltip("Reconstructs an approximate surface from this cloud's points\n"
+						"(a signed-distance field fit to each splat's own oriented\n"
+						"normal, extracted with Surface Nets) and installs it as both a\n"
+						"shadow-caster-only mesh and a physics collision shape. Never\n"
+						"drawn - the cloud's own appearance is unchanged.\n\n"
+						"Reaches the cloud ASSET: every entity drawing it gains the\n"
+						"proxy, not just this one, and it is cached so the next load\n"
+						"reads it back instead of rebuilding it. Safe to press again\n"
+						"with different values - it builds a new one rather than\n"
+						"editing the current one in place.");
+				}
+
+				bool has_proxy = false;
+				for (const World::GeneratedSplatProxy& p : state.world->GetGeneratedSplatProxies()) {
+					if (p.source == cloud_name) { has_proxy = true; break; }
+				}
+				ImGui::BeginDisabled(!has_proxy);
+				if (ImGui::Button("Remove")) {
+					std::string error;
+					if (SplatOps::RemoveProxy(state, entity_name, error)) {
+						state.status_message = "Removed splat proxy from '" + cloud_name + "'";
+					}
+					else {
+						state.status_message = "Remove splat proxy failed: " + error;
+					}
+				}
+				ImGui::EndDisabled();
+				if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+					ImGui::SetTooltip(has_proxy
+						? "Takes the proxy away from every entity drawing this cloud: no\n"
+						  "more shadow, and a Physics component on any of them loses its\n"
+						  "mesh collider. The cloud keeps rendering exactly as before."
+						: "This cloud has no generated proxy yet.");
+				}
+			}
 		}
 
 		static void DrawLighted(Coordinator* c, Entity e)

@@ -227,6 +227,37 @@ bool DirectionalLight::CastShadow() const {
 	return data.cast_shadow;
 }
 
+bool DirectionalLight::SetCastShadow(bool enable) {
+	if (enable == (data.cast_shadow != 0)) {
+		return true;
+	}
+	if (!enable) {
+		//Maps are left allocated - toggling this back on is common enough (the
+		//Inspector checkbox) that releasing them here would just mean reallocating
+		//on the next enable, and CastShadow() already keeps every reader off them.
+		data.cast_shadow = 0;
+		data.cascade_count = 0;
+		dirty = true;
+		return true;
+	}
+	if (!init) {
+		//Init hasn't run yet: it will allocate the maps itself when it does.
+		data.cast_shadow = 1;
+		return true;
+	}
+	if (texture.Width() == 0) {
+		//Never allocated - this light was constructed or loaded with shadows off.
+		if (FAILED(AllocateShadowMaps(cascade_settings.count,
+			CascadeResolutionFor(shadow_resolution_divisor)))) {
+			return false;
+		}
+	}
+	data.cast_shadow = 1;
+	data.cascade_count = 0;
+	dirty = true;
+	return true;
+}
+
 DirectionalLight::Data& DirectionalLight::GetData() {
 	return data;
 }
@@ -472,7 +503,9 @@ void DirectionalLight::FromJson(const json& j, const ECS::SerializeContext& ctx)
 			ToFloat3(j, "direction", dir);
 			XMStoreFloat3(&data.direction, XMVector3Normalize(XMVECTOR{ dir.x, dir.y, dir.z }));
 		}
-		data.cast_shadow = j.value("cast_shadow", data.cast_shadow != 0) ? 1u : 0u;
+		if (j.contains("cast_shadow")) {
+			SetCastShadow(j["cast_shadow"].get<bool>());
+		}
 		if (j.contains("density")) {
 			data.density = j["density"].get<float>() / 1000.0f;
 		}

@@ -37,6 +37,7 @@
     <ClCompile Include="MultiMaterialPanel.cpp" />
     <ClCompile Include="MaskPaint.cpp" />
     <ClCompile Include="MeshOps.cpp" />
+    <ClCompile Include="SplatOps.cpp" />
     <ClCompile Include="MaterialPreview.cpp" />
     <ClCompile Include="ModelPreview.cpp" />
     <ClCompile Include="PreviewPass.cpp" />
@@ -75,6 +76,7 @@
     <ClInclude Include="MultiMaterialPanel.h" />
     <ClInclude Include="MaskPaint.h" />
     <ClInclude Include="MeshOps.h" />
+    <ClInclude Include="SplatOps.h" />
     <ClInclude Include="MaterialPreview.h" />
     <ClInclude Include="ModelPreview.h" />
     <ClInclude Include="PreviewPass.h" />

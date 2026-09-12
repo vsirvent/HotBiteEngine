@@ -209,6 +209,9 @@
     <ClCompile Include="Engine\Core\SplatCloud.cpp">
       <Filter>Engine\Core</Filter>
     </ClCompile>
+    <ClCompile Include="Engine\Core\SplatMeshReconstruction.cpp">
+      <Filter>Engine\Core</Filter>
+    </ClCompile>
     <ClCompile Include="Engine\Components\PhysicsSerialization.cpp">
       <Filter>Engine\Core</Filter>
     </ClCompile>
@@ -419,6 +422,7 @@
     <ClInclude Include="Engine\ECS\ComponentRegistry.h" />
     <ClInclude Include="Engine\ECS\Serialization.h" />
     <ClInclude Include="Engine\Core\SplatCloud.h" />
+    <ClInclude Include="Engine\Core\SplatMeshReconstruction.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />

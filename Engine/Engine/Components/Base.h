@@ -97,6 +97,14 @@ namespace HotBite {
 				bool draw_depth = true;
 				//Entity casts shadows
 				bool cast_shadow = true;
+				//Casts a shadow but is never drawn in the main color pass - the role of a
+				//splat cloud's inferred low-poly proxy mesh (see World::AttachSplatProxy):
+				//the cloud's own appearance is already painted by the splat compute pass,
+				//so the proxy would otherwise double-draw its (approximate) silhouette on
+				//top of it, and if it also reached the camera's depth pre-pass it could
+				//misfire the splat preprocessor's occlusion test against that same
+				//approximation. Default false, so every existing entity is unaffected.
+				bool shadow_caster_only = false;
 				//Entity is static
 				bool is_static = false;
 				//Creation time

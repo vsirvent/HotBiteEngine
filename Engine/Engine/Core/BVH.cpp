@@ -171,7 +171,8 @@ namespace HotBite {
 				int right_count = 0;
 				int left_offset = 0;
 				int right_offset = 0;
-				if (LENGHT_F3(extent) > FLT_EPSILON)
+				bool split_by_index = !(LENGHT_F3(extent) > FLT_EPSILON);
+				if (!split_by_index)
 				{
 					// in-place partition
 					int i = nidx.index_offset;
@@ -191,21 +192,36 @@ namespace HotBite {
 						}
 					}
 
-					// abort split if one of the sides is empty
 					left_count = i - nidx.index_offset;
 					left_offset = nidx.index_offset;
 
 					right_count = nidx.index_count - left_count;
 					right_offset = left_offset + left_count;
+
+					// A near-zero extent on every OTHER axis can still let the mean on
+					// this (chosen, nonzero-extent) axis round to outside the true
+					// min/max by an error too small to trip FLT_EPSILON above - enough
+					// duplicate/near-duplicate points (a generated mesh's vertices can
+					// cluster like this - see Core::ReconstructSplatMesh) puts every one
+					// of them on the same side of that mean. Left as an empty child, it
+					// recurses into two more empty children forever: the same min/max
+					// loop over zero entries computes a huge bogus extent, which takes
+					// this same "partition" branch again and produces 0/0 again - and
+					// release builds compile the asserts below out, so nothing else
+					// catches it before the stack does. Fall through to the by-index
+					// halving below instead, exactly as the truly-degenerate case does.
+					split_by_index = (left_count == 0 || right_count == 0);
 				}
-				else {
+				if (split_by_index) {
 					left_offset = nidx.index_offset;
 					left_count = nidx.index_count / 2;
 					right_offset = left_offset + left_count;
-					right_count = nidx.index_count / 2;
+					// Not a second /2: for an odd count that would drop the last index
+					// on the floor, silently missing from both children.
+					right_count = nidx.index_count - left_count;
 				}
 				assert(left_count != 0 && right_count != 0);
-				assert(left_count + right_count >= 2);
+				assert(left_count + right_count == (int)nidx.index_count);
 
 				// create child nodes
 				int left_child_idx = nodes_used++;
@@ -339,7 +355,8 @@ namespace HotBite {
 				int right_count = 0;
 				int left_offset = 0;
 				int right_offset = 0;
-				if (LENGHT_F3(extent) > FLT_EPSILON)
+				bool split_by_index = !(LENGHT_F3(extent) > FLT_EPSILON);
+				if (!split_by_index)
 				{
 #if 1
 					// in-place partition
@@ -363,12 +380,25 @@ namespace HotBite {
 						}
 					}
 
-					// abort split if one of the sides is empty
 					left_count = i - nidx.index_offset;
 					left_offset = nidx.index_offset;
 
 					right_count = nidx.index_count - left_count;
 					right_offset = left_offset + left_count;
+
+					// A near-zero extent on every OTHER axis can still let the mean on
+					// this (chosen, nonzero-extent) axis round to outside the true
+					// min/max by an error too small to trip FLT_EPSILON above - enough
+					// duplicate/near-duplicate points (a generated mesh's vertices can
+					// cluster like this - see Core::ReconstructSplatMesh) puts every one
+					// of them on the same side of that mean. Left as an empty child, it
+					// recurses into two more empty children forever: the same min/max
+					// loop over zero entries computes a huge bogus extent, which takes
+					// this same partition branch again and produces 0/0 again - and
+					// release builds compile the asserts below out, so nothing else
+					// catches it before the stack does. Fall through to the by-index
+					// halving below instead, exactly as the truly-degenerate case does.
+					split_by_index = (left_count == 0 || right_count == 0);
 #else
 
 					std::list<uint32_t> split_triangle_indices;
@@ -398,16 +428,18 @@ namespace HotBite {
 					}
 					right_offset = left_count;
 					left_offset = nidx.index_offset;
-#endif				
+#endif
 				}
-				else {
+				if (split_by_index) {
 					left_offset = nidx.index_offset;
 					left_count = nidx.index_count / 2;
 					right_offset = left_offset + left_count;
-					right_count = nidx.index_count / 2;
+					// Not a second /2: for an odd count that would drop the last index
+					// on the floor, silently missing from both children.
+					right_count = nidx.index_count - left_count;
 				}
 				assert(left_count != 0 && right_count != 0);
-				assert(left_count + right_count >= 2);
+				assert(left_count + right_count == (int)nidx.index_count);
 
 				// create child nodes
 				int left_child_idx = nodes_used++;

@@ -237,35 +237,38 @@ namespace HotBite {
                 }
 
                 //For removing an entry we remove always last
-                //position of the vector and move it to the 
+                //position of the vector and move it to the
                 //erased entry to avoid moving all the vector data
                 bool Remove(const K& k) {
-                    bool ret = false;
                     auto it = indexes.find(k);
-                    if (it != indexes.end()) {
-                        //If just one entry clear everything
-                        if (indexes.size() == 1) {
-                            Clear();
-                        }
-                        else {
-                            size_t index_to_erase = it->second;
-                            size_t index_to_move = data.size() - 1;
-                            K& key_to_move;
+                    if (it == indexes.end()) {
+                        return false;
+                    }
+                    //If just one entry clear everything
+                    if (indexes.size() == 1) {
+                        Clear();
+                    }
+                    else {
+                        size_t index_to_erase = it->second;
+                        size_t index_to_move = data.size() - 1;
+                        if (index_to_erase != index_to_move) {
+                            data[index_to_erase] = data[index_to_move];
+                            //Whichever key currently maps to the moved slot now maps to
+                            //the erased one instead - mutated through the iterator
+                            //directly rather than a separate key variable, so there is
+                            //nothing to default-construct/leave uninitialized for a K
+                            //with no default constructor.
                             for (auto& it_to_move : indexes) {
                                 if (it_to_move.second == index_to_move) {
-                                    key_to_move = it_to_move.first;
+                                    it_to_move.second = index_to_erase;
                                     break;
                                 }
                             }
-                            if (index_to_erase != data.size() - 1) {
-                                data[index_to_erase] = data[index_to_move];
-                                indexes[key_to_move] = index_to_erase;
-                            }
-                            data.pop_back();
-                            indexes.erase(it);
                         }
+                        data.pop_back();
+                        indexes.erase(it);
                     }
-                    return ret;
+                    return true;
                 }
             };          
 
