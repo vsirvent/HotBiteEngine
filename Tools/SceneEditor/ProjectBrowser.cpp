@@ -1,14 +1,14 @@
 #include "ProjectBrowser.h"
+#include "RenderSettings.h"
+#include "SceneSerializer.h"
 
 #include <Windows.h>
 #include <commdlg.h>
-#include <shlobj.h>
 #include <filesystem>
 #include <fstream>
 #include <Core/Json.h>
 
 #pragma comment(lib, "comdlg32.lib")
-#pragma comment(lib, "shell32.lib")
 
 using namespace nlohmann;
 namespace fs = std::filesystem;
@@ -36,20 +36,27 @@ namespace HotBiteEditor {
 			return std::string();
 		}
 
-		static std::string BrowseFolderDialog(HWND owner, const char* title)
+		//Shared by New Level and Save As: a native Save dialog that hands back
+		//wherever the user chose, with no assumption about what is already there -
+		//the folder can be new, existing and empty, or existing and full of other
+		//projects' files, and every one of those is a valid answer.
+		static std::string SaveLevelFileDialog(HWND owner, const char* title, const std::string& default_name)
 		{
-			BROWSEINFOA bi = {};
-			bi.hwndOwner = owner;
-			bi.lpszTitle = title;
-			bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
-			LPITEMIDLIST pidl = SHBrowseForFolderA(&bi);
-			if (pidl == nullptr) {
-				return std::string();
+			char file[MAX_PATH] = {};
+			strncpy_s(file, default_name.c_str(), sizeof(file) - 1);
+			OPENFILENAMEA ofn = {};
+			ofn.lStructSize = sizeof(ofn);
+			ofn.hwndOwner = owner;
+			ofn.lpstrFilter = "JSON files (*.json)\0*.json\0All files\0*.*\0";
+			ofn.lpstrFile = file;
+			ofn.nMaxFile = sizeof(file);
+			ofn.lpstrDefExt = "json";
+			ofn.lpstrTitle = title;
+			ofn.Flags = OFN_OVERWRITEPROMPT | OFN_NOCHANGEDIR;
+			if (GetSaveFileNameA(&ofn)) {
+				return std::string(file);
 			}
-			char path[MAX_PATH] = {};
-			SHGetPathFromIDListA(pidl, path);
-			CoTaskMemFree(pidl);
-			return std::string(path);
+			return std::string();
 		}
 
 		//Walks up from a level.json path looking for a sibling config.json that marks
@@ -70,31 +77,32 @@ namespace HotBiteEditor {
 			return fs::path(level_json_path).parent_path().string();
 		}
 
-		static void ScaffoldNewProject(const std::string& base_folder, std::string& out_level_path)
+		//Writes a minimal, instances-only starting level at exactly the path the user
+		//chose - no folder tree beyond that path's own parent (created if it does not
+		//exist yet), no config.json, no placeholder Materials/Audio/Ui folders. Those
+		//used to be scaffolded unconditionally, in a fixed Assets/Levels/Solo/1 nesting
+		//copied from Marbles' own campaign layout, whether or not this project has
+		//anything to do with a Marbles-style level select screen; none of it is
+		//something the editor or engine actually requires.
+		//
+		//The one thing genuinely needed - an "Assets" folder for imported models to
+		//land in - is not created here either: World::Load only reads "path" out of
+		//the level for asset resolution, and AssetBrowser::ImportModel already creates
+		//Assets/Objects itself the first time something is actually imported. Naming
+		//it "Assets" (rather than, say, putting models next to the level file) is kept
+		//only because AssetBrowser's own scan/import code is hardcoded to that name -
+		//changing that would touch every existing project, which is a different and
+		//much larger change than what was asked for here.
+		static void ScaffoldNewLevel(const std::string& level_path)
 		{
-			fs::path root(base_folder);
-			fs::create_directories(root / "Assets" / "Levels" / "Solo" / "1");
-			fs::create_directories(root / "Assets" / "Materials");
-			fs::create_directories(root / "Assets" / "Objects");
-			fs::create_directories(root / "Assets" / "Audio");
-			fs::create_directories(root / "Assets" / "Ui");
+			fs::path level_file(level_path);
+			fs::create_directories(level_file.parent_path());
 
-			json config;
-			config["ui"]["root"] = "Assets\\Ui\\";
-			config["objects"]["root"] = "Assets\\Objects\\";
-			config["solo"]["root"] = "Assets\\Levels\\Solo\\";
-			config["solo"]["levels"] = json::array({ { {"id", 1}, {"name", "Level 1"} } });
-			std::ofstream config_out((root / "config.json").string());
-			config_out << config.dump(4);
-			config_out.close();
-
-			//Minimal, instances-only starting scene: no "level" FBX yet (engine-level
-			//support for an optional base FBX, see World::Load), no instances yet.
-			//World::Load resolves "path" against the process's working directory when
-			//relative, so a freshly scaffolded project (which can live anywhere on disk)
-			//gets an absolute path here rather than a Marbles-style relative one.
+			//Resolved against the process's working directory when relative, so an
+			//absolute path here is what makes a level scaffolded on any drive, in any
+			//folder, still resolve its own assets correctly.
 			json level;
-			level["world"]["path"] = (root / "Assets").string() + "\\";
+			level["world"]["path"] = (level_file.parent_path() / "Assets").string() + "\\";
 			level["world"]["lights"] = json::array({
 				{ {"type", "ambient"}, {"name", "ambient"}, {"color_up", "050050050"}, {"color_down", "020020020"} }
 			});
@@ -103,10 +111,8 @@ namespace HotBiteEditor {
 			level["world"]["templates"] = json::array();
 			level["world"]["material_files"] = json::array();
 
-			out_level_path = (root / "Assets" / "Levels" / "Solo" / "1" / "level.json").string();
-			std::ofstream level_out(out_level_path);
+			std::ofstream level_out(level_path);
 			level_out << level.dump(4);
-			level_out.close();
 		}
 
 		void OpenLevelWithDialog(EditorState& state, SceneEditorApp& app)
@@ -121,16 +127,53 @@ namespace HotBiteEditor {
 			}
 		}
 
-		void NewProjectWithDialog(EditorState& state, SceneEditorApp& app)
+		void NewLevelWithDialog(EditorState& state, SceneEditorApp& app)
 		{
-			std::string base = BrowseFolderDialog(app.wnd, "Choose an empty folder for the new project");
-			if (!base.empty()) {
-				std::string level_path;
-				ScaffoldNewProject(base, level_path);
-				state.project_root = base;
-				//Same as OpenLevelWithDialog: deferred out of the menu's ImGui frame.
+			std::string level_path = SaveLevelFileDialog(app.wnd, "Create New Level", "level.json");
+			if (!level_path.empty()) {
+				ScaffoldNewLevel(level_path);
+				//No config.json is written, so this resolves to the level's own
+				//folder - exactly right for a level that owns its own Assets folder.
+				state.project_root = DeriveProjectRoot(level_path);
 				app.RequestOpenLevel(level_path);
 			}
+		}
+
+		void SaveLevelAsWithDialog(EditorState& state, SceneEditorApp& app)
+		{
+			if (state.current_level_path.empty()) {
+				state.status_message = "No level open, nothing to save.";
+				return;
+			}
+			std::string default_name = fs::path(state.current_level_path).filename().string();
+			std::string new_path = SaveLevelFileDialog(app.wnd, "Save Level As", default_name);
+			if (new_path.empty()) {
+				return;
+			}
+			std::error_code ec;
+			if (!fs::equivalent(new_path, state.current_level_path, ec)) {
+				//Seeds the new file with the current one's on-disk content - including
+				//whatever a game's own tooling put in it that this editor does not
+				//understand - so the save below (which reads-then-merges rather than
+				//writing from scratch, see SceneSerializer::Save) has something correct
+				//to merge the live scene into, exactly as if the level had always lived
+				//at the new path.
+				fs::copy_file(state.current_level_path, new_path, fs::copy_options::overwrite_existing, ec);
+				if (ec) {
+					state.status_message = "Save As failed: could not write " + new_path + ": " + ec.message();
+					return;
+				}
+			}
+			//Deliberately leaves project_root and every asset reference alone: the
+			//level file moved, not the project. A level saved into a different
+			//project's folder still resolves its models/materials from where it
+			//always has, the same way "Save As" on a document does not also relocate
+			//the images it links to.
+			state.current_level_path = new_path;
+			//Same snapshot File/Save Level takes: the DOF effect's live state lives on
+			//the app, not EditorState, so it has no other way into what Save writes.
+			state.render_settings = RenderSettings::ToJson(app);
+			SceneSerializer::Save(state);
 		}
 
 	}
