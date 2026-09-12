@@ -1,5 +1,6 @@
 #include "SceneSerializer.h"
 #include "AssetBrowser.h"
+#include "EditorHistory.h"
 #include "EntityOps.h"
 #include "MaterialPanel.h"
 #include "PhysicsPreview.h"
@@ -688,6 +689,9 @@ namespace HotBiteEditor {
 			out.close();
 
 			state.status_message = "Saved: " + state.current_level_path;
+			//Only on the success path, after materials/templates/level are all written -
+			//this is the one place HasUnsavedChanges' three sources all get cleared.
+			EditorHistory::MarkSaved();
 		}
 
 		//The inverse of Float3ToJson/Float4ToJson, for re-deriving instance records.

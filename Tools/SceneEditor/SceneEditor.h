@@ -386,7 +386,9 @@ namespace HotBiteEditor {
 		// callback (see SceneEditor.cpp). Blocks the calling thread for the whole load
 		// and renders frames of its own, so it must NOT be called from inside an ImGui
 		// frame - anything running from a menu action or a panel goes through
-		// RequestOpenLevel instead.
+		// RequestOpenLevel instead. Closes whatever level is already open first (see
+		// CloseLevel) - safe to do here because OpenLevel itself is only ever reached
+		// from the same safe point CloseLevel requires.
 		bool OpenLevel(const std::string& level_json_path);
 
 		// Queues a level to be opened at the top of the next render tick, before the
@@ -395,7 +397,33 @@ namespace HotBiteEditor {
 		// frame would trip ImGui's Begin/End balance.
 		void RequestOpenLevel(const std::string& level_json_path);
 
+		// Tears down the current level's World, post-process pipeline and editor
+		// session state, returning to the empty pre-level screen. Destroys and
+		// reconstructs the World wholesale (mirroring Marbles' MarblesGame::ExitGame/
+		// LoadLevel) rather than trying to reset one in place - see SceneEditor.cpp.
+		//
+		// Menu actions run inside RenderSystem::Update()'s frame (SceneEditorApp::
+		// Present, which draws the menu bar, is called from inside it), so destroying
+		// the very RenderSystem whose Update() is on the call stack would be undefined
+		// behaviour. CloseLevel must therefore only be called from the same safe point
+		// OpenLevel already requires (the top of the main-thread render tick, before
+		// RenderSystem::Update runs) or from inside OpenLevel itself - never directly
+		// from a menu action. RequestCloseLevel is the ImGui-frame-safe way in.
 		void CloseLevel();
+
+		// Queues a close for the top of the next render tick, exactly like
+		// RequestOpenLevel does for opening. This is what the File menu must use.
+		void RequestCloseLevel();
+
+		// Runs `action` immediately if closing the current level right now would lose
+		// nothing; otherwise stashes it and opens a confirmation modal (Save & Close /
+		// Discard & Close / Cancel) that runs it once the user picks a way forward.
+		void ConfirmDiscardChanges(std::function<void()> action);
+
+		// Whether the open level has edits that are not on disk: scene edits (tracked
+		// by EditorHistory), or dirty materials/templates (each saved to their own
+		// files independently of the level).
+		bool HasUnsavedChanges() const;
 
 		bool IsLevelLoaded() const { return level_loaded; }
 		EditorState& GetState() { return state; }
@@ -418,7 +446,16 @@ namespace HotBiteEditor {
 		bool CaptureBackBuffer(const std::string& png_path, std::string& error);
 
 	private:
-		HotBite::Engine::World world;
+		// Heap-allocated so a level close/reopen can destroy and reconstruct it
+		// wholesale (see CloseLevel) - the same World* lifecycle Marbles' MarblesGame
+		// uses for its own per-level World. Constructed here (a default member
+		// initializer, run before the constructor body) rather than in the body: the
+		// window's WndProc can call back into GetCoordinator() (via ProcessMessage)
+		// synchronously during InitWindow(), before PreLoad() ever runs - exactly the
+		// same window a default-constructed value member used to cover for free.
+		// World::GetCoordinator() already tolerates PreLoad() not having run yet
+		// (returns null while !init), so only `world` itself must never be null.
+		HotBite::Engine::World* world = new World();
 		bool level_loaded = false;
 		EditorCamera editor_camera;
 
@@ -444,6 +481,14 @@ namespace HotBiteEditor {
 
 		// Set by RequestOpenLevel, consumed by the render tick (see the constructor).
 		std::string pending_level_path;
+		// Set by RequestCloseLevel, consumed by the render tick the same way and at
+		// the same safe point, before pending_level_path.
+		bool close_level_requested = false;
+
+		// Set by ConfirmDiscardChanges when there is something to lose; run by
+		// DrawCloseConfirmPopup once the user picks Save/Discard, cleared on Cancel.
+		std::function<void()> pending_confirmed_action;
+		bool close_confirm_pending = false;
 
 		// Set by the View/Grid Settings... menu action, consumed by
 		// DrawGridSettingsPopup. ImGui::OpenPopup has to be called from the same ID
@@ -458,6 +503,7 @@ namespace HotBiteEditor {
 		void DrawMenuBar();
 		void DrawDeleteRequest();
 		void DrawGridSettingsPopup();
+		void DrawCloseConfirmPopup();
 
 		// Updates the overlay and paints one frame of it. Called for every phase
 		// World::Load reports plus the editor-side steps that follow it.

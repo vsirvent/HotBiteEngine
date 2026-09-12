@@ -285,6 +285,11 @@ namespace HotBite {
 						}
 						event_coordinator = nullptr;
 					}
+					//Otherwise a later Init() against a *different* Coordinator starts
+					//with these stale ids still in the list - a subsequent Reset() would
+					//then call RemoveEventListener with an id that used to mean something
+					//in the old Coordinator's EventManager against the new one.
+					ev_list_ids.clear();
 				}
 
 				virtual ~EventListener() {

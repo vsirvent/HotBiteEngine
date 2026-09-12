@@ -105,10 +105,27 @@ Test 'an unknown menu path is rejected' {
     Assert-Err -Result (Send 'menu "File/Nope"')[0] -Pattern 'unknown menu command'
 }
 
-Test 'open_level refuses a second level in one session' {
-    # SceneEditorApp::OpenLevel guards this, and the whole test runner is built
-    # around it: one editor process per suite.
-    Assert-Err -Result (Send "open_level $LevelPath")[0] -Pattern 'already open'
+Test 'open_level with one already open closes it first and reopens fresh' {
+    # SceneEditorApp::OpenLevel used to refuse a second load per session; it now
+    # closes whatever is open (CloseLevel: destroy and reconstruct the World,
+    # mirroring MarblesGame::ExitGame/LoadLevel) and reopens, the same path
+    # File/Open Level... drives from the menu while a level is already loaded.
+    # Reload the same fixture level, so the counts below double as proof the
+    # close+reopen cycle didn't corrupt or drop anything.
+    $r = Send "open_level $LevelPath"
+    Assert-Ok -Result $r[0]
+    Assert-Match -Pattern '^Loaded: ' -Actual $r[0].Text
+
+    $state = Get-State -Session $Session
+    Assert-True -Condition $state.level_loaded -Message 'level_loaded after reopening'
+    Assert-Equal -Expected $LevelPath -Actual $state.level_path
+    Assert-Equal -Expected 6 -Actual $state.entity_count -Message 'the fixture reloads with the same content'
+    Assert-Equal -Expected 3 -Actual $state.templates.Count
+    Assert-Equal -Expected 4 -Actual $state.placed_instances
+    # A fresh World means a fresh EditorState too - selection and gizmo mode
+    # (set earlier in this suite) are back to their just-opened defaults.
+    Assert-Equal -Expected 0 -Actual $state.selected_count -Message 'reopening starts with a clean selection'
+    Assert-Equal -Expected 'translate' -Actual $state.gizmo_mode
 }
 
 Test 'screenshot writes a PNG of the frame' {

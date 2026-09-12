@@ -88,31 +88,39 @@ namespace HotBiteEditor {
 		//until something asks.
 		ShaderReload::Init();
 
-		//The World's systems/coordinator are set up now, before any project/level is
+		//`world` itself already exists (see its default member initializer in
+		//SceneEditor.h - InitWindow() above can reach GetCoordinator() before this
+		//point). Its systems/coordinator are set up now, before any project/level is
 		//chosen, so the ImGui panels have a valid (initially empty) Coordinator to
 		//query from frame one.
-		world.PreLoad(this);
-		state.world = &world;
+		world->PreLoad(this);
+		state.world = world;
 		//Input events fire from the same (main) thread the render tick runs on; the
 		//camera controller is inert until a level provides a camera entity.
-		editor_camera.Init(&world);
+		editor_camera.Init(world);
 
 		//Start physics/audio/background ticking immediately, but with auto_render=false:
 		//RenderSystem::Update() (Clear/Draw/Present) must not run before World::Init() has
 		//prepared the vertex/BVH buffers, which only happens once a level is loaded. Until
 		//then we drive our own minimal Clear+Present tick below so the menu bar (File >
 		//Open Level..., the only thing on screen pre-level) still renders.
-		world.Run(60, 60, 60, false);
+		world->Run(60, 60, 60, false);
 		//The editor authors a scene, it doesn't play it: with the simulation live,
 		//gravity re-settles every dynamic body (Ball, Cristal, ...) right after each
 		//load and PhysicsSystem writes those body poses back over the Transforms, so
 		//hand-placed positions drift and saves capture/restore the wrong spots -
 		//which reads as "saving doesn't work". Edit/Simulate Physics re-enables it
 		//for previewing.
-		world.SetPhysicsPause(true);
+		world->SetPhysicsPause(true);
 		Scheduler::Get(DXCore::MAIN_THREAD)->RegisterTimer(1000000000 / 60, [this](const Scheduler::TimerData& t) {
-			//A level queued from UI code (the File menu) is loaded here, outside of any
-			//ImGui frame: OpenLevel paints its own progress frames while it blocks.
+			//Close, then open, both queued from UI code (the File menu) and consumed
+			//here, outside of any ImGui frame: CloseLevel tears down the RenderSystem
+			//whose Update() is what draws that frame, and OpenLevel paints its own
+			//progress frames while it blocks - neither is safe mid-frame (see CloseLevel).
+			if (close_level_requested) {
+				close_level_requested = false;
+				CloseLevel();
+			}
 			if (!pending_level_path.empty()) {
 				std::string path = pending_level_path;
 				pending_level_path.clear();
@@ -129,10 +137,10 @@ namespace HotBiteEditor {
 			//CPU side; the immutable GPU buffers are rebuilt here, between frames,
 			//which is the one place all of those surfaces meet. Free when nothing is
 			//dirty, which is almost every frame.
-			world.FlushMeshBuffers();
+			world->FlushMeshBuffers();
 			if (level_loaded) {
 				editor_camera.Update((float)t.period / 1000000000.0f);
-				world.GetSystem<RenderSystem>()->Update();
+				world->GetSystem<RenderSystem>()->Update();
 			}
 			else {
 				float color[4] = { 0.05f, 0.05f, 0.08f, 1.0f };
@@ -142,14 +150,20 @@ namespace HotBiteEditor {
 			return true;
 			});
 
-		//File: project/level lifecycle. Open/New are disabled once a level is
-		//loaded because OpenLevel refuses a second level per session.
-		menu_commands.push_back({ "File/New Project...",
-			[this]() { return !level_loaded; },
-			[this]() { ProjectBrowser::NewProjectWithDialog(state, *this); } });
+		//File: project/level lifecycle. All three funnel through ConfirmDiscardChanges,
+		//which runs the action immediately when there is nothing to lose and otherwise
+		//opens a Save/Discard/Cancel modal first (see DrawCloseConfirmPopup) - closing
+		//the current level (to open another, or to open nothing) is always available,
+		//never gated on level_loaded like the old "only one level per session" rule.
+		menu_commands.push_back({ "File/New Level...",
+			nullptr,
+			[this]() { ConfirmDiscardChanges([this]() { ProjectBrowser::NewLevelWithDialog(state, *this); }); } });
 		menu_commands.push_back({ "File/Open Level...",
-			[this]() { return !level_loaded; },
-			[this]() { ProjectBrowser::OpenLevelWithDialog(state, *this); } });
+			nullptr,
+			[this]() { ConfirmDiscardChanges([this]() { ProjectBrowser::OpenLevelWithDialog(state, *this); }); } });
+		menu_commands.push_back({ "File/Close Level",
+			[this]() { return level_loaded; },
+			[this]() { ConfirmDiscardChanges([this]() { RequestCloseLevel(); }); } });
 		//Two imports for two layers, and the distinction is the point: a model is an
 		//.fbx of assets (meshes, materials, animation clips) and places nothing; a
 		//template is an object built out of them, and is what a scene is filled with.
@@ -168,6 +182,12 @@ namespace HotBiteEditor {
 				state.render_settings = RenderSettings::ToJson(*this);
 				SceneSerializer::Save(state);
 			} });
+		//Copies the level to a new path and points the session at it (assets stay
+		//where they are - see ProjectBrowser.h). The one surface that lets a level
+		//end up somewhere other than wherever New Level.../Open Level... put it.
+		menu_commands.push_back({ "File/Save Level As...",
+			[this]() { return level_loaded; },
+			[this]() { ProjectBrowser::SaveLevelAsWithDialog(state, *this); } });
 		//Materials live in .mat files shared between levels, so they save separately
 		//from the level (see MaterialPanel.h). Enabled only when something is dirty.
 		menu_commands.push_back({ "File/Save Materials",
@@ -192,7 +212,7 @@ namespace HotBiteEditor {
 			} });
 		menu_commands.push_back({ "File/Exit",
 			nullptr,
-			[this]() { Quit(); } });
+			[this]() { ConfirmDiscardChanges([this]() { Quit(); }); } });
 
 		//Edit: undo/redo of scene edits (see EditorHistory.h for what records and
 		//the rule every new command must follow). Also on Ctrl+Z / Ctrl+Y /
@@ -230,7 +250,7 @@ namespace HotBiteEditor {
 		//pending rather than inventing a name of its own.
 		menu_commands.push_back({ "Edit/Create Template from Selection",
 			[this]() {
-				Coordinator* c = world.GetCoordinator();
+				Coordinator* c = world->GetCoordinator();
 				return level_loaded && c != nullptr &&
 					state.selected_entity != INVALID_ENTITY_ID &&
 					c->ContainsComponent<Components::Mesh>(state.selected_entity);
@@ -245,7 +265,7 @@ namespace HotBiteEditor {
 		//placed instance, so selecting the part you just moved is enough.
 		menu_commands.push_back({ "Edit/Apply Instance to Template",
 			[this]() {
-				Coordinator* c = world.GetCoordinator();
+				Coordinator* c = world->GetCoordinator();
 				if (!level_loaded || c == nullptr ||
 					state.selected_entity == INVALID_ENTITY_ID ||
 					!c->ContainsComponent<Components::Base>(state.selected_entity)) {
@@ -256,7 +276,7 @@ namespace HotBiteEditor {
 				return !TemplateOps::InstanceOf(state, name).empty();
 			},
 			[this]() {
-				Coordinator* c = world.GetCoordinator();
+				Coordinator* c = world->GetCoordinator();
 				if (c == nullptr || !c->ContainsComponent<Components::Base>(state.selected_entity)) {
 					return;
 				}
@@ -453,10 +473,15 @@ namespace HotBiteEditor {
 		ImGui_ImplWin32_Shutdown();
 		ImGui::DestroyContext();
 
+		//Unregister from world's coordinator while it's still alive - the same
+		//ordering CloseLevel uses, now done explicitly since world is a raw pointer
+		//rather than a member whose own destruction order used to do this for free.
+		editor_camera.Reset();
 		delete dof_effect;
 		delete lens_effect;
 		delete post_effect;
 		delete gui;
+		delete world;
 	}
 
 	Core::BaseDOFProcess* SceneEditorApp::GetDofEffect()
@@ -603,6 +628,7 @@ namespace HotBiteEditor {
 			MaskPaint::UpdateBrush(state);
 			DrawDeleteRequest();
 			DrawGridSettingsPopup();
+			DrawCloseConfirmPopup();
 		}
 		//A View/Reset Layout request has now been consumed by every visible panel.
 		state.apply_default_layout = false;
@@ -695,9 +721,75 @@ namespace HotBiteEditor {
 		}
 	}
 
+	bool SceneEditorApp::HasUnsavedChanges() const
+	{
+		return level_loaded &&
+			(EditorHistory::HasUnsavedChanges() ||
+			 MaterialOps::HasUnsavedMaterials(state) ||
+			 TemplateOps::HasUnsavedTemplates(state));
+	}
+
+	void SceneEditorApp::ConfirmDiscardChanges(std::function<void()> action)
+	{
+		if (!HasUnsavedChanges()) {
+			action();
+			return;
+		}
+		pending_confirmed_action = std::move(action);
+		close_confirm_pending = true;
+	}
+
+	void SceneEditorApp::RequestCloseLevel()
+	{
+		close_level_requested = true;
+	}
+
+	//Opened by ConfirmDiscardChanges when closing (or replacing) the current level
+	//would lose scene edits or dirty materials/templates. Save writes everything -
+	//SceneSerializer::Save already flushes dirty materials/templates before the level
+	//itself (see SceneSerializer.cpp) - so one call covers all three dirty sources.
+	void SceneEditorApp::DrawCloseConfirmPopup()
+	{
+		static constexpr const char* POPUP = "Unsaved changes";
+		if (close_confirm_pending) {
+			close_confirm_pending = false;
+			ImGui::OpenPopup(POPUP);
+		}
+		ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+		ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+		if (ImGui::BeginPopupModal(POPUP, nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+			ImGui::TextUnformatted("This level has unsaved changes.");
+			if (ImGui::Button("Save && Close", ImVec2(140.0f, 0.0f))) {
+				state.render_settings = RenderSettings::ToJson(*this);
+				SceneSerializer::Save(state);
+				ImGui::CloseCurrentPopup();
+				if (pending_confirmed_action) {
+					auto action = std::move(pending_confirmed_action);
+					pending_confirmed_action = nullptr;
+					action();
+				}
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Discard && Close", ImVec2(150.0f, 0.0f))) {
+				ImGui::CloseCurrentPopup();
+				if (pending_confirmed_action) {
+					auto action = std::move(pending_confirmed_action);
+					pending_confirmed_action = nullptr;
+					action();
+				}
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Cancel", ImVec2(90.0f, 0.0f)) || ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+				pending_confirmed_action = nullptr;
+				ImGui::CloseCurrentPopup();
+			}
+			ImGui::EndPopup();
+		}
+	}
+
 	Coordinator* SceneEditorApp::GetCoordinator()
 	{
-		return world.GetCoordinator();
+		return world->GetCoordinator();
 	}
 
 	//Splits a MenuCommand path ("File/Save Level") into its menu and item parts.
@@ -877,9 +969,12 @@ namespace HotBiteEditor {
 
 	bool SceneEditorApp::OpenLevel(const std::string& level_json_path)
 	{
+		//Close whatever is open first. Safe here specifically: OpenLevel, like
+		//CloseLevel, is only ever reached from the safe top-of-tick point (or at
+		//startup via --level) and never from inside a render frame - see CloseLevel's
+		//own comment for why that matters.
 		if (level_loaded) {
-			state.status_message = "A level is already open in this session; restart the editor to open a different one.";
-			return false;
+			CloseLevel();
 		}
 
 		//World::Load reports its progress through the callback the demo game passes it
@@ -907,7 +1002,7 @@ namespace HotBiteEditor {
 		ShowLoadingProgress(0.0f, stage_after(0.0f));
 
 		float units = 0.0f;
-		bool loaded = world.Load(level_json_path, &units,
+		bool loaded = world->Load(level_json_path, &units,
 			[this, &stage_after](float done) {
 				ShowLoadingProgress(LOAD_SHARE * done / LOAD_UNITS, stage_after(done));
 			}, 1.0f);
@@ -916,7 +1011,7 @@ namespace HotBiteEditor {
 			return false;
 		}
 		ShowLoadingProgress(LOAD_SHARE, "Preparing scene buffers...");
-		world.Init();
+		world->Init();
 		ShowLoadingProgress(0.9f, "Restoring editor data...");
 		SceneSerializer::LoadEditorData(state, level_json_path);
 		ShowLoadingProgress(0.95f, "Building render pipeline...");
@@ -927,8 +1022,8 @@ namespace HotBiteEditor {
 		//never runs the deferred light mix / ray tracing / AA / motion blur and the
 		//scene presents as a flat base pass.
 		post_effect = new Core::MainEffect(context, width, height);
-		gui = new UI::GUI(context, width, height, world.GetCoordinator());
-		dof_effect = new Core::DOFBokeProcess(context, width, height, world.GetCoordinator());
+		gui = new UI::GUI(context, width, height, world->GetCoordinator());
+		dof_effect = new Core::DOFBokeProcess(context, width, height, world->GetCoordinator());
 		post_effect->SetNext(dof_effect);
 		dof_effect->SetEnabled(true);
 		dof_effect->SetFocus(30.0f);
@@ -936,10 +1031,10 @@ namespace HotBiteEditor {
 		//Camera artifacts go after the lens has focused the image and before the GUI,
 		//so the editor's own interface stays sharp, steady and unshaded no matter how
 		//far the sliders are pushed.
-		lens_effect = new Core::LensEffect(context, width, height, world.GetCoordinator());
+		lens_effect = new Core::LensEffect(context, width, height, world->GetCoordinator());
 		dof_effect->SetNext(lens_effect);
 		lens_effect->SetNext(gui);
-		world.SetPostProcessPipeline(post_effect);
+		world->SetPostProcessPipeline(post_effect);
 		RenderSettings::ApplyHighDefaults(*this);
 		//Overlay whatever this level had stored (LoadEditorData above already parsed
 		//it into state.render_settings) on top of the defaults just applied - a level
@@ -948,9 +1043,10 @@ namespace HotBiteEditor {
 		//effect above exists (ApplyFromJson reads/writes it for dof_focus/dof_amplitude).
 		RenderSettings::ApplyFromJson(*this, state.render_settings);
 
-		// world.Run() already started in the constructor (with rendering disabled until
-		// now); flipping level_loaded lets our own render tick switch to driving
-		// RenderSystem::Update() instead of the bare Clear+Present used for the picker.
+		// world->Run() already started, either in the constructor or in the CloseLevel
+		// this same call may have just run above; flipping level_loaded lets our own
+		// render tick switch to driving RenderSystem::Update() instead of the bare
+		// Clear+Present used for the picker.
 		state.current_level_path = level_json_path;
 		level_loaded = true;
 		//A fresh level starts with an empty edit history.
@@ -964,8 +1060,53 @@ namespace HotBiteEditor {
 
 	void SceneEditorApp::CloseLevel()
 	{
-		//Closing a level in-place is not supported for Milestone 1 (see OpenLevel) -
-		//kept as a no-op hook for a future milestone that manages World lifetime per level.
+		if (!level_loaded) {
+			return;
+		}
+
+		//Unregister from this World's coordinator while it is still alive -
+		//EventListener::Reset() needs a live Coordinator to remove its listener ids
+		//from, so this must run before `delete world` below. Mirrors Marbles'
+		//MarblesGame::ExitGame(), which does the same for its own `game_events`.
+		editor_camera.Reset();
+		world->Stop();
+
+		//PostProcess::next is a non-owning raw pointer (see Core/PostProcess.h) - no
+		//destructor cascades, so every stage is deleted by hand, exactly as
+		//~SceneEditorApp() already does at process exit.
+		delete dof_effect;  dof_effect = nullptr;
+		delete lens_effect; lens_effect = nullptr;
+		delete post_effect; post_effect = nullptr;
+		delete gui;         gui = nullptr;
+
+		//~World(): Release() -> EventListener::Reset() -> delete coordinators (which
+		//destructs every Physics component, releasing its rigid body while phys_world
+		//is still alive, and drops the last shared_ptr to each System - including
+		//RenderSystem, whose destructor joins its ray-tracing thread and releases its
+		//GPU targets; there is no separate Release()/Uninit() for that) -> destroy
+		//phys_world. Exactly the teardown Marbles' MarblesGame::ExitGame() already
+		//relies on for its own World.
+		delete world;
+
+		//project_root survives the reset: when this runs from inside OpenLevel (see
+		//above), the caller (ProjectBrowser::OpenLevelWithDialog/NewLevelWithDialog)
+		//already updated it to the *new* level's root before queuing this close.
+		std::string project_root = state.project_root;
+		state = EditorState{};
+		state.project_root = project_root;
+
+		//Rebuild a fresh World exactly as the constructor did.
+		world = new World();
+		world->PreLoad(this);
+		state.world = world;
+		editor_camera.Init(world);
+		world->Run(60, 60, 60, false);
+		world->SetPhysicsPause(true);
+
+		level_loaded = false;
+		state.current_level_path.clear();
+		EditorHistory::Clear();
+		state.status_message = "Level closed.";
 	}
 
 }

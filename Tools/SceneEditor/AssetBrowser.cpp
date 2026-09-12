@@ -137,13 +137,21 @@ namespace HotBiteEditor {
 
 		void EnsureAssetsScanned(EditorState& state)
 		{
-			static std::string scanned_root;
-			if (!state.project_root.empty() && scanned_root != state.project_root) {
+			//Keyed by World instance, not by project_root string: closing and
+			//reopening a level (even the same path) destroys and reconstructs the
+			//World (see SceneEditorApp::CloseLevel) and resets state.models/
+			//state.templates to empty along with it, so a rescan must run again for
+			//that new World even though the root path text is unchanged. A
+			//dangling pointer here would only ever be compared against, never
+			//dereferenced, but state.world is repointed at a live World before
+			//this runs on every frame, so there is nothing to dangle in practice.
+			static const World* scanned_world = nullptr;
+			if (!state.project_root.empty() && scanned_world != state.world) {
 				ScanModelsFolder(state);
 				//Templates second: a .tpl names meshes and animation clips, and those
 				//only exist once the models carrying them are loaded.
 				TemplateOps::ScanTemplatesFolder(state);
-				scanned_root = state.project_root;
+				scanned_world = state.world;
 			}
 		}
 

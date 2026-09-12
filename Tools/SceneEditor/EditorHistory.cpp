@@ -14,6 +14,11 @@ namespace HotBiteEditor {
 		//True while an Action's undo()/redo() closure runs, so mutation helpers that
 		//push history unconditionally don't record the replay as a fresh edit.
 		static bool applying = false;
+		//Monotonic "the live scene changed" counter, and its value at the last save.
+		//Undo/redo bump it too: both make the live scene differ from what is on disk,
+		//exactly as a fresh edit would (see HasUnsavedChanges).
+		static uint64_t revision = 0;
+		static uint64_t saved_revision = 0;
 
 		void Push(Action&& action)
 		{
@@ -26,6 +31,7 @@ namespace HotBiteEditor {
 			}
 			//A fresh edit invalidates the redone-future.
 			redo_stack.clear();
+			++revision;
 		}
 
 		bool CanUndo()
@@ -51,6 +57,7 @@ namespace HotBiteEditor {
 			applying = false;
 			state.status_message = "Undone: " + action.description;
 			redo_stack.push_back(std::move(action));
+			++revision;
 			return true;
 		}
 
@@ -67,6 +74,7 @@ namespace HotBiteEditor {
 			applying = false;
 			state.status_message = "Redone: " + action.description;
 			undo_stack.push_back(std::move(action));
+			++revision;
 			return true;
 		}
 
@@ -74,6 +82,18 @@ namespace HotBiteEditor {
 		{
 			undo_stack.clear();
 			redo_stack.clear();
+			revision = 0;
+			saved_revision = 0;
+		}
+
+		bool HasUnsavedChanges()
+		{
+			return revision != saved_revision;
+		}
+
+		void MarkSaved()
+		{
+			saved_revision = revision;
 		}
 
 	}

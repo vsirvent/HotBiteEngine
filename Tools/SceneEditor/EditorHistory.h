@@ -51,5 +51,12 @@ namespace HotBiteEditor {
 
 		// Drops both stacks (level load).
 		void Clear();
+
+		// Whether the live scene differs from what was last written to disk: a Push,
+		// Undo or Redo since the last MarkSaved()/Clear(). An Undo counts too - it
+		// makes the live scene diverge from disk exactly as a fresh edit would.
+		bool HasUnsavedChanges();
+		// Called after a successful save: everything accumulated since is now on disk.
+		void MarkSaved();
 	}
 }
