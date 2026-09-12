@@ -481,7 +481,6 @@ namespace HotBiteEditor {
 				ImGui::TextDisabled("No models imported.");
 				ImGui::TextDisabled("File/Import Model... brings an .fbx or a splat .ply in,\n"
 					"or drop one into Assets/Objects.");
-				return;
 			}
 			for (const ModelAsset& m : state.models) {
 				ImGui::PushID(m.name.c_str());
