@@ -7,9 +7,11 @@
 #include "imgui.h"
 #include <World.h>
 #include <Components/Base.h>
+#include <Core/SimpleShader.h>
 
 #include <Windows.h>
 #include <commdlg.h>
+#include <shellapi.h>
 
 #include <algorithm>
 #include <cstring>
@@ -17,6 +19,7 @@
 #include <set>
 
 #pragma comment(lib, "comdlg32.lib")
+#pragma comment(lib, "shell32.lib")
 
 using namespace HotBite::Engine;
 using namespace HotBite::Engine::ECS;
@@ -650,6 +653,30 @@ namespace HotBiteEditor {
 				return changed;
 			}
 
+			//Opens a shader's resolved .hlsl source in Visual Studio Code, via the
+			//`code` launcher on PATH - the same source ShaderReload compiles from
+			//(Core::ISimpleShader::GetSourcePath(), cached the first time a reload or
+			//this button resolves it), so "the current one" always means the file a
+			//reload would actually recompile, not just the .cso name shown in the
+			//combo. ShellExecute rather than a blocking system() call, so a slow or
+			//missing "code" does not stall the render thread.
+			void EditShaderSource(EditorState& state, const std::string& shader_name) {
+				Core::ISimpleShader* shader = Core::ShaderFactory::Get()->Find(shader_name);
+				const std::string source = (shader != nullptr) ? shader->GetSourcePath() : std::string();
+				if (source.empty()) {
+					state.status_message = "No .hlsl source found for " + shader_name;
+					return;
+				}
+				const std::string args = "\"" + source + "\"";
+				HINSTANCE result = ShellExecuteA(nullptr, "open", "code", args.c_str(), nullptr, SW_SHOWNORMAL);
+				//ShellExecute returns a value > 32 on success; anything else is an error
+				//code masquerading as a fake HINSTANCE (see its documentation).
+				if ((INT_PTR)result <= 32) {
+					state.status_message = "Could not open Visual Studio Code for " + source +
+						" (is \"code\" on PATH?)";
+				}
+			}
+
 		}
 
 		void DrawMaterialProperties(EditorState& state, const std::string& name,
@@ -789,6 +816,16 @@ namespace HotBiteEditor {
 							ImGui::TextDisabled("(no %s shaders found)", stage);
 						}
 						ImGui::EndCombo();
+					}
+					ImGui::SameLine();
+					ImGui::BeginDisabled(value.empty());
+					if (ImGui::SmallButton("Edit")) {
+						EditShaderSource(state, value);
+					}
+					ImGui::EndDisabled();
+					if (ImGui::IsItemHovered()) {
+						ImGui::SetTooltip("Open this shader's .hlsl source in Visual Studio\n"
+							"Code - the same file Shaders/Reload Changed compiles from.");
 					}
 					ImGui::PopID();
 				};
