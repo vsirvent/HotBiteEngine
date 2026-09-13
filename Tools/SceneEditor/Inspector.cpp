@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <limits>
 #include <set>
 
 using namespace HotBite::Engine;
@@ -30,6 +31,19 @@ using namespace HotBite::Engine::Components;
 
 namespace HotBiteEditor {
 	namespace Inspector {
+
+		//Floor for Transform::scale, on every path a user can type or drag a value
+		//into it (ApplyTransform's automation callers, and the Scale field below).
+		//Zero or negative makes world_xmmatrix singular - XMMatrixInverse of that is
+		//documented as undefined, and in practice comes back Inf/NaN - which reached
+		//the ray tracing BVH built from this entity's Bounds and took the GPU device
+		//down (DXGI_ERROR_DEVICE_REMOVED) with no exception and no log line, reading
+		//as the editor simply hanging. The viewport gizmo's own scale drag already
+		//can't produce this (SelectionGizmo::ApplyScale clamps its multiplier to
+		// >= 0.01, so a positive scale can shrink but never cross zero); this field
+		//is the one path that had no floor at all, and ImGui::DragFloat3 passes
+		//through every value on the way, zero and negative included, while dragging.
+		constexpr float kMinScale = 1e-3f;
 
 		//Manual quaternion -> Euler (pitch=X, yaw=Y, roll=Z) extraction, matching
 		//DirectX::XMQuaternionRotationRollPitchYaw's composition convention used by
@@ -77,7 +91,7 @@ namespace HotBiteEditor {
 		//Transform as it was prior to the write; it decides whether the physics
 		//collider has to be rebuilt.
 		static void SyncTransformTargets(EditorState& state, Entity entity, const Base& base,
-			Transform& t, const TransformSnapshot& before)
+			Transform& t, const TransformSnapshot& before, bool rebuild_collider = true)
 		{
 			t.dirty = true;
 
@@ -116,14 +130,25 @@ namespace HotBiteEditor {
 						before.rotation.w == t.rotation.w;
 					if (c->ContainsComponent<Bounds>(entity) &&
 						(!same_scale || !same_rotation)) {
-						//Dynamic bodies always carry a primitive shape; everything else
-						//may own the FBX mesh shape Init resolved for it.
-						Core::ShapeData* shape_data =
-							(ph.type != reactphysics3d::BodyType::DYNAMIC)
-							? state.world->GetEntityShape(base.name) : nullptr;
-						ph.UpdateShape(shape_data,
-							c->GetComponent<Bounds>(entity).local_box,
-							t.scale, t.rotation);
+						if (rebuild_collider) {
+							//Dynamic bodies always carry a primitive shape; everything
+							//else may own the FBX mesh shape Init resolved for it.
+							Core::ShapeData* shape_data =
+								(ph.type != reactphysics3d::BodyType::DYNAMIC)
+								? state.world->GetEntityShape(base.name) : nullptr;
+							ph.UpdateShape(shape_data,
+								c->GetComponent<Bounds>(entity).local_box,
+								t.scale, t.rotation);
+						}
+						else {
+							//Rebuilding a mesh collider bakes a scaled copy of the
+							//source triangles and builds reactphysics3d's BVH over
+							//them from scratch - too expensive to repeat on every
+							//frame of a drag. Queue it for FlushPendingColliderRebuilds
+							//once the drag commits; the body's pose above is already
+							//kept in sync every frame regardless.
+							state.pending_collider_rebuild.insert(base.name);
+						}
 					}
 				}
 			}
@@ -176,7 +201,7 @@ namespace HotBiteEditor {
 		//Parts riding a *bone* are left alone: they hang off the parent's whole world
 		//matrix, scale included, so the engine has already scaled them.
 		static void PropagateScaleToAttachedParts(EditorState& state, Entity entity,
-			const TransformSnapshot& before, const Transform& t)
+			const TransformSnapshot& before, const Transform& t, bool rebuild_collider = true)
 		{
 			const bool same_scale = before.scale.x == t.scale.x && before.scale.y == t.scale.y &&
 				before.scale.z == t.scale.z;
@@ -208,10 +233,10 @@ namespace HotBiteEditor {
 				//The child's own targets, but none of the save bookkeeping: a part's pose
 				//is not authored per entity, it is composed from the template's parts list
 				//and the instance's scale, and both of those are already written.
-				SyncTransformTargets(state, child, child_base, ct, child_before);
+				SyncTransformTargets(state, child, child_base, ct, child_before, rebuild_collider);
 				//Parts of parts: a composed template can carry another, and the ratio has
 				//to reach the whole assembly.
-				PropagateScaleToAttachedParts(state, child, child_before, ct);
+				PropagateScaleToAttachedParts(state, child, child_before, ct, rebuild_collider);
 			}
 		}
 
@@ -219,10 +244,10 @@ namespace HotBiteEditor {
 		//(ApplyTransform/ApplySnapshot) paths: syncs the edit out and records what
 		//needs to be written back on save.
 		static void CommitTransformEdit(EditorState& state, Entity entity, const Base& base,
-			Transform& t, const TransformSnapshot& before)
+			Transform& t, const TransformSnapshot& before, bool rebuild_collider = true)
 		{
-			SyncTransformTargets(state, entity, base, t, before);
-			PropagateScaleToAttachedParts(state, entity, before, t);
+			SyncTransformTargets(state, entity, base, t, before, rebuild_collider);
+			PropagateScaleToAttachedParts(state, entity, before, t, rebuild_collider);
 
 			//While the physics preview runs, an edit is authoring against the pose the
 			//scene will rewind to, not against whatever the simulation happens to have
@@ -284,7 +309,13 @@ namespace HotBiteEditor {
 				t.position = *position;
 			}
 			if (scale != nullptr) {
-				t.scale = *scale;
+				//Clamped to a small positive floor - see kMinScale - rather than
+				//trusted as-is: this is also what automation's set_scale calls into.
+				t.scale = {
+					(std::max)(scale->x, kMinScale),
+					(std::max)(scale->y, kMinScale),
+					(std::max)(scale->z, kMinScale),
+				};
 			}
 			if (euler_degrees != nullptr) {
 				//Only touch the rotation when explicitly requested, so pure
@@ -316,7 +347,7 @@ namespace HotBiteEditor {
 		}
 
 		bool ApplySnapshot(EditorState& state, const std::string& entity_name,
-			const TransformSnapshot& snapshot, std::string& error)
+			const TransformSnapshot& snapshot, std::string& error, bool rebuild_collider)
 		{
 			Coordinator* c = state.world->GetCoordinator();
 			Entity e = (c != nullptr) ? c->GetEntityByName(entity_name) : INVALID_ENTITY_ID;
@@ -335,11 +366,46 @@ namespace HotBiteEditor {
 			t.position = snapshot.position;
 			t.rotation = snapshot.rotation;
 			t.scale = snapshot.scale;
-			CommitTransformEdit(state, e, base, t, before);
+			CommitTransformEdit(state, e, base, t, before, rebuild_collider);
 			if (e == state.selected_entity) {
 				RefreshEulerCache(state);
 			}
 			return true;
+		}
+
+		//Rebuilds the physics collider of every entity SyncTransformTargets deferred
+		//(rebuild_collider=false) while a scale/rotate drag was in progress, using
+		//each entity's *current* Transform - by the time this runs the drag has
+		//already applied its final value, so there is nothing left to diff against.
+		//Call once a drag commits (mouse released, or an Inspector field's
+		//IsItemDeactivatedAfterEdit); a no-op the rest of the time.
+		void FlushPendingColliderRebuilds(EditorState& state)
+		{
+			if (state.pending_collider_rebuild.empty()) {
+				return;
+			}
+			Coordinator* c = state.world->GetCoordinator();
+			if (c == nullptr) {
+				state.pending_collider_rebuild.clear();
+				return;
+			}
+			EditTransformLock lock(Core::physics_mutex);
+			for (const auto& name : state.pending_collider_rebuild) {
+				Entity e = c->GetEntityByName(name);
+				if (e == INVALID_ENTITY_ID || !c->ContainsComponent<Physics>(e) ||
+					!c->ContainsComponent<Transform>(e) || !c->ContainsComponent<Bounds>(e)) {
+					continue;
+				}
+				Physics& ph = c->GetComponent<Physics>(e);
+				if (ph.body == nullptr) {
+					continue;
+				}
+				const Transform& t = c->GetComponent<Transform>(e);
+				Core::ShapeData* shape_data = (ph.type != reactphysics3d::BodyType::DYNAMIC)
+					? state.world->GetEntityShape(name) : nullptr;
+				ph.UpdateShape(shape_data, c->GetComponent<Bounds>(e).local_box, t.scale, t.rotation);
+			}
+			state.pending_collider_rebuild.clear();
 		}
 
 		bool RestoreSnapshot(EditorState& state, const std::string& entity_name,
@@ -631,7 +697,10 @@ namespace HotBiteEditor {
 			changed |= ImGui::DragFloat3("Position", &t.position.x, 0.05f);
 			activated |= ImGui::IsItemActivated();
 			finished |= ImGui::IsItemDeactivatedAfterEdit();
-			changed |= ImGui::DragFloat3("Scale", &t.scale.x, 0.01f);
+			//Floored at kMinScale: unbounded, this field lets a fast drag pass
+			//straight through zero into negative territory (see kMinScale's comment).
+			changed |= ImGui::DragFloat3("Scale", &t.scale.x, 0.01f,
+				kMinScale, (std::numeric_limits<float>::max)());
 			activated |= ImGui::IsItemActivated();
 			finished |= ImGui::IsItemDeactivatedAfterEdit();
 			changed |= ImGui::DragFloat3("Rotation (deg)", &state.inspector_euler_degrees.x, 0.5f);
@@ -642,10 +711,17 @@ namespace HotBiteEditor {
 			}
 			if (changed) {
 				t.rotation = float3_to_quaternion(state.inspector_euler_degrees);
-				CommitTransformEdit(state, e, base, t, frame_before);
+				//Deferred: a scale/rotation drag calls this every frame the value
+				//moves, and rebuilding a mesh collider (a scaled copy of the source
+				//triangles plus reactphysics3d's BVH over them) on every one of those
+				//frames is what made scaling a large single mesh - a whole terrain -
+				//peg the main thread for the length of the drag. FlushPendingColliderRebuilds
+				//below does it once instead, when the field actually deactivates.
+				CommitTransformEdit(state, e, base, t, frame_before, /*rebuild_collider=*/false);
 			}
 			if (finished) {
 				RecordTransformEdit(state, base.name, pending_before);
+				FlushPendingColliderRebuilds(state);
 			}
 		}
 

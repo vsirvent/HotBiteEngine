@@ -46,8 +46,21 @@ namespace HotBiteEditor {
 		// Restores a snapshot with the full save bookkeeping of a manual edit (and
 		// the Euler cache refresh when the entity is selected). No history is
 		// recorded: this is the primitive undo/redo closures are built from.
+		// rebuild_collider=false defers a changed scale/rotation's physics collider
+		// rebuild to FlushPendingColliderRebuilds instead of doing it inline - pass
+		// false from a per-frame interactive drag (the viewport gizmo), never from a
+		// one-shot call, or the deferred rebuild will never be flushed.
 		bool ApplySnapshot(EditorState& state, const std::string& entity_name,
-			const TransformSnapshot& snapshot, std::string& error);
+			const TransformSnapshot& snapshot, std::string& error, bool rebuild_collider = true);
+
+		// Rebuilds the physics collider of every entity queued by a rebuild_collider
+		// =false call (ApplySnapshot, or the Inspector's own Transform fields) while
+		// a scale/rotate drag was in progress. A mesh collider rebuild bakes a scaled
+		// copy of the source triangles and builds reactphysics3d's BVH over them from
+		// scratch, which is too expensive to repeat every frame of a drag on a large
+		// mesh - call this once the drag commits (mouse released, or the field's
+		// IsItemDeactivatedAfterEdit) instead. A no-op when nothing is queued.
+		void FlushPendingColliderRebuilds(EditorState& state);
 
 		// ApplySnapshot without any of the save bookkeeping: the Transform and the
 		// physics body move, but the entity is not marked as edited (no FBX override,

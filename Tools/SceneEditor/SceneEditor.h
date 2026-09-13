@@ -335,6 +335,18 @@ namespace HotBiteEditor {
 		std::map<std::string, TransformSnapshot> physics_preview_baseline;
 		bool physics_preview_active = false;
 
+		// Entities whose physics collider needs rebuilding from the entity's
+		// *current* Transform, queued instead of rebuilt immediately while a scale/
+		// rotate drag is in progress (Inspector's DragFloat3 fields and the viewport
+		// gizmo both apply the live Transform every frame of a drag). Rebuilding a
+		// mesh collider means baking a scaled copy of the source triangles and
+		// building reactphysics3d's BVH over them from scratch - fine once per
+		// completed edit, but doing it on every intra-drag frame made scaling a
+		// large single mesh (a whole terrain, tens of thousands of triangles) peg
+		// the main thread for the entire drag, which reads as the editor hanging.
+		// Flushed by Inspector::FlushPendingColliderRebuilds once the drag commits.
+		std::set<std::string> pending_collider_rebuild;
+
 		// Raised by whichever surface asked to delete the selection (the Del key or
 		// the Entities panel's context menu) and consumed once per frame by the main
 		// loop, which deletes a lone entity outright and puts a confirmation modal in

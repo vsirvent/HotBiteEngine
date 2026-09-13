@@ -393,7 +393,12 @@ namespace HotBiteEditor {
 			snapshot.rotation = rotation;
 			snapshot.scale = scale;
 			std::string error;
-			Inspector::ApplySnapshot(state, target.name, snapshot, error);
+			//Deferred: this runs every frame of a drag (ApplyTranslate/Rotate/Scale
+			//are only ever called while the mouse is still down), and rebuilding a
+			//mesh collider that often is what made scaling a large single mesh peg
+			//the main thread for the length of the drag - see FlushPendingColliderRebuilds,
+			//called once the drag finishes below.
+			Inspector::ApplySnapshot(state, target.name, snapshot, error, /*rebuild_collider=*/false);
 		}
 
 		//Moves the whole drag along `axis_dir` by `distance` from where it started.
@@ -748,6 +753,9 @@ namespace HotBiteEditor {
 						befores.push_back(target.before);
 					}
 					Inspector::RecordTransformEdits(state, names, befores);
+					//Rebuild the physics collider(s) the drag deferred, once, now that
+					//the entity's Transform holds its final value.
+					Inspector::FlushPendingColliderRebuilds(state);
 					drag.active = false;
 				}
 				else {
