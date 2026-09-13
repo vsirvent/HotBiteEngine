@@ -348,6 +348,29 @@ namespace HotBite {
 				return true;
 			}
 
+			bool ShaderCompiler::CompileToFile(const std::string& source_path, const std::string& profile,
+				const std::string& cso_path, Result& out,
+				const std::vector<std::string>& extra_search_dirs, const std::string& entry)
+			{
+				std::vector<std::string> search_dirs = folders;
+				search_dirs.insert(search_dirs.end(), extra_search_dirs.begin(), extra_search_dirs.end());
+				if (!CompileWith(source_path, profile, search_dirs, out, entry)) {
+					return false;
+				}
+				const std::wstring wide = fs::path(cso_path).wstring();
+				//TRUE: overwrite. The caller has already refused to reuse the name of an
+				//existing shader (see MaterialOps::CreateShaderFile), so a file here can
+				//only be a stale .cso left by an earlier failed attempt at this same name.
+				HRESULT hr = D3DWriteBlobToFile(out.blob, wide.c_str(), TRUE);
+				if (FAILED(hr)) {
+					out.error = "could not write " + cso_path;
+					out.blob->Release();
+					out.blob = nullptr;
+					return false;
+				}
+				return true;
+			}
+
 			bool ShaderCompiler::Preprocess(const std::string& source_path, std::vector<std::string>& dependencies,
 				std::string& error)
 			{

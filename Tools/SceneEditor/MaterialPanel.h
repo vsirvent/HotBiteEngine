@@ -89,6 +89,33 @@ namespace HotBiteEditor {
 		const std::vector<std::string>& ListShaders(const std::string& stage_suffix);
 		void RefreshShaderList();
 
+		// Introduces a brand new shader for `stage` ("VS", "HS", "DS", "GS", "PS"):
+		// starts from a copy of `source_shader`'s own .hlsl (the currently selected
+		// one - genuinely new content still has to come from somewhere, and a working
+		// file is a safer starting point than a hand-guessed stub for every stage but
+		// VS/PS), or a minimal placeholder for those two if it has none.
+		//
+		// The copy is written into the open project's own folder (EditorState::
+		// project_root) when there is one, so a custom shader lands with the project
+		// using it rather than inside the engine's own tracked source tree; it falls
+		// back to the source's own folder, then the current directory. Wherever it
+		// lands, the source's own directory is added to the search path for just
+		// this one compile (ShaderCompiler::CompileToFile's extra_search_dirs), so a
+		// copy relocated away from an engine shader's folder still resolves its
+		// quoted, parent-relative #includes ("../Common/...").
+		//
+		// The bytecode is written as "<new_name>.cso" next to the executable, exactly
+		// where ListShaders scans and GetShader<T> loads from. On success
+		// `out_cso_name` is that file name, ready to assign to a material's shader
+		// slot like any picked one (SetShaders above), and `out_hlsl_path` is the
+		// source it was written to (handed straight to a "now edit it" step - not
+		// re-resolved through ShaderFactory, which has not loaded the new name yet at
+		// this point) - creating the files is not itself undoable (like File/Import
+		// Model), only the resulting assignment is.
+		bool CreateShaderFile(EditorState& state, const std::string& stage,
+			const std::string& source_shader, const std::string& new_name,
+			std::string& out_cso_name, std::string& out_hlsl_path, std::string& error);
+
 		// Rebinds a material's shaders, undoably, marking its file dirty. Fails without
 		// changing anything if any shader will not load as its stage.
 		bool SetShaders(EditorState& state, const std::string& material_name,

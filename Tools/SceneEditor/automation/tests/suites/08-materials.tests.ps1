@@ -141,6 +141,64 @@ Test 'set_shader rejects an unknown slot and an unknown material' {
     Assert-Err -Result (Send 'set_shader Nope draw_ps MainRenderPS.cso')[0] -Pattern 'material not found'
 }
 
+#--- new_shader: introducing a shader that has no .cso yet (MaterialOps::
+#CreateShaderFile) - the automation surface for the Materials panel's "New..."
+#button, since it has no other scriptable form. Draw_ps is TestRed's own since the
+#previous tests left it at MainRenderPS.cso, which is a real, known source to copy
+#from.
+#
+#The compiled .cso lands next to SceneEditor.exe - Solution\x64\Release, not a
+#per-run temp folder - so it survives from one test run to the next. Every name
+#used here is removed first, or a second run finds "already exists" where a fresh
+#one would find nothing, which is exactly the failure a leftover file from an
+#interrupted prior run would also cause.
+function Remove-TestShaderFiles {
+    param([string[]]$Stems)
+    $dir = Split-Path $Session.Exe -Parent
+    foreach ($stem in $Stems) {
+        $cso = Join-Path $dir "$stem.cso"
+        if (Test-Path $cso) { Remove-Item $cso -Force }
+    }
+}
+
+Test 'new_shader creates a real, loadable shader by copying the current one' {
+    Remove-TestShaderFiles -Stems 'TestRedCustomPS'
+    $cso = Join-Path (Split-Path $Session.Exe -Parent) 'TestRedCustomPS.cso'
+
+    SendOk 'new_shader TestRed draw_ps TestRedCustomPS' | Out-Null
+    $r = SendOk 'shaders TestRed'
+    Assert-Contains -Collection $r[0].Payload -Value 'draw_ps=TestRedCustomPS.cso' `
+        -Message 'the material was reassigned to the new shader'
+    Assert-True -Condition (Test-Path $cso) -Message 'a real .cso was compiled to disk'
+
+    SendOk 'set_shader TestRed draw_ps MainRenderPS.cso' | Out-Null
+    Remove-TestShaderFiles -Stems 'TestRedCustomPS'
+}
+
+Test 'new_shader validates the name against the stage suffix' {
+    Assert-Err -Result (Send 'new_shader TestRed draw_ps NotThePixelSuffix')[0] `
+        -Pattern 'must end with'
+}
+
+Test 'new_shader rejects an unknown slot and an unknown material' {
+    Assert-Err -Result (Send 'new_shader TestRed draw_xs SomethingVS')[0] -Pattern 'unknown shader slot'
+    Assert-Err -Result (Send 'new_shader Nope draw_ps SomethingPS')[0] -Pattern 'material not found'
+}
+
+Test 'new_shader refuses to overwrite an existing shader name' {
+    Assert-Err -Result (Send 'new_shader TestRed draw_ps MainRenderPS')[0] -Pattern 'already exists'
+}
+
+Test 'new_shader is undoable, like any other shader assignment' {
+    Remove-TestShaderFiles -Stems 'TestRedCustom2PS'
+    SendOk 'new_shader TestRed draw_ps TestRedCustom2PS' | Out-Null
+    Assert-Contains -Collection (SendOk 'shaders TestRed')[0].Payload -Value 'draw_ps=TestRedCustom2PS.cso'
+    SendOk 'undo' | Out-Null
+    Assert-Contains -Collection (SendOk 'shaders TestRed')[0].Payload -Value 'draw_ps=MainRenderPS.cso' `
+        -Message 'undo restored the previous shader, not just cleared the new one'
+    Remove-TestShaderFiles -Stems 'TestRedCustom2PS'
+}
+
 Test 'the Components panel and the Materials panel edit the same material' {
     # Material property editing has exactly one implementation; set_material is
     # the Components panel combo and both surfaces reach the same MaterialData.

@@ -14,8 +14,10 @@
 #include <shellapi.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <set>
 
 #pragma comment(lib, "comdlg32.lib")
@@ -62,6 +64,43 @@ namespace HotBiteEditor {
 			//because ListShaders hits the filesystem and the panel calls it once per
 			//shader row per frame.
 			std::map<std::string, std::vector<std::string>> shader_cache;
+
+			//Compile profile for each pipeline stage suffix - mirrors
+			//ISimpleShader::GetShaderProfile() for the five stages a material picks.
+			std::string ProfileForStage(const std::string& stage) {
+				if (stage == "VS") return "vs_5_0";
+				if (stage == "HS") return "hs_5_0";
+				if (stage == "DS") return "ds_5_0";
+				if (stage == "GS") return "gs_5_0";
+				if (stage == "PS") return "ps_5_0";
+				return {};
+			}
+
+			//A working minimal shader, for the two stages simple enough to have one.
+			//HS/DS/GS need a real starting point - a patch-constant function, a
+			//topology declaration - that only makes sense copied from an existing
+			//shader (see CreateShaderFile), so they have no fallback here.
+			std::string MinimalShaderTemplate(const std::string& stage) {
+				if (stage == "VS") {
+					return
+						"// New vertex shader - replace this. See MainRender/MainRenderVS.hlsl\n"
+						"// for the layout the standard draw pipeline expects.\n"
+						"float4 main(float4 position : POSITION) : SV_POSITION\n"
+						"{\n"
+						"\treturn position;\n"
+						"}\n";
+				}
+				if (stage == "PS") {
+					return
+						"// New pixel shader - replace this. See MainRender/MainRenderPS.hlsl\n"
+						"// for the material/lighting cbuffer the standard draw pipeline binds.\n"
+						"float4 main(float4 position : SV_POSITION) : SV_TARGET\n"
+						"{\n"
+						"\treturn float4(1.0f, 0.0f, 1.0f, 1.0f); // magenta: replace me\n"
+						"}\n";
+				}
+				return {};
+			}
 
 			bool SameShaders(const Core::MaterialShaderNames& a, const Core::MaterialShaderNames& b) {
 				return a.draw_vs == b.draw_vs && a.draw_hs == b.draw_hs &&
@@ -438,6 +477,124 @@ namespace HotBiteEditor {
 			shader_cache.clear();
 		}
 
+		bool CreateShaderFile(EditorState& state, const std::string& stage,
+			const std::string& source_shader, const std::string& new_name,
+			std::string& out_cso_name, std::string& out_hlsl_path, std::string& error) {
+			//Trim incidental whitespace, and drop an extension if one was typed - both
+			//files are named from the stem, and the picker only ever shows .cso names.
+			std::string name = new_name;
+			while (!name.empty() && std::isspace((unsigned char)name.back())) {
+				name.pop_back();
+			}
+			size_t start = 0;
+			while (start < name.size() && std::isspace((unsigned char)name[start])) {
+				++start;
+			}
+			name = name.substr(start);
+			if (!name.empty() && std::filesystem::path(name).has_extension()) {
+				name = std::filesystem::path(name).stem().string();
+			}
+			if (name.empty()) {
+				error = "shader name is empty";
+				return false;
+			}
+			if (name.size() < stage.size() ||
+				name.compare(name.size() - stage.size(), stage.size(), stage) != 0) {
+				error = "name must end with \"" + stage + "\" - the picker relies on the "
+					"engine's naming convention to tell shaders of different stages apart";
+				return false;
+			}
+			const std::string profile = ProfileForStage(stage);
+			if (profile.empty()) {
+				error = "unknown shader stage: " + stage;
+				return false;
+			}
+			const std::string cso_name = name + ".cso";
+			std::error_code ec;
+			if (std::filesystem::exists(cso_name, ec)) {
+				error = "a shader named " + cso_name + " already exists";
+				return false;
+			}
+
+			//Starting content: a genuine copy of the currently selected shader's own
+			//source, so every stage - not only VS/PS - starts from something already
+			//known to compile. Falls back to a minimal template for the two stages
+			//simple enough to have one.
+			Core::ISimpleShader* current = Core::ShaderFactory::Get()->Find(source_shader);
+			const std::string current_source = (current != nullptr) ? current->GetSourcePath() : std::string();
+			std::string content;
+			if (!current_source.empty()) {
+				std::ifstream in(current_source, std::ios::binary);
+				if (!in) {
+					error = "could not read " + current_source + " to copy from";
+					return false;
+				}
+				content.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+			}
+			else {
+				content = MinimalShaderTemplate(stage);
+				if (content.empty()) {
+					error = "no source is known for " + source_shader + " to copy from, and " +
+						stage + " has no default template - select a shader with a known "
+						"source first (see Shaders/Reload Changed)";
+					return false;
+				}
+			}
+
+			//The copy lands in the open project's own folder when there is one - a
+			//custom shader belongs with the project using it, not scattered into the
+			//engine's tracked source tree (duplicating one of ITS shaders would
+			//otherwise write a stray file straight into Engine/Engine/Core/Shaders).
+			//Falls back to the source's own folder, then the current directory, if no
+			//project is open.
+			std::string dest_dir = state.project_root;
+			if (dest_dir.empty() || !std::filesystem::is_directory(dest_dir, ec)) {
+				dest_dir = current_source.empty() ? "." : std::filesystem::path(current_source).parent_path().string();
+			}
+			const std::string hlsl_path = (std::filesystem::path(dest_dir) / (name + ".hlsl")).string();
+
+			//No BOM: fxc rejects one in an #included file and silently keeps the stale
+			//.cso for a top-level one (see CLAUDE.md). std::ofstream in binary mode
+			//never adds one, unlike PowerShell's Set-Content -Encoding utf8.
+			{
+				std::ofstream out(hlsl_path, std::ios::binary | std::ios::trunc);
+				if (!out) {
+					error = "could not write " + hlsl_path;
+					return false;
+				}
+				out << content;
+			}
+
+			//The source's own directory, so a copy relocated away from it still
+			//resolves its quoted, parent-relative #includes ("../Common/...") - see
+			//ShaderCompiler::CompileToFile.
+			std::vector<std::string> extra_search_dirs;
+			if (!current_source.empty()) {
+				extra_search_dirs.push_back(std::filesystem::path(current_source).parent_path().string());
+			}
+			Core::ShaderCompiler::Result result;
+			if (!Core::ShaderCompiler::Get()->CompileToFile(hlsl_path, profile, cso_name, result, extra_search_dirs)) {
+				error = "compile failed: " + result.error;
+				return false;
+			}
+			if (result.blob != nullptr) {
+				result.blob->Release();
+			}
+
+			//Re-adding an already-registered folder is a rescan
+			//(ShaderCompiler::AddSourceFolder), which is what makes the new file's
+			//source resolve immediately - needed for the Edit button and hot reload
+			//to find it without the user having to touch the source folder list.
+			Core::ShaderCompiler::Get()->AddSourceFolder(dest_dir);
+			Core::ShaderFactory::Get()->ForgetSourcePaths();
+			RefreshShaderList();
+
+			out_cso_name = cso_name;
+			out_hlsl_path = hlsl_path;
+			state.status_message = "Created " + cso_name + " from " + hlsl_path;
+			return true;
+		}
+
 		bool SetShaders(EditorState& state, const std::string& material_name,
 			const Core::MaterialShaderNames& names, std::string& error) {
 			MaterialSnapshot before;
@@ -506,6 +663,16 @@ namespace HotBiteEditor {
 			//instead of one per frame.
 			MaterialOps::MaterialSnapshot pending_before;
 			bool pending_valid = false;
+
+			//The "New Shader" modal's state, shared the same way DrawCreateModal's
+			//name_buf is: only one such popup is ever open at a time, whichever row's
+			//"New..." button was last clicked, and its own PushID(label) scope keeps
+			//nine simultaneous BeginPopupModal("New Shader") calls per frame from
+			//colliding with each other.
+			char new_shader_name[128] = "";
+			std::string new_shader_stage;
+			std::string new_shader_source;
+			std::string new_shader_error;
 
 			void DrawThumbnail(Core::MaterialData* material, int size) {
 				ImTextureID texture = MaterialPreview::Get(material, size);
@@ -653,13 +820,27 @@ namespace HotBiteEditor {
 				return changed;
 			}
 
-			//Opens a shader's resolved .hlsl source in Visual Studio Code, via the
-			//`code` launcher on PATH - the same source ShaderReload compiles from
-			//(Core::ISimpleShader::GetSourcePath(), cached the first time a reload or
-			//this button resolves it), so "the current one" always means the file a
-			//reload would actually recompile, not just the .cso name shown in the
-			//combo. ShellExecute rather than a blocking system() call, so a slow or
-			//missing "code" does not stall the render thread.
+			//Opens a file in Visual Studio Code via the `code` launcher on PATH.
+			//ShellExecute rather than a blocking system() call, so a slow or missing
+			//"code" does not stall the render thread.
+			void OpenInVSCode(EditorState& state, const std::string& path) {
+				const std::string args = "\"" + path + "\"";
+				HINSTANCE result = ShellExecuteA(nullptr, "open", "code", args.c_str(), nullptr, SW_SHOWNORMAL);
+				//ShellExecute returns a value > 32 on success; anything else is an error
+				//code masquerading as a fake HINSTANCE (see its documentation).
+				if ((INT_PTR)result <= 32) {
+					state.status_message = "Could not open Visual Studio Code for " + path +
+						" (is \"code\" on PATH?)";
+				}
+			}
+
+			//Opens a shader's resolved .hlsl source, via the same lookup ShaderReload
+			//compiles from (Core::ISimpleShader::GetSourcePath(), cached the first time
+			//a reload or this button resolves it), so "the current one" always means
+			//the file a reload would actually recompile, not just the .cso name shown
+			//in the combo. A brand new shader (CreateShaderFile) is not resolvable this
+			//way yet - ShaderFactory has not loaded its name at that point - so that
+			//path calls OpenInVSCode directly on the path it already wrote.
 			void EditShaderSource(EditorState& state, const std::string& shader_name) {
 				Core::ISimpleShader* shader = Core::ShaderFactory::Get()->Find(shader_name);
 				const std::string source = (shader != nullptr) ? shader->GetSourcePath() : std::string();
@@ -667,14 +848,7 @@ namespace HotBiteEditor {
 					state.status_message = "No .hlsl source found for " + shader_name;
 					return;
 				}
-				const std::string args = "\"" + source + "\"";
-				HINSTANCE result = ShellExecuteA(nullptr, "open", "code", args.c_str(), nullptr, SW_SHOWNORMAL);
-				//ShellExecute returns a value > 32 on success; anything else is an error
-				//code masquerading as a fake HINSTANCE (see its documentation).
-				if ((INT_PTR)result <= 32) {
-					state.status_message = "Could not open Visual Studio Code for " + source +
-						" (is \"code\" on PATH?)";
-				}
+				OpenInVSCode(state, source);
 			}
 
 		}
@@ -826,6 +1000,46 @@ namespace HotBiteEditor {
 					if (ImGui::IsItemHovered()) {
 						ImGui::SetTooltip("Open this shader's .hlsl source in Visual Studio\n"
 							"Code - the same file Shaders/Reload Changed compiles from.");
+					}
+					ImGui::SameLine();
+					if (ImGui::SmallButton("New...")) {
+						new_shader_stage = stage;
+						new_shader_source = value;
+						new_shader_error.clear();
+						const std::string suggested = value.empty() ? (std::string("New") + stage) :
+							(std::filesystem::path(value).stem().string() + "_Copy");
+						snprintf(new_shader_name, sizeof(new_shader_name), "%s", suggested.c_str());
+						ImGui::OpenPopup("New Shader");
+					}
+					if (ImGui::IsItemHovered()) {
+						ImGui::SetTooltip("Create a new %s shader, starting as a copy of the one\n"
+							"currently selected, and open it for editing.", stage);
+					}
+					if (ImGui::BeginPopupModal("New Shader", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+						ImGui::Text("New %s shader name (must end with \"%s\"):", stage, stage);
+						ImGui::InputText("##new_shader_name", new_shader_name, sizeof(new_shader_name));
+						ImGui::TextDisabled(new_shader_source.empty() ?
+							"Starts from a minimal template." :
+							"Starts as a copy of the current selection.");
+						if (!new_shader_error.empty()) {
+							ImGui::TextColored(ImVec4(0.9f, 0.3f, 0.3f, 1.0f), "%s", new_shader_error.c_str());
+						}
+						if (ImGui::Button("Create")) {
+							std::string created_cso, created_hlsl;
+							if (MaterialOps::CreateShaderFile(state, new_shader_stage, new_shader_source,
+								new_shader_name, created_cso, created_hlsl, new_shader_error)) {
+								value = created_cso;
+								shader_changed = true;
+								OpenInVSCode(state, created_hlsl);
+								new_shader_name[0] = '\0';
+								ImGui::CloseCurrentPopup();
+							}
+						}
+						ImGui::SameLine();
+						if (ImGui::Button("Cancel")) {
+							ImGui::CloseCurrentPopup();
+						}
+						ImGui::EndPopup();
 					}
 					ImGui::PopID();
 				};

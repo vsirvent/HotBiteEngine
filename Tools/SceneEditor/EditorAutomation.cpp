@@ -920,6 +920,58 @@ namespace HotBiteEditor {
 					}
 				}
 			}
+			//Introduces a brand new shader (see MaterialOps::CreateShaderFile): starts
+			//as a copy of whatever is currently in `slot`, compiles, and assigns it -
+			//the automation surface for the Materials panel's "New..." button, since
+			//that button has no other scriptable form.
+			else if (cmd == "new_shader") {
+				if (args.size() < 4) {
+					response_lines.push_back("ERR usage: new_shader <material> <slot> <name>"
+						" (slots: draw_vs draw_hs draw_ds draw_gs draw_ps shadow_vs shadow_gs"
+						" depth_vs depth_ps)");
+				}
+				else {
+					Core::MaterialData* m = state.world->GetMaterials().Get(args[1]);
+					if (m == nullptr || state.world->IsMaterialRemoved(args[1])) {
+						response_lines.push_back("ERR material not found: " + args[1]);
+					}
+					else {
+						Core::MaterialShaderNames names = m->shader_names;
+						const std::string& slot = args[2];
+						std::string stage;
+						std::string* field = nullptr;
+						if (slot == "draw_vs") { stage = "VS"; field = &names.draw_vs; }
+						else if (slot == "draw_hs") { stage = "HS"; field = &names.draw_hs; }
+						else if (slot == "draw_ds") { stage = "DS"; field = &names.draw_ds; }
+						else if (slot == "draw_gs") { stage = "GS"; field = &names.draw_gs; }
+						else if (slot == "draw_ps") { stage = "PS"; field = &names.draw_ps; }
+						else if (slot == "shadow_vs") { stage = "VS"; field = &names.shadow_vs; }
+						else if (slot == "shadow_gs") { stage = "GS"; field = &names.shadow_gs; }
+						else if (slot == "depth_vs") { stage = "VS"; field = &names.depth_vs; }
+						else if (slot == "depth_ps") { stage = "PS"; field = &names.depth_ps; }
+
+						if (field == nullptr) {
+							response_lines.push_back("ERR unknown shader slot: " + slot);
+						}
+						else {
+							std::string cso_name, hlsl_path;
+							if (!MaterialOps::CreateShaderFile(state, stage, *field, args[3],
+								cso_name, hlsl_path, error)) {
+								response_lines.push_back("ERR " + error);
+							}
+							else {
+								*field = cso_name;
+								if (MaterialOps::SetShaders(state, args[1], names, error)) {
+									response_lines.push_back("OK " + args[1] + " " + slot + " -> " + cso_name);
+								}
+								else {
+									response_lines.push_back("ERR " + error);
+								}
+							}
+						}
+					}
+				}
+			}
 			//--- Shader hot reload (see ShaderReload.h). Recompiles the engine's .hlsl
 			//sources into the running editor; the same code the Shaders menu and F5 run.
 			else if (cmd == "reload_shaders") {

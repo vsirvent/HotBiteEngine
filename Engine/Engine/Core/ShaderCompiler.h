@@ -81,6 +81,23 @@ namespace HotBite {
 				bool Compile(const std::string& source_path, const std::string& profile,
 					Result& out, const std::string& entry = "main");
 
+				// The same, then writes the bytecode to `cso_path` - the on-disk form
+				// ShaderFactory::GetShader<T> loads from, and what a brand new shader
+				// needs before it can be picked like any other .cso. A failed compile
+				// writes nothing (out.error is the compiler's message either way).
+				//
+				// `extra_search_dirs` is appended to the registered folders for this one
+				// compile - for a source relocated away from where it used to live (a
+				// duplicate placed in a project folder rather than next to the engine
+				// shader it copied), so its own quoted, parent-relative #includes
+				// ("../Common/...") still resolve through the same directory-plus-
+				// filename fallback IncludeHandler::Open already uses for every
+				// registered folder, without that folder becoming permanent.
+				bool CompileToFile(const std::string& source_path, const std::string& profile,
+					const std::string& cso_path, Result& out,
+					const std::vector<std::string>& extra_search_dirs = {},
+					const std::string& entry = "main");
+
 				// The same, against an explicit include search path instead of the
 				// registered folders. This is what a compile running off the caller's
 				// thread uses: it is handed a snapshot of the folders, so a folder being
