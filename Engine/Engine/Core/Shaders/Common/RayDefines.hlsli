@@ -32,6 +32,22 @@ SOFTWARE.
 //when USE_OBH is on, which it is not - see the note in GIRayTraceCS.hlsl.
 #define MAX_VOLUME_STACK_SIZE 16
 
+//Ceiling on how many mesh-BVH nodes a single candidate object's traversal may
+//visit (GIRayTraceCS.hlsl and RayTraceCS.hlsl both descend with this pattern).
+//MAX_STACK_SIZE only bounds how deep the explicit stack gets, not how many
+//nodes a traversal touches in total - a ray whose max_distance-based prune
+//(`go_left`/`go_right`) keeps re-admitting siblings can walk a long, shallow
+//chain across most of a large mesh's tree without the stack ever growing past
+//a handful of entries. Found by bisection: on a 326K-triangle mesh (no LOD)
+//with a small-scaled, awkwardly-positioned static object, a single ray's
+//descent ran long enough to trip the GPU driver's hang timeout
+//(DXGI_ERROR_DEVICE_HUNG) and take the device down - a hard cap here (verified
+//to clear the hang at 2000, given headroom here) bounds worst-case cost to a
+//small constant instead of the size of the mesh, at the price of that one ray
+//occasionally missing a hit beyond the cap, exactly the tradeoff already made
+//for a stack overflow a few lines below.
+#define MAX_NODE_VISITS 8192
+
 //#define PACK_RAYS_8
 #define RAY_W_SCALE 1.0f
 #define RAY_W_BIAS 0.0001f

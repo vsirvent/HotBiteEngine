@@ -334,10 +334,16 @@ void GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
                 uint base = o.objectOffset;
                 BVHNode node = objects[base];
                 bool traverse = aabb_entry(oray.orig.xyz, invDir, node) < FLT_MAX;
+                //See MAX_NODE_VISITS: bounds this descent's worst case to a fixed
+                //cost instead of the mesh's size.
+                uint node_visits = 0;
 
                 [loop]
                 while (traverse)
                 {
+                    if (++node_visits > MAX_NODE_VISITS) {
+                        break;
+                    }
                     [branch]
                     if (is_leaf(node))
                     {
