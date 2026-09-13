@@ -60,6 +60,14 @@ namespace HotBiteEditor {
 		bool DuplicateMaterial(EditorState& state, const std::string& source_name,
 			const std::string& new_name, std::string& error);
 
+		// Moves a file-less material (one authored inside an imported model, where
+		// GetMaterialOrigin returns "") into `mat_file`, undoably. Until this runs,
+		// nothing marks the material's edits dirty and File/Save Materials (or Save
+		// Level) has nowhere to write them - this is what makes it saveable. Fails if
+		// the material already belongs to a file.
+		bool AssignMaterialFile(EditorState& state, const std::string& name,
+			const std::string& mat_file, std::string& error);
+
 		// Retires a material and repoints every entity using it at the world's default
 		// material, as one undoable action. The MaterialData itself is kept alive by
 		// World::RemoveMaterial (removing it would dangle an unrelated material), so

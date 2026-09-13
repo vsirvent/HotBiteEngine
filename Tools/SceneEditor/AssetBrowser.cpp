@@ -62,6 +62,13 @@ namespace HotBiteEditor {
 			if (loaded_any) {
 				//Scan runs after World::Init has already uploaded the GPU buffers.
 				state.world->RefreshMeshBuffers();
+				//Unlike the level's own "models" array (adopted right after
+				//World::Load, in OpenLevel), a model loaded here arrives after
+				//"material_files" was already read, so nothing else will ever sweep
+				//its materials for one - this is the only place that will.
+				for (const std::string& adopted : state.world->AdoptOrphanMaterials()) {
+					state.dirty_material_files.insert(state.world->GetMaterialOrigin(adopted));
+				}
 			}
 		}
 

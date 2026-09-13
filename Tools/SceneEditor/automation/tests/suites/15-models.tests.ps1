@@ -15,6 +15,21 @@ Test 'list_models reports what each file brought in' {
     Assert-Match -Pattern 'animations=1' -Actual $walk
 }
 
+Test 'a material authored inside the FBX is auto-adopted into the level default material file' {
+    # LoadModel runs before "material_files" is read, so an FBX-embedded material
+    # like this one registers no origin of its own - without adoption it would sit
+    # at file=(none) forever, and MaterialPanel's Touch silently skips marking
+    # anything dirty for a material with none, so an edit to it would have nowhere
+    # to be saved. World::AdoptOrphanMaterials (called from OpenLevel, right after
+    # Load) assigns it to the level's own default material file instead: here, the
+    # alphabetically-first of the two this fixture declares.
+    # Runs early, before anything in this suite saves: the "unsaved" half only
+    # holds until the first File/Save Level or save_materials.
+    $line = (SendOk 'materials')[0].Payload | Where-Object { $_ -like 'troll *' }
+    Assert-Match -Pattern 'file=materials\\test\.mat' -Actual $line -Message 'never (none), from the moment the level opens'
+    Assert-Match -Pattern 'unsaved' -Actual $line -Message 'new to that file, so still pending a save'
+}
+
 Test 'model_info lists one asset per line' {
     $r = SendOk 'model_info troll_tpose'
     Assert-Match -Pattern 'troll_tpose\.fbx' -Actual $r[0].Text
@@ -141,9 +156,44 @@ Test 'the fixture template spawns a skinned instance with its material' {
 Test 'a material loaded from a model .mat knows which file it came from' {
     $line = (SendOk 'materials')[0].Payload | Where-Object { $_ -like 'TrollMaterial *' }
     Assert-Match -Pattern 'file=troll\\troll\.mat' -Actual $line
-    # A material authored inside the FBX has no file of its own.
-    $fbxMaterial = (SendOk 'materials')[0].Payload | Where-Object { $_ -like 'troll *' }
-    Assert-Match -Pattern 'file=\(none\)' -Actual $fbxMaterial
+}
+
+Test 'assign_material_file refuses a material that already has one, an unknown file, and bad usage' {
+    # Every non-internal material now gets an origin the instant a level opens (see
+    # the adoption test above), so this command's remaining job is only ever the
+    # error path for the ordinary UI - moving a *freshly* orphaned material is no
+    # longer something the user ever needs to do by hand.
+    Assert-Err -Result (Send 'assign_material_file TrollMaterial "troll\troll.mat"')[0] `
+        -Pattern 'already belongs'
+    Assert-Err -Result (Send 'assign_material_file troll nope.mat')[0]
+    Assert-Err -Result (Send 'assign_material_file')[0] -Pattern 'usage:'
+}
+
+Test 'an adopted FBX material saves like any other, and survives a reload' {
+    # This is the bug the adoption fix exists for: before it, an FBX-authored
+    # material's edits had nowhere to be marked dirty, so File/Save Materials - and
+    # File/Save Level, which just flushes the same dirty set - never wrote them.
+    # Being adopted into a real file on load is what makes it behave like any other
+    # material from here on.
+    SendOk 'save_materials' | Out-Null
+    $matPath = Join-Path $Assets 'materials\test.mat'
+    $mat = Get-Content $matPath -Raw | ConvertFrom-Json
+    $names = @($mat.materials | ForEach-Object { $_.name })
+    Assert-Contains -Collection $names -Value 'troll' `
+        -Message 'the material is now actually written into the file it was adopted into'
+
+    $reloadDir = Join-Path (Split-Path -Parent $ShotDir) 'reload-adopted-material'
+    $reloaded = New-EditorSession -Exe $Session.Exe -Level $LevelPath -AutomationDir $reloadDir
+    try {
+        $line = (Invoke-EditorCommand -Session $reloaded -Command 'materials')[0].Payload |
+            Where-Object { $_ -like 'troll *' }
+        Assert-Match -Pattern 'file=materials\\test\.mat' -Actual $line `
+            -Message 'reload reads it back as a plain file-backed material, exactly like TrollMaterial'
+        Assert-NotMatch -Pattern 'unsaved' -Actual $line -Message 'nothing pending right after a clean load'
+    }
+    finally {
+        Close-EditorSession -Session $reloaded
+    }
 }
 
 Test 'a model registered in the level is written back to the models section' {

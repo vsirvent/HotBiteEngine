@@ -290,6 +290,42 @@ namespace HotBiteEditor {
 			return true;
 		}
 
+		//A material authored inside an imported model has no .mat file of its own
+		//(GetMaterialOrigin returns ""), and MaterialOps::Touch silently skips marking
+		//anything dirty for one - there is nowhere to save it. This is how it gets one:
+		//moves it into an existing level material file so future edits, and this one,
+		//become part of what File/Save Materials (and Save Level) writes to disk.
+		bool AssignMaterialFile(EditorState& state, const std::string& name,
+			const std::string& mat_file, std::string& error) {
+			if (state.world == nullptr) {
+				error = "no scene loaded";
+				return false;
+			}
+			if (!state.world->GetMaterialOrigin(name).empty()) {
+				error = name + " already belongs to a file";
+				return false;
+			}
+			if (!state.world->SetMaterialOrigin(name, mat_file)) {
+				error = "could not assign " + name + " to " + mat_file;
+				return false;
+			}
+			state.dirty_material_files.insert(mat_file);
+			MaterialPreview::Invalidate(name);
+
+			const std::string assigned = name;
+			const std::string file = mat_file;
+			EditorHistory::Push({
+				"move material " + assigned + " to " + file,
+				[assigned](EditorState& s) {
+					s.world->ClearMaterialOrigin(assigned);
+				},
+				[assigned, file](EditorState& s) {
+					s.world->SetMaterialOrigin(assigned, file);
+					s.dirty_material_files.insert(file);
+				} });
+			return true;
+		}
+
 		std::vector<std::string> FindUsers(EditorState& state, const std::string& material_name) {
 			std::vector<std::string> users;
 			Coordinator* c = (state.world != nullptr) ? state.world->GetCoordinator() : nullptr;
@@ -866,8 +902,54 @@ namespace HotBiteEditor {
 			}
 			ImGui::Text("%s", m->name.c_str());
 			const std::string file = state.world->GetMaterialOrigin(name);
-			ImGui::TextDisabled("File: %s%s", file.empty() ? "(none)" : file.c_str(),
-				state.dirty_material_files.count(file) != 0 ? "  (unsaved)" : "");
+			if (file.empty()) {
+				//Authored inside an imported model: nothing above ever calls Touch for
+				//it (there is no file to mark dirty), so any edit below is session-only
+				//until it is moved into one of the level's own .mat files.
+				ImGui::TextColored(ImVec4(0.9f, 0.75f, 0.3f, 1.0f),
+					"File: (none) - edits will not be saved");
+				std::vector<std::string> files;
+				for (const auto& entry : state.world->GetMaterialFiles()) {
+					files.push_back(entry.first);
+				}
+				if (files.empty()) {
+					ImGui::TextDisabled("This level declares no material files to move it into.");
+				}
+				else {
+					//Keyed by material name (rather than one shared static, as the "New
+					//Shader" popup state is) because this panel can be drawn twice in one
+					//frame - once for the Materials panel's selection, once for the
+					//Components panel's Material section - for two different materials.
+					static std::map<std::string, int> assign_file_index;
+					int& file_index = assign_file_index[name];
+					file_index = (std::min)((std::max)(file_index, 0), (int)files.size() - 1);
+					ImGui::PushID("assign_file");
+					ImGui::SetNextItemWidth(160);
+					if (ImGui::BeginCombo("##file", files[file_index].c_str())) {
+						for (int i = 0; i < (int)files.size(); ++i) {
+							if (ImGui::Selectable(files[i].c_str(), i == file_index)) {
+								file_index = i;
+							}
+						}
+						ImGui::EndCombo();
+					}
+					ImGui::SameLine();
+					if (ImGui::SmallButton("Move to file")) {
+						std::string move_error;
+						if (!MaterialOps::AssignMaterialFile(state, name, files[file_index], move_error)) {
+							state.status_message = move_error;
+						}
+						else {
+							state.status_message = "Moved " + name + " to " + files[file_index];
+						}
+					}
+					ImGui::PopID();
+				}
+			}
+			else {
+				ImGui::TextDisabled("File: %s%s", file.c_str(),
+					state.dirty_material_files.count(file) != 0 ? "  (unsaved)" : "");
+			}
 			if (m->multi_material != nullptr) {
 				//The stack's layers replace this material's own diffuse/normal/spec/ao/
 				//height maps on the draw path (see MainRenderPS.hlsli); everything else -

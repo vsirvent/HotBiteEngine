@@ -524,6 +524,40 @@ bool World::SetMaterialOrigin(const std::string& material_name, const std::strin
 	return true;
 }
 
+bool World::ClearMaterialOrigin(const std::string& material_name) {
+	auto it = material_origin.find(material_name);
+	if (it == material_origin.end()) {
+		return false;
+	}
+	material_origin.erase(it);
+	return true;
+}
+
+std::vector<std::string> World::AdoptOrphanMaterials() {
+	std::vector<std::string> adopted;
+	if (material_files.empty()) {
+		return adopted; //nowhere to put one
+	}
+	//std::map order, so "first" for a level with more than one .mat file is
+	//whichever sorts first by filename - simple and, since almost every level
+	//(everything ScaffoldNewLevel produces) declares exactly one, unambiguous in
+	//the overwhelming majority of cases.
+	const std::string& default_file = material_files.begin()->first;
+	for (auto& m : materials.GetData()) {
+		//Stand-ins World creates on demand belong to no file and must stay that
+		//way (MaterialOps::IsInternal in the editor draws the same line).
+		if (m.name.empty() || m.name.rfind("__default_", 0) == 0) {
+			continue;
+		}
+		if (material_origin.find(m.name) != material_origin.end()) {
+			continue; //already has one
+		}
+		material_origin[m.name] = default_file;
+		adopted.push_back(m.name);
+	}
+	return adopted;
+}
+
 Core::MaterialData* World::CreateMaterial(const std::string& name, const std::string& mat_file) {
 	if (name.empty()) {
 		return nullptr;

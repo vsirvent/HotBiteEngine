@@ -1047,6 +1047,16 @@ namespace HotBiteEditor {
 			state.status_message = "Failed to load level: " + level_json_path;
 			return false;
 		}
+		//Materials authored inside an FBX (moon_surface.fbx, say) have no .mat file of
+		//their own - LoadModel runs before "material_files" is read, so it registers no
+		//origin - and MaterialPanel's Touch silently skips marking anything dirty for a
+		//material with none, so an edit to one had nowhere to be saved. Adopting every
+		//such material into the level's own file right after load means every material
+		//always has one from here on; it is new (not yet in that file on disk), so the
+		//file is flagged unsaved exactly as a freshly created material would be.
+		for (const std::string& adopted : world->AdoptOrphanMaterials()) {
+			state.dirty_material_files.insert(world->GetMaterialOrigin(adopted));
+		}
 		ShowLoadingProgress(LOAD_SHARE, "Preparing scene buffers...");
 		world->Init();
 		ShowLoadingProgress(0.9f, "Restoring editor data...");

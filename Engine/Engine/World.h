@@ -801,6 +801,23 @@ namespace HotBite {
 			// material into a file whose texture root is unknown would produce paths the
 			// next load cannot resolve.
 			bool SetMaterialOrigin(const std::string& material_name, const std::string& mat_file);
+			// Clears a material's file assignment, putting it back into the "authored
+			// inside a model" state GetMaterialOrigin reports as "". The undo of
+			// SetMaterialOrigin/CreateMaterial's own assignment, not a way to unsave a
+			// file - it only forgets which one this material belongs to. Returns false
+			// if the material already has no origin.
+			bool ClearMaterialOrigin(const std::string& material_name);
+			// Assigns every material that still has no .mat file - an FBX-authored one,
+			// since LoadModel runs before "material_files" is read during Load() and
+			// registers no origin of its own - to the level's own default material file:
+			// its first, by convention the one file ScaffoldNewLevel always creates.
+			// A no-op once every material already has one, and a no-op if the level
+			// declares no material file at all (nowhere to put it). Not called
+			// automatically by Load() - callers that care about origins (the editor)
+			// call it after loading or importing; a game never looks at one. Returns the
+			// names it just assigned, so a caller can flag the file as having unsaved
+			// changes.
+			std::vector<std::string> AdoptOrphanMaterials();
 			// Creates an empty white material under `name`, registered against `mat_file`.
 			// Returns null when the name is taken, the file is unknown, or the render
 			// device is not up. The material is Init()ed and immediately assignable.

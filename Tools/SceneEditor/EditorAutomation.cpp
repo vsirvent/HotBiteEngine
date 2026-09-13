@@ -770,6 +770,17 @@ namespace HotBiteEditor {
 					response_lines.push_back("ERR " + error);
 				}
 			}
+			else if (cmd == "assign_material_file") {
+				if (args.size() < 3) {
+					response_lines.push_back("ERR usage: assign_material_file <name> <mat file>");
+				}
+				else if (MaterialOps::AssignMaterialFile(state, args[1], args[2], error)) {
+					response_lines.push_back("OK " + args[1] + " -> " + args[2]);
+				}
+				else {
+					response_lines.push_back("ERR " + error);
+				}
+			}
 			else if (cmd == "remove_material") {
 				if (args.size() < 2) {
 					response_lines.push_back("ERR usage: remove_material <name>");
