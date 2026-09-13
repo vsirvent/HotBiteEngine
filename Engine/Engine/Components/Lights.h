@@ -404,6 +404,10 @@ namespace HotBite {
 				//See DirectionalLight::shadow_resolution_divisor.
 				int shadow_resolution_divisor = 1;
 
+				//Shared by Init and SetCastShadow so the two cannot drift: allocates the
+				//cube map at w x w and, only on success, sizes shadow_vp to match.
+				HRESULT AllocateShadowMap(int w);
+
 			public:
 				static constexpr const char* NAME = "PointLight";
 
@@ -419,6 +423,11 @@ namespace HotBite {
 				HRESULT Release();
 
 				bool CastShadow() const;
+				//Toggles shadow casting at runtime (the Inspector checkbox): allocates the
+				//cube depth map on the first enable and leaves it allocated on disable, the
+				//same trade-off as DirectionalLight::SetCastShadow. Returns false if the map
+				//could not be allocated, leaving the light as it was.
+				bool SetCastShadow(bool enable);
 				const D3D11_VIEWPORT& GetShadowViewPort() const;
 
 				virtual ID3D11ShaderResourceView* DepthResource() override;

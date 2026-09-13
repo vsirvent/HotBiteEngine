@@ -1321,7 +1321,12 @@ namespace HotBiteEditor {
 			edit.Track(ImGui::DragFloat("Range", &d.range, 0.1f, 0.0f, 10000.0f));
 			edit.Track(ImGui::DragFloat("Fog density", &d.density, 0.001f, 0.0f, 10.0f));
 			edit.Track(ImGui::DragFloat("Tilt ratio", &d.tilt_ratio, 0.1f));
-			ImGui::Text("Casts shadow: %s", l.CastShadow() ? "yes" : "no");
+			bool cast_shadow = l.CastShadow();
+			const bool cast_shadow_changed = ImGui::Checkbox("Cast shadow", &cast_shadow);
+			if (cast_shadow_changed && !l.SetCastShadow(cast_shadow)) {
+				state.status_message = "Could not allocate shadow map to cast shadows";
+			}
+			edit.Track(cast_shadow_changed);
 			edit.Commit();
 		}
 

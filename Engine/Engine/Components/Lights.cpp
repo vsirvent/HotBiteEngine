@@ -338,6 +338,19 @@ void DirectionalLight::SetSpotMatrix(const matrix& m) {
 PointLight::PointLight() :Light(LightType::Point) {
 }
 
+HRESULT PointLight::AllocateShadowMap(int w) {
+	HRESULT hr = texture.Init(w, w);
+	if (SUCCEEDED(hr)) {
+		shadow_vp.TopLeftX = 0;
+		shadow_vp.TopLeftY = 0;
+		shadow_vp.Width = (float)w;
+		shadow_vp.Height = (float)w;
+		shadow_vp.MinDepth = 0.0f;
+		shadow_vp.MaxDepth = 1.0f;
+	}
+	return hr;
+}
+
 HRESULT PointLight::Init(const float3& color,
 	float range, bool cast_shadow,
 	int shadow_resolution_divisor, float volume_density) {
@@ -352,18 +365,42 @@ HRESULT PointLight::Init(const float3& color,
 	this->shadow_resolution_divisor = shadow_resolution_divisor;
 	if (cast_shadow) {
 		int w = DXCore::Get()->GetWidth() / shadow_resolution_divisor;
-
-		if (FAILED(texture.Init(w, w))) {
-			return hr;
-		}
-		shadow_vp.TopLeftX = 0;
-		shadow_vp.TopLeftY = 0;
-		shadow_vp.Width = (float)w;
-		shadow_vp.Height = (float)w;
-		shadow_vp.MinDepth = 0.0f;
-		shadow_vp.MaxDepth = 1.0f;
+		AllocateShadowMap(w);
 	}
 	return hr;
+}
+
+bool PointLight::CastShadow() const {
+	return this->data.cast_shadow;
+}
+
+bool PointLight::SetCastShadow(bool enable) {
+	if (enable == (data.cast_shadow != 0)) {
+		return true;
+	}
+	if (!enable) {
+		//Map is left allocated - toggling this back on is common enough (the
+		//Inspector checkbox) that releasing it here would just mean reallocating
+		//on the next enable, and CastShadow() already keeps every reader off it.
+		data.cast_shadow = 0;
+		dirty = true;
+		return true;
+	}
+	if (!init) {
+		//Init hasn't run yet: it will allocate the map itself when it does.
+		data.cast_shadow = 1;
+		return true;
+	}
+	if (texture.SRV() == nullptr) {
+		//Never allocated - this light was constructed or loaded with shadows off.
+		int w = DXCore::Get()->GetWidth() / shadow_resolution_divisor;
+		if (FAILED(AllocateShadowMap(w))) {
+			return false;
+		}
+	}
+	data.cast_shadow = 1;
+	dirty = true;
+	return true;
 }
 
 ID3D11ShaderResourceView* PointLight::DepthResource() {
@@ -373,10 +410,6 @@ ID3D11ShaderResourceView* PointLight::DepthResource() {
 ID3D11DepthStencilView* PointLight::DepthView() {
 	return texture.Depth();
 };
-
-bool PointLight::CastShadow() const {
-	return this->data.cast_shadow;
-}
 
 const D3D11_VIEWPORT& PointLight::GetShadowViewPort() const {
 	return shadow_vp;
@@ -562,7 +595,9 @@ void PointLight::FromJson(const json& j, const ECS::SerializeContext& ctx) {
 	else {
 		ToFloat3(j, "color", data.color);
 		data.range = (std::max)(j.value("range", data.range), MIN_POINT_LIGHT_RANGE);
-		data.cast_shadow = j.value("cast_shadow", data.cast_shadow != 0) ? 1 : 0;
+		if (j.contains("cast_shadow")) {
+			SetCastShadow(j["cast_shadow"].get<bool>());
+		}
 		if (j.contains("density")) {
 			data.density = j["density"].get<float>() / 1000.0f;
 		}

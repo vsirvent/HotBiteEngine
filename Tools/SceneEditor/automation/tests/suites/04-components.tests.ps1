@@ -138,3 +138,30 @@ Test 'Bounds is a readout measured from the mesh' {
     Assert-Vector3Near -Expected @{ x = 0.5; y = 0.5; z = 0.5 } -Actual $bounds.extents -Tolerance 0.01
     Assert-Vector3Near -Expected @{ x = 0.0; y = 0.0; z = 0.0 } -Actual $bounds.center -Tolerance 0.01
 }
+
+Test 'PointLight can be added, defaults to no shadow, and toggling cast_shadow on does not crash' {
+    SendOk 'add_component box_a PointLight' | Out-Null
+    $light = Get-Component -Session $Session -Entity 'box_a' -Component 'PointLight'
+    Assert-Equal -Expected 'False' -Actual $light.cast_shadow `
+        -Message 'added fresh: no shadow cube map allocated yet'
+
+    # The regression this guards: PointLight::FromJson used to write data.cast_shadow
+    # directly on an already-initialized light instead of going through a setter, so
+    # flipping this on skipped allocating the shadow cube map - the next shadow pass
+    # (RenderSystem::CastShadows) then bound a null depth view for this light.
+    Step-EditorFrames -Session $Session -Count 2
+    SendOk "set_component box_a PointLight ""{'cast_shadow':true}""" | Out-Null
+    $light = Get-Component -Session $Session -Entity 'box_a' -Component 'PointLight'
+    Assert-Equal -Expected 'True' -Actual $light.cast_shadow
+    Step-EditorFrames -Session $Session -Count 3
+    Assert-True -Condition (-not $Session.Process.HasExited) `
+        -Message 'rendering with the newly-enabled shadow did not crash the editor'
+
+    SendOk "set_component box_a PointLight ""{'cast_shadow':false}""" | Out-Null
+    $light = Get-Component -Session $Session -Entity 'box_a' -Component 'PointLight'
+    Assert-Equal -Expected 'False' -Actual $light.cast_shadow -Message 'and back off again'
+    Step-EditorFrames -Session $Session -Count 2
+    Assert-True -Condition (-not $Session.Process.HasExited) -Message 'disabling it did not crash either'
+
+    SendOk 'remove_component box_a PointLight' | Out-Null
+}
