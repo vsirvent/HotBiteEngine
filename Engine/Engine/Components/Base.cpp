@@ -961,6 +961,8 @@ namespace HotBite {
 				j["opacity_scale"] = opacity_scale;
 				j["albedo_scale"] = albedo_scale;
 				j["spec_intensity"] = spec_intensity;
+				j["emission"] = emission;
+				j["bloom_scale"] = bloom_scale;
 				j["point_size_scale"] = point_size_scale;
 				j["invert_normals"] = invert_normals;
 				j["surface_alpha"] = surface_alpha;
@@ -1005,6 +1007,12 @@ namespace HotBite {
 				}
 				if (j.contains("spec_intensity") && j["spec_intensity"].is_number()) {
 					spec_intensity = j["spec_intensity"].get<float>();
+				}
+				if (j.contains("emission") && j["emission"].is_number()) {
+					emission = j["emission"].get<float>();
+				}
+				if (j.contains("bloom_scale") && j["bloom_scale"].is_number()) {
+					bloom_scale = j["bloom_scale"].get<float>();
 				}
 				if (j.contains("point_size_scale") && j["point_size_scale"].is_number()) {
 					//Floored well above zero: the covariance it scales is squared against

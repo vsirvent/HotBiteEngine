@@ -827,6 +827,37 @@ namespace HotBiteEditor {
 					}
 				}
 			}
+			//Plain UV tiling (Material.h's MaterialProps::uv_scale, MainRenderPS.hlsli).
+			//Same reuse of the snapshot/undo path as set_material_world_uv above, for
+			//the same reason: no generic command edits an arbitrary material property.
+			else if (cmd == "set_material_uv_scale") {
+				if (args.size() < 3) {
+					response_lines.push_back("ERR usage: set_material_uv_scale <material name> <scale>");
+				}
+				else {
+					MaterialOps::MaterialSnapshot before;
+					if (!MaterialOps::GetSnapshot(state, args[1], before)) {
+						response_lines.push_back("ERR material not found: " + args[1]);
+					}
+					else {
+						float scale = 0.0f;
+						if (!ParseFloats(args, 2, 1, &scale)) {
+							response_lines.push_back("ERR scale must be a number");
+						}
+						else {
+							MaterialOps::MaterialSnapshot after = before;
+							after.props.uv_scale = scale;
+							if (MaterialOps::ApplySnapshot(state, args[1], after, error)) {
+								MaterialOps::RecordEdit(state, args[1], before);
+								response_lines.push_back("OK");
+							}
+							else {
+								response_lines.push_back("ERR " + error);
+							}
+						}
+					}
+				}
+			}
 			else if (cmd == "shaders") {
 				if (args.size() < 2) {
 					response_lines.push_back("ERR usage: shaders <material name>");

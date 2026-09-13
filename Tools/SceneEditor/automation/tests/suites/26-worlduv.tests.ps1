@@ -1,5 +1,5 @@
 # fixture: empty
-# description: World-aligned texture tiling (Material.h's WORLD_UV_ENABLED_FLAG, MainRenderPS.hlsli) - the material property round trip, undo, and that it visibly changes the tiling frequency on a scaled surface.
+# description: World-aligned texture tiling (Material.h's WORLD_UV_ENABLED_FLAG, MainRenderPS.hlsli) - the material property round trip, undo, and that it visibly changes the tiling frequency on a scaled surface. Also covers uv_scale, the plain (non-world-aligned) tiling multiplier that shares MainRenderPS.hlsli's UV branch.
 
 # Scales box_a into a 6x1x6 slab at the origin and frames the camera on its top
 # face - the exact setup 19-multimaterials.tests.ps1's Set-SlabView uses (box_a
@@ -122,5 +122,85 @@ Test 'the tiling turns with the object instead of staying fixed to world axes' {
         -Message "expected rotating the object to change the tiling (differing=$($diff.DifferingShare), mean=$($diff.MeanDelta))"
 
     SendOk 'set_rotation 0 0 0' | Out-Null
+    SendOk 'set_material_world_uv TestChecker 0 1' | Out-Null
+}
+
+#--- uv_scale: plain (non-world-aligned) tiling ---------------------------------
+# The other branch of the same `if` in MainRenderPS.hlsli: multiplies the mesh's
+# own authored UV instead of replacing it with a world-space projection, so unlike
+# world_uv_scale a bigger number here means MORE tiling, not less.
+
+Test 'set_material_uv_scale edits the property and it is saved to the .mat file' {
+    $matPath = Join-Path $Assets 'materials\test.mat'
+    SendOk 'set_material_uv_scale TestChecker 4' | Out-Null
+    SendOk 'save_materials' | Out-Null
+    $mat = Get-Content $matPath -Raw | ConvertFrom-Json
+    $rec = $mat.materials | Where-Object { $_.name -eq 'TestChecker' }
+    Assert-True -Condition ($null -ne $rec) -Message 'TestChecker is in the file'
+    Assert-Near -Expected 4.0 -Actual $rec.uv_scale
+
+    SendOk 'set_material_uv_scale TestChecker 1' | Out-Null
+    SendOk 'save_materials' | Out-Null
+    $mat = Get-Content $matPath -Raw | ConvertFrom-Json
+    $rec = $mat.materials | Where-Object { $_.name -eq 'TestChecker' }
+    Assert-Near -Expected 1.0 -Actual $rec.uv_scale
+}
+
+Test 'set_material_uv_scale validates its arguments' {
+    Assert-Err -Result (Send 'set_material_uv_scale TestChecker')[0] -Pattern 'usage:'
+    Assert-Err -Result (Send 'set_material_uv_scale NoSuchMaterial 2')[0] -Pattern 'not found'
+    Assert-Err -Result (Send 'set_material_uv_scale TestChecker not-a-number')[0]
+}
+
+Test 'set_material_uv_scale is undoable' {
+    SendOk 'set_material_uv_scale TestChecker 5' | Out-Null
+    SendOk 'undo' | Out-Null
+    $matPath = Join-Path $Assets 'materials\test.mat'
+    SendOk 'save_materials' | Out-Null
+    $mat = Get-Content $matPath -Raw | ConvertFrom-Json
+    $rec = $mat.materials | Where-Object { $_.name -eq 'TestChecker' }
+    Assert-Near -Expected 1.0 -Actual $rec.uv_scale -Message 'undo restored the scale'
+}
+
+Test 'uv_scale visibly changes the checker frequency on a scaled surface' {
+    SendOk 'set_material box_a TestChecker' | Out-Null
+    Set-BoxView
+
+    SendOk 'set_material_uv_scale TestChecker 1' | Out-Null
+    $shotA = Join-Path $ShotDir 'uvscale_1.png'
+    SendOk "screenshot $shotA" | Out-Null
+
+    SendOk 'set_material_uv_scale TestChecker 6' | Out-Null
+    $shotB = Join-Path $ShotDir 'uvscale_6.png'
+    SendOk "screenshot $shotB" | Out-Null
+
+    $diff = Get-ImageDifference -PathA $shotA -PathB $shotB
+    Assert-True -Condition ($diff.DifferingShare -gt 0.1) `
+        -Message "expected a different UV scale to render differently (differing=$($diff.DifferingShare), mean=$($diff.MeanDelta))"
+
+    SendOk 'set_material_uv_scale TestChecker 1' | Out-Null
+}
+
+Test 'uv_scale has no effect while World-aligned tiling is on' {
+    # World-aligned tiling replaces input.uv outright before uv_scale's branch of
+    # the `if` is ever reached (MainRenderPS.hlsli) - world_uv_scale is the tiling
+    # knob in that mode, and this one must be inert rather than compounding it.
+    SendOk 'set_material box_a TestChecker' | Out-Null
+    Set-BoxView
+    SendOk 'set_material_world_uv TestChecker 1 1' | Out-Null
+
+    SendOk 'set_material_uv_scale TestChecker 1' | Out-Null
+    $shotA = Join-Path $ShotDir 'uvscale_worldon_1.png'
+    SendOk "screenshot $shotA" | Out-Null
+
+    SendOk 'set_material_uv_scale TestChecker 6' | Out-Null
+    $shotB = Join-Path $ShotDir 'uvscale_worldon_6.png'
+    SendOk "screenshot $shotB" | Out-Null
+
+    $diff = Get-ImageDifference -PathA $shotA -PathB $shotB
+    Assert-True -Condition ($diff.DifferingShare -lt 0.05) `
+        -Message "expected uv_scale to be ignored under world-aligned tiling (differing=$($diff.DifferingShare), mean=$($diff.MeanDelta))"
+
+    SendOk 'set_material_uv_scale TestChecker 1' | Out-Null
     SendOk 'set_material_world_uv TestChecker 0 1' | Out-Null
 }

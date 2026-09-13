@@ -8,10 +8,15 @@
 #include <World.h>
 #include <Components/Base.h>
 
+#include <Windows.h>
+#include <commdlg.h>
+
 #include <algorithm>
 #include <cstring>
 #include <filesystem>
 #include <set>
+
+#pragma comment(lib, "comdlg32.lib")
 
 using namespace HotBite::Engine;
 using namespace HotBite::Engine::ECS;
@@ -593,18 +598,53 @@ namespace HotBiteEditor {
 				}
 			}
 
-			//A read-only texture slot plus a text field for its path. Textures are
-			//referenced by path rather than picked from a browser: the .mat format
-			//stores a name relative to the file's own texture root, and the editor has
-			//no way to copy an arbitrary file into that root.
+			//Opens the native "Open File" dialog filtered to the image formats
+			//Core::LoadTexture actually loads (.dds through CreateDDSTextureFromFile,
+			//everything else through WIC - see Material.cpp), the same pattern
+			//AssetBrowser::ImportModelWithDialog uses for models. `path` is left
+			//untouched on Cancel.
+			bool BrowseForTexture(std::string& path) {
+				char file[MAX_PATH] = {};
+				OPENFILENAMEA ofn = {};
+				ofn.lStructSize = sizeof(ofn);
+				ofn.hwndOwner = nullptr;
+				ofn.lpstrFilter = "Image files\0*.dds;*.png;*.jpg;*.jpeg;*.bmp;*.tif;*.tiff\0"
+								  "DDS textures\0*.dds\0"
+								  "All files\0*.*\0";
+				ofn.lpstrFile = file;
+				ofn.nMaxFile = sizeof(file);
+				ofn.lpstrTitle = "Select Texture";
+				ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+				if (!GetOpenFileNameA(&ofn)) {
+					return false;
+				}
+				path = file;
+				return true;
+			}
+
+			//A texture slot: a text field for its path, editable directly, plus a
+			//Browse button that fills the same field from a native file picker. The
+			//.mat format stores a name relative to the file's own texture root, but
+			//in memory (and in this field) every path is absolute - see
+			//MaterialTextures in Material.h - so Browse just fills the field the same
+			//way typing an absolute path does, and Save() converts it back to
+			//relative when the picked file happens to sit under that root.
 			bool DrawTextureRow(const char* label, std::string& path) {
 				char buffer[512];
 				snprintf(buffer, sizeof(buffer), "%s", path.c_str());
 				ImGui::PushID(label);
-				const bool changed = ImGui::InputText(label, buffer, sizeof(buffer),
+				bool changed = ImGui::InputText(label, buffer, sizeof(buffer),
 					ImGuiInputTextFlags_EnterReturnsTrue);
 				if (changed) {
 					path = buffer;
+				}
+				ImGui::SameLine();
+				if (ImGui::SmallButton("...")) {
+					std::string picked;
+					if (BrowseForTexture(picked)) {
+						path = picked;
+						changed = true;
+					}
 				}
 				ImGui::PopID();
 				return changed;
@@ -665,6 +705,14 @@ namespace HotBiteEditor {
 			track(ImGui::DragFloat("Parallax angles", &p.parallax_angle_steps, 1.0f, 0.0f, 64.0f));
 			track(ImGui::DragFloat("Displace", &m->displacement_scale, 0.01f));
 			track(ImGui::DragFloat("Tessellate", &m->tessellation_factor, 0.1f, 0.0f, 64.0f));
+			track(ImGui::DragFloat("UV scale", &p.uv_scale, 0.01f, 0.01f, 100.0f));
+			if (ImGui::IsItemHovered()) {
+				ImGui::SetTooltip("Multiplies the mesh's own UV before sampling the maps below -\n"
+					"higher repeats the texture more often across the surface. Ordinary\n"
+					"materials only: has no effect while World-aligned tiling is on\n"
+					"(world_uv_scale governs tiling then) or while a multi-material is\n"
+					"attached (each layer has its own uv_scale).");
+			}
 			track(ImGui::DragFloat("World tile size", &p.world_uv_scale, 0.01f, 0.01f, 1000.0f));
 
 			//The flags the .mat file actually carries; the rest of props.flags is
@@ -699,7 +747,7 @@ namespace HotBiteEditor {
 			}
 
 			if (ImGui::CollapsingHeader("Textures")) {
-				ImGui::TextDisabled("Absolute paths. Press Enter to apply.");
+				ImGui::TextDisabled("Absolute paths - type one and press Enter, or use \"...\" to browse.");
 				Core::MaterialTextures& t = m->texture_names;
 				MaterialOps::MaterialSnapshot before_textures;
 				MaterialOps::GetSnapshot(state, name, before_textures);

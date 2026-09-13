@@ -1803,15 +1803,14 @@ void RenderSystem::DrawSplats(int w, int h, const float3& camera_position, const
 	//Everything a splat's material is. The rasterizer overwrites specIntensity per
 	//pixel (it is a per-cloud constant carried on the SplatView) and clears the flags,
 	//since a splat has no maps of any kind; the rest is what the lighting functions
-	//read - bloom_scale above all, which at a nonzero value would have splats feeding
-	//a bloom buffer this pass does not write.
+	//read. bloom_scale and emission are per-cloud knobs (SplatCloud::bloom_scale/
+	//emission) set inside the loop below, since this struct is shared across every
+	//cloud drawn this frame.
 	MaterialProps splat_material{};
 	splat_material.diffuseColor = { 1.0f, 1.0f, 1.0f, 1.0f };
 	splat_material.specIntensity = 0.0f;
-	splat_material.bloom_scale = 0.0f;
 	splat_material.opacity = 1.0f;
 	splat_material.density = 1.0f;
-	splat_material.emission = 0.0f;
 	//Ray tracing on, and it is the one flag that matters here: the rasterizer clears
 	//every texture-map bit but keeps this one, and it decides whether the ray sources a
 	//splat pixel writes are ones the tracers follow or ones they skip. Off, a cloud
@@ -2093,6 +2092,12 @@ void RenderSystem::DrawSplats(int w, int h, const float3& camera_position, const
 		XMStoreFloat4x4(&prev_from_world_t, XMMatrixTranspose(prev_from_world));
 		splat_raster->SetMatrix4x4("prev_world_from_world", prev_from_world_t);
 		splat_raster->SetFloat(TIME, frame_time);
+		//Per-cloud, unlike the rest of splat_material above: SplatRasterCS reads both
+		//straight off the cbuffer (bloom_scale through CalcDirectional/CalcPoint's own
+		//bloom term, emission explicitly - see the comment there), with no per-splat
+		//path for either the way spec_intensity gets one.
+		splat_material.bloom_scale = e.cloud->bloom_scale;
+		splat_material.emission = e.cloud->emission;
 		splat_raster->SetData(MATERIAL, &splat_material, sizeof(MaterialProps));
 		if (sky != nullptr) {
 			splat_raster->SetFloat("cloud_density", sky->sky->cloud_density);

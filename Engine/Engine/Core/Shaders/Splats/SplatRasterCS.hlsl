@@ -492,6 +492,14 @@ void main(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID, uint gi : SV_Gr
 	// the tracers will follow rather than pixels they skip.
 	m.flags = material.flags & RAYTRACING_ENABLED;
 
+	// The one piece of material a splat cloud authors that is not per-splat and not a
+	// flat cbuffer constant either: emission has no map and no separate colour control
+	// here (see SplatCloud::emission) - a splat has no emissive texture to sample - so
+	// the surface's own composited albedo is the only tint available, the same way a
+	// coloured light bulb's glow is the colour of the bulb. Zero by default, so a cloud
+	// with no emission set contributes nothing here.
+	float3 emission_rgb = climit3(albedo * material.emission);
+
 	float4 bloom = float4(0.0f, 0.0f, 0.0f, 0.0f);
 	float3 lum = CalcAmbient(normal);
 	int li;
@@ -505,6 +513,11 @@ void main(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID, uint gi : SV_Gr
 							 pointLights[li], li, bloom);
 		}
 	}
+	// Mirrors MainRenderPS.hlsli's own emission block: added directly to the light
+	// output, never lit a second time, and to bloom - exactly where a textured
+	// material's emission reaches lumColor and lightColor there.
+	lum += emission_rgb;
+	bloom.rgb += emission_rgb;
 
 	// scene holds the albedo and light_map the lighting, because the mixer
 	// multiplies the two (TextureMixerCS: color * (l + rt0 + rt2) + ...). Writing a
@@ -512,19 +525,20 @@ void main(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID, uint gi : SV_Gr
 	scene_out[px] = float4(lerp(scene_out[px].rgb, albedo, alpha), 1.0f);
 	light_out[px] = float4(lerp(light_out[px].rgb, lum, alpha), 1.0f);
 
-	// Emission is the one channel a splat only ever subtracts from. bloom_map holds what
-	// the geometry passes emitted at this pixel, and the mixer adds it back after a blur
-	// (TextureMixerCS: ... + b + ...); with the cloud composited into scene but not into
-	// bloom, a fire behind the cloud had its colour correctly hidden and its *glow* added
-	// on top regardless - so it read as shining through the model.
+	// bloom_map holds what the geometry passes emitted at this pixel, and the mixer
+	// adds it back after a blur (TextureMixerCS: ... + b + ...). A cloud both takes
+	// bloom away, from whatever it occludes behind it, and - now that bloom_scale and
+	// emission exist - can add its own: the specular highlight CalcDirectional/
+	// CalcPoint already computed into `bloom` above (scaled by SplatCloud::bloom_scale,
+	// carried on the material cbuffer exactly like a textured material's own Bloom
+	// slider) and the emission term just added to it.
 	//
 	// alpha is 1 - T, the share of the pixel the cloud won, so 1 - alpha is exactly the
-	// transmittance still reaching the camera from behind it. Scaling by that is the same
-	// compositing the two lerps above do, against an emission of zero. Unconditional
-	// rather than gated on surface_alpha, because this is a blend and not a claim on the
-	// pixel: a cloud edge covering a third of a pixel should dim the glow behind it by a
-	// third, exactly as it dims the colour.
-	bloom_out[px] = float4(bloom_out[px].rgb * (1.0f - alpha), 1.0f);
+	// transmittance still reaching the camera from behind it - the same coverage the
+	// scene/light lerps above use, and lerp(x, 0, alpha) == x * (1 - alpha), so at
+	// bloom_scale 0 and emission 0 (every cloud placed before either field existed)
+	// this is bit-identical to the old occlusion-only form.
+	bloom_out[px] = float4(lerp(bloom_out[px].rgb, bloom.rgb, alpha), 1.0f);
 
 	// --- the G-buffer ------------------------------------------------------------
 	// One surface per pixel, so unlike scene and light there is nothing to blend into:

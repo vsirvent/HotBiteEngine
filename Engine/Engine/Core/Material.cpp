@@ -435,6 +435,7 @@ namespace HotBite {
 				props.density = j.value("density", 1.0f);
 				props.rt_reflex = j.value("rt_reflex", 0.2f);
 				props.world_uv_scale = j.value("world_uv_scale", 1.0f);
+				props.uv_scale = j.value("uv_scale", 1.0f);
 				props.flags = 0;
 
 				tessellation_type = j.value("tess_type", 0);
@@ -585,6 +586,7 @@ namespace HotBite {
 				j["density"] = props.density;
 				j["rt_reflex"] = props.rt_reflex;
 				j["world_uv_scale"] = props.world_uv_scale;
+				j["uv_scale"] = props.uv_scale;
 
 				j["tess_type"] = tessellation_type;
 				j["tess_factor"] = tessellation_factor;

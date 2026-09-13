@@ -262,7 +262,17 @@ namespace HotBite {
 				//struct's size and HLSL row layout (mirrored by MaterialColor in
 				//PixelCommon.hlsli) are unchanged.
 				float world_uv_scale = 1.0f;
-				float world_uv_reserved = 0.0f;
+				//Multiplies the mesh's own authored UV before every ordinary texture
+				//sample (MainRenderPS.hlsli) - a plain tiling frequency, the opposite
+				//sense of world_uv_scale above (bigger repeats the texture more, not
+				//less). Ordinary materials only: a multi-material's own per-layer
+				//uv_scale already does this job, and world-aligned tiling replaces the
+				//UV outright so there is nothing left for this to scale. 1 is a no-op,
+				//which is why it defaults there rather than to 0 - this field used to
+				//be plain padding (world_uv_reserved), so this struct's size and HLSL
+				//row layout (mirrored by MaterialColor in PixelCommon.hlsli) are
+				//unchanged.
+				float uv_scale = 1.0f;
 			};
 
 			struct MaterialShaders {

@@ -82,7 +82,8 @@ Test 'SplatCloud serializes every field, not only the ones that differ from defa
     # changing nothing. Mesh's "smooth" documents the same trap.
     $splat = Get-Component -Session $Session -Entity 'box_a' -Component 'SplatCloud'
     foreach ($field in @('name', 'opacity_scale', 'albedo_scale', 'spec_intensity',
-                         'point_size_scale', 'invert_normals', 'surface_alpha', 'max_density')) {
+                         'emission', 'bloom_scale', 'point_size_scale', 'invert_normals',
+                         'surface_alpha', 'max_density')) {
         Assert-True -Condition ($null -ne $splat.$field) -Message "SplatCloud.$field is serialized"
     }
     # Every one of these is at its default, which is precisely the case that would
@@ -91,6 +92,24 @@ Test 'SplatCloud serializes every field, not only the ones that differ from defa
     Assert-Near -Expected 1.0 -Actual $splat.albedo_scale
     Assert-Near -Expected 1.0 -Actual $splat.point_size_scale
     Assert-Equal -Expected 'False' -Actual $splat.invert_normals
+    # emission and bloom_scale default to zero: a cloud placed before either field
+    # existed must render exactly as it did before (see SplatRasterCS.hlsl).
+    Assert-Near -Expected 0.0 -Actual $splat.emission
+    Assert-Near -Expected 0.0 -Actual $splat.bloom_scale
+}
+
+Test 'emission and bloom_scale edit independently of the other material knobs' {
+    # Mirrors "the material knobs are independent of each other" below, for the two
+    # fields SplatRasterCS added alongside spec_intensity - like specular, neither
+    # has a map to sample, so both are per-cloud constants on the material cbuffer.
+    SendOk "set_component box_a SplatCloud ""{'emission':2.0}""" | Out-Null
+    SendOk "set_component box_a SplatCloud ""{'bloom_scale':1.5}""" | Out-Null
+    $splat = Get-Component -Session $Session -Entity 'box_a' -Component 'SplatCloud'
+    Assert-Near -Expected 2.0 -Actual $splat.emission
+    Assert-Near -Expected 1.5 -Actual $splat.bloom_scale
+    Assert-Near -Expected 0.1 -Actual $splat.spec_intensity -Message 'specular is untouched'
+
+    SendOk "set_component box_a SplatCloud ""{'emission':0.0,'bloom_scale':0.0}""" | Out-Null
 }
 
 Test 'point_size_scale edits and is floored above zero' {

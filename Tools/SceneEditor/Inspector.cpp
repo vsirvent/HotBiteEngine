@@ -1484,6 +1484,18 @@ namespace HotBiteEditor {
 					"bright or too dark next to authored materials.");
 			}
 			edit.Track(ImGui::DragFloat("Specular", &cloud.spec_intensity, 0.01f, 0.0f, 16.0f));
+			edit.Track(ImGui::DragFloat("Emission", &cloud.emission, 0.01f, 0.0f, 100.0f));
+			if (ImGui::IsItemHovered()) {
+				ImGui::SetTooltip("Adds a flat glow on top of the lit result, tinted by the\n"
+					"cloud's own colour - a splat has no emission map or emissive\n"
+					"colour of its own to draw from, unlike a material's Emission.");
+			}
+			edit.Track(ImGui::DragFloat("Bloom", &cloud.bloom_scale, 0.01f, 0.0f, 10.0f));
+			if (ImGui::IsItemHovered()) {
+				ImGui::SetTooltip("Scales this cloud's contribution to the bloom buffer, exactly\n"
+					"like a material's own Bloom slider - reaches both the specular\n"
+					"highlight above and the Emission above it.");
+			}
 			edit.Track(ImGui::DragFloat("Point size", &cloud.point_size_scale, 0.01f, 0.01f, 8.0f));
 			if (ImGui::IsItemHovered()) {
 				ImGui::SetTooltip("Scales every splat's size. Only a trained 3DGS .ply carries a\n"

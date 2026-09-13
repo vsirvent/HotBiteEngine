@@ -497,6 +497,24 @@ namespace HotBite {
 				//recovered.
 				float spec_intensity = 0.1f;
 
+				//Added on top of the lit result as a flat glow, tinted by the splat's own
+				//composited albedo rather than a separate colour - a splat has no emission
+				//map or emissive-colour control of its own (see spec_intensity above for
+				//why: nothing about a capture supplies one), so its own colour is the only
+				//tint available. Mirrors MaterialProps::emission, just without the colour
+				//knob a textured material has. Zero by default: an imported capture is not
+				//a light source unless authored to be one.
+				float emission = 0.0f;
+
+				//Scales this cloud's contribution to bloom_map, exactly like a material's
+				//own Bloom slider - it reaches the specular highlight
+				//(CalcDirectional/CalcPoint's own bloom term) and the emission above, since
+				//a splat has no separate bloom texture to sample. Zero by default: for every
+				//cloud placed before this existed, SplatRasterCS already computed a bloom
+				//contribution and simply discarded it, so a default of zero keeps them
+				//rendering exactly as before.
+				float bloom_scale = 0.0f;
+
 				//Scales every splat's size (its covariance, so quadratically). A trained
 				//3DGS .ply has no use for this - scale is per-splat data the reference
 				//trainer fit - but a plain coloured point cloud (no Gaussian parameters at

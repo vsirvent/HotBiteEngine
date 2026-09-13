@@ -51,6 +51,15 @@ RenderTargetRT MainRenderPS(GSOutput input)
 		else if (an.y >= an.x && an.y >= an.z) { input.uv = scaled_local_pos.xz * s; }
 		else                                    { input.uv = scaled_local_pos.xy * s; }
 	}
+	//Plain UV tiling: multiplies the mesh's own authored UV before every ordinary
+	//texture sample. Ordinary materials only (a multi-material already has its own
+	//per-layer uv_scale, see MultiTexture.hlsli), and skipped when world-aligned
+	//tiling just replaced input.uv outright - material.world_uv_scale already covers
+	//that mode. 1 is a no-op, so this costs nothing for every material authored
+	//before it existed.
+	else if (multi_texture_count == 0) {
+		input.uv *= material.uv_scale;
+	}
 
 	float calculated_values[MAX_MULTI_TEXTURE];
 

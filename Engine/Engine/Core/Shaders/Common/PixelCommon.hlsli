@@ -149,10 +149,12 @@ struct MaterialColor
 #define WORLD_UV_ENABLED_FLAG 1 << 9
 	uint flags;
 	//World units per texture repeat when WORLD_UV_ENABLED_FLAG is set - see
-	//Core::MaterialProps::world_uv_scale. These two replace what used to be a
-	//plain float2 padding; world_uv_reserved stays unused.
+	//Core::MaterialProps::world_uv_scale.
 	float world_uv_scale;
-	float world_uv_reserved;
+	//Multiplies the mesh's own UV before an ordinary texture sample - see
+	//Core::MaterialProps::uv_scale for the full comment. Replaces what used to
+	//be plain padding (world_uv_reserved).
+	float uv_scale;
 };
 
 struct AmbientLight

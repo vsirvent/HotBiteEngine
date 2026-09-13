@@ -785,5 +785,29 @@
       <RenderDebugDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\RayTrace\DenoiserCS.hlsl" />
     </ItemGroup>
     <Touch Files="@(RenderDebugDependent)" Condition="Exists('$(RenderDebugHeader)') And $([System.IO.File]::GetLastWriteTime('$(RenderDebugHeader)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('%(RenderDebugDependent.FullPath)').Ticks)" />
+    <PropertyGroup>
+      <PixelCommonHeader>$(MSBuildThisFileDirectory)Engine\Core\Shaders\Common\PixelCommon.hlsli</PixelCommonHeader>
+    </PropertyGroup>
+    <ItemGroup>
+      <PixelCommonDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\MainRender\MainRenderPS.hlsl" />
+      <PixelCommonDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\Splats\SplatRasterCS.hlsl" />
+      <PixelCommonDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\Effects\Lava\LavaPS.hlsl" />
+      <PixelCommonDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\Effects\Water\WaterPS.hlsl" />
+      <PixelCommonDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\MaterialPreview\MaterialPreviewPS.hlsl" />
+      <PixelCommonDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\Particles\FireBall2ParticlePS.hlsl" />
+      <PixelCommonDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\Particles\FireBallParticlePS.hlsl" />
+      <PixelCommonDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\Particles\FireParticlePS.hlsl" />
+      <PixelCommonDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\Particles\ParticlePS.hlsl" />
+      <PixelCommonDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\Particles\SmokeParticlePS.hlsl" />
+      <PixelCommonDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\SkyRender\SkyPS.hlsl" />
+    </ItemGroup>
+    <Touch Files="@(PixelCommonDependent)" Condition="Exists('$(PixelCommonHeader)') And $([System.IO.File]::GetLastWriteTime('$(PixelCommonHeader)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('%(PixelCommonDependent.FullPath)').Ticks)" />
+    <PropertyGroup>
+      <MainRenderPSHeader>$(MSBuildThisFileDirectory)Engine\Core\Shaders\MainRender\MainRenderPS.hlsli</MainRenderPSHeader>
+    </PropertyGroup>
+    <ItemGroup>
+      <MainRenderPSDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\MainRender\MainRenderPS.hlsl" />
+    </ItemGroup>
+    <Touch Files="@(MainRenderPSDependent)" Condition="Exists('$(MainRenderPSHeader)') And $([System.IO.File]::GetLastWriteTime('$(MainRenderPSHeader)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('%(MainRenderPSDependent.FullPath)').Ticks)" />
   </Target>
 </Project>
