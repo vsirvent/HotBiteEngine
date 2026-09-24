@@ -61,6 +61,13 @@ namespace HotBite {
 				//How far the search may widen (in grid cells) looking for SDF_NEIGHBOURS
 				//candidates before giving up and marking a corner as outside/no-data.
 				constexpr int SDF_MAX_RING = 6;
+				//How far the NEAREST sample may be, in grid cells, before a corner's
+				//estimate is refused as out of range - Hoppe's delta band, and the thing
+				//that stops a few splats in a sparse region projecting their tangent planes
+				//across empty space (see EvaluateSDF). Deliberately much smaller than
+				//SDF_MAX_RING, which only bounds how far the search may LOOK for enough
+				//candidates: finding them far away is what has to be rejected.
+				constexpr float SDF_MAX_SAMPLE_CELLS = 1.25f;
 				//A corner value this large can never cross zero against a real in-range
 				//value, so it reads as "outside" without special-casing "no data" separately.
 				constexpr float SENTINEL_DISTANCE = 1.0e6f;
@@ -191,17 +198,175 @@ namespace HotBite {
 					std::partial_sort(candidates.begin(), candidates.begin() + take, candidates.end(),
 						[](const auto& a, const auto& b) { return a.first < b.first; });
 
+					//Hoppe's estimate is only defined NEAR the samples, and nothing above
+					//enforces that: the count check is a count, and the value itself is the
+					//distance to an INFINITE tangent plane, which stays near zero however
+					//far `p` drifts SIDEWAYS from the splat that produced it. A corner a
+					//long way to the side of a few splats therefore reads as "on the
+					//surface" rather than as empty space.
+					//
+					//In a densely sampled region that never shows, because some splat is
+					//always within a fraction of a cell. Where it does show is exactly where
+					//a real capture is thin or sparse - a whip antenna, the outer edge of an
+					//arm, a small cluster of floaters - and there the few splats found
+					//project their tangent planes as far as the ring search reaches
+					//(SDF_MAX_RING cells), which Surface Nets then extracts as a flat sheet
+					//of triangles fanning out into empty space. That is the spiky "fin"
+					//hanging off a reconstructed figure, and no amount of grid resolution
+					//removes it: the fin scales with the search radius, not with the cell.
+					//
+					//So the estimate is refused outright once the NEAREST sample is further
+					//than this, which is the delta band Hoppe defines the function over.
+					//Generous enough (over a cell) that a legitimately coarse surface still
+					//resolves - a corner that straddles the surface always has a sample
+					//within about a cell of it, or the surface was not sampled there at all.
+					if (candidates[0].first > (g.cell * SDF_MAX_SAMPLE_CELLS) * (g.cell * SDF_MAX_SAMPLE_CELLS)) {
+						return SENTINEL_DISTANCE;
+					}
+
+					//The nearest candidate anchors which surface this point is being
+					//evaluated against. When a SECOND, distinct surface also falls within
+					//the search radius - two fingers close together, an arm near a torso,
+					//any place a real capture's geometry comes within a few grid cells of
+					//itself - its splats' normals roughly OPPOSE the nearest one's, because
+					//two surfaces facing each other point their outward normals at each
+					//other. Averaging both into one estimate is the textbook Hoppe-SDF
+					//failure mode for close, disjoint surfaces: the value can read as
+					//"inside" continuously across what should be open air between them,
+					//fusing the two into one blob instead of leaving a gap. A single
+					//coherent surface patch, even a curved one, keeps its normals within a
+					//hemisphere of each other at this scale - the reconstruction is already
+					//built on that assumption (see the class comment's "oriented tangent
+					//planes") - so weighting each candidate by how well it agrees with the
+					//nearest one's facing direction fades the other surface's splats out of
+					//the estimate rather than blending them in at full strength.
+					//
+					//This is deliberately a smooth fade (agreement itself, clamped at zero)
+					//and not a hard include/exclude cutoff: on a real capture a per-splat
+					//normal is noisy, not just ambiguous between two surfaces - measured on
+					//an imported 3DGS figure, ~7% of candidate/nearest pairs land in neither
+					//the "clearly agrees" nor "clearly opposes" extreme, spread fairly evenly
+					//in between rather than the clean bimodal split a noise-free surface
+					//would give. A hard cutoff flips those borderline candidates in and out
+					//of the average as `ref_n` (the nearest candidate, which itself changes
+					//from one grid corner to the next) drifts across the threshold, which is
+					//exactly the kind of corner-to-corner discontinuity that reads as a
+					//jagged, spiky surface rather than a smooth or a cleanly absent one - and
+					//it is worst precisely on thin, sparsely-sampled real structures (a whip
+					//antenna, a raised arm) where there are few candidates to begin with, so
+					//losing or gaining even one swings the result. A smooth fade has no such
+					//cliff: a borderline candidate contributes a little instead of flipping
+					//between all and nothing.
+					//Deliberately NOT also gated on how MANY candidates agree. A thin
+					//structure - a whip antenna, a strap, a cable - has only a splat or two
+					//on the side facing the corner being evaluated, and the rest of what the
+					//search finds is the far side of the same thin structure (opposing
+					//normals, correctly faded out here) or a neighbouring surface it runs
+					//close to. Requiring several agreeing samples blanks exactly those
+					//corners, and the visible result is a thin feature that reconstructs in
+					//floating pieces - an antenna whose base, where it passes closest to the
+					//backpack it is mounted on, is missing entirely. The distance check
+					//above is the guard that matters and is the better founded one: it asks
+					//whether there is real data HERE, rather than how much of it happens to
+					//face the same way.
+					const float3 ref_n = splats[candidates[0].second]->normal;
 					float weight_sum = 0.0f;
 					float value_sum = 0.0f;
 					for (size_t i = 0; i < take; ++i) {
 						const SplatVertex* s = splats[candidates[i].second];
+						const float d = DOT_F3_F3(s->normal, ref_n);
+						if (d <= 0.0f) {
+							continue;
+						}
 						const float dist2 = (std::max)(1.0e-8f, candidates[i].first);
-						const float weight = s->opacity / dist2;
+						const float weight = (s->opacity / dist2) * d;
 						const float3 to_p = SUB_F3_F3(p, s->position);
 						value_sum += weight * DOT_F3_F3(to_p, s->normal);
 						weight_sum += weight;
 					}
 					return (weight_sum > 0.0f) ? (value_sum / weight_sum) : SENTINEL_DISTANCE;
+				}
+
+				//Decides which of the "no data" corners are INSIDE the object and flips them
+				//to a large negative, so they read as solid rather than as empty space.
+				//
+				//Every capture is a SHELL - splats sit on the visible surface and there is
+				//nothing behind them - so EvaluateSDF only has an answer within the delta
+				//band either side of that surface. Deeper in than that it returns
+				//SENTINEL_DISTANCE, which is positive, i.e. "outside". The corners just
+				//inside the shell are negative, so the deep interior and the shell's inner
+				//face disagree in sign, and Surface Nets duly extracts a surface between
+				//them: a second, INNER shell shadowing the real one, hidden inside the mesh
+				//and roughly doubling its triangles where the body is thicker than the band.
+				//Measured on an imported figure it was 5.9% of the quads at a coarse grid
+				//and 32.8% at a fine one - it gets worse the finer the grid, because the
+				//band is a multiple of the cell and so shrinks with it while the body does
+				//not.
+				//
+				//Which no-data corners are interior cannot be read off the value (the same
+				//SENTINEL means "beyond the band" both inside and out), but it can be read
+				//off CONNECTIVITY: the grid is padded with GRID_PADDING_CELLS of empty cells
+				//(BuildSplatGrid), so its boundary is certainly outside, and any no-data
+				//corner reachable from there through other no-data corners is outside too.
+				//Whatever is left over is enclosed by the band, and is the interior.
+				//
+				//Reachability specifically, and not "whichever face of the band is nearest",
+				//which is the obvious-looking alternative and is worse. Handing every
+				//no-data corner the side of the nearest band face does fill an interior the
+				//band fails to enclose - but it also puts the two labels next to each other
+				//wherever they meet, and a corner marked inside against one marked outside
+				//is itself a sign change, so Surface Nets extracts the seam between them as
+				//yet another surface. Measured on an imported figure that made things worse,
+				//not better (15.5% of quads against 2.9% at a coarse grid). An enclosed
+				//region cannot do that: being unreachable, it is separated from the outside
+				//by known band corners everywhere, so the two sentinels are never adjacent.
+				//
+				//Degrades gracefully: a capture with a genuine hole in it - nothing was ever
+				//observed under the boots of a figure standing on the ground - lets the fill
+				//in through it, which simply leaves that object as it was rather than making
+				//it worse.
+				void MarkEnclosedNoData(const SplatGrid& g, std::vector<float>& values) {
+					const int32_t nx = g.dim[0] + 1, ny = g.dim[1] + 1, nz = g.dim[2] + 1;
+					auto is_no_data = [&](size_t i) { return values[i] >= SENTINEL_DISTANCE * 0.5f; };
+
+					std::vector<uint8_t> outside(values.size(), 0);
+					std::vector<uint32_t> stack;
+					auto visit = [&](int32_t x, int32_t y, int32_t z) {
+						const size_t i = g.CornerLinear(x, y, z);
+						if (!outside[i] && is_no_data(i)) {
+							outside[i] = 1;
+							stack.push_back((uint32_t)i);
+						}
+						};
+
+					for (int32_t z = 0; z < nz; ++z) {
+						for (int32_t y = 0; y < ny; ++y) {
+							for (int32_t x = 0; x < nx; ++x) {
+								if (x == 0 || y == 0 || z == 0 || x == nx - 1 || y == ny - 1 || z == nz - 1) {
+									visit(x, y, z);
+								}
+							}
+						}
+					}
+					while (!stack.empty()) {
+						const uint32_t i = stack.back();
+						stack.pop_back();
+						const int32_t x = (int32_t)(i % (uint32_t)nx);
+						const int32_t y = (int32_t)((i / (uint32_t)nx) % (uint32_t)ny);
+						const int32_t z = (int32_t)(i / ((uint32_t)nx * (uint32_t)ny));
+						if (x > 0) { visit(x - 1, y, z); }
+						if (x + 1 < nx) { visit(x + 1, y, z); }
+						if (y > 0) { visit(x, y - 1, z); }
+						if (y + 1 < ny) { visit(x, y + 1, z); }
+						if (z > 0) { visit(x, y, z - 1); }
+						if (z + 1 < nz) { visit(x, y, z + 1); }
+					}
+
+					for (size_t i = 0; i < values.size(); ++i) {
+						if (is_no_data(i) && !outside[i]) {
+							values[i] = -SENTINEL_DISTANCE;
+						}
+					}
 				}
 
 				//Surface Nets (Gibson 1998): one vertex per cell whose 8 corners disagree in
@@ -445,6 +610,8 @@ namespace HotBite {
 						}
 					}
 				}
+				//The interior of a shell is "no data", not "outside" - see the function.
+				MarkEnclosedNoData(grid, values);
 
 				std::vector<Vertex> raw_vertices;
 				std::vector<uint32_t> raw_indices;
