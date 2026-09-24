@@ -110,6 +110,9 @@
     <ClCompile Include="Selection.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="LightGizmos.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="PhysicsDebug.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -236,6 +239,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Selection.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="LightGizmos.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="PhysicsDebug.h">

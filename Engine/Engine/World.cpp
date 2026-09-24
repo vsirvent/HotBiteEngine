@@ -3252,7 +3252,10 @@ bool World::Load(const std::string& scene_file, float* progress, std::function<v
 					directional.SetInverse(light.value("inverse_shadow", false));
 					coordinator->NotifySignatureChange(e);
 				}
-				else if (type == "point") {
+				//"spot" is a point light with a cone: the same component, so it takes the
+				//same range/colour/shadow keys, plus "spot_inner"/"spot_outer" (half angles
+				//in degrees) and an optional "rotation" quaternion aiming it (+Z forward).
+				else if (type == "point" || type == "spot") {
 					coordinator->AddComponentIfNotExists<Components::Base>(e, Components::Base{});
 					coordinator->AddComponentIfNotExists<Components::Transform>(e, Components::Transform{});
 					coordinator->AddComponentIfNotExists<Components::PointLight>(e, Components::PointLight{});
@@ -3270,6 +3273,15 @@ bool World::Load(const std::string& scene_file, float* progress, std::function<v
 					point.Init(ColorRGBFromStr(light["color"]), light["range"], light["cast_shadow"], light["resolution"], light["density"]);
 					if (light.contains("position")) {
 						transform.position = { light["position"]["x"], light["position"]["y"], light["position"]["z"] };
+					}
+					if (type == "spot") {
+						point.SetSpotAngles(light.value("spot_inner", point.GetSpotInnerAngle()),
+							light.value("spot_outer", point.GetSpotOuterAngle()));
+						point.SetSpot(true);
+						if (light.contains("rotation")) {
+							transform.rotation = { light["rotation"]["x"], light["rotation"]["y"],
+								light["rotation"]["z"], light["rotation"]["w"] };
+						}
 					}
 					coordinator->NotifySignatureChange(e);
 				}

@@ -570,7 +570,7 @@ float3 VolumetricLight(float3 position, PointLight light, int index) {
 			if (light.cast_shadow) {
 				shadow = PointShadowPCFFast(ToLight, light, index);
 			}
-			float att = DistToLightNorm;
+			float att = DistToLightNorm * SpotFactor(light, ToLight);
 			att *= shadow;
 			saturate(att);
 			color += step_color * att;
@@ -624,9 +624,10 @@ float3 CalcPoint(float3 normal, float3 position, float2 uv, MaterialColor materi
 	float LightRange = (light.Range - DistToLight) / light.Range;
 	float DistToLightNorm = saturate(LightRange);
 	float Attn = saturate(DistToLightNorm * DistToLightNorm);
+	Attn *= SpotFactor(light, position - light.Position);
 
 	float shadow = 1.0f;
-	if (light.cast_shadow) {
+	if (light.cast_shadow && Attn > 0.0f) {
 		shadow = PointShadowPCF(position - light.Position, light, index);
 	}
 	finalColor *= Attn * shadow;
@@ -652,9 +653,10 @@ float3 CalcPointWithoutNormal(float3 position, MaterialColor material, PointLigh
 	float LightRange = (light.Range - DistToLight) / light.Range;
 	float DistToLightNorm = saturate(LightRange);
 	float Attn = saturate(DistToLightNorm * DistToLightNorm);
+	Attn *= SpotFactor(light, position - light.Position);
 
 	float shadow = 1.0f;
-	if (light.cast_shadow) {
+	if (light.cast_shadow && Attn > 0.0f) {
 		shadow = PointShadowPCF(position - light.Position, light, index);
 	}
 	finalColor *= Attn * shadow;
@@ -672,9 +674,16 @@ float3 EmitPoint(float3 position, matrix worldViewProj, PointLight light)
 	lposition.y = (lposition.y + 1.0f) * screenH / 2.0f;
 	float2 ToLight = lposition.xy - position.xy;
 	float DistToLight = length(ToLight);
+	//The light's glow radius, in pixels: `tilt_ratio` is the core radius and the halo is
+	//ten times that. 10 gives the 10 px core and 100 px halo this used to hard-code, so
+	//levels that never touched the value look as they always did. Zero or less draws no
+	//glow at all (a lamp you only want to light with, not to see).
+	if (light.tilt_ratio <= 0.0f) {
+		return float3(0.0f, 0.0f, 0.0f);
+	}
 	//Light emission
-	float DistLightToPixel = 1.0 - saturate(DistToLight * 0.01f);
-	float DistLightToPixel2 = 1.0 - saturate(DistToLight * 0.1f);
+	float DistLightToPixel = 1.0 - saturate(DistToLight / (light.tilt_ratio * 10.0f));
+	float DistLightToPixel2 = 1.0 - saturate(DistToLight / light.tilt_ratio);
 	float3 finalColor = light.Color * pow(DistLightToPixel, 10.0f);
 	finalColor.rgb += pow(DistLightToPixel2, 10.0f);
 

@@ -104,6 +104,10 @@ namespace HotBiteEditor {
 	// entities (see PhysicsDebug.h). View state, so it records no undo history.
 	enum class ColliderView { Off = 0, Selection, All };
 
+	// Whether the viewport draws the shape of point lights and spotlights - range
+	// spheres and cones (see LightGizmos.h). View state, so it records no undo history.
+	enum class LightView { Off = 0, Selection, All };
+
 	// Which shadow debug tint the engine renders the scene with (see ShadowDebug.h).
 	// One at a time: both recolour the same directional term, so showing them together
 	// would multiply two palettes into a colour that means nothing.
@@ -203,6 +207,11 @@ namespace HotBiteEditor {
 		// empty means "nothing stored", which ApplyFromJson leaves at the defaults.
 		nlohmann::json render_settings;
 		ColliderView collider_view = ColliderView::Off;
+		// Light gizmos (see LightGizmos.h): the shape of each light, and independently a
+		// marker at every light's position. On by default - a light has no mesh, so
+		// without a marker an unselected one cannot be seen at all.
+		LightView light_view = LightView::Selection;
+		bool light_positions = true;
 		// Which shadow debug tint the scene is rendered with (see ShadowDebug.h). View
 		// state, so it records no undo history - but unlike the collider overlay it
 		// switches a flag on the light itself, so ShadowDebug::Draw has to push it every

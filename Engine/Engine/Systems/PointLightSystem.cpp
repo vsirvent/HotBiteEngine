@@ -63,6 +63,22 @@ void PointLightSystem::Update(PointLightEntity& entity, int64_t elapsed_nsec, in
 		Components::Transform& t = coordinator->GetComponent<Components::Transform>(entity.base->parent);
 		parent_position = t.position;
 	}
+	//The cone direction is recomputed on every update rather than under the dirty test
+	//below: Transform::dirty is cleared by whichever system consumes it first (a light
+	//that is also a mesh entity loses it to StaticMeshSystem), and a rotation-only edit
+	//would otherwise leave the beam pointing where it used to. It is a handful of ALU
+	//ops per spotlight.
+	if (entity.light->data.is_spot) {
+		const Components::Transform& t = *entity.transform;
+		vector3d dir = XMVector3Rotate(XMVectorSet(0.0f, 0.0f, 1.0f, 0.0f),
+			XMVectorSet(t.rotation.x, t.rotation.y, t.rotation.z, t.rotation.w));
+		if (entity.base->parent != ECS::INVALID_ENTITY_ID) {
+			const Components::Transform& pt = coordinator->GetComponent<Components::Transform>(entity.base->parent);
+			dir = XMVector3Rotate(dir, XMVectorSet(pt.rotation.x, pt.rotation.y, pt.rotation.z, pt.rotation.w));
+		}
+		XMStoreFloat3(&entity.light->data.direction, XMVector3Normalize(dir));
+	}
+
 	if ((entity.transform->dirty || entity.light->dirty || entity.transform->last_parent_position != parent_position)) {
 		matrix lightProjection, positionMatrix, spotView, toShadow;
 		lightProjection = XMMatrixPerspectiveFovLH(XM_PIDIV2, 1.0, 0.1f, entity.light->data.range);

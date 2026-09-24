@@ -3,6 +3,7 @@
 #include "ProjectBrowser.h"
 #include "Inspector.h"
 #include "SelectionGizmo.h"
+#include "LightGizmos.h"
 #include "AssetBrowser.h"
 #include "MaterialPanel.h"
 #include "MultiMaterialPanel.h"
@@ -140,6 +141,8 @@ namespace HotBiteEditor {
 			j["grid_scale_step"] = state.grid_scale_step;
 			static const char* COLLIDER_VIEW_NAME[3] = { "off", "selection", "all" };
 			j["collider_view"] = COLLIDER_VIEW_NAME[(int)state.collider_view];
+			j["light_view"] = COLLIDER_VIEW_NAME[(int)state.light_view];
+			j["light_positions"] = state.light_positions;
 			j["placed_instances"] = state.placed_instances.size();
 			Coordinator* c = state.world->GetCoordinator();
 			j["entity_count"] = (c != nullptr) ? c->GetEntites().size() : 0;
@@ -352,7 +355,50 @@ namespace HotBiteEditor {
 					response_lines.push_back("ERR usage: colliders off|selection|all");
 				}
 			}
-			else if (cmd == "physics_info") {
+			else if (cmd == "light_gizmos") {
+				//The point/spot light shape overlay (View/Light Gizmos in the menu bar).
+				if (args.size() >= 2 && args[1] == "off") {
+					state.light_view = LightView::Off;
+					response_lines.push_back("OK light_gizmos off");
+				}
+				else if (args.size() >= 2 && args[1] == "selection") {
+					state.light_view = LightView::Selection;
+					response_lines.push_back("OK light_gizmos selection");
+				}
+				else if (args.size() >= 2 && args[1] == "all") {
+					state.light_view = LightView::All;
+					response_lines.push_back("OK light_gizmos all");
+				}
+				else {
+					response_lines.push_back("ERR usage: light_gizmos off|selection|all");
+				}
+			}
+			else if (cmd == "light_positions") {
+				//The marker at every light's position (View/Light Positions).
+				if (args.size() >= 2 && (args[1] == "on" || args[1] == "off")) {
+					state.light_positions = (args[1] == "on");
+					response_lines.push_back(std::string("OK light_positions ") + args[1]);
+				}
+				else {
+					response_lines.push_back("ERR usage: light_positions on|off");
+				}
+			}
+			else if (cmd == "light_gizmo_info") {
+				//What the last frame's light overlay drew - the only way to see an overlay
+				//from a test other than a screenshot. One line per marker: name, normalized
+				//screen x/y (0..1 across the display) and whether it is a spotlight.
+				const LightGizmos::FrameInfo& info = LightGizmos::LastFrame();
+				response_lines.push_back("OK lights=" + std::to_string(info.lights_drawn) +
+					" spots=" + std::to_string(info.spots_drawn) +
+					" segments=" + std::to_string(info.segments) +
+					" markers=" + std::to_string(info.markers.size()));
+				for (const auto& m : info.markers) {
+					char line[192];
+					snprintf(line, sizeof(line), "%s %.5f %.5f %s", m.name.c_str(), m.x, m.y,
+						m.spot ? "spot" : "point");
+					response_lines.push_back(line);
+				}
+			}			else if (cmd == "physics_info") {
 				//Numeric counterpart of the collider overlay: for each selected
 				//entity, the collider's world AABB against the rendered mesh's, so a
 				//collider that does not match the mesh is a number rather than

@@ -55,8 +55,10 @@ namespace HotBite {
 
 			enum class LightType {
 				Ambient, Directional, Point,
+				//Spot is a PointLight with is_spot set (see PointLight::SetSpot)
+				Spot,
 				//Not implemented
-				Spot, Area, Volume
+				Area, Volume
 			};
 
 			/**
@@ -387,12 +389,30 @@ namespace HotBite {
 					float3 color = {};
 					float density = 0.0f;
 					int cast_shadow = 0;
+					//Radius of the light's visible glow (Shaders/Common/PixelFunctions.hlsli
+					//EmitPoint), in screen pixels: this is the bright core, the soft halo
+					//around it is ten times as wide. 10 is what the glow was before this was
+					//wired up; 0 draws none. The name is a leftover from an unfinished idea,
+					//kept because it is the key levels already store it under.
 					float tilt_ratio = 10.0f;
-					float2 padding;
+					//Spotlight cone, as the cosines of the half angles so the shader
+					//compares against a dot product without an acos. Meaningless unless
+					//is_spot. Mirrored field for field by struct PointLight in
+					//Shaders/Common/PixelCommon.hlsli - it is memcpy'd into that cbuffer
+					//array, so the two must be edited together (64 bytes, four registers).
+					float spot_cos_inner = 1.0f;
+					float spot_cos_outer = 0.0f;
+					//World-space direction the cone points along, unit length. Written by
+					//PointLightSystem from the entity's rotation, never authored.
+					float3 direction = { 0.0f, 0.0f, 1.0f };
+					int is_spot = 0;
 				};
 
 			private:
 				struct Data data = {};
+				//Authored in degrees (half angles); data holds the cosines.
+				float spot_inner_deg = 20.0f;
+				float spot_outer_deg = 30.0f;
 				Core::DepthTextureCube texture;
 				bool dirty = false;
 				float4x4 lightPerspectiveValues = {};
@@ -421,6 +441,18 @@ namespace HotBite {
 				}
 				HRESULT Init(const float3& color, float range, bool cast_shadow, int shadow_resolution_divisor, float volume_density);
 				HRESULT Release();
+
+				//A spotlight is a point light restricted to a cone: same range, colour,
+				//attenuation and cube shadow map, so it costs no extra shader register
+				//or texture. It points along the entity's local +Z, turned by its
+				//rotation. Angles are half angles in degrees; the outer one is clamped
+				//to (0, 89] and the inner one to [0, outer], since the falloff between
+				//them is a smoothstep that needs outer > inner or it divides by zero.
+				bool IsSpot() const { return data.is_spot != 0; }
+				void SetSpot(bool enable) { data.is_spot = enable ? 1 : 0; type = enable ? LightType::Spot : LightType::Point; dirty = true; }
+				void SetSpotAngles(float inner_deg, float outer_deg);
+				float GetSpotInnerAngle() const { return spot_inner_deg; }
+				float GetSpotOuterAngle() const { return spot_outer_deg; }
 
 				bool CastShadow() const;
 				//Toggles shadow casting at runtime (the Inspector checkbox): allocates the

@@ -87,10 +87,16 @@ A `.cso` older than its `.hlsl` is the tell.
 ## The regression suites — run them, and add to them
 
 **Any change to the engine or the Scene Editor MUST pass the automation tests
-before it is considered done. No exceptions.** Run the relevant suite *before*
-the change (to have a baseline — some failures predate you) and *after*, and
-**every new feature adds its own tests**. Both suites need the Release build
-(`-Config Debug` does not link here — see above), and both use exit code =
+before it is submitted (committed, pushed, or put in a PR). No exceptions.**
+**Every new feature adds its own tests**, and those run first: write the feature's
+suite (or tests in the suite it belongs to), get it green on its own with
+`-Suite '<file>*'` / `-Test '<name>*'` (seconds, not minutes), and only then think about the
+rest. The full suites take ~10 minutes between them, so **do not run them while
+developing** — not after each change, not "to see where things stand". Run the *full*
+set **once, when the work is a final candidate to submit** (and again if a fix after
+that touches anything). A single scoped run before starting is still worth having when
+you need a baseline for a suspect area (some failures predate you). Both suites need the
+Release build (`-Config Debug` does not link here — see above), and both use exit code =
 number of failures, so either one gates a commit on its own.
 
 There are two, and which ones apply depends on what was touched:
@@ -1344,6 +1350,26 @@ first — `Inspector::StoreInstanceTransform`, via
 `World::GetTemplateBaseTransform`. Storing the live pose as-is makes every respawn
 (a paste, the undo of a place, the next load) compose the base a second time: with
 the troll template's 0.025 scale, a copy came out 40× too small.
+
+**A spotlight is a `PointLight` with `is_spot` set, not a component of its own.** The
+lights reach ~20 shaders as one `PointLight` struct in a `MAX_LIGHTS` cbuffer array, so
+a cone costs no new register, no new cbuffer and no new shadow texture: the cube shadow
+map already works for it (at the price of rendering faces the cone never reaches).
+`PointLight::Data` grew from 48 to 64 bytes (`spot_cos_inner/outer`, `direction`,
+`is_spot`) and `struct PointLight` in `PixelCommon.hlsli` **must** stay in step - it is
+memcpy'd, and nothing checks the stride. The falloff is `SpotFactor`, a smoothstep between
+the two cosines, multiplied into the attenuation at every point-light site (main render,
+particles, splats, both ray tracers via `SimpleLight.hlsli`, water, lava, the volumetric
+beam); point lights return 1, so a new site multiplies it in unconditionally. It aims
+along the entity's local +Z, and `PointLightSystem` re-derives `direction` every update
+rather than under the dirty test, for the same `Transform::dirty` race as the camera. The
+glow/lens-flare pass around a light source is still omnidirectional.
+
+The editor's light gizmos (`LightGizmos.cpp`) draw those same numbers, and are two
+switches: the shape (`View/Light Gizmos`, selection-only by default) and a marker at every
+light's position (`View/Light Positions`, on by default) - a light has no mesh or `Bounds`,
+so without the marker an unselected one cannot be seen or found. `light_gizmo_info` is
+how a test reads what was drawn; `29-spotlight` is the suite.
 
 **Materials** are authored in the Materials panel (`Tools/SceneEditor/MaterialPanel.h`)
 and live in `.mat` files, which are shared assets referenced by a level rather than

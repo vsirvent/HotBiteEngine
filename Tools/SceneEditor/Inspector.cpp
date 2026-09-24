@@ -1320,7 +1320,30 @@ namespace HotBiteEditor {
 			edit.Track(ImGui::DragFloat3("Position", &d.position.x, 0.05f));
 			edit.Track(ImGui::DragFloat("Range", &d.range, 0.1f, 0.0f, 10000.0f));
 			edit.Track(ImGui::DragFloat("Fog density", &d.density, 0.001f, 0.0f, 10.0f));
-			edit.Track(ImGui::DragFloat("Tilt ratio", &d.tilt_ratio, 0.1f));
+			edit.Track(ImGui::DragFloat("Glow radius", &d.tilt_ratio, 0.1f, 0.0f, 200.0f));
+			if (ImGui::IsItemHovered()) {
+				ImGui::SetTooltip("Radius in pixels of the light's visible glow (its bright core;\nthe halo is 10x wider). 0 = no glow.");
+			}
+			//Spotlight: a cone along the entity's +Z, turned by its rotation. The angles
+			//go through SetSpotAngles so the cosines the shader reads and the degrees
+			//that get serialized cannot drift apart.
+			bool spot = l.IsSpot();
+			const bool spot_changed = ImGui::Checkbox("Spotlight", &spot);
+			if (spot_changed) {
+				l.SetSpot(spot);
+			}
+			edit.Track(spot_changed);
+			if (l.IsSpot()) {
+				float inner = l.GetSpotInnerAngle();
+				float outer = l.GetSpotOuterAngle();
+				const bool inner_changed = ImGui::DragFloat("Inner angle", &inner, 0.2f, 0.0f, 88.0f);
+				const bool outer_changed = ImGui::DragFloat("Outer angle", &outer, 0.2f, 0.5f, 89.0f);
+				if (inner_changed || outer_changed) {
+					l.SetSpotAngles(inner, outer);
+				}
+				edit.Track(inner_changed);
+				edit.Track(outer_changed);
+			}
 			bool cast_shadow = l.CastShadow();
 			const bool cast_shadow_changed = ImGui::Checkbox("Cast shadow", &cast_shadow);
 			if (cast_shadow_changed && !l.SetCastShadow(cast_shadow)) {

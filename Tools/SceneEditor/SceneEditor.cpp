@@ -20,6 +20,7 @@
 #include "GridOverlay.h"
 #include "Selection.h"
 #include "PhysicsDebug.h"
+#include "LightGizmos.h"
 #include "ShadowDebug.h"
 #include "PhysicsPreview.h"
 #include "LogPanel.h"
@@ -414,6 +415,28 @@ namespace HotBiteEditor {
 			},
 			[this]() { return state.collider_view == ColliderView::All; } });
 
+		//View: light gizmos (see LightGizmos.h). The shape entries act as a radio group,
+		//like the collider ones, and "Light Positions" is an independent check: it marks
+		//where every light is, selected or not, since a light has no mesh to click.
+		menu_commands.push_back({ "View/Light Gizmos: Selection",
+			[this]() { return level_loaded; },
+			[this]() {
+				state.light_view = (state.light_view == LightView::Selection)
+					? LightView::Off : LightView::Selection;
+			},
+			[this]() { return state.light_view == LightView::Selection; } });
+		menu_commands.push_back({ "View/Light Gizmos: All",
+			[this]() { return level_loaded; },
+			[this]() {
+				state.light_view = (state.light_view == LightView::All)
+					? LightView::Off : LightView::All;
+			},
+			[this]() { return state.light_view == LightView::All; } });
+		menu_commands.push_back({ "View/Light Positions",
+			[this]() { return level_loaded; },
+			[this]() { state.light_positions = !state.light_positions; },
+			[this]() { return state.light_positions; } });
+
 		//View: shadow debug tints (see ShadowDebug.h). Unlike the collider overlay these
 		//are not drawn by the editor at all - they switch a flag on the light that makes
 		//the engine's lighting shaders recolour each pixel. Two entries acting as a radio
@@ -632,6 +655,7 @@ namespace HotBiteEditor {
 			//Under the gizmo, so the selection handles stay readable on top of a
 			//dense collider wireframe.
 			PhysicsDebug::Draw(state);
+			LightGizmos::Draw(state);
 			ShadowDebug::Draw(state);
 			RenderSettings::DrawOverlay(*this);
 			GridOverlay::Draw(state);

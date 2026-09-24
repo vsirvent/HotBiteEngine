@@ -121,6 +121,7 @@ float3 CalcLavaPoint(float3 normal, float3 position, float2 uv, PointLight light
 	float DistToLightNorm = saturate(LightRange);
 	float shadow = 1.0f;
 	float Attn = saturate(DistToLightNorm * DistToLightNorm);
+	Attn *= SpotFactor(light, position - light.Position);
 	bloom.rgb += bloomColor;
 	if (light.cast_shadow) {
 		shadow = PointShadowPCF(position - light.Position, light, index);

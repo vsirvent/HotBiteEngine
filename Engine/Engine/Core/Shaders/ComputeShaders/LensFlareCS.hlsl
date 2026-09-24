@@ -79,9 +79,16 @@ float4 EmitPoint(float2 pixel, float2 light_screen_pos, float2 dimenstion, Point
     float DistToLight = length(ToLight);
     float DistToCamera = length(light.Position - cameraPosition);
 
-    //Light emission
-    float DistLightToPixel = 1.0 - saturate(DistToLight * 0.01f);
-    float DistLightToPixel2 = 1.0 - saturate(DistToLight * 0.02f);
+    //The light's glow radius (PointLight::Data::tilt_ratio), in pixels: the core falls
+    //to zero at ten times it and the wider halo at twenty times. 10 is the 100 px / 50 px
+    //this used to hard-code, so an untouched light looks as it did. Zero or less turns the
+    //whole flare off - the streaks are built from the same term, so leaving them would
+    //draw a flare with no light at its centre.
+    if (light.tilt_ratio <= 0.0f) {
+        return float4(0.0f, 0.0f, 0.0f, 1.0f);
+    }
+    float DistLightToPixel = 1.0 - saturate(DistToLight / (light.tilt_ratio * 10.0f));
+    float DistLightToPixel2 = 1.0 - saturate(DistToLight / (light.tilt_ratio * 5.0f));
 
     float2 delta = pixel - light_screen_pos;
     float angle = atan2(delta.x, delta.y);

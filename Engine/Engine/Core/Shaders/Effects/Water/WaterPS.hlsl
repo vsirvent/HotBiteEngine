@@ -152,6 +152,11 @@ float3 CalcWaterPoint(float3 normal, float3 position, float2 uv, PointLight ligh
 	float LightRange = (light.Range - DistToLight) / light.Range;
 	float DistToLightNorm = saturate(LightRange);
 	float Attn = saturate(DistToLightNorm * DistToLightNorm);
+	//Attn is not applied to the water's colour (never was); only the cone is, so a
+	//spotlight does not light the water outside its beam.
+	float spot = SpotFactor(light, position - light.Position);
+	finalColor *= spot;
+	bloomColor *= spot;
 	bloom.rgb += bloomColor;
 	return finalColor;
 }

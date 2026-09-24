@@ -370,6 +370,15 @@ HRESULT PointLight::Init(const float3& color,
 	return hr;
 }
 
+void PointLight::SetSpotAngles(float inner_deg, float outer_deg) {
+	//Parenthesized min/max: windows.h is reached here without NOMINMAX.
+	spot_outer_deg = (std::min)((std::max)(outer_deg, 0.5f), 89.0f);
+	spot_inner_deg = (std::min)((std::max)(inner_deg, 0.0f), spot_outer_deg - 0.1f);
+	data.spot_cos_outer = cosf(XMConvertToRadians(spot_outer_deg));
+	data.spot_cos_inner = cosf(XMConvertToRadians(spot_inner_deg));
+	dirty = true;
+}
+
 bool PointLight::CastShadow() const {
 	return this->data.cast_shadow;
 }
@@ -560,6 +569,11 @@ json PointLight::ToJson(const ECS::SerializeContext& ctx) const {
 	j["tilt_ratio"] = data.tilt_ratio;
 	j["cast_shadow"] = (data.cast_shadow != 0);
 	j["resolution"] = shadow_resolution_divisor;
+	//Written unconditionally, never "only when it differs from the default": undo replays
+	//an earlier ToJson and every FromJson reads a missing key as "leave alone".
+	j["spot"] = (data.is_spot != 0);
+	j["spot_inner"] = spot_inner_deg;
+	j["spot_outer"] = spot_outer_deg;
 	return j;
 }
 
@@ -604,6 +618,8 @@ void PointLight::FromJson(const json& j, const ECS::SerializeContext& ctx) {
 	}
 	ToFloat3(j, "position", data.position);
 	data.tilt_ratio = j.value("tilt_ratio", data.tilt_ratio);
+	SetSpotAngles(j.value("spot_inner", spot_inner_deg), j.value("spot_outer", spot_outer_deg));
+	SetSpot(j.value("spot", data.is_spot != 0));
 	dirty = true;
 }
 

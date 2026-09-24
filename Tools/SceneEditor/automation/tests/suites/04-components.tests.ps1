@@ -165,3 +165,38 @@ Test 'PointLight can be added, defaults to no shadow, and toggling cast_shadow o
 
     SendOk 'remove_component box_a PointLight' | Out-Null
 }
+
+Test 'A spotlight is a PointLight with a cone: defaults off, angles clamp and round-trip, shadows do not crash' {
+    SendOk 'add_component box_a PointLight' | Out-Null
+    $light = Get-Component -Session $Session -Entity 'box_a' -Component 'PointLight'
+    Assert-Equal -Expected 'False' -Actual $light.spot -Message 'a fresh light is omnidirectional'
+
+    SendOk "set_component box_a PointLight ""{'spot':true,'spot_inner':15,'spot_outer':40}""" | Out-Null
+    $light = Get-Component -Session $Session -Entity 'box_a' -Component 'PointLight'
+    Assert-Equal -Expected 'True' -Actual $light.spot
+    Assert-Near -Expected 15 -Actual $light.spot_inner -Tolerance 0.01
+    Assert-Near -Expected 40 -Actual $light.spot_outer -Tolerance 0.01
+
+    # The falloff is a smoothstep between the two cosines, so an inner angle at or past
+    # the outer one would divide by zero in the shader. SetSpotAngles pulls it inside.
+    SendOk "set_component box_a PointLight ""{'spot_inner':80,'spot_outer':30}""" | Out-Null
+    $light = Get-Component -Session $Session -Entity 'box_a' -Component 'PointLight'
+    Assert-True -Condition ($light.spot_inner -lt $light.spot_outer) `
+        -Message 'inner angle is kept strictly inside the outer one'
+
+    SendOk "set_component box_a PointLight ""{'spot_outer':170}""" | Out-Null
+    $light = Get-Component -Session $Session -Entity 'box_a' -Component 'PointLight'
+    Assert-True -Condition ($light.spot_outer -le 89.0) -Message 'outer angle is capped below 90 degrees'
+
+    SendOk "set_component box_a PointLight ""{'cast_shadow':true}""" | Out-Null
+    Step-EditorFrames -Session $Session -Count 3
+    Assert-True -Condition (-not $Session.Process.HasExited) `
+        -Message 'rendering a shadow-casting spotlight did not crash the editor'
+
+    SendOk "set_component box_a PointLight ""{'spot':false}""" | Out-Null
+    $light = Get-Component -Session $Session -Entity 'box_a' -Component 'PointLight'
+    Assert-Equal -Expected 'False' -Actual $light.spot -Message 'and back to a point light'
+    Step-EditorFrames -Session $Session -Count 2
+
+    SendOk 'remove_component box_a PointLight' | Out-Null
+}

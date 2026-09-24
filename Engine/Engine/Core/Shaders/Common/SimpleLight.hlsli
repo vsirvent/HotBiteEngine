@@ -247,7 +247,8 @@ float3 CalcPoint(float3 normal, float3 position, PointLight light, int index)
     float LightRange = (light.Range - DistToLight) / light.Range;
     float DistToLightNorm = LightRange;
     float Attn = saturate(DistToLightNorm * DistToLightNorm);
-    if (light.cast_shadow) {
+    Attn *= SpotFactor(light, position - lposition);
+    if (light.cast_shadow && Attn > 0.0f) {
         float shadow = PointShadowPCFFAST(position - lposition, light, index);
         finalColor *= shadow;
     }
