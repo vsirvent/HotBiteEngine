@@ -117,8 +117,8 @@ directory so relative asset paths in level files resolve the same way the other 
 | `template_from_entity <entity> <template>` | builds a template from a scene entity's components — the "make a prefab out of this" path, and the fastest way to get an imported object's components into something editable |
 | `duplicate_template <source> <new name>` | copies an authored template |
 | `remove_template <name>` | unregisters it. Objects already placed stay for the session but will not reload; the `.tpl` file is unlinked only when templates are saved, so this is undoable until then |
-| `list_meshes` | the mesh assets a template's Mesh can point at, with the animations each already offers |
-| `list_splat_clouds` | the Gaussian splat cloud assets a `SplatCloud` component can point at, with the splat count of each — what the Components panel's Cloud picker offers. The generated stand-in is left out, exactly as `list_meshes` leaves out the default cube: it is what an unassigned component is already drawing |
+| `list_meshes` | the mesh names a `Mesh` component can point at, with the animations each already offers. The engine's built-in shapes (`__default_mesh` the unit cube, `__default_plane` a unit quad in XZ facing up) lead the list, marked `builtin=<Cube\|Plane>` — they need no imported asset and are always offered |
+| `list_splat_clouds` | the Gaussian splat cloud assets a `SplatCloud` component can point at, with the splat count of each — what the Components panel's Cloud picker offers. The generated stand-in is left out — unlike the mesh side, there are no built-in clouds to pick from: it is what an unassigned component is already drawing |
 | `list_animations` | every animation clip the imported models carry, with the model each came from — what `template_add_animation` picks from |
 | `template_mesh <template> <mesh>` | points the template at a mesh. The animation library is kept: a re-exported rig plays the same roles |
 | `template_material <template> <material>` | points the template at a material |

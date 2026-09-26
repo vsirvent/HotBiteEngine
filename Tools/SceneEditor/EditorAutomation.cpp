@@ -2324,13 +2324,19 @@ namespace HotBiteEditor {
 				}
 			}
 			else if (cmd == "list_meshes") {
-				//The mesh names a template's Mesh component can be pointed at, which is
-				//what a script needs before it can call template_mesh.
+				//The mesh names a Mesh component can be pointed at, which is what a
+				//script needs before it can call template_mesh or set one on an entity.
+				//The engine's built-in shapes lead the list and say so - they are the
+				//only entries that need no imported asset behind them.
 				const std::vector<std::string> meshes = TemplateOps::ListMeshes(state);
 				response_lines.push_back("OK " + std::to_string(meshes.size()) + " meshes");
 				for (const std::string& mesh : meshes) {
 					std::ostringstream os;
 					os << mesh;
+					const std::string shape = World::BuiltinShapeLabel(mesh);
+					if (!shape.empty()) {
+						os << " builtin=" << shape;
+					}
 					const std::vector<std::string> animations = state.world->GetMeshAnimations(mesh);
 					if (!animations.empty()) {
 						os << " animations=";

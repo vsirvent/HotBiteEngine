@@ -766,11 +766,35 @@ namespace HotBite {
 			Core::MaterialData* GetDefaultMaterial();
 			Core::MeshData* GetDefaultMesh();
 
-			// The names the two above are registered under. A saved scene references
+			// The built-in shapes: primitive geometry the engine assembles itself, so a
+			// Mesh can be given a shape without importing anything. A newly added Mesh
+			// gets the cube (GetDefaultMesh above); the rest are chosen the same way any
+			// other mesh asset is, by name, from the editor's mesh picker or a level's
+			// own component block.
+			//
+			// Built on first use and cached like the two defaults, and for the same
+			// reason recognized by name during deserialization rather than reported
+			// missing. Null for a name that is not a built-in shape, or if the render
+			// device is not up yet.
+			Core::MeshData* GetBuiltinMesh(const std::string& name);
+
+			// One built-in shape: the name it is registered under, and the name to show
+			// it by (a picker offering "__default_plane" is not offering a plane).
+			struct BuiltinShape {
+				std::string label;
+				std::string mesh;
+			};
+			static const std::vector<BuiltinShape>& BuiltinShapes();
+			static bool IsBuiltinMeshName(const std::string& name);
+			// The shape's display label, or an empty string if `name` is not one.
+			static std::string BuiltinShapeLabel(const std::string& name);
+
+			// The names the defaults are registered under. A saved scene references
 			// them like any other asset, so deserialization has to recognize them and
 			// create the asset on demand rather than reporting it missing.
 			static constexpr const char* DEFAULT_MATERIAL_NAME = "__default_material";
 			static constexpr const char* DEFAULT_MESH_NAME = "__default_mesh";
+			static constexpr const char* DEFAULT_PLANE_MESH_NAME = "__default_plane";
 			static constexpr const char* DEFAULT_SPLAT_CLOUD_NAME = "__default_splat_cloud";
 
 			// The context handed to component ToJson/FromJson, bound to this world's

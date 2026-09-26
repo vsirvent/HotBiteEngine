@@ -433,14 +433,30 @@ namespace HotBiteEditor {
 					{ "AmbientLight", json::object() } } },
 				//Mesh and Material come with the stand-in cube and white material, so
 				//the entity draws at once and can then be pointed at real assets.
+				//Lighted is the fourth: RenderSystem's drawable signature requires it, so
+				//without it the entity is selectable, measured and gizmo'd but never
+				//reaches a render tree - which looks like the mesh failing to load rather
+				//than like a missing component. Every engine spawner (the FBX loader,
+				//SpawnTemplateEntities, CloneEntity) adds it beside the Mesh for the same
+				//reason; it carries no authored data, only presence.
 				{ "Mesh Object", "Mesh", {
 					{ "Mesh", json::object() },
 					{ "Material", json::object() },
-					{ "Bounds", json::object() } } },
+					{ "Bounds", json::object() },
+					{ "Lighted", json::object() } } },
+				//The same entity on the engine's other built-in shape, named here rather
+				//than left to be picked afterwards: a unit quad in XZ facing up, so
+				//scaling it is all a floor or a wall needs.
+				{ "Plane Object", "Plane", {
+					{ "Mesh", { { "name", World::DEFAULT_PLANE_MESH_NAME } } },
+					{ "Material", json::object() },
+					{ "Bounds", json::object() },
+					{ "Lighted", json::object() } } },
 				{ "Physics Object", "PhysicsObject", {
 					{ "Mesh", json::object() },
 					{ "Material", json::object() },
 					{ "Bounds", json::object() },
+					{ "Lighted", json::object() },
 					{ "Physics", json::object() } } },
 				{ "Gaussian Splat", "GaussianSplat", {
 					{ "SplatCloud", json::object() } } },

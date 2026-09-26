@@ -140,6 +140,7 @@ both halves.
 | `33-polyhaven` | empty | Poly Haven browsing and import against a local mirror of the API: categories, previews, map-to-slot mapping, resolution fallback, undo, saving; one test hits the live site and skips when offline |
 | `34-platform` | empty | `Platform`/`LinearPlatform`/`Force`: the motion each drives with and without a rigid body, that nothing moves while physics is paused and the preview rewinds it, the STATIC→KINEMATIC promotion, a force field's shape and reach, and the two viewport overlays |
 | `35-tessellation` | empty | the four tessellation modes (off, on, distance, silhouette) and the height map they displace: the non-zero default displacement, `material_surface`, undo and save/reload for every mode; the frame on a flat map and on a real PBR set (ambientCG Bricks076C from `testsssets\`); the tessellated vertex count from `tess_info` (distance thins out with range, silhouette spares the face toward the camera, a 4 x 2 box counts like a 2 x 4 one - both triangles of a quad tessellate alike); no cracks along a shared edge; and that the relief follows `uv_scale` and world-aligned tiling |
+| `36-shapes` | empty | the engine's built-in shapes: what the mesh picker offers, switching a Mesh between the cube and the plane, the geometry each is drawn with, the plane's flat bounds, `Add/Plane Object`, undo, that a plane reaches the frame, and a shape rebuilt from its name on reload |
 
 ## Things that will bite you
 

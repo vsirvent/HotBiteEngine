@@ -799,10 +799,11 @@ namespace HotBite {
 				if (j.contains("name") && j["name"].is_string()) {
 					const std::string mesh_name = j["name"];
 					Core::MeshData* found = ctx.world->GetMeshes().Get(mesh_name);
-					if (found == nullptr && mesh_name == World::DEFAULT_MESH_NAME) {
-						//As with the default material: built on demand, so a scene
-						//referencing it is just the first request for it.
-						found = ctx.world->GetDefaultMesh();
+					if (found == nullptr && World::IsBuiltinMeshName(mesh_name)) {
+						//As with the default material: the built-in shapes are built on
+						//demand, so a scene referencing one is just the first request
+						//for it.
+						found = ctx.world->GetBuiltinMesh(mesh_name);
 					}
 					if (found != nullptr) {
 						target = found;
@@ -812,9 +813,9 @@ namespace HotBite {
 					}
 				}
 				//A Mesh added from scratch gets the default unit cube: visible in the
-				//viewport straight away, and swappable for a real mesh afterwards. A
-				//null MeshData would just be an invisible entity that crashes anything
-				//reaching for its geometry.
+				//viewport straight away, and swappable for another built-in shape or a
+				//real mesh afterwards. A null MeshData would just be an invisible
+				//entity that crashes anything reaching for its geometry.
 				if (target == nullptr) {
 					target = ctx.world->GetDefaultMesh();
 				}

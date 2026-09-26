@@ -1037,12 +1037,17 @@ namespace HotBiteEditor {
 
 			//Which mesh asset this entity draws. Same picker the Templates panel has, and
 			//the same reason it is a picker rather than a text field: the name has to
-			//resolve against the level's loaded meshes or the entity would end up holding
-			//the default cube.
+			//resolve against the level's loaded meshes or one of the engine's built-in
+			//shapes, or the entity would end up holding the default cube.
 			const std::vector<std::string> meshes = TemplateOps::ListMeshes(state);
-			if (ImGui::BeginCombo("Mesh", mesh_name.empty() ? "(none)" : mesh_name.c_str())) {
+			const std::string preview = mesh_name.empty() ? std::string("(none)")
+				: TemplateOps::MeshLabel(mesh_name);
+			if (ImGui::BeginCombo("Mesh", preview.c_str())) {
 				for (const std::string& option : meshes) {
-					if (ImGui::Selectable(option.c_str(), option == mesh_name) &&
+					//Shown by its label and set by its name: a built-in shape's name is
+					//internal spelling nobody should have to read.
+					const std::string label = TemplateOps::MeshLabel(option);
+					if (ImGui::Selectable(label.c_str(), option == mesh_name) &&
 						option != mesh_name) {
 						nlohmann::json block = ComponentOps::GetValue(state, entity_name, Mesh::NAME);
 						block["name"] = option;
@@ -1064,9 +1069,6 @@ namespace HotBiteEditor {
 							state.status_message = "Set mesh failed: " + error;
 						}
 					}
-				}
-				if (meshes.empty()) {
-					ImGui::TextDisabled("(this level has no mesh assets)");
 				}
 				ImGui::EndCombo();
 			}

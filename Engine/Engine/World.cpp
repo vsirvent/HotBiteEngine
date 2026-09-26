@@ -2301,28 +2301,76 @@ Core::MaterialData* World::GetDefaultMaterial() {
 	return material;
 }
 
+const std::vector<World::BuiltinShape>& World::BuiltinShapes() {
+	//The shapes the engine can assemble on its own. Order is the order a picker
+	//offers them in, so the cube - what a Mesh added from scratch already is - comes
+	//first.
+	static const std::vector<BuiltinShape> shapes = {
+		{ "Cube",  DEFAULT_MESH_NAME },
+		{ "Plane", DEFAULT_PLANE_MESH_NAME },
+	};
+	return shapes;
+}
+
+bool World::IsBuiltinMeshName(const std::string& name) {
+	return !BuiltinShapeLabel(name).empty();
+}
+
+std::string World::BuiltinShapeLabel(const std::string& name) {
+	for (const BuiltinShape& shape : BuiltinShapes()) {
+		if (shape.mesh == name) {
+			return shape.label;
+		}
+	}
+	return std::string();
+}
+
 Core::MeshData* World::GetDefaultMesh() {
-	if (Core::MeshData* existing = meshes.Get(DEFAULT_MESH_NAME)) {
+	return GetBuiltinMesh(DEFAULT_MESH_NAME);
+}
+
+Core::MeshData* World::GetBuiltinMesh(const std::string& name) {
+	if (Core::MeshData* existing = meshes.Get(name)) {
 		return existing;
 	}
 	if (vertex_buffer == nullptr) {
 		return nullptr;
 	}
 
-	//A unit cube centred on the origin: 24 vertices rather than 8, because each face
-	//needs its own normal, tangent and UVs.
+	//Every shape is a list of quads, each carrying its own frame and UVs - which is
+	//why the cube is 24 vertices and not 8: a shared corner would have to pick one
+	//of the three faces' normals, and the surface would shade as though it were
+	//curved.
+	struct Face { float3 normal; float3 tangent; float3 corners[4]; };
+	const float h = 0.5f;
+	std::vector<Face> faces;
+	if (name == DEFAULT_MESH_NAME) {
+		//A unit cube centred on the origin.
+		faces = {
+			{ { 0, 0,-1}, {1,0,0}, { {-h,-h,-h}, {-h, h,-h}, { h, h,-h}, { h,-h,-h} } }, //back
+			{ { 0, 0, 1}, {-1,0,0}, { { h,-h, h}, { h, h, h}, {-h, h, h}, {-h,-h, h} } }, //front
+			{ {-1, 0, 0}, {0,0,1}, { {-h,-h, h}, {-h, h, h}, {-h, h,-h}, {-h,-h,-h} } }, //left
+			{ { 1, 0, 0}, {0,0,-1}, { { h,-h,-h}, { h, h,-h}, { h, h, h}, { h,-h, h} } }, //right
+			{ { 0,-1, 0}, {1,0,0}, { {-h,-h, h}, {-h,-h,-h}, { h,-h,-h}, { h,-h, h} } }, //bottom
+			{ { 0, 1, 0}, {1,0,0}, { {-h, h,-h}, {-h, h, h}, { h, h, h}, { h, h,-h} } }, //top
+		};
+	}
+	else if (name == DEFAULT_PLANE_MESH_NAME) {
+		//The cube's top face at y = 0: a unit quad in XZ facing +Y, so scaling it is
+		//all a floor needs and no rotation is involved. Single sided on purpose -
+		//a back face would need its own copy of the four vertices to carry the
+		//opposite normal, and a ground plane seen from below is not a thing worth
+		//paying for; flip the entity's scale if one is.
+		faces = {
+			{ { 0, 1, 0}, {1,0,0}, { {-h, 0,-h}, {-h, 0, h}, { h, 0, h}, { h, 0,-h} } },
+		};
+	}
+	else {
+		return nullptr;
+	}
+
 	std::vector<Core::Vertex> vertices;
 	std::vector<uint32_t> indices;
-	const float h = 0.5f;
-	struct Face { float3 normal; float3 tangent; float3 corners[4]; };
-	const Face faces[6] = {
-		{ { 0, 0,-1}, {1,0,0}, { {-h,-h,-h}, {-h, h,-h}, { h, h,-h}, { h,-h,-h} } }, //back
-		{ { 0, 0, 1}, {-1,0,0}, { { h,-h, h}, { h, h, h}, {-h, h, h}, {-h,-h, h} } }, //front
-		{ {-1, 0, 0}, {0,0,1}, { {-h,-h, h}, {-h, h, h}, {-h, h,-h}, {-h,-h,-h} } }, //left
-		{ { 1, 0, 0}, {0,0,-1}, { { h,-h,-h}, { h, h,-h}, { h, h, h}, { h,-h, h} } }, //right
-		{ { 0,-1, 0}, {1,0,0}, { {-h,-h, h}, {-h,-h,-h}, { h,-h,-h}, { h,-h, h} } }, //bottom
-		{ { 0, 1, 0}, {1,0,0}, { {-h, h,-h}, {-h, h, h}, { h, h, h}, { h, h,-h} } }, //top
-	};
 	const float2 uvs[4] = { {0.0f, 1.0f}, {0.0f, 0.0f}, {1.0f, 0.0f}, {1.0f, 1.0f} };
 	for (const Face& face : faces) {
 		uint32_t base = (uint32_t)vertices.size();
@@ -2345,14 +2393,14 @@ Core::MeshData* World::GetDefaultMesh() {
 	}
 
 	//Insert before Init for the same reason as the material above.
-	meshes.Insert(DEFAULT_MESH_NAME, Core::MeshData{});
-	Core::MeshData* mesh = meshes.Get(DEFAULT_MESH_NAME);
+	meshes.Insert(name, Core::MeshData{});
+	Core::MeshData* mesh = meshes.Get(name);
 	if (mesh == nullptr) {
 		return nullptr;
 	}
-	mesh->Init(vertex_buffer, DEFAULT_MESH_NAME, vertices, indices, nullptr);
+	mesh->Init(vertex_buffer, name, vertices, indices, nullptr);
 	//The GPU vertex/BVH buffers were uploaded once during Init(); a mesh created
-	//after that (which is every default mesh, since it is made on demand) is not in
+	//after that (which is every built-in shape, since it is made on demand) is not in
 	//them yet and would draw as nothing.
 	if (scene_init) {
 		RefreshMeshBuffers();

@@ -39,9 +39,11 @@ namespace HotBiteEditor {
 			constexpr const char* TEMPLATE_SUBDIR = "Templates";
 			constexpr const char* TEMPLATE_EXTENSION = ".tpl";
 
-			//The stand-in mesh World creates on demand. It is engine bookkeeping, not an
-			//authored asset, so it must not appear in the mesh picker - a template that
-			//has not been pointed at a real mesh yet is already using it.
+			//An asset World creates on demand rather than one the level imported. The
+			//built-in shapes are offered by ListMeshes from World::BuiltinShapes
+			//instead, so that a shape is listed before anything has built it; every
+			//other "__default_*" asset is what an unassigned component is already
+			//drawing and is not something to pick.
 			bool IsInternalAsset(const std::string& name) {
 				return name.rfind("__default_", 0) == 0;
 			}
@@ -120,13 +122,35 @@ namespace HotBiteEditor {
 			if (state.world == nullptr) {
 				return names;
 			}
+			//The built-in shapes lead, in the engine's own order, and are listed whether
+			//or not they have been built yet: they are geometry the engine assembles on
+			//demand, so offering one is not a claim that the level loaded anything.
+			//Sorting them in with the assets would bury them under whatever the level
+			//imported, and their names sort by their internal spelling rather than by
+			//the label a picker shows.
+			for (const World::BuiltinShape& shape : World::BuiltinShapes()) {
+				names.push_back(shape.mesh);
+			}
+			std::vector<std::string> assets;
 			for (const Core::MeshData& mesh : state.world->GetMeshes().GetData()) {
+				//A built-in that has been built is already above; the rest of the
+				//generated stand-ins are what an unassigned component is drawing, not
+				//something to pick.
 				if (!mesh.name.empty() && !IsInternalAsset(mesh.name)) {
-					names.push_back(mesh.name);
+					assets.push_back(mesh.name);
 				}
 			}
-			std::sort(names.begin(), names.end());
+			std::sort(assets.begin(), assets.end());
+			names.insert(names.end(), assets.begin(), assets.end());
 			return names;
+		}
+
+		std::string MeshLabel(const std::string& mesh_name) {
+			const std::string shape = World::BuiltinShapeLabel(mesh_name);
+			if (shape.empty()) {
+				return mesh_name;
+			}
+			return shape + " (built-in)";
 		}
 
 		std::vector<std::string> ListSplatClouds(const EditorState& state) {
@@ -1713,18 +1737,20 @@ namespace HotBiteEditor {
 				const std::string mesh_name = block.value("name", std::string());
 
 				const std::vector<std::string> meshes = TemplateOps::ListMeshes(state);
-				if (ImGui::BeginCombo("Mesh", mesh_name.empty() ? "(default cube)" : mesh_name.c_str())) {
+				const std::string preview = mesh_name.empty() ? std::string("(default cube)")
+					: TemplateOps::MeshLabel(mesh_name);
+				if (ImGui::BeginCombo("Mesh", preview.c_str())) {
 					for (const std::string& option : meshes) {
-						if (ImGui::Selectable(option.c_str(), option == mesh_name) &&
+						//Shown by its label and set by its name: a built-in shape's
+						//name is internal spelling nobody should have to read.
+						const std::string label = TemplateOps::MeshLabel(option);
+						if (ImGui::Selectable(label.c_str(), option == mesh_name) &&
 							option != mesh_name) {
 							std::string error;
 							if (!TemplateOps::SetMesh(state, name, option, error)) {
 								state.status_message = "Set mesh failed: " + error;
 							}
 						}
-					}
-					if (meshes.empty()) {
-						ImGui::TextDisabled("(this level has no mesh assets)");
 					}
 					ImGui::EndCombo();
 				}

@@ -307,9 +307,17 @@ namespace HotBiteEditor {
 		};
 		std::vector<AvailableClip> ListAvailableClips(const EditorState& state);
 
-		// Names of the mesh assets the level has loaded, sorted, excluding the
-		// internal "__default_*" stand-in.
+		// The mesh names a Mesh component can be pointed at: the engine's built-in
+		// shapes (World::BuiltinShapes - cube, plane) first, then the level's own
+		// loaded mesh assets, sorted. The built-ins are always offered, whether or not
+		// they have been built yet, because they are what a Mesh added from scratch is
+		// already drawing and swapping between them needs no asset at all. The other
+		// generated stand-ins ("__default_*") stay out.
 		std::vector<std::string> ListMeshes(const EditorState& state);
+
+		// How to show a mesh name in a picker: a built-in shape's label ("Cube"),
+		// marked as built-in, or the asset's own name unchanged.
+		std::string MeshLabel(const std::string& mesh_name);
 
 		// The same for Gaussian splat cloud assets (imported .ply files), which a
 		// SplatCloud component points at exactly as a Mesh points at a mesh.

@@ -5,7 +5,8 @@ Test 'every preset is in the menu registry' {
     $r = SendOk 'menus'
     $paths = @($r[0].Payload | ForEach-Object { ($_ -replace ' \(disabled\)$', '') })
     foreach ($p in @('Add/Sky', 'Add/Directional Light', 'Add/Point Light', 'Add/Spot Light',
-                     'Add/Ambient Light', 'Add/Mesh Object', 'Add/Physics Object', 'Add/Gaussian Splat')) {
+                     'Add/Ambient Light', 'Add/Mesh Object', 'Add/Plane Object',
+                     'Add/Physics Object', 'Add/Gaussian Splat')) {
         Assert-Contains -Collection $paths -Value $p -Message 'menu registry'
     }
 }
@@ -18,6 +19,17 @@ Test 'Add/Mesh Object gives an entity that can be drawn' {
     foreach ($c in @('Base', 'Transform', 'Mesh', 'Material', 'Bounds')) {
         Assert-Contains -Collection $components -Value $c -Message 'mesh object components'
     }
+}
+
+Test 'Add/Plane Object is the same entity on the other built-in shape' {
+    # The plane's own behaviour - the geometry, its bounds, undo and save/reload - is
+    # 36-shapes; here it is only that the preset exists and names the shape rather
+    # than leaving the entity on the cube every other preset gets.
+    SendOk 'menu "Add/Plane Object"' | Out-Null
+    $name = (Get-State -Session $Session).selected_entity_name
+    Assert-Equal -Expected 'Plane' -Actual $name
+    Assert-Equal -Expected '__default_plane' `
+        -Actual (Get-Component -Session $Session -Entity $name -Component 'Mesh').name
 }
 
 Test 'Add/Sky carries the sky and its sun' {

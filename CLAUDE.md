@@ -1798,6 +1798,36 @@ Three things follow from "belongs to no asset":
   nothing catches, on the *next* load — so the level that saved would not reopen. It now
   requires both components, a collider having nothing to be sized from without the box.
 
+**The engine assembles two shapes itself, and a Mesh names one like any other asset.**
+`World::BuiltinShapes` is the list - `__default_mesh` (the unit cube a Mesh added from
+scratch gets) and `__default_plane` (a unit quad in XZ facing +Y, so scaling it is all a
+floor needs and no rotation is involved). `World::GetBuiltinMesh` builds one on demand and
+caches it, and `Mesh::FromJson` recognizes either name and builds it rather than reporting
+a missing asset - which is what lets a level record a shape by name with no geometry, no
+`models` entry and no import. `TemplateOps::ListMeshes` puts both at the head of every mesh
+picker whether or not they have been built yet, shown through `TemplateOps::MeshLabel`
+("Cube (built-in)"); `list_meshes` marks them `builtin=<label>`. The surfaces are the
+Components and Templates panels' Mesh combos and `Add/Plane Object` beside `Add/Mesh
+Object`. Suite: `36-shapes`.
+
+Two things there are not guessable. The plane is **single sided** - it is the cube's top
+face, and a back face would need its own four vertices to carry the opposite normal - so a
+plane seen from below is not there; flip the entity's scale if one is wanted. And its
+`Bounds` comes out with a **zero Y extent**, which is legal for a box and not for a
+collision shape: `Physics::AddCollider`'s `MIN_EXTENT` clamp is what turns it into a thin
+one, so a plane takes a body like anything else.
+
+**A drawn entity is a *lit* entity: `RenderSystem`'s `drawable_signature` requires
+`Components::Lighted`.** Every engine spawner adds it beside the Mesh (`FBXLoader`,
+`World::SpawnTemplateEntities`, `World::CloneEntity`) and it carries no authored data -
+only presence, `ToJson` being `{}`. The editor's `Add/*` presets did not, so a preset
+entity was selectable, measured, gizmo'd and **never drawn**: it reaches no render tree at
+all, which reads as the mesh failing to load rather than as a missing component (its
+depth-buffer view is empty too, so even the debug views agree with the wrong conclusion).
+The three mesh-bearing presets now declare it. The same trap is still open for an entity
+built by hand - `Add/Entity` plus Mesh/Material/Bounds from the Components panel draws
+nothing until `Lighted` is added there too.
+
 **A model's name is a registry key, not the file name** — it defaults to the file stem
 and File/Import Model... now asks for it before loading anything, because it is the key
 the assets are filed under and renaming afterwards would mean re-registering them. A
