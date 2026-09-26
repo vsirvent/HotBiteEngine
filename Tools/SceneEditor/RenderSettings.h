@@ -27,7 +27,8 @@ namespace HotBiteEditor {
 
 		// Programmatic access, shared with the automation channel's `render` command.
 		// Keys: rt_quality (off|low|mid|high), rt_reflections, rt_refractions,
-		// rt_indirect, aa, motion_blur, motion_blur_scale, dof, dof_autofocus, dof_focus, dof_amplitude,
+		// rt_indirect, gi_confidence (float 0..1, ceiling on how much the GI
+		// trusts its history - see RenderSystem::SetGIMaxConfidence), aa, motion_blur, motion_blur_scale, dof, dof_autofocus, dof_focus, dof_amplitude,
 		// lens_flare, wireframe (booleans take 0/1, motion_blur_scale/dof_focus/dof_amplitude take
 		// floats; setting either of those switches dof_autofocus off, since
 		// autofocus drives both focus and amplitude).

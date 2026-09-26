@@ -778,6 +778,9 @@ namespace HotBite {
 				//indirect light in particular sits well under 1.0, so raw it reads as
 				//black; without a gain half the views look broken rather than dark.
 				float debug_gain = 1.0f;
+				//Ceiling on the confidence GIAverageCS places in its screen-space history
+				//(0..1). 0 makes a still camera look like a moving one.
+				float gi_max_confidence = 0.0f;
 				uint32_t frame_count = 0;
 				uint32_t current = 0;
 				uint32_t prev = 1;
@@ -960,6 +963,14 @@ namespace HotBite {
 				//scale survives toggling the effect off and back on.
 				void SetMotionBlurScale(float scale);
 				float GetMotionBlurScale() const;
+				//Ceiling on how much the indirect light trusts its own history, 0..1
+				//(clamped). Camera motion is what normally lowers that trust, so at 1 a
+				//still camera converges fully (least noise, sharpest) and looks different
+				//from a moving one; at 0 every pixel is treated as moving, so the two look
+				//alike at the price of a noisier still image. It is a look, so it is part
+				//of a level's render settings and not a debug switch.
+				void SetGIMaxConfidence(float confidence);
+				float GetGIMaxConfidence() const;
 				void SetDOF(bool enabled);
 				bool GetDOF() const;
 				//Depth of field autofocus (on by default). The focal distance is

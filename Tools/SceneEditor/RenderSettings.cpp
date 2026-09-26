@@ -43,6 +43,7 @@ namespace HotBiteEditor {
 			rs->SetAA(true);
 			rs->SetMotionBlur(true);
 			rs->SetMotionBlurScale(1.0f);
+			rs->SetGIMaxConfidence(0.0f);
 			rs->SetDOF(false);
 			rs->SetLensFlare(true);
 			//Camera artifacts start neutral: the editor shows the render as it is,
@@ -81,6 +82,17 @@ namespace HotBiteEditor {
 			rt_changed |= ImGui::Checkbox("RT indirect light", &indirect);
 			if (rt_changed) {
 				rs->SetRayTracing(reflections, refractions, indirect);
+			}
+			float gi_confidence = rs->GetGIMaxConfidence();
+			ImGui::SetNextItemWidth(120.0f);
+			if (ImGui::SliderFloat("GI max confidence", &gi_confidence, 0.0f, 1.0f)) {
+				rs->SetGIMaxConfidence(gi_confidence);
+			}
+			if (ImGui::IsItemHovered()) {
+				ImGui::SetTooltip("Ceiling on how much the indirect light trusts its history.\n"
+					"1: a still camera converges fully - least noise, but it looks\n"
+					"different from a moving one. 0: every pixel is treated as\n"
+					"moving, so still and moving look alike, with more noise.");
 			}
 
 			ImGui::Separator();
@@ -405,6 +417,14 @@ namespace HotBiteEditor {
 				rs->SetMotionBlurScale(v);
 				return true;
 			}
+			if (key == "gi_confidence") {
+				float v;
+				try { v = std::stof(value); }
+				catch (...) { error = key + " must be a float"; return false; }
+				if (v < 0.0f || v > 1.0f) { error = key + " must be within 0..1"; return false; }
+				rs->SetGIMaxConfidence(v);
+				return true;
+			}
 			if (key == "lens_aberration" || key == "lens_grain" || key == "lens_vignette") {
 				float v;
 				try { v = std::stof(value); }
@@ -501,6 +521,7 @@ namespace HotBiteEditor {
 				j["rt_reflections"] = reflections;
 				j["rt_refractions"] = refractions;
 				j["rt_indirect"] = indirect;
+				j["gi_confidence"] = rs->GetGIMaxConfidence();
 				j["aa"] = rs->GetAA();
 				j["motion_blur"] = rs->GetMotionBlur();
 				j["motion_blur_scale"] = rs->GetMotionBlurScale();
@@ -549,6 +570,7 @@ namespace HotBiteEditor {
 				indirect = j.value("rt_indirect", indirect);
 				rs->SetRayTracing(reflections, refractions, indirect);
 			}
+			if (j.contains("gi_confidence")) { rs->SetGIMaxConfidence(j.value("gi_confidence", rs->GetGIMaxConfidence())); }
 			if (j.contains("aa")) { rs->SetAA(j.value("aa", rs->GetAA())); }
 			if (j.contains("motion_blur")) { rs->SetMotionBlur(j.value("motion_blur", rs->GetMotionBlur())); }
 			if (j.contains("motion_blur_scale")) { rs->SetMotionBlurScale(j.value("motion_blur_scale", rs->GetMotionBlurScale())); }

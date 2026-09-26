@@ -165,6 +165,7 @@ Test 'render settings survive a save and reload, but the debug-only ones never d
     SendOk 'render rt_reflections 0' | Out-Null
     SendOk 'render rt_refractions 0' | Out-Null
     SendOk 'render rt_indirect 0' | Out-Null
+    SendOk 'render gi_confidence 0.35' | Out-Null
     SendOk 'render aa 0' | Out-Null
     SendOk 'render motion_blur 0' | Out-Null
     SendOk 'render motion_blur_scale 2.2' | Out-Null
@@ -189,6 +190,7 @@ Test 'render settings survive a save and reload, but the debug-only ones never d
     Assert-Equal -Expected 'False' -Actual $render.rt_reflections
     Assert-Equal -Expected 'False' -Actual $render.rt_refractions
     Assert-Equal -Expected 'False' -Actual $render.rt_indirect
+    Assert-Near -Expected 0.35 -Actual $render.gi_confidence -Tolerance 0.001
     Assert-Equal -Expected 'False' -Actual $render.aa
     Assert-Equal -Expected 'False' -Actual $render.motion_blur
     Assert-Near -Expected 2.2 -Actual $render.motion_blur_scale -Tolerance 0.01
@@ -216,6 +218,7 @@ Test 'render settings survive a save and reload, but the debug-only ones never d
         Assert-Equal -Expected 'False' -Actual $r.rt_reflections
         Assert-Equal -Expected 'False' -Actual $r.rt_refractions
         Assert-Equal -Expected 'False' -Actual $r.rt_indirect
+        Assert-Near -Expected 0.35 -Actual $r.gi_confidence -Tolerance 0.001
         Assert-Equal -Expected 'False' -Actual $r.aa
         Assert-Equal -Expected 'False' -Actual $r.motion_blur
         Assert-Near -Expected 2.2 -Actual $r.motion_blur_scale -Tolerance 0.01

@@ -14,6 +14,11 @@ cbuffer externalData : register(b0)
     float3 cameraPosition;
     uint frame_count;
     int kernel_size;
+    //Ceiling on how far the pass trusts screen-space history, 0..1. Motion is the
+    //only thing that lowers confidence, so a still camera converges to full trust
+    //(1) and is the sharpest and the least noisy; 0 treats every pixel as moving, so
+    //a still frame keeps the noise level of a moving one.
+    float max_confidence;
 }
 
 Texture2D<float4> input : register(t0);
@@ -34,6 +39,7 @@ float GetPosW(int pos, uint kernel) {
 #define MIN_W 0.1f
 
 #define NTHREADS 8
+
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main(uint3 DTid : SV_DispatchThreadID)
 {
@@ -265,14 +271,19 @@ void main(uint3 DTid : SV_DispatchThreadID)
                     if (mvector.x > -FLT_MAX) {
                         pixels_moved = length(mvector) * info_dimensions.x * 0.5f;
                     }
-                    float blend = lerp(0.15f, 0.8f, saturate(pixels_moved * 0.25f));
+                    //How far the pixel is from "fully moving", floored by the scene's
+                    //confidence ceiling: at max_confidence 0 every pixel counts as
+                    //moving, so a still camera keeps the look of a moving one instead
+                    //of sharpening as history accumulates.
+                    float moving = max(saturate(pixels_moved * 0.25f), 1.0f - saturate(max_confidence));
+                    float blend = lerp(0.15f, 0.8f, moving);
                     c.rgb = lerp(prev_color, c.rgb, blend);
 
                     //With usable history the screen estimate is the sharper of the
                     //two - it carries contact detail a voxel cannot - so the cache
                     //only leans in as the history stops being trustworthy, which is
                     //exactly when the pixel is moving fast.
-                    cache_weight = saturate(pixels_moved * 0.25f) * RC_PRIMARY_BLEND;
+                    cache_weight = moving * RC_PRIMARY_BLEND;
                 }
             }
 

@@ -2826,6 +2826,7 @@ void RenderSystem::ProcessGI() {
 		gi_average->SetShaderResourceView("prev_position_map", prev_position_map.SRV());
 		gi_average->SetShaderResourceView("tiles_output", rt_textures_gi_tiles.SRV());
 		gi_average->SetInt("kernel_size", RESTIR_HALF_KERNEL);
+		gi_average->SetFloat("max_confidence", gi_max_confidence);
 		gi_average->SetInt("frame_count", frame_count);
 		//Pass 3 reads the world cache to fill in where the screen-space history
 		//cannot. Read-only here - the SRV, not the UAV the tracer deposits through.
@@ -3876,6 +3877,14 @@ void RenderSystem::SetMotionBlurScale(float scale) {
 
 float RenderSystem::GetMotionBlurScale() const {
 	return motion_blur_scale;
+}
+
+void RenderSystem::SetGIMaxConfidence(float confidence) {
+	gi_max_confidence = min(max(confidence, 0.0f), 1.0f);
+}
+
+float RenderSystem::GetGIMaxConfidence() const {
+	return gi_max_confidence;
 }
 
 void RenderSystem::SetDOF(bool enabled) {

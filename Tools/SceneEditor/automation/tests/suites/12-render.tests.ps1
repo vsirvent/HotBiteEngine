@@ -15,7 +15,7 @@ $DebugBuffers = @('off', 'scene', 'light', 'bloom', 'emission', 'reflection', 'r
 Test 'render dumps every setting the Render menu has' {
     $r = Get-Render -Session $Session
     foreach ($key in @('rt_quality', 'rt_reflections', 'rt_refractions', 'rt_indirect',
-                       'aa', 'motion_blur', 'motion_blur_scale', 'dof', 'dof_autofocus', 'dof_focus', 'dof_amplitude',
+                       'gi_confidence', 'aa', 'motion_blur', 'motion_blur_scale', 'dof', 'dof_autofocus', 'dof_focus', 'dof_amplitude',
                        'lens_flare', 'lens', 'lens_aberration', 'lens_grain', 'lens_vignette',
                        'wireframe', 'debug_buffer', 'debug_gain', 'gi_denoise', 'rt_denoise')) {
         Assert-True -Condition ($null -ne $r.$key) -Message "render dumps $key"
@@ -45,6 +45,16 @@ Test 'an unknown key or a missing value is rejected' {
     Assert-Err -Result (Send 'render no_such_key 1')[0]
     Assert-Err -Result (Send 'render aa')[0] -Pattern 'usage:'
     Assert-Err -Result (Send 'render aa maybe')[0]
+}
+
+Test 'gi_confidence takes 0..1, rejects anything else and defaults to 0' {
+    Assert-Near -Expected 0.0 -Actual (Get-Render -Session $Session).gi_confidence -Tolerance 0.001 -Message 'default'
+    $r = SendOk 'render gi_confidence 0.6'
+    Assert-Near -Expected 0.6 -Actual ($r[0].Text | ConvertFrom-Json).gi_confidence -Tolerance 0.001
+    Assert-Err -Result (Send 'render gi_confidence 2')[0] -Message 'above 1'
+    Assert-Err -Result (Send 'render gi_confidence -1')[0] -Message 'below 0'
+    Assert-Err -Result (Send 'render gi_confidence nonsense')[0]
+    SendOk 'render gi_confidence 0' | Out-Null
 }
 
 Test 'the lens effects take 0..1 and reject anything else' {
