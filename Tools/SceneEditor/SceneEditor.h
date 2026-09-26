@@ -108,6 +108,12 @@ namespace HotBiteEditor {
 	// spheres and cones (see LightGizmos.h). View state, so it records no undo history.
 	enum class LightView { Off = 0, Selection, All };
 
+	// Whether the viewport draws a platform's travel and a force field's volume (see
+	// MotionGizmos.h). One enum, two independent switches: the two are the same kind of
+	// overlay but rarely wanted together, a level having far more moving parts than force
+	// fields. View state, so neither records undo history.
+	enum class MotionView { Off = 0, Selection, All };
+
 	// Which shadow debug tint the engine renders the scene with (see ShadowDebug.h).
 	// One at a time: both recolour the same directional term, so showing them together
 	// would multiply two palettes into a colour that means nothing.
@@ -212,6 +218,12 @@ namespace HotBiteEditor {
 		// without a marker an unselected one cannot be seen at all.
 		LightView light_view = LightView::Selection;
 		bool light_positions = true;
+		// Platform travel and force-field volumes (see MotionGizmos.h). Selection-only by
+		// default, like the light shapes: these are the only components in the engine that
+		// are completely invisible in the frame, so they are on rather than off, but a
+		// level's every moving part at once is a lot of lines.
+		MotionView platform_view = MotionView::Selection;
+		MotionView force_view = MotionView::Selection;
 		// Which shadow debug tint the scene is rendered with (see ShadowDebug.h). View
 		// state, so it records no undo history - but unlike the collider overlay it
 		// switches a flag on the light itself, so ShadowDebug::Draw has to push it every
@@ -371,6 +383,9 @@ namespace HotBiteEditor {
 		bool show_inspector = true;
 		bool show_asset_browser = true;
 		bool show_material_panel = false;
+		bool show_texture_panel = false;
+		// Textures panel: the selected texture, by its name relative to Assets/Textures.
+		std::string selected_texture;
 		bool show_template_panel = false;
 		bool show_log_panel = false;
 

@@ -20,6 +20,9 @@ namespace HotBiteEditor {
 		// it is opened for an authoring session, and it needs a template list beside a
 		// component column.
 		inline constexpr const char* TEMPLATES_WINDOW = "Templates";
+		// The Textures panel (the project's texture library) is floating too: a session
+		// of loading and sorting a set, then closed.
+		inline constexpr const char* TEXTURES_WINDOW = "Textures";
 		// The Log panel is docked, unlike Materials/Templates: it is a full-width strip
 		// at the bottom the way an IDE's console pane sits, meant to stay in view beside
 		// whatever else is open rather than be brought forward for a session of its own.

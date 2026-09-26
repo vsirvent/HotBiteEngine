@@ -104,7 +104,7 @@ namespace HotBiteEditor {
 			return true;
 		}
 
-		bool AddComponent(EditorState& state, const std::string& entity_name,
+		bool AddComponentNoHistory(EditorState& state, const std::string& entity_name,
 			const std::string& component, const nlohmann::json& payload,
 			std::string& error)
 		{
@@ -121,6 +121,16 @@ namespace HotBiteEditor {
 			ComponentDelta& delta = state.component_deltas[entity_name];
 			delta.removed.erase(component);
 			delta.added[component] = payload;
+			return true;
+		}
+
+		bool AddComponent(EditorState& state, const std::string& entity_name,
+			const std::string& component, const nlohmann::json& payload,
+			std::string& error)
+		{
+			if (!AddComponentNoHistory(state, entity_name, component, payload, error)) {
+				return false;
+			}
 
 			//Capture the entity NAME, never the id: undo/redo may destroy and re-create
 			//entities and ids are recycled (see EditorHistory.h).

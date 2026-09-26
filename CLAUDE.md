@@ -1371,6 +1371,78 @@ light's position (`View/Light Positions`, on by default) - a light has no mesh o
 so without the marker an unselected one cannot be seen or found. `light_gizmo_info` is
 how a test reads what was drawn; `29-spotlight` is the suite.
 
+**A platform is an entity the engine moves by itself, and it works with or without a
+rigid body** (`Components/Platform.h`, `Systems/PlatformSystem.h`). Two components, and
+they share no parameter because they answer different questions: `Platform` oscillates
+about the pose it was authored at (`amplitude` world units along `linear_dir`, `freq`
+times a second) and/or spins (`angular_speed` rad/s about `angular_dir`, composed on top
+of the rotation it was authored with); `LinearPlatform` walks from its authored position to
+that plus `travel` at `speed` units a second and reverses. `Force` (`Components/Force.h`,
+`Systems/ForceSystem.h`) is the third of the set: a field that pushes every DYNAMIC body
+it reaches, either `TOUCH` (anything contacting its collider) or `PROJECTION` (a cylinder
+`radius` wide reaching `range`). All three came out of Marbles; the engine versions are
+what Marbles uses now, and `NonPhysicPlatform` was dropped because no level ever added
+one and a `Platform` on an entity with no `Physics` is exactly what it was for.
+
+Seven things there that are not guessable:
+
+- **Rates are per second and the pose is computed absolutely**, from the platform's own
+  clock, never by integrating a step per tick. Marbles' version added `speed * cos(...)`
+  every tick, so its amplitude was whatever the physics rate happened to be
+  (`speed * 60 / freq` at 60 Hz - which is how the migrated levels' numbers were derived)
+  and the platform drifted off its centre. Absolute is also what makes it come back to
+  exactly its authored position every cycle.
+- **Both systems run only while physics is not paused**, gated in `World::Run` next to
+  the simulation itself, and their clocks advance only on the ticks they run. That is
+  what makes a platform authorable: the Scene Editor keeps physics paused, so a platform
+  sits at its authored pose under the gizmo until Edit/Simulate Physics is switched on.
+- **`PhysicsPreview::IsSimulated` has to count a Platform**, not only a non-static body.
+  A platform with no `Physics` component writes its Transform directly, so it is moved by
+  the preview while satisfying nothing about a body - and without that line the preview's
+  rewind leaves it wherever it stopped and the level drifts a little every time anyone
+  previews it.
+- **A STATIC body is promoted to KINEMATIC the first time the platform actually moves**,
+  and `Base::is_static` is cleared with it. Both failures are silent and neither looks
+  like its own cause: `PhysicsSystem::Update` writes a Transform back only for a body
+  that is not STATIC, so a STATIC platform slides through the collision world while
+  standing still on screen, and a static caster is drawn only into the directional
+  light's static shadow map, so its shadow stays where the platform was authored. On the
+  first *move*, not the first tick: a platform at its defaults is inert, and neither a
+  body type nor a caster's shadow path should change for a piece of scenery that is not
+  going anywhere.
+- **Riders are carried by hand.** reactphysics3d imparts no friction from a KINEMATIC
+  body, so each of the platform's DYNAMIC contacts is displaced by the same delta - and a
+  spin *orbits* them about the platform's axis rather than copying its orientation onto
+  them, which is the obvious reading of "carry it" and leaves a rider spinning in place
+  at one spot on a turning carousel.
+- **Both systems re-latch when the platform is not where they last put it** - a gizmo
+  drag, an undo, the preview's rewind. Without it, authoring a moving platform walks it a
+  little further off with every edit. The live state for that lives on the *component*
+  (`Platform::rt`), not in the system's record, because `ECS::EntityVector::Insert`
+  overwrites an existing entry and the editor raises a signature change on every
+  component edit.
+- **A spin's zero is the latched rotation, never `Transform::initial_rotation`.** That
+  field is written by `FBXLoader` and by nothing else - not by `Transform::FromJson`, not
+  by the editor's gizmo - so composing the spin onto it (which is what Marbles did, and
+  what `PlayerSystem` still does) makes a platform rotated in a level file or in the
+  editor snap back to its import rotation the instant it starts turning.
+- **`Force::origin_force` is the magnitude at the entity and `force` the one at `range`**,
+  linearly between. Zero (the default, and what Marbles always had) is the profile a fan
+  wants - weakest at the nozzle, so nothing sits pinned against it. Set the two equal for
+  a uniform field.
+
+The editor surface is a section per component in the Inspector (hand-written, because a
+`float3` is most of what these carry and `DrawJsonGrid` can only show a nested object as
+text) plus two viewport overlays in `MotionGizmos.cpp`: `View/Platform Gizmos` draws the
+travel a platform actually covers and its spin circle, `View/Force Gizmos` draws a
+projection field as the cylinder it is - a cone is the intuitive drawing and is wrong -
+with chevrons along the axis whose size tracks the force at that distance, so the
+`origin_force` ramp is visible rather than inferred. These are the only components in the
+engine that are *entirely* invisible in the frame, which is why the overlays default to
+Selection rather than Off. `motion_gizmo_info` is how a test reads what was drawn - a
+platform at rest and one the editor never registered are the same screenshot - and
+`34-platform` is the suite.
+
 **Materials** are authored in the Materials panel (`Tools/SceneEditor/MaterialPanel.h`)
 and live in `.mat` files, which are shared assets referenced by a level rather than
 part of it — so they save separately from level data, through File/Save Materials
@@ -1396,6 +1468,44 @@ zero and the shaders read a constant (`ALPHA_ENABLED_FLAG` colour-keys against b
 which is what it always did). `Save` drops those retired keys from `source_json`
 rather than round-tripping them forever — that erase list is where a removed property
 goes so it stops appearing in `.mat` files.
+
+**A material's textures and shaders are imported project assets, never paths on the
+user's disk.** Textures live under `<project>/Assets/Textures` (subfolders allowed) and
+the texture rows in the panel are pickers over that folder with an **Import...** popup
+that copies a file in (`MaterialOps::ImportTexture`); shaders live under
+`<project>/Assets/Shaders`, both `.hlsl` and the `.cso` compiled beside it
+(`ImportShader`, and `CreateShaderFile` writes there too). The engine finds a project
+`.cso` by name because `ShaderFactory::AddBinaryFolder` is registered for that folder
+in `OpenLevel` *before* `World::Load` — register it after and a material naming an
+imported shader silently falls back to nothing. `MaterialData::Save` writes a texture
+as a path relative to the `.mat`'s root (`..\Textures\x.png` when the root is elsewhere),
+so a saved level carries no drive letter. A material that still names a file outside
+`Assets/Textures` shows `(external)`; Import... is pre-filled with it. Mask images of a
+multi-material layer are not covered by this yet. Scripted through `import_texture`,
+`list_textures`, `set_material_texture`, `textures`, `import_shader`
+(`31-assetimport`). Those commands live in `HandleAssetImportCommand`, not the main
+dispatch ladder — one more rung there hit the compiler's C1061 nesting limit.
+
+**Poly Haven is a material source** (`Tools/SceneEditor/PolyHaven.h`, the Materials panel's
+Poly Haven tab): browse its CC0 texture catalog by category with previews, and import one as
+material `<asset id>`, its maps downloaded into `Assets/Textures/PolyHaven/<id>/`. Diffuse,
+`nor_dx` (this engine is DirectX-convention) and `arm` map straight onto the engine's slots —
+Poly Haven's ARM packing is the one `ARM_MAP_ENABLED_FLAG` reads; `AO` stands in when an
+asset has no ARM, and Displacement goes to height only on request (it switches parallax on).
+All network work is on worker threads over WinHTTP; a finished download becomes a material
+in `PolyHaven::Tick`, between frames on the main thread. `polyhaven_source <folder>` points it
+at a local mirror of the API, which is how `33-polyhaven` runs offline.
+
+**The Textures panel (View/Textures, `TexturePanel.h`) is the library itself** — a load
+of `<project>/Assets/Textures`, independent of any material, so a whole set can be
+imported (`Import folder...` keeps its subfolders) and used later. There is no list
+file: the folder *is* the library, so add = copy in and remove = delete the file, both
+outside undo. Removal is therefore guarded: a texture that a material slot or a
+multi-material layer's mask still names cannot be removed (`TextureOps::FindUsers`), and
+a folder removal is all-or-nothing. Thumbnails are loaded only while on screen and go
+through `Core::LoadTexture`, so they share the SRV a material using the file holds;
+`RemoveTexture` drops its own reference *before* deleting the file. Suite:
+`32-texturepanel`.
 
 Materials carry their own shader set (`MaterialShaderNames`), editable per stage in the
 panel's Shaders section. Two constraints: the shader picker is a fixed list built from

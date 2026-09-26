@@ -4,6 +4,7 @@
 #include <ECS/Coordinator.h>
 #include <Components/Base.h>
 #include <Components/Physics.h>
+#include <Components/Platform.h>
 #include <mutex>
 
 using namespace HotBite::Engine;
@@ -13,13 +14,25 @@ using namespace HotBite::Engine::Components;
 namespace HotBiteEditor {
 	namespace PhysicsPreview {
 
-		//The entities the simulation can move, and therefore the ones that have to be
-		//rewound: PhysicsSystem::Update only writes a Transform back for a body that
-		//is not STATIC.
+		//The entities the preview can move, and therefore the ones that have to be
+		//rewound. Two kinds, and the second is easy to miss:
+		//
+		//  - a non-STATIC rigid body, which is what PhysicsSystem::Update writes a
+		//    Transform back for;
+		//  - a Platform or LinearPlatform, which PlatformSystem drives. Those run on the
+		//    same pause flag, and one with no Physics component at all writes its
+		//    Transform directly - so it is moved by the preview while satisfying nothing
+		//    about a body, and without this it would simply stay wherever the preview
+		//    left it.
 		static bool IsSimulated(Coordinator* c, Entity e)
 		{
-			if (!c->ContainsComponent<Base>(e) || !c->ContainsComponent<Transform>(e) ||
-				!c->ContainsComponent<Physics>(e)) {
+			if (!c->ContainsComponent<Base>(e) || !c->ContainsComponent<Transform>(e)) {
+				return false;
+			}
+			if (c->ContainsComponent<Platform>(e) || c->ContainsComponent<LinearPlatform>(e)) {
+				return true;
+			}
+			if (!c->ContainsComponent<Physics>(e)) {
 				return false;
 			}
 			const Physics& ph = c->GetComponent<Physics>(e);

@@ -42,6 +42,13 @@ namespace HotBiteEditor {
 			const std::string& component, const nlohmann::json& payload,
 			std::string& error);
 
+		// AddComponent without the history step, for a caller that adds several
+		// components as part of one larger action and pushes that action itself
+		// (EntityOps::CreatePresetEntity).
+		bool AddComponentNoHistory(EditorState& state, const std::string& entity_name,
+			const std::string& component, const nlohmann::json& payload,
+			std::string& error);
+
 		// Removes `component` from the entity. Fails when the entity is unknown, the
 		// component is not registered or is mandatory, or the entity does not have it.
 		bool RemoveComponent(EditorState& state, const std::string& entity_name,

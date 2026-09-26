@@ -81,6 +81,9 @@ void World::SetupCoordinator(ECS::Coordinator* c) {
 	//new component is not the place to find out that something does. Appending keeps
 	//every existing id exactly where it was.
 	c->RegisterComponent<Components::SplatCloud>();
+	c->RegisterComponent<Components::Platform>();
+	c->RegisterComponent<Components::LinearPlatform>();
+	c->RegisterComponent<Components::Force>();
 
 	//Serialization policies for the engine's own components. Registration is
 	//idempotent and the descriptors are stateless, so running this once per
@@ -106,6 +109,12 @@ void World::SetupCoordinator(ECS::Coordinator* c) {
 	registry.Register<Components::Material>(ComponentPolicy::Full);
 	registry.Register<Components::Bounds>(ComponentPolicy::Full);
 	registry.Register<Components::Lighted>(ComponentPolicy::Full);
+	//Motion and force authoring. Nothing but numbers, and each is inert at its defaults
+	//(zero amplitude, zero speed, Force::NONE), so adding one never disturbs the scene
+	//before it has been given values.
+	registry.Register<Components::Platform>(ComponentPolicy::Full);
+	registry.Register<Components::LinearPlatform>(ComponentPolicy::Full);
+	registry.Register<Components::Force>(ComponentPolicy::Full);
 	//Visible in the Inspector, but not editable by hand: Camera is entirely derived
 	//from its entity's Transform, and Particles owns emitter definitions that cannot
 	//be rebuilt from JSON (a "remove" would discard them irrecoverably).
@@ -138,6 +147,9 @@ bool World::PreLoad(Core::DXCore* dx) {
 	animation_mesh_system = RegisterSystem<Systems::AnimationMeshSystem>();
 	particle_system = RegisterSystem<Systems::ParticleSystem>();
 	audio_system = RegisterSystem<Systems::AudioSystem>();
+	platform_system = RegisterSystem<Systems::PlatformSystem>();
+	linear_platform_system = RegisterSystem<Systems::LinearPlatformSystem>();
+	force_system = RegisterSystem<Systems::ForceSystem>();
 
 	physics_system->Init(phys_world);
 	render_system->Init(dx_core, vertex_buffer, bvh_buffer);
@@ -3616,7 +3628,21 @@ void World::Run(int render_fps, int background_fps, int physics_fps, bool auto_r
 					while (current_physics_thread_nsec >= current_server_nsec) { Sleep(1); }
 				}
 				physics_mutex.lock();
-				//phys_world->update((float)t.period / 1000000000.0f);			
+				//phys_world->update((float)t.period / 1000000000.0f);
+				//Platforms move bodies and force fields push them, so both run before the
+				//game's own physics listeners - a game reading a platform's pose this tick
+				//sees where the platform is now, not where it was.
+				//
+				//Gated on the same pause flag the simulation itself is: the Scene Editor
+				//authors a scene rather than playing it, and a platform that oscillates
+				//under the gizmo cannot be placed. Their clocks only advance on the ticks
+				//they run, so a pause does not fast forward a platform to wherever it
+				//would have got to.
+				if (!physics_paused) {
+					platform_system->Update(t.period, t.total);
+					linear_platform_system->Update(t.period, t.total);
+					force_system->Update(t.period, t.total);
+				}
 				coordinator->SendEvent(this, World::EVENT_ID_UPDATE_PHYSICS);
 				physics_mutex.unlock();
 				current_physics_thread_nsec += physics_thread_period;

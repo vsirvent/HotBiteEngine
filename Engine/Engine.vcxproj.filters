@@ -110,7 +110,19 @@
     <ClCompile Include="Engine\Systems\PhysicsSystem.cpp">
       <Filter>Engine\Systems</Filter>
     </ClCompile>
+    <ClCompile Include="Engine\Systems\ForceSystem.cpp">
+      <Filter>Engine\Systems</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\Systems\PlatformSystem.cpp">
+      <Filter>Engine\Systems</Filter>
+    </ClCompile>
     <ClCompile Include="Engine\Components\Physics.cpp">
+      <Filter>Engine\Components</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\Components\Force.cpp">
+      <Filter>Engine\Components</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\Components\Platform.cpp">
       <Filter>Engine\Components</Filter>
     </ClCompile>
     <ClCompile Include="Engine\Core\PhysicsCommon.cpp">
@@ -285,6 +297,18 @@
     </ClInclude>
     <ClInclude Include="Engine\Systems\PhysicsSystem.h">
       <Filter>Engine\Systems</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\Systems\ForceSystem.h">
+      <Filter>Engine\Systems</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\Systems\PlatformSystem.h">
+      <Filter>Engine\Systems</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\Components\Force.h">
+      <Filter>Engine\Components</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\Components\Platform.h">
+      <Filter>Engine\Components</Filter>
     </ClInclude>
     <ClInclude Include="Engine\Systems\SplatCloudSystem.h">
       <Filter>Engine\Systems</Filter>

@@ -6,6 +6,8 @@
 #include "Inspector.h"
 #include "AssetBrowser.h"
 #include "MaterialPanel.h"
+#include "TexturePanel.h"
+#include "PolyHaven.h"
 #include "MaskPaint.h"
 #include "MaterialPreview.h"
 #include "ModelPreview.h"
@@ -21,6 +23,7 @@
 #include "Selection.h"
 #include "PhysicsDebug.h"
 #include "LightGizmos.h"
+#include "MotionGizmos.h"
 #include "ShadowDebug.h"
 #include "PhysicsPreview.h"
 #include "LogPanel.h"
@@ -144,6 +147,9 @@ namespace HotBiteEditor {
 			//Between frames, like the mesh flush below: a shader swap must not land in
 			//the middle of a draw. Inert unless auto reload is on (see ShaderReload.h).
 			ShaderReload::Tick(state);
+			//A Poly Haven download that finished on a worker becomes a material here, on
+			//this thread and between frames, for the same reason.
+			PolyHaven::Tick(state);
 			//An edit that changed a mesh's vertices (smoothing, from the Components
 			//panel, from a command above, or from an undo of either) only touched the
 			//CPU side; the immutable GPU buffers are rebuilt here, between frames,
@@ -355,6 +361,22 @@ namespace HotBiteEditor {
 				}
 			} });
 
+		//Add/<kind>: an entity that arrives with the components that kind of object
+		//typically carries (Sky, the lights, Mesh Object, Gaussian Splat...). The list
+		//lives in EntityOps::Presets, so a new kind is one entry there.
+		for (const EntityOps::EntityPreset& preset : EntityOps::Presets()) {
+			const std::string label = preset.label;
+			menu_commands.push_back({ "Add/" + label,
+				[this]() { return level_loaded; },
+				[this, label]() {
+					std::string name;
+					std::string error;
+					if (!EntityOps::CreatePresetEntity(state, label, name, error)) {
+						state.status_message = "Add " + label + " failed: " + error;
+					}
+				} });
+		}
+
 		//View: panel visibility toggles and layout reset. All of them need a level:
 		//before one is open the editor is just the menu bar over an empty viewport.
 		menu_commands.push_back({ "View/Entities",
@@ -373,6 +395,10 @@ namespace HotBiteEditor {
 			[this]() { return level_loaded; },
 			[this]() { state.show_material_panel = !state.show_material_panel; },
 			[this]() { return state.show_material_panel; } });
+		menu_commands.push_back({ "View/Textures",
+			[this]() { return level_loaded; },
+			[this]() { state.show_texture_panel = !state.show_texture_panel; },
+			[this]() { return state.show_texture_panel; } });
 		menu_commands.push_back({ "View/Templates",
 			[this]() { return level_loaded; },
 			[this]() { state.show_template_panel = !state.show_template_panel; },
@@ -437,6 +463,39 @@ namespace HotBiteEditor {
 			[this]() { state.light_positions = !state.light_positions; },
 			[this]() { return state.light_positions; } });
 
+		//View: platform travel and force-field volumes (see MotionGizmos.h). Two radio
+		//groups on the same pattern as the colliders and the lights. Separate groups
+		//because a level has many moving parts and few force fields, so "all platforms"
+		//and "all forces" are not the same request.
+		menu_commands.push_back({ "View/Platform Gizmos: Selection",
+			[this]() { return level_loaded; },
+			[this]() {
+				state.platform_view = (state.platform_view == MotionView::Selection)
+					? MotionView::Off : MotionView::Selection;
+			},
+			[this]() { return state.platform_view == MotionView::Selection; } });
+		menu_commands.push_back({ "View/Platform Gizmos: All",
+			[this]() { return level_loaded; },
+			[this]() {
+				state.platform_view = (state.platform_view == MotionView::All)
+					? MotionView::Off : MotionView::All;
+			},
+			[this]() { return state.platform_view == MotionView::All; } });
+		menu_commands.push_back({ "View/Force Gizmos: Selection",
+			[this]() { return level_loaded; },
+			[this]() {
+				state.force_view = (state.force_view == MotionView::Selection)
+					? MotionView::Off : MotionView::Selection;
+			},
+			[this]() { return state.force_view == MotionView::Selection; } });
+		menu_commands.push_back({ "View/Force Gizmos: All",
+			[this]() { return level_loaded; },
+			[this]() {
+				state.force_view = (state.force_view == MotionView::All)
+					? MotionView::Off : MotionView::All;
+			},
+			[this]() { return state.force_view == MotionView::All; } });
+
 		//View: shadow debug tints (see ShadowDebug.h). Unlike the collider overlay these
 		//are not drawn by the editor at all - they switch a flag on the light that makes
 		//the engine's lighting shaders recolour each pixel. Two entries acting as a radio
@@ -499,6 +558,8 @@ namespace HotBiteEditor {
 	{
 		//Let go of the shader compile worker before the factory it feeds is released.
 		ShaderReload::Shutdown();
+		//Stops the download workers and releases their preview textures.
+		PolyHaven::Shutdown();
 		//Before the ImGui backend goes away: the preview passes' targets are D3D
 		//textures ImGui is still holding texture ids for.
 		MaterialPreview::Shutdown();
@@ -646,6 +707,9 @@ namespace HotBiteEditor {
 			if (state.show_material_panel) {
 				MaterialPanel::Draw(state);
 			}
+			if (state.show_texture_panel) {
+				TexturePanel::Draw(state);
+			}
 			if (state.show_template_panel) {
 				TemplatePanel::Draw(state);
 			}
@@ -656,6 +720,7 @@ namespace HotBiteEditor {
 			//dense collider wireframe.
 			PhysicsDebug::Draw(state);
 			LightGizmos::Draw(state);
+			MotionGizmos::Draw(state);
 			ShadowDebug::Draw(state);
 			RenderSettings::DrawOverlay(*this);
 			GridOverlay::Draw(state);
@@ -1056,6 +1121,13 @@ namespace HotBiteEditor {
 			if (units < 60.0f) { return "Loading entities..."; }
 			return "Loading audio...";
 			};
+
+		//Before the load: materials name shaders by file, and one imported into the
+		//project's Assets/Shaders is found only once that folder is registered.
+		HotBiteEditor::MaterialOps::RegisterProjectShaderFolder(state);
+		HotBiteEditor::MaterialOps::RefreshTextureList();
+		HotBiteEditor::TextureOps::ReleaseThumbnails();
+		HotBiteEditor::PolyHaven::ReleaseThumbnails();
 
 		loading_level = level_json_path;
 		//One frame at 0% so the overlay is on screen before the first (potentially very

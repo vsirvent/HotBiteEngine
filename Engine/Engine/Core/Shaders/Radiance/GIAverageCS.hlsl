@@ -271,11 +271,12 @@ void main(uint3 DTid : SV_DispatchThreadID)
                     if (mvector.x > -FLT_MAX) {
                         pixels_moved = length(mvector) * info_dimensions.x * 0.5f;
                     }
-                    //How far the pixel is from "fully moving", floored by the scene's
-                    //confidence ceiling: at max_confidence 0 every pixel counts as
-                    //moving, so a still camera keeps the look of a moving one instead
-                    //of sharpening as history accumulates.
-                    float moving = max(saturate(pixels_moved * 0.25f), 1.0f - saturate(max_confidence));
+                    //How much of this frame's estimate to take, from the scene's
+                    //confidence ceiling alone: at max_confidence 0 every pixel counts
+                    //as moving, so a still camera keeps the look of a moving one instead
+                    //of sharpening as history accumulates. Pixel motion no longer
+                    //raises it.
+                    float moving = 1.0f - saturate(max_confidence);
                     float blend = lerp(0.15f, 0.8f, moving);
                     c.rgb = lerp(prev_color, c.rgb, blend);
 

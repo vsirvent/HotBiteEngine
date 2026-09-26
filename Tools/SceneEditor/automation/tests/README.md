@@ -137,6 +137,8 @@ both halves.
 | `21-shaders` | empty | shader hot reload: the source index, recompiling into the running editor, include-graph change detection, the watcher, and a broken shader changing nothing |
 | `23-splatrender` | empty | the Gaussian splat pass: that a cloud reaches the frame, follows its transform, writes depth, and answers its per-entity knobs |
 | `24-createentity` | empty | Add/Entity: an entity built from nothing - its mandatory components, undo, delete, and the `created_entities` record it saves and reloads through |
+| `33-polyhaven` | empty | Poly Haven browsing and import against a local mirror of the API: categories, previews, map-to-slot mapping, resolution fallback, undo, saving; one test hits the live site and skips when offline |
+| `34-platform` | empty | `Platform`/`LinearPlatform`/`Force`: the motion each drives with and without a rigid body, that nothing moves while physics is paused and the preview rewinds it, the STATIC→KINEMATIC promotion, a force field's shape and reach, and the two viewport overlays |
 
 ## Things that will bite you
 

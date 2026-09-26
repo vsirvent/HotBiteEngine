@@ -1,5 +1,6 @@
 #include "MaterialPanel.h"
 #include "MultiMaterialPanel.h"
+#include "PolyHaven.h"
 #include "EditorHistory.h"
 #include "EditorLayout.h"
 #include "MaterialPreview.h"
@@ -64,6 +65,14 @@ namespace HotBiteEditor {
 			//because ListShaders hits the filesystem and the panel calls it once per
 			//shader row per frame.
 			std::map<std::string, std::vector<std::string>> shader_cache;
+			//<project>/Assets/Shaders once a project is open (RegisterProjectShaderFolder);
+			//scanned by ListShaders beside the executable's own directory.
+			std::string project_shader_dir;
+
+			//Texture picker cache: every image under <project>/Assets/Textures, relative
+			//to it. Same reason as shader_cache - the panel asks once per row per frame.
+			std::vector<std::string> texture_cache;
+			bool texture_cache_valid = false;
 
 			//Compile profile for each pipeline stage suffix - mirrors
 			//ISimpleShader::GetShaderProfile() for the five stages a material picks.
@@ -487,30 +496,222 @@ namespace HotBiteEditor {
 			//Shaders are compiled next to the executable, which is also the working
 			//directory the editor is launched from.
 			std::error_code ec;
-			for (const auto& entry : std::filesystem::directory_iterator(".", ec)) {
-				if (ec || !entry.is_regular_file()) {
-					continue;
-				}
-				const std::string file = entry.path().filename().string();
-				const std::string stem = entry.path().stem().string();
-				if (entry.path().extension() != ".cso") {
-					continue;
-				}
-				//"MainRenderVS.cso" -> stem "MainRenderVS" ends with "VS". This is the
-				//engine's convention for every shader in the tree, and it is what makes
-				//the picker safe (see the header).
-				if (stem.size() >= stage_suffix.size() &&
-					stem.compare(stem.size() - stage_suffix.size(), stage_suffix.size(),
-						stage_suffix) == 0) {
-					names.push_back(file);
+			//The engine's own compiled shaders, then the open project's Assets/Shaders.
+			std::vector<std::string> dirs = { "." };
+			if (!project_shader_dir.empty()) {
+				dirs.push_back(project_shader_dir);
+			}
+			for (const std::string& dir : dirs) {
+				for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
+					if (ec || !entry.is_regular_file()) {
+						continue;
+					}
+					const std::string file = entry.path().filename().string();
+					const std::string stem = entry.path().stem().string();
+					if (entry.path().extension() != ".cso") {
+						continue;
+					}
+					//"MainRenderVS.cso" -> stem "MainRenderVS" ends with "VS". This is the
+					//engine's convention for every shader in the tree, and it is what makes
+					//the picker safe (see the header).
+					if (stem.size() >= stage_suffix.size() &&
+						stem.compare(stem.size() - stage_suffix.size(), stage_suffix.size(),
+							stage_suffix) == 0) {
+						names.push_back(file);
+					}
 				}
 			}
 			std::sort(names.begin(), names.end());
+			names.erase(std::unique(names.begin(), names.end()), names.end());
 			return names;
 		}
 
 		void RefreshShaderList() {
 			shader_cache.clear();
+		}
+
+		std::string ShadersDir(const EditorState& state) {
+			return state.project_root.empty() ? std::string()
+				: (std::filesystem::path(state.project_root) / "Assets" / "Shaders").make_preferred().string();
+		}
+
+		void RegisterProjectShaderFolder(EditorState& state) {
+			const std::string dir = ShadersDir(state);
+			if (dir.empty()) {
+				return;
+			}
+			std::error_code ec;
+			std::filesystem::create_directories(dir, ec);
+			project_shader_dir = dir;
+			//Binaries: so a material naming "Foo.cso" finds Assets/Shaders/Foo.cso.
+			//Sources: so the Edit button and hot reload resolve the .hlsl beside it.
+			Core::ShaderFactory::Get()->AddBinaryFolder(dir);
+			Core::ShaderCompiler::Get()->AddSourceFolder(dir);
+			Core::ShaderFactory::Get()->ForgetSourcePaths();
+			RefreshShaderList();
+		}
+
+		bool ImportShader(EditorState& state, const std::string& source_path,
+			std::string& out_cso_name, std::string& error) {
+			namespace fs = std::filesystem;
+			const std::string dir = ShadersDir(state);
+			if (dir.empty()) {
+				error = "no project open - shaders are imported into <project>/Assets/Shaders";
+				return false;
+			}
+			std::error_code ec;
+			if (!fs::is_regular_file(source_path, ec)) {
+				error = "file not found: " + source_path;
+				return false;
+			}
+			const fs::path src(source_path);
+			std::string ext = src.extension().string();
+			std::transform(ext.begin(), ext.end(), ext.begin(),
+				[](unsigned char c) { return (char)std::tolower(c); });
+			if (ext != ".hlsl" && ext != ".cso") {
+				error = "a shader is a .hlsl source or a compiled .cso";
+				return false;
+			}
+			const std::string stem = src.stem().string();
+			std::string stage;
+			for (const char* s : { "VS", "HS", "DS", "GS", "PS" }) {
+				const std::string suffix = s;
+				if (stem.size() > suffix.size() &&
+					stem.compare(stem.size() - suffix.size(), suffix.size(), suffix) == 0) {
+					stage = suffix;
+				}
+			}
+			if (stage.empty()) {
+				error = "name must end with VS, HS, DS, GS or PS - the picker relies on the "
+					"engine's naming convention to tell shaders of different stages apart";
+				return false;
+			}
+			RegisterProjectShaderFolder(state);
+			const fs::path dest = fs::path(dir) / src.filename();
+			if (!fs::exists(dest, ec) || !fs::equivalent(src, dest, ec)) {
+				fs::copy_file(src, dest, fs::copy_options::overwrite_existing, ec);
+				if (ec) {
+					error = "could not copy into " + dest.string() + ": " + ec.message();
+					return false;
+				}
+			}
+			const std::string cso_name = stem + ".cso";
+			if (ext == ".hlsl") {
+				//The original's folder is searched for this compile only, so quoted
+				//#includes that sat next to it still resolve.
+				Core::ShaderCompiler::Result result;
+				if (!Core::ShaderCompiler::Get()->CompileToFile(dest.string(), ProfileForStage(stage),
+					(fs::path(dir) / cso_name).string(), result, { src.parent_path().string() })) {
+					error = "compile failed: " + result.error;
+					return false;
+				}
+				if (result.blob != nullptr) {
+					result.blob->Release();
+				}
+				Core::ShaderCompiler::Get()->AddSourceFolder(dir);
+				Core::ShaderFactory::Get()->ForgetSourcePaths();
+			}
+			RefreshShaderList();
+			out_cso_name = cso_name;
+			state.status_message = "Imported shader " + cso_name + " into Assets/Shaders";
+			return true;
+		}
+
+		std::string TexturesDir(const EditorState& state) {
+			return state.project_root.empty() ? std::string()
+				: (std::filesystem::path(state.project_root) / "Assets" / "Textures").make_preferred().string();
+		}
+
+		static bool IsImageFile(const std::filesystem::path& p) {
+			std::string ext = p.extension().string();
+			std::transform(ext.begin(), ext.end(), ext.begin(),
+				[](unsigned char c) { return (char)std::tolower(c); });
+			return ext == ".dds" || ext == ".png" || ext == ".jpg" || ext == ".jpeg" ||
+				ext == ".bmp" || ext == ".tif" || ext == ".tiff";
+		}
+
+		const std::vector<std::string>& ListTextures(const EditorState& state) {
+			if (!texture_cache_valid) {
+				texture_cache.clear();
+				const std::string dir = TexturesDir(state);
+				std::error_code ec;
+				if (!dir.empty() && std::filesystem::is_directory(dir, ec)) {
+					for (auto it = std::filesystem::recursive_directory_iterator(dir, ec);
+						!ec && it != std::filesystem::recursive_directory_iterator(); it.increment(ec)) {
+						if (it->is_regular_file() && IsImageFile(it->path())) {
+							texture_cache.push_back(std::filesystem::relative(it->path(), dir, ec)
+								.make_preferred().string());
+						}
+					}
+				}
+				std::sort(texture_cache.begin(), texture_cache.end());
+				texture_cache_valid = true;
+			}
+			return texture_cache;
+		}
+
+		void RefreshTextureList() {
+			texture_cache_valid = false;
+		}
+
+		std::string TextureAbsolutePath(const EditorState& state, const std::string& relative) {
+			return (std::filesystem::path(TexturesDir(state)) / relative)
+				.lexically_normal().make_preferred().string();
+		}
+
+		std::string TextureRelativeName(const EditorState& state, const std::string& absolute) {
+			if (absolute.empty()) {
+				return {};
+			}
+			const std::filesystem::path root = std::filesystem::path(TexturesDir(state)).lexically_normal();
+			std::filesystem::path rel = std::filesystem::path(absolute).lexically_normal().lexically_relative(root);
+			if (rel.empty() || *rel.begin() == "..") {
+				return {};
+			}
+			return rel.make_preferred().string();
+		}
+
+		bool ImportTexture(EditorState& state, const std::string& source_path,
+			const std::string& subfolder, std::string& out_path, std::string& error) {
+			namespace fs = std::filesystem;
+			const std::string root = TexturesDir(state);
+			if (root.empty()) {
+				error = "no project open - textures are imported into <project>/Assets/Textures";
+				return false;
+			}
+			std::error_code ec;
+			if (!fs::is_regular_file(source_path, ec)) {
+				error = "file not found: " + source_path;
+				return false;
+			}
+			if (!IsImageFile(fs::path(source_path))) {
+				error = "not an image the engine loads (.dds .png .jpg .bmp .tif)";
+				return false;
+			}
+			const fs::path sub(subfolder);
+			if (sub.has_root_name() || sub.has_root_directory()) {
+				error = "the subfolder must be relative to Assets/Textures";
+				return false;
+			}
+			for (const fs::path& part : sub) {
+				if (part == "..") {
+					error = "the subfolder cannot leave Assets/Textures";
+					return false;
+				}
+			}
+			const fs::path dest = (fs::path(root) / sub / fs::path(source_path).filename()).lexically_normal();
+			fs::create_directories(dest.parent_path(), ec);
+			if (!fs::exists(dest, ec) || !fs::equivalent(source_path, dest, ec)) {
+				fs::copy_file(source_path, dest, fs::copy_options::overwrite_existing, ec);
+				if (ec) {
+					error = "could not copy into " + dest.string() + ": " + ec.message();
+					return false;
+				}
+			}
+			RefreshTextureList();
+			out_path = fs::path(dest).make_preferred().string();
+			state.status_message = "Imported texture " + dest.filename().string() + " into Assets/Textures";
+			return true;
 		}
 
 		bool CreateShaderFile(EditorState& state, const std::string& stage,
@@ -547,9 +748,14 @@ namespace HotBiteEditor {
 			}
 			const std::string cso_name = name + ".cso";
 			std::error_code ec;
-			if (std::filesystem::exists(cso_name, ec)) {
+			const std::string shaders_dir = ShadersDir(state);
+			if (std::filesystem::exists(cso_name, ec) ||
+				(!shaders_dir.empty() && std::filesystem::exists(std::filesystem::path(shaders_dir) / cso_name, ec))) {
 				error = "a shader named " + cso_name + " already exists";
 				return false;
+			}
+			if (!shaders_dir.empty()) {
+				RegisterProjectShaderFolder(state);
 			}
 
 			//Starting content: a genuine copy of the currently selected shader's own
@@ -583,7 +789,9 @@ namespace HotBiteEditor {
 			//otherwise write a stray file straight into Engine/Engine/Core/Shaders).
 			//Falls back to the source's own folder, then the current directory, if no
 			//project is open.
-			std::string dest_dir = state.project_root;
+			//That folder is <project>/Assets/Shaders: every authored asset lives under
+			//Assets, in the folder for its kind (see ImportShader).
+			std::string dest_dir = shaders_dir;
 			if (dest_dir.empty() || !std::filesystem::is_directory(dest_dir, ec)) {
 				dest_dir = current_source.empty() ? "." : std::filesystem::path(current_source).parent_path().string();
 			}
@@ -609,7 +817,11 @@ namespace HotBiteEditor {
 				extra_search_dirs.push_back(std::filesystem::path(current_source).parent_path().string());
 			}
 			Core::ShaderCompiler::Result result;
-			if (!Core::ShaderCompiler::Get()->CompileToFile(hlsl_path, profile, cso_name, result, extra_search_dirs)) {
+			//The bytecode goes beside the source (Assets/Shaders is a registered binary
+			//folder, so the name alone finds it); with no project it stays next to the exe.
+			const std::string cso_path = shaders_dir.empty() ? cso_name
+				: (std::filesystem::path(dest_dir) / cso_name).string();
+			if (!Core::ShaderCompiler::Get()->CompileToFile(hlsl_path, profile, cso_path, result, extra_search_dirs)) {
 				error = "compile failed: " + result.error;
 				return false;
 			}
@@ -828,29 +1040,121 @@ namespace HotBiteEditor {
 				return true;
 			}
 
-			//A texture slot: a text field for its path, editable directly, plus a
-			//Browse button that fills the same field from a native file picker. The
-			//.mat format stores a name relative to the file's own texture root, but
-			//in memory (and in this field) every path is absolute - see
-			//MaterialTextures in Material.h - so Browse just fills the field the same
-			//way typing an absolute path does, and Save() converts it back to
-			//relative when the picked file happens to sit under that root.
-			bool DrawTextureRow(const char* label, std::string& path) {
-				char buffer[512];
-				snprintf(buffer, sizeof(buffer), "%s", path.c_str());
-				ImGui::PushID(label);
-				bool changed = ImGui::InputText(label, buffer, sizeof(buffer),
-					ImGuiInputTextFlags_EnterReturnsTrue);
-				if (changed) {
-					path = buffer;
+			//Same, for a shader: a .hlsl source or a compiled .cso.
+			bool BrowseForShader(std::string& path) {
+				char file[MAX_PATH] = {};
+				OPENFILENAMEA ofn = {};
+				ofn.lStructSize = sizeof(ofn);
+				ofn.hwndOwner = nullptr;
+				ofn.lpstrFilter = "Shader files\0*.hlsl;*.cso\0All files\0*.*\0";
+				ofn.lpstrFile = file;
+				ofn.nMaxFile = sizeof(file);
+				ofn.lpstrTitle = "Import Shader";
+				ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+				if (!GetOpenFileNameA(&ofn)) {
+					return false;
 				}
-				ImGui::SameLine();
-				if (ImGui::SmallButton("...")) {
-					std::string picked;
-					if (BrowseForTexture(picked)) {
-						path = picked;
+				path = file;
+				return true;
+			}
+
+			//A texture slot. Textures are *imported* into <project>/Assets/Textures
+			//(subfolders allowed) and picked from there - a slot never points at a file
+			//lying elsewhere on disk, so a level carries everything it draws with. The
+			//"Import..." popup is where a file from outside comes in: it is copied into
+			//the chosen subfolder and assigned to this slot in one step.
+			//
+			//In memory the path is still the absolute one MaterialData holds (see
+			//MaterialTextures in Material.h); Save() writes it relative to the .mat's
+			//texture root. A material authored before this rule may still name a file
+			//outside Assets/Textures - it shows as "(external)" and Import... is
+			//pre-filled with it, which is the one-click way to bring it in.
+			bool DrawTextureRow(EditorState& state, const char* label, std::string& path) {
+				static char import_source[MAX_PATH] = "";
+				static char import_subfolder[128] = "";
+				static std::string import_error;
+
+				bool changed = false;
+				ImGui::PushID(label);
+				const std::string relative = MaterialOps::TextureRelativeName(state, path);
+				std::string shown = path.empty() ? std::string("(none)")
+					: (relative.empty() ? "(external) " + path : relative);
+
+				ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.6f);
+				if (ImGui::BeginCombo(label, shown.c_str())) {
+					if (ImGui::Selectable("(none)", path.empty()) && !path.empty()) {
+						path.clear();
 						changed = true;
 					}
+					for (const std::string& option : MaterialOps::ListTextures(state)) {
+						if (ImGui::Selectable(option.c_str(), option == relative) && option != relative) {
+							path = MaterialOps::TextureAbsolutePath(state, option);
+							changed = true;
+						}
+					}
+					if (MaterialOps::ListTextures(state).empty()) {
+						ImGui::TextDisabled("(nothing imported yet - use Import...)");
+					}
+					ImGui::EndCombo();
+				}
+				if (!path.empty() && relative.empty() && ImGui::IsItemHovered()) {
+					ImGui::SetTooltip("This file is outside Assets/Textures, so the level would not\n"
+						"carry it. Import... copies it into the project.");
+				}
+				ImGui::SameLine();
+				if (ImGui::SmallButton("Import...")) {
+					import_error.clear();
+					snprintf(import_source, sizeof(import_source), "%s",
+						(!path.empty() && relative.empty()) ? path.c_str() : "");
+					import_subfolder[0] = '\0';
+					ImGui::OpenPopup("Import Texture");
+				}
+				if (ImGui::BeginPopupModal("Import Texture", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+					ImGui::TextDisabled("Copies the file into <project>/Assets/Textures/<subfolder>.");
+					ImGui::InputText("File", import_source, sizeof(import_source));
+					ImGui::SameLine();
+					if (ImGui::SmallButton("Browse...")) {
+						std::string picked;
+						if (BrowseForTexture(picked)) {
+							snprintf(import_source, sizeof(import_source), "%s", picked.c_str());
+						}
+					}
+					ImGui::InputText("Subfolder", import_subfolder, sizeof(import_subfolder));
+					if (ImGui::BeginCombo("##existing_folders", "Existing folders")) {
+						std::set<std::string> folders;
+						for (const std::string& option : MaterialOps::ListTextures(state)) {
+							const std::string dir = std::filesystem::path(option).parent_path().string();
+							if (!dir.empty()) {
+								folders.insert(dir);
+							}
+						}
+						if (ImGui::Selectable("(Assets/Textures itself)")) {
+							import_subfolder[0] = '\0';
+						}
+						for (const std::string& dir : folders) {
+							if (ImGui::Selectable(dir.c_str())) {
+								snprintf(import_subfolder, sizeof(import_subfolder), "%s", dir.c_str());
+							}
+						}
+						ImGui::EndCombo();
+					}
+					if (!import_error.empty()) {
+						ImGui::TextColored(ImVec4(0.9f, 0.3f, 0.3f, 1.0f), "%s", import_error.c_str());
+					}
+					if (ImGui::Button("Import")) {
+						std::string imported;
+						if (MaterialOps::ImportTexture(state, import_source, import_subfolder,
+							imported, import_error)) {
+							path = imported;
+							changed = true;
+							ImGui::CloseCurrentPopup();
+						}
+					}
+					ImGui::SameLine();
+					if (ImGui::Button("Cancel")) {
+						ImGui::CloseCurrentPopup();
+					}
+					ImGui::EndPopup();
 				}
 				ImGui::PopID();
 				return changed;
@@ -1030,19 +1334,22 @@ namespace HotBiteEditor {
 			}
 
 			if (ImGui::CollapsingHeader("Textures")) {
-				ImGui::TextDisabled("Absolute paths - type one and press Enter, or use \"...\" to browse.");
+				ImGui::TextDisabled("Pick from Assets/Textures, or Import... a file into it.");
+				if (ImGui::SmallButton("Rescan textures")) {
+					MaterialOps::RefreshTextureList();
+				}
 				Core::MaterialTextures& t = m->texture_names;
 				MaterialOps::MaterialSnapshot before_textures;
 				MaterialOps::GetSnapshot(state, name, before_textures);
 				bool texture_changed = false;
-				texture_changed |= DrawTextureRow("Diffuse map", t.diffuse_texname);
-				texture_changed |= DrawTextureRow("Normal map", t.normal_textname);
-				texture_changed |= DrawTextureRow("Height map", t.high_textname);
-				texture_changed |= DrawTextureRow("Specular map", t.spec_textname);
-				texture_changed |= DrawTextureRow("AO map", t.ao_textname);
-				texture_changed |= DrawTextureRow("ARM map", t.arm_textname);
-				texture_changed |= DrawTextureRow("Emission map", t.emission_textname);
-				texture_changed |= DrawTextureRow("Opacity map", t.opacity_textname);
+				texture_changed |= DrawTextureRow(state, "Diffuse map", t.diffuse_texname);
+				texture_changed |= DrawTextureRow(state, "Normal map", t.normal_textname);
+				texture_changed |= DrawTextureRow(state, "Height map", t.high_textname);
+				texture_changed |= DrawTextureRow(state, "Specular map", t.spec_textname);
+				texture_changed |= DrawTextureRow(state, "AO map", t.ao_textname);
+				texture_changed |= DrawTextureRow(state, "ARM map", t.arm_textname);
+				texture_changed |= DrawTextureRow(state, "Emission map", t.emission_textname);
+				texture_changed |= DrawTextureRow(state, "Opacity map", t.opacity_textname);
 				if (texture_changed) {
 					//Reload the maps and recompute the *_MAP_ENABLED flags.
 					m->Init();
@@ -1096,6 +1403,34 @@ namespace HotBiteEditor {
 					if (ImGui::IsItemHovered()) {
 						ImGui::SetTooltip("Create a new %s shader, starting as a copy of the one\n"
 							"currently selected, and open it for editing.", stage);
+					}
+					ImGui::SameLine();
+					if (ImGui::SmallButton("Import...")) {
+						std::string source;
+						if (BrowseForShader(source)) {
+							std::string imported, import_error;
+							if (MaterialOps::ImportShader(state, source, imported, import_error)) {
+								//The picker is stage-checked by name suffix, so an import of
+								//another stage's file is refused rather than assigned here.
+								const std::string stem = std::filesystem::path(imported).stem().string();
+								if (stem.size() >= strlen(stage) &&
+									stem.compare(stem.size() - strlen(stage), strlen(stage), stage) == 0) {
+									value = imported;
+									shader_changed = true;
+								}
+								else {
+									state.status_message = "Imported " + imported + " - it is not a " +
+										stage + " shader, so it was not assigned to this slot";
+								}
+							}
+							else {
+								state.status_message = "Import shader failed: " + import_error;
+							}
+						}
+					}
+					if (ImGui::IsItemHovered()) {
+						ImGui::SetTooltip("Copy a .hlsl (compiled on the way in) or .cso into\n"
+							"<project>/Assets/Shaders and use it here.");
 					}
 					if (ImGui::BeginPopupModal("New Shader", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
 						ImGui::Text("New %s shader name (must end with \"%s\"):", stage, stage);
@@ -1207,6 +1542,11 @@ namespace HotBiteEditor {
 				}
 				if (ImGui::BeginTabItem("Multi-Materials")) {
 					MultiMaterialPanel::Draw(state);
+					ImGui::EndTabItem();
+				}
+				if (ImGui::BeginTabItem("Poly Haven", nullptr,
+					PolyHaven::ConsumeShowRequest() ? ImGuiTabItemFlags_SetSelected : 0)) {
+					PolyHaven::DrawTab(state);
 					ImGui::EndTabItem();
 				}
 				ImGui::EndTabBar();

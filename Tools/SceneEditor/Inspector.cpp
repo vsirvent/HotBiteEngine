@@ -13,9 +13,11 @@
 #include <World.h>
 #include <Components/Base.h>
 #include <Components/Camera.h>
+#include <Components/Force.h>
 #include <Components/Lights.h>
 #include <Components/Physics.h>
 #include <Components/Particles.h>
+#include <Components/Platform.h>
 #include <Components/Sky.h>
 #include <Core/SplatCloud.h>
 #include <DirectXMath.h>
@@ -1649,6 +1651,144 @@ namespace HotBiteEditor {
 			ImGui::Text("Shadow maps: %d", (int)(l.shadows.size() + l.dir_shadows.size()));
 		}
 
+		//Platform, LinearPlatform and Force all edit in place through SectionEdit, like the
+		//light and sky sections. They need a hand-written editor rather than the generic
+		//grid for one reason: each carries a float3, which DrawJsonGrid can only show as
+		//read-only text (it does not descend into a nested object), and a direction you
+		//cannot type is most of what these components are.
+		//
+		//Every one of them is also invisible in the frame, so each section ends by pointing
+		//at the View menu switch that draws it - a value with no feedback at all is a value
+		//nobody can tune.
+
+		static void DrawPlatform(EditorState& state, Coordinator* c, Entity e)
+		{
+			Platform& p = c->GetComponent<Platform>(e);
+			SectionEdit edit(state, EntityName(c, e), Platform::NAME);
+			ImGui::SeparatorText("Oscillation");
+			edit.Track(ImGui::DragFloat3("Direction", &p.linear_dir.x, 0.01f));
+			edit.Track(ImGui::DragFloat("Amplitude", &p.amplitude, 0.05f, 0.0f, 10000.0f));
+			if (ImGui::IsItemHovered()) {
+				ImGui::SetTooltip("World units either side of the authored position.\n0 = no oscillation.");
+			}
+			edit.Track(ImGui::DragFloat("Frequency", &p.freq, 0.01f, 0.0f, 100.0f));
+			if (ImGui::IsItemHovered()) {
+				ImGui::SetTooltip("Full round trips per second. 0.25 = one every four seconds.");
+			}
+			edit.Track(ImGui::SliderFloat("Phase", &p.phase, 0.0f, 1.0f));
+			if (ImGui::IsItemHovered()) {
+				ImGui::SetTooltip("Where in the cycle it starts, in turns. Stagger a row of\n"
+					"identical platforms with this rather than with different speeds.");
+			}
+			ImGui::SeparatorText("Spin");
+			edit.Track(ImGui::DragFloat3("Axis", &p.angular_dir.x, 0.01f));
+			edit.Track(ImGui::DragFloat("Speed", &p.angular_speed, 0.01f, -100.0f, 100.0f));
+			if (ImGui::IsItemHovered()) {
+				ImGui::SetTooltip("Radians per second about the axis, on top of the authored\n"
+					"rotation. Negative turns the other way. 0 = no spin.");
+			}
+			ImGui::SeparatorText("Timing");
+			edit.Track(ImGui::DragFloat("Delay", &p.delay, 0.05f, 0.0f, 1000.0f));
+			edit.Track(ImGui::DragFloat("Fall delay", &p.fall_delay, 0.05f, -1.0f, 1000.0f));
+			if (ImGui::IsItemHovered()) {
+				ImGui::SetTooltip("Seconds after it starts moving at which the body turns\n"
+					"DYNAMIC and the platform gives way. -1 = never. Needs a\n"
+					"Physics component; nothing to hand over without one.");
+			}
+			edit.Commit();
+			ImGui::TextDisabled("Moves only while Edit/Simulate Physics is on.\n"
+				"View/Platform Gizmos draws the travel.");
+		}
+
+		static void DrawLinearPlatform(EditorState& state, Coordinator* c, Entity e)
+		{
+			LinearPlatform& p = c->GetComponent<LinearPlatform>(e);
+			SectionEdit edit(state, EntityName(c, e), LinearPlatform::NAME);
+			edit.Track(ImGui::DragFloat3("Travel", &p.travel.x, 0.05f));
+			if (ImGui::IsItemHovered()) {
+				ImGui::SetTooltip("Offset from the authored position to the far end of the\n"
+					"path. Relative, so moving the platform moves its route.");
+			}
+			edit.Track(ImGui::DragFloat("Speed", &p.speed, 0.05f, 0.0f, 10000.0f));
+			if (ImGui::IsItemHovered()) {
+				ImGui::SetTooltip("World units per second. 0 = does not move.");
+			}
+			edit.Track(ImGui::DragFloat("Delay", &p.delay, 0.05f, 0.0f, 1000.0f));
+			edit.Track(ImGui::Checkbox("Ping pong", &p.ping_pong));
+			if (ImGui::IsItemHovered()) {
+				ImGui::SetTooltip("On: reverses at each end, forever.\nOff: stops on arrival at the far end.");
+			}
+			edit.Commit();
+			ImGui::Text("Length: %.2f", LENGHT_F3(p.travel));
+			ImGui::TextDisabled("Moves only while Edit/Simulate Physics is on.\n"
+				"View/Platform Gizmos draws the path.");
+		}
+
+		static void DrawForce(EditorState& state, Coordinator* c, Entity e)
+		{
+			Force& f = c->GetComponent<Force>(e);
+			const std::string entity_name = EntityName(c, e);
+
+			//The class goes through ComponentOps::SetValue rather than SectionEdit, for the
+			//reason given above the SectionEdit class: a combo picks its value inside a
+			//popup and never reports the activate/deactivate pair a drag does, so it has to
+			//apply and record in one step.
+			static const char* TYPES[] = { "NONE", "TOUCH", "PROJECTION" };
+			const char* current = Force::TypeName(f.type);
+			if (ImGui::BeginCombo("Type", current)) {
+				for (const char* option : TYPES) {
+					if (ImGui::Selectable(option, std::strcmp(current, option) == 0) &&
+						std::strcmp(current, option) != 0) {
+						nlohmann::json block = ComponentOps::GetValue(state, entity_name, Force::NAME);
+						block["type"] = option;
+						std::string error;
+						if (!ComponentOps::SetValue(state, entity_name, Force::NAME, block, error)) {
+							state.status_message = "Set force type failed: " + error;
+						}
+					}
+				}
+				ImGui::EndCombo();
+			}
+			if (f.type == Force::TOUCH && !c->ContainsComponent<Physics>(e)) {
+				//TOUCH asks the physics world whether something is touching this entity,
+				//which it can only answer for an entity that has a collider in it.
+				ImGui::TextDisabled("TOUCH needs a Physics component to have contacts.");
+			}
+
+			SectionEdit edit(state, entity_name, Force::NAME);
+			edit.Track(ImGui::DragFloat3("Direction", &f.dir.x, 0.01f));
+			edit.Track(ImGui::Checkbox("Local direction", &f.local_dir));
+			if (ImGui::IsItemHovered()) {
+				ImGui::SetTooltip("Off: the direction is in world space.\n"
+					"On: turned by the entity's rotation, so one rotated\n"
+					"pad or template pushes where it points.");
+			}
+			edit.Track(ImGui::DragFloat("Force", &f.force, 1.0f, -100000.0f, 100000.0f));
+			if (ImGui::IsItemHovered()) {
+				ImGui::SetTooltip("Newtons at the far end of the reach, applied at the\n"
+					"body's centre of mass. TOUCH uses it directly.");
+			}
+			if (f.type == Force::PROJECTION) {
+				edit.Track(ImGui::DragFloat("Force at origin", &f.origin_force, 1.0f,
+					-100000.0f, 100000.0f));
+				if (ImGui::IsItemHovered()) {
+					ImGui::SetTooltip("Newtons at the entity itself, ramping linearly to\n"
+						"Force at the reach. 0 is a fan: weakest at the nozzle,\n"
+						"so nothing sits pinned against it. Set it equal to\n"
+						"Force for a uniform field.");
+				}
+				edit.Track(ImGui::DragFloat("Reach", &f.range, 0.05f, 0.0f, 10000.0f));
+				edit.Track(ImGui::DragFloat("Radius", &f.radius, 0.05f, 0.0f, 10000.0f));
+				if (ImGui::IsItemHovered()) {
+					ImGui::SetTooltip("Half-width of the beam. The field is a cylinder, not a\n"
+						"cone: a body outside the radius feels nothing at any distance.");
+				}
+			}
+			edit.Commit();
+			ImGui::TextDisabled("Pushes only while Edit/Simulate Physics is on.\n"
+				"View/Force Gizmos draws the volume.");
+		}
+
 		// Maps a registered component name to the hand-written editor for it. Drawing
 		// is the one part of a component's editor support that cannot live in the
 		// engine (which has no ImGui dependency), so it is bound here by the same name
@@ -1669,6 +1809,9 @@ namespace HotBiteEditor {
 				{ DirectionalLight::NAME, [](EditorState& s, Coordinator* c, Entity e) { DrawDirectionalLight(s, c, e); } },
 				{ PointLight::NAME,       [](EditorState& s, Coordinator* c, Entity e) { DrawPointLight(s, c, e); } },
 				{ Physics::NAME,          [](EditorState& s, Coordinator* c, Entity e) { DrawPhysics(s, c, e); } },
+				{ Platform::NAME,         [](EditorState& s, Coordinator* c, Entity e) { DrawPlatform(s, c, e); } },
+				{ LinearPlatform::NAME,   [](EditorState& s, Coordinator* c, Entity e) { DrawLinearPlatform(s, c, e); } },
+				{ Force::NAME,            [](EditorState& s, Coordinator* c, Entity e) { DrawForce(s, c, e); } },
 				{ Sky::NAME,              [](EditorState& s, Coordinator* c, Entity e) { DrawSky(s, c, e); } },
 				{ Lighted::NAME,          [](EditorState& s, Coordinator* c, Entity e) { DrawLighted(c, e); } },
 				{ Camera::NAME,           [](EditorState& s, Coordinator* c, Entity e) { DrawCamera(c, e); } },

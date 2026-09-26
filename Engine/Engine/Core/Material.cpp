@@ -25,6 +25,7 @@ SOFTWARE.
 #include "Utils.h"
 
 #include <algorithm>
+#include <filesystem>
 
 #include <DDSTextureLoader.h>
 #include <WICTextureLoader.h>
@@ -552,12 +553,22 @@ namespace HotBite {
 				//that does not sit under root is written as-is - wrong is better than
 				//silently repointing the material at a file that happens to share a name.
 				const std::string prefix = root + std::string("\\");
-				auto relative = [&prefix](const std::string& full) -> std::string {
+				auto relative = [&prefix, &root](const std::string& full) -> std::string {
 					if (full.empty()) {
 						return std::string();
 					}
 					if (full.size() > prefix.size() && full.compare(0, prefix.size(), prefix) == 0) {
 						return full.substr(prefix.size());
+					}
+					//Not under root, but still a path Load can reach: root + "\" + "..\x"
+					//resolves to exactly `full`, so a texture imported into the project's
+					//Assets/Textures stays relative (and the level portable) even when the
+					//.mat's own root is some other folder. Different drives have no relative
+					//form and keep the absolute path.
+					std::filesystem::path rel = std::filesystem::path(full).lexically_normal()
+						.lexically_relative(std::filesystem::path(root).lexically_normal());
+					if (!rel.empty() && rel.is_relative() && !std::filesystem::path(full).is_relative()) {
+						return rel.string();
 					}
 					return full;
 				};

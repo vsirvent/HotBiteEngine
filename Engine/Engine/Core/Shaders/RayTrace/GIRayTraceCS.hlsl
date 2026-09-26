@@ -805,7 +805,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
         rcache_stats.InterlockedAdd(deposited ? RC_STAT_DEPOSIT : RC_STAT_DROPPED, 1u, ignored);
     }
 
-    color_diffuse.rgb = pow(color_diffuse.rgb, 0.5f);
+    //color_diffuse.rgb = pow(color_diffuse.rgb, 0.5f);
     output[pixel] = color_diffuse;
 
 

@@ -392,6 +392,9 @@ namespace HotBite {
 			private:
 				static ShaderFactory* sInstance;
 				std::unordered_map<std::string, ISimpleShader*> shaders;
+				// Extra places a bare "<name>.cso" is looked for when it is not in the
+				// working directory - a project's Assets/Shaders folder.
+				std::vector<std::wstring> binary_folders;
 
 				ShaderFactory() = default;
 				~ShaderFactory();
@@ -399,6 +402,18 @@ namespace HotBite {
 			public:
 				static ShaderFactory* Get();
 				static void Release();
+
+				// Registers a folder searched (after the working directory) for shader
+				// binaries. Re-adding a folder is a no-op.
+				void AddBinaryFolder(const std::string& folder) {
+					std::wstring w(folder.begin(), folder.end());
+					for (const std::wstring& existing : binary_folders) {
+						if (existing == w) {
+							return;
+						}
+					}
+					binary_folders.push_back(w);
+				}
 
 				void Reload() {
 					for (auto& shader : shaders) {
@@ -433,7 +448,11 @@ namespace HotBite {
 							//shader made them adopt a material that cannot draw. Not
 							//caching it also keeps a mistyped name from poisoning that
 							//name for the rest of the session.
-							if (!shader->LoadShaderFile(ws.c_str())) {
+							bool loaded = shader->LoadShaderFile(ws.c_str());
+							for (size_t i = 0; !loaded && i < binary_folders.size(); ++i) {
+								loaded = shader->LoadShaderFile((binary_folders[i] + L"\\" + ws).c_str());
+							}
+							if (!loaded) {
 								delete shader;
 								return nullptr;
 							}

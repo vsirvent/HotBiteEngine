@@ -4,8 +4,11 @@
 #include "Inspector.h"
 #include "SelectionGizmo.h"
 #include "LightGizmos.h"
+#include "MotionGizmos.h"
 #include "AssetBrowser.h"
 #include "MaterialPanel.h"
+#include "TexturePanel.h"
+#include "PolyHaven.h"
 #include "MultiMaterialPanel.h"
 #include "MaskPaint.h"
 #include "MeshOps.h"
@@ -99,6 +102,395 @@ namespace HotBiteEditor {
 			return tokens;
 		}
 
+		//Poly Haven (PolyHaven.h). The network work is asynchronous, like reload_shaders:
+		//polyhaven_refresh and polyhaven_import answer when the work is *queued*, and a
+		//caller polls polyhaven_status until the catalog is ready / the import is idle.
+		static bool HandlePolyHavenCommand(EditorState& state, const std::string& cmd,
+			const std::vector<std::string>& args, std::string& error)
+		{
+			if (cmd == "polyhaven_source") {
+				if (args.size() > 1) {
+					PolyHaven::SetSource(args[1]);
+				}
+				response_lines.push_back("OK " + PolyHaven::Source());
+			}
+			else if (cmd == "polyhaven_show") {
+				PolyHaven::Show(state);
+				response_lines.push_back("OK");
+			}
+			else if (cmd == "polyhaven_refresh") {
+				PolyHaven::RequestCatalog(true);
+				response_lines.push_back("OK loading");
+			}
+			else if (cmd == "polyhaven_status") {
+				std::string catalog_error;
+				const PolyHaven::CatalogState cs = PolyHaven::GetCatalogState(&catalog_error);
+				const char* names[] = { "idle", "loading", "ready", "failed" };
+				const bool busy = PolyHaven::ImportBusy();
+				response_lines.push_back(std::string("OK catalog=") + names[(int)cs] +
+					" assets=" + std::to_string(PolyHaven::Assets("", "").size()) +
+					" import=" + (busy ? "busy" : "idle"));
+				if (!catalog_error.empty()) {
+					response_lines.push_back("catalog_error=" + catalog_error);
+				}
+				if (busy) {
+					response_lines.push_back("progress=" + PolyHaven::ImportProgress());
+				}
+				std::string message;
+				const bool ok = PolyHaven::LastImportResult(message);
+				if (!message.empty()) {
+					response_lines.push_back(std::string("last=") + (ok ? "ok " : "error ") + message);
+				}
+			}
+			else if (cmd == "polyhaven_categories") {
+				const auto categories = PolyHaven::Categories();
+				response_lines.push_back("OK " + std::to_string(categories.size()) + " categories");
+				for (const auto& c : categories) {
+					response_lines.push_back(c.first + "=" + std::to_string(c.second));
+				}
+			}
+			//polyhaven_list [category] [filter] - ids, most downloaded first.
+			else if (cmd == "polyhaven_list") {
+				if (PolyHaven::GetCatalogState() != PolyHaven::CatalogState::Ready) {
+					response_lines.push_back("ERR the catalog is not loaded - polyhaven_refresh, then poll polyhaven_status");
+				}
+				else {
+					const auto list = PolyHaven::Assets(args.size() > 1 ? args[1] : std::string(),
+						args.size() > 2 ? args[2] : std::string());
+					response_lines.push_back("OK " + std::to_string(list.size()) + " assets");
+					for (const auto& a : list) {
+						response_lines.push_back(a.id);
+					}
+				}
+			}
+			//Requests an asset's preview (as the panel does for a visible cell) and reports
+			//where it is: none / loading / ready / failed.
+			else if (cmd == "polyhaven_thumb") {
+				if (args.size() < 2) {
+					response_lines.push_back("ERR usage: polyhaven_thumb <id>");
+				}
+				else {
+					PolyHaven::ThumbState st = PolyHaven::ThumbState::None;
+					PolyHaven::Thumbnail(args[1], &st);
+					const char* names[] = { "none", "loading", "ready", "failed" };
+					response_lines.push_back(std::string("OK ") + names[(int)st]);
+				}
+			}
+			//polyhaven_import <id> [1k|2k|4k|8k] [<file>.mat] [height], options in any order.
+			else if (cmd == "polyhaven_import") {
+				if (args.size() < 2) {
+					response_lines.push_back("ERR usage: polyhaven_import <id> [1k|2k|4k|8k] [<file>.mat] [height]");
+				}
+				else {
+					PolyHaven::ImportOptions options;
+					bool bad = false;
+					for (size_t i = 2; i < args.size(); ++i) {
+						const std::string& a = args[i];
+						if (a == "height") {
+							options.height = true;
+						}
+						else if (a.size() >= 2 && a.back() == 'k' && std::isdigit((unsigned char)a[0])) {
+							options.resolution = a;
+						}
+						else if (a.size() > 4 && a.compare(a.size() - 4, 4, ".mat") == 0) {
+							options.mat_file = a;
+						}
+						else {
+							response_lines.push_back("ERR unknown option: " + a);
+							bad = true;
+							break;
+						}
+					}
+					if (!bad) {
+						if (PolyHaven::StartImport(state, args[1], options, error)) {
+							response_lines.push_back("OK started " + args[1]);
+						}
+						else {
+							response_lines.push_back("ERR " + error);
+						}
+					}
+				}
+			}
+			else {
+				return false;
+			}
+			return true;
+		}
+
+		//The platform/force gizmo commands, kept out of the main dispatch chain for the
+		//same reason HandleAssetImportCommand is: the ladder is already at the compiler's
+		//block-nesting limit, and adding these to it is what hit C1061. Returns false when
+		//`cmd` is not one of them.
+		static bool HandleMotionGizmoCommand(EditorState& state, const std::string& cmd,
+			const std::vector<std::string>& args)
+		{
+			if (cmd == "platform_gizmos" || cmd == "force_gizmos") {
+				//The platform-travel and force-volume overlays (View/Platform Gizmos and
+				//View/Force Gizmos). One rung for both, since they take the same argument.
+				MotionView& view = (cmd == "platform_gizmos") ? state.platform_view
+					: state.force_view;
+				const std::string mode = (args.size() >= 2) ? args[1] : std::string();
+				if (mode == "off") {
+					view = MotionView::Off;
+				}
+				else if (mode == "selection") {
+					view = MotionView::Selection;
+				}
+				else if (mode == "all") {
+					view = MotionView::All;
+				}
+				if (mode == "off" || mode == "selection" || mode == "all") {
+					response_lines.push_back("OK " + cmd + " " + mode);
+				}
+				else {
+					response_lines.push_back("ERR usage: " + cmd + " off|selection|all");
+				}
+			}
+			else if (cmd == "motion_gizmo_info") {
+				//What the last frame's platform/force overlay drew. One line per marker:
+				//name, kind (platform/linear/force), what it was drawn as, and the marker's
+				//normalized screen position (0..1 across the display). A platform at rest
+				//and a platform this editor never registered look identical in a
+				//screenshot, so this is the only way a test can tell them apart.
+				const MotionGizmos::FrameInfo& info = MotionGizmos::LastFrame();
+				response_lines.push_back("OK platforms=" + std::to_string(info.platforms_drawn) +
+					" linears=" + std::to_string(info.linears_drawn) +
+					" forces=" + std::to_string(info.forces_drawn) +
+					" segments=" + std::to_string(info.segments) +
+					" markers=" + std::to_string(info.markers.size()));
+				for (const auto& m : info.markers) {
+					char line[256];
+					snprintf(line, sizeof(line), "%s %s %s %.5f %.5f", m.name.c_str(),
+						m.kind.c_str(), m.detail.c_str(), m.x, m.y);
+					response_lines.push_back(line);
+				}
+			}
+			else {
+				return false;
+			}
+			return true;
+		}
+
+		//The imported-asset commands (Assets/Textures, Assets/Shaders), kept out of the
+		//main dispatch chain: it is one else-if ladder and the compiler's block-nesting
+		//limit (C1061) is what a few more rungs would run into. Returns false when `cmd` is
+		//not one of them, so the caller carries on down its own chain.
+		static bool HandleAssetImportCommand(EditorState& state, const std::string& cmd,
+			const std::vector<std::string>& args, std::string& error)
+		{
+			//--- Imported assets: textures live under <project>/Assets/Textures and shaders
+			//under <project>/Assets/Shaders, and a material picks from those (the Materials
+			//panel's Import... buttons and pickers). No slot takes an arbitrary disk path.
+			if (cmd == "import_texture") {
+				if (args.size() < 2) {
+					response_lines.push_back("ERR usage: import_texture <file> [subfolder]");
+				}
+				else {
+					std::string imported;
+					if (MaterialOps::ImportTexture(state, args[1], args.size() > 2 ? args[2] : std::string(),
+						imported, error)) {
+						response_lines.push_back("OK " + imported);
+					}
+					else {
+						response_lines.push_back("ERR " + error);
+					}
+				}
+			}
+			else if (cmd == "list_textures") {
+				const std::vector<std::string>& all = MaterialOps::ListTextures(state);
+				response_lines.push_back("OK " + std::to_string(all.size()) + " textures");
+				for (const std::string& t : all) {
+					response_lines.push_back(t);
+				}
+			}
+			//Points one texture slot at an imported texture, by its Assets/Textures-
+			//relative name ("none" clears it). Undoable, marks the .mat dirty.
+			else if (cmd == "set_material_texture") {
+				if (args.size() < 4) {
+					response_lines.push_back("ERR usage: set_material_texture <material> <slot> <name|none>"
+						" (slots: diffuse normal height specular ao arm emission opacity)");
+				}
+				else {
+					MaterialOps::MaterialSnapshot before;
+					if (!MaterialOps::GetSnapshot(state, args[1], before)) {
+						response_lines.push_back("ERR material not found: " + args[1]);
+					}
+					else {
+						MaterialOps::MaterialSnapshot after = before;
+						const std::string& slot = args[2];
+						std::string* field = nullptr;
+						if (slot == "diffuse") { field = &after.texture_names.diffuse_texname; }
+					else if (slot == "normal") { field = &after.texture_names.normal_textname; }
+					else if (slot == "height") { field = &after.texture_names.high_textname; }
+					else if (slot == "specular") { field = &after.texture_names.spec_textname; }
+					else if (slot == "ao") { field = &after.texture_names.ao_textname; }
+					else if (slot == "arm") { field = &after.texture_names.arm_textname; }
+					else if (slot == "emission") { field = &after.texture_names.emission_textname; }
+					else if (slot == "opacity") { field = &after.texture_names.opacity_textname; }
+						if (field == nullptr) {
+							response_lines.push_back("ERR unknown texture slot: " + slot);
+						}
+						else {
+							bool known = true;
+							if (args[3] == "none") {
+								field->clear();
+							}
+							else {
+								const std::vector<std::string>& all = MaterialOps::ListTextures(state);
+								known = std::find(all.begin(), all.end(), args[3]) != all.end();
+								if (known) {
+									*field = MaterialOps::TextureAbsolutePath(state, args[3]);
+								}
+							}
+							if (!known) {
+								response_lines.push_back("ERR '" + args[3] + "' is not an imported texture - "
+									"import_texture it into Assets/Textures first");
+							}
+						else if (MaterialOps::ApplySnapshot(state, args[1], after, error)) {
+								MaterialOps::RecordEdit(state, args[1], before);
+								response_lines.push_back("OK");
+							}
+							else {
+								response_lines.push_back("ERR " + error);
+							}
+						}
+					}
+				}
+			}
+			else if (cmd == "textures") {
+				if (args.size() < 2) {
+					response_lines.push_back("ERR usage: textures <material name>");
+				}
+				else {
+					Core::MaterialData* m = state.world->GetMaterials().Get(args[1]);
+					if (m == nullptr || state.world->IsMaterialRemoved(args[1])) {
+						response_lines.push_back("ERR material not found: " + args[1]);
+					}
+					else {
+						const Core::MaterialTextures& t = m->texture_names;
+						response_lines.push_back("OK textures for " + args[1]);
+						auto line = [&](const char* slot, const std::string& path) {
+							const std::string rel = MaterialOps::TextureRelativeName(state, path);
+							response_lines.push_back(std::string(slot) + "=" +
+								(path.empty() ? "" : (rel.empty() ? "(external) " + path : rel)));
+						};
+						line("diffuse", t.diffuse_texname);
+						line("normal", t.normal_textname);
+						line("height", t.high_textname);
+						line("specular", t.spec_textname);
+						line("ao", t.ao_textname);
+						line("arm", t.arm_textname);
+						line("emission", t.emission_textname);
+						line("opacity", t.opacity_textname);
+					}
+				}
+			}
+			//--- The Textures panel (TexturePanel.h): the texture library on its own.
+			else if (cmd == "import_texture_folder") {
+				if (args.size() < 2) {
+					response_lines.push_back("ERR usage: import_texture_folder <folder> [subfolder]");
+				}
+				else {
+					int imported = 0, skipped = 0;
+					if (TextureOps::ImportFolder(state, args[1], args.size() > 2 ? args[2] : std::string(),
+						imported, skipped, error)) {
+						response_lines.push_back("OK " + std::to_string(imported) + " imported, " +
+							std::to_string(skipped) + " skipped");
+					}
+					else {
+						response_lines.push_back("ERR " + error);
+					}
+				}
+			}
+			else if (cmd == "texture_folders") {
+				const std::vector<std::string> folders = TextureOps::ListFolders(state);
+				response_lines.push_back("OK " + std::to_string(folders.size()) + " folders");
+				for (const std::string& f : folders) {
+					response_lines.push_back(f);
+				}
+			}
+			else if (cmd == "create_texture_folder") {
+				if (args.size() < 2) {
+					response_lines.push_back("ERR usage: create_texture_folder <folder>");
+				}
+				else if (TextureOps::CreateFolder(state, args[1], error)) {
+					response_lines.push_back("OK");
+				}
+				else {
+					response_lines.push_back("ERR " + error);
+				}
+			}
+			else if (cmd == "remove_texture") {
+				if (args.size() < 2) {
+					response_lines.push_back("ERR usage: remove_texture <name>");
+				}
+				else if (TextureOps::RemoveTexture(state, args[1], error)) {
+					response_lines.push_back("OK");
+				}
+				else {
+					response_lines.push_back("ERR " + error);
+				}
+			}
+			else if (cmd == "remove_texture_folder") {
+				int removed = 0;
+				if (args.size() < 2) {
+					response_lines.push_back("ERR usage: remove_texture_folder <folder>");
+				}
+				else if (TextureOps::RemoveFolder(state, args[1], removed, error)) {
+					response_lines.push_back("OK " + std::to_string(removed) + " removed");
+				}
+				else {
+					response_lines.push_back("ERR " + error);
+				}
+			}
+			else if (cmd == "texture_users") {
+				if (args.size() < 2) {
+					response_lines.push_back("ERR usage: texture_users <name>");
+				}
+				else {
+					const std::vector<std::string> users = TextureOps::FindUsers(state, args[1]);
+					response_lines.push_back("OK " + std::to_string(users.size()) + " users");
+					for (const std::string& u : users) {
+						response_lines.push_back(u);
+					}
+				}
+			}
+			else if (cmd == "select_texture") {
+				if (args.size() < 2) {
+					response_lines.push_back("ERR usage: select_texture <name>");
+				}
+				else {
+					const std::vector<std::string>& all = MaterialOps::ListTextures(state);
+					if (std::find(all.begin(), all.end(), args[1]) == all.end()) {
+						response_lines.push_back("ERR not an imported texture: " + args[1]);
+					}
+					else {
+						state.selected_texture = args[1];
+						state.show_texture_panel = true;
+						response_lines.push_back("OK selected texture: " + args[1]);
+					}
+				}
+			}
+			else if (cmd == "import_shader") {
+				if (args.size() < 2) {
+					response_lines.push_back("ERR usage: import_shader <file.hlsl|file.cso>");
+				}
+				else {
+					std::string cso_name;
+					if (MaterialOps::ImportShader(state, args[1], cso_name, error)) {
+						response_lines.push_back("OK " + cso_name);
+					}
+					else {
+						response_lines.push_back("ERR " + error);
+					}
+				}
+			}
+			else {
+				return HandlePolyHavenCommand(state, cmd, args, error);
+			}
+			return true;
+		}
+
 		static bool ParseFloats(const std::vector<std::string>& args, size_t first, size_t count, float* out)
 		{
 			if (args.size() < first + count) {
@@ -143,6 +535,9 @@ namespace HotBiteEditor {
 			j["collider_view"] = COLLIDER_VIEW_NAME[(int)state.collider_view];
 			j["light_view"] = COLLIDER_VIEW_NAME[(int)state.light_view];
 			j["light_positions"] = state.light_positions;
+			//Same off/selection/all spelling as the collider and light views.
+			j["platform_view"] = COLLIDER_VIEW_NAME[(int)state.platform_view];
+			j["force_view"] = COLLIDER_VIEW_NAME[(int)state.force_view];
 			j["placed_instances"] = state.placed_instances.size();
 			Coordinator* c = state.world->GetCoordinator();
 			j["entity_count"] = (c != nullptr) ? c->GetEntites().size() : 0;
@@ -398,7 +793,8 @@ namespace HotBiteEditor {
 						m.spot ? "spot" : "point");
 					response_lines.push_back(line);
 				}
-			}			else if (cmd == "physics_info") {
+			}
+			else if (cmd == "physics_info") {
 				//Numeric counterpart of the collider overlay: for each selected
 				//entity, the collider's world AABB against the rendered mesh's, so a
 				//collider that does not match the mesh is a number rather than
@@ -914,6 +1310,12 @@ namespace HotBiteEditor {
 						}
 					}
 				}
+			}
+			else if (HandleAssetImportCommand(state, cmd, args, error)) {
+				//answered into response_lines
+			}
+			else if (HandleMotionGizmoCommand(state, cmd, args)) {
+				//answered into response_lines
 			}
 			else if (cmd == "shaders") {
 				if (args.size() < 2) {

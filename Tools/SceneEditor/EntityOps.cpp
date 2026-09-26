@@ -1,5 +1,7 @@
 #include "EntityOps.h"
 #include "EditorHistory.h"
+#include <Core/Log.h>
+#include "ComponentOps.h"
 #include "Inspector.h"
 #include "AssetBrowser.h"
 #include "Selection.h"
@@ -400,6 +402,114 @@ namespace HotBiteEditor {
 				[name, where, index](EditorState& s) {
 					std::string err;
 					SpawnCreatedCameraEntity(s, name, where, index, err);
+				} });
+			return true;
+		}
+
+		const std::vector<EntityPreset>& Presets()
+		{
+			using nlohmann::json;
+			static const std::vector<EntityPreset> presets = {
+				{ "Sky", "Sky", {
+					{ "AmbientLight", json::object() },
+					//The demo level's sun: a white light from the upper side, which the
+					//Sky component then swings with its own clock.
+					{ "DirectionalLight", {
+						{ "color", { {"x", 1.0f}, {"y", 1.0f}, {"z", 1.0f} } },
+						{ "direction", { {"x", 0.67f}, {"y", 0.70f}, {"z", 0.25f} } },
+						{ "intensity", 1.0f }, { "cast_shadow", true } } },
+					{ "Sky", json::object() } } },
+				{ "Directional Light", "DirectionalLight", {
+					{ "DirectionalLight", {
+						{ "color", { {"x", 1.0f}, {"y", 1.0f}, {"z", 1.0f} } },
+						{ "direction", { {"x", 0.67f}, {"y", 0.70f}, {"z", 0.25f} } },
+						{ "intensity", 1.0f }, { "cast_shadow", true } } } } },
+				{ "Point Light", "PointLight", {
+					{ "PointLight", { { "range", 10.0f }, { "cast_shadow", false } } } } },
+				{ "Spot Light", "SpotLight", {
+					{ "PointLight", { { "range", 15.0f }, { "cast_shadow", false },
+						{ "spot", true } } } } },
+				{ "Ambient Light", "AmbientLight", {
+					{ "AmbientLight", json::object() } } },
+				//Mesh and Material come with the stand-in cube and white material, so
+				//the entity draws at once and can then be pointed at real assets.
+				{ "Mesh Object", "Mesh", {
+					{ "Mesh", json::object() },
+					{ "Material", json::object() },
+					{ "Bounds", json::object() } } },
+				{ "Physics Object", "PhysicsObject", {
+					{ "Mesh", json::object() },
+					{ "Material", json::object() },
+					{ "Bounds", json::object() },
+					{ "Physics", json::object() } } },
+				{ "Gaussian Splat", "GaussianSplat", {
+					{ "SplatCloud", json::object() } } },
+			};
+			return presets;
+		}
+
+		//Spawns `name` and gives it the preset's components, none of it recorded:
+		//shared by the create and by the redo of one. A component that refuses (one
+		//this binary does not register) is skipped rather than failing the entity.
+		static bool SpawnPresetEntity(EditorState& state, const std::string& name,
+			const EntityPreset& preset, const TransformSnapshot& where, size_t index,
+			std::string& error)
+		{
+			if (!SpawnCreatedEntity(state, name, where, index, error)) {
+				return false;
+			}
+			for (const auto& [component, payload] : preset.components) {
+				std::string ignored;
+				if (!ComponentOps::AddComponentNoHistory(state, name, component, payload, ignored)) {
+					LOG_WARN("Add/%s: skipped %s: %s", preset.label.c_str(),
+						component.c_str(), ignored.c_str());
+				}
+			}
+			return true;
+		}
+
+		bool CreatePresetEntity(EditorState& state, const std::string& label,
+			std::string& created_name, std::string& error)
+		{
+			const EntityPreset* found = nullptr;
+			for (const EntityPreset& p : Presets()) {
+				if (p.label == label) {
+					found = &p;
+				}
+			}
+			if (found == nullptr) {
+				error = "unknown preset '" + label + "'";
+				return false;
+			}
+			if (state.world == nullptr || state.world->GetCoordinator() == nullptr) {
+				error = "no scene loaded";
+				return false;
+			}
+			const EntityPreset preset = *found;
+			const std::string name = MakeCreatedName(state, preset.base_name);
+			const size_t index = state.created_entities.size();
+
+			TransformSnapshot where;
+			bool hit_something = false;
+			float3 point{};
+			if (AssetBrowser::ViewCenterPoint(state, point, hit_something)) {
+				where.position = point;
+			}
+
+			if (!SpawnPresetEntity(state, name, preset, where, index, error)) {
+				return false;
+			}
+			created_name = name;
+			state.status_message = "Created " + preset.label + ": " + name;
+			EditorHistory::Push({
+				"create " + name,
+				[name](EditorState& s) {
+					RemoveCreatedEntity(s, name);
+					s.component_deltas.erase(name);
+				},
+				[name, preset, where, index](EditorState& s) {
+					std::string err;
+					SpawnPresetEntity(s, name, preset, where, index, err);
 				} });
 			return true;
 		}

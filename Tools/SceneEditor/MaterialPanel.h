@@ -124,6 +124,39 @@ namespace HotBiteEditor {
 			const std::string& source_shader, const std::string& new_name,
 			std::string& out_cso_name, std::string& out_hlsl_path, std::string& error);
 
+		// Where the project keeps imported shaders / textures: <project>/Assets/Shaders
+		// and <project>/Assets/Textures (subfolders allowed under the latter). Empty when
+		// no project is open.
+		std::string ShadersDir(const EditorState& state);
+		std::string TexturesDir(const EditorState& state);
+
+		// Makes Assets/Shaders known to the engine: ShaderFactory finds a "Foo.cso" there
+		// by name, ShaderCompiler indexes the .hlsl beside it, and ListShaders offers it.
+		// Call before a level loads, so a material naming a project shader resolves it.
+		void RegisterProjectShaderFolder(EditorState& state);
+
+		// Copies a .hlsl (compiled to a .cso beside it) or a .cso into Assets/Shaders.
+		// The name must end in a stage suffix (VS/HS/DS/GS/PS). `out_cso_name` is the
+		// name to put in a material's shader slot. Not undoable, like File/Import Model.
+		bool ImportShader(EditorState& state, const std::string& source_path,
+			std::string& out_cso_name, std::string& error);
+
+		// Every image under Assets/Textures, relative to it, sorted (cached; see
+		// RefreshTextureList). What the material texture pickers offer.
+		const std::vector<std::string>& ListTextures(const EditorState& state);
+		void RefreshTextureList();
+
+		// Assets/Textures-relative name <-> the absolute path MaterialData holds.
+		// TextureRelativeName is empty for a file outside Assets/Textures.
+		std::string TextureAbsolutePath(const EditorState& state, const std::string& relative);
+		std::string TextureRelativeName(const EditorState& state, const std::string& absolute);
+
+		// Copies an image into Assets/Textures/<subfolder> (created if needed; the
+		// subfolder must stay inside Assets/Textures). `out_path` is the absolute path to
+		// assign to a texture slot. Not undoable, like File/Import Model - the assignment is.
+		bool ImportTexture(EditorState& state, const std::string& source_path,
+			const std::string& subfolder, std::string& out_path, std::string& error);
+
 		// Rebinds a material's shaders, undoably, marking its file dirty. Fails without
 		// changing anything if any shader will not load as its stage.
 		bool SetShaders(EditorState& state, const std::string& material_name,

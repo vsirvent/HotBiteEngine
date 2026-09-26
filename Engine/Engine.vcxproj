@@ -163,8 +163,10 @@
     <ClCompile Include="Engine\Components\Base.cpp" />
     <ClCompile Include="Engine\Components\Camera.cpp" />
     <ClCompile Include="Engine\Components\Lights.cpp" />
+    <ClCompile Include="Engine\Components\Force.cpp" />
     <ClCompile Include="Engine\Components\Physics.cpp" />
     <ClCompile Include="Engine\Components\PhysicsSerialization.cpp" />
+    <ClCompile Include="Engine\Components\Platform.cpp" />
     <ClCompile Include="Engine\Core\Audio.cpp" />
     <ClCompile Include="Engine\Core\BVH.cpp" />
     <ClCompile Include="Engine\Core\DXCore.cpp" />
@@ -196,8 +198,10 @@
     <ClCompile Include="Engine\Systems\AudioSystem.cpp" />
     <ClCompile Include="Engine\Systems\CameraSystem.cpp" />
     <ClCompile Include="Engine\Systems\DirectionalLightSystem.cpp" />
+    <ClCompile Include="Engine\Systems\ForceSystem.cpp" />
     <ClCompile Include="Engine\Systems\ParticleSystem.cpp" />
     <ClCompile Include="Engine\Systems\PhysicsSystem.cpp" />
+    <ClCompile Include="Engine\Systems\PlatformSystem.cpp" />
     <ClCompile Include="Engine\Systems\PlayerSystem.cpp" />
     <ClCompile Include="Engine\Systems\PointLightSystem.cpp" />
     <ClCompile Include="Engine\Systems\RenderSystem.cpp" />
@@ -211,9 +215,11 @@
   <ItemGroup>
     <ClInclude Include="Engine\Components\Base.h" />
     <ClInclude Include="Engine\Components\Camera.h" />
+    <ClInclude Include="Engine\Components\Force.h" />
     <ClInclude Include="Engine\Components\Lights.h" />
     <ClInclude Include="Engine\Components\Particles.h" />
     <ClInclude Include="Engine\Components\Physics.h" />
+    <ClInclude Include="Engine\Components\Platform.h" />
     <ClInclude Include="Engine\Components\Sky.h" />
     <ClInclude Include="Engine\Core\Audio.h" />
     <ClInclude Include="Engine\Core\BVH.h" />
@@ -269,8 +275,10 @@
     <ClInclude Include="Engine\Systems\AudioSystem.h" />
     <ClInclude Include="Engine\Systems\CameraSystem.h" />
     <ClInclude Include="Engine\Systems\DirectionalLightSystem.h" />
+    <ClInclude Include="Engine\Systems\ForceSystem.h" />
     <ClInclude Include="Engine\Systems\ParticleSystem.h" />
     <ClInclude Include="Engine\Systems\PhysicsSystem.h" />
+    <ClInclude Include="Engine\Systems\PlatformSystem.h" />
     <ClInclude Include="Engine\Systems\PlayerSystem.h" />
     <ClInclude Include="Engine\Systems\PointLightSystem.h" />
     <ClInclude Include="Engine\Systems\RenderSystem.h" />

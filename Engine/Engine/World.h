@@ -46,10 +46,14 @@ SOFTWARE.
 #include <Systems\ParticleSystem.h>
 #include <Systems\AnimationSystem.h>
 #include <Systems\AudioSystem.h>
+#include <Systems\PlatformSystem.h>
+#include <Systems\ForceSystem.h>
 #include <Components\Base.h>
 #include <Components\Camera.h>
+#include <Components\Force.h>
 #include <Components\Lights.h>
 #include <Components\Physics.h>
+#include <Components\Platform.h>
 #include <Core\DXCore.h>
 #include <Core\Material.h>
 #include <Core\Mesh.h>
@@ -213,6 +217,12 @@ namespace HotBite {
 			std::shared_ptr<Systems::AnimationMeshSystem> animation_mesh_system;
 			std::shared_ptr<Systems::ParticleSystem> particle_system;
 			std::shared_ptr<Systems::AudioSystem> audio_system;
+			//Moving platforms and force fields (Systems/PlatformSystem.h,
+			//Systems/ForceSystem.h). Driven from the physics tick, and only while physics
+			//is not paused - see Run().
+			std::shared_ptr<Systems::PlatformSystem> platform_system;
+			std::shared_ptr<Systems::LinearPlatformSystem> linear_platform_system;
+			std::shared_ptr<Systems::ForceSystem> force_system;
 			bool running = false;
 			bool init = false;
 			//Init() has run: entities created after this point (editor spawns/clones)

@@ -71,6 +71,22 @@ namespace HotBiteEditor {
 		bool CreateCameraEntity(EditorState& state, std::string& created_name,
 			std::string& error);
 
+		// A kind of object and the components it typically carries: Add/Sky,
+		// Add/Point Light, Add/Mesh Object, Add/Gaussian Splat and so on. Each creates
+		// an entity exactly like CreateEmptyEntity - same naming, placement, selection
+		// and created_entities record - with the listed components already on it
+		// (defaults where the payload is empty), as ONE undo step.
+		struct EntityPreset {
+			std::string label;      // menu entry: "Add/<label>"
+			std::string base_name;  // entity name stem: "<base>", "<base>_1", ...
+			std::vector<std::pair<std::string, nlohmann::json>> components;
+		};
+		const std::vector<EntityPreset>& Presets();
+
+		// Creates the preset named `label`; `created_name` receives the entity name.
+		bool CreatePresetEntity(EditorState& state, const std::string& label,
+			std::string& created_name, std::string& error);
+
 		// Renames an entity, updating every piece of editor bookkeeping that is
 		// keyed by entity name (instance records, clone records and their sources,
 		// transform-override tracking, group membership, the clipboard, and the

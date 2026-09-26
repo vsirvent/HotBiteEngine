@@ -163,13 +163,14 @@ function Remove-TestShaderFiles {
 
 Test 'new_shader creates a real, loadable shader by copying the current one' {
     Remove-TestShaderFiles -Stems 'TestRedCustomPS'
-    $cso = Join-Path (Split-Path $Session.Exe -Parent) 'TestRedCustomPS.cso'
+    $cso = Join-Path $Assets 'Shaders\TestRedCustomPS.cso'
 
     SendOk 'new_shader TestRed draw_ps TestRedCustomPS' | Out-Null
     $r = SendOk 'shaders TestRed'
     Assert-Contains -Collection $r[0].Payload -Value 'draw_ps=TestRedCustomPS.cso' `
         -Message 'the material was reassigned to the new shader'
-    Assert-True -Condition (Test-Path $cso) -Message 'a real .cso was compiled to disk'
+    Assert-True -Condition (Test-Path $cso) -Message 'a real .cso was compiled into Assets/Shaders'
+    Assert-FileExists -Path (Join-Path $Assets 'Shaders\TestRedCustomPS.hlsl')
 
     SendOk 'set_shader TestRed draw_ps MainRenderPS.cso' | Out-Null
     Remove-TestShaderFiles -Stems 'TestRedCustomPS'
