@@ -169,6 +169,14 @@ void CameraSystem::Update(CameraData& entity, int64_t elapsed_nsec, int64_t tota
 
 		XMStoreFloat3(&entity.camera->world_position, pos);
 		vector4d up = XMVectorSet(0, 1, 0, 0);
+		//A fixed world up degenerates when looking straight up or down (LookTo has
+		//no defined roll there). Near that pole take the up from the orbit rotation
+		//itself, which is what the view's "up" was turning into as it got there, so
+		//the screen keeps its orientation instead of snapping or going NaN.
+		if (fabsf(XMVectorGetX(XMVector3Dot(entity.camera->xm_direction, up))) > 0.999f) {
+			matrix mrot_up = XMMatrixRotationRollPitchYaw(entity.camera->rotation.x, entity.camera->rotation.y, entity.camera->rotation.z);
+			up = XMVector3TransformNormal(up, mrot_up);
+		}
 		entity.camera->xm_view = XMMatrixLookToLH(
 			pos,     // The position of the "camera"
 			entity.camera->xm_direction,     // Direction the camera is looking

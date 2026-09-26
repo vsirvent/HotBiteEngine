@@ -23,8 +23,10 @@ namespace HotBiteEditor {
 	static constexpr float MAX_FLY_SPEED_SCALE = 10.0f;
 	static constexpr float DOLLY_DISTANCE_FRACTION = 0.15f; // per wheel step
 	static constexpr float MIN_FOCUS_DISTANCE = 0.5f;
-	//LookToLH uses a fixed world up, which degenerates at the poles.
-	static constexpr float MAX_PITCH = XM_PIDIV2 - 0.03f;
+	//Straight up / straight down is reachable: CameraSystem picks the view's up
+	//from the orbit rotation at the poles. Past them a fixed-up view would flip
+	//over, so this is exactly the pole and no further.
+	static constexpr float MAX_PITCH = XM_PIDIV2;
 
 	void EditorCamera::Init(World* world)
 	{
@@ -67,12 +69,48 @@ namespace HotBiteEditor {
 		return XMVectorGetX(XMVector3Length(XMLoadFloat3(&to_target)));
 	}
 
+	//CameraSystem places the eye at `direction + Rz*Rx*Ry * (position - direction)`:
+	//pitch turns about world X *before* yaw turns about Y. Elevation therefore only
+	//spans the full -90..+90 when the stored offset lies in the YZ plane (behind the
+	//target, x == 0) and the rotation carries no roll. A rig whose offset was set any
+	//other way (a camera_pos, a loaded pose, a Focus that kept an old offset) tops out
+	//at asin(|offset.yz| / |offset|) no matter how far the mouse drags, so the view
+	//cannot reach the top. Re-express the same eye position as offset (0,0,-d) plus
+	//pitch/yaw, which renders identically and makes the +-MAX_PITCH clamp the true pole.
+	static void CanonicalizeOrbit(CameraSystem::CameraData& cam)
+	{
+		float3& rot = cam.camera->rotation;
+		float3 offset = cam.transform->position - cam.camera->direction;
+		const float d = XMVectorGetX(XMVector3Length(XMLoadFloat3(&offset)));
+		if (d < 1e-4f) {
+			return;
+		}
+		if (rot.z == 0.0f && std::fabs(offset.x) < 1e-5f && std::fabs(offset.y) < 1e-5f && offset.z < 0.0f) {
+			return; //already canonical
+		}
+		XMVECTOR q = XMQuaternionRotationRollPitchYaw(rot.x, rot.y, rot.z);
+		XMFLOAT3 w;
+		XMStoreFloat3(&w, XMVector3Rotate(XMLoadFloat3(&offset), q));
+		const float sin_p = std::clamp(w.y / d, -1.0f, 1.0f);
+		const float pitch = std::asin(sin_p);
+		//Straight above/below leaves yaw undefined; keep the one it already has.
+		const float yaw = (std::fabs(w.x) + std::fabs(w.z) < 1e-5f * d) ? rot.y : std::atan2(-w.x, -w.z);
+		rot.x = pitch;
+		rot.y = yaw;
+		rot.z = 0.0f;
+		cam.transform->position.x = cam.camera->direction.x;
+		cam.transform->position.y = cam.camera->direction.y;
+		cam.transform->position.z = cam.camera->direction.z - d;
+		cam.transform->dirty = true;
+	}
+
 	void EditorCamera::Orbit(float dx_pixels, float dy_pixels)
 	{
 		CameraSystem::CameraData* cam = GetCamera();
 		if (cam == nullptr) {
 			return;
 		}
+		CanonicalizeOrbit(*cam);
 		camera_system->RotateY(*cam, dx_pixels * ORBIT_RADIANS_PER_PIXEL);
 		camera_system->RotateX(*cam, dy_pixels * ORBIT_RADIANS_PER_PIXEL);
 		cam->camera->rotation.x = std::clamp(cam->camera->rotation.x, -MAX_PITCH, MAX_PITCH);
