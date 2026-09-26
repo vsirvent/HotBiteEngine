@@ -102,6 +102,89 @@ namespace HotBiteEditor {
 			return tokens;
 		}
 
+		//A material's surface parameters - tessellation and the displacement the height map
+		//gets from it. Chained off the Poly Haven handler below for the same reason that one
+		//is chained off the asset-import one: the main ladder is at the compiler's C1061 limit.
+		//
+		//  material_surface <material>                                  report
+		//  material_surface <material> <off|on|distance|silhouette|0-3> [<factor> [<displacement|default>]]
+		//
+		//Setting is undoable; both forms answer
+		//"OK tess=<mode> factor=<f> displacement=<d> height=<yes|no>".
+		static bool HandleMaterialSurfaceCommand(EditorState& state, const std::string& cmd,
+			const std::vector<std::string>& args, std::string& error)
+		{
+			//tess_info: what the GPU's tessellation stages did in the main scene pass (RenderSystem::
+			//TessStats) - "OK valid=<0|1> frame=<n> hs=<control points> ds=<tessellated vertices>". Only
+			//meaningful as a difference between two states of one scene, and a few frames stale: asking
+			//is what turns the query on, so the first call answers valid=0. Poll.
+			if (cmd == "tess_info") {
+				Systems::RenderSystem* rs =
+					(state.world != nullptr) ? state.world->GetSystem<Systems::RenderSystem>().get() : nullptr;
+				if (rs == nullptr) {
+					response_lines.push_back("ERR no render system");
+				}
+				else {
+					const Systems::RenderSystem::TessStats stats = rs->GetTessStats();
+					response_lines.push_back("OK valid=" + std::to_string(stats.valid ? 1 : 0) +
+						" frame=" + std::to_string(stats.frame) +
+						" hs=" + std::to_string(stats.hs_invocations) +
+						" ds=" + std::to_string(stats.ds_invocations));
+				}
+				return true;
+			}
+			if (cmd != "material_surface") {
+				return false;
+			}
+			if (args.size() < 2) {
+				response_lines.push_back("ERR usage: material_surface <material> "
+					"[<off|on|distance|silhouette> [<factor> [<displacement|default>]]]");
+				return true;
+			}
+			MaterialOps::MaterialSnapshot before;
+			if (!MaterialOps::GetSnapshot(state, args[1], before)) {
+				response_lines.push_back("ERR material not found: " + args[1]);
+				return true;
+			}
+			if (args.size() > 2) {
+				MaterialOps::MaterialSnapshot after = before;
+				const std::string& mode = args[2];
+				try {
+					if (!MaterialOps::TessellationModeFromName(mode, after.tessellation_type)) {
+						std::string names;
+						for (const MaterialOps::TessMode& m : MaterialOps::TessellationModes()) {
+							names += (names.empty() ? "" : " ") + std::string(m.name);
+						}
+						response_lines.push_back("ERR unknown tessellation mode: " + mode + " (" + names + ")");
+						return true;
+					}
+					if (args.size() > 3) {
+						after.tessellation_factor = std::stof(args[3]);
+					}
+					if (args.size() > 4) {
+						after.displacement_scale = (args[4] == "default")
+							? Core::MaterialData::DEFAULT_DISPLACEMENT_SCALE : std::stof(args[4]);
+					}
+				}
+				catch (const std::exception&) {
+					response_lines.push_back("ERR factor and displacement must be numbers");
+					return true;
+				}
+				if (!MaterialOps::ApplySnapshot(state, args[1], after, error)) {
+					response_lines.push_back("ERR " + error);
+					return true;
+				}
+				MaterialOps::RecordEdit(state, args[1], before);
+			}
+			MaterialOps::MaterialSnapshot now;
+			MaterialOps::GetSnapshot(state, args[1], now);
+			response_lines.push_back(std::string("OK tess=") + MaterialOps::TessellationModeName(now.tessellation_type) +
+				" factor=" + std::to_string(now.tessellation_factor) +
+				" displacement=" + std::to_string(now.displacement_scale) +
+				" height=" + (now.texture_names.high_textname.empty() ? "no" : "yes"));
+			return true;
+		}
+
 		//Poly Haven (PolyHaven.h). The network work is asynchronous, like reload_shaders:
 		//polyhaven_refresh and polyhaven_import answer when the work is *queued*, and a
 		//caller polls polyhaven_status until the catalog is ready / the import is idle.
@@ -176,18 +259,18 @@ namespace HotBiteEditor {
 					response_lines.push_back(std::string("OK ") + names[(int)st]);
 				}
 			}
-			//polyhaven_import <id> [1k|2k|4k|8k] [<file>.mat] [height], options in any order.
+			//polyhaven_import <id> [1k|2k|4k|8k] [<file>.mat] [noheight], options in any order.
 			else if (cmd == "polyhaven_import") {
 				if (args.size() < 2) {
-					response_lines.push_back("ERR usage: polyhaven_import <id> [1k|2k|4k|8k] [<file>.mat] [height]");
+					response_lines.push_back("ERR usage: polyhaven_import <id> [1k|2k|4k|8k] [<file>.mat] [noheight]");
 				}
 				else {
 					PolyHaven::ImportOptions options;
 					bool bad = false;
 					for (size_t i = 2; i < args.size(); ++i) {
 						const std::string& a = args[i];
-						if (a == "height") {
-							options.height = true;
+						if (a == "noheight") {
+							options.height = false;
 						}
 						else if (a.size() >= 2 && a.back() == 'k' && std::isdigit((unsigned char)a[0])) {
 							options.resolution = a;
@@ -212,7 +295,7 @@ namespace HotBiteEditor {
 				}
 			}
 			else {
-				return false;
+				return HandleMaterialSurfaceCommand(state, cmd, args, error);
 			}
 			return true;
 		}

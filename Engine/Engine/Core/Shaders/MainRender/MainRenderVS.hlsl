@@ -98,6 +98,13 @@ VertexOutput main(VertexShaderInput input)
 				factor = clamp(tessFactor * saturate((10000.0f - depth * depth) / 10000.0f), 0.1f, tessFactor);
 				break;
 			}
+			//Always on: the material's factor as it is, whatever the distance or the angle.
+			//The other two spend the factor where it is most visible; this one is for a
+			//surface whose detail (a height map) has to be there at every range.
+			case 3: {
+				factor = max(tessFactor, 1.0f);
+				break;
+			}
 			}
 		}
 	}

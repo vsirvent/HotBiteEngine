@@ -338,7 +338,16 @@ namespace HotBite {
 				MaterialShaderNames shader_names;
 				int tessellation_type = 0;
 				float tessellation_factor = 0.0f;
-				float displacement_scale = 0.0f;
+				//How far the height map pushes a tessellated surface along its normal
+				//(object units). Displacement needs three things - a tessellation type,
+				//a factor above 1, and a height map - and the default is non-zero so the
+				//map applies the moment the other two are on, instead of reading as
+				//"tessellation does nothing" until someone finds this one field. It has
+				//no effect on a material without a height map or without tessellation.
+				//An explicit 0 (which every saved .mat carries) still means "no
+				//displacement", so only a material that never set the value changes.
+				static constexpr float DEFAULT_DISPLACEMENT_SCALE = 0.1f;
+				float displacement_scale = DEFAULT_DISPLACEMENT_SCALE;
 
 				//The layer stack this material draws with, or empty/null for a plain
 				//material. The name is the authoring value, saved to and loaded from the

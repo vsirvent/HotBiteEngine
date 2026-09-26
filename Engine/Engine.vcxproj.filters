@@ -492,6 +492,9 @@
     <None Include="Engine\Core\Shaders\MainRender\MainRenderPS.hlsli">
       <Filter>Engine\Core\Shaders\MainRender</Filter>
     </None>
+    <None Include="Engine\Core\Shaders\Common\MaterialUV.hlsli">
+      <Filter>Engine\Core\Shaders\Common</Filter>
+    </None>
     <None Include="Engine\Core\Shaders\Common\SimpleLight.hlsli">
       <Filter>Engine\Core\Shaders\Common</Filter>
     </None>

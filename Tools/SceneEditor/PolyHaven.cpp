@@ -856,7 +856,7 @@ namespace HotBiteEditor {
 			static std::string selected;
 			static int resolution_index = 0;
 			static std::string mat_file;
-			static bool height = false;
+			static bool height = true;
 
 			RequestCatalog(false);
 			std::string catalog_err;
@@ -896,8 +896,8 @@ namespace HotBiteEditor {
 			ImGui::SameLine();
 			ImGui::Checkbox("Height map", &height);
 			if (ImGui::IsItemHovered()) {
-				ImGui::SetTooltip("Also import the displacement map into the height slot,\n"
-					"which switches parallax on for the material.");
+				ImGui::SetTooltip("Import the displacement map into the height slot, which\n"
+					"switches parallax on for the material. Untick to skip it.");
 			}
 			ImGui::SameLine();
 			if (ImGui::Button("Refresh")) {

@@ -156,6 +156,25 @@ namespace HotBite {
 					uint32_t entries = 0;   //table size, so a caller can form a ratio
 				};
 
+				//What the tessellation stages did in the main scene pass, straight from the GPU's
+				//pipeline statistics. Tessellation is nearly invisible in a screenshot in the ways
+				//that matter: a surface tessellated at 16 and at 32 subdivisions differs by a few
+				//pixels of relief, and a patch that came out at half the density of its neighbour
+				//shows as, at best, a crack. The count of tessellated vertices (domain shader
+				//invocations) is the only direct evidence of what the hull shader decided.
+				//
+				//Summed over every tessellated draw in the frame, so it is only meaningful as a
+				//difference: the same scene before and after a change. Untessellated patches count
+				//too (one vertex per control point), which is the constant baseline to subtract.
+				//Two or three frames stale by construction (the query is read back without
+				//stalling the GPU).
+				struct TessStats {
+					uint64_t hs_invocations = 0; //control points run through the hull shader
+					uint64_t ds_invocations = 0; //tessellated vertices
+					uint32_t frame = 0;          //the frame this describes
+					bool valid = false;          //false until the first reading has come back
+				};
+
 				//What the splat binning did this frame, read back off the GPU. A splat
 				//cloud that is over per-tile capacity does not fail visibly - it renders
 				//a plausible surface with parts of it missing - so this is the only way
@@ -523,6 +542,22 @@ namespace HotBite {
 				MaterialProps objectMaterials[MAX_OBJECTS]{};
 				int nobjects = 0;
 				RtGeometryStats rt_geometry_stats;
+
+				//A ring of pipeline-statistics queries around the main scene pass. It runs only
+				//while something is reading it (GetTessStats), like the radiance cache counters:
+				//a query and its readback are not free and nothing in the frame depends on them.
+				static constexpr int TESS_QUERY_RING = 6;
+				static constexpr uint32_t TESS_STATS_KEEPALIVE = 120;
+				ID3D11Query* tess_query[TESS_QUERY_RING] = {};
+				uint32_t tess_query_frame[TESS_QUERY_RING] = {};
+				bool tess_query_pending[TESS_QUERY_RING] = {};
+				int tess_query_next = 0;
+				TessStats tess_stats_cpu;
+				mutable uint32_t tess_stats_request_frame = 0;
+				mutable bool tess_stats_requested = false;
+				ID3D11Query* BeginTessStats();
+				void EndTessStats(ID3D11Query* query);
+				void ResolveTessStats();
 				ID3D11ShaderResourceView* diffuseTextures[MAX_OBJECTS]{};
 				std::mutex rt_mutex;
 				std::condition_variable rt_signal;
@@ -922,6 +957,13 @@ namespace HotBite {
 				//period therefore answers with whatever was last read (zeros at
 				//startup) and the values become live a few frames later. Callers poll
 				//- see Wait-CacheStat in the 21-gicache suite.
+				//Asking turns the query on, as with the radiance cache counters: poll, and
+				//compare readings a few frames after each change.
+				TessStats GetTessStats() const {
+					tess_stats_request_frame = frame_count;
+					tess_stats_requested = true;
+					return tess_stats_cpu;
+				}
 				RadianceCacheStats GetRadianceCacheStats() const {
 					rcache_stats_request_frame = frame_count;
 					rcache_stats_requested = true;

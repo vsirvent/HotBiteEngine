@@ -136,6 +136,37 @@ namespace HotBiteEditor {
 			}
 		}
 
+		const std::vector<TessMode>& TessellationModes() {
+			static const std::vector<TessMode> modes = {
+				{ "off", 0, "No tessellation." },
+				{ "on", 3, "The factor as it is, at every distance and angle." },
+				{ "distance", 2, "More triangles the closer the surface is." },
+				{ "silhouette", 1, "More triangles toward the edges of the shape." } };
+			return modes;
+		}
+
+		const char* TessellationModeName(int type) {
+			for (const TessMode& mode : TessellationModes()) {
+				if (mode.type == type) {
+					return mode.name;
+				}
+			}
+			return "off";
+		}
+
+		bool TessellationModeFromName(const std::string& text, int& type) {
+			std::string lower = text;
+			std::transform(lower.begin(), lower.end(), lower.begin(),
+				[](unsigned char c) { return (char)std::tolower(c); });
+			for (const TessMode& mode : TessellationModes()) {
+				if (lower == mode.name || lower == std::to_string(mode.type)) {
+					type = mode.type;
+					return true;
+				}
+			}
+			return false;
+		}
+
 		std::vector<std::string> ListMaterials(EditorState& state) {
 			std::vector<std::string> names;
 			if (state.world == nullptr) {
@@ -1291,7 +1322,34 @@ namespace HotBiteEditor {
 			track(ImGui::DragFloat("Parallax steps", &p.parallax_steps, 1.0f, 0.0f, 64.0f));
 			track(ImGui::DragFloat("Parallax angles", &p.parallax_angle_steps, 1.0f, 0.0f, 64.0f));
 			track(ImGui::DragFloat("Displace", &m->displacement_scale, 0.01f));
+			if (ImGui::IsItemHovered()) {
+				ImGui::SetTooltip("How far the height map pushes the surface along its normal.\n"
+					"Applies only while tessellation is on (mode and factor below) and a\n"
+					"height map is set; 0 turns displacement off.");
+			}
 			track(ImGui::DragFloat("Tessellate", &m->tessellation_factor, 0.1f, 0.0f, 64.0f));
+			{
+				//The vertex shader tessellates only for a type above 0, so without this the
+				//factor above is inert - a material's type used to be reachable only by
+				//editing its .mat file.
+				const std::vector<MaterialOps::TessMode>& modes = MaterialOps::TessellationModes();
+				if (ImGui::BeginCombo("Tess mode", MaterialOps::TessellationModeName(m->tessellation_type))) {
+					for (const MaterialOps::TessMode& mode : modes) {
+						if (ImGui::Selectable(mode.name, mode.type == m->tessellation_type) &&
+							mode.type != m->tessellation_type) {
+							m->tessellation_type = mode.type;
+							//Picked in a popup, so it never reports the activate/deactivate pair the
+							//drag tracking above waits for: record it directly, against the snapshot
+							//taken before any widget this frame wrote.
+							MaterialOps::RecordEdit(state, name, frame_before);
+						}
+						if (ImGui::IsItemHovered()) {
+							ImGui::SetTooltip("%s", mode.help);
+						}
+					}
+					ImGui::EndCombo();
+				}
+			}
 			track(ImGui::DragFloat("UV scale", &p.uv_scale, 0.01f, 0.01f, 100.0f));
 			if (ImGui::IsItemHovered()) {
 				ImGui::SetTooltip("Multiplies the mesh's own UV before sampling the maps below -\n"

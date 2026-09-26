@@ -441,7 +441,7 @@ namespace HotBite {
 
 				tessellation_type = j.value("tess_type", 0);
 				tessellation_factor = j.value("tess_factor", 0.0f);
-				displacement_scale = j.value("displacement_scale", 0.0f);
+				displacement_scale = j.value("displacement_scale", DEFAULT_DISPLACEMENT_SCALE);
 				//Only the name: the stack itself lives in the world's registry, which is
 				//filled from the same file's "multi_materials" array and may not have been
 				//read yet. World::ResolveMultiMaterials binds the pointer afterwards.

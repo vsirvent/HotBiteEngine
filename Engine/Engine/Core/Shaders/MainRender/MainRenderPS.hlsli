@@ -1,3 +1,5 @@
+#include "../Common/MaterialUV.hlsli"
+
 Texture2D prevLightTexture;
 
 RenderTargetRT MainRenderPS(GSOutput input)
@@ -39,26 +41,23 @@ RenderTargetRT MainRenderPS(GSOutput input)
 	//normal: that only ever picks which face is being shaded, and doing it in
 	//whichever frame is fine as long as the sampled coordinate itself is the
 	//one that must not rotate.
-	if ((material.flags & WORLD_UV_ENABLED_FLAG) && multi_texture_count == 0 && material.world_uv_scale > 0.0f) {
-		matrix world_inv = inverse(world);
-		float3 local_pos = mul(float4(wpos.xyz, 1.0f), world_inv).xyz;
-		float3 world_scale = float3(length(world[0].xyz), length(world[1].xyz), length(world[2].xyz));
-		float3 scaled_local_pos = local_pos * world_scale;
-
-		float3 an = abs(normal);
-		float s = 1.0f / material.world_uv_scale;
-		if (an.x >= an.y && an.x >= an.z)      { input.uv = scaled_local_pos.zy * s; }
-		else if (an.y >= an.x && an.y >= an.z) { input.uv = scaled_local_pos.xz * s; }
-		else                                    { input.uv = scaled_local_pos.xy * s; }
-	}
 	//Plain UV tiling: multiplies the mesh's own authored UV before every ordinary
 	//texture sample. Ordinary materials only (a multi-material already has its own
-	//per-layer uv_scale, see MultiTexture.hlsli), and skipped when world-aligned
-	//tiling just replaced input.uv outright - material.world_uv_scale already covers
-	//that mode. 1 is a no-op, so this costs nothing for every material authored
-	//before it existed.
-	else if (multi_texture_count == 0) {
-		input.uv *= material.uv_scale;
+	//per-layer uv_scale, see MultiTexture.hlsli), and replaced outright when
+	//world-aligned tiling is on - material.world_uv_scale covers that mode. 1 is a
+	//no-op, so this costs nothing for every material authored before it existed.
+	//
+	//The mapping itself is MaterialUV (Common/MaterialUV.hlsli), shared with
+	//MainRenderDS, which samples the height map through the same function.
+	if (multi_texture_count == 0) {
+		const bool world_aligned = (material.flags & WORLD_UV_ENABLED_FLAG) && material.world_uv_scale > 0.0f;
+		float3 local_pos = float3(0.0f, 0.0f, 0.0f);
+		if (world_aligned) {
+			matrix world_inv = inverse(world);
+			local_pos = mul(float4(wpos.xyz, 1.0f), world_inv).xyz;
+		}
+		input.uv = MaterialUV(input.uv, local_pos, normal, world, world_aligned,
+			material.world_uv_scale, material.uv_scale);
 	}
 
 	float calculated_values[MAX_MULTI_TEXTURE];

@@ -1,0 +1,12 @@
+Bricks076C, 1K-JPG - a real PBR texture set from ambientCG (https://ambientcg.com/view?id=Bricks076C),
+released under CC0 1.0 (public domain). Copied unmodified from
+Tests/DemoGame/assets/textures/Bricks076C_1K so the editor's regression tests do not depend on the demo.
+
+Only the four maps the engine has material slots for are kept:
+  Bricks076C_1K_Color.jpg            -> diffuse
+  Bricks076C_1K_NormalDX.jpg         -> normal (DirectX convention, which this engine uses)
+  Bricks076C_1K_Displacement.jpg     -> height
+  Bricks076C_1K_AmbientOcclusion.jpg -> ao
+
+Used by suites\35-tessellation.tests.ps1: a real height map has real relief, which a flat
+test image cannot show tessellation displacing.

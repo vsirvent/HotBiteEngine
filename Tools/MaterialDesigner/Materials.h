@@ -347,12 +347,15 @@ public:
 	static String^ TESS_NONE = gcnew String("NONE");
 	static String^ TESS_BORDER = gcnew String("BORDER");
 	static String^ TESS_FULL = gcnew String("FULL");
+	//Constant factor at every distance and angle (the editor calls 1 "silhouette", 2 "distance").
+	static String^ TESS_ON = gcnew String("ON");
 	
 	static String^ GetTessTypeName(int32_t type) {
 		switch (type) {
 		case 0: return TESS_NONE;
 		case 1: return TESS_BORDER;
 		case 2: return TESS_FULL;
+		case 3: return TESS_ON;
 		default: return TESS_NONE;
 		}
 	}
@@ -367,12 +370,15 @@ public:
 		if (String::Compare(name, TESS_FULL) == 0) {
 			return 2;
 		}
+		if (String::Compare(name, TESS_ON) == 0) {
+			return 3;
+		}
 		return 0;
 	}
 
 	virtual StandardValuesCollection^ GetStandardValues(ITypeDescriptorContext^ context) override
 	{
-		array<System::String^>^ values = { TESS_NONE, TESS_BORDER, TESS_FULL };
+		array<System::String^>^ values = { TESS_NONE, TESS_BORDER, TESS_FULL, TESS_ON };
 		return gcnew StandardValuesCollection(values);
 	}
 	virtual bool GetStandardValuesExclusive(ITypeDescriptorContext^ context) override

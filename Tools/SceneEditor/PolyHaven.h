@@ -26,8 +26,8 @@ namespace HotBiteEditor {
 	//
 	// Maps: Diffuse -> diffuse, nor_dx -> normal (DirectX convention, which is this
 	// engine's), arm -> arm (R=AO, G=roughness, B=metal, the same packing the ARM slot
-	// reads), or AO -> ao when an asset has no arm map. Displacement -> height only on
-	// request, since a height map switches parallax on.
+	// reads), or AO -> ao when an asset has no arm map. Displacement -> height, which
+	// switches parallax on; ImportOptions::height opts out of it.
 	//
 	// All network work runs on background threads; nothing here blocks the frame. An
 	// import's download finishes on a worker and is turned into a material by Tick(),
@@ -77,7 +77,7 @@ namespace HotBiteEditor {
 		struct ImportOptions {
 			std::string resolution = "1k";  // "1k" "2k" "4k" "8k"; falls back to the nearest smaller one
 			std::string mat_file;           // "" = the selected material's file, else the level's first
-			bool height = false;            // also import Displacement into the height slot
+			bool height = true;             // import Displacement into the height slot (turns parallax on)
 		};
 
 		// Starts downloading `id`'s maps. Fails at once (nothing started) when another

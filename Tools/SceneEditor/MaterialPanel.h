@@ -35,6 +35,25 @@ namespace HotBiteEditor {
 			int tessellation_type = 0;
 		};
 
+		// The tessellation modes, in the order the editor lists them. `type` is what a
+		// material stores (`tess_type`, read by MainRenderVS) - not the listing order,
+		// because silhouette (1) and distance (2) predate "on" (3) and are in saved files.
+		//
+		//   off        0  no tessellation (the default); the factor and displacement are inert
+		//   on         3  the material's factor as it is, at every distance and angle
+		//   distance   2  the factor, falling off with distance
+		//   silhouette 1  the factor, concentrated toward the edges of the shape
+		struct TessMode {
+			const char* name;
+			int type;
+			const char* help;
+		};
+		const std::vector<TessMode>& TessellationModes();
+		// "off" for a type nothing draws differently from off.
+		const char* TessellationModeName(int type);
+		// A mode name (case-insensitive) or its stored number.
+		bool TessellationModeFromName(const std::string& text, int& type);
+
 		// Names of every live material, sorted, excluding the retired ones and the
 		// internal "__default_*" stand-ins.
 		std::vector<std::string> ListMaterials(EditorState& state);

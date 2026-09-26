@@ -24,28 +24,52 @@ SOFTWARE.
 
 #include "../Common/ShaderStructs.hlsli"
 
+//The tessellation factor of one edge, from its two end points and nothing else.
+//
+//That is the whole point. The patch on the other side of this edge computes it from the
+//same two vertices, and D3D only keeps a tessellated surface watertight when both sides
+//agree on the factor - so anything that depends on the *triangle* (its area, which vertex
+//comes first) opens a crack along every edge whose two triangles differ. The previous
+//version scaled all three edges by "triangle height over edge 0-1": for the two triangles
+//of a quad, edge 0-1 is a side in one and the diagonal in the other, so the halves of a
+//cube face were tessellated at different densities and the diagonal between them was
+//cut at two different rates (the black slashes along it).
+//
+//The vertex factors are averaged (VS gives each vertex its own: distance, silhouette). An
+//edge whose end points both ask for none stays at exactly 1, whatever its length - the
+//length scale below would otherwise tessellate an untessellated material's long edges,
+//and a factor of 0 (culled) stays 0 so the patch is dropped.
+float EdgeFactor(VertexOutput a, VertexOutput b)
+{
+	const float requested = 0.5f * (a.tessFactor + b.tessFactor);
+	if (requested <= 1.0f) {
+		return requested;
+	}
+	const float length_ws = length(a.worldPos.xyz - b.worldPos.xyz);
+	const float length_scale = max(sqrt(length_ws) * 0.5f, 0.01f);
+	return requested * length_scale;
+}
+
 HS_CONSTANT_DATA_OUTPUT CalcHSPatchConstants(
 	InputPatch<VertexOutput, NUM_CONTROL_POINTS> patch,
 	uint PatchID : SV_PrimitiveID)
 {
 	HS_CONSTANT_DATA_OUTPUT Output;
-	if (patch[0].tessFactor != 1.0f) {
-		float4 d1 = (patch[1].worldPos - patch[0].worldPos);
-		float4 d2 = (patch[2].worldPos - patch[0].worldPos);
-		float area = length(cross(d1.xyz, d2.xyz)) / length(d1);
-		float area_unit = 0.5f;
-		float area_factor = max(sqrt(area) * area_unit, 0.01f);
-		Output.EdgeTessFactor[0] = 0.5f * (patch[1].tessFactor + patch[2].tessFactor) * area_factor;
-		Output.EdgeTessFactor[1] = 0.5f * (patch[2].tessFactor + patch[0].tessFactor) * area_factor;
-		Output.EdgeTessFactor[2] = 0.5f * (patch[0].tessFactor + patch[1].tessFactor) * area_factor;
-		float inside_factor = (Output.EdgeTessFactor[0] + Output.EdgeTessFactor[1] + Output.EdgeTessFactor[2]) * 0.5f;
-		Output.InsideTessFactor = inside_factor;
+	//Edge i is the one opposite vertex i (D3D's tri domain).
+	Output.EdgeTessFactor[0] = EdgeFactor(patch[1], patch[2]);
+	Output.EdgeTessFactor[1] = EdgeFactor(patch[2], patch[0]);
+	Output.EdgeTessFactor[2] = EdgeFactor(patch[0], patch[1]);
+	const float most = max(Output.EdgeTessFactor[0], max(Output.EdgeTessFactor[1], Output.EdgeTessFactor[2]));
+	//Nothing asked for tessellation (or the whole patch is culled): leave it alone, and do
+	//not let the inside factor invent some. MainRenderDS gates displacement on it being
+	//above 1, so a material that is not tessellated must come out at exactly 1.
+	if (most <= 1.0f) {
+		Output.InsideTessFactor = most;
 	}
 	else {
-		Output.EdgeTessFactor[0] = 1.0f;
-		Output.EdgeTessFactor[1] = 1.0f;
-		Output.EdgeTessFactor[2] = 1.0f;
-		Output.InsideTessFactor = 1.0f;
+		//Symmetric in the three edges, so the two triangles of a quad - which have the same
+		//three edge factors - get the same inside density.
+		Output.InsideTessFactor = (Output.EdgeTessFactor[0] + Output.EdgeTessFactor[1] + Output.EdgeTessFactor[2]) * 0.5f;
 	}
 	return Output;
 }

@@ -494,10 +494,72 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 	return ret;
 }
 
+ID3D11Query* RenderSystem::BeginTessStats() {
+	//The next free slot of the ring; none free (the GPU is several frames behind) skips
+	//this frame's measurement rather than waiting for one.
+	for (int n = 0; n < TESS_QUERY_RING; ++n) {
+		const int i = (tess_query_next + n) % TESS_QUERY_RING;
+		if (tess_query_pending[i]) {
+			continue;
+		}
+		if (tess_query[i] == nullptr) {
+			D3D11_QUERY_DESC desc = {};
+			desc.Query = D3D11_QUERY_PIPELINE_STATISTICS;
+			if (FAILED(dxcore->device->CreateQuery(&desc, &tess_query[i]))) {
+				tess_query[i] = nullptr;
+				return nullptr;
+			}
+		}
+		tess_query_next = (i + 1) % TESS_QUERY_RING;
+		tess_query_pending[i] = true;
+		tess_query_frame[i] = frame_count;
+		dxcore->context->Begin(tess_query[i]);
+		return tess_query[i];
+	}
+	return nullptr;
+}
+
+void RenderSystem::EndTessStats(ID3D11Query* query) {
+	if (query != nullptr) {
+		dxcore->context->End(query);
+	}
+}
+
+void RenderSystem::ResolveTessStats() {
+	//Oldest first, and stop at the first one that is not back: a later query cannot be.
+	for (;;) {
+		int oldest = -1;
+		for (int i = 0; i < TESS_QUERY_RING; ++i) {
+			if (tess_query_pending[i] && (oldest < 0 || tess_query_frame[i] < tess_query_frame[oldest])) {
+				oldest = i;
+			}
+		}
+		if (oldest < 0) {
+			return;
+		}
+		D3D11_QUERY_DATA_PIPELINE_STATISTICS data = {};
+		if (dxcore->context->GetData(tess_query[oldest], &data, sizeof(data), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK) {
+			return;
+		}
+		tess_query_pending[oldest] = false;
+		tess_stats_cpu.hs_invocations = data.HSInvocations;
+		tess_stats_cpu.ds_invocations = data.DSInvocations;
+		tess_stats_cpu.frame = tess_query_frame[oldest];
+		tess_stats_cpu.valid = true;
+	}
+}
+
 RenderSystem::~RenderSystem() {
 	rt_end = true;
 	rt_signal.notify_all();
 	rt_thread.join();
+
+	for (int i = 0; i < TESS_QUERY_RING; ++i) {
+		if (tess_query[i] != nullptr) {
+			tess_query[i]->Release();
+			tess_query[i] = nullptr;
+		}
+	}
 
 	depth_view.Release();
 	for (int i = 0; i < 2; ++i)
@@ -1272,7 +1334,13 @@ void RenderSystem::DrawParticles(int w, int h, const float3& camera_position, co
 			vs = new_vs;
 			if (vs) {
 				vs->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
-				vs->SetFloat3(CAMERA_DIRECTION, cam_entity.camera->direction);
+				//The view direction, like every other shader gets it. Not Camera::direction: that is the
+				//point the camera looks *at* (CameraSystem subtracts the position to get the vector), so
+				//dotted with a normal it is a position dotted with a normal - zero when the target is the
+				//origin, which made silhouette tessellation identical to distance tessellation there.
+				float3 camera_forward;
+				XMStoreFloat3(&camera_forward, cam_entity.camera->xm_direction);
+				vs->SetFloat3(CAMERA_DIRECTION, camera_forward);
 				vs->SetInt(TESS_ENABLED, this->tess_enabled);
 				vs->SetFloat(TIME, time);
 				vs->SetShader();
@@ -1492,7 +1560,13 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 			vs = new_vs;
 			if (vs) {
 				vs->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
-				vs->SetFloat3(CAMERA_DIRECTION, cam_entity.camera->direction);
+				//The view direction, like every other shader gets it. Not Camera::direction: that is the
+				//point the camera looks *at* (CameraSystem subtracts the position to get the vector), so
+				//dotted with a normal it is a position dotted with a normal - zero when the target is the
+				//origin, which made silhouette tessellation identical to distance tessellation there.
+				float3 camera_forward;
+				XMStoreFloat3(&camera_forward, cam_entity.camera->xm_direction);
+				vs->SetFloat3(CAMERA_DIRECTION, camera_forward);
 				vs->SetInt(TESS_ENABLED, this->tess_enabled);
 				vs->SetFloat(TIME, time);
 				vs->SetShader();
@@ -3146,7 +3220,12 @@ void RenderSystem::PrepareMaterial(Core::MaterialData* material, Core::SimpleVer
 		//Configure shader with material information
 		ds->SetShaderResourceView(HIGH_TEXTURE, material->high);
 		ds->SetInt(HIGH_TEXTURE_ENABLED, material->high != nullptr);
-		ds->SetFloat(DISPLACEMENT_SCALE, material->displacement_scale);		
+		ds->SetFloat(DISPLACEMENT_SCALE, material->displacement_scale);
+		//How the pixel shader will map this material's UV (MaterialUV.hlsli), so the height map
+		//is sampled at the same coordinate as the colour. A multi-material ignores them.
+		ds->SetInt("worldUvEnable", (material->props.flags & WORLD_UV_ENABLED_FLAG) != 0);
+		ds->SetFloat("worldUvScale", material->props.world_uv_scale);
+		ds->SetFloat("uvScale", material->props.uv_scale);
 		ds->CopyAllBufferData();		
 	}
 
@@ -3690,7 +3769,15 @@ void RenderSystem::Draw() {
 		DrawDepth(w, h, camera_position, view, projection);
 		ProcessAutoFocus();
 		DrawSky(w, h, camera_position, view, projection);
+		//The main pass is the one that draws every tessellated surface, so it is what the
+		//tessellation counters wrap. Only while something is reading them.
+		ID3D11Query* tess_query_open = nullptr;
+		if (tess_stats_requested && frame_count - tess_stats_request_frame < TESS_STATS_KEEPALIVE) {
+			tess_query_open = BeginTessStats();
+		}
 		DrawScene(w, h, camera_position, view, projection, nullptr, first_pass_target, render_tree);
+		EndTessStats(tess_query_open);
+		ResolveTessStats();
 		if (second_pass_target != nullptr && !render_pass2_tree.empty()) {
 			CheckSceneVisibility(render_pass2_tree);
 			current_light_map = &light_map[1];

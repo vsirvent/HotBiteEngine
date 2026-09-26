@@ -121,7 +121,7 @@ Test 'polyhaven_import rejects bad input before starting anything' {
 }
 
 Test 'importing downloads the maps into their own folder and creates the material' {
-    Assert-Equal -Expected 'started red_brick' -Actual (SendOk 'polyhaven_import red_brick 2k height')[0].Text
+    Assert-Equal -Expected 'started red_brick' -Actual (SendOk 'polyhaven_import red_brick 2k')[0].Text
     $s = Wait-Import
     Assert-Match -Pattern '^last=ok red_brick \(2k, 4 maps\) added to materials\\test\.mat' -Actual (Last $s)
     $dir = Join-Path $Assets 'Textures\PolyHaven\red_brick'
@@ -166,17 +166,32 @@ Test 'an imported material applies like any other and saves with relative paths'
 
 Test 're-importing repoints the existing material rather than failing on the name' {
     SendOk 'polyhaven_import red_brick 1k' | Out-Null
-    Assert-Match -Pattern '^last=ok red_brick \(1k, 3 maps\) updated in' -Actual (Last (Wait-Import))
+    Assert-Match -Pattern '^last=ok red_brick \(1k, 4 maps\) updated in' -Actual (Last (Wait-Import))
     Assert-Equal -Expected 'PolyHaven\red_brick\red_brick_diff_1k.png' -Actual (Slot red_brick diffuse)
-    # Normal and ARM only exist at 2k here: with nothing smaller, the smallest there is.
+    # Normal, ARM and displacement only exist at 2k here: with nothing smaller, the smallest there is.
     Assert-Equal -Expected 'PolyHaven\red_brick\red_brick_nor_dx_2k.png' -Actual (Slot red_brick normal)
+    Assert-Equal -Expected 'PolyHaven\red_brick\red_brick_disp_2k.png' -Actual (Slot red_brick height)
     Assert-Equal -Expected 'red_brick' -Actual (Get-Component -Session $Session -Entity 'box_a' -Component 'Material').name `
         -Message 'the entity using it keeps it'
 }
 
+Test 'the height map comes by default, and noheight skips it' {
+    # Clear the slot first: an import only ever fills slots, so a height map left over from
+    # the imports above would read as "downloaded" whatever this one did.
+    SendOk 'set_material_texture red_brick height none' | Out-Null
+    SendOk 'polyhaven_import red_brick 2k noheight' | Out-Null
+    Assert-Match -Pattern '^last=ok red_brick \(2k, 3 maps\) updated in' -Actual (Last (Wait-Import))
+    Assert-Equal -Expected '' -Actual (Slot red_brick height) -Message 'noheight leaves the slot alone'
+    SendOk 'polyhaven_import red_brick 2k' | Out-Null
+    Assert-Match -Pattern '^last=ok red_brick \(2k, 4 maps\) updated in' -Actual (Last (Wait-Import))
+    Assert-Equal -Expected 'PolyHaven\red_brick\red_brick_disp_2k.png' -Actual (Slot red_brick height)
+    Assert-Match -Pattern 'height=yes$' -Actual (SendOk 'material_surface red_brick')[0].Text
+}
+
 Test 'a missing resolution falls back, and an asset without ARM gets its AO map' {
     SendOk 'polyhaven_import plank_wood 4k' | Out-Null
-    Assert-Match -Pattern '^last=ok plank_wood \(4k, 2 maps\) added' -Actual (Last (Wait-Import))
+    Assert-Match -Pattern '^last=ok plank_wood \(4k, 2 maps\) added' -Actual (Last (Wait-Import)) `
+        -Message 'this fixture has no displacement map, so the height default adds nothing'
     Assert-Equal -Expected 'PolyHaven\plank_wood\plank_wood_diff_1k.png' -Actual (Slot plank_wood diffuse)
     Assert-Equal -Expected 'PolyHaven\plank_wood\plank_wood_ao_1k.png' -Actual (Slot plank_wood ao)
     Assert-Equal -Expected '' -Actual (Slot plank_wood arm)

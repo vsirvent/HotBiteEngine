@@ -24,12 +24,19 @@ SOFTWARE.
 
 #include "../Common/Defines.hlsli"
 #include "../Common/ShaderStructs.hlsli"
+#include "../Common/MaterialUV.hlsli"
 
 cbuffer externalData : register(b0)
 {
 	matrix world;
 	int highTextureEnable;
 	float displacementScale;
+	//The material's UV mapping (Core::MaterialProps), so the height map is read where the
+	//colour map is: the pixel shader remaps the UV through MaterialUV before every sample,
+	//and the relief has to follow the same mapping or it stops lining up with the colour.
+	int worldUvEnable;
+	float worldUvScale;
+	float uvScale;
 
 	uint multi_texture_count;
 
@@ -90,7 +97,14 @@ DomainOutput main(
 				calculated_values, multi_texture_uv_scales, output.uv, multi_highTexture).r;
 		}
 		else if (highTextureEnable) {
-			h = highTexture.SampleLevel(basicSampler, output.uv, 1).r;
+			//The same UV the pixel shader colours with: world-aligned tiling and the UV scale
+			//both change it. Evaluated on the undisplaced surface (displacement moves a point
+			//along its normal, and world-aligned tiling projects along the dominant axis, so
+			//the coordinates it reads are the ones the normal does not move).
+			const float3 world_normal = normalize(mul(output.normal, (float3x3)world));
+			const float2 height_uv = MaterialUV(output.uv, vertexPosition.xyz, world_normal, world,
+				worldUvEnable != 0, worldUvScale, uvScale);
+			h = highTexture.SampleLevel(basicSampler, height_uv, 1).r;
 		}
 		disp = displacementScale * h;
 	}

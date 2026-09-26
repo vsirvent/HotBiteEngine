@@ -295,6 +295,7 @@
     <None Include="Engine\Core\Shaders\Common\FastNoise.hlsli" />
     <None Include="Engine\Core\Shaders\Common\Matrix.hlsli" />
     <None Include="Engine\Core\Shaders\Common\MultiTexture.hlsli" />
+    <None Include="Engine\Core\Shaders\Common\MaterialUV.hlsli" />
     <None Include="Engine\Core\Shaders\Common\NoiseSimplex.hlsli" />
     <None Include="Engine\Core\Shaders\Common\PixelCommon.hlsli" />
     <None Include="Engine\Core\Shaders\Common\PixelFunctions.hlsli" />
@@ -817,5 +818,13 @@
       <MainRenderPSDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\MainRender\MainRenderPS.hlsl" />
     </ItemGroup>
     <Touch Files="@(MainRenderPSDependent)" Condition="Exists('$(MainRenderPSHeader)') And $([System.IO.File]::GetLastWriteTime('$(MainRenderPSHeader)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('%(MainRenderPSDependent.FullPath)').Ticks)" />
+    <PropertyGroup>
+      <MaterialUVHeader>$(MSBuildThisFileDirectory)Engine\Core\Shaders\Common\MaterialUV.hlsli</MaterialUVHeader>
+    </PropertyGroup>
+    <ItemGroup>
+      <MaterialUVDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\MainRender\MainRenderPS.hlsl" />
+      <MaterialUVDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\MainRender\MainRenderDS.hlsl" />
+    </ItemGroup>
+    <Touch Files="@(MaterialUVDependent)" Condition="Exists('$(MaterialUVHeader)') And $([System.IO.File]::GetLastWriteTime('$(MaterialUVHeader)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('%(MaterialUVDependent.FullPath)').Ticks)" />
   </Target>
 </Project>

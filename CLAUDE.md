@@ -1491,10 +1491,105 @@ Poly Haven tab): browse its CC0 texture catalog by category with previews, and i
 material `<asset id>`, its maps downloaded into `Assets/Textures/PolyHaven/<id>/`. Diffuse,
 `nor_dx` (this engine is DirectX-convention) and `arm` map straight onto the engine's slots —
 Poly Haven's ARM packing is the one `ARM_MAP_ENABLED_FLAG` reads; `AO` stands in when an
-asset has no ARM, and Displacement goes to height only on request (it switches parallax on).
+asset has no ARM, and Displacement goes to height by default (the tab's "Height map"
+checkbox, or `noheight`, opts out). A height map switches parallax on, and displaces the
+surface too once tessellation is on — see the next note.
 All network work is on worker threads over WinHTTP; a finished download becomes a material
 in `PolyHaven::Tick`, between frames on the main thread. `polyhaven_source <folder>` points it
 at a local mirror of the API, which is how `33-polyhaven` runs offline.
+
+**A height map displaces a surface only when three things are true, and the default used to
+leave the third false.** A material's `tessellation_type` above 0 with a factor above 1
+tessellates it (`MainRenderVS` → `MainRenderHS`), `MainRenderDS` adds `displacement_scale *
+height` along the object-space normal only where the inside factor is above 1, and it needs a
+height map bound. `displacement_scale` defaulted to 0, so a material with a height map and
+tessellation switched on still drew flat — and the Materials panel had no control for the
+type at all, so "Tessellate" was inert unless the `.mat` was edited by hand. It now defaults
+to `MaterialData::DEFAULT_DISPLACEMENT_SCALE` (0.1) for a material that never set it (a new
+one, or a `.mat` without the key), which has no effect without a map or without tessellation.
+**An explicit 0 still means off, and that is why the default is a value rather than a rule**:
+`Save` writes the key for every material, so every existing `.mat` (Diablo's tessellated ones
+carry `0.0`) keeps exactly what it had. The scale is in *object* units — the world matrix
+scales it afterwards, so a cube scaled 3 moves 3× as far.
+
+**The four tessellation modes, and why their stored numbers are not in listing order.**
+`MaterialOps::TessellationModes()` is the one table (panel combo, `material_surface`):
+`off` 0 (the default), `on` 3, `distance` 2, `silhouette` 1. Silhouette and distance predate
+"on" and are in saved files, so 3 was the free value — and it was already reachable in the
+multi-material panel, where it did nothing (the shader's `switch` had no case for it, so the
+factor stayed 1). `on` is the material's factor unchanged at every range and angle; `distance`
+is the factor times `1 - d²/10000`, which is ~1 up close and only becomes visible beyond ~50
+units (`on` and `distance` are pixel-identical at 10 units, on purpose); `silhouette` is the
+factor times `sin(angle)^6` between the view direction and the vertex normal, so a face
+looking straight at the camera gets factor 1 — *no tessellation, so no displacement* — and one
+at a glancing angle gets nearly all of it. The HS rounds the factor up to a power of two
+(`pow2`), so a change in factor is only visible when it crosses one. **Every mode also culls
+patches whose normals face away from the camera** (factor 0); that cull used to be dead.
+
+**`MainRenderVS`'s `cameraDirection` used to be the camera's look-at *point*, and that made
+silhouette mode identical to distance mode.** `Components::Camera::direction` is the point the
+camera looks at (`CameraSystem` subtracts the position to get a vector; the real forward vector
+is `xm_direction`), and both vertex-shader upload sites passed it as the view direction where
+every other shader was given `xm_direction`. Dotted with a normal that is a *position* dotted
+with a normal: zero when the target is the origin — so `angle` was always 90°, `sin(angle)^6`
+was 1, and silhouette gave exactly distance's factor (0.00 % pixel difference between them,
+which is how it was found) — and NaN, so no cull either, once the target is further than a
+unit from it. Fixed at both sites; `TerrainVS` (the demo's) also reads `cameraDirection` but
+overwrites the result with its own noise, so it is unaffected. **Comparing two modes'
+screenshots is the only way to see this** — each renders a plausible displaced surface.
+Suite `35-tessellation` asserts it: silhouette leaves the camera-facing face pixel-identical
+to off (0 %) while `on` moves 60 % of it, and differs from both `on` and `distance` by 15 %.
+
+**The height map is sampled where the colour is, and both stages get that coordinate from one
+function.** `MainRenderPS` remaps the mesh UV before it samples colour — world-aligned tiling
+projects the object's local position onto the dominant plane, otherwise the UV is multiplied by
+`uv_scale` — and `MainRenderDS` used to sample the height at the *raw* mesh UV, so any material
+using either showed its bricks and its relief at different frequencies. The mapping is now
+`MaterialUV` in `Common/MaterialUV.hlsli`, called by both; the DS gets `worldUvEnable`,
+`worldUvScale` and `uvScale` from `RenderSystem::PrepareMaterial` and evaluates it on the
+*undisplaced* surface (displacement moves a point along its normal, and world-aligned tiling
+reads the two coordinates the dominant normal does not move). A multi-material is unaffected —
+its layers already scale their own UV inside `getMutliTextureValueLevel`, in both stages.
+Two build consequences: a new shared header has to be listed in `Engine.vcxproj`'s
+`InvalidateShadersOnSharedHeaderChange` (it is), and **the demo's `TerrainPS.hlsl` includes
+`MainRenderPS.hlsli` from a project that does not track headers**, so touch it after editing
+either or it keeps yesterday's shader.
+
+**Tessellation factors are per edge, from that edge's two end points and nothing else.** The
+old `MainRenderHS` scaled all three edges of a triangle by "triangle height over edge 0→1".
+For the two triangles of one quad edge 0→1 is a side in one and the diagonal in the other, so a
+3×3 cube face got 0.866 on one half and 0.728 on the other — different density — and the
+diagonal they share was cut at a different rate from each side. D3D only keeps a tessellated
+surface watertight when both patches agree on a shared edge's factor, so that was a T-junction:
+the black slashes along the diagonals. `EdgeFactor(a, b)` now averages the two vertex factors
+and scales by the edge's own length; an edge whose ends both ask for 1 stays exactly 1 (or the
+length scale would tessellate an untessellated material's long edges, and MainRenderDS gates
+displacement on the inside factor being above 1), and 0 stays 0 so a culled patch is dropped.
+The inside factor is symmetric in the three edges. It also no longer gates on `patch[0]` alone.
+Both the hull shader and `TerrainVS` feed the same `MainRenderHS`, so the demo terrain's
+density changed slightly with it (unverified on screen — no automation drives the demo).
+
+**`tess_info` is the only direct evidence of any of this.** A tessellated surface at 16 and at 32
+subdivisions differs by a few pixels of relief, so a screenshot cannot tell them apart:
+`RenderSystem::TessStats` wraps the main scene pass in a `D3D11_QUERY_PIPELINE_STATISTICS`
+query and reports domain shader invocations — the tessellated vertex count — summed over every
+patch in the frame (untessellated ones count too, the same constant in every state). It runs
+only while something asks (`GetTessStats`, keepalive like the radiance cache counters) and is
+a few frames stale, so ask, step frames, and take a value two consecutive reads agree on. Every
+factor is rounded up to a power of two, so **a one-percent difference in factor can flip a whole
+subdivision level** — `on` and `distance` are identical up close at factor 10 and differ at 16
+(the diagonal straddles 16), which is why the near-range test uses 10. The symmetry test needs
+no arithmetic: a 4×2 box and a 2×4 one are the same rectangle turned 90° but the mesh's diagonal
+does not turn, so an asymmetric hull shader counts different totals (old: 856 vs 730) and a
+symmetric one the same. All of the tests were checked against the old shaders: swap the old
+`.cso` (compile `git show HEAD:…/MainRenderHS.hlsl` with fxc, `/I` the real MainRender folder)
+into the output folder and the symmetry and crack tests fail (856≠730; 1.47 % black inside a
+face vs 0 %), and with the old DS both UV tests fail (14 % and 15 % of the view differing,
+against a 26 % control).
+
+`material_surface` reads and sets all three values. `35-tessellation` runs the modes on a
+flat map and on a real PBR set (ambientCG Bricks076C, kept under
+`Tools/SceneEditor/automation/tests/assets/`).
 
 **The Textures panel (View/Textures, `TexturePanel.h`) is the library itself** — a load
 of `<project>/Assets/Textures`, independent of any material, so a whole set can be
