@@ -86,3 +86,15 @@ Tests/DemoGame/assets/splats/oct.ply
 # automatically from the "generated_meshes" recipe already saved in each
 # level.json the first time that level loads (see World::Load).
 GeneratedMeshes/
+
+#--- Secrets: never committed, see CLAUDE.md's "Secrets" section -------------
+# (.env* is already covered by the leading-dot rule above; these are the
+# non-dotfile spellings someone might otherwise drop at the repo root).
+secrets.json
+secrets.local.json
+*.pfx
+*.pem
+*.key
+Tests/ClaudeLevel/Assets/config.mat
+/Tests/ClaudeLevel
+/Tests/DiabloLevel
