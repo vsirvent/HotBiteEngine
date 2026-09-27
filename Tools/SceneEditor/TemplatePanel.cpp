@@ -1227,6 +1227,20 @@ namespace HotBiteEditor {
 				catch (const std::exception&) {
 				}
 			}
+			//Bounds too - FBXLoader adds it to every node alongside Base/Transform (see
+			//FBXLoader::ProcessEntity), and RenderSystem::drawable_signature requires it:
+			//without it in the template, SpawnTemplateEntities never gives the instance
+			//one (it only adds what the template's own JSON carries - see World.h), and
+			//an instance with Mesh+Material+Transform but no Bounds never reaches any
+			//render tree at all - it is silently never drawn, not drawn wrong.
+			if (tc->ContainsComponent<Bounds>(source)) {
+				try {
+					components[Bounds::NAME] =
+						ComponentRegistry::Instance().Find(Bounds::NAME)->serialize(ctx, source);
+				}
+				catch (const std::exception&) {
+				}
+			}
 			//The node's own rotation and scale: an .fbx exported in centimetres carries
 			//its 0.025 there, and a template that dropped it would place objects forty
 			//times too big. The position is not kept - where an object goes is what

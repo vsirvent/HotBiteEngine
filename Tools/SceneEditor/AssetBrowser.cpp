@@ -1,4 +1,5 @@
 #include "AssetBrowser.h"
+#include "MeshyImport.h"
 #include "EditorHistory.h"
 #include "EditorLayout.h"
 #include "GridSnap.h"
@@ -167,7 +168,8 @@ namespace HotBiteEditor {
 
 		bool ImportModel(EditorState& state, const std::string& fbx_path,
 			const std::string& model_name, std::string& error,
-			std::function<void(float, const std::string&)> on_progress)
+			std::function<void(float, const std::string&)> on_progress,
+			const std::string& subfolder)
 		{
 			if (state.world == nullptr || state.project_root.empty()) {
 				error = "no project open";
@@ -195,8 +197,11 @@ namespace HotBiteEditor {
 			//Brought into the project rather than referenced where it lies: a level that
 			//points outside the project cannot be opened on another machine. Skipped when
 			//the file already is the project's copy (browsing to Assets/Objects itself).
-			fs::path dest = fs::path(state.project_root) / "Assets" / "Objects" /
-				fs::path(fbx_path).filename();
+			fs::path objects_dir = fs::path(state.project_root) / "Assets" / "Objects";
+			if (!subfolder.empty()) {
+				objects_dir /= subfolder;
+			}
+			fs::path dest = objects_dir / fs::path(fbx_path).filename();
 			fs::create_directories(dest.parent_path(), ec);
 			if (!fs::exists(dest, ec) || !fs::equivalent(fs::path(fbx_path), dest, ec)) {
 				fs::copy_file(fbx_path, dest, fs::copy_options::overwrite_existing, ec);
@@ -573,6 +578,16 @@ namespace HotBiteEditor {
 				ImportModelWithDialog(state);
 			}
 			ImGui::SameLine();
+			if (ImGui::Button("Import Meshy Model...")) {
+				MeshyImport::ImportWithDialog(state);
+			}
+			if (ImGui::IsItemHovered()) {
+				ImGui::SetTooltip("A .zip (or .fbx, or an already-extracted folder) from\n"
+					"Meshy AI or a similar exporter: the model plus its loose diffuse/\n"
+					"normal/metallic/roughness maps, brought in as a material and a\n"
+					"placeable, textured, lit template in one step.");
+			}
+			ImGui::SameLine();
 			ImGui::BeginDisabled(state.selected_model.empty());
 			if (ImGui::Button("Remove")) {
 				ImGui::OpenPopup("remove_model");
@@ -643,6 +658,63 @@ namespace HotBiteEditor {
 				if (ImGui::Button("Cancel")) {
 					state.pending_import_path.clear();
 					state.pending_import_name.clear();
+					ImGui::CloseCurrentPopup();
+				}
+				ImGui::EndPopup();
+			}
+
+			//The naming step of File/Import Meshy Model..., same shape as name_import
+			//above - see MeshyImport::ImportWithDialog. The name here is the key three
+			//things end up registered under (model, material, template), not just one.
+			if (!state.pending_meshy_import_path.empty()) {
+				ImGui::OpenPopup("name_import_meshy");
+			}
+			if (ImGui::BeginPopupModal("name_import_meshy", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+				ImGui::Text("Import %s",
+					fs::path(state.pending_meshy_import_path).filename().string().c_str());
+				char buf[128] = "";
+				strncpy_s(buf, state.pending_meshy_import_name.c_str(), sizeof(buf) - 1);
+				ImGui::SetNextItemWidth(320.0f);
+				if (ImGui::InputText("Name", buf, sizeof(buf))) {
+					state.pending_meshy_import_name = buf;
+				}
+				ImGui::TextDisabled("The name this project knows the model, its material and\n"
+					"its template by.");
+				const bool taken = state.world->IsModelLoaded(state.pending_meshy_import_name) ||
+					FindModel(state, state.pending_meshy_import_name) != nullptr ||
+					state.world->IsTemplateLoaded(state.pending_meshy_import_name) ||
+					(state.world->GetMaterials().Get(state.pending_meshy_import_name) != nullptr &&
+						!state.world->IsMaterialRemoved(state.pending_meshy_import_name));
+				if (taken) {
+					ImGui::TextDisabled("That name is already in use (as a model, a material or a template).");
+				}
+				ImGui::SetNextItemWidth(120.0f);
+				ImGui::SliderInt("Extra LOD levels", &state.pending_meshy_lod_levels, 0, 6);
+				if (ImGui::IsItemHovered()) {
+					ImGui::SetTooltip("Generates this many coarser levels from the imported mesh\n"
+						"and installs the chain on the template's Mesh block right away\n"
+						"(World::GenerateMeshLod, halving the vertex share each level -\n"
+						"0 leaves the mesh as imported, with only its own level 0).");
+				}
+				ImGui::BeginDisabled(state.pending_meshy_import_name.empty() || taken);
+				if (ImGui::Button("Import")) {
+					//Queued for the same reason as name_import's Import button: this can
+					//take long enough to want its own progress overlay
+					//(SceneEditorApp::ImportMeshyModelWithProgress), which must not run
+					//nested inside this ImGui frame.
+					app.RequestImportMeshyModel(state.pending_meshy_import_path, state.pending_meshy_import_name,
+						MeshyImport::DefaultLodRatios(state.pending_meshy_lod_levels));
+					state.pending_meshy_import_path.clear();
+					state.pending_meshy_import_name.clear();
+					state.pending_meshy_lod_levels = 0;
+					ImGui::CloseCurrentPopup();
+				}
+				ImGui::EndDisabled();
+				ImGui::SameLine();
+				if (ImGui::Button("Cancel")) {
+					state.pending_meshy_import_path.clear();
+					state.pending_meshy_import_name.clear();
+					state.pending_meshy_lod_levels = 0;
 					ImGui::CloseCurrentPopup();
 				}
 				ImGui::EndPopup();

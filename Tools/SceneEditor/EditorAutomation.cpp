@@ -6,6 +6,7 @@
 #include "LightGizmos.h"
 #include "MotionGizmos.h"
 #include "AssetBrowser.h"
+#include "MeshyImport.h"
 #include "MaterialPanel.h"
 #include "TexturePanel.h"
 #include "PolyHaven.h"
@@ -358,13 +359,69 @@ namespace HotBiteEditor {
 		//main dispatch chain: it is one else-if ladder and the compiler's block-nesting
 		//limit (C1061) is what a few more rungs would run into. Returns false when `cmd` is
 		//not one of them, so the caller carries on down its own chain.
-		static bool HandleAssetImportCommand(EditorState& state, const std::string& cmd,
+		static bool HandleAssetImportCommand(EditorState& state, SceneEditorApp& app, const std::string& cmd,
 			const std::vector<std::string>& args, std::string& error)
 		{
+			//A Meshy AI (or similar) model export: an .fbx plus loose PBR maps FBX has
+			//no slot for, imported as a model, a material and a placeable template in
+			//one step (see MeshyImport.h). Lives here rather than the main ladder for
+			//the same reason every command in this function does - see the comment
+			//above this function's declaration.
+			if (cmd == "import_meshy_model") {
+				if (args.size() < 2) {
+					response_lines.push_back("ERR usage: import_meshy_model <path to .zip/.fbx/folder> "
+						"[name] [lod count, or comma-separated ratios]");
+				}
+				else {
+					//The 4th argument is either a plain count ("4" -> the usual halving
+					//sequence, MeshyImport::DefaultLodRatios) or a caller's own
+					//finest-first ratio list ("0.5,0.3,0.1") - whichever a script finds
+					//easier to generate.
+					std::vector<float> lod_ratios;
+					bool lod_ok = true;
+					if (args.size() > 3) {
+						const std::string& lod_arg = args[3];
+						if (lod_arg.find(',') == std::string::npos && lod_arg.find('.') == std::string::npos) {
+							try {
+								lod_ratios = MeshyImport::DefaultLodRatios(std::stoi(lod_arg));
+							}
+							catch (const std::exception&) {
+								lod_ok = false;
+							}
+						}
+						else {
+							std::stringstream ss(lod_arg);
+							std::string part;
+							while (std::getline(ss, part, ',')) {
+								try {
+									lod_ratios.push_back(std::stof(part));
+								}
+								catch (const std::exception&) {
+									lod_ok = false;
+									break;
+								}
+							}
+						}
+					}
+					if (!lod_ok) {
+						response_lines.push_back("ERR lod argument must be a count or comma-separated ratios: " + args[3]);
+					}
+					//Through the same progress-painting path the Asset Browser's Import
+					//Meshy Model... button queues (SceneEditorApp::ImportMeshyModelWithProgress),
+					//exactly like import_model does for a plain FBX.
+					else if (app.ImportMeshyModelWithProgress(args[1],
+						args.size() > 2 ? args[2] : std::string(), error, lod_ratios)) {
+						response_lines.push_back("OK " + state.status_message);
+					}
+					else {
+						response_lines.push_back("ERR " + error);
+					}
+				}
+			}
 			//--- Imported assets: textures live under <project>/Assets/Textures and shaders
 			//under <project>/Assets/Shaders, and a material picks from those (the Materials
 			//panel's Import... buttons and pickers). No slot takes an arbitrary disk path.
-			if (cmd == "import_texture") {
+			else if (cmd == "import_texture") {
 				if (args.size() < 2) {
 					response_lines.push_back("ERR usage: import_texture <file> [subfolder]");
 				}
@@ -1394,7 +1451,7 @@ namespace HotBiteEditor {
 					}
 				}
 			}
-			else if (HandleAssetImportCommand(state, cmd, args, error)) {
+			else if (HandleAssetImportCommand(state, app, cmd, args, error)) {
 				//answered into response_lines
 			}
 			else if (HandleMotionGizmoCommand(state, cmd, args)) {

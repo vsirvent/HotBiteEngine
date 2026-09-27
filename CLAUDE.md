@@ -1498,6 +1498,73 @@ All network work is on worker threads over WinHTTP; a finished download becomes 
 in `PolyHaven::Tick`, between frames on the main thread. `polyhaven_source <folder>` points it
 at a local mirror of the API, which is how `33-polyhaven` runs offline.
 
+**A Meshy AI (or similar) export is a model plus loose PBR maps FBX itself has no slot
+for, and `MeshyImport::Import` (`File/Import Meshy Model...`, `import_meshy_model`) is
+the one-step version of model-import-then-hand-wire-the-maps.** A Meshy package is one
+`.fbx` — as a `.zip` (extracted with the `tar.exe` Windows has shipped in System32 since
+1803, not a bundled zip library), an already-extracted folder, or the `.fbx` picked
+directly to disambiguate a folder holding more than one — plus loose `<stem>.png`
+(diffuse) and any of `<stem>_normal/_metallic/_roughness/_ao/_emissive/_height/_opacity`.
+It builds all three things a model-derived object needs under one name: the model
+(`AssetBrowser::ImportModel`), a material with those maps wired in, and a template
+(`TemplateOps::CreateFromModel` + `SetMaterial`) — checked up front for a name collision
+on the material or the template (`ImportModel` only guards the model itself), so a
+collision is refused before anything is imported rather than leaving a bare model behind
+with nothing built from it. Everything lands under one Assets subfolder named after it —
+`Assets/Objects/<name>/` and `Assets/Textures/<name>/` — rather than mixed flat in with
+every other imported asset.
+
+**The engine has no metallic/roughness workflow, so metallic (or roughness as a last
+resort) feeds the plain spec slot instead of being dropped.** There is no ARM synthesis
+here despite PolyHaven.h's own arm packing existing next door — that combines maps a
+*source* already ships separately only because Poly Haven's own arm convention has
+nowhere else to send them, whereas a metallic map is simply the closer stand-in for "how
+shiny is this surface", which is all `SPECULAR_MAP_ENABLED_FLAG`'s `.r` sample is asking
+for. Priority is an explicit specular map first (rare, but honoured if the package has
+one), then metallic, then roughness only when neither of the other two is present. AO
+goes straight into the plain `ao` slot.
+
+**`TemplateOps::CreateFromModel` builds a template with no `Bounds`, and an instance with
+no `Bounds` is never drawn — not drawn wrong, never reaches a render tree at all.**
+`RenderSystem::drawable_signature` requires Base+Transform+Mesh+Material+Lighted+Bounds
+together (`RenderSystem.cpp`'s constructor), and `World::SpawnTemplateEntities` only ever
+gives an instance the components the template's own JSON names — so a template missing
+`Bounds` produces an instance that is selectable, has a working Mesh and Material, and is
+simply invisible, which reads as "the texture didn't load" long before it reads as "the
+component list is short one entry". `CreateFromModel` already had this exact
+conditional-copy shape for `Material` (`if (tc->ContainsComponent<Material>(source))`);
+`Bounds` needed the same one, copying what `FBXLoader::ProcessEntity` already put on
+every node alongside `Base`/`Transform`. Found by placing a Meshy import and getting an
+empty viewport with a template that otherwise looked complete in every panel.
+
+**Two different models built from byte-identical FBX content collide, and it is not a
+bug to route around.** `FBXLoader::ProcessEntity` dedupes template-coordinator entities
+by node *name*, one shared namespace across every model a World has ever loaded in a
+session (`coordinator->GetEntityByName(name)`) — so importing a second copy of a file
+whose content (and therefore node names) is identical to one already loaded adds no new
+entities, and `CreateFromModel`'s search for a mesh-bearing node comes back empty exactly
+as it does for a genuinely animation-only export: `"<name> has no mesh"`. This is the
+same dedup `15-models.tests.ps1` already exercises as a feature of plain `import_model`
+(re-importing a copy of an already-loaded file adds no new mesh or material, only
+whatever clip is genuinely new) — a Meshy import inherits it unchanged. It only bites
+*within one session*: a fresh editor process has an empty templates coordinator, so
+`37-meshyimport.tests.ps1` gives every scenario that needs a second successful import its
+own fresh session (`New-EditorSession`/`Close-EditorSession`) rather than a second
+differently-named copy of the same fixture FBX in the one the framework already opened.
+
+**A Meshy source mesh can be dense enough that the automation channel's own timeout is
+the wrong thing to trust.** The medieval-bridge sample this feature was built against
+carries an 11.9M-vertex mesh (a raw, undecimated AI export) — big enough that a single
+`import_meshy_model` call, and especially four chained `GenerateMeshLod` passes on top of
+it, ran long past `editor-cli.ps1`'s default 30s wait and past a plain screenshot capture
+(`CaptureTexture failed: 0x887A0005`, a device-removed code, on that same asset after
+sustained load). Neither is a hang: `Get-Process`'s `CPU` field kept climbing across
+several polls, which is what distinguishes "still working" from a genuinely stuck
+process when `stacks.ps1` cannot run (its `cdb.exe` dependency is not always installed).
+Prefer a small fixture for anything scripted — the automation suite's archer.fbx-based
+packages import and chain four LOD levels in a couple of seconds — and reserve a huge
+real export for manual, patiently-polled verification.
+
 **A height map displaces a surface only when three things are true, and the default used to
 leave the third false.** A material's `tessellation_type` above 0 with a factor above 1
 tessellates it (`MainRenderVS` → `MainRenderHS`), `MainRenderDS` adds `displacement_scale *

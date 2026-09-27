@@ -5,6 +5,7 @@
 #include "Outliner.h"
 #include "Inspector.h"
 #include "AssetBrowser.h"
+#include "MeshyImport.h"
 #include "MaterialPanel.h"
 #include "TexturePanel.h"
 #include "PolyHaven.h"
@@ -141,6 +142,17 @@ namespace HotBiteEditor {
 				std::string import_error;
 				ImportModelWithProgress(import_path, import_name, import_error);
 			}
+			//Same reason, for a Meshy package (see MeshyImport.h).
+			if (!pending_meshy_import_path.empty()) {
+				std::string import_path = pending_meshy_import_path;
+				std::string import_name = pending_meshy_import_name;
+				std::vector<float> lod_ratios = pending_meshy_lod_ratios;
+				pending_meshy_import_path.clear();
+				pending_meshy_import_name.clear();
+				pending_meshy_lod_ratios.clear();
+				std::string import_error;
+				ImportMeshyModelWithProgress(import_path, import_name, import_error, lod_ratios);
+			}
 			//Remote-control commands run before the frame renders, so their effects
 			//(and any screenshot taken at the end of this same frame) are consistent.
 			EditorAutomation::ProcessCommands(state, *this);
@@ -188,6 +200,12 @@ namespace HotBiteEditor {
 		menu_commands.push_back({ "File/Import Model...",
 			[this]() { return level_loaded; },
 			[this]() { AssetBrowser::ImportModelWithDialog(state); } });
+		//A model plus its loose PBR texture set (a Meshy AI export, or any exporter
+		//that hands over metallic/roughness maps FBX itself has no slot for) - builds
+		//a material and a placeable template out of them in one step (see MeshyImport.h).
+		menu_commands.push_back({ "File/Import Meshy Model...",
+			[this]() { return level_loaded; },
+			[this]() { MeshyImport::ImportWithDialog(state); } });
 		menu_commands.push_back({ "File/Import Template...",
 			[this]() { return level_loaded; },
 			[this]() { TemplateOps::ImportTemplateWithDialog(state); } });
@@ -1089,6 +1107,31 @@ namespace HotBiteEditor {
 		//import itself may finish (or bail out) well before it painted a 1.0 phase of
 		//its own, e.g. on the file-not-found/name-taken checks that run before any
 		//loading starts.
+		ShowLoadingProgress(1.0f, ok ? "Done" : "Failed");
+		return ok;
+	}
+
+	void SceneEditorApp::RequestImportMeshyModel(const std::string& source_path, const std::string& name,
+		const std::vector<float>& lod_ratios)
+	{
+		pending_meshy_import_path = source_path;
+		pending_meshy_import_name = name;
+		pending_meshy_lod_ratios = lod_ratios;
+	}
+
+	bool SceneEditorApp::ImportMeshyModelWithProgress(const std::string& source_path,
+		const std::string& name, std::string& error, const std::vector<float>& lod_ratios)
+	{
+		loading_level = "Importing " + std::filesystem::path(source_path).filename().string();
+		ShowLoadingProgress(0.0f, "Reading Meshy package...");
+		std::string out_template_name;
+		const bool ok = MeshyImport::Import(state, source_path, name, out_template_name, error,
+			[this](float fraction, const std::string& stage) {
+				ShowLoadingProgress(fraction, stage);
+			}, lod_ratios);
+		if (!ok) {
+			state.status_message = "Meshy import failed: " + error;
+		}
 		ShowLoadingProgress(1.0f, ok ? "Done" : "Failed");
 		return ok;
 	}

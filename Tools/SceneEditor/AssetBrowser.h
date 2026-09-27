@@ -31,9 +31,17 @@ namespace HotBiteEditor {
 		// `on_progress`, when given, is World::LoadModel's phase callback - see its
 		// comment in World.h. Blocking and synchronous either way; a caller that wants
 		// to paint an overlay while it runs is what the callback is for.
+		//
+		// `subfolder`, when non-empty, is a path under Assets/Objects to copy into
+		// instead of the folder's own root - "" is every plain File/Import Model...
+		// call, which is flat exactly as before; MeshyImport.h uses it to keep a
+		// package's model beside its own textures rather than mixed in with every
+		// other imported .fbx. It never changes the model's registry name, only where
+		// the copy lands.
 		bool ImportModel(EditorState& state, const std::string& fbx_path,
 			const std::string& model_name, std::string& error,
-			std::function<void(float, const std::string&)> on_progress = nullptr);
+			std::function<void(float, const std::string&)> on_progress = nullptr,
+			const std::string& subfolder = std::string());
 		// Picks the file, then leaves the naming modal for Draw to put up: the name is
 		// settled before anything is loaded.
 		void ImportModelWithDialog(EditorState& state);

@@ -287,6 +287,18 @@ namespace HotBiteEditor {
 		std::string pending_import_path;
 		std::string pending_import_name;
 
+		// File/Import Meshy Model... between picking the .zip/.fbx/folder and naming
+		// it - the same two-step shape as pending_import_path/name above, kept
+		// separate because MeshyImport::Import does more than load a model (it also
+		// builds a material from the package's loose texture maps and a template
+		// wearing it), so the popup that names it needs to say so. See MeshyImport.h.
+		std::string pending_meshy_import_path;
+		std::string pending_meshy_import_name;
+		// Extra LOD levels to generate along with it (0 = the mesh as imported,
+		// nothing else) - see MeshyImport.h's `lod_ratios` and DefaultLodRatios's
+		// halving sequence, which is what a count typed here turns into.
+		int pending_meshy_lod_levels = 0;
+
 		// Templates panel state (see TemplatePanel.h). An authored template lives in
 		// its own .tpl file under Assets/Templates/, a shared asset the level merely
 		// references - so, like materials, template edits are written by File/Save
@@ -446,6 +458,17 @@ namespace HotBiteEditor {
 		// RequestOpenLevel does for a level.
 		void RequestImportModel(const std::string& fbx_path, const std::string& model_name);
 
+		// The same overlay-painting shape as ImportModelWithProgress/RequestImportModel
+		// above, for a Meshy package (see MeshyImport.h): blocks and paints its own
+		// frames, so it must not be called from inside an ImGui frame - the Asset
+		// Browser's Import Meshy Model... button goes through RequestImportMeshyModel.
+		// `lod_ratios` is MeshyImport::Import's own parameter, passed straight through.
+		bool ImportMeshyModelWithProgress(const std::string& source_path,
+			const std::string& name, std::string& error,
+			const std::vector<float>& lod_ratios = {});
+		void RequestImportMeshyModel(const std::string& source_path, const std::string& name,
+			const std::vector<float>& lod_ratios = {});
+
 		// Tears down the current level's World, post-process pipeline and editor
 		// session state, returning to the empty pre-level screen. Destroys and
 		// reconstructs the World wholesale (mirroring Marbles' MarblesGame::ExitGame/
@@ -539,6 +562,12 @@ namespace HotBiteEditor {
 		// open/close pair above.
 		std::string pending_model_import_path;
 		std::string pending_model_import_name;
+
+		// Set by RequestImportMeshyModel, consumed by the render tick right after the
+		// plain model import above.
+		std::string pending_meshy_import_path;
+		std::string pending_meshy_import_name;
+		std::vector<float> pending_meshy_lod_ratios;
 
 		// Set by ConfirmDiscardChanges when there is something to lose; run by
 		// DrawCloseConfirmPopup once the user picks Save/Discard, cleared on Cancel.
