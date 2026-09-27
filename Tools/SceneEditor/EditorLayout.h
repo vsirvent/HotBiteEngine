@@ -27,6 +27,9 @@ namespace HotBiteEditor {
 		// at the bottom the way an IDE's console pane sits, meant to stay in view beside
 		// whatever else is open rather than be brought forward for a session of its own.
 		inline constexpr const char* LOG_WINDOW = "Log";
+		// The Claude panel floats like Materials/Templates: it wants height for the
+		// conversation, and it is brought forward when there is something to ask.
+		inline constexpr const char* AGENT_WINDOW = "Claude";
 
 		// Fullscreen dockspace over the main viewport's work area with a transparent
 		// pass-through central node: the 3D scene (already rendered into the

@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "hotbite-editor": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["Tools/SceneEditor/mcp/server.js"]
+    }
+  }
+}

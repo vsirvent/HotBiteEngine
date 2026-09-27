@@ -58,5 +58,23 @@ namespace HotBiteEditor {
 		bool HasUnsavedChanges();
 		// Called after a successful save: everything accumulated since is now on disk.
 		void MarkSaved();
+
+		// Undo groups: every Action pushed between BeginGroup and EndGroup becomes ONE
+		// step on the stack, undone in reverse order and redone in order. This is how
+		// a Claude panel turn - any number of edits made through the automation
+		// channel while the agent answers one message - is undone with one Ctrl+Z.
+		//
+		// A group holds only what was pushed while it was open, so a user edit made in
+		// the middle of an agent turn joins that turn. An Undo/Redo while a group is
+		// open first seals what the group holds so far as its own step (the LIFO
+		// guarantee needs the stack to hold everything that was applied) and keeps the
+		// group open for whatever follows. An empty group pushes nothing. Groups do not
+		// nest: BeginGroup while one is open just keeps the open one.
+		void BeginGroup(const std::string& description);
+		// Seals the group. True when it pushed a step (the group was not empty).
+		bool EndGroup();
+		bool GroupOpen();
+		// The description of the step Undo would apply next ("" when none).
+		std::string TopDescription();
 	}
 }

@@ -400,6 +400,7 @@ namespace HotBiteEditor {
 		std::string selected_texture;
 		bool show_template_panel = false;
 		bool show_log_panel = false;
+		bool show_agent_panel = false;   // View/Claude (AgentPanel.h)
 
 		// Set by View/Reset Layout: for one frame every panel re-applies its
 		// default position/size unconditionally instead of ImGuiCond_FirstUseEver.

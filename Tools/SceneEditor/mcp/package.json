@@ -1,0 +1,13 @@
+{
+  "name": "hotbite-editor-mcp",
+  "version": "0.1.0",
+  "description": "MCP server exposing the HotBite Scene Editor's level, assets and viewport to an agent, over the editor's automation channel.",
+  "private": true,
+  "main": "server.js",
+  "bin": { "hotbite-editor-mcp": "server.js" },
+  "engines": { "node": ">=14" },
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test/run.js"
+  }
+}

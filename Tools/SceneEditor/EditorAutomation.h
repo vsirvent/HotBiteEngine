@@ -13,7 +13,16 @@ namespace HotBiteEditor {
 	namespace EditorAutomation {
 		// Enables the channel rooted at `dir` (created if missing).
 		void Init(const std::string& dir);
+		// Whether --automation was given, and its folder ("" when not).
 		bool Enabled();
+		std::string Dir();
+
+		// Adds another channel root: a second command.txt/response.txt pair, served
+		// the same way and in the same frame as the --automation one. The protocol has
+		// room for one driver per folder, so a second driver - the Claude panel's agent
+		// (ClaudeAgent.h) - gets a folder of its own instead of racing the first for
+		// command.txt. Works whether or not --automation was given. Idempotent.
+		void AddRoot(const std::string& dir);
 
 		// Polls <dir>/command.txt, consumes and executes it if present, buffering the
 		// per-command responses. Runs once per frame on the main thread, before the

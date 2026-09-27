@@ -28,6 +28,8 @@
 #include "ShadowDebug.h"
 #include "PhysicsPreview.h"
 #include "LogPanel.h"
+#include "AgentPanel.h"
+#include "ClaudeAgent.h"
 #include "ShaderReload.h"
 
 #include <Core/PostProcess.h>
@@ -162,6 +164,10 @@ namespace HotBiteEditor {
 			//A Poly Haven download that finished on a worker becomes a material here, on
 			//this thread and between frames, for the same reason.
 			PolyHaven::Tick(state);
+			//What the Claude panel's process said since the last frame. Before the
+			//channel runs next frame, so a turn's `result` closes its undo group before
+			//anything the person does afterwards could join it.
+			ClaudeAgent::Tick(state);
 			//An edit that changed a mesh's vertices (smoothing, from the Components
 			//panel, from a command above, or from an undo of either) only touched the
 			//CPU side; the immutable GPU buffers are rebuilt here, between frames,
@@ -421,6 +427,10 @@ namespace HotBiteEditor {
 			[this]() { return level_loaded; },
 			[this]() { state.show_template_panel = !state.show_template_panel; },
 			[this]() { return state.show_template_panel; } });
+		menu_commands.push_back({ "View/Claude",
+			[this]() { return level_loaded; },
+			[this]() { state.show_agent_panel = !state.show_agent_panel; },
+			[this]() { return state.show_agent_panel; } });
 		menu_commands.push_back({ "View/Log",
 			[this]() { return level_loaded; },
 			[this]() { state.show_log_panel = !state.show_log_panel; },
@@ -578,6 +588,8 @@ namespace HotBiteEditor {
 		ShaderReload::Shutdown();
 		//Stops the download workers and releases their preview textures.
 		PolyHaven::Shutdown();
+		//Ends Claude Code and the MCP server it started (they are in one job object).
+		ClaudeAgent::Shutdown();
 		//Before the ImGui backend goes away: the preview passes' targets are D3D
 		//textures ImGui is still holding texture ids for.
 		MaterialPreview::Shutdown();
@@ -733,6 +745,9 @@ namespace HotBiteEditor {
 			}
 			if (state.show_log_panel) {
 				LogPanel::Draw(state);
+			}
+			if (state.show_agent_panel) {
+				AgentPanel::Draw(state);
 			}
 			//Under the gizmo, so the selection handles stay readable on top of a
 			//dense collider wireframe.

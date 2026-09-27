@@ -22,6 +22,7 @@
 #include "RenderSettings.h"
 #include "RenderDocIntegration.h"
 #include "ShaderReload.h"
+#include "ClaudeAgent.h"
 
 #include <Windows.h>
 #include <Components/Base.h>
@@ -44,31 +45,64 @@ namespace fs = std::filesystem;
 namespace HotBiteEditor {
 	namespace EditorAutomation {
 
-		static bool enabled = false;
-		static fs::path root_dir;
-
-		//Responses for the batch consumed this frame. Screenshot results can only be
-		//produced at frame end, so their slot is reserved here and filled in later.
-		static std::vector<std::string> response_lines;
-		static bool batch_open = false;
-
 		struct PendingScreenshot {
 			size_t response_index;
 			std::string path;
 		};
+
+		//One command.txt/response.txt pair. There can be several, because the channel
+		//protocol has room for exactly one driver per folder: the --automation one
+		//belongs to whatever launched the editor (a test suite, a Claude Code session),
+		//and the Claude panel's agent gets a root of its own (AddRoot) so the two never
+		//overwrite each other's command file.
+		struct Root {
+			fs::path dir;
+			bool batch_open = false;
+			std::vector<std::string> response_lines;
+			std::vector<PendingScreenshot> pending_screenshots;
+		};
+		static std::vector<Root> roots; //[0] is the --automation one, when there is one
+		static bool enabled = false;
+
+		//Responses for the batch being executed right now. Execute() and everything it
+		//calls write here; ProcessCommands moves the result into the batch's Root once
+		//the batch has run. Screenshot results can only be produced at frame end, so
+		//their slot is reserved here and filled in later.
+		static std::vector<std::string> response_lines;
 		static std::vector<PendingScreenshot> pending_screenshots;
 
 		void Init(const std::string& dir)
 		{
-			root_dir = dir;
 			std::error_code ec;
-			fs::create_directories(root_dir, ec);
+			fs::create_directories(dir, ec);
+			Root r;
+			r.dir = dir;
+			roots.insert(roots.begin(), std::move(r));
 			enabled = true;
 		}
 
 		bool Enabled()
 		{
 			return enabled;
+		}
+
+		std::string Dir()
+		{
+			return enabled ? roots.front().dir.string() : std::string();
+		}
+
+		void AddRoot(const std::string& dir)
+		{
+			std::error_code ec;
+			fs::create_directories(dir, ec);
+			for (const Root& r : roots) {
+				if (r.dir == fs::path(dir) || fs::equivalent(r.dir, dir, ec)) {
+					return;
+				}
+			}
+			Root r;
+			r.dir = dir;
+			roots.push_back(std::move(r));
 		}
 
 		//Splits a command line into tokens; double quotes group tokens containing
@@ -301,6 +335,117 @@ namespace HotBiteEditor {
 			return true;
 		}
 
+		//The Claude panel (AgentPanel.h / ClaudeAgent.h): what a test needs to drive it
+		//the way a person does - show it, send a message, wait for the turn, read what
+		//came back. Chained off HandleMotionGizmoCommand rather than added to the main
+		//ladder, which is at the compiler's C1061 nesting limit.
+		//
+		//  agent_show                     opens the panel
+		//  agent_setup                    where claude/node/the MCP server were found
+		//  agent_send <text...>           starts a turn (the rest of the line is the message)
+		//  agent_status                   status=, session=, model=, cost=, items=, undo_top=
+		//  agent_transcript [n]           the last n transcript items (all by default)
+		//  agent_stop / agent_new         interrupt the turn / forget the conversation
+		//  agent_model [name|default]     reads or sets the model for the next process
+		//  agent_claude <path|default>    which Claude Code to start (a .js runs through node)
+		static bool HandleAgentCommand(EditorState& state, const std::string& cmd,
+			const std::vector<std::string>& args)
+		{
+			using namespace ClaudeAgent;
+			auto one_line = [](std::string s) {
+				for (char& c : s) {
+					if (c == '\n' || c == '\r') c = ' ';
+				}
+				return s.size() > 300 ? s.substr(0, 300) + "..." : s;
+			};
+			if (cmd == "agent_show") {
+				state.show_agent_panel = true;
+				response_lines.push_back("OK");
+			}
+			else if (cmd == "agent_setup") {
+				Setup s = Locate(state);
+				response_lines.push_back(s.problem.empty() ? "OK" : "ERR " + s.problem);
+				response_lines.push_back("claude=" + s.claude);
+				response_lines.push_back("node=" + s.node);
+				response_lines.push_back("server=" + s.server);
+				response_lines.push_back("channel=" + s.channel_dir);
+			}
+			else if (cmd == "agent_send") {
+				std::string text;
+				for (size_t i = 1; i < args.size(); ++i) {
+					text += (i > 1 ? " " : "") + args[i];
+				}
+				std::string error;
+				if (Send(state, text, error)) {
+					response_lines.push_back("OK sent");
+				}
+				else {
+					response_lines.push_back("ERR " + error);
+				}
+			}
+			else if (cmd == "agent_status") {
+				char cost[32];
+				snprintf(cost, sizeof(cost), "%.4f", TotalCostUsd());
+				response_lines.push_back(std::string("OK status=") + StatusName(GetStatus()) +
+					" session=" + (SessionId().empty() ? "-" : SessionId()) +
+					" model=" + (ActiveModel().empty() ? "-" : ActiveModel()) +
+					" cost=" + cost +
+					" items=" + std::to_string(Transcript().size()) +
+					" group_open=" + (EditorHistory::GroupOpen() ? "1" : "0"));
+				response_lines.push_back("undo_top=" + EditorHistory::TopDescription());
+				if (!LastError().empty()) {
+					response_lines.push_back("error=" + one_line(LastError()));
+				}
+			}
+			else if (cmd == "agent_transcript") {
+				const auto& t = Transcript();
+				size_t n = t.size();
+				if (args.size() > 1) {
+					n = (std::min)(n, (size_t)(std::max)(0, atoi(args[1].c_str())));
+				}
+				response_lines.push_back("OK " + std::to_string(n) + " of " + std::to_string(t.size()) + " items");
+				static const char* KIND[] = { "user", "assistant", "tool", "info", "error", "result" };
+				for (size_t i = t.size() - n; i < t.size(); ++i) {
+					const Item& item = t[i];
+					std::string line = KIND[(int)item.kind];
+					if (item.kind == Item::Kind::Tool) {
+						line += " " + item.tool_name + (item.tool_done ? (item.tool_error ? " error" : " ok") : " running") +
+							" " + one_line(item.text);
+						if (item.tool_done) line += " => " + one_line(item.tool_result);
+					}
+					else {
+						line += " " + one_line(item.text);
+					}
+					response_lines.push_back(line);
+				}
+			}
+			else if (cmd == "agent_stop") {
+				Stop();
+				response_lines.push_back(std::string("OK ") + StatusName(GetStatus()));
+			}
+			else if (cmd == "agent_new") {
+				NewConversation();
+				response_lines.push_back("OK");
+			}
+			else if (cmd == "agent_claude") {
+				//Points the panel at another Claude Code - in the suite, a scripted fake.
+				const std::string path = args.size() > 1 && args[1] != "default" ? args[1] : std::string();
+				SetClaudeOverride(path);
+				Setup s = Locate(state);
+				response_lines.push_back(s.problem.empty() ? "OK " + s.claude : "ERR " + s.problem);
+			}
+			else if (cmd == "agent_model") {
+				if (args.size() > 1) {
+					SetModel(args[1] == "default" ? std::string() : args[1]);
+				}
+				response_lines.push_back("OK " + (Model().empty() ? std::string("default") : Model()));
+			}
+			else {
+				return false;
+			}
+			return true;
+		}
+
 		//The platform/force gizmo commands, kept out of the main dispatch chain for the
 		//same reason HandleAssetImportCommand is: the ladder is already at the compiler's
 		//block-nesting limit, and adding these to it is what hit C1061. Returns false when
@@ -350,7 +495,7 @@ namespace HotBiteEditor {
 				}
 			}
 			else {
-				return false;
+				return HandleAgentCommand(state, cmd, args);
 			}
 			return true;
 		}
@@ -3071,69 +3216,79 @@ namespace HotBiteEditor {
 
 		void ProcessCommands(EditorState& state, SceneEditorApp& app)
 		{
-			if (!enabled || batch_open) {
-				return;
-			}
-			fs::path command_file = root_dir / "command.txt";
-			std::error_code ec;
-			if (!fs::exists(command_file, ec)) {
-				return;
-			}
-			std::ifstream in(command_file);
-			if (!in.is_open()) {
-				//The driver may still be writing; retry next frame.
-				return;
-			}
-			std::vector<std::string> lines;
-			std::string line;
-			while (std::getline(in, line)) {
-				if (!line.empty() && line.back() == '\r') {
-					line.pop_back();
+			//By index: a command may add a root (the Claude panel starting its agent),
+			//which can reallocate the vector.
+			for (size_t i = 0; i < roots.size(); ++i) {
+				if (roots[i].batch_open) {
+					continue;
 				}
-				if (!line.empty()) {
-					lines.push_back(line);
+				fs::path command_file = roots[i].dir / "command.txt";
+				std::error_code ec;
+				if (!fs::exists(command_file, ec)) {
+					continue;
 				}
-			}
-			in.close();
-			fs::remove(command_file, ec);
+				std::ifstream in(command_file);
+				if (!in.is_open()) {
+					//The driver may still be writing; retry next frame.
+					continue;
+				}
+				std::vector<std::string> lines;
+				std::string line;
+				while (std::getline(in, line)) {
+					if (!line.empty() && line.back() == '\r') {
+						line.pop_back();
+					}
+					if (!line.empty()) {
+						lines.push_back(line);
+					}
+				}
+				in.close();
+				fs::remove(command_file, ec);
 
-			batch_open = true;
-			response_lines.clear();
-			pending_screenshots.clear();
-			for (const auto& l : lines) {
-				Execute(l, state, app);
+				response_lines.clear();
+				pending_screenshots.clear();
+				for (const auto& l : lines) {
+					Execute(l, state, app);
+				}
+				roots[i].batch_open = true;
+				roots[i].response_lines = std::move(response_lines);
+				roots[i].pending_screenshots = std::move(pending_screenshots);
+				response_lines.clear();
+				pending_screenshots.clear();
 			}
 		}
 
 		void OnFrameEnd(EditorState& state, SceneEditorApp& app)
 		{
-			if (!enabled || !batch_open) {
-				return;
-			}
-			for (const auto& shot : pending_screenshots) {
-				std::string error;
-				if (app.CaptureBackBuffer(shot.path, error)) {
-					response_lines[shot.response_index] = "OK " + shot.path;
+			for (Root& root : roots) {
+				if (!root.batch_open) {
+					continue;
 				}
-				else {
-					response_lines[shot.response_index] = "ERR " + error;
+				for (const auto& shot : root.pending_screenshots) {
+					std::string error;
+					if (app.CaptureBackBuffer(shot.path, error)) {
+						root.response_lines[shot.response_index] = "OK " + shot.path;
+					}
+					else {
+						root.response_lines[shot.response_index] = "ERR " + error;
+					}
 				}
-			}
-			pending_screenshots.clear();
+				root.pending_screenshots.clear();
 
-			//Write-then-rename so the driver never observes a half-written response.
-			fs::path tmp = root_dir / "response.tmp";
-			fs::path final_path = root_dir / "response.txt";
-			{
-				std::ofstream out(tmp.string(), std::ios::trunc);
-				for (const auto& l : response_lines) {
-					out << l << "\n";
+				//Write-then-rename so the driver never observes a half-written response.
+				fs::path tmp = root.dir / "response.tmp";
+				fs::path final_path = root.dir / "response.txt";
+				{
+					std::ofstream out(tmp.string(), std::ios::trunc);
+					for (const auto& l : root.response_lines) {
+						out << l << "\n";
+					}
 				}
-			}
-			MoveFileExA(tmp.string().c_str(), final_path.string().c_str(), MOVEFILE_REPLACE_EXISTING);
+				MoveFileExA(tmp.string().c_str(), final_path.string().c_str(), MOVEFILE_REPLACE_EXISTING);
 
-			response_lines.clear();
-			batch_open = false;
+				root.response_lines.clear();
+				root.batch_open = false;
+			}
 		}
 
 	}

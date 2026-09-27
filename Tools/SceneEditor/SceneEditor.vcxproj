@@ -38,6 +38,8 @@
     <ClCompile Include="MultiMaterialPanel.cpp" />
     <ClCompile Include="TexturePanel.cpp" />
     <ClCompile Include="PolyHaven.cpp" />
+    <ClCompile Include="AgentPanel.cpp" />
+    <ClCompile Include="ClaudeAgent.cpp" />
     <ClCompile Include="MaskPaint.cpp" />
     <ClCompile Include="MeshOps.cpp" />
     <ClCompile Include="SplatOps.cpp" />
@@ -82,6 +84,8 @@
     <ClInclude Include="MultiMaterialPanel.h" />
     <ClInclude Include="TexturePanel.h" />
     <ClInclude Include="PolyHaven.h" />
+    <ClInclude Include="AgentPanel.h" />
+    <ClInclude Include="ClaudeAgent.h" />
     <ClInclude Include="MaskPaint.h" />
     <ClInclude Include="MeshOps.h" />
     <ClInclude Include="SplatOps.h" />

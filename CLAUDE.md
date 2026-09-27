@@ -165,6 +165,36 @@ Tools\SceneEditor\automation\editor-cli.ps1 -Dir $dir -Command 'screenshot C:\..
 Tools\SceneEditor\automation\editor-cli.ps1 -Dir $dir -Command 'quit'
 ```
 
+### Claude in the editor: the `hotbite-editor` MCP server and the Claude panel
+
+`Tools/SceneEditor/mcp/` wraps the same channel as MCP tools (`scene_summary`,
+`entity_details`, `screenshot` returned as an image, a read-only `editor_query`, and
+`editor_command`, which is the whole channel). It is registered in the repo's
+`.mcp.json`. It has no npm dependencies, because the machine's Node is 14 and the MCP
+SDK needs 18. Its offline tests (`node Tools/SceneEditor/mcp/test/run.js`) run against
+a fake editor.
+
+**View/Claude** runs Claude Code headless *inside* the editor (`ClaudeAgent.h`,
+`AgentPanel.h`) with that server as its only MCP server, so the person can ask for
+level edits in a chat. Three things are not guessable:
+
+- **The agent gets its own channel root** (`EditorAutomation::AddRoot`,
+  `<dir>gent`). One folder holds one driver, so a suite or a VS Code session on
+  `--automation` would otherwise trample the agent's `command.txt`.
+- **A turn is one undo group** (`EditorHistory::BeginGroup`/`EndGroup`). An
+  `Undo` while a group is open *seals* what the group holds so far as its own step
+  first, because the LIFO guarantee needs every applied edit on the stack.
+- **Claude Code is found where the IDE put it.** On a machine that only uses it
+  through VS Code, the only `claude.exe` is the extension's bundled
+  `resources
+ative-binary\claude.exe`, which is not on the PATH.
+  `HOTBITE_CLAUDE_EXE` overrides the search, and `agent_claude` overrides it at run
+  time.
+
+Suite `38-agentpanel` drives the panel against `testsssetsake-claude.js`, a
+scripted stand-in that speaks the same stream-json protocol and edits through the
+agent's channel. It needs no network and no account.
+
 ### Logging
 
 `Engine/Core/Log.h` is the engine's logger: `LOG_TRACE/DEBUG/INFO/WARN/ERROR/FATAL`,

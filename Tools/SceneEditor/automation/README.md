@@ -172,12 +172,39 @@ directory so relative asset paths in level files resolve the same way the other 
 | `screenshot <png path>` | saves the backbuffer (scene + ImGui UI) as PNG at the end of the frame |
 | `rdoc_capture` | queues a RenderDoc capture of the frame being rendered; needs `--renderdoc` at launch. The `.rdc` is finalized after present, so poll `rdoc_last` for its path |
 | `rdoc_last` | number of captures this session and the path of the newest one |
+| `agent_show` | opens the Claude panel (View/Claude). See "The Claude panel" below |
+| `agent_setup` | where the panel found Claude Code, node and the MCP server, and the agent's channel folder; `ERR` with the reason when something is missing |
+| `agent_claude <path\|default>` | which Claude Code the panel starts next. A `.js` path runs through node - the suite's `testsssetsake-claude.js` stand-in |
+| `agent_model [<name>\|default]` | reads or sets the model (`opus`, `sonnet`, `haiku`, a full id). A running process is restarted on the next message, resuming the conversation |
+| `agent_send <text...>` | sends the rest of the line as a message and returns at once; poll `agent_status` until `status=ready` |
+| `agent_status` | `status=idle\|busy\|ready\|stopping\|failed session= model= cost= items= group_open=`, then `undo_top=` (the step Ctrl+Z would undo) and `error=` when there is one |
+| `agent_transcript [n]` | the last `n` transcript items, one per line: `user`/`assistant`/`info`/`error`/`result <text>`, or `tool <name> ok\|error\|running <input> => <result>` |
+| `agent_stop` / `agent_new` | interrupts the running turn (killing the process if it has not stopped within 5 s) / forgets the conversation |
 | `undo` / `redo` | steps the editor's undo history (same stack as Edit/Undo, Edit/Redo and Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z); the `OK` line names the step applied, `ERR` when the stack is empty |
 | `quit` | closes the editor |
 | `debug_crash` | deliberate null write to exercise the crash pipeline; never responds (the process dies), so expect the driver to time out |
 
 Screenshots are captured after the UI is rendered into the backbuffer, so what the
 PNG shows is exactly what a user would see that frame.
+
+## The Claude panel
+
+View/Claude is a chat with Claude Code running inside the editor (`ClaudeAgent.h`,
+`AgentPanel.h`). The agent works through this same channel, via the MCP server in
+`Tools/SceneEditor/mcp`, so it can do anything a test can.
+
+- It has **a channel folder of its own**: `<automation dir>gent`, or
+  `%TEMP%\hotbite-editor-<pid>gent` when the editor was started without
+  `--automation`. The protocol has room for one driver per folder, and a test or a
+  Claude Code session driving `--automation` must not race the agent for
+  `command.txt`. The editor serves every folder the same way, in the same frame.
+- **One message is one undo step.** Everything pushed to the history from the
+  message until Claude's reply is final is one group (`EditorHistory::BeginGroup`),
+  and it is named `Claude: <message>`. An edit you make by hand during a turn joins
+  the turn's group.
+- **The agent cannot write files.** Claude Code's `Write`/`Edit`/`Bash` are
+  disallowed, so every change goes through `editor_command`: undoable, marked
+  dirty, and saved only when someone saves.
 
 The viewport gizmo has translate/rotate/scale modes, switched via the Edit menu
 (`menu "Edit/Gizmo: Rotate"` etc., current mode in `state` as `gizmo_mode`) or the
