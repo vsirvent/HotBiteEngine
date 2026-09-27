@@ -12,10 +12,16 @@ namespace HotBiteEditor {
 	// What can be copied/cut:
 	//  - editor-placed template instances (any part of one selects the whole
 	//    instance); pasting spawns a fresh instance of the same template.
-	//  - mesh entities (Base+Transform+Bounds+Mesh): FBX-authored ones and
-	//    previous pastes; pasting clones them via World::CloneEntity.
-	//  Lights, cameras and the sky are refused - their components own live GPU
-	//  or system resources a component copy would alias.
+	//  - any other entity (mesh entities, lights, cameras, created entities,
+	//    previous pastes); pasting clones it via
+	//    World::CloneEntity, which round-trips every component the source has
+	//    through its own ToJson/FromJson (see CloneEntity's own comment) rather
+	//    than a plain memberwise copy, so a component owning a live GPU resource
+	//    (a PointLight's or DirectionalLight's shadow map) allocates its own
+	//    instead of aliasing the source's.
+	//  Sky is refused - RenderSystem asserts exactly one is ever registered, so
+	//  a duplicate takes the renderer down the next frame rather than merely
+	//  looking wrong.
 	//
 	// An entity created empty here (CreateEmptyEntity) is deletable whatever it
 	// carries - it has no mesh to qualify as one until the user gives it one, and
@@ -111,11 +117,11 @@ namespace HotBiteEditor {
 		// accepts (drives the Edit menu enabled state).
 		bool CanCopySelected(EditorState& state);
 
-		// Removes every deletable entity in the selection (mesh entities are parked
-		// like a cut, placed instances despawn) as ONE undoable action, leaving the
-		// clipboard alone. Entities the editor refuses to remove - lights, cameras,
-		// the sky - are skipped rather than failing the whole delete. Returns false
-		// with `error` set when nothing in the selection could be deleted.
+		// Removes every deletable entity in the selection (parked like a cut, placed
+		// instances despawn) as ONE undoable action, leaving the clipboard alone.
+		// Sky - the one entity the editor refuses to remove - is skipped rather
+		// than failing the whole delete. Returns false with `error` set when
+		// nothing in the selection could be deleted.
 		// The Del key and the Entities panel both route here; confirming a
 		// multi-entity delete is the caller's job (SceneEditorApp::Present).
 		bool DeleteSelected(EditorState& state, std::string& error);

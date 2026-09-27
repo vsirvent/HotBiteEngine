@@ -877,7 +877,9 @@ void RenderSystem::CastShadows(int w, int h, const float3& camera_position, cons
 
 	if (!static_shadows) {
 		for (PointLightEntity& l : point_lights.GetData()) {
-			if (l.light->CastShadow()) {
+			//A parked (deleted/cut) light is hidden via Base::visible rather than
+			//destroyed, and must not keep rendering into its shadow map.
+			if (l.base->visible && l.light->CastShadow()) {
 				//Render to depth texture					
 				ID3D11RenderTargetView* rtv[1] = { nullptr };
 				context->OMSetRenderTargets(1, rtv, l.light->DepthView());
@@ -980,7 +982,7 @@ void RenderSystem::CastShadows(int w, int h, const float3& camera_position, cons
 	}
 	
 	for (DirectionalLightEntity& l : directional_lights.GetData()) {
-		if (l.light->CastShadow()) {
+		if (l.base->visible && l.light->CastShadow()) {
 			//Render to depth texture
 			ID3D11RenderTargetView* rtv[1] = { nullptr };
 			ID3D11DepthStencilView* dv = nullptr;
@@ -3364,8 +3366,14 @@ void RenderSystem::UnprepareMultiMaterial(Core::MaterialData* material, Core::Si
 }
 
 void RenderSystem::PrepareLights(Core::ISimpleShader* s) {
-	if (!ambient_lights.GetData().empty()) {
-		s->SetData(AMBIENT_LIGHT, &ambient_lights.GetData()[0].light->GetData(), sizeof(AmbientLight::Data));
+	//First *visible* ambient light: a deleted one is parked (Base::visible false)
+	//rather than destroyed, so it stays in this list and must not be picked as
+	//index 0 the way it used to be.
+	for (auto& l : ambient_lights.GetData()) {
+		if (l.base->visible) {
+			s->SetData(AMBIENT_LIGHT, &l.light->GetData(), sizeof(AmbientLight::Data));
+			break;
+		}
 	}
 	s->SetInt(DIRLIGHT_COUNT, (int)scene_lighting.dir_lights.size());
 	if (!scene_lighting.dir_lights.empty()) {
@@ -3523,6 +3531,12 @@ void RenderSystem::SetEntityLights(Lighted* lighted, ECS::EntityVector<Direction
 	lighted->dir_static_shadows_perspectives.reserve(MAX_LIGHTS);
 
 	for (auto const& l: dir_lights.GetData()) {
+		//A deleted/cut light is parked (Base::visible false), not destroyed, so it
+		//stays registered here and must be skipped or it keeps lighting the scene
+		//after being "removed".
+		if (!l.base->visible) {
+			continue;
+		}
 		lighted->dir_lights.push_back(l.light->GetData());
 		lighted->dir_shadows.push_back(l.light->DepthResource());
 		lighted->dir_static_shadows.push_back(l.light->StaticDepthResource());
@@ -3538,6 +3552,9 @@ void RenderSystem::SetEntityLights(Lighted* lighted, ECS::EntityVector<Direction
 		lighted->dir_static_shadows_perspectives.push_back(*l.light->GetStaticViewMatrix());
 	}
 	for (auto const& l : point_lights.GetData()) {
+		if (!l.base->visible) {
+			continue;
+		}
 		lighted->point_lights.push_back(l.light->GetData());
 		lighted->shadows.push_back(l.light->DepthResource());
 		lighted->shadows_perspectives.push_back({ l.light->GetLightPerspectiveValues().m[2][2] , l.light->GetLightPerspectiveValues().m[3][2] });
@@ -3736,7 +3753,7 @@ void RenderSystem::Draw() {
 		//many seconds of a scene with no shadows on any of the scenery.
 		bool static_stale = false;
 		for (DirectionalLightEntity& l : directional_lights.GetData()) {
-			if (l.light->CastShadow() && l.light->StaticShadowStale()) {
+			if (l.base->visible && l.light->CastShadow() && l.light->StaticShadowStale()) {
 				static_stale = true;
 				break;
 			}

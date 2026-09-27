@@ -2906,13 +2906,16 @@ ECS::Entity World::CloneEntity(const std::string& new_name, const std::string& s
 		printf("World::CloneEntity: entity name already exists: %s\n", new_name.c_str());
 		return ECS::INVALID_ENTITY_ID;
 	}
-	//Only mesh entities are clonable: lights, cameras and the sky own live GPU or
-	//system resources a plain component copy would alias.
-	if (!coordinator->ContainsComponent<Components::Base>(src) ||
-		!coordinator->ContainsComponent<Components::Transform>(src) ||
-		!coordinator->ContainsComponent<Components::Bounds>(src) ||
-		!coordinator->ContainsComponent<Components::Mesh>(src)) {
-		printf("World::CloneEntity: %s is not a mesh entity, not cloned.\n", source_name.c_str());
+	//Base is the one component every entity has. Sky is the hard exception:
+	//RenderSystem asserts exactly one is ever registered
+	//(`skies.GetData().size() == 1`), so a second one takes the renderer down on
+	//the next frame rather than merely looking wrong.
+	if (!coordinator->ContainsComponent<Components::Base>(src)) {
+		printf("World::CloneEntity: %s has no Base, not cloned.\n", source_name.c_str());
+		return ECS::INVALID_ENTITY_ID;
+	}
+	if (coordinator->ContainsComponent<Components::Sky>(src)) {
+		printf("World::CloneEntity: %s carries Sky, which cannot be duplicated.\n", source_name.c_str());
 		return ECS::INVALID_ENTITY_ID;
 	}
 
@@ -2924,20 +2927,35 @@ ECS::Entity World::CloneEntity(const std::string& new_name, const std::string& s
 	base.creation_time = Core::Scheduler::GetNanoSeconds();
 	coordinator->AddComponent<Components::Base>(e, base);
 
-	Components::Transform t = coordinator->GetConstComponent<Components::Transform>(src);
-	t.dirty = true;
-	coordinator->AddComponent<Components::Transform>(e, t);
+	//Transform is Mandatory policy - every entity a level authors or the editor
+	//creates has one - but World::Load's legacy "lights" section gives an
+	//AmbientLight/DirectionalLight entity none (there is nowhere for a uniform
+	//ambient term, or a direction stored directly on the component, to put a
+	//position), so this stays a default-identity fallback rather than a gate.
+	Components::Transform t{};
+	if (coordinator->ContainsComponent<Components::Transform>(src)) {
+		t = coordinator->GetConstComponent<Components::Transform>(src);
+		t.dirty = true;
+		coordinator->AddComponent<Components::Transform>(e, t);
+	}
 
-	const Components::Bounds& bounds = coordinator->GetConstComponent<Components::Bounds>(src);
-	coordinator->AddComponent<Components::Bounds>(e, bounds);
+	Components::Bounds bounds{};
+	if (coordinator->ContainsComponent<Components::Bounds>(src)) {
+		bounds = coordinator->GetConstComponent<Components::Bounds>(src);
+		coordinator->AddComponent<Components::Bounds>(e, bounds);
+	}
 
-	coordinator->AddComponent<Components::Mesh>(e);
-	coordinator->GetComponent<Components::Mesh>(e).SetData(coordinator->GetComponent<Components::Mesh>(src).GetData());
+	if (coordinator->ContainsComponent<Components::Mesh>(src)) {
+		coordinator->AddComponent<Components::Mesh>(e);
+		coordinator->GetComponent<Components::Mesh>(e).SetData(coordinator->GetComponent<Components::Mesh>(src).GetData());
+	}
 
 	if (coordinator->ContainsComponent<Components::Material>(src)) {
 		coordinator->AddComponent<Components::Material>(e, coordinator->GetConstComponent<Components::Material>(src));
 	}
-	coordinator->AddComponent<Components::Lighted>(e);
+	if (coordinator->ContainsComponent<Components::Lighted>(src)) {
+		coordinator->AddComponent<Components::Lighted>(e);
+	}
 
 	//Mesh-shape colliders are looked up by the original FBX entity name; remember
 	//the clone's root source so Init() (for load-time clones) and the runtime path
@@ -2966,6 +2984,38 @@ ECS::Entity World::CloneEntity(const std::string& new_name, const std::string& s
 			np.Init(phys_world, np.type, shape, bounds.local_box, t.position, t.scale, t.rotation, np.shape);
 		}
 	}
+
+	//Every other component the source carries - PointLight, DirectionalLight,
+	//AmbientLight, SplatCloud, Platform/LinearPlatform, Force, Camera, Player -
+	//goes through its own ToJson/FromJson round trip via the registry, exactly the
+	//path a level's "components" block already uses (World::ApplyComponents). That
+	//is what makes this safe for a component like PointLight, which owns a live
+	//GPU shadow-map resource: FromJson on a freshly added (uninitialized)
+	//component calls the component's own Init(), so the clone allocates its own
+	//resource instead of a plain memberwise copy aliasing the source's (which is
+	//exactly what PointLight/DirectionalLight's copy constructors assert against).
+	{
+		static const std::set<std::string> handled = {
+			Components::Base::NAME, Components::Transform::NAME,
+			Components::Bounds::NAME, Components::Mesh::NAME,
+			Components::Material::NAME, Components::Lighted::NAME,
+			Components::Physics::NAME
+		};
+		ECS::SerializeContext ctx = MakeSerializeContext();
+		const ECS::ComponentRegistry& registry = ECS::ComponentRegistry::Instance();
+		for (const ECS::ComponentDesc& desc : registry.All()) {
+			if (handled.count(desc.name) != 0 || !desc.has(coordinator, src)) {
+				continue;
+			}
+			desc.apply(ctx, e, desc.serialize(ctx, src));
+		}
+	}
+
+	//SpawnTemplateEntities attaches a splat cloud's generated proxy (Mesh/Bounds/
+	//collider) right after applying its component block; a runtime clone needs the
+	//same step; a silent no-op when the source carries no SplatCloud or that cloud
+	//has no generated proxy yet.
+	AttachSplatProxy(e);
 
 	coordinator->NotifySignatureChange(e);
 	return e;

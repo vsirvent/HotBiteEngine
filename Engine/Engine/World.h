@@ -686,12 +686,21 @@ namespace HotBite {
 							const std::string& material_name = "", const nlohmann::json* physics_json = nullptr,
 							std::vector<ECS::Entity>* out_parts = nullptr);
 			// Creates a new entity named `new_name` as a copy of the existing scene
-			// entity `source_name`: Base flags, Transform, Bounds and the (shared)
-			// mesh/material data are copied; Physics parameters are copied and a fresh
-			// rigid body is created when the source has one. Only mesh entities
-			// (Base+Transform+Bounds+Mesh) can be cloned; lights/cameras/sky return
-			// INVALID_ENTITY_ID. Used by the "clones" section of Load() and by editor
-			// copy/paste at runtime.
+			// entity `source_name`: Base flags are copied by hand; Transform,
+			// Bounds/Mesh/Material/Lighted are copied when the source has them
+			// (Transform is Mandatory policy so almost every entity does, but
+			// World::Load's legacy "lights" section gives an AmbientLight/
+			// DirectionalLight entity none). Physics parameters are copied and a
+			// fresh rigid body is created when the source has one. Every other
+			// component the source carries (light components included) goes
+			// through its own ToJson/FromJson round trip via the ComponentRegistry,
+			// so a component owning a live GPU resource (PointLight/
+			// DirectionalLight's shadow map) allocates its own on the clone rather
+			// than aliasing the source's. Any entity with Base can be cloned except
+			// one carrying Sky, which is a hard singleton (RenderSystem asserts
+			// exactly one) and returns INVALID_ENTITY_ID.
+			// Used by the "clones" section of Load() and by editor copy/paste at
+			// runtime.
 			virtual ECS::Entity CloneEntity(const std::string& new_name, const std::string& source_name);
 
 			// Creates an entity carrying only the two components every entity must have:

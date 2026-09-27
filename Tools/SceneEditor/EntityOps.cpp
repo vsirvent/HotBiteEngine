@@ -9,6 +9,7 @@
 #include <Components/Base.h>
 #include <Components/Camera.h>
 #include <Components/Physics.h>
+#include <Components/Sky.h>
 #include <algorithm>
 #include <cctype>
 
@@ -530,6 +531,19 @@ namespace HotBiteEditor {
 			return true;
 		}
 
+		//Whether `e` (already known to carry Base) is something CloneEntity can
+		//duplicate: anything except Sky, which is a hard singleton (RenderSystem
+		//asserts exactly one is ever registered) and would take the renderer down
+		//the next frame if duplicated. Transform is not required here even though
+		//almost every entity has one - World::Load's legacy "lights" section gives
+		//an AmbientLight/DirectionalLight entity none, and CloneEntity/CopySelected
+		//both already treat a missing Transform as "nothing to copy" rather than a
+		//reason to refuse.
+		static bool IsClonable(Coordinator* c, Entity e)
+		{
+			return !c->ContainsComponent<Sky>(e);
+		}
+
 		bool CanCopySelected(EditorState& state)
 		{
 			Coordinator* c = state.world->GetCoordinator();
@@ -540,9 +554,7 @@ namespace HotBiteEditor {
 			if (state.instance_entity_ids.count(state.selected_entity) != 0) {
 				return true;
 			}
-			return c->ContainsComponent<Transform>(state.selected_entity) &&
-				c->ContainsComponent<Bounds>(state.selected_entity) &&
-				c->ContainsComponent<Mesh>(state.selected_entity);
+			return IsClonable(c, state.selected_entity);
 		}
 
 		bool CopySelected(EditorState& state, std::string& error)
@@ -568,13 +580,17 @@ namespace HotBiteEditor {
 				return true;
 			}
 
-			if (!c->ContainsComponent<Transform>(state.selected_entity) ||
-				!c->ContainsComponent<Bounds>(state.selected_entity) ||
-				!c->ContainsComponent<Mesh>(state.selected_entity)) {
-				error = "only mesh entities and placed instances can be copied";
+			if (!IsClonable(c, state.selected_entity)) {
+				error = "the sky is a singleton and cannot be copied";
 				return false;
 			}
-			const Transform& t = c->GetComponent<Transform>(state.selected_entity);
+			//Transform is optional here (see IsClonable's comment): a Transform-less
+			//entity's clipboard entry just carries the identity pose, which is what
+			//a Transform-less clone stays at - there is nothing to move.
+			Transform t{};
+			if (c->ContainsComponent<Transform>(state.selected_entity)) {
+				t = c->GetComponent<Transform>(state.selected_entity);
+			}
 			state.clipboard = {};
 			state.clipboard.kind = EntityClipboard::Kind::SceneEntity;
 			state.clipboard.source_name = base.name;
@@ -802,7 +818,8 @@ namespace HotBiteEditor {
 		}
 
 		//Whether one entity can be removed from the scene: the same set cut accepts
-		//(placed instances and mesh entities), since delete reuses cut's machinery.
+		//(placed instances and anything IsClonable accepts), since delete reuses
+		//cut's machinery.
 		static bool IsDeletable(EditorState& state, Entity e)
 		{
 			Coordinator* c = state.world->GetCoordinator();
@@ -817,8 +834,10 @@ namespace HotBiteEditor {
 			if (IsCreatedName(state, c->GetComponent<Base>(e).name)) {
 				return true;
 			}
-			return c->ContainsComponent<Transform>(e) && c->ContainsComponent<Bounds>(e) &&
-				c->ContainsComponent<Mesh>(e);
+			//Delete reuses cut's park/unpark machinery (BuildParkInfo/ParkEntity), which
+			//only needs Base - so any entity qualifies except Sky, the one
+			//singleton RenderSystem hard-asserts on.
+			return IsClonable(c, e);
 		}
 
 		bool CanDeleteSelected(EditorState& state)
@@ -844,7 +863,7 @@ namespace HotBiteEditor {
 			std::vector<PlacedInstance> instances; //instance records to despawn
 			for (Entity e : state.selected_entities) {
 				if (!IsDeletable(state, e)) {
-					continue; //lights, cameras, sky: nothing safe to remove
+					continue; //the sky, or an entity with no Transform: nothing safe to remove
 				}
 				const std::string& name = c->GetComponent<Base>(e).name;
 				if (state.instance_entity_ids.count(e) != 0) {

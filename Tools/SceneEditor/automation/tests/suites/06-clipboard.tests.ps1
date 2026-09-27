@@ -65,9 +65,50 @@ Test 'delete with nothing selected is an error' {
     Assert-Err -Result (Send 'delete')[0]
 }
 
-Test 'lights and the camera rig cannot be copied' {
-    Assert-Err -Result (Send 'copy sun')[0] -Message 'a light is not a copyable object'
-    Assert-Err -Result (Send 'copy ambient')[0]
+Test 'a light can be copied and pasted as an independent entity' {
+    # World::CloneEntity round-trips every component the source has through its own
+    # ToJson/FromJson (see the comment on CloneEntity), which is what lets a
+    # PointLight/DirectionalLight - components that own a live GPU shadow-map
+    # resource - be cloned safely: the clone allocates its own resource instead of
+    # aliasing the source's.
+    $before = Get-EntityNames -Session $Session
+    SendOk 'copy sun', 'paste' | Out-Null
+    $new = @((Get-EntityNames -Session $Session) | Where-Object { $before -notcontains $_ })
+    Assert-Equal -Expected 1 -Actual $new.Count -Message 'exactly one entity appeared'
+    Assert-Match -Pattern '^sun_copy' -Actual $new[0]
+    $source = Get-Component -Session $Session -Entity 'sun' -Component 'DirectionalLight'
+    $copy = Get-Component -Session $Session -Entity $new[0] -Component 'DirectionalLight'
+    Assert-Near -Expected $source.intensity -Actual $copy.intensity -Tolerance 0.001 `
+        -Message 'the clone carries the same light data'
+}
+
+Test 'an ambient light can be copied and pasted too' {
+    $before = Get-EntityNames -Session $Session
+    SendOk 'copy ambient', 'paste' | Out-Null
+    $new = @((Get-EntityNames -Session $Session) | Where-Object { $before -notcontains $_ })
+    Assert-Equal -Expected 1 -Actual $new.Count
+    Assert-Match -Pattern '^ambient_copy' -Actual $new[0]
+}
+
+Test 'a point light added from the preset can be deleted outright' {
+    SendOk 'menu "Add/Point Light"' | Out-Null
+    $names = Get-EntityNames -Session $Session
+    $lightName = @($names | Where-Object { $_ -match '^PointLight' })[0]
+    Assert-True -Condition ($null -ne $lightName) -Message 'Add/Point Light created an entity'
+    SendOk "select $lightName", 'delete' | Out-Null
+    Assert-NotContains -Collection (Get-EntityNames -Session $Session) -Value $lightName
+}
+
+Test 'the sky is a singleton and still cannot be copied' {
+    # RenderSystem asserts exactly one Sky is ever registered, so this is the one
+    # entity CloneEntity/CanCopySelected still refuse - everything else in the
+    # previous two tests is deliberately new behaviour.
+    SendOk 'menu "Add/Sky"' | Out-Null
+    $names = Get-EntityNames -Session $Session
+    $skyName = @($names | Where-Object { $_ -match '^Sky' })[0]
+    Assert-True -Condition ($null -ne $skyName) -Message 'Add/Sky created an entity'
+    Assert-Err -Result (Send "copy $skyName")[0] -Pattern 'singleton'
+    SendOk "select $skyName", 'delete' | Out-Null
 }
 
 Test 'the Edit menu drives the same clipboard' {

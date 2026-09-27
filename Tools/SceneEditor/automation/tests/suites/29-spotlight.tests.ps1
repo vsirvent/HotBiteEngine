@@ -279,3 +279,26 @@ Test 'glow radius: a bigger radius draws a bigger glow, and zero draws none' {
     Assert-True -Condition ($big -gt $normal + 1) `
         -Message "a larger radius covers more of the neighbourhood (10: $normal, 40: $big)"
 }
+
+# ---- delete actually stops the light -------------------------------------------------
+# A deleted (parked) light used to keep contributing to the lit scene even though its
+# gizmo correctly disappeared (see the "a deleted (parked) light is not drawn" test
+# above) - Base::visible is what the editor's own overlays check, but PointLightSystem
+# and RenderSystem::SetEntityLights never did, so the entity kept lighting every frame.
+# This is the last test in the file precisely because it deletes 'Lamp': nothing after
+# it may depend on that light still existing.
+Test 'delete stops a point light from lighting the scene, not just its gizmo' {
+    SendOk 'select Lamp',
+        "set_component Lamp PointLight ""{'tilt_ratio':0,'range':60}""" | Out-Null
+    Set-Beam -Spot $false -Pitch 90
+    $lit = Get-Zones 'before-light-delete'
+    SendOk 'select Lamp', 'delete' | Out-Null
+    $dark = Get-Zones 'after-light-delete'
+    Assert-True -Condition ($lit.Inner -gt $dark.Inner + 8) `
+        -Message "the floor was lit before the delete and dark after (before $($lit.Inner), after $($dark.Inner))"
+
+    SendOk 'undo' | Out-Null
+    $restored = Get-Zones 'after-light-undo'
+    Assert-True -Condition ($restored.Inner -gt $dark.Inner + 8) `
+        -Message "undo brings the light back (restored $($restored.Inner), deleted $($dark.Inner))"
+}

@@ -317,25 +317,31 @@ namespace HotBite {
 				ECS::Signature sky_signature;
 
 				struct AmbientLightEntity {
+					Components::Base* base;
 					Components::AmbientLight* light;
 					AmbientLightEntity(ECS::Coordinator* c, ECS::Entity entity) {
+						base = &(c->GetComponent<Components::Base>(entity));
 						light = &(c->GetComponent<Components::AmbientLight>(entity));
 					}
 				};
 				ECS::Signature amblight_signature;
 
 				struct DirectionalLightEntity {
+					Components::Base* base;
 					Components::DirectionalLight* light;
 					DirectionalLightEntity(ECS::Coordinator* c, ECS::Entity entity) {
+						base = &(c->GetComponent<Components::Base>(entity));
 						light = &(c->GetComponent<Components::DirectionalLight>(entity));
 					}
 				};
 				ECS::Signature dirlight_signature;
 
 				struct PointLightEntity {
+					Components::Base* base;
 					Components::Transform* transform;
 					Components::PointLight* light;
 					PointLightEntity(ECS::Coordinator* c, ECS::Entity entity) {
+						base = &(c->GetComponent<Components::Base>(entity));
 						transform = &(c->GetComponent<Components::Transform>(entity));
 						light = &(c->GetComponent<Components::PointLight>(entity));
 					}
