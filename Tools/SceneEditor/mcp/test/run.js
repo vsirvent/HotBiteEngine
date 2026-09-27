@@ -9,6 +9,7 @@
 const assert = require('assert');
 const { spawn } = require('child_process');
 const fs = require('fs');
+const http = require('http');
 const os = require('os');
 const path = require('path');
 
@@ -27,6 +28,7 @@ class FakeEditor {
 		this.received = [];
 		this.camera = { position: [0, 5, -10], world_position: [0, 5, -10], target: [0, 0, 0], rotation_deg: [0, 0, 0], distance: 11.18 };
 		this.timer = null;
+		this.modelFiles = {}; // name -> fake .fbx path, answered by model_info (meshy_retexture's lookup)
 	}
 
 	start() {
@@ -88,6 +90,18 @@ class FakeEditor {
 			case 'screenshot':
 				fs.writeFileSync(args[0], PNG_2x2);
 				return [`OK saved ${args[0]}`];
+			case 'model_info': {
+				const fbx = this.modelFiles && this.modelFiles[args[0]];
+				return fbx ? [`OK model ${args[0]} from ${fbx}`] : [`ERR unknown model: ${args[0]}`];
+			}
+			case 'import_meshy_model':
+				return [`OK Imported Meshy model '${args[1] || args[0]}' as a template (2 texture map(s), 0 LOD level(s))`];
+			case 'import_texture':
+				return [`OK ${args[1] || ''}/${path.basename(args[0])}`];
+			case 'set_material_texture':
+				return this.failSetMaterialTexture ? ['ERR simulated local failure'] : ['OK'];
+			case 'meshy_setup_status':
+				return ['OK open=false busy=false has_result=false'];
 			default: return [`ERR unknown command '${cmd}'`];
 		}
 	}
@@ -96,8 +110,9 @@ class FakeEditor {
 // ---------------------------------------------------------------- MCP client
 
 class Client {
-	constructor(dir, extra = []) {
-		this.proc = spawn(process.execPath, [SERVER, '--dir', dir, ...extra], { stdio: ['pipe', 'pipe', 'pipe'] });
+	constructor(dir, extra = [], env = {}) {
+		this.proc = spawn(process.execPath, [SERVER, '--dir', dir, ...extra],
+			{ stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ...env } });
 		this.nextId = 1;
 		this.pending = new Map();
 		this.stderr = '';
@@ -142,6 +157,76 @@ class Client {
 	}
 }
 
+// ---------------------------------------------------------------- fake Meshy API
+
+// Stands in for api.meshy.ai for the meshy_* tools: balance, task creation and
+// polling, and serving the "downloaded" model/texture files - all on localhost, so
+// the offline suite never makes a real network call or spends a real credit.
+class FakeMeshy {
+	constructor() {
+		this.tasks = new Map();
+		this.received = []; // {method, url}
+		this.balance = { balance: 1000 };
+		this.nextId = 1;
+		this.server = http.createServer((req, res) => this.handle(req, res));
+	}
+
+	listen() {
+		return new Promise((resolve) => {
+			this.server.listen(0, '127.0.0.1', () => resolve(this.baseUrl()));
+		});
+	}
+
+	baseUrl() {
+		return `http://127.0.0.1:${this.server.address().port}`;
+	}
+
+	close() {
+		return new Promise((resolve) => this.server.close(resolve));
+	}
+
+	handle(req, res) {
+		let body = '';
+		req.on('data', (c) => { body += c; });
+		req.on('end', () => {
+			this.received.push({ method: req.method, url: req.url });
+			const send = (code, obj) => {
+				res.writeHead(code, { 'Content-Type': 'application/json' });
+				res.end(JSON.stringify(obj));
+			};
+			if (req.method === 'GET' && req.url === '/openapi/v1/balance') return send(200, this.balance);
+			if (req.method === 'GET' && req.url.startsWith('/asset/')) {
+				res.writeHead(200, { 'Content-Type': 'application/octet-stream' });
+				res.end(Buffer.from('fake binary data for ' + req.url));
+				return;
+			}
+			const create = /^\/openapi\/v[12]\/(text-to-3d|image-to-3d|retexture)$/.exec(req.url);
+			if (req.method === 'POST' && create) {
+				const payload = JSON.parse(body || '{}');
+				const id = `${create[1]}-${this.nextId++}`;
+				this.tasks.set(id, { kind: create[1], payload, polls: 0, ...(this.nextTask || {}) });
+				this.nextTask = null;
+				return send(200, { result: id });
+			}
+			const poll = /^\/openapi\/v[12]\/(?:text-to-3d|image-to-3d|retexture)\/([^/]+)$/.exec(req.url);
+			if (req.method === 'GET' && poll) {
+				const t = this.tasks.get(poll[1]);
+				if (!t) return send(404, { message: 'unknown task' });
+				t.polls++;
+				if (t.polls < (t.doneAfterPolls || 1)) return send(200, { id: poll[1], status: 'IN_PROGRESS', progress: 50 });
+				if (t.fail) return send(200, { id: poll[1], status: 'FAILED', task_error: { message: t.fail } });
+				return send(200, {
+					id: poll[1], status: 'SUCCEEDED', progress: 100,
+					consumed_credits: t.consumedCredits != null ? t.consumedCredits : 20,
+					model_urls: { fbx: `${this.baseUrl()}/asset/model.fbx` },
+					texture_urls: [{ base_color: `${this.baseUrl()}/asset/diffuse.png`, normal: `${this.baseUrl()}/asset/normal.png` }],
+				});
+			}
+			send(404, { message: `unhandled ${req.method} ${req.url}` });
+		});
+	}
+}
+
 const textOf = (res) => res.content.filter((c) => c.type === 'text').map((c) => c.text).join('\n');
 
 // ---------------------------------------------------------------- tests
@@ -151,6 +236,19 @@ async function main() {
 	const editor = new FakeEditor(dir);
 	editor.start();
 	const client = new Client(dir);
+
+	// meshy_* tools: their own fake Meshy server, a throwaway config/ledger dir, and
+	// a dedicated MCP client whose environment points at both, so nothing here ever
+	// makes a real network call or touches real credits.
+	const meshyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hotbite-meshy-test-'));
+	fs.writeFileSync(path.join(meshyDir, 'config.json'), JSON.stringify({ api_key: 'fake-key-123' }));
+	const fakeMeshy = new FakeMeshy();
+	const meshyBase = await fakeMeshy.listen();
+	const fakeFbx = path.join(meshyDir, 'crate.fbx');
+	fs.writeFileSync(fakeFbx, 'not a real fbx, just needs to exist and be readable');
+	editor.modelFiles.crate = fakeFbx;
+	const meshyEnv = { HOTBITE_MESHY_DIR: meshyDir, HOTBITE_MESHY_API_BASE: meshyBase, HOTBITE_MESHY_POLL_MS: '5' };
+	const meshyClient = new Client(dir, [], meshyEnv);
 
 	const tests = [];
 	const test = (name, fn) => tests.push({ name, fn });
@@ -260,7 +358,11 @@ async function main() {
 	test('editor_command refuses what would close or block the editor', async () => {
 		const before = editor.received.length;
 		for (const commands of [['quit'], ['debug_crash'], ['menu "File/Exit"'], ['menu "File/Open Level..."'],
-			['select box1', 'menu "File/Import Model..."'], ['select a\nquit']]) {
+			['select box1', 'menu "File/Import Model..."'], ['select a\nquit'],
+			// The Meshy API key setup popup: an agent must never be able to open it -
+			// there is no automation command anywhere that accepts a key, and this is
+			// the other half of that (see MeshySetup.h).
+			['menu "View/Claude: Meshy API Key..."']]) {
 			const res = await client.call('editor_command', { commands });
 			assert.strictEqual(res.isError, true, `${JSON.stringify(commands)} was accepted`);
 		}
@@ -336,6 +438,130 @@ async function main() {
 		assert.strictEqual(again.isError, false);
 	});
 
+	test('meshy_status reports the key is configured, and never prints it', async () => {
+		const res = await meshyClient.call('meshy_status', {});
+		assert.strictEqual(res.isError, false, textOf(res));
+		const t = textOf(res);
+		assert.ok(t.includes('Meshy key configured'), t);
+		assert.ok(!t.includes('fake-key-123'), 'the raw key leaked into the tool result');
+	});
+
+	test('meshy_text_to_3d with no confirm_token only estimates - no paid endpoint is called', async () => {
+		const before = fakeMeshy.received.length;
+		const res = await meshyClient.call('meshy_text_to_3d', { prompt: 'a small wooden crate' });
+		assert.strictEqual(res.isError, false, textOf(res));
+		const t = textOf(res);
+		assert.ok(/estimated \d+ credits/.test(t), t);
+		assert.ok(/confirm_token="[0-9a-f]+"/.test(t), t);
+		const hit = fakeMeshy.received.slice(before);
+		assert.ok(hit.length > 0 && hit.every((r) => r.method === 'GET' && r.url === '/openapi/v1/balance'),
+			`only the free balance check should run before approval: ${JSON.stringify(hit)}`);
+	});
+
+	test('confirming with an unknown token, or with changed arguments, is refused', async () => {
+		let res = await meshyClient.call('meshy_text_to_3d', { prompt: 'a small wooden crate', confirm_token: 'not-a-real-token' });
+		assert.strictEqual(res.isError, true);
+		assert.ok(/no pending approval/.test(textOf(res)), textOf(res));
+
+		const est = await meshyClient.call('meshy_text_to_3d', { prompt: 'a small wooden crate' });
+		const token = /confirm_token="([0-9a-f]+)"/.exec(textOf(est))[1];
+		res = await meshyClient.call('meshy_text_to_3d', { prompt: 'a completely different prompt', confirm_token: token });
+		assert.strictEqual(res.isError, true);
+		assert.ok(/arguments changed/.test(textOf(res)), textOf(res));
+	});
+
+	test('meshy_image_to_3d runs once confirmed, logs the real consumed_credits (flagging a mismatch), and imports a template', async () => {
+		const est = await meshyClient.call('meshy_image_to_3d', { image_url: 'http://example.invalid/ref.png', name: 'crate' });
+		assert.strictEqual(est.isError, false, textOf(est));
+		assert.ok(/estimated 30 credits/.test(textOf(est)), textOf(est));
+		const token = /confirm_token="([0-9a-f]+)"/.exec(textOf(est))[1];
+
+		fakeMeshy.nextTask = { consumedCredits: 35 }; // deliberately not 30, to exercise the mismatch note
+		const before = editor.received.length;
+		const res = await meshyClient.call('meshy_image_to_3d',
+			{ image_url: 'http://example.invalid/ref.png', name: 'crate', confirm_token: token });
+		assert.strictEqual(res.isError, false, textOf(res));
+		const t = textOf(res);
+		assert.ok(/Charged 35 credits \(quoted 30/.test(t), t);
+		assert.ok(editor.received.slice(before).some((c) => c.startsWith('import_meshy_model ')), JSON.stringify(editor.received.slice(before)));
+
+		const ledger = await meshyClient.call('meshy_ledger', {});
+		assert.ok(/image_to_3d 35cr/.test(textOf(ledger)), textOf(ledger));
+	});
+
+	test('meshy_retexture uploads the model as a data URI and applies the maps to the material, not the model itself', async () => {
+		const est = await meshyClient.call('meshy_retexture', { model: 'crate', material: 'CrateMat', style_prompt: 'rusted metal' });
+		assert.strictEqual(est.isError, false, textOf(est));
+		const token = /confirm_token="([0-9a-f]+)"/.exec(textOf(est))[1];
+
+		fakeMeshy.nextTask = { consumedCredits: 10 }; // matches the quote (no ai_model/8k given)
+		const before = editor.received.length;
+		const res = await meshyClient.call('meshy_retexture',
+			{ model: 'crate', material: 'CrateMat', style_prompt: 'rusted metal', confirm_token: token });
+		assert.strictEqual(res.isError, false, textOf(res));
+		const t = textOf(res);
+		assert.ok(/Applied diffuse, normal to material 'CrateMat'/.test(t), t);
+		assert.ok(/Charged 10 credits \(matched the quote\)/.test(t), t);
+		const sent = editor.received.slice(before);
+		assert.ok(sent.some((c) => c.startsWith('import_texture ')), JSON.stringify(sent));
+		assert.ok(sent.some((c) => c.startsWith('set_material_texture CrateMat diffuse')), JSON.stringify(sent));
+		assert.ok(!sent.some((c) => c.startsWith('import_meshy_model')), 'retexture must not create a new model/template');
+
+		const sentTask = [...fakeMeshy.tasks.values()].find((tk) => tk.kind === 'retexture');
+		assert.ok(sentTask.payload.model_url.startsWith('data:application/octet-stream;base64,'), sentTask.payload.model_url.slice(0, 60));
+	});
+
+	test('a real charge is still recorded in the ledger even when applying the result locally fails', async () => {
+		// Regression for the exact failure hit generating the terrain retexture for
+		// real: Meshy had already run and charged for the task, but the ledger write
+		// used to happen only after a successful local apply, so a purely local
+		// failure (there: a wrong relative texture name) silently dropped the record
+		// of a real, already-spent charge.
+		const est = await meshyClient.call('meshy_retexture', { model: 'crate', material: 'CrateMat', style_prompt: 'rusted metal' });
+		const token = /confirm_token="([0-9a-f]+)"/.exec(textOf(est))[1];
+
+		editor.failSetMaterialTexture = true;
+		fakeMeshy.nextTask = { consumedCredits: 12 };
+		const res = await meshyClient.call('meshy_retexture',
+			{ model: 'crate', material: 'CrateMat', style_prompt: 'rusted metal', confirm_token: token });
+		editor.failSetMaterialTexture = false;
+
+		assert.strictEqual(res.isError, true);
+		const t = textOf(res);
+		assert.ok(/charged 12 credits/.test(t), t);
+		assert.ok(/downloaded files are still at/.test(t), t);
+
+		const ledger = await meshyClient.call('meshy_ledger', {});
+		assert.ok(/retexture 12cr/.test(textOf(ledger)), textOf(ledger));
+	});
+
+	test('a configured max_credits_per_task refuses the estimate outright', async () => {
+		const configPath = path.join(meshyDir, 'config.json');
+		fs.writeFileSync(configPath, JSON.stringify({ api_key: 'fake-key-123', max_credits_per_task: 1 }));
+		try {
+			const res = await meshyClient.call('meshy_text_to_3d', { prompt: 'something expensive' });
+			assert.strictEqual(res.isError, true);
+			assert.ok(/exceeds the configured max_credits_per_task/.test(textOf(res)), textOf(res));
+		}
+		finally {
+			fs.writeFileSync(configPath, JSON.stringify({ api_key: 'fake-key-123' }));
+		}
+	});
+
+	test('no configured Meshy key is a clear error, not a crash', async () => {
+		const noKeyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hotbite-meshy-nokey-'));
+		const noKeyClient = new Client(dir, [], { HOTBITE_MESHY_DIR: noKeyDir, HOTBITE_MESHY_API_BASE: meshyBase });
+		try {
+			const res = await noKeyClient.call('meshy_text_to_3d', { prompt: 'x' });
+			assert.strictEqual(res.isError, true);
+			assert.ok(/no Meshy API key configured/.test(textOf(res)), textOf(res));
+		}
+		finally {
+			noKeyClient.close();
+			fs.rmSync(noKeyDir, { recursive: true, force: true });
+		}
+	});
+
 	let failures = 0;
 	for (const t of tests) {
 		try {
@@ -348,8 +574,11 @@ async function main() {
 		}
 	}
 	client.close();
+	meshyClient.close();
+	await fakeMeshy.close();
 	editor.stop();
 	fs.rmSync ? fs.rmSync(dir, { recursive: true, force: true }) : fs.rmdirSync(dir, { recursive: true });
+	fs.rmSync(meshyDir, { recursive: true, force: true });
 	console.log(`\n${tests.length - failures}/${tests.length} passed`);
 	if (failures && client.stderr) console.log(`server stderr:\n${client.stderr}`);
 	process.exit(failures);

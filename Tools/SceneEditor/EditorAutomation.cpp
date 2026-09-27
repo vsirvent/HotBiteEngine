@@ -7,6 +7,7 @@
 #include "MotionGizmos.h"
 #include "AssetBrowser.h"
 #include "MeshyImport.h"
+#include "MeshySetup.h"
 #include "MaterialPanel.h"
 #include "TexturePanel.h"
 #include "PolyHaven.h"
@@ -769,6 +770,18 @@ namespace HotBiteEditor {
 						response_lines.push_back("ERR " + error);
 					}
 				}
+			}
+			//Read-only, and deliberately never reports the key itself (MeshySetup::
+			//Result::message only ever carries the script's own stdout/exit status) -
+			//it exists so the regression suite can verify the menu item opens the
+			//popup and the background save reports success, without there being any
+			//command anywhere that *accepts* a key (see MeshySetup.h).
+			else if (cmd == "meshy_setup_status") {
+				MeshySetup::Result r = MeshySetup::LastResult();
+				response_lines.push_back("OK open=" + std::string(MeshySetup::IsOpen() ? "true" : "false") +
+					" busy=" + std::string(MeshySetup::Busy() ? "true" : "false") +
+					" has_result=" + std::string(r.has_result ? "true" : "false") +
+					(r.has_result ? (" ok=" + std::string(r.ok ? "true" : "false") + " message=" + r.message) : ""));
 			}
 			else {
 				return HandlePolyHavenCommand(state, cmd, args, error);
@@ -2452,7 +2465,21 @@ namespace HotBiteEditor {
 					response_lines.push_back("ERR unknown model: " + args[1]);
 				}
 				else {
-					response_lines.push_back("OK model " + args[1] + " from " + assets->file);
+					//assets->file is stored exactly as the level named it - relative to
+					//GetAssetsPath() (AssetBrowser.cpp resolves it the same way for its
+					//own asset.file_path) - and GetAssetsPath() itself is commonly
+					//relative too (a level's own "path", read verbatim off the level
+					//JSON, e.g. "..\..\..\Tests\DemoGame\", meaningful only against the
+					//editor process's own CWD). A caller *inside* this process resolves
+					//either fine since relative file I/O implicitly goes through the
+					//same CWD, but a consumer of this response text - a Node MCP tool
+					//with its own, different CWD - has no way to complete that
+					//resolution, so this reports a fully resolved absolute path instead.
+					fs::path file(assets->file);
+					fs::path resolved = file.is_absolute() ? file : fs::path(state.world->GetAssetsPath()) / file;
+					std::error_code ec;
+					resolved = fs::absolute(resolved, ec).lexically_normal();
+					response_lines.push_back("OK model " + args[1] + " from " + resolved.string());
 					for (const std::string& mesh : assets->meshes) {
 						response_lines.push_back("mesh " + mesh);
 					}

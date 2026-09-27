@@ -50,6 +50,42 @@ repository root.
 | `screenshot` | the editor window as a JPEG (downscaled to 1568 px by default); with `position`/`target` it moves the camera first, waits for the pose to apply and lets the frame settle |
 | `editor_query` | raw read-only automation commands, for everything else |
 | `editor_command` | any automation command, in one batch (one frame). It refuses `quit`, `debug_crash` and menu items ending in `...`, which open a modal file dialog on the editor's main thread and stall the channel until a person answers. `timeout_s` goes up to 600 s for big imports |
+| `meshy_status` | whether a Meshy API key is configured (never the key itself), the account's credit balance, any configured spending caps, and recent ledger entries |
+| `meshy_ledger` | the local record of every Meshy generation actually run and charged |
+| `meshy_text_to_3d` | generates a new 3D model from a text prompt via Meshy AI and imports it as a template. Spends credits - see below |
+| `meshy_image_to_3d` | generates a new 3D model from a reference image via Meshy AI and imports it as a template. Spends credits |
+| `meshy_retexture` | generates new PBR texture maps for a project model via Meshy AI and applies them to an existing material. Spends credits |
+
+## Meshy generation: setup and the approval contract
+
+`meshy_text_to_3d`/`meshy_image_to_3d`/`meshy_retexture` (`src/meshy-client.js`,
+`src/meshy-credits.js`, `src/meshy-tools.js`) call the real Meshy API against the
+user's own account and spend real credits, so two things are deliberately not the
+same as every other tool here:
+
+- **The API key is never typed into the agent's chat.** Anything in that
+  conversation becomes part of a transcript, which is exactly where a secret must
+  not go. Run `Tools/SceneEditor/mcp/setup-meshy-key.ps1` once, directly in
+  PowerShell - it writes only `%TEMP%\HotBiteMeshy\config.json`
+  (`HOTBITE_MESHY_DIR` overrides the folder), never a file under the project or
+  this repo. `meshy_status` is how the agent confirms a key is present afterward,
+  without ever seeing it.
+- **Every credit-consuming call is two calls.** The first, with no
+  `confirm_token`, only looks up Meshy's own published price for the exact
+  parameters given (deterministic - not a guess, and there is no free "quote"
+  endpoint to ask instead) and returns a token; nothing is sent to Meshy yet. The
+  tool's own description tells the agent to state that cost and stop, and only
+  call again - with identical arguments plus `confirm_token` - after the user has
+  explicitly approved in a later message. The token is single-use, expires after
+  15 minutes, and is rejected if any other argument changed since it was issued.
+  This is a chat-level convention (the tool has no way to know whether a human
+  really looked at the estimate), not a hard technical gate - an optional
+  `max_credits_per_task`/`max_credits_per_day` in `config.json` is the hard
+  backstop that holds regardless.
+- **The ledger is the ground truth.** Whatever the estimate quoted, the reply and
+  `meshy_ledger` always report the real `consumed_credits` Meshy's task response
+  carries. A mismatch (Meshy changed a price, or the local table drifted) is
+  called out in the text rather than silently trusted.
 
 `editor_query` takes an allow-list of commands (`READ_COMMANDS` in `src/tools.js`),
 each with a maximum argument count. The count is part of the rule, not a usage check:
@@ -82,3 +118,10 @@ channel from canned responses. No editor or GPU is needed, and it takes a few se
 It covers the protocol handshake, batching, quoting and injection refusal,
 the write refusal in `editor_query`, the screenshot path, concurrent calls, and the
 unresponsive-editor path.
+
+It also runs the Meshy tools against a fake HTTP server standing in for
+`api.meshy.ai` (`HOTBITE_MESHY_API_BASE`) and a throwaway `HOTBITE_MESHY_DIR`, so no
+real network call and no real credit is ever touched by the suite: the
+estimate/confirm token round trip, an unknown/expired/argument-mismatched token
+being refused, a configured spending cap being enforced, and `meshy_status` never
+echoing the key.

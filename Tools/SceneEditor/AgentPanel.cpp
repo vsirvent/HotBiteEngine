@@ -2,6 +2,7 @@
 #include "ClaudeAgent.h"
 #include "EditorHistory.h"
 #include "EditorLayout.h"
+#include "MeshySetup.h"
 
 #include "imgui.h"
 
@@ -132,6 +133,12 @@ namespace HotBiteEditor {
 				ImGui::EndDisabled();
 				if (can_undo_turn && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
 					ImGui::SetTooltip("%s", top.c_str());
+				}
+				ImGui::SameLine();
+				//Same popup as View/Claude: Meshy API Key... - offered here too since
+				//this is the natural place to look when setting up Meshy generation.
+				if (ImGui::Button("Meshy API Key...")) {
+					MeshySetup::RequestShow();
 				}
 			}
 

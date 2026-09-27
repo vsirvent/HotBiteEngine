@@ -34,6 +34,7 @@
     <ClCompile Include="Inspector.cpp" />
     <ClCompile Include="AssetBrowser.cpp" />
     <ClCompile Include="MeshyImport.cpp" />
+    <ClCompile Include="MeshySetup.cpp" />
     <ClCompile Include="MaterialPanel.cpp" />
     <ClCompile Include="MultiMaterialPanel.cpp" />
     <ClCompile Include="TexturePanel.cpp" />
@@ -80,6 +81,7 @@
     <ClInclude Include="Inspector.h" />
     <ClInclude Include="AssetBrowser.h" />
     <ClInclude Include="MeshyImport.h" />
+    <ClInclude Include="MeshySetup.h" />
     <ClInclude Include="MaterialPanel.h" />
     <ClInclude Include="MultiMaterialPanel.h" />
     <ClInclude Include="TexturePanel.h" />

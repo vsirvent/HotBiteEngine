@@ -6,6 +6,7 @@
 #include "Inspector.h"
 #include "AssetBrowser.h"
 #include "MeshyImport.h"
+#include "MeshySetup.h"
 #include "MaterialPanel.h"
 #include "TexturePanel.h"
 #include "PolyHaven.h"
@@ -431,6 +432,14 @@ namespace HotBiteEditor {
 			[this]() { return level_loaded; },
 			[this]() { state.show_agent_panel = !state.show_agent_panel; },
 			[this]() { return state.show_agent_panel; } });
+		//Not gated on level_loaded, unlike almost everything else here: the key is
+		//a per-user setting, not level data (see MeshySetup.h), so it must stay
+		//reachable before any project is open. Runs setup-meshy-key.ps1 in the
+		//background over its stdin - never through the agent, so it never becomes
+		//part of a chat transcript.
+		menu_commands.push_back({ "View/Claude: Meshy API Key...",
+			nullptr,
+			[this]() { MeshySetup::RequestShow(); } });
 		menu_commands.push_back({ "View/Log",
 			[this]() { return level_loaded; },
 			[this]() { state.show_log_panel = !state.show_log_panel; },
@@ -588,6 +597,8 @@ namespace HotBiteEditor {
 		ShaderReload::Shutdown();
 		//Stops the download workers and releases their preview textures.
 		PolyHaven::Shutdown();
+		//Joins the setup-meshy-key.ps1 background thread, if one is still running.
+		MeshySetup::Shutdown();
 		//Ends Claude Code and the MCP server it started (they are in one job object).
 		ClaudeAgent::Shutdown();
 		//Before the ImGui backend goes away: the preview passes' targets are D3D
@@ -672,6 +683,10 @@ namespace HotBiteEditor {
 		if (!ImGui::GetIO().WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F5, false)) {
 			ShaderReload::ReloadAll(state, !ImGui::GetIO().KeyShift);
 		}
+		//Also outside the level_loaded block: the Meshy API key is a per-user
+		//setting (%TEMP%\HotBiteMeshy\config.json), not level data, so it must stay
+		//reachable before any project is open.
+		MeshySetup::Draw(state);
 		if (level_loaded) {
 			//Undo/redo hotkeys, gated like the gizmo's 1/2/3 keys: inert while a
 			//text field owns the keyboard. Ctrl+Shift+Z is the usual redo alias.

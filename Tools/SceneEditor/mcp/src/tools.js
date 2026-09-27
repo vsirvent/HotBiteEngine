@@ -16,6 +16,7 @@ const path = require('path');
 
 const { ChannelError, formatCommand } = require('./channel');
 const { toJpeg } = require('./image');
+const { MESHY_TOOLS } = require('./meshy-tools');
 
 // Read-only automation commands `editor_query` accepts, with the most arguments
 // each may carry. Several commands read with fewer arguments and *write* with more
@@ -33,7 +34,7 @@ const READ_COMMANDS = {
 	physics_info: 0, lod_info: 0, rt_info: 0, tess_info: 0, gi_cache_info: 0, splat_info: 0,
 	light_gizmo_info: 0, motion_gizmo_info: 0,
 	polyhaven_status: 0, polyhaven_categories: 0, polyhaven_list: 2,
-	rdoc_last: 0,
+	rdoc_last: 0, meshy_setup_status: 0,
 };
 
 // The editor's own tokenizer (EditorAutomation.cpp), so an argument count here is
@@ -482,6 +483,7 @@ const TOOLS = [
 			return result(text(blocksText(blocks)), anyError(blocks));
 		},
 	},
+	...MESHY_TOOLS,
 ];
 
 // The tools this server offers: with `readOnly` nothing that changes the level, and

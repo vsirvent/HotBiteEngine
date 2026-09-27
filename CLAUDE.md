@@ -195,6 +195,44 @@ Suite `38-agentpanel` drives the panel against `testsssetsake-claude.js`, a
 scripted stand-in that speaks the same stream-json protocol and edits through the
 agent's channel. It needs no network and no account.
 
+### Meshy AI generation, and where a secret is allowed to live
+
+The agent can generate new models/textures, not just place ones already on disk:
+`meshy_text_to_3d`/`meshy_image_to_3d`/`meshy_retexture`
+(`Tools/SceneEditor/mcp/src/meshy-client.js`/`meshy-credits.js`/`meshy-tools.js`)
+call the real Meshy API against the user's own account and spend real credits.
+Entirely Node-side, no engine change: a generated asset reaches the level through
+the automation commands `MeshyImport` already exposes (`import_meshy_model` for a
+new model, `import_texture`/`set_material_texture` for retexturing something
+already placed), so the new code only has to talk to Meshy and download the result
+into the folder layout `MeshyImport.h`'s `ClassifySuffix` already expects.
+
+**Every credit-consuming call is two calls, and this is a chat-level convention,
+not a technical lock.** The first, with no `confirm_token`, only looks up Meshy's
+own published price for the exact parameters given (this is deterministic, not a
+guess - Meshy has no free "quote" endpoint, confirmed against their own help
+center: cost is only ever known for certain as `consumed_credits` on a task that
+has already run and been charged) and returns a token; nothing is sent to Meshy
+yet. The tool's description tells the agent to state that cost and stop, then only
+call again - identical arguments, plus the token - after the user explicitly
+approves in a later message. Nothing stops a misbehaving agent from calling both
+in one turn; the honest-agent convention is the whole gate, which is why an
+optional `max_credits_per_task`/`max_credits_per_day` in the config file is a hard
+backstop that holds regardless, and why the ledger always logs the real
+`consumed_credits` Meshy's response reports rather than the quote, flagging a
+mismatch instead of trusting the local pricing table silently.
+
+**Any API key or secret used by anything in this repo goes in a temp/userdata
+path, never under the project or the engine folders.** A project or the repo
+itself can be zipped up, committed, or handed to someone else without a second
+thought only if nothing sensitive is hiding in it - `PolyHaven`'s own
+`%TEMP%\HotBitePolyHaven` thumbnail cache set the precedent (nothing sensitive
+there, but the same folder), and Meshy's own config/ledger follow it exactly:
+`%TEMP%\HotBiteMeshy\config.json` (`HOTBITE_MESHY_DIR` overrides the folder),
+written once by `Tools/SceneEditor/mcp/setup-meshy-key.ps1` - never by a tool,
+since anything an agent tool takes as an argument becomes part of that
+conversation's transcript, which is exactly where a secret must not go.
+
 ### Logging
 
 `Engine/Core/Log.h` is the engine's logger: `LOG_TRACE/DEBUG/INFO/WARN/ERROR/FATAL`,

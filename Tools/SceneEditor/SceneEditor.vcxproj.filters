@@ -38,6 +38,9 @@
     <ClCompile Include="MeshyImport.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="MeshySetup.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="SceneSerializer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -158,6 +161,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="MeshyImport.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="MeshySetup.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="SceneSerializer.h">
