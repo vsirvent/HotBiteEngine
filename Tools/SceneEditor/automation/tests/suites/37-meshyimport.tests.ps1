@@ -194,14 +194,17 @@ Test 'a level count builds the usual halving sequence and installs it on the tem
         $blocks = Get-TemplateInfo -Session $s6 -Template 'meshy_lods'
         $lods = @($blocks['Mesh'].lods)
         Assert-Equal -Expected 3 -Actual $lods.Count
-        $meshName = $blocks['Mesh'].name
+        #Named after the import, not after the .fbx node its mesh came from: unrelated
+        #exports share node names, and their levels must not.
         for ($i = 1; $i -le 3; $i++) {
-            Assert-Equal -Expected "${meshName}_lod$i" -Actual $lods[$i - 1].name
+            Assert-Equal -Expected "meshy_lods_lod$i" -Actual $lods[$i - 1].name
         }
         $meshNames = @((Invoke-EditorCommand -Session $s6 -Command 'list_meshes')[0].Payload | ForEach-Object { ($_ -split ' ')[0] })
-        Assert-Contains -Collection $meshNames -Value "${meshName}_lod1" -Message 'registered as a mesh asset like any other'
-        Assert-Contains -Collection $meshNames -Value "${meshName}_lod3"
-        Assert-FileExists -Path (Join-Path $Assets "GeneratedMeshes\${meshName}_lod1.hbmesh") -Message 'the cached geometry'
+        Assert-Contains -Collection $meshNames -Value 'meshy_lods_lod1' -Message 'registered as a mesh asset like any other'
+        Assert-Contains -Collection $meshNames -Value 'meshy_lods_lod3'
+        Assert-FileExists -Path (Join-Path $Assets 'Objects\meshy_lods\meshy_lods_lod1.hbmesh') -Message 'the cached geometry, beside the model'
+        Assert-FileExists -Path (Join-Path $Assets 'Objects\meshy_lods\meshy_lods_lod3.hbmesh')
+        Assert-True -Condition (-not (Test-Path (Join-Path $Assets 'GeneratedMeshes'))) -Message 'nothing goes to the shared GeneratedMeshes folder'
     }
     finally {
         Close-EditorSession -Session $s6

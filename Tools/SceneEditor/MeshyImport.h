@@ -67,6 +67,9 @@ namespace HotBiteEditor {
 		// never chained level-over-level, for the reason documented there - and
 		// installed straight onto the template's Mesh block, so a placed instance
 		// already has the chain rather than needing it added by hand afterwards.
+		// The levels are named `<name>_lod<n>` (not after the .fbx's node, which
+		// unrelated exports often share) and cached beside the model, in
+		// Assets/Objects/<name>/, so they cannot collide with another object's.
 		//
 		// `on_progress` mirrors World::LoadModel's - this can take a while for a
 		// large export, and is meant to be driven through the same loading-overlay

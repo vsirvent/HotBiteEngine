@@ -1847,7 +1847,7 @@ Core::MeshData* World::InstallGeneratedMesh(const std::string& name,
 }
 
 bool World::GenerateMeshLod(const std::string& source_mesh, float ratio,
-	std::string& out_name, std::string& error) {
+	std::string& out_name, std::string& error, const std::string& name_base) {
 	out_name.clear();
 	if (vertex_buffer == nullptr) {
 		error = "no vertex buffer";
@@ -1869,9 +1869,13 @@ bool World::GenerateMeshLod(const std::string& source_mesh, float ratio,
 	const uint32_t source_vertices = source->vertexCount;
 	const uint32_t source_indices = source->indexCount;
 
+	//Named after `name_base` when the caller has something more unique than the mesh
+	//to offer: a mesh is named after an .fbx node, and two unrelated exports routinely
+	//share one ("Mesh"), which made every one of their levels the same "Mesh_lod<n>".
+	const std::string& base = name_base.empty() ? source_mesh : name_base;
 	std::string name;
 	for (int i = 1; i < 1000; ++i) {
-		const std::string candidate = source_mesh + "_lod" + std::to_string(i);
+		const std::string candidate = base + "_lod" + std::to_string(i);
 		if (meshes.Get(candidate) == nullptr) {
 			name = candidate;
 			break;
@@ -1880,6 +1884,37 @@ bool World::GenerateMeshLod(const std::string& source_mesh, float ratio,
 	if (name.empty()) {
 		error = "no free name for a level of '" + source_mesh + "'";
 		return false;
+	}
+
+	//Cached beside the model the source mesh came out of, so a level of detail lives
+	//with the asset it stands in for and two models can never share a file. Only a
+	//mesh no model claims (one generated from another generated mesh, say) or a model
+	//outside the assets tree falls back to the shared GENERATED_MESH_DIR.
+	std::string cache_dir = GENERATED_MESH_DIR;
+	for (const auto& [model_name, assets] : model_assets) {
+		if (std::find(assets.meshes.begin(), assets.meshes.end(), source_mesh) ==
+			assets.meshes.end()) {
+			continue;
+		}
+		namespace fs = std::filesystem;
+		const fs::path model_file(assets.file);
+		std::error_code ec;
+		fs::path relative_dir;
+		if (model_file.is_absolute()) {
+			relative_dir = fs::relative(model_file.parent_path(), fs::path(path), ec);
+			if (ec) {
+				relative_dir.clear();
+			}
+		}
+		else {
+			relative_dir = model_file.parent_path();
+		}
+		//"." is the assets root itself and ".." leads outside it; neither is somewhere
+		//to scatter cache files.
+		if (!relative_dir.empty() && relative_dir != "." && *relative_dir.begin() != "..") {
+			cache_dir = relative_dir.make_preferred().string();
+		}
+		break;
 	}
 
 	LodGeometry geometry;
@@ -1894,7 +1929,7 @@ bool World::GenerateMeshLod(const std::string& source_mesh, float ratio,
 	const std::string stem = SafeFileStem(name);
 	std::string file;
 	for (int attempt = 0; ; ++attempt) {
-		file = std::string(GENERATED_MESH_DIR) + "\\" + stem +
+		file = cache_dir + "\\" + stem +
 			(attempt == 0 ? "" : "_" + std::to_string(attempt)) + ".hbmesh";
 		bool taken = false;
 		for (const GeneratedMesh& other : generated_meshes) {

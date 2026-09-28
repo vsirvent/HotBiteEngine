@@ -326,7 +326,7 @@ namespace HotBiteEditor {
 					nlohmann::json lods = nlohmann::json::array();
 					for (float ratio : lod_ratios) {
 						std::string generated_name;
-						if (!state.world->GenerateMeshLod(source_mesh, ratio, generated_name, error)) {
+						if (!state.world->GenerateMeshLod(source_mesh, ratio, generated_name, error, name)) {
 							return false;
 						}
 						lods.push_back(nlohmann::json{ {"name", generated_name}, {"distance", 0.0f} });

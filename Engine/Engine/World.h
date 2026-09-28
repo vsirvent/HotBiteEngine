@@ -106,10 +106,10 @@ namespace HotBite {
 				std::string file;   // where the geometry is cached, assets-path relative
 			};
 
-			// Where GenerateMeshLod caches its geometry, under the assets path. One
-			// folder rather than beside each model: a generated mesh belongs to no
-			// .fbx, and a folder of them is the thing to delete when they should all
-			// be rebuilt.
+			// Where GenerateMeshLod caches its geometry, under the assets path, when the
+			// source mesh belongs to no model it could be put beside (or that model
+			// lies outside the assets tree). Otherwise the cache sits in the model's own
+			// folder. Older levels record files here, and keep loading from it.
 			static inline const char* GENERATED_MESH_DIR = "GeneratedMeshes";
 
 			// A splat cloud's inferred low-poly proxy - the mesh/shape pair
@@ -606,8 +606,19 @@ namespace HotBite {
 			// treated as one - it is regenerated whenever it is missing, written by a
 			// different build, or no longer matches the source mesh it claims to come
 			// from.
+			//
+			// Where the file goes: beside the model `source_mesh` was imported from
+			// (its folder under the assets path), so a level of detail lives with the
+			// asset it stands in for and two models can never share a cache file.
+			// GENERATED_MESH_DIR is only the fallback for a mesh no model owns.
+			//
+			// `name_base` replaces `<source>` in the name when non-empty. A mesh is named
+			// after an .fbx node and unrelated exports often share one, so a caller that
+			// has a unique name for the object (the Meshy import passes its template's)
+			// gets levels that cannot collide with another object's.
 			virtual bool GenerateMeshLod(const std::string& source_mesh, float ratio,
-				std::string& out_name, std::string& error);
+				std::string& out_name, std::string& error,
+				const std::string& name_base = std::string());
 			// The generated meshes this world holds, in creation order - what a level
 			// has to write out for a future load to find them again.
 			const std::vector<GeneratedMesh>& GetGeneratedMeshes() const { return generated_meshes; }
