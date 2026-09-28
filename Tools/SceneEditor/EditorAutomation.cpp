@@ -4,6 +4,7 @@
 #include "Inspector.h"
 #include "SelectionGizmo.h"
 #include "LightGizmos.h"
+#include "SchemaGizmos.h"
 #include "MotionGizmos.h"
 #include "AssetBrowser.h"
 #include "MeshyImport.h"
@@ -336,6 +337,60 @@ namespace HotBiteEditor {
 			return true;
 		}
 
+		//The project's game-component schemas (ComponentSchema.h) and their viewport
+		//hints. Chained off HandleAgentCommand, like the handlers before it, because the
+		//main ladder is at the compiler's C1061 nesting limit. Adding, removing and
+		//editing a schema component needs nothing here: add_component, remove_component,
+		//component and set_component already go through ComponentOps, which handles both
+		//kinds.
+		//
+		//  component_schemas              every schema: name, field count, file; then problems
+		//  reload_component_schemas       re-reads the files, then answers as above
+		//  component_schema <Component>   one schema as JSON (fields, types, defaults, values)
+		//  schema_gizmo_info              what the last frame's schema-gizmo overlay drew
+		static bool HandleComponentSchemaCommand(EditorState& state, const std::string& cmd,
+			const std::vector<std::string>& args)
+		{
+			if (cmd == "component_schemas" || cmd == "reload_component_schemas") {
+				if (cmd == "reload_component_schemas") {
+					ComponentSchemas::Load(state);
+				}
+				const ComponentSchemaSet& set = state.component_schemas;
+				response_lines.push_back("OK " + std::to_string(set.schemas.size()) + " schemas from " +
+					std::to_string(set.files.size()) + " files, " + std::to_string(set.errors.size()) +
+					" problems");
+				for (const ComponentSchema& s : set.schemas) {
+					response_lines.push_back(s.name + " fields=" + std::to_string(s.fields.size()) +
+						" file=" + s.file);
+				}
+				for (const std::string& e : set.errors) {
+					response_lines.push_back("problem: " + e);
+				}
+			}
+			else if (cmd == "component_schema") {
+				if (args.size() < 2) {
+					response_lines.push_back("ERR usage: component_schema <Component>");
+				}
+				else if (const ComponentSchema* s = ComponentSchemas::Find(state, args[1])) {
+					response_lines.push_back("OK " + s->name);
+					response_lines.push_back(ComponentSchemas::Describe(*s).dump());
+				}
+				else {
+					response_lines.push_back("ERR no schema for '" + args[1] + "'");
+				}
+			}
+			else if (cmd == "schema_gizmo_info") {
+				const SchemaGizmos::FrameInfo& info = SchemaGizmos::LastFrame();
+				response_lines.push_back("OK spheres=" + std::to_string(info.spheres) +
+					" boxes=" + std::to_string(info.boxes) +
+					" segments=" + std::to_string(info.segments));
+			}
+			else {
+				return false;
+			}
+			return true;
+		}
+
 		//The Claude panel (AgentPanel.h / ClaudeAgent.h): what a test needs to drive it
 		//the way a person does - show it, send a message, wait for the turn, read what
 		//came back. Chained off HandleMotionGizmoCommand rather than added to the main
@@ -442,7 +497,7 @@ namespace HotBiteEditor {
 				response_lines.push_back("OK " + (Model().empty() ? std::string("default") : Model()));
 			}
 			else {
-				return false;
+				return HandleComponentSchemaCommand(state, cmd, args);
 			}
 			return true;
 		}

@@ -24,6 +24,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <filesystem>
 #include <limits>
 #include <set>
 
@@ -1956,13 +1957,163 @@ namespace HotBiteEditor {
 			ImGui::PopID();
 		}
 
+		// One widget per schema field, typed by the schema rather than guessed from the
+		// JSON the way DrawJsonGrid has to. Every edit goes through ComponentOps, so it
+		// is validated, undoable and saved exactly like a registered component's.
+		static void DrawSchemaFields(EditorState& state, const std::string& entity_name,
+			const ComponentSchema& schema)
+		{
+			SectionEdit edit(state, entity_name, schema.name);
+			const nlohmann::json value = ComponentOps::GetValue(state, entity_name, schema.name);
+			if (!schema.description.empty()) {
+				ImGui::PushTextWrapPos(0.0f);
+				ImGui::TextDisabled("%s", schema.description.c_str());
+				ImGui::PopTextWrapPos();
+			}
+			for (const SchemaField& f : schema.fields) {
+				ImGui::PushID(f.name.c_str());
+				const nlohmann::json current = value.contains(f.name) ? value[f.name] : f.default_value;
+				const char* label = f.name.c_str();
+				nlohmann::json next;
+				bool changed = false;
+				//Drag bounds: ImGui treats min == max as "unbounded", which is exactly
+				//what a field with neither limit wants.
+				const bool bounded = f.has_min || f.has_max;
+				const double lo = f.has_min ? f.min : -1e9;
+				const double hi = f.has_max ? f.max : 1e9;
+				const ImGuiSliderFlags clamp = bounded ? ImGuiSliderFlags_AlwaysClamp : 0;
+				switch (f.type) {
+				case SchemaField::Type::Bool: {
+					bool v = current.is_boolean() && current.get<bool>();
+					changed = ImGui::Checkbox(label, &v);
+					edit.Discrete(changed);
+					next = v;
+					break;
+				}
+				case SchemaField::Type::Int: {
+					int v = current.is_number() ? current.get<int>() : 0;
+					changed = ImGui::DragInt(label, &v, 0.1f, bounded ? (int)lo : 0, bounded ? (int)hi : 0,
+						"%d", clamp);
+					edit.Track(changed);
+					next = v;
+					break;
+				}
+				case SchemaField::Type::Float: {
+					float v = current.is_number() ? current.get<float>() : 0.0f;
+					changed = ImGui::DragFloat(label, &v, 0.05f, bounded ? (float)lo : 0.0f,
+						bounded ? (float)hi : 0.0f, "%.3f", clamp);
+					edit.Track(changed);
+					next = v;
+					break;
+				}
+				case SchemaField::Type::Vector3: {
+					float v[3] = { 0.0f, 0.0f, 0.0f };
+					if (current.is_object()) {
+						v[0] = current.value("x", 0.0f);
+						v[1] = current.value("y", 0.0f);
+						v[2] = current.value("z", 0.0f);
+					}
+					changed = ImGui::DragFloat3(label, v, 0.05f, bounded ? (float)lo : 0.0f,
+						bounded ? (float)hi : 0.0f, "%.3f", clamp);
+					edit.Track(changed);
+					next = nlohmann::json{ {"x", v[0]}, {"y", v[1]}, {"z", v[2]} };
+					break;
+				}
+				case SchemaField::Type::Enum: {
+					const std::string selected = current.is_string() ? current.get<std::string>() : std::string();
+					if (ImGui::BeginCombo(label, selected.c_str())) {
+						for (const std::string& option : f.values) {
+							if (ImGui::Selectable(option.c_str(), option == selected) && option != selected) {
+								next = option;
+								changed = true;
+							}
+						}
+						ImGui::EndCombo();
+					}
+					edit.Discrete(changed);
+					break;
+				}
+				case SchemaField::Type::String: {
+					char buf[256] = "";
+					if (current.is_string()) {
+						strncpy_s(buf, current.get<std::string>().c_str(), sizeof(buf) - 1);
+					}
+					changed = ImGui::InputText(label, buf, sizeof(buf), ImGuiInputTextFlags_EnterReturnsTrue);
+					edit.Discrete(changed); //committed with Enter, so it is already complete
+					next = std::string(buf);
+					break;
+				}
+				}
+				if (!f.tooltip.empty() && ImGui::IsItemHovered()) {
+					ImGui::SetTooltip("%s", f.tooltip.c_str());
+				}
+				if (changed) {
+					std::string error;
+					if (!ComponentOps::ApplyValue(state, entity_name, schema.name,
+						nlohmann::json{ {f.name, next} }, error)) {
+						state.status_message = "Edit failed: " + error;
+					}
+				}
+				ImGui::PopID();
+			}
+			//Keys the file carries that the schema no longer declares: kept and saved
+			//untouched, shown so a field the game dropped is not invisibly lingering.
+			for (const auto& [key, field] : value.items()) {
+				if (schema.FindField(key) == nullptr) {
+					ImGui::LabelText(key.c_str(), "%s (not in schema)", field.dump().c_str());
+				}
+			}
+			edit.Commit();
+		}
+
 		static void DrawOpaqueComponents(EditorState& state, const std::string& entity_name)
 		{
 			auto it = state.opaque_components.find(entity_name);
 			if (it == state.opaque_components.end() || it->second.empty()) {
 				return;
 			}
+			//Names first: removing a section below erases from the map being walked.
+			std::vector<std::string> names;
+			for (const auto& [name, value] : it->second) {
+				names.push_back(name);
+			}
+			for (const std::string& name : names) {
+				const ComponentSchema* schema = ComponentSchemas::Find(state, name);
+				if (schema == nullptr) {
+					continue;
+				}
+				ImGui::PushID(name.c_str());
+				bool visible = true;
+				const bool open = ImGui::CollapsingHeader(name.c_str(), &visible,
+					ImGuiTreeNodeFlags_DefaultOpen);
+				if (ImGui::IsItemHovered()) {
+					ImGui::SetTooltip("Remove %s from %s", name.c_str(), entity_name.c_str());
+				}
+				if (!visible) {
+					std::string error;
+					if (!ComponentOps::RemoveComponent(state, entity_name, name, error)) {
+						state.status_message = "Remove failed: " + error;
+					}
+					ImGui::PopID();
+					continue;
+				}
+				if (open) {
+					ImGui::PushID("body");
+					ImGui::TextDisabled("(game component, from %s)",
+						std::filesystem::path(schema->file).filename().string().c_str());
+					DrawSchemaFields(state, entity_name, *schema);
+					ImGui::PopID();
+				}
+				ImGui::PopID();
+			}
+			it = state.opaque_components.find(entity_name);
+			if (it == state.opaque_components.end()) {
+				return;
+			}
 			for (auto& [name, value] : it->second) {
+				if (ComponentSchemas::Find(state, name) != nullptr) {
+					continue;
+				}
 				ImGui::PushID(name.c_str());
 				if (ImGui::CollapsingHeader(name.c_str())) {
 					ImGui::TextDisabled("(defined by the game, not by the editor)");
@@ -1998,6 +2149,30 @@ namespace HotBiteEditor {
 						nlohmann::json::object(), error)) {
 						state.status_message = "Add failed: " + error;
 					}
+				}
+			}
+			//The project's game components (ComponentSchema.h), after the engine's own.
+			bool header = false;
+			for (const ComponentSchema& schema : state.component_schemas.schemas) {
+				auto opaque = state.opaque_components.find(entity_name);
+				if (opaque != state.opaque_components.end() && opaque->second.count(schema.name) != 0) {
+					continue;
+				}
+				if (!header) {
+					ImGui::Separator();
+					ImGui::TextDisabled("Game components");
+					header = true;
+				}
+				any = true;
+				if (ImGui::MenuItem(schema.name.c_str())) {
+					std::string error;
+					if (!ComponentOps::AddComponent(state, entity_name, schema.name,
+						nlohmann::json::object(), error)) {
+						state.status_message = "Add failed: " + error;
+					}
+				}
+				if (!schema.description.empty() && ImGui::IsItemHovered()) {
+					ImGui::SetTooltip("%s", schema.description.c_str());
 				}
 			}
 			if (!any) {

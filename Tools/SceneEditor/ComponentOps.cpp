@@ -54,6 +54,30 @@ namespace HotBiteEditor {
 			SerializeContext MakeContext(EditorState& state) {
 				return state.world->MakeSerializeContext();
 			}
+
+			//A game component the project describes with a schema (ComponentSchema.h):
+			//one this binary does not register, whose value lives in
+			//state.opaque_components - the store SceneSerializer already writes back
+			//and re-reads - rather than on the live entity. Every helper below branches
+			//on this once, so the Inspector, the automation channel and undo all treat
+			//it exactly like a registered component.
+			const ComponentSchema* FindSchema(EditorState& state, const std::string& component) {
+				if (FindDesc(component) != nullptr) {
+					return nullptr;
+				}
+				return ComponentSchemas::Find(state, component);
+			}
+
+			const nlohmann::json* FindOpaque(EditorState& state, const std::string& entity_name,
+				const std::string& component)
+			{
+				auto entity = state.opaque_components.find(entity_name);
+				if (entity == state.opaque_components.end()) {
+					return nullptr;
+				}
+				auto block = entity->second.find(component);
+				return (block != entity->second.end()) ? &block->second : nullptr;
+			}
 		}
 
 		bool CanAdd(EditorState& state, const std::string& entity_name,
@@ -62,6 +86,13 @@ namespace HotBiteEditor {
 			Entity e = Resolve(state, entity_name, reason);
 			if (e == INVALID_ENTITY_ID) {
 				return false;
+			}
+			if (FindSchema(state, component) != nullptr) {
+				if (FindOpaque(state, entity_name, component) != nullptr) {
+					reason = entity_name + " already has " + component;
+					return false;
+				}
+				return true;
 			}
 			const ComponentDesc* desc = FindDesc(component);
 			if (desc == nullptr) {
@@ -85,6 +116,13 @@ namespace HotBiteEditor {
 			Entity e = Resolve(state, entity_name, reason);
 			if (e == INVALID_ENTITY_ID) {
 				return false;
+			}
+			if (FindSchema(state, component) != nullptr) {
+				if (FindOpaque(state, entity_name, component) == nullptr) {
+					reason = entity_name + " has no " + component;
+					return false;
+				}
+				return true;
 			}
 			const ComponentDesc* desc = FindDesc(component);
 			if (desc == nullptr) {
@@ -110,6 +148,23 @@ namespace HotBiteEditor {
 		{
 			if (!CanAdd(state, entity_name, component, error)) {
 				return false;
+			}
+			if (const ComponentSchema* schema = FindSchema(state, component)) {
+				//Defaults first, then the payload as a delta over them - the same
+				//"absent keys keep their value" a C++ FromJson applies.
+				nlohmann::json value;
+				if (!ComponentSchemas::Merge(*schema, ComponentSchemas::Defaults(*schema), payload,
+					value, error)) {
+					return false;
+				}
+				state.opaque_components[entity_name][component] = value;
+				//A re-add cancels an earlier removal rather than writing both.
+				auto it = state.component_deltas.find(entity_name);
+				if (it != state.component_deltas.end()) {
+					it->second.removed.erase(component);
+				}
+				PruneDelta(state, entity_name);
+				return true;
 			}
 			Entity e = state.world->GetCoordinator()->GetEntityByName(entity_name);
 			const ComponentDesc* desc = FindDesc(component);
@@ -158,6 +213,37 @@ namespace HotBiteEditor {
 			if (!CanRemove(state, entity_name, component, error)) {
 				return false;
 			}
+			if (FindSchema(state, component) != nullptr) {
+				//Its values, so undo brings it back as it was rather than at defaults.
+				const nlohmann::json captured = *FindOpaque(state, entity_name, component);
+				auto entity = state.opaque_components.find(entity_name);
+				entity->second.erase(component);
+				if (entity->second.empty()) {
+					state.opaque_components.erase(entity);
+				}
+				//Recorded as a removal too, not just dropped: an earlier save may have
+				//written the block into a record that is merged rather than rewritten
+				//(an "entities" override), and a template may carry it - "remove" is
+				//what strips it there, in the editor and in the game alike.
+				ComponentDelta& delta = state.component_deltas[entity_name];
+				delta.added.erase(component);
+				delta.removed.insert(component);
+
+				const std::string name = entity_name;
+				const std::string comp = component;
+				EditorHistory::Push({
+					"remove " + comp + " from " + name,
+					[name, comp, captured](EditorState& s) {
+						std::string ignored;
+						AddComponent(s, name, comp, captured, ignored);
+					},
+					[name, comp](EditorState& s) {
+						std::string ignored;
+						RemoveComponent(s, name, comp, ignored);
+					} });
+				state.status_message = "Removed " + component + " from " + entity_name;
+				return true;
+			}
 			Entity e = state.world->GetCoordinator()->GetEntityByName(entity_name);
 			const ComponentDesc* desc = FindDesc(component);
 
@@ -203,6 +289,21 @@ namespace HotBiteEditor {
 		{
 			std::string error;
 			Entity e = Resolve(state, entity_name, error);
+			if (const ComponentSchema* schema = FindSchema(state, component)) {
+				const nlohmann::json* stored = FindOpaque(state, entity_name, component);
+				if (e == INVALID_ENTITY_ID || stored == nullptr) {
+					return nlohmann::json::object();
+				}
+				//Every field shows, even one the file never wrote (the game reads it at
+				//its default too); anything the file carries beyond the schema is kept.
+				nlohmann::json value = ComponentSchemas::Defaults(*schema);
+				if (stored->is_object()) {
+					for (const auto& [key, field] : stored->items()) {
+						value[key] = field;
+					}
+				}
+				return value;
+			}
 			const ComponentDesc* desc = FindDesc(component);
 			if (e == INVALID_ENTITY_ID || desc == nullptr ||
 				!desc->has(state.world->GetCoordinator(), e)) {
@@ -225,6 +326,11 @@ namespace HotBiteEditor {
 		static void RecordValueForSave(EditorState& state, const std::string& entity_name,
 			const std::string& component)
 		{
+			if (FindSchema(state, component) != nullptr) {
+				//Already where the save reads it from (opaque_components); a copy in the
+				//delta's `added` would be written after it and could only go stale.
+				return;
+			}
 			ComponentDelta& delta = state.component_deltas[entity_name];
 			delta.removed.erase(component);
 			delta.added[component] = GetValue(state, entity_name, component);
@@ -246,6 +352,19 @@ namespace HotBiteEditor {
 			Entity e = Resolve(state, entity_name, error);
 			if (e == INVALID_ENTITY_ID) {
 				return false;
+			}
+			if (const ComponentSchema* schema = FindSchema(state, component)) {
+				if (FindOpaque(state, entity_name, component) == nullptr) {
+					error = entity_name + " has no " + component;
+					return false;
+				}
+				nlohmann::json value;
+				if (!ComponentSchemas::Merge(*schema, GetValue(state, entity_name, component), payload,
+					value, error)) {
+					return false;
+				}
+				state.opaque_components[entity_name][component] = value;
+				return true;
 			}
 			const ComponentDesc* desc = FindDesc(component);
 			if (desc == nullptr) {

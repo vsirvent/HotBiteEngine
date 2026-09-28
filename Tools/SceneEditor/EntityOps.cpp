@@ -941,6 +941,14 @@ namespace HotBiteEditor {
 				return false;
 			}
 			state.cloned_entities.push_back({ new_name, clip.source_name });
+			//World::CloneEntity copies what the registry knows; a game's own components
+			//(opaque, or described by a schema) exist only in the editor's bookkeeping,
+			//so they are copied here - otherwise a pasted resource node would silently
+			//come out without the ResourceNode that made it one.
+			auto opaque = state.opaque_components.find(clip.source_name);
+			if (opaque != state.opaque_components.end()) {
+				state.opaque_components[new_name] = opaque->second;
+			}
 			//A cut source is parked hidden; the paste must come out with the
 			//display state captured at copy time, not the parked flags.
 			Base& base = c->GetComponent<Base>(e);
@@ -970,6 +978,8 @@ namespace HotBiteEditor {
 				}
 			}
 			state.overridden_entities.erase(name);
+			//The game-component blocks SpawnClone copied onto it.
+			state.opaque_components.erase(name);
 			Selection::Remove(state, e);
 			c->DestroyEntity(e);
 		}
@@ -992,15 +1002,26 @@ namespace HotBiteEditor {
 				if (!AssetBrowser::SpawnRecordedInstance(state, record, error)) {
 					return false;
 				}
+				//The source instance's game components (see SpawnClone), captured now so
+				//a redo restores what was pasted even if the source changed since.
+				std::map<std::string, nlohmann::json> blocks;
+				auto opaque = state.opaque_components.find(state.clipboard.instance.name);
+				if (opaque != state.opaque_components.end()) {
+					blocks = opaque->second;
+					state.opaque_components[record.name] = blocks;
+				}
 				state.status_message = "Pasted: " + record.name;
 				EditorHistory::Push({
 					"paste " + record.name,
 					[record](EditorState& s) {
 						AssetBrowser::RemovePlacedInstance(s, record.name);
+						s.opaque_components.erase(record.name);
 					},
-					[record](EditorState& s) {
+					[record, blocks](EditorState& s) {
 						std::string err;
-						AssetBrowser::SpawnRecordedInstance(s, record, err);
+						if (AssetBrowser::SpawnRecordedInstance(s, record, err) && !blocks.empty()) {
+							s.opaque_components[record.name] = blocks;
+						}
 					} });
 				return true;
 			}

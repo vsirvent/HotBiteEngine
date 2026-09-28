@@ -32,7 +32,8 @@ const READ_COMMANDS = {
 	textures: 1, texture_users: 1, shaders: 1, layer: 2, material_surface: 1,
 	shaders_loaded: 0, shader_sources: 0, shader_reload_status: 0,
 	physics_info: 0, lod_info: 0, rt_info: 0, tess_info: 0, gi_cache_info: 0, splat_info: 0,
-	light_gizmo_info: 0, motion_gizmo_info: 0,
+	light_gizmo_info: 0, motion_gizmo_info: 0, schema_gizmo_info: 0,
+	component_schemas: 0, component_schema: 1,
 	polyhaven_status: 0, polyhaven_categories: 0, polyhaven_list: 2,
 	rdoc_last: 0, meshy_setup_status: 0,
 };

@@ -25,6 +25,7 @@
 #include "Selection.h"
 #include "PhysicsDebug.h"
 #include "LightGizmos.h"
+#include "SchemaGizmos.h"
 #include "MotionGizmos.h"
 #include "ShadowDebug.h"
 #include "PhysicsPreview.h"
@@ -769,6 +770,7 @@ namespace HotBiteEditor {
 			PhysicsDebug::Draw(state);
 			LightGizmos::Draw(state);
 			MotionGizmos::Draw(state);
+			SchemaGizmos::Draw(state);
 			ShadowDebug::Draw(state);
 			RenderSettings::DrawOverlay(*this);
 			GridOverlay::Draw(state);
@@ -1229,6 +1231,8 @@ namespace HotBiteEditor {
 		ShowLoadingProgress(LOAD_SHARE, "Preparing scene buffers...");
 		world->Init();
 		ShowLoadingProgress(0.9f, "Restoring editor data...");
+		//The project's game-component schemas, before anything can draw or edit one.
+		ComponentSchemas::Load(state);
 		SceneSerializer::LoadEditorData(state, level_json_path);
 		ShowLoadingProgress(0.95f, "Building render pipeline...");
 

@@ -61,7 +61,9 @@
     <ClCompile Include="GridOverlay.cpp" />
     <ClCompile Include="Selection.cpp" />
     <ClCompile Include="PhysicsDebug.cpp" />
+    <ClCompile Include="ComponentSchema.cpp" />
     <ClCompile Include="LightGizmos.cpp" />
+    <ClCompile Include="SchemaGizmos.cpp" />
     <ClCompile Include="MotionGizmos.cpp" />
     <ClCompile Include="ShaderReload.cpp" />
     <ClCompile Include="ShadowDebug.cpp" />
@@ -109,7 +111,9 @@
     <ClInclude Include="GridSnap.h" />
     <ClInclude Include="Selection.h" />
     <ClInclude Include="PhysicsDebug.h" />
+    <ClInclude Include="ComponentSchema.h" />
     <ClInclude Include="LightGizmos.h" />
+    <ClInclude Include="SchemaGizmos.h" />
     <ClInclude Include="MotionGizmos.h" />
     <ClInclude Include="ShaderReload.h" />
     <ClInclude Include="ShadowDebug.h" />

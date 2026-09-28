@@ -16,6 +16,7 @@
 #include <set>
 
 #include "EditorCamera.h"
+#include "ComponentSchema.h"
 
 namespace HotBite {
 	namespace Engine {
@@ -268,6 +269,13 @@ namespace HotBiteEditor {
 		// would simply cease to exist in the file. Anything in here is displayed
 		// read-only (or through the generic grid) and round-trips untouched.
 		std::map<std::string, std::map<std::string, nlohmann::json>> opaque_components;
+
+		// The project's game-component schemas (ComponentSchema.h), read when a level
+		// opens. An opaque block whose name has a schema stops being read-only: it is
+		// edited, added and removed through ComponentOps like a registered component,
+		// while still living in opaque_components above - which is what already
+		// carries it through save and load.
+		ComponentSchemaSet component_schemas;
 
 		std::vector<TemplateAsset> templates; // the project's placeable templates
 		std::string selected_template;        // template name chosen in the Asset Browser

@@ -57,6 +57,10 @@ directory so relative asset paths in level files resolve the same way the other 
 | `remove_component <name> <Component>` | removes a component, like the `x` on its Components panel section. Fails for `Base`/`Transform` (required) and `Camera`/`Particles` (engine-managed). Undoable, and restores the component's values, not defaults |
 | `component <name> <Component>` | one component's serialized state as JSON — what the Components panel edits, and the shape `set_component` takes back |
 | `set_component <name> <Component> <json>` | edits the fields of a component the entity already has: the automation form of every picker and drag in the Components panel (`{'shape':'BOX'}`, `{'animation':'troll_walk'}`, `{'name':'troll'}` for a mesh swap). Keys left out keep their values. Applied live — a `Physics` type/shape change rebuilds the rigid body — undoable, and written to *this entity's* record on save. **Write the JSON with single quotes**, as with `template_set` |
+| `component_schemas` | the project's game-component schemas (see [Game components from a schema](#game-components-from-a-schema)): `N schemas from M files, K problems`, then one `Name fields=<n> file=<path>` line per schema and one `problem: ...` line per thing that was wrong with the files |
+| `reload_component_schemas` | re-reads the schema files, then answers as `component_schemas`. Lets a game change its schema without reopening the level |
+| `component_schema <Component>` | one schema as JSON: its fields with type, default, min/max, enum values (a `source` already resolved) and gizmo |
+| `schema_gizmo_info` | what the last frame's schema-gizmo overlay drew: `spheres= boxes= segments=` (120 segments per sphere, 12 per box) |
 | `animations <name>` | the animation clips the entity's mesh can play, marking the current one. An instance of a template usually plays by *library* name instead (`set_component troll_inst_0 Mesh "{'animation':'walk'}"`) — see `template_animations` |
 | `copy [<name>]` | copies the selection (or `<name>` if given) to the entity clipboard, like Ctrl+C |
 | `cut [<name>]` | copies then removes the entity, like Ctrl+X (undoable; a cut source can still be pasted) |
@@ -186,6 +190,57 @@ directory so relative asset paths in level files resolve the same way the other 
 
 Screenshots are captured after the UI is rendered into the backbuffer, so what the
 PNG shows is exactly what a user would see that frame.
+
+## Game components from a schema
+
+The editor is a different executable from the game, so a component the game
+registers in its own process is never in the editor's registry. Without help such a
+block is only carried through: listed, saved back untouched, shown read-only. A
+**component schema** is that help. It's a JSON file the game ships describing its
+components, and with it the editor adds, edits, validates and removes them like its
+own, without linking any game code (`ComponentSchema.h`).
+
+The editor looks for the schema files, relative to the project root (the folder
+with `config.json`), in `config.json`'s `editor.component_schemas` list, or failing
+that in `components.schema.json`:
+
+```json
+{ "components": [
+  { "name": "ResourceNode", "description": "A gatherable node.",
+    "fields": {
+      "resource": { "type": "enum", "values": ["food", "water", "materials"], "default": "materials" },
+      "amount":   { "type": "int", "min": 0, "max": 500, "default": 40, "tooltip": "units left" },
+      "regrows":  { "type": "bool" } } },
+  { "name": "BuildingRef",
+    "fields": { "building_id": { "type": "enum", "source": "Data/Buildings/*.json#id" } } },
+  { "name": "Zone",
+    "fields": {
+      "radius":  { "type": "float", "min": 0, "default": 3, "gizmo": "sphere" },
+      "extents": { "type": "vec3", "default": { "x": 1, "y": 2, "z": 1 }, "gizmo": "box" } } }
+] }
+```
+
+- **Types**: `bool`, `int`, `float`, `string`, `enum`, `vec3` (`{x,y,z}`). `min`/`max`
+  clamp numbers. An enum lists `values`, or reads them with `source`
+  (`folder/pattern#key`: the `key` of every matching file, or of each element of a
+  file that is an array), or both.
+- **Editing**: `add_component`, `remove_component`, `component` and `set_component`
+  work on schema components unchanged. `set_component` refuses a wrong type, an enum
+  value that is not offered and a field the schema does not declare, and clamps out
+  of range. All of it is undoable. A pasted copy carries its source's game
+  components. The Inspector draws a typed widget per field and lists schema
+  components under *Game components* in Add Component.
+- **Gizmos**: `"gizmo": "sphere"` on a float (a radius) and `"box"` on a vec3 (half
+  extents) draw around the selected entity.
+- **Saving**: the block goes in the entity's own record, where the game's loader
+  applies it to its real component of the same name. A removal is also written to
+  the record's `remove` list, so it strips the component from a template instance
+  too.
+- **What is refused**: a schema entry with a name the editor already registers
+  (`Physics`, say) is ignored and reported as a problem. Only the real type defines
+  such a component.
+- **Not covered yet**: game components inside templates (`.tpl` / inline template
+  blocks) are still carried opaquely there. Add them to the placed instances instead.
 
 ## The Claude panel
 
