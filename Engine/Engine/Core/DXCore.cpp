@@ -907,9 +907,32 @@ Direct2D::~Direct2D() {
 }
 
 
+//UI text is UTF-8. Widening it byte by byte (the old std::wstring(begin, end)) went
+//through a signed char, so every byte >= 0x80 became U+FFxx and any accented
+//character rendered as a box. Bytes that are not valid UTF-8 keep the old one byte =
+//one code point meaning (now unsigned), so Latin-1 text authored before this still
+//shows as it did.
+static std::wstring Utf8ToWide(const std::string& text) {
+	if (text.empty()) {
+		return std::wstring();
+	}
+	int n = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(), (int)text.size(), nullptr, 0);
+	if (n > 0) {
+		std::wstring wide((size_t)n, L'\0');
+		MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(), (int)text.size(), wide.data(), n);
+		return wide;
+	}
+	std::wstring wide;
+	wide.reserve(text.size());
+	for (char c : text) {
+		wide.push_back((wchar_t)(unsigned char)c);
+	}
+	return wide;
+}
+
 IDWriteTextLayout* Direct2D::GetText(const std::string& text, IDWriteTextFormat* format, float width, float height) {
 	IDWriteTextLayout* ret = nullptr;
-	std::wstring wtext(text.begin(), text.end());
+	std::wstring wtext = Utf8ToWide(text);
 	HRESULT hr = write_factory->CreateTextLayout(
 		wtext.c_str(),  // The text to render
 		(uint32_t)wtext.size(),                // The length of the text
@@ -929,7 +952,7 @@ IDWriteTextFormat* Direct2D::GetFont(const std::string& font_name, float font_si
 	DWRITE_FONT_STRETCH stretch) {
 	IDWriteTextFormat* ret = nullptr;
 	// Create a DirectWrite text format object.
-	std::wstring wfont_name(font_name.begin(), font_name.end());
+	std::wstring wfont_name = Utf8ToWide(font_name);
 	write_factory->CreateTextFormat(
 		wfont_name.c_str(),
 		NULL,
