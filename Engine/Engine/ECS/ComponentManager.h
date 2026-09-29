@@ -30,6 +30,8 @@ SOFTWARE.
 #include <memory>
 #include <unordered_map>
 #include <set>
+#include <stdexcept>
+#include <string>
 
 namespace HotBite {
 	namespace Engine {
@@ -42,6 +44,12 @@ namespace HotBite {
 				{
 					const char* typeName = typeid(T).name();
 					assert(component_types.find(typeName) == component_types.end() && "Registering component type more than once.");
+					//Checked in Release too: past the limit, Signature::set throws a bare
+					//out_of_range on the first AddComponent, far from the cause.
+					if (next_component_type >= MAX_COMPONENTS) {
+						throw std::runtime_error(std::string("Too many component types (MAX_COMPONENTS = ") +
+							std::to_string(MAX_COMPONENTS) + "), cannot register " + typeName);
+					}
 					component_types.insert({ typeName, next_component_type });
 					component_arrays.insert({ typeName, std::make_shared<ComponentArray<T>>() });
 					++next_component_type;
@@ -114,7 +122,7 @@ namespace HotBite {
 			private:
 				std::unordered_map<const char*, ComponentType> component_types;
 				std::unordered_map<const char*, std::shared_ptr<IComponentArray>> component_arrays;
-				ComponentType next_component_type;
+				ComponentType next_component_type = 0;
 
 				template<typename T>
 				const std::shared_ptr<ComponentArray<T>> GetConstComponentArray() const

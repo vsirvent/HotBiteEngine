@@ -35,7 +35,10 @@ namespace HotBite {
 			const Entity INVALID_ENTITY_ID = -1;
 			const int32_t MAX_ENTITIES = 5000;
 			using ComponentType = uint8_t;
-			const int32_t MAX_COMPONENTS = 32;
+			//64 keeps the signature a single machine word on x64, so a system match is still
+			//one AND + compare; past 64 std::bitset spills into a second word.
+			const int32_t MAX_COMPONENTS = 64;
+			static_assert(MAX_COMPONENTS <= (1 << (8 * sizeof(ComponentType))), "ComponentType too narrow for MAX_COMPONENTS");
 			using Signature = std::bitset<MAX_COMPONENTS>;
 		}
 	}
