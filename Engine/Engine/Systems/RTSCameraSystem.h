@@ -76,7 +76,12 @@ namespace HotBite {
 						base = c->GetComponentPtr<HotBite::Engine::Components::Base>(entity);
 						transform = c->GetComponentPtr<HotBite::Engine::Components::Transform>(entity);
 						bounds = c->GetComponentPtr<HotBite::Engine::Components::Bounds>(entity);
-						physics = c->GetComponentPtr<HotBite::Engine::Components::Physics>(entity);
+						//Optional, and checked rather than assumed: GetComponentPtr throws on a component
+						//the entity does not have (same pattern as PlatformSystem/ForceSystem) - a terrain
+						//entity with no Physics just skips the raycast-based zoom/height check below.
+						if (c->ContainsComponent<HotBite::Engine::Components::Physics>(entity)) {
+							physics = c->GetComponentPtr<HotBite::Engine::Components::Physics>(entity);
+						}
 					}
 				};
 				TerrainData terrain;
@@ -132,6 +137,22 @@ namespace HotBite {
 				void SetCameraPosition(const float2& position, bool centered = false);
 				void SetCameraRelativePosition(const float2& position, bool centered = false);
 				ECS::EntityVector<CameraSystem::CameraData>& GetCameras();
+
+				// One pan step for a keyboard (or any non-mouse) source, in the same
+				// screen-edge-relative frame and zoom-dependent speed edge-pan already
+				// uses - `direction` is typically a unit vector, so a caller driving WASD
+				// gets the same speed/feel as pushing the mouse to the matching screen
+				// edge. Call once per tick while movement should continue; there is no
+				// separate start/stop pair, the caller owns that timing (same "explicit
+				// per-tick call" shape the rest of this engine's gameplay systems use).
+				void Pan(const float2& direction);
+
+				// One yaw step around the camera's own vertical axis, in radians. Public
+				// wrapper around the same per-entity RotateY the middle-mouse-drag path
+				// already drives, for a caller with no CameraData of its own to pass -
+				// e.g. a keyboard rotate key, called once per tick with a small step
+				// while held, the same "explicit per-tick call" shape as Pan() above.
+				void Rotate(float yaw_radians);
 
 				void SetMaximumZoom(float value) { max_zoom = value; }
 				void SetMinimumZoom(float value) { min_zoom = value; }

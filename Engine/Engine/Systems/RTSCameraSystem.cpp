@@ -91,7 +91,7 @@ void RTSCameraSystem::Move(CameraSystem::CameraData& entity, float2 dpos) {
 
     if (terrain.base != nullptr) {
         new_pos.x = std::clamp(new_pos.x, -terrain.bounds->final_box.Extents.x, terrain.bounds->final_box.Extents.x);
-        new_pos.y = std::clamp(new_pos.y, -terrain.bounds->final_box.Extents.y, terrain.bounds->final_box.Extents.y);
+        new_pos.y = std::clamp(new_pos.y, -terrain.bounds->final_box.Extents.z, terrain.bounds->final_box.Extents.z);
         dpos.x = new_pos.x - cdata.camera->final_position.x;
         dpos.y = new_pos.y - cdata.camera->final_position.z;
     }
@@ -124,6 +124,31 @@ void RTSCameraSystem::Zoom(CameraSystem::CameraData& entity, float delta) {
 void RTSCameraSystem::OnEntityDestroyed(Entity entity) {
     //Remove method is re-entrant, so we don't need to check whether it exists or not
 	cameras.Remove(entity);
+}
+
+void RTSCameraSystem::Pan(const float2& direction) {
+    if (cameras.GetData().empty()) {
+        return;
+    }
+    CameraSystem::CameraData& cdata = cameras.GetData()[0];
+    //Same speed formula OnMouseMove's edge-pan uses, so a keyboard source feels
+    //like the mouse one.
+    const float delta = abs(pow(current_zoom, 0.25f) * 0.2f);
+    vector3d xm = XMVectorSet(direction.x * delta, 0.0f, direction.y * delta, 1.0f);
+    vector4d r = XMQuaternionRotationRollPitchYaw(0.0f, cdata.camera->rotation.y, 0.0f);
+    xm = XMVector3Rotate(xm, r);
+    float3 rotated;
+    XMStoreFloat3(&rotated, xm);
+    Move(cdata, { rotated.x, rotated.z }); //Move() takes its own lock
+}
+
+void RTSCameraSystem::Rotate(float yaw_radians) {
+    if (cameras.GetData().empty()) {
+        return;
+    }
+    lock.lock();
+    RotateY(cameras.GetData()[0], yaw_radians);
+    lock.unlock();
 }
 
 void RTSCameraSystem::SetCameraDirection(const float2& dir_offset) {
@@ -167,7 +192,7 @@ void RTSCameraSystem::SetCameraRelativePosition(const float2& relative_position,
         float2 absolute_pos;
         CameraSystem::CameraData& cdata = cameras.GetData()[0];
         absolute_pos.x = terrain.bounds->final_box.Extents.x * (relative_position.x * 2.0f - 1.0f);
-        absolute_pos.y = terrain.bounds->final_box.Extents.y * (relative_position.y * 2.0f - 1.0f);
+        absolute_pos.y = terrain.bounds->final_box.Extents.z * (relative_position.y * 2.0f - 1.0f);
         SetCameraPosition(absolute_pos, centered);
         lock.unlock();
     }
@@ -243,9 +268,9 @@ bool RTSCameraSystem::OnZoomCheck(const Scheduler::TimerData& t) {
         bool limit_x0 = (cdata.camera->final_position.x < -terrain.bounds->final_box.Extents.x); 
         bool limit_x1 = (cdata.camera->final_position.x > terrain.bounds->final_box.Extents.x);
         
-        bool limit_z0 = (cdata.camera->final_position.z < -terrain.bounds->final_box.Extents.y);
-        bool limit_z1 = (cdata.camera->final_position.z > terrain.bounds->final_box.Extents.y);
-                       
+        bool limit_z0 = (cdata.camera->final_position.z < -terrain.bounds->final_box.Extents.z);
+        bool limit_z1 = (cdata.camera->final_position.z > terrain.bounds->final_box.Extents.z);
+
 
         if (limit_x0 || limit_x1 || limit_z0 || limit_z1) {
             float2 limited_pos = { cdata.camera->final_position.x, cdata.camera->final_position.z };
@@ -256,10 +281,10 @@ bool RTSCameraSystem::OnZoomCheck(const Scheduler::TimerData& t) {
                 limited_pos.x = terrain.bounds->final_box.Extents.x;
             }
             if (limit_z0) {
-                limited_pos.y = -terrain.bounds->final_box.Extents.y;
+                limited_pos.y = -terrain.bounds->final_box.Extents.z;
             }
             else if (limit_z1) {
-                limited_pos.y = terrain.bounds->final_box.Extents.y;
+                limited_pos.y = terrain.bounds->final_box.Extents.z;
             }
             SetCameraPosition(limited_pos);
         }
@@ -295,11 +320,13 @@ void RTSCameraSystem::OnMouseMove(ECS::Event& ev) {
 
         float delta = abs(pow(current_zoom, 0.25f) * 0.2f);
         if (x < 10) {
-            xm = XMVectorSet(delta, 0.0f, -delta, 1.0f);
+            //Left screen edge: was swapped with the right edge below - panning
+            //felt reversed left/right.
+            xm = XMVectorSet(-delta, 0.0f, delta, 1.0f);
             move = true;
         }
         else if (x + 10 > sw) {
-            xm = XMVectorSet(-delta, 0.0f, delta, 1.0f);
+            xm = XMVectorSet(delta, 0.0f, -delta, 1.0f);
             move = true;
         }
         else if (y + 50 > sh) {
