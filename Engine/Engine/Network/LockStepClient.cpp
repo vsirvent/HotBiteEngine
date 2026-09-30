@@ -40,8 +40,11 @@ namespace HotBite {
 
 				LSClient::~LSClient() {
 					Stop();
-					enet_packet_destroy(packet);
-					enet_host_destroy(client);
+					//The last packet sent belongs to ENet, so it is not destroyed here.
+					if (client != nullptr) {
+						enet_host_destroy(client);
+						client = nullptr;
+					}
 				}
 
 				bool LSClient::Init(ECS::Coordinator* c,
@@ -67,7 +70,6 @@ namespace HotBite {
 					if (client == NULL) {
 						throw "An error occurred while trying to create an ENet client host.";
 					}
-					packet = enet_packet_create(pkt_data, MAX_PKT_SIZE, ENET_PACKET_FLAG_RELIABLE);
 					AddEventListener(Command::EVENT_ID_NEW_CLIENT_COMMAND, std::bind(&LSClient::OnNewCommand, this, std::placeholders::_1));
 					ret = true;
 					return ret;
@@ -170,6 +172,8 @@ namespace HotBite {
 							SendAck();
 							//Push to rx queue
 							server_ticks.Push(server_tick);
+							//A received packet is the application's to free.
+							enet_packet_destroy(ev.packet);
 							//Create a new tick packe for reception
 							server_tick = std::make_shared<ServerTick>();
 						}break;

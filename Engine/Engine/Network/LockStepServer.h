@@ -95,8 +95,8 @@ namespace HotBite {
                     std::mutex server_tick_mutex;
                     /// Data buffer for packets
                     uint8_t pkt_data[MAX_PKT_SIZE];
-                    /// ENet packet object
-                    ENetPacket* packet;
+                    /// ENet packet object (owned by ENet once sent, never destroyed here)
+                    ENetPacket* packet = nullptr;
                     /// Number of players currently connected to the server
                     uint32_t nplayers;
 
@@ -148,13 +148,16 @@ namespace HotBite {
                      * @param srv_port Port number for the server
                      * @param num_clients Maximum number of clients that can connect to the server
                      * @param tick_period_nsec Tick period in nanoseconds
+                     * @param bind_address Local IP to listen on (e.g. "127.0.0.1" for a game that only
+                     *        plays against itself); nullptr listens on every interface
                      * @return `true` if the server was successfully initialized, `false` otherwise
                      *
                      * This method initializes the lock-step server, setting up the ENet host.
                      */
                     bool Init(uint16_t srv_port,
                         uint8_t num_clients,
-                        uint32_t tick_period_nsec = 1000000000 / 10);
+                        uint32_t tick_period_nsec = 1000000000 / 10,
+                        const char* bind_address = nullptr);
                     /**
                      * @brief Runs the lock-step server
                      *

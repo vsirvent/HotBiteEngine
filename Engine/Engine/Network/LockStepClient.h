@@ -94,8 +94,8 @@ namespace HotBite {
 					ENetPeer* server = nullptr;
 					/// Data buffer for packets
 					uint8_t pkt_data[MAX_PKT_SIZE];
-					/// ENet packet object
-					ENetPacket* packet;
+					/// ENet packet object (owned by ENet once sent, never destroyed here)
+					ENetPacket* packet = nullptr;
 					/// Receive thread
 					std::thread rx_thread;
 					/// Timer for the current tick

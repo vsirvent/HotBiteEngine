@@ -34,13 +34,18 @@ namespace HotBite {
 				LSServer::~LSServer()
 				{
 					Stop();
-					enet_host_destroy(server);
-					enet_packet_destroy(packet);
+					//The last packet sent belongs to ENet (it frees it after transmission), so it is
+					//not destroyed here - doing so freed it twice.
+					if (server != nullptr) {
+						enet_host_destroy(server);
+						server = nullptr;
+					}
 				}
 
 				bool LSServer::Init(uint16_t srv_port,
 					uint8_t num_clients,
-					uint32_t tick_period_nsec)
+					uint32_t tick_period_nsec,
+					const char* bind_address)
 				{
 					bool ret = false;
 					nplayers = num_clients;
@@ -56,6 +61,10 @@ namespace HotBite {
 					}
 					// Create the server address
 					address.host = ENET_HOST_ANY;
+					if (bind_address != nullptr && enet_address_set_host_ip(&address, bind_address) != 0) {
+						printf("Error parsing bind address %s\n", bind_address);
+						goto end;
+					}
 					address.port = srv_port;
 					server_tick.tick_period = tick_period_nsec;
 					server_tick.server_ts = Core::Scheduler::Get()->GetElapsedNanoSeconds();
@@ -149,7 +158,12 @@ namespace HotBite {
 					if (rx_running) {
 						rx_running = false;
 						rx_thread.join();
-						Core::Scheduler::Get()->RemoveTimer(tick_timer);
+						//Async: Stop can be called from inside a callback of this same scheduler
+						//(a game ending its session from the main thread's own timer), and
+						//RemoveTimer takes the lock Update holds while running callbacks.
+						//Update skips a timer whose removal is pending, so the callback that
+						//captured this server never runs after it is destroyed.
+						Core::Scheduler::Get()->RemoveTimerAsync(tick_timer);
 					}
 					rx_mutex.unlock();
 				}
@@ -228,6 +242,8 @@ namespace HotBite {
 								client->frame = server_tick.frame;
 								size_t size = client->ack.ReadFrom(ev.packet->data, ev.packet->dataLength);
 								client->ack.m.unlock();
+								//A received packet is the application's to free.
+								enet_packet_destroy(ev.packet);
 								static int n = 0;
 								if (n++ % 100 == 0) {
 									printf("client: ping = %llu msec. frame = %llu\n", client->ping / 1000000, client->frame);
