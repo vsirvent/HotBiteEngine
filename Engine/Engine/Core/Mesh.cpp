@@ -147,6 +147,18 @@ void MeshData::Init(VertexBuffer<Core::Vertex>* vb, const std::string& mesh_name
 	BuildSkinnedBoxes();
 }
 
+void MeshData::InitOwned(const std::string& mesh_name, const std::vector<Core::Vertex>& vertices, const std::vector<uint32_t>& indices) {
+	Core::VertexBuffer<Core::Vertex>* owned = new Core::VertexBuffer<Core::Vertex>();
+	//Init() does everything a shared mesh needs (bvh, dimensions, indexCount/
+	//vertexCount, vertex_buffer, the vb->AddMesh that records vertexOffset/
+	//indexOffset - both 0 here, since this mesh is the only thing ever added to
+	//`owned`) - only what happens to `owned` afterward differs from the shared
+	//path: nothing else will ever call Prepare() on it, so this does, right away.
+	Init(owned, mesh_name, vertices, indices, nullptr, nullptr, true);
+	owned->Prepare();
+	owns_vertex_buffer = true;
+}
+
 bool MeshData::SetSmooth(bool enable) {
 	if (enable == smooth) {
 		return false;
@@ -470,10 +482,16 @@ void MeshData::LoadTextures() {
 }
 
 void MeshData::Release() {
+	if (owns_vertex_buffer && vertex_buffer != nullptr) {
+		vertex_buffer->Unprepare();
+		delete vertex_buffer;
+		vertex_buffer = nullptr;
+		owns_vertex_buffer = false;
+	}
 	if (normal_map != nullptr) {
 		normal_map->Release();
 		normal_map = nullptr;
-	}	
+	}
 	skeletons.clear();
 	//Indexed by skeleton, so they mean nothing once those are gone.
 	animation_boxes.clear();

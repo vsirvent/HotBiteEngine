@@ -35,6 +35,8 @@ namespace HotBite {
 		namespace Systems {
 			class SkySystem : public ECS::System {
 			private:
+				//Game seconds the clock must move before the sun and colours are recomputed.
+				static constexpr float SUN_UPDATE_SECONDS = 10.0f;
 				struct SkyEntity {
 					Components::Material* material;
 					Components::Transform* transform;

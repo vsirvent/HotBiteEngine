@@ -436,6 +436,21 @@ void World::LoadSky(const json& sky_info) {
 	if (sky_info.contains("cloud_density")) {
 		sky.cloud_density = sky_info["cloud_density"];
 	}
+	sky.draw_background = sky_info.value("draw_background", sky.draw_background);
+	sky.cloud_speed = sky_info.value("cloud_speed", sky.cloud_speed);
+	sky.ambient_cycle = sky_info.value("ambient_cycle", sky.ambient_cycle);
+	if (sky_info.contains("ambient_day_up")) {
+		sky.ambient_day_up = ColorRGBFromStr(sky_info["ambient_day_up"]);
+	}
+	if (sky_info.contains("ambient_day_down")) {
+		sky.ambient_day_down = ColorRGBFromStr(sky_info["ambient_day_down"]);
+	}
+	if (sky_info.contains("ambient_night_up")) {
+		sky.ambient_night_up = ColorRGBFromStr(sky_info["ambient_night_up"]);
+	}
+	if (sky_info.contains("ambient_night_down")) {
+		sky.ambient_night_down = ColorRGBFromStr(sky_info["ambient_night_down"]);
+	}
 	if (sky_info.contains("sun")) {
 		coordinator->AddComponent<Components::DirectionalLight>(e, Components::DirectionalLight{});
 		Components::DirectionalLight& directional = coordinator->GetComponent<Components::DirectionalLight>(e);

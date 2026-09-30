@@ -826,8 +826,8 @@ void RenderSystem::DrawDepth(int w, int h, const float3& camera_position, const 
 				for (auto &de : mat.second.second.GetData()) {
 					if (de.base->visible && de.base->draw_depth) {
 						PrepareEntity(de, vs, hs, ds, gs, ps);
-						Mesh* mesh = de.mesh;						
-						DXCore::Get()->context->DrawIndexed((UINT)mesh->index_count, (UINT)mesh->index_offset, (INT)mesh->vertex_offset);						
+						Mesh* mesh = de.mesh;
+						DrawMeshEntity(mesh);
 						UnprepareEntity(de, vs, hs, ds, gs, ps);
 					}
 				}
@@ -969,7 +969,7 @@ void RenderSystem::CastShadows(int w, int h, const float3& camera_position, cons
 							if (de.base->visible && de.base->cast_shadow && DIST2((l.light->GetData().position - de.transform->position)) < range_p2) {
 								PrepareEntity(de, vs, hs, ds, gs, ps);
 								Mesh* mesh = de.mesh;
-								DXCore::Get()->context->DrawIndexed((UINT)mesh->index_count, (UINT)mesh->index_offset, (INT)mesh->vertex_offset);
+								DrawMeshEntity(mesh);
 								UnprepareEntity(de, vs, hs, ds, gs, ps);
 							}
 						}
@@ -1101,7 +1101,7 @@ void RenderSystem::CastShadows(int w, int h, const float3& camera_position, cons
 							((!static_shadows && !de.base->is_static) || (static_shadows && de.base->is_static))) {
 							PrepareEntity(de, vs, hs, ds, gs, ps);
 							Mesh* mesh = de.mesh;
-							DXCore::Get()->context->DrawIndexed((UINT)mesh->index_count, (UINT)mesh->index_offset, (INT)mesh->vertex_offset);						
+							DrawMeshEntity(mesh);
 							UnprepareEntity(de, vs, hs, ds, gs, ps);
 						}
 					}
@@ -1122,11 +1122,17 @@ void RenderSystem::DrawSky(int w, int h, const float3& camera_position, const ma
 
 	assert(skies.GetData().size() == 1 && "More than one sky registered.");
 	SkyEntity& sky = skies.GetData()[0];
+	//A game whose camera never sees the sky turns the dome off; the sun, the ambient
+	//cycle and the cloud shadows are driven elsewhere and don't depend on this pass
+	//(DrawScene and DrawSplats fill the scene lights themselves).
+	if (!sky.sky->draw_background) {
+		return;
+	}
 	assert(!cameras.GetData().empty() && "No cameras found");
 	CameraEntity& cam_entity = cameras.GetData()[0];
 	ID3D11DeviceContext* context = dxcore->context;
 
-	float time = ((float)Scheduler::Get()->GetElapsedNanoSeconds() * sky.sky->second_speed) / 1000000000.0f;
+	float time = ((float)Scheduler::Get()->GetElapsedNanoSeconds() * sky.sky->CloudSpeed()) / 1000000000.0f;
 	//Render sky background
 	{
 		//The sky covers the whole screen and is drawn before the scene, so most of what
@@ -1541,7 +1547,7 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 	SkyEntity* sky = nullptr;
 	if (!skies.GetData().empty()) {
 		sky = &(skies.GetData()[0]);
-		speed = sky->sky->second_speed;
+		speed = sky->sky->CloudSpeed();
 	}
 
 	SimpleVertexShader* vs = nullptr; 
@@ -1684,9 +1690,9 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 				}
 				for (auto& de : mat.second.second.GetData()) {
 					PrepareEntity(de, vs, hs, ds, gs, ps);
-					if (de.base->visible && de.base->scene_visible) {	
+					if (de.base->visible && de.base->scene_visible) {
  						Mesh* mesh = de.mesh;
-						DXCore::Get()->context->DrawIndexed((UINT)mesh->index_count, (UINT)mesh->index_offset, (INT)mesh->vertex_offset);
+						DrawMeshEntity(mesh);
 						draw_count++;
 					}
 					UnprepareEntity(de, vs, hs, ds, gs, ps);
@@ -3432,7 +3438,7 @@ void RenderSystem::PrepareVolumetricShader(Core::ISimpleShader* s) {
 	float speed = 1.0f;
 	if (!skies.GetData().empty()) {
 		sky = &(skies.GetData()[0]);
-		speed = sky->sky->second_speed;
+		speed = sky->sky->CloudSpeed();
 	}
 
 	assert(!cameras.GetData().empty() && "No cameras found");
@@ -3458,6 +3464,18 @@ void RenderSystem::PrepareVolumetricShader(Core::ISimpleShader* s) {
 void RenderSystem::UnprepareVolumetricShader(Core::ISimpleShader* s) {
 	s->SetShaderResourceView("worldTexture", nullptr);
 	UnprepareLights(s);
+}
+
+void RenderSystem::DrawMeshEntity(Mesh* mesh) {
+	Core::VertexBuffer<Core::Vertex>* owned = mesh->GetData()->GetOwnedBuffer();
+	if (owned != nullptr) {
+		owned->SetBuffers();
+		DXCore::Get()->context->DrawIndexed((UINT)mesh->index_count, 0, 0);
+		vertex_buffer->SetBuffers();
+	}
+	else {
+		DXCore::Get()->context->DrawIndexed((UINT)mesh->index_count, (UINT)mesh->index_offset, (INT)mesh->vertex_offset);
+	}
 }
 
 void RenderSystem::PrepareEntity(DrawableEntity& entity, SimpleVertexShader* vs, SimpleHullShader* hs, SimpleDomainShader* ds, SimpleGeometryShader* gs, SimplePixelShader* ps) {

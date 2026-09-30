@@ -52,6 +52,14 @@ void SkySystem::OnEntitySignatureChanged(Entity entity, const Signature& entity_
 	if ((entity_signature & sky_signature) == sky_signature)
 	{
 		skies.Insert(entity, SkyEntity{ coordinator, entity });
+		//World::LoadSky wires this for a sky read from a level; a sky built any other way
+		//(a game assembling it in code, the editor's Add Component) has no other place to
+		//get it, and the renderer dereferences it every frame.
+		SkyEntity& added = *skies.Get(entity);
+		added.sky->dir_light = added.dl;
+		//Bring the sun, the sky colour and the ambient cycle to this time of day now, so the
+		//first frame is lit right instead of by whatever the light was built with.
+		Update(added, 0, 0);
 	}
 	else
 	{
@@ -60,35 +68,51 @@ void SkySystem::OnEntitySignatureChanged(Entity entity, const Signature& entity_
 }
 
 void SkySystem::Update(SkyEntity& entity, int64_t elapsed_nsec, int64_t total_nsec) {
-	float elapsed_sec = (float)(elapsed_nsec * entity.sky->second_speed) / (float)(NSEC);
-	entity.sky->second_of_day += elapsed_sec;
-	int current = (int)(entity.sky->second_of_day/60.0f);
-	if (current != entity.sky->current_minute) {
-		float t = 2.0f * XM_PI * entity.sky->second_of_day / 86400.0f;
-		float x = sin(t);
-		float y = -cos(t);
-		float z = y / 2.0f;
-		entity.dl->data.direction = { x, y, z };
-		entity.dl->data.intensity = min(max(y + 0.5f, 0.1f), 1.0f);
-		entity.dl->dirty = true;
-		entity.sky->current_minute = current;
-		
-		float wfull = min(max(y*5.0f, 0.0f), 1.0f);
-		float wmid = max(1.0f - abs(y*5.0f), 0.0f);
-		entity.sky->current_backcolor = { entity.sky->mid_backcolor.x * wmid + entity.sky->day_backcolor.x * wfull,
-								          entity.sky->mid_backcolor.y * wmid + entity.sky->day_backcolor.y * wfull,
-								          entity.sky->mid_backcolor.z * wmid + entity.sky->day_backcolor.z * wfull };
+	Sky& sky = *entity.sky;
+	sky.dir_light = entity.dl;
+	float elapsed_sec = (float)(elapsed_nsec * sky.second_speed) / (float)(NSEC);
+	sky.second_of_day += elapsed_sec;
 
-		vector4d xm_rot = XMQuaternionRotationAxis({ 1.0f, 0.5f, 0.0f }, t);
-		XMStoreFloat4(&entity.transform->rotation, xm_rot);
-		entity.transform->dirty = true;
-		static int n = 0;
-		if (n++ % 120 == 0) {
-			int h = current / 3600;
-			int m = (current % 3600) / 60;
-			printf("Current sky time %d:%d == %f, %f, %f. Color %f, %f, %f\n", h, m, x, y, z, entity.sky->current_backcolor.x, entity.sky->current_backcolor.y, entity.sky->current_backcolor.z);
-		}
+	//The sun only moves when the clock has moved far enough to be seen. It used to be a
+	//whole minute, which at a game's fast-forward speeds is a visible step and at 1x is
+	//nothing; a few seconds keeps it smooth without dirtying the light every frame.
+	//fabs also catches the clock being set from outside, wrapping included.
+	if (fabsf(sky.second_of_day - sky.applied_second_of_day) < SUN_UPDATE_SECONDS) {
+		return;
 	}
+	sky.applied_second_of_day = sky.second_of_day;
+	sky.current_minute = (int)(sky.second_of_day / 60.0f);
+
+	float t = 2.0f * XM_PI * sky.second_of_day / 86400.0f;
+	float x = sin(t);
+	float y = -cos(t);
+	float z = y / 2.0f;
+	entity.dl->data.direction = { x, y, z };
+	entity.dl->data.intensity = min(max(y + 0.5f, 0.1f), 1.0f);
+	entity.dl->dirty = true;
+
+	float wfull = min(max(y*5.0f, 0.0f), 1.0f);
+	float wmid = max(1.0f - abs(y*5.0f), 0.0f);
+	sky.current_backcolor = { sky.mid_backcolor.x * wmid + sky.day_backcolor.x * wfull,
+							  sky.mid_backcolor.y * wmid + sky.day_backcolor.y * wfull,
+							  sky.mid_backcolor.z * wmid + sky.day_backcolor.z * wfull };
+
+	if (sky.ambient_cycle) {
+		//0 below the horizon band, 1 above it, linear across the ~0.2 of sun height either
+		//side of the horizon so dusk and dawn fade instead of switching.
+		float k = min(max(y * 2.5f + 0.5f, 0.0f), 1.0f);
+		auto mix = [k](const float3& night, const float3& day) {
+			return float3{ night.x + (day.x - night.x) * k,
+						   night.y + (day.y - night.y) * k,
+						   night.z + (day.z - night.z) * k };
+		};
+		entity.al->GetData().colorUp = mix(sky.ambient_night_up, sky.ambient_day_up);
+		entity.al->GetData().colorDown = mix(sky.ambient_night_down, sky.ambient_day_down);
+	}
+
+	vector4d xm_rot = XMQuaternionRotationAxis({ 1.0f, 0.5f, 0.0f }, t);
+	XMStoreFloat4(&entity.transform->rotation, xm_rot);
+	entity.transform->dirty = true;
 }
 
 void SkySystem::Update(int64_t elapsed_nsec, int64_t total_nsec) {

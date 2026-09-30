@@ -214,16 +214,26 @@ namespace HotBite {
 						int count = vertex_buffer->Release();
 						hr |= (count == 0) ? S_OK : E_FAIL;
 						vertex_buffer = nullptr;
-						vertex_srv->Release();
-						vertex_srv = nullptr;
+						//Individually checked, not assumed to rise and fall together with
+						//vertex_buffer: only ever mattered once an instance could be
+						//Unprepare()'d outside process shutdown (Core::MeshData::InitOwned's
+						//per-chunk buffers, torn down on unload) - a Prepare() that created
+						//the buffer but failed the SRV would otherwise crash here on the
+						//very next unload.
+						if (vertex_srv != nullptr) {
+							vertex_srv->Release();
+							vertex_srv = nullptr;
+						}
 					}
 					if (index_buffer != nullptr) {
 						context->IASetIndexBuffer(nullptr, DXGI_FORMAT_R32_UINT, 0);
 						int count = index_buffer->Release();
 						hr |= (count == 0) ? S_OK : E_FAIL;
 						index_buffer = nullptr;
-						index_srv->Release();
-						index_srv = nullptr;
+						if (index_srv != nullptr) {
+							index_srv->Release();
+							index_srv = nullptr;
+						}
 					}
 					return hr;
 				}

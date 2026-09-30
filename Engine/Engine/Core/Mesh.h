@@ -288,6 +288,17 @@ namespace HotBite {
 				// vertices are taken exactly as passed and SetSmooth does nothing.
 				void Init(Core::VertexBuffer<Core::Vertex>* vb, const std::string& mesh_name, const std::vector<Core::Vertex>& vertices, const std::vector<uint32_t>& indices, std::shared_ptr<Skeleton> skeleton,
 					const std::vector<uint32_t>* smooth_groups = nullptr, bool smooth = true);
+				// Init(), but into a vertex/index buffer this mesh allocates and owns
+				// itself, immediately Prepare()'d - for one-off, never-reused geometry
+				// (a procedural terrain chunk) that needs a real create/destroy
+				// lifecycle. Init()'s `vb` is expected to be a shared buffer (typically
+				// World's own) that lives for the process's lifetime and is never
+				// individually freed for one mesh; there is no way to reclaim one
+				// mesh's share of it. An owned mesh is not registered with any World -
+				// the caller holds the returned lifetime directly and must eventually
+				// call Release() (which, only for an owned mesh, actually frees the
+				// GPU buffer - see GetOwnedBuffer) and destroy the MeshData itself.
+				void InitOwned(const std::string& mesh_name, const std::vector<Core::Vertex>& vertices, const std::vector<uint32_t>& indices);
 				void Release();
 				void LoadTextures();
 				void AddSkeleton(std::shared_ptr<Skeleton> skl);
@@ -463,8 +474,20 @@ namespace HotBite {
 				std::string name;
 				std::vector<Core::Vertex> vertices;
 				std::vector<uint32_t> indices;
-				//Where `vertices` live, so SetSmooth can write them back.
+				//Where `vertices` live, so SetSmooth can write them back. Shared (does not
+				//outlive it, never freed by this mesh) unless `owns_vertex_buffer` - see
+				//InitOwned.
 				Core::VertexBuffer<Core::Vertex>* vertex_buffer = nullptr;
+				//Whether `vertex_buffer` is this mesh's own, allocated by InitOwned,
+				//rather than a shared one Init() was handed. Only Release() on an owned
+				//mesh frees the buffer; a shared mesh's buffer outlives every MeshData
+				//pointing at it and is never freed per-mesh.
+				bool owns_vertex_buffer = false;
+				//This mesh's own buffer if InitOwned built one, else null (this mesh
+				//shares a buffer someone else bound instead). What a caller drawing it
+				//needs to know whether to rebind the input assembler to before
+				//DrawIndexed and restore after - see Systems::RenderSystem::DrawMeshEntity.
+				Core::VertexBuffer<Core::Vertex>* GetOwnedBuffer() const { return owns_vertex_buffer ? vertex_buffer : nullptr; }
 				std::vector<std::shared_ptr<Skeleton>> skeletons;
 				ID3D11ShaderResourceView* normal_map = nullptr;
 				bool init = false;

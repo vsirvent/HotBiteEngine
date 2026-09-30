@@ -1445,6 +1445,16 @@ namespace HotBiteEditor {
 			edit.Track(ImGui::DragFloat("Second of day", &sky.second_of_day, 60.0f, 0.0f, 86400.0f));
 			edit.Track(ImGui::DragFloat("Time speed", &sky.second_speed, 0.1f, 0.0f, 10000.0f));
 			edit.Track(ImGui::SliderFloat("Cloud density", &sky.cloud_density, 0.0f, 1.0f));
+			edit.Track(ImGui::DragFloat("Cloud speed", &sky.cloud_speed, 0.1f, -1.0f, 10000.0f));
+			ImGui::TextDisabled("Cloud speed -1 follows Time speed.");
+			edit.Track(ImGui::Checkbox("Draw sky background", &sky.draw_background));
+			edit.Track(ImGui::Checkbox("Ambient follows the sun", &sky.ambient_cycle));
+			if (sky.ambient_cycle) {
+				edit.Track(ImGui::ColorEdit3("Day ambient up", &sky.ambient_day_up.x));
+				edit.Track(ImGui::ColorEdit3("Day ambient down", &sky.ambient_day_down.x));
+				edit.Track(ImGui::ColorEdit3("Night ambient up", &sky.ambient_night_up.x));
+				edit.Track(ImGui::ColorEdit3("Night ambient down", &sky.ambient_night_down.x));
+			}
 			edit.Track(ImGui::ColorEdit3("Day color", &sky.day_backcolor.x));
 			edit.Track(ImGui::ColorEdit3("Mid color", &sky.mid_backcolor.x));
 			edit.Track(ImGui::ColorEdit3("Night color", &sky.night_backcolor.x));

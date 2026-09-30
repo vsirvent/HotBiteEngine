@@ -98,6 +98,9 @@ namespace HotBite {
 				static constexpr float MAX_RY = DirectX::XM_PIDIV4 / 2.0f;
 				static constexpr float MIN_RY = 0.0f;
 
+				//Panning by pushing the mouse against a screen edge. A game that pans with the
+				//keyboard turns it off so the pointer can rest on a HUD at the edge.
+				bool edge_pan_enabled = true;
 				bool zooming = false;
 				float current_zoom = MAX_ZOOM;
 				float new_zoom = current_zoom;
@@ -147,6 +150,17 @@ namespace HotBite {
 				// per-tick call" shape the rest of this engine's gameplay systems use).
 				void Pan(const float2& direction);
 
+				// One pan step in the camera's own frame: `right_forward.x` is to the right of
+				// where the camera is looking and `right_forward.y` is forward, both on the ground
+				// plane, whatever the camera's yaw. Same speed as Pan()/edge-pan, same terrain
+				// clamp. Pan() is a fixed screen-edge frame that Move() then flips by which side
+				// of its target the camera *started* on, so it stays put when the camera rotates;
+				// this reads the camera's actual heading each call.
+				void PanRelative(const float2& right_forward);
+
+				void SetEdgePanEnabled(bool enabled) { edge_pan_enabled = enabled; }
+				bool GetEdgePanEnabled() const { return edge_pan_enabled; }
+
 				// One yaw step around the camera's own vertical axis, in radians. Public
 				// wrapper around the same per-entity RotateY the middle-mouse-drag path
 				// already drives, for a caller with no CameraData of its own to pass -
@@ -160,6 +174,15 @@ namespace HotBite {
 				float GetMaximumZoom() const { return max_zoom; }
 				float GetMinimumZoom() const { return min_zoom; }
 				float GetCurrentZoom() const { return current_zoom; }
+				// For a caller (e.g. game setup code) that places the camera at a distance
+				// of its own choosing rather than the class's MAX_ZOOM default - keeps this
+				// system's internal zoom bookkeeping in sync with the real camera-to-target
+				// distance, the same reason current_zoom defaults to MAX_ZOOM: a mismatch
+				// here makes the first Zoom() call jump the camera to reconcile the two
+				// instead of moving smoothly from where it actually is. Also resets
+				// new_zoom (Zoom()'s smoothing target), though nothing reads it until the
+				// next Zoom() call recomputes it from current_zoom anyway.
+				void SetCurrentZoom(float value) { current_zoom = value; new_zoom = value; }
 				void SetTerrain(ECS::Entity e);
 			};
 		}

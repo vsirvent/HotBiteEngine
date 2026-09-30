@@ -142,6 +142,41 @@ void RTSCameraSystem::Pan(const float2& direction) {
     Move(cdata, { rotated.x, rotated.z }); //Move() takes its own lock
 }
 
+void RTSCameraSystem::PanRelative(const float2& right_forward) {
+    if (cameras.GetData().empty()) {
+        return;
+    }
+    lock.lock();
+    CameraSystem::CameraData& cdata = cameras.GetData()[0];
+    //Where the camera is looking on the ground plane, from where it really is (rotation
+    //included) to the point it looks at.
+    float fx = cdata.camera->direction.x - cdata.camera->final_position.x;
+    float fz = cdata.camera->direction.z - cdata.camera->final_position.z;
+    const float len = sqrtf(fx * fx + fz * fz);
+    if (len > 0.0001f) {
+        fx /= len;
+        fz /= len;
+        //Left-handed, y up: right of (fx, fz) is (fz, -fx).
+        const float delta = abs(pow(current_zoom, 0.25f) * 0.2f);
+        float2 dpos = { (fz * right_forward.x + fx * right_forward.y) * delta,
+                        (-fx * right_forward.x + fz * right_forward.y) * delta };
+        float2 new_pos = { cdata.camera->final_position.x + dpos.x, cdata.camera->final_position.z + dpos.y };
+        if (terrain.base != nullptr) {
+            new_pos.x = std::clamp(new_pos.x, -terrain.bounds->final_box.Extents.x, terrain.bounds->final_box.Extents.x);
+            new_pos.y = std::clamp(new_pos.y, -terrain.bounds->final_box.Extents.z, terrain.bounds->final_box.Extents.z);
+            dpos.x = new_pos.x - cdata.camera->final_position.x;
+            dpos.y = new_pos.y - cdata.camera->final_position.z;
+        }
+        cdata.camera->direction.x += dpos.x;
+        cdata.camera->direction.z += dpos.y;
+        cdata.transform->position.x += dpos.x;
+        cdata.transform->position.z += dpos.y;
+        cdata.transform->dirty = true;
+        check_zoom = true;
+    }
+    lock.unlock();
+}
+
 void RTSCameraSystem::Rotate(float yaw_radians) {
     if (cameras.GetData().empty()) {
         return;
@@ -316,7 +351,7 @@ void RTSCameraSystem::OnMouseMove(ECS::Event& ev) {
 
     bool move = false;
     vector3d xm = {};
-    if (button == 0) {
+    if (button == 0 && edge_pan_enabled) {
 
         float delta = abs(pow(current_zoom, 0.25f) * 0.2f);
         if (x < 10) {

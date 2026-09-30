@@ -57,6 +57,34 @@ namespace HotBite {
 				float second_speed = 1.0f;
 				int current_minute = 0;
 
+					//A game that owns its own clock draws the sky's sun and ambient light but
+					//never the dome (its camera never looks up). Turning this off skips the
+					//whole sky pass; the sun, the ambient cycle and the cloud shadows on the
+					//ground are unaffected.
+					bool draw_background = true;
+
+					//How fast the clouds drift, apart from the time of day. Negative (the
+					//default) follows second_speed, as before; a game that pins second_speed
+					//to 0 so it can set second_of_day itself sets this to keep the clouds and
+					//their shadows moving.
+					float cloud_speed = -1.0f;
+
+					//Ambient light that follows the sun. When on, SkySystem blends the AmbientLight
+					//on the same entity between the night pair and the day pair by how high the
+					//sun is; when off the AmbientLight is left exactly as authored.
+					bool ambient_cycle = false;
+					float3 ambient_day_up = { 0.35f, 0.35f, 0.38f };
+					float3 ambient_day_down = { 0.85f, 0.85f, 0.9f };
+					float3 ambient_night_up = { 0.03f, 0.03f, 0.06f };
+					float3 ambient_night_down = { 0.06f, 0.06f, 0.1f };
+
+					//The second_of_day the sun and colours were last computed for. Runtime only.
+					float applied_second_of_day = -1.0e9f;
+
+					float CloudSpeed() const {
+						return cloud_speed >= 0.0f ? cloud_speed : second_speed;
+					}
+
 				Sky() {
 					SetTimeOfDay(12, 0, 0);
 				}
@@ -80,6 +108,13 @@ namespace HotBite {
 						{"day_backcolor", ECS::JsonUtil::FromFloat3(day_backcolor)},
 						{"mid_backcolor", ECS::JsonUtil::FromFloat3(mid_backcolor)},
 						{"night_backcolor", ECS::JsonUtil::FromFloat3(night_backcolor)},
+						{"draw_background", draw_background},
+						{"cloud_speed", cloud_speed},
+						{"ambient_cycle", ambient_cycle},
+						{"ambient_day_up", ECS::JsonUtil::FromFloat3(ambient_day_up)},
+						{"ambient_day_down", ECS::JsonUtil::FromFloat3(ambient_day_down)},
+						{"ambient_night_up", ECS::JsonUtil::FromFloat3(ambient_night_up)},
+						{"ambient_night_down", ECS::JsonUtil::FromFloat3(ambient_night_down)},
 					};
 				}
 
@@ -90,6 +125,16 @@ namespace HotBite {
 					ECS::JsonUtil::ToFloat3(j, "day_backcolor", day_backcolor);
 					ECS::JsonUtil::ToFloat3(j, "mid_backcolor", mid_backcolor);
 					ECS::JsonUtil::ToFloat3(j, "night_backcolor", night_backcolor);
+					draw_background = j.value("draw_background", draw_background);
+					cloud_speed = j.value("cloud_speed", cloud_speed);
+					ambient_cycle = j.value("ambient_cycle", ambient_cycle);
+					ECS::JsonUtil::ToFloat3(j, "ambient_day_up", ambient_day_up);
+					ECS::JsonUtil::ToFloat3(j, "ambient_day_down", ambient_day_down);
+					ECS::JsonUtil::ToFloat3(j, "ambient_night_up", ambient_night_up);
+					ECS::JsonUtil::ToFloat3(j, "ambient_night_down", ambient_night_down);
+					//A time set from outside must be re-applied even if it lands on the
+					//value the sun was last computed for.
+					applied_second_of_day = -1.0e9f;
 				}
 			};
 		}

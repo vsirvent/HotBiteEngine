@@ -922,6 +922,17 @@ namespace HotBite {
 
 				void PrepareEntity(DrawableEntity& entity, Core::SimpleVertexShader* vs, Core::SimpleHullShader* hs, Core::SimpleDomainShader* ds, Core::SimpleGeometryShader* gs, Core::SimplePixelShader* ps);
 				void UnprepareEntity(DrawableEntity& entity, Core::SimpleVertexShader* vs, Core::SimpleHullShader* hs, Core::SimpleDomainShader* ds, Core::SimpleGeometryShader* gs, Core::SimplePixelShader* ps);
+				// The one DrawIndexed every mesh draw pass (depth pre-pass, point/directional
+				// shadow, main scene) already repeated identically - factored out so the one
+				// place that needs to know about a mesh with its own vertex/index buffer
+				// (Core::MeshData::InitOwned - one-off, never-reused geometry like a
+				// procedural terrain chunk, as opposed to every other mesh's shared,
+				// World-wide `vertex_buffer`) is this single function, not four copies of
+				// it. An owned-buffer mesh's vertexOffset/indexOffset are always 0 (it is
+				// the only mesh in its own buffer), so it needs its own IASetVertexBuffers/
+				// IASetIndexBuffer bound first and the shared buffer restored after, or it
+				// would draw whatever the shared buffer happens to have bound at offset 0.
+				void DrawMeshEntity(Components::Mesh* mesh);
 				void SetEntityLights(Components::Lighted* lighted, ECS::EntityVector<DirectionalLightEntity>& dir_lights, ECS::EntityVector<PointLightEntity>& point_lights);
 				
 				void AddDrawable(ECS::Entity entity, const Core::ShaderKey& key, Components::Material* mat, RenderTree& tree, const RenderSystem::DrawableEntity& drawable);
