@@ -34,6 +34,24 @@ namespace HotBite {
 				Direction{-1, -1, 1.4f}, Direction{0,-1, 1.0f}, Direction{1, -1, 1.4f}
 			};
 
+			bool SquareGrid::IsWall(const Cell* cell) const {
+				if (wall_provider && !cell->checked) {
+					cell->wall = wall_provider(cell->position.x, cell->position.y);
+					cell->checked = true;
+				}
+				return cell->wall;
+			}
+
+			void SquareGrid::SetWallProvider(std::function<bool(int, int)> is_wall) {
+				wall_provider = std::move(is_wall);
+				for (auto& column : cells) {
+					for (Cell& cell : column) {
+						cell.wall = false;
+						cell.checked = false;
+					}
+				}
+			}
+
 			bool SquareGrid::InBounds(const Int2& pos) const {
 				return (0 <= pos.x && pos.x < width
 					&& 0 <= pos.y && pos.y < height);
@@ -60,7 +78,7 @@ namespace HotBite {
 							}
 						}
 						if (process) {
-							if (!next->wall) {
+							if (!IsWall(next)) {
 								next->parent = cell;
 								next->cost = cost;
 								next->to_target = Int2::Dist(next->position, target->position);
@@ -87,7 +105,7 @@ namespace HotBite {
 						if (LENGHT_SQUARE_F2(pos - dest_pos) <= 1.5f) {
 							break;
 						}
-						if (cells[(int)pos.x][(int)pos.y].wall) {
+						if (IsWall(&cells[(int)pos.x][(int)pos.y])) {
 							connected = false;
 							break;
 						}
@@ -134,7 +152,7 @@ namespace HotBite {
 				pos.x += offset.x;
 				pos.y += offset.y;
 				if (InBounds(pos)) {
-					valid = !cells[pos.x][pos.y].wall;
+					valid = !IsWall(&cells[pos.x][pos.y]);
 				}
 				return valid;
 			}
@@ -190,7 +208,7 @@ namespace HotBite {
 				float2 dir = (dest->position - orig->position);
 				float2 dir_unit = DIV_F2(dir, LENGHT_F2(dir));
 				float2 p = dest->position;
-				while (target != orig && target->wall) {
+				while (target != orig && IsWall(target)) {
 					p.x -= dir_unit.x;
 					p.y -= dir_unit.y;
 					if (InBounds(p)) {
@@ -216,20 +234,26 @@ namespace HotBite {
 					Cell* target_cell = &cells[dest.x][dest.y];
 					Cell* origin_cell = &cells[orig.x][orig.y];
 					Cell* current = nullptr;
-					printf("SquareGrid::Calculate path from %d,%d to %d,%d\n", orig.x, orig.y, dest.x, dest.y);
-					if (target_cell->wall) {
+					if (IsWall(target_cell)) {
 						//Get closest valid cell as target
-						printf("SquareGrid::Target is a WALL, find near valid target\n");
 						target_cell = GetValidCell(origin_cell, target_cell);
 					}
 					origin_cell->parent = nullptr;
 					origin_cell->cost = 0;
+					origin_cell->to_target = Int2::Dist(origin_cell->position, target_cell->position);
+					//The cell the search got nearest to the target: where it ends up if the target can
+					//not be reached (ties go to the lower position, for the same reason as the order
+					//of equal-cost cells).
+					Cell* closest = origin_cell;
 					if (origin_cell == target_cell) {
 						ret = ReversePath(origin_cell, offset);
 						goto end;
 					}
 					to_visit[0].insert(origin_cell);
 					while (!to_visit.empty()) {
+						if (node_limit > 0 && (int)visited.size() >= node_limit) {
+							break;
+						}
 
 						current = *(to_visit.begin()->second.begin());
 						to_visit.begin()->second.erase(to_visit.begin()->second.begin());
@@ -241,6 +265,10 @@ namespace HotBite {
 						int n = RefreshNeighbors(current, target_cell);
 
 						visited.insert(current);
+						if (current->to_target < closest->to_target ||
+							(current->to_target == closest->to_target && CellLess()(current, closest))) {
+							closest = current;
+						}
 						for (int i = 0; i < n; ++i) {
 							Cell* cn = neighbors[i];
 							if (cn == target_cell) {
@@ -252,11 +280,9 @@ namespace HotBite {
 							}
 						}
 					}
-					//We did not find a path to target, 
-					//so make a path to the closest target found
-					if (current != nullptr) {
-						ret = ReversePath(current, offset);
-					}
+					//We did not find a path to the target: make one to the closest cell the search reached
+					//(it used to be the last cell expanded, which is as likely to be the farthest).
+					ret = ReversePath(closest, offset);
 				}
 			end:
 				m.unlock();
