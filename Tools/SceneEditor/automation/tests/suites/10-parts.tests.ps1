@@ -177,3 +177,41 @@ Test 'parts survive a save/reload of the template file' {
     Assert-Equal -Expected 'tf_marker' -Actual $definition.parts[0].template
     Assert-Near -Expected 5.0 -Actual $definition.parts[0].position.x -Tolerance 0.001
 }
+
+Test 'the root own template name adds the other selected entities to it as parts, lights included' {
+    SendOk 'create_template lamp_post' | Out-Null
+    $placed = Get-PlacedInstance -Result (Send 'place lamp_post')[0]
+    $r = SendOk 'menu "Add/Point Light"'
+    $light = ($r[0].Text -replace '^Created Point Light:\s*', '').Trim()
+    SendOk "select $light", 'set_position 1 2 3' | Out-Null
+    SendOk "select $($placed.Name) $light" | Out-Null
+    $before = (SendOk 'template_parts lamp_post')[0].Text
+    Assert-Equal -Expected '0 parts on template lamp_post' -Actual $before
+
+    $r = SendOk 'template_from_selection lamp_post'
+    Assert-Match -Pattern "Added 1 part\(s\) to template 'lamp_post'" -Actual $r[0].Text
+    Assert-Equal -Expected '1 parts on template lamp_post' -Actual (SendOk 'template_parts lamp_post')[0].Text
+    $line = (SendOk 'template_parts lamp_post')[0].Payload | Select-Object -First 1
+    Assert-Match -Pattern "is=$light " -Actual $line -Message 'the light is a part, made into a template of its own'
+    Assert-Match -Pattern 'attached_to=root' -Actual $line
+    $info = (SendOk "template_info $light")[0].Payload -join "`n"
+    Assert-Match -Pattern 'PointLight \{' -Actual $info -Message 'and the template carries the light'
+
+    # Adding the same again stacks another part on; the template keeps the ones it had.
+    SendOk "select $($placed.Name) $light" | Out-Null
+    SendOk 'template_from_selection lamp_post' | Out-Null
+    Assert-Equal -Expected '2 parts on template lamp_post' -Actual (SendOk 'template_parts lamp_post')[0].Text
+
+    # Saved, it is the lamp_post's own file that holds the parts.
+    SendOk 'save_templates' | Out-Null
+    $definition = Get-Content (Join-Path $Assets 'Templates\lamp_post.tpl') -Raw | ConvertFrom-Json
+    Assert-Equal -Expected 2 -Actual @($definition.parts).Count
+}
+
+Test 'a name that belongs to some other template is still refused' {
+    $placed = Get-PlacedInstance -Result (Send 'place lamp_post')[0]
+    $r = SendOk 'menu "Add/Point Light"'
+    $light = ($r[0].Text -replace '^Created Point Light:\s*', '').Trim()
+    SendOk "select $($placed.Name) $light" | Out-Null
+    Assert-Err -Result (Send 'template_from_selection rig')[0] -Pattern 'already exists'
+}

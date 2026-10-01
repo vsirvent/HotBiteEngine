@@ -35,6 +35,27 @@ namespace HotBiteEditor {
 	// map is the closer stand-in for "how shiny is this surface", which is all the
 	// engine's Blinn-Phong-ish spec model is asking for. An explicit specular map, on
 	// the rare package that has one, always takes priority over both.
+	//
+	// RIGGED PACKAGES. A Meshy export with a skeleton is several .fbx files instead
+	// of one: "<base>_Character_output.fbx" (the skinned model), and one
+	// "<base>_Animation_<Clip>_without_skin.fbx" per clip (skeleton and motion, no
+	// mesh), with the maps named "<base>_texture_0[_<map>].png". It is recognised by
+	// the "_Character_output" name, and Import then also:
+	//   - imports every animation file as a model of its own, "<name>_<clip>" (the
+	//     engine's unit for an animation set), under the same Assets/Objects/<name>/;
+	//   - gives the template a clip library (Mesh "clips"): the clip's label,
+	//     lower-cased, is its name - Walking -> walk, Running -> run, anything
+	//     "breathe" -> idle - and idle, when there is one, is the default;
+	//   - leaves the template upright: the character is authored Z-up. Meshy's FBX
+	//     normally carries the -90 degree X turn on the mesh node, which the template
+	//     keeps; when the rotated bounds still stand on Z, that turn is added.
+	// The clip files are exported from another rig (a "mixamorig:" skeleton against
+	// the character's own, with extra leaf joints), which the engine's index-based
+	// clip playback cannot use as it is: MeshData::AddSkeleton retargets such a set
+	// onto the mesh's skeleton by joint name (Skeleton::RetargetFrom), at load time,
+	// so nothing extra is saved and a reopened level resolves the clips the same way.
+	// A folder is refused as "more than one .fbx" only when it holds several
+	// characters; the animation files do not count.
 	namespace MeshyImport {
 
 		// Runs the whole pipeline against `source_path`, which may be:

@@ -121,6 +121,12 @@ namespace HotBiteEditor {
 
 		void Save(EditorState& state)
 		{
+			//The level would be written with the session's instance in it and everything
+			//else hidden.
+			if (state.template_edit.active) {
+				state.status_message = "Close the template being edited first (File/Close Template).";
+				return;
+			}
 			if (state.current_level_path.empty()) {
 				state.status_message = "No level open, nothing to save.";
 				return;

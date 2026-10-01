@@ -388,7 +388,12 @@ namespace HotBite {
 						matrix m;
 						matrix pose_prev;
 						matrix pose_cur;
-						for (int i = 0; i < current_cpu_data->size(); ++i) {
+						//joint_gpu_data is the mesh's own joint count; a clip skeleton wider
+						//than that has joints no vertex can name, and writing them would run
+						//off the buffer.
+						const int joint_count = (int)(current_cpu_data->size() < joint_gpu_data.size()
+							? current_cpu_data->size() : joint_gpu_data.size());
+						for (int i = 0; i < joint_count; ++i) {
 							if (w0 > 0.0f) {
 								m = GetAnimationMatrix(elapsed_nsec, total_nsec, prev_cpu_data, i, previous_animation, track_joints ? &pose_prev : nullptr) * w0 +
 									GetAnimationMatrix(elapsed_nsec, total_nsec, current_cpu_data, i, current_animation, track_joints ? &pose_cur : nullptr) * w1;
@@ -741,7 +746,7 @@ namespace HotBite {
 								continue;
 							}
 							for (const auto& attached : data->skeletons) {
-								if (attached == *skl) {
+								if (data->RequestedSkeleton(attached) == *skl) {
 									skeletons.push_back(name);
 									break;
 								}
@@ -834,10 +839,8 @@ namespace HotBite {
 							skeleton_name.c_str());
 						return;
 					}
-					for (const auto& existing : target->skeletons) {
-						if (existing == *skl) {
-							return;
-						}
+					if (target->HasSkeleton(*skl)) {
+						return;
 					}
 					target->AddSkeleton(*skl);
 					attached_any = true;

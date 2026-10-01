@@ -378,7 +378,7 @@ void RTSCameraSystem::OnMouseMove(ECS::Event& ev) {
         if (last_mouse_pos.x > 0 && last_mouse_pos.y > 0) {            
             float w = (float)DXCore::Get()->GetWidth();
             float h = (float)DXCore::Get()->GetHeight();
-            float delta_rx = -2.0f * (float)(last_mouse_pos.x - x) / w;
+            float delta_rx = -2.0f * mouse_rotate_speed * (float)(last_mouse_pos.x - x) / w;
             RotateY(cdata, delta_rx);
 #if 0
             float delta_ry = 2.0f * (float)(last_mouse_pos.y - y) / h;
@@ -420,7 +420,7 @@ void RTSCameraSystem::SetTerrain(ECS::Entity e) {
 }
 
 void RTSCameraSystem::OnMouseWheel(ECS::Event& ev) {
-    float amount = ev.GetParam<float>(DXCore::PARAM_ID_WHEEL)*-2.0f;
+    float amount = ev.GetParam<float>(DXCore::PARAM_ID_WHEEL)*-2.0f*zoom_speed;
     new_zoom = std::clamp(current_zoom + amount, min_zoom, max_zoom);
     if (current_zoom != new_zoom) {
         lock.lock();
@@ -439,7 +439,7 @@ void RTSCameraSystem::OnMouseWheel(ECS::Event& ev) {
                     RenderSystem::mutex.lock();
                     bool ret = true;
                     CameraSystem::CameraData& cdata = cameras.GetData()[0];
-                    float delta = std::clamp((new_zoom - current_zoom) / 5.0f, -1.0f, 1.0f);
+                    float delta = std::clamp((new_zoom - current_zoom) / 5.0f, -zoom_speed, zoom_speed);
                     current_zoom = std::clamp(current_zoom + delta, min_zoom, max_zoom);
                     if (abs(current_zoom - new_zoom) > 0.1f) {
                         Zoom(cdata, delta);

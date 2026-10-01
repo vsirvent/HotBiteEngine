@@ -4,12 +4,17 @@
 #include "EditorLayout.h"
 #include "Inspector.h"
 #include "MaterialPanel.h"
+#include "Selection.h"
 #include "ModelPreview.h"
 
 #include "imgui.h"
 #include <World.h>
 #include <ECS/ComponentRegistry.h>
 #include <Components/Base.h>
+#include <Components/Camera.h>
+#include <Components/Sky.h>
+#include <Components/Lights.h>
+#include <Systems/CameraSystem.h>
 #include <Components/Physics.h>
 
 #include <Windows.h>
@@ -436,7 +441,11 @@ namespace HotBiteEditor {
 		static nlohmann::json PartToJson(const TemplatePart& part) {
 			nlohmann::json j;
 			j["name"] = part.name;
-			j["template"] = part.template_name;
+			//An inline part has no template to point at: its "components" is the whole
+			//definition, kept in the owner's own file.
+			if (!part.template_name.empty()) {
+				j["template"] = part.template_name;
+			}
 			j["attach"] = part.attach;
 			if (!part.bone.empty()) {
 				j["bone"] = part.bone;
@@ -445,7 +454,10 @@ namespace HotBiteEditor {
 			j["rotation"] = { {"x", part.rotation.x}, {"y", part.rotation.y},
 							  {"z", part.rotation.z}, {"w", part.rotation.w} };
 			j["scale"] = { {"x", part.scale.x}, {"y", part.scale.y}, {"z", part.scale.z} };
-			if (part.components.is_object() && !part.components.empty()) {
+			if (part.template_name.empty()) {
+				j["components"] = part.components.is_object() ? part.components : nlohmann::json::object();
+			}
+			else if (part.components.is_object() && !part.components.empty()) {
 				j["components"] = part.components;
 			}
 			return j;
@@ -736,6 +748,18 @@ namespace HotBiteEditor {
 					//aborting the whole template.
 				}
 			}
+			//A game's own components (a NightLight on a point light) are not in the registry
+			//above: the editor holds their values beside the entity. They are as much a
+			//part of what the entity is as any other component, so they go into the
+			//template too - or an instance would come back without them.
+			if (c->ContainsComponent<Base>(e)) {
+				const auto opaque = state.opaque_components.find(c->GetConstComponent<Base>(e).name);
+				if (opaque != state.opaque_components.end()) {
+					for (const auto& [component_name, value] : opaque->second) {
+						components[component_name] = value;
+					}
+				}
+			}
 			if (components.contains(Transform::NAME)) {
 				components[Transform::NAME]["position"] = nlohmann::json{
 					{"x", 0.0f}, {"y", 0.0f}, {"z", 0.0f} };
@@ -855,7 +879,15 @@ namespace HotBiteEditor {
 				error = "no scene";
 				return false;
 			}
-			if (template_name.empty() || state.world->IsTemplateLoaded(template_name)) {
+			if (template_name.empty()) {
+				error = "template name is empty";
+				return false;
+			}
+			//An existing template is only ever *added to*, and only the one the root was
+			//placed from: "put these lights on the farm" names the farm's own template.
+			//Anything else with a taken name is refused as it always was.
+			const bool extends_template = state.world->IsTemplateLoaded(template_name);
+			if (extends_template && (pivot_root || InstanceTemplateOf(state, root_entity) != template_name)) {
 				error = "a template named '" + template_name + "' already exists";
 				return false;
 			}
@@ -874,7 +906,22 @@ namespace HotBiteEditor {
 			const Transform root_transform = c->GetConstComponent<Transform>(root);
 
 			nlohmann::json components;
-			if (pivot_root) {
+			nlohmann::json parts = nlohmann::json::array();
+			std::vector<TemplatePart> added;
+			if (extends_template) {
+				//Its own body and the parts it has stay as they are; what is selected is added.
+				TemplateSnapshot existing;
+				if (!GetSnapshot(state, template_name, existing) || !existing.exists) {
+					error = "unknown template: " + template_name;
+					return false;
+				}
+				components = existing.components;
+				if (existing.parts.is_array()) {
+					parts = existing.parts;
+				}
+				added = ListParts(state, template_name);
+			}
+			else if (pivot_root) {
 				//No one of the pieces *is* the object, so the template's own body is an
 				//invisible marker at the root's pose: something to select, move and
 				//rotate the assembly by. Genuinely mesh-less - World::SpawnTemplateEntities
@@ -894,8 +941,7 @@ namespace HotBiteEditor {
 				components = SerializeEntityAsTemplate(state, c, root);
 			}
 
-			nlohmann::json parts = nlohmann::json::array();
-			std::vector<TemplatePart> added;
+			const size_t parts_before = parts.size();
 			int made_templates = 0;
 			for (const std::string& entity_name : entity_names) {
 				if (!pivot_root && entity_name == root_entity) {
@@ -903,8 +949,9 @@ namespace HotBiteEditor {
 				}
 				Entity e = c->GetEntityByName(entity_name);
 				if (e == INVALID_ENTITY_ID || !c->ContainsComponent<Transform>(e) ||
-					!c->ContainsComponent<Mesh>(e)) {
-					//Lights, cameras and the sky are not objects a template can carry.
+					c->ContainsComponent<Camera>(e) || c->ContainsComponent<Sky>(e)) {
+					//A camera and the sky are not objects a template can carry. Everything
+					//else is, mesh or no mesh: a point light is a perfectly good part.
 					continue;
 				}
 				//A part is a reference, so there has to be something to refer to: an
@@ -929,7 +976,7 @@ namespace HotBiteEditor {
 				added.push_back(part);
 				parts.push_back(PartToJson(part));
 			}
-			if (parts.empty()) {
+			if (parts.size() == parts_before) {
 				error = "nothing in the selection could become a part";
 				return false;
 			}
@@ -937,10 +984,16 @@ namespace HotBiteEditor {
 				return false;
 			}
 			state.selected_template = template_name;
-			state.status_message = "Created composed template '" + template_name + "' from " +
-				std::to_string(parts.size()) + " part(s)" +
+			const size_t new_parts = parts.size() - parts_before;
+			state.status_message = std::string(extends_template ? "Added " : "Created composed template '" +
+				template_name + "' from ") + std::to_string(new_parts) + " part(s)" +
+				(extends_template ? " to template '" + template_name + "'" : std::string()) +
 				(made_templates > 0 ? " (" + std::to_string(made_templates) + " new sub-template(s))" : "");
 			return true;
+		}
+
+		std::string InstanceTemplate(const EditorState& state, const std::string& entity_name) {
+			return InstanceTemplateOf(state, entity_name);
 		}
 
 		std::string InstanceOf(const EditorState& state, const std::string& entity_name) {
@@ -1139,6 +1192,529 @@ namespace HotBiteEditor {
 			state.status_message = "Applied " + std::to_string(applied) + " part(s) of " +
 				instance + " to template " + template_name;
 			return true;
+		}
+
+		// == Template edit mode ====================================================
+		//
+		// Editing a template *directly*: the template is placed alone at the origin as a
+		// session instance and the editor shows nothing but it - the level's own entities
+		// are hidden from the scene and left out of the Entities list, and the view gets a
+		// basic ambient light of its own (and a camera, when the level has none). The
+		// ordinary tools work on it, and the Entities list *is* the template: drag an
+		// entity onto another to make it a child, move a child to change its offset, add
+		// entities, delete them. Save writes the list back as the template.
+		//
+		// The session instance is never part of the level: closing the session removes
+		// every entity it made, and Save Level refuses while one is open.
+
+		static bool IsCoreTemplateComponent(const std::string& name) {
+			return name == Base::NAME || name == Transform::NAME || name == Mesh::NAME ||
+				name == Material::NAME || name == Bounds::NAME;
+		}
+
+		static bool IsSessionEntity(const EditorState& state, const std::string& name) {
+			const TemplateEditSession& s = state.template_edit;
+			return s.active && s.level_entities.count(name) == 0 && s.internal.count(name) == 0;
+		}
+
+		bool HiddenInTemplateEdit(const EditorState& state, const std::string& name) {
+			const TemplateEditSession& s = state.template_edit;
+			return s.active && (s.level_entities.count(name) != 0 || s.internal.count(name) != 0);
+		}
+
+		//A game's own components are not in the registry, so the spawner cannot give
+		//them to the entity; the editor keeps their values beside it instead
+		//(EditorState::opaque_components), which is what the Inspector edits and what
+		//Save reads back.
+		static void AdoptGameComponents(EditorState& state, const std::string& entity_name,
+			const nlohmann::json& components) {
+			if (!components.is_object()) {
+				return;
+			}
+			for (auto it = components.begin(); it != components.end(); ++it) {
+				if (ComponentRegistry::Instance().Find(it.key()) == nullptr) {
+					state.opaque_components[entity_name][it.key()] = it.value();
+				}
+			}
+		}
+
+		//What the session shows of the template as it stands: the game components of the
+		//root and of each part (its own template's, then this template's overrides on
+		//top), and the baseline Save measures the edits against.
+		static void LoadSessionComponents(EditorState& state, Coordinator* c) {
+			TemplateEditSession& session = state.template_edit;
+			session.baseline.clear();
+			session.part_of.clear();
+			TemplateSnapshot snapshot;
+			if (!GetSnapshot(state, session.template_name, snapshot)) {
+				return;
+			}
+			AdoptGameComponents(state, session.instance, snapshot.components);
+			if (snapshot.parts.is_array()) {
+				for (const auto& entry : snapshot.parts) {
+					const TemplatePart part = PartFromJson(entry);
+					const std::string entity_name = session.instance + World::PART_NAME_SEPARATOR + part.name;
+					session.part_of[entity_name] = part.name;
+					TemplateSnapshot part_template;
+					if (GetSnapshot(state, part.template_name, part_template)) {
+						AdoptGameComponents(state, entity_name, part_template.components);
+					}
+					AdoptGameComponents(state, entity_name, part.components);
+				}
+			}
+			Entity root = c->GetEntityByName(session.instance);
+			if (root != INVALID_ENTITY_ID) {
+				session.baseline[session.instance] = SerializeEntityAsTemplate(state, c, root);
+			}
+			for (const auto& [entity_name, part_name] : session.part_of) {
+				Entity e = c->GetEntityByName(entity_name);
+				if (e != INVALID_ENTITY_ID) {
+					session.baseline[entity_name] = SerializeEntityAsTemplate(state, c, e);
+				}
+			}
+		}
+
+		//Gives the view what a template needs to be looked at without the level around it:
+		//a plain ambient light (the level's own is set to it for the session, or one is
+		//made when there is none) and a camera when the level has none. None of it is
+		//listed or saved.
+		static void EnsureSessionView(EditorState& state, Coordinator* c) {
+			TemplateEditSession& session = state.template_edit;
+			const float3 ambient_up{ 0.62f, 0.62f, 0.66f };
+			const float3 ambient_down{ 0.30f, 0.29f, 0.27f };
+			session.ambient_backup.clear();
+			bool any_ambient = false;
+			for (const auto& [name, entity] : c->GetEntites()) {
+				if (!c->ContainsComponent<AmbientLight>(entity)) {
+					continue;
+				}
+				AmbientLight::Data& data = c->GetComponent<AmbientLight>(entity).GetData();
+				session.ambient_backup.push_back({ name, data.colorUp, data.colorDown });
+				data.colorUp = ambient_up;
+				data.colorDown = ambient_down;
+				any_ambient = true;
+			}
+			const float4 no_rotation{ 0.0f, 0.0f, 0.0f, 1.0f };
+			const float3 unit_scale{ 1.0f, 1.0f, 1.0f };
+			if (!any_ambient) {
+				const std::string name = "__template_edit_ambient";
+				Entity e = state.world->CreateEmptyEntity(name, float3{}, no_rotation, unit_scale);
+				if (e != INVALID_ENTITY_ID) {
+					c->AddComponent<AmbientLight>(e, AmbientLight(ambient_down, ambient_up));
+					c->NotifySignatureChange(e);
+					session.internal.insert(name);
+				}
+			}
+			std::shared_ptr<Systems::CameraSystem> cameras = c->GetSystem<Systems::CameraSystem>();
+			if (cameras != nullptr && cameras->GetCameras().GetData().empty()) {
+				const std::string name = "__template_edit_camera";
+				Entity e = state.world->CreateEmptyEntity(name, float3{}, no_rotation, unit_scale);
+				if (e != INVALID_ENTITY_ID) {
+					c->AddComponent<Camera>(e);
+					c->NotifySignatureChange(e);
+					session.internal.insert(name);
+				}
+			}
+		}
+
+		//Removes an entity the session made, and every record the editor keeps of it, so the
+		//level is left exactly as it was.
+		static void PurgeSessionEntity(EditorState& state, Coordinator* c, const std::string& name) {
+			auto created = std::find(state.created_entities.begin(), state.created_entities.end(), name);
+			if (created != state.created_entities.end()) {
+				state.created_entities.erase(created);
+			}
+			state.component_deltas.erase(name);
+			state.overridden_entities.erase(name);
+			state.entity_group_of.erase(name);
+			state.opaque_components.erase(name);
+			Entity e = c->GetEntityByName(name);
+			if (e != INVALID_ENTITY_ID) {
+				Selection::Remove(state, e);
+				state.instance_entity_ids.erase(e);
+				c->DestroyEntity(e);
+			}
+		}
+
+		static void PurgeSessionEntities(EditorState& state, Coordinator* c, bool include_internal) {
+			TemplateEditSession& session = state.template_edit;
+			AssetBrowser::RemovePlacedInstance(state, session.instance);
+			std::vector<std::string> names;
+			for (const auto& [name, entity] : c->GetEntites()) {
+				if (session.level_entities.count(name) != 0) {
+					continue;
+				}
+				if (!include_internal && session.internal.count(name) != 0) {
+					continue;
+				}
+				names.push_back(name);
+			}
+			for (const std::string& name : names) {
+				PurgeSessionEntity(state, c, name);
+			}
+			//The instance's own entities went with RemovePlacedInstance above; what the editor
+			//kept about them goes too.
+			auto belongs = [&session](const std::string& key) {
+				return key.compare(0, session.instance.size(), session.instance) == 0;
+			};
+			for (auto it = state.opaque_components.begin(); it != state.opaque_components.end();) {
+				it = belongs(it->first) ? state.opaque_components.erase(it) : std::next(it);
+			}
+			for (auto it = state.component_deltas.begin(); it != state.component_deltas.end();) {
+				it = belongs(it->first) ? state.component_deltas.erase(it) : std::next(it);
+			}
+			for (auto it = state.overridden_entities.begin(); it != state.overridden_entities.end();) {
+				it = belongs(*it) ? state.overridden_entities.erase(it) : std::next(it);
+			}
+		}
+
+		//Spawns the template as the session instance and reads it into the session.
+		static bool SpawnSessionInstance(EditorState& state, Coordinator* c, std::string& error) {
+			TemplateEditSession& session = state.template_edit;
+			PlacedInstance inst;
+			inst.name = session.instance;
+			inst.template_name = session.template_name;
+			if (!AssetBrowser::SpawnRecordedInstance(state, inst, error)) {
+				return false;
+			}
+			LoadSessionComponents(state, c);
+			Entity root = c->GetEntityByName(session.instance);
+			if (root != INVALID_ENTITY_ID) {
+				Selection::Set(state, root);
+			}
+			return true;
+		}
+
+		bool BeginTemplateEdit(EditorState& state, const std::string& name, std::string& error) {
+			if (state.world == nullptr || state.world->GetAssetsPath().empty()) {
+				error = "no level open";
+				return false;
+			}
+			TemplateEditSession& session = state.template_edit;
+			if (session.active) {
+				error = "already editing template '" + session.template_name + "' - close it first";
+				return false;
+			}
+			if (!IsAuthored(state, name)) {
+				error = "not an authored template: " + name;
+				return false;
+			}
+			Coordinator* c = state.world->GetCoordinator();
+			if (c == nullptr) {
+				error = "no scene";
+				return false;
+			}
+			session = TemplateEditSession{};
+			//Not "<template>__edit": the double underscore is what joins an instance to its
+			//parts, and a template that is itself placed as "<template>" would claim this
+			//entity as one of its own parts.
+			session.template_name = name;
+			session.instance = name + "_editing";
+			session.level_was_clean = !EditorHistory::HasUnsavedChanges();
+			for (const auto& [entity_name, entity] : c->GetEntites()) {
+				session.level_entities.insert(entity_name);
+			}
+			session.active = true;
+			//The view first: the entities the session destroys later are all newer than the
+			//camera, so none of them moves a component the camera system keeps pointing at.
+			EnsureSessionView(state, c);
+			if (!SpawnSessionInstance(state, c, error)) {
+				session = TemplateEditSession{};
+				return false;
+			}
+			//Alone in the viewport: everything the level drew is hidden for the session and
+			//given back when it ends. The lights, the camera and the sky keep working.
+			for (const std::string& entity_name : session.level_entities) {
+				Entity entity = c->GetEntityByName(entity_name);
+				if (entity == INVALID_ENTITY_ID || !c->ContainsComponent<Base>(entity) ||
+					c->ContainsComponent<Camera>(entity) || c->ContainsComponent<AmbientLight>(entity) ||
+					c->ContainsComponent<DirectionalLight>(entity) || c->ContainsComponent<Sky>(entity)) {
+					continue;
+				}
+				Base& base = c->GetComponent<Base>(entity);
+				if (base.visible) {
+					base.visible = false;
+					session.hidden.push_back(entity_name);
+				}
+			}
+			session.focus_pending = 120;
+			state.selected_template = name;
+			state.status_message = "Editing template '" + name + "'. File/Save Template writes it, File/Close Template ends the session.";
+			return true;
+		}
+
+		//What an entity is, as the inline definition of a part: all of its components, with the
+		//pose left to the part (the definition's own transform is the identity).
+		static nlohmann::json InlineDefinition(EditorState& state, Coordinator* c, Entity e) {
+			nlohmann::json definition = SerializeEntityAsTemplate(state, c, e);
+			definition[Transform::NAME] = {
+				{"position", {{"x", 0.0f}, {"y", 0.0f}, {"z", 0.0f}}},
+				{"rotation", {{"x", 0.0f}, {"y", 0.0f}, {"z", 0.0f}, {"w", 1.0f}}},
+				{"scale", {{"x", 1.0f}, {"y", 1.0f}, {"z", 1.0f}}} };
+			return definition;
+		}
+
+		bool SaveTemplateEdit(EditorState& state, std::string& error) {
+			TemplateEditSession& session = state.template_edit;
+			if (!session.active) {
+				error = "not editing a template";
+				return false;
+			}
+			Coordinator* c = state.world->GetCoordinator();
+			Entity root = c->GetEntityByName(session.instance);
+			if (root == INVALID_ENTITY_ID) {
+				error = "the session root is gone";
+				return false;
+			}
+			TemplateSnapshot before;
+			if (!GetSnapshot(state, session.template_name, before) || !before.exists) {
+				error = "unknown template: " + session.template_name;
+				return false;
+			}
+			const PlacedInstance* record = nullptr;
+			for (const PlacedInstance& inst : state.placed_instances) {
+				if (inst.name == session.instance) {
+					record = &inst;
+					break;
+				}
+			}
+			const float3 instance_scale = (record != nullptr) ? record->scale : float3{ 1.0f, 1.0f, 1.0f };
+			const Transform root_transform = c->GetConstComponent<Transform>(root);
+
+			//1. The root: its components, as the difference from what the session started
+			//from. The base pose and Base are the template's own, not the session instance's.
+			nlohmann::json components = before.components;
+			const nlohmann::json root_live = SerializeEntityAsTemplate(state, c, root);
+			const nlohmann::json& root_before = session.baseline[session.instance];
+			for (auto it = root_live.begin(); it != root_live.end(); ++it) {
+				if (it.key() == Transform::NAME || it.key() == Base::NAME) {
+					continue;
+				}
+				if (!root_before.contains(it.key()) || root_before[it.key()] != it.value()) {
+					components[it.key()] = it.value();
+				}
+			}
+			for (auto it = root_before.begin(); it != root_before.end(); ++it) {
+				if (!IsCoreTemplateComponent(it.key()) && !root_live.contains(it.key())) {
+					components.erase(it.key());
+				}
+			}
+
+			//2. The parts: every other entity of the session is one. The ones the template
+			//already had keep their template and their overrides; a new one gets a template
+			//made from it. A child of the root is attached to it, anything else stands free.
+			std::vector<std::pair<std::string, Entity>> members;
+			for (const auto& [name, entity] : c->GetEntites()) {
+				if (name == session.instance || !IsSessionEntity(state, name) ||
+					!c->ContainsComponent<Transform>(entity) || !c->ContainsComponent<Base>(entity)) {
+					continue;
+				}
+				members.emplace_back(name, entity);
+			}
+			//Parts the template had first, so the names they keep cannot be taken by new ones.
+			std::sort(members.begin(), members.end(), [&session](const auto& a, const auto& b) {
+				const bool a_known = session.part_of.count(a.first) != 0;
+				const bool b_known = session.part_of.count(b.first) != 0;
+				return (a_known != b_known) ? a_known : a.first < b.first;
+				});
+			nlohmann::json parts = nlohmann::json::array();
+			std::vector<TemplatePart> built;
+			for (const auto& [entity_name, entity] : members) {
+				TemplatePart part;
+				nlohmann::json overrides = nlohmann::json::object();
+				const auto known = session.part_of.find(entity_name);
+				if (known != session.part_of.end()) {
+					const nlohmann::json* entry = nullptr;
+					for (const auto& candidate : before.parts) {
+						if (candidate.value("name", std::string()) == known->second) {
+							entry = &candidate;
+							break;
+						}
+					}
+					if (entry == nullptr) {
+						continue;
+					}
+					part = PartFromJson(*entry);
+					if (part.components.is_object()) {
+						overrides = part.components;
+					}
+				}
+				else {
+					//Added during the session: an inline part, defined in this template's own
+					//file - no template of its own is made for it.
+					part.template_name.clear();
+					part.name = UniquePartName(built, entity_name);
+				}
+				const bool inline_part = part.template_name.empty();
+				const bool attached = c->GetConstComponent<Base>(entity).parent == root;
+				part.attach = attached;
+				if (!attached) {
+					part.bone.clear();
+				}
+				MeasureSpawnedPart(state, root_transform, c->GetConstComponent<Transform>(entity),
+					instance_scale, part);
+				if (inline_part) {
+					//The entity is the whole definition, new or not.
+					part.components = InlineDefinition(state, c, entity);
+					built.push_back(part);
+					parts.push_back(PartToJson(part));
+					continue;
+				}
+				if (known != session.part_of.end()) {
+					const nlohmann::json live = SerializeEntityAsTemplate(state, c, entity);
+					const nlohmann::json& baseline = session.baseline[entity_name];
+					for (auto it = live.begin(); it != live.end(); ++it) {
+						if (it.key() == Transform::NAME || it.key() == Base::NAME) {
+							continue;
+						}
+						if (!baseline.contains(it.key()) || baseline[it.key()] != it.value()) {
+							overrides[it.key()] = it.value();
+						}
+					}
+					for (auto it = baseline.begin(); it != baseline.end(); ++it) {
+						if (!IsCoreTemplateComponent(it.key()) && !live.contains(it.key())) {
+							overrides.erase(it.key());
+						}
+					}
+				}
+				part.components = overrides;
+				built.push_back(part);
+				parts.push_back(PartToJson(part));
+			}
+
+			if (!MutateTemplate(state, session.template_name, components, false, error, &parts)) {
+				return false;
+			}
+			if (!SaveTemplates(state, error)) {
+				return false;
+			}
+			//The session is rebuilt from what was just written: the entities added during it
+			//are parts now, under the names the template gives them.
+			PurgeSessionEntities(state, c, false);
+			if (!SpawnSessionInstance(state, c, error)) {
+				return false;
+			}
+			if (session.level_was_clean) {
+				EditorHistory::Clear();
+			}
+			state.status_message = "Saved template '" + session.template_name + "'";
+			return true;
+		}
+
+		bool EndTemplateEdit(EditorState& state, bool save, std::string& error) {
+			TemplateEditSession& session = state.template_edit;
+			if (!session.active) {
+				error = "not editing a template";
+				return false;
+			}
+			if (save && !SaveTemplateEdit(state, error)) {
+				return false;
+			}
+			Coordinator* c = state.world->GetCoordinator();
+			for (const std::string& hidden : session.hidden) {
+				Entity e = c->GetEntityByName(hidden);
+				if (e != INVALID_ENTITY_ID && c->ContainsComponent<Base>(e)) {
+					c->GetComponent<Base>(e).visible = true;
+				}
+			}
+			for (const auto& backup : session.ambient_backup) {
+				Entity e = c->GetEntityByName(backup.name);
+				if (e != INVALID_ENTITY_ID && c->ContainsComponent<AmbientLight>(e)) {
+					AmbientLight::Data& data = c->GetComponent<AmbientLight>(e).GetData();
+					data.colorUp = backup.up;
+					data.colorDown = backup.down;
+				}
+			}
+			PurgeSessionEntities(state, c, true);
+			const std::string name = session.template_name;
+			const bool history_was_clean = session.level_was_clean;
+			session = TemplateEditSession{};
+			Selection::Clear(state);
+			//The session's undo steps name entities that no longer exist. When the level was
+			//clean going in they are all there is, and dropping them leaves it clean.
+			if (history_was_clean) {
+				EditorHistory::Clear();
+			}
+			state.status_message = std::string(save ? "Saved and closed" : "Closed") + " template '" + name + "'";
+			return true;
+		}
+
+		bool DeleteInTemplateEdit(EditorState& state, bool& handled, std::string& error) {
+			TemplateEditSession& session = state.template_edit;
+			handled = false;
+			if (!session.active) {
+				return false;
+			}
+			handled = true;
+			Coordinator* c = state.world->GetCoordinator();
+			std::vector<std::string> doomed;
+			for (Entity e : state.selected_entities) {
+				if (!c->ContainsComponent<Base>(e)) {
+					continue;
+				}
+				const std::string name = c->GetConstComponent<Base>(e).name;
+				if (name == session.instance) {
+					error = "the template root cannot be deleted - close the template instead";
+					return false;
+				}
+				if (IsSessionEntity(state, name)) {
+					doomed.push_back(name);
+				}
+			}
+			if (doomed.empty()) {
+				error = "nothing selected that belongs to the template";
+				return false;
+			}
+			//A child goes with its parent: left behind it would stand free, which is not
+			//what deleting the parent means.
+			std::set<std::string> all(doomed.begin(), doomed.end());
+			for (const auto& [name, entity] : c->GetEntites()) {
+				if (!c->ContainsComponent<Base>(entity)) {
+					continue;
+				}
+				const Entity parent = c->GetConstComponent<Base>(entity).parent;
+				if (parent != INVALID_ENTITY_ID && c->ContainsComponent<Base>(parent) &&
+					all.count(c->GetConstComponent<Base>(parent).name) != 0 && IsSessionEntity(state, name)) {
+					all.insert(name);
+				}
+			}
+			for (const std::string& name : all) {
+				PurgeSessionEntity(state, c, name);
+			}
+			state.status_message = "Removed " + std::to_string(all.size()) + " entity(ies) from the template being edited";
+			return true;
+		}
+
+		bool OpenTemplateFile(EditorState& state, const std::string& path, std::string& error) {
+			if (state.world == nullptr || state.world->GetAssetsPath().empty()) {
+				error = "no level open";
+				return false;
+			}
+			std::string name;
+			nlohmann::json components;
+			nlohmann::json parts;
+			if (!state.world->ReadTemplateFile(path, false, name, components, parts, error)) {
+				return false;
+			}
+			//A template the project already has is opened as it is - its file is the
+			//project's own copy. A new one is brought in first, as Import does.
+			if (!state.world->IsTemplateLoaded(name) && !ImportTemplate(state, path, error)) {
+				return false;
+			}
+			return BeginTemplateEdit(state, name, error);
+		}
+
+		std::string ChooseTemplateFile() {
+			char file[MAX_PATH] = {};
+			OPENFILENAMEA ofn = {};
+			ofn.lStructSize = sizeof(ofn);
+			ofn.hwndOwner = nullptr;
+			ofn.lpstrFilter = "Template files\0*.tpl\0All files\0*.*\0";
+			ofn.lpstrFile = file;
+			ofn.nMaxFile = sizeof(file);
+			ofn.lpstrTitle = "Open Template";
+			ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+			return GetOpenFileNameA(&ofn) ? std::string(file) : std::string();
 		}
 
 		bool CreateFromModel(EditorState& state, const std::string& model_name,
@@ -2620,6 +3196,9 @@ namespace HotBiteEditor {
 				if (ImGui::BeginPopupModal("Template From Selection", nullptr,
 					ImGuiWindowFlags_AlwaysAutoResize)) {
 					ImGui::TextUnformatted("Name for the composed template:");
+					ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + 320.0f);
+					ImGui::TextDisabled("Give the root's own template name to add the others to it as parts.");
+					ImGui::PopTextWrapPos();
 					ImGui::SetNextItemWidth(320.0f);
 					const bool entered = ImGui::InputText("##name", buffer, buffer_size,
 						ImGuiInputTextFlags_EnterReturnsTrue);
@@ -2717,7 +3296,12 @@ namespace HotBiteEditor {
 						//whatever was clicked last. The Entities panel marks it, and the
 						//combo in the prompt can still override it.
 						const std::string root = selection.front();
-						strncpy_s(from_entity_name, UniqueName(state, root + "_group").c_str(),
+						//Gathering things around a placed object most often means "these go
+						//on that object's template", so its own name is offered; a new name
+						//makes a new composed template instead, as it always did.
+						const std::string own_template = TemplateOps::InstanceTemplate(state, root);
+						strncpy_s(from_entity_name,
+							own_template.empty() ? UniqueName(state, root + "_group").c_str() : own_template.c_str(),
 							sizeof(from_entity_name) - 1);
 						composed_root = root;
 						composed_pivot_root = false;
@@ -2735,6 +3319,36 @@ namespace HotBiteEditor {
 
 				const bool authored_selected =
 					TemplateOps::IsAuthored(state, state.selected_template);
+				ImGui::SameLine();
+				if (state.template_edit.active) {
+					if (ImGui::Button("Save Edit")) {
+						std::string edit_error;
+						if (!TemplateOps::SaveTemplateEdit(state, edit_error)) {
+							state.status_message = "Save template failed: " + edit_error;
+						}
+					}
+					ImGui::SameLine();
+					if (ImGui::Button("Close Edit")) {
+						std::string edit_error;
+						if (!TemplateOps::EndTemplateEdit(state, false, edit_error)) {
+							state.status_message = "Close template failed: " + edit_error;
+						}
+					}
+				}
+				else {
+					ImGui::BeginDisabled(!authored_selected);
+					if (ImGui::Button("Edit")) {
+						std::string edit_error;
+						if (!TemplateOps::BeginTemplateEdit(state, state.selected_template, edit_error)) {
+							state.status_message = "Edit failed: " + edit_error;
+						}
+					}
+					ImGui::EndDisabled();
+					if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+						ImGui::SetTooltip("Edit the template itself, alone in the viewport: move its parts,\n"
+							"edit its components and game components, then save it.");
+					}
+				}
 				ImGui::SameLine();
 				ImGui::BeginDisabled(!authored_selected);
 				if (ImGui::Button("Duplicate")) {

@@ -26,6 +26,7 @@ SOFTWARE.
 
 #include "Event.h"
 #include "Types.h"
+#include <algorithm>
 #include <functional>
 #include <list>
 #include <unordered_map>
@@ -67,7 +68,7 @@ namespace HotBite {
 					assert(listener_by_id.find(id.listener_id) == listener_by_id.end());
 					EventPair key(eventId, ECS::INVALID_ENTITY_ID);
 					listener_by_id[id.listener_id] = key;
-					listeners[key].emplace_back(listener);
+					listeners[key].push_back({ listener_id, listener });
 					return id;
 				}
 
@@ -80,34 +81,30 @@ namespace HotBite {
 					assert(listener_by_id.find(id.listener_id) == listener_by_id.end());
 					EventPair key(eventId, e);
 					listener_by_id[id.listener_id] = key;
-					listeners_by_entity[key].emplace_back(listener);
+					listeners_by_entity[key].push_back({ listener_id, listener });
 					return id;
 				}
 
 				void RemoveListener(const EventListenerId& id)
 				{
-					bool removed = false;
 					auto it = listener_by_id.find(id.listener_id);
 					if (it != listener_by_id.end()) {
-						if (id.e != INVALID_ENTITY_ID) {
-							auto it2 = listeners_by_entity.find(it->second);
-							if (it2 != listeners_by_entity.end()) {
-								listeners_by_entity.erase(it2);
-								removed = true;
+						//Only this listener goes: a key holds every listener of that event (and entity),
+						//and erasing the whole entry silenced the others too - any widget being destroyed
+						//removed the mouse listeners of everything else registered for the same event.
+						auto& table = (id.e != INVALID_ENTITY_ID) ? listeners_by_entity : listeners;
+						auto it2 = table.find(it->second);
+						if (it2 != table.end()) {
+							auto& list = it2->second;
+							list.erase(std::remove_if(list.begin(), list.end(),
+								[&](const Listener& l) { return l.id == id.listener_id; }), list.end());
+							if (list.empty()) {
+								table.erase(it2);
 							}
 						}
-						else {
-							auto it2 = listeners.find(it->second);
-							if (it2 != listeners.end()) {
-								listeners.erase(it2);
-								removed = true;
-							}
-						}
-						//assert(removed == true);
 						listener_by_id.erase(it);
 						listener_ids.push_back(id.listener_id);
 					}
-					//assert(removed == true);
 				}
 
 				void SendEvent(Event& event)
@@ -119,7 +116,7 @@ namespace HotBite {
 					if (it != listeners.end()) {
 						for (const auto& listener : it->second)
 						{
-							listener(event);
+							listener.callback(event);
 						}
 					}
 					if (e != INVALID_ENTITY_ID) {
@@ -127,7 +124,7 @@ namespace HotBite {
 						auto listeners_by_type_entity = listeners_by_entity.find(eid);
 						if (listeners_by_type_entity != listeners_by_entity.end()) {
 							for (const auto& listener : listeners_by_type_entity->second) {
-								listener(event);
+								listener.callback(event);
 							}
 						}
 					}
@@ -142,7 +139,7 @@ namespace HotBite {
 					if (it != listeners.end()) {
 						for (const auto& listener : it->second)
 						{
-							listener(event);
+							listener.callback(event);
 						}
 					}
 					if (e != INVALID_ENTITY_ID) {
@@ -150,7 +147,7 @@ namespace HotBite {
 						auto listeners_by_type_entity = listeners_by_entity.find(eid);
 						if (listeners_by_type_entity != listeners_by_entity.end()) {
 							for (const auto& listener : listeners_by_type_entity->second) {
-								listener(event);
+								listener.callback(event);
 							}
 						}
 					}
@@ -164,9 +161,14 @@ namespace HotBite {
 			private:
 				static const int MAX_LISTENERS = 5000;
 				using EventPair = std::pair<EventId, Entity>;
+				//A listener and the id it was given, so removing one leaves the others of its event alone.
+				struct Listener {
+					uint32_t id;
+					std::function<void(Event&)> callback;
+				};
 				std::list<uint32_t> listener_ids;
-				std::unordered_map<EventPair, std::vector<std::function<void(Event&)>>> listeners_by_entity;
-				std::unordered_map<EventPair, std::vector<std::function<void(Event&)>>> listeners;
+				std::unordered_map<EventPair, std::vector<Listener>> listeners_by_entity;
+				std::unordered_map<EventPair, std::vector<Listener>> listeners;
 				std::unordered_map<uint32_t, EventPair> listener_by_id;
 			};
 		}

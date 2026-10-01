@@ -5,6 +5,8 @@
 #include "Inspector.h"
 #include "AssetBrowser.h"
 #include "Selection.h"
+#include "TemplatePanel.h"
+#include <DirectXMath.h>
 
 #include <Components/Base.h>
 #include <Components/Camera.h>
@@ -840,6 +842,142 @@ namespace HotBiteEditor {
 			return IsClonable(c, e);
 		}
 
+		//What SetEntityParent changes about one entity, captured to undo and redo it: who the
+		//parent is ("" for none) and the local pose that goes with it.
+		struct ParentState {
+			std::string parent;
+			float3 position{};
+			float4 rotation{ 0.0f, 0.0f, 0.0f, 1.0f };
+		};
+
+		//Writes a parent link and the local pose that goes with it onto `name`. Base keeps the
+		//link as an entity id; everything else in the editor refers to entities by name.
+		static void ApplyParentState(EditorState& state, const std::string& name, const ParentState& to)
+		{
+			Coordinator* c = state.world->GetCoordinator();
+			Entity e = c->GetEntityByName(name);
+			if (e == INVALID_ENTITY_ID || !c->ContainsComponent<Base>(e) || !c->ContainsComponent<Transform>(e)) {
+				return;
+			}
+			Base& base = c->GetComponent<Base>(e);
+			Entity parent = to.parent.empty() ? INVALID_ENTITY_ID : c->GetEntityByName(to.parent);
+			base.parent = parent;
+			//The joint the old parent's skeleton gave, if any, means nothing to another parent.
+			base.parent_bone.clear();
+			base.parent_joint = Base::UNRESOLVED_JOINT;
+			Transform& t = c->GetComponent<Transform>(e);
+			t.position = to.position;
+			t.rotation = to.rotation;
+			t.dirty = true;
+			//Saved with the level as edits of Base and Transform.
+			ComponentOps::MarkEdited(state, name, Base::NAME);
+			ComponentOps::MarkEdited(state, name, Transform::NAME);
+		}
+
+		//Where an entity stands in the world, from its own pose and its parent's - the engine's
+		//composition: the local pose turned by the parent's rotation, then moved by its position
+		//(the parent's scale does not reach the child).
+		static void WorldPose(Coordinator* c, Entity e, float3& position, float4& rotation)
+		{
+			const Transform& t = c->GetConstComponent<Transform>(e);
+			position = t.position;
+			rotation = t.rotation;
+			const Base& base = c->GetConstComponent<Base>(e);
+			if (base.parent == INVALID_ENTITY_ID || !c->ContainsComponent<Transform>(base.parent)) {
+				return;
+			}
+			const Transform& p = c->GetConstComponent<Transform>(base.parent);
+			vector3d local = DirectX::XMVectorSet(t.position.x, t.position.y, t.position.z, 0.0f);
+			vector4d pq = DirectX::XMLoadFloat4(&p.rotation);
+			vector3d turned = DirectX::XMVector3Rotate(local, pq);
+			DirectX::XMStoreFloat3(&position, DirectX::XMVectorAdd(turned, DirectX::XMVectorSet(p.position.x, p.position.y, p.position.z, 0.0f)));
+			DirectX::XMStoreFloat4(&rotation, DirectX::XMQuaternionMultiply(DirectX::XMLoadFloat4(&t.rotation), pq));
+		}
+
+		bool SetEntityParent(EditorState& state, const std::string& child_name,
+			const std::string& parent_name, std::string& error)
+		{
+			Coordinator* c = state.world->GetCoordinator();
+			if (c == nullptr) {
+				error = "no scene loaded";
+				return false;
+			}
+			Entity child = c->GetEntityByName(child_name);
+			if (child == INVALID_ENTITY_ID || !c->ContainsComponent<Base>(child) ||
+				!c->ContainsComponent<Transform>(child)) {
+				error = "unknown entity: " + child_name;
+				return false;
+			}
+			//The root of a template being edited is the template: it stays at the top.
+			if (!parent_name.empty() && state.template_edit.active && child_name == state.template_edit.instance) {
+				error = "the template root cannot be made a child";
+				return false;
+			}
+			Entity parent = INVALID_ENTITY_ID;
+			if (!parent_name.empty()) {
+				parent = c->GetEntityByName(parent_name);
+				if (parent == INVALID_ENTITY_ID || !c->ContainsComponent<Base>(parent) ||
+					!c->ContainsComponent<Transform>(parent)) {
+					error = "unknown entity: " + parent_name;
+					return false;
+				}
+				if (parent == child) {
+					error = "an entity cannot be its own child";
+					return false;
+				}
+				//The engine composes a child with its parent's own pose only, so a chain of
+				//parents would not be placed where it reads; the hierarchy is one level deep.
+				if (c->GetConstComponent<Base>(parent).parent != INVALID_ENTITY_ID) {
+					error = parent_name + " is itself a child; the hierarchy is one level deep";
+					return false;
+				}
+				for (const auto& [name, other] : c->GetEntites()) {
+					if (other != child && c->ContainsComponent<Base>(other) &&
+						c->GetConstComponent<Base>(other).parent == child) {
+						error = child_name + " has children of its own; the hierarchy is one level deep";
+						return false;
+					}
+				}
+			}
+			Base& base = c->GetComponent<Base>(child);
+			const Entity old_parent = base.parent;
+			if (old_parent == parent) {
+				return true; //already there; nothing to record
+			}
+
+			ParentState before;
+			before.parent = (old_parent != INVALID_ENTITY_ID && c->ContainsComponent<Base>(old_parent))
+				? c->GetConstComponent<Base>(old_parent).name : std::string();
+			before.position = c->GetConstComponent<Transform>(child).position;
+			before.rotation = c->GetConstComponent<Transform>(child).rotation;
+
+			//The child stays where it is in the world: its local pose is re-expressed in the
+			//new parent's frame (or becomes the world pose when it is let go).
+			float3 world_position;
+			float4 world_rotation;
+			WorldPose(c, child, world_position, world_rotation);
+			ParentState after;
+			after.parent = parent_name;
+			after.position = world_position;
+			after.rotation = world_rotation;
+			if (parent != INVALID_ENTITY_ID) {
+				const Transform& p = c->GetConstComponent<Transform>(parent);
+				vector4d inverse = DirectX::XMQuaternionInverse(DirectX::XMLoadFloat4(&p.rotation));
+				vector3d offset = DirectX::XMVectorSubtract(DirectX::XMVectorSet(world_position.x, world_position.y, world_position.z, 0.0f),
+					DirectX::XMVectorSet(p.position.x, p.position.y, p.position.z, 0.0f));
+				DirectX::XMStoreFloat3(&after.position, DirectX::XMVector3Rotate(offset, inverse));
+				DirectX::XMStoreFloat4(&after.rotation, DirectX::XMQuaternionMultiply(DirectX::XMLoadFloat4(&world_rotation), inverse));
+			}
+			ApplyParentState(state, child_name, after);
+			state.status_message = parent_name.empty() ? child_name + " is no longer a child"
+				: child_name + " is now a child of " + parent_name;
+			EditorHistory::Push({
+				"parent " + child_name,
+				[child_name, before](EditorState& s) { ApplyParentState(s, child_name, before); },
+				[child_name, after](EditorState& s) { ApplyParentState(s, child_name, after); } });
+			return true;
+		}
+
 		bool CanDeleteSelected(EditorState& state)
 		{
 			for (Entity e : state.selected_entities) {
@@ -852,6 +990,13 @@ namespace HotBiteEditor {
 
 		bool DeleteSelected(EditorState& state, std::string& error)
 		{
+			//While a template is being edited, Delete takes entities out of the template
+			//rather than removing the whole session instance.
+			bool handled = false;
+			const bool done = TemplateOps::DeleteInTemplateEdit(state, handled, error);
+			if (handled) {
+				return done;
+			}
 			Coordinator* c = state.world->GetCoordinator();
 			if (c == nullptr) {
 				error = "no scene loaded";

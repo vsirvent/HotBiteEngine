@@ -1121,6 +1121,33 @@ static std::string PartTemplate(const nlohmann::json& part) {
 	return part["template"];
 }
 
+//An inline part carries its own definition instead of pointing at another template: no
+//"template" key, a "components" block that is the whole definition (and optionally its own
+//"parts"). That is how a template holds several entities in its own file - a building with
+//its lamps - rather than one file per entity.
+static bool IsInlinePart(const nlohmann::json& part) {
+	return part.is_object() && PartTemplate(part).empty() && part.contains("components") &&
+		part["components"].is_object() && part.contains("name") && part["name"].is_string();
+}
+
+//The internal template an inline part is registered as: "<owner>#<part>". The '#' keeps it
+//out of the template lists and out of the names a person can give a template.
+static std::string InlinePartTemplateName(const std::string& owner, const std::string& part_name) {
+	return owner + "#" + part_name;
+}
+
+//The template a part spawns: the one it points at, or its own inline definition.
+static std::string PartTemplateOf(const std::string& owner, const nlohmann::json& part) {
+	std::string referenced = PartTemplate(part);
+	if (!referenced.empty()) {
+		return referenced;
+	}
+	if (IsInlinePart(part)) {
+		return InlinePartTemplateName(owner, part["name"]);
+	}
+	return std::string();
+}
+
 bool World::CanComposeTemplate(const std::string& name, const std::string& part_template) const {
 	if (name.empty() || part_template.empty()) {
 		return false;
@@ -1144,7 +1171,7 @@ bool World::CanComposeTemplate(const std::string& name, const std::string& part_
 			continue;
 		}
 		for (const auto& part : *parts) {
-			const std::string referenced = PartTemplate(part);
+			const std::string referenced = PartTemplateOf(current, part);
 			if (referenced.empty()) {
 				continue;
 			}
@@ -1163,7 +1190,10 @@ std::vector<std::string> World::ListTemplates() const {
 	std::vector<std::string> names;
 	names.reserve(template_entities.size());
 	for (const auto& [name, entities] : template_entities) {
-		names.push_back(name);
+		//The internal templates of inline parts ("<owner>#<part>") belong to their owner.
+		if (name.find('#') == std::string::npos) {
+			names.push_back(name);
+		}
 	}
 	std::sort(names.begin(), names.end());
 	return names;
@@ -1201,6 +1231,35 @@ bool World::CreateTemplate(const std::string& name, const nlohmann::json& compon
 	}
 	else {
 		template_parts.erase(name);
+	}
+	//Inline parts are templates of their own, hidden: made now, and the ones the new
+	//definition no longer has are dropped.
+	std::set<std::string> wanted;
+	if (parts.is_array()) {
+		for (const auto& part : parts) {
+			if (!IsInlinePart(part)) {
+				continue;
+			}
+			const std::string inline_name = InlinePartTemplateName(name, part["name"]);
+			nlohmann::json inline_parts = part.contains("parts") ? part["parts"] : nlohmann::json::array();
+			std::string inline_error;
+			if (!CreateTemplate(inline_name, part["components"], inline_parts, inline_error)) {
+				error = "inline part '" + part["name"].get<std::string>() + "' of '" + name + "': " + inline_error;
+				return false;
+			}
+			wanted.insert(inline_name);
+		}
+	}
+	const std::string prefix = name + "#";
+	std::vector<std::string> stale;
+	for (const auto& [existing, components_json] : authored_templates) {
+		if (existing.compare(0, prefix.size(), prefix) == 0 && wanted.count(existing) == 0 &&
+			existing.find('#', prefix.size()) == std::string::npos) {
+			stale.push_back(existing);
+		}
+	}
+	for (const std::string& gone : stale) {
+		RemoveTemplate(gone);
 	}
 	return true;
 }
@@ -1297,6 +1356,17 @@ bool World::RemoveTemplate(const std::string& name) {
 		//FBX templates are not removable: their entities, meshes and materials came
 		//from a file the level still lists, and would come straight back on reload.
 		return false;
+	}
+	//The inline parts' own templates go with their owner.
+	std::vector<std::string> inline_parts;
+	const std::string prefix = name + "#";
+	for (const auto& [existing, components_json] : authored_templates) {
+		if (existing.compare(0, prefix.size(), prefix) == 0) {
+			inline_parts.push_back(existing);
+		}
+	}
+	for (const std::string& inline_name : inline_parts) {
+		RemoveTemplate(inline_name);
 	}
 	for (ECS::Entity e : GetTemplateEntities(name)) {
 		templates_coordinator->DestroyEntity(e);
@@ -2642,7 +2712,7 @@ void World::CollectInstanceNames(const std::string& instance_name, const std::st
 	chain.insert(template_name);
 	for (const auto& part : *parts) {
 		const std::string part_name = part.value("name", std::string());
-		const std::string part_template = PartTemplate(part);
+		const std::string part_template = PartTemplateOf(template_name, part);
 		if (part_name.empty() || part_template.empty() || chain.count(part_template) != 0) {
 			continue;
 		}
@@ -2700,7 +2770,7 @@ ECS::Entity World::SpawnComposed(const std::string& name, const std::string& tem
 
 	for (const auto& part : *parts) {
 		const std::string part_name = part.value("name", std::string());
-		const std::string part_template = PartTemplate(part);
+		const std::string part_template = PartTemplateOf(template_name, part);
 		if (part_name.empty() || part_template.empty()) {
 			printf("World::SpawnInstance: part of '%s' without a name or template, skipping.\n",
 				template_name.c_str());
@@ -2802,7 +2872,10 @@ ECS::Entity World::SpawnComposed(const std::string& name, const std::string& tem
 				}
 			}
 		}
-		if (part.contains("components") && part["components"].is_object()) {
+		//An inline part's "components" is its definition, which its own template already applied
+		//(Transform included, which would put it back at the origin); only a referenced part's
+		//"components" are overrides to lay over the template it points at.
+		if (!IsInlinePart(part) && part.contains("components") && part["components"].is_object()) {
 			nlohmann::json record;
 			record["components"] = part["components"];
 			for (ECS::Entity e : part_entities) {

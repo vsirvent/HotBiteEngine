@@ -98,3 +98,5 @@ secrets.local.json
 Tests/ClaudeLevel/Assets/config.mat
 /Tests/ClaudeLevel
 /Tests/DiabloLevel
+/Tests/test2
+/Tests

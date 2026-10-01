@@ -139,6 +139,78 @@ namespace HotBiteEditor {
 			return tokens;
 		}
 
+		//The app the command being run belongs to, for the handlers down the chain that need it
+		//(the chain passes only the state).
+		static SceneEditorApp* current_app = nullptr;
+
+		//Template edit mode (TemplatePanel.h): edit_template <name>, open_template <.tpl>,
+		//save_template_edit, end_template_edit [save]. False for any other command.
+		static bool HandleTemplateEditCommand(EditorState& state, const std::string& cmd,
+			const std::vector<std::string>& args, std::string& error)
+		{
+			if (cmd == "edit_template") {
+				if (args.size() < 2) {
+					response_lines.push_back("ERR usage: edit_template <template name>");
+				}
+				else if (TemplateOps::BeginTemplateEdit(state, args[1], error)) {
+					response_lines.push_back("OK editing " + args[1] + " as " + state.template_edit.instance);
+				}
+				else {
+					response_lines.push_back("ERR " + error);
+				}
+				return true;
+			}
+			if (cmd == "open_template") {
+				//A .tpl the project has is edited in place, any other is imported first.
+				if (args.size() < 2) {
+					response_lines.push_back("ERR usage: open_template <.tpl path>");
+				}
+				else if (current_app != nullptr && current_app->OpenTemplateFromFile(args[1], error)) {
+					response_lines.push_back("OK editing " + state.template_edit.template_name + " as " +
+						state.template_edit.instance);
+				}
+				else {
+					response_lines.push_back("ERR " + error);
+				}
+				return true;
+			}
+			if (cmd == "set_parent") {
+				//set_parent <child> <parent|none>: what dragging the child onto the parent in the
+				//Entities panel does. `none` lets it go.
+				if (args.size() < 3) {
+					response_lines.push_back("ERR usage: set_parent <child entity> <parent entity|none>");
+				}
+				else if (EntityOps::SetEntityParent(state, args[1], args[2] == "none" ? std::string() : args[2], error)) {
+					response_lines.push_back("OK " + state.status_message);
+				}
+				else {
+					response_lines.push_back("ERR " + error);
+				}
+				return true;
+			}
+			if (cmd == "save_template_edit") {
+				if (TemplateOps::SaveTemplateEdit(state, error)) {
+					response_lines.push_back("OK " + state.status_message);
+				}
+				else {
+					response_lines.push_back("ERR " + error);
+				}
+				return true;
+			}
+			if (cmd == "end_template_edit") {
+				//Leaves the mode, discarding unsaved edits unless told to `save` them.
+				const bool save = args.size() > 1 && args[1] == "save";
+				if (TemplateOps::EndTemplateEdit(state, save, error)) {
+					response_lines.push_back("OK " + state.status_message);
+				}
+				else {
+					response_lines.push_back("ERR " + error);
+				}
+				return true;
+			}
+			return false;
+		}
+
 		//A material's surface parameters - tessellation and the displacement the height map
 		//gets from it. Chained off the Poly Haven handler below for the same reason that one
 		//is chained off the asset-import one: the main ladder is at the compiler's C1061 limit.
@@ -155,6 +227,9 @@ namespace HotBiteEditor {
 			//TessStats) - "OK valid=<0|1> frame=<n> hs=<control points> ds=<tessellated vertices>". Only
 			//meaningful as a difference between two states of one scene, and a few frames stale: asking
 			//is what turns the query on, so the first call answers valid=0. Poll.
+			if (HandleTemplateEditCommand(state, cmd, args, error)) {
+				return true;
+			}
 			if (cmd == "tess_info") {
 				Systems::RenderSystem* rs =
 					(state.world != nullptr) ? state.world->GetSystem<Systems::RenderSystem>().get() : nullptr;
@@ -876,6 +951,7 @@ namespace HotBiteEditor {
 			j["selected_count"] = (int)Selection::Count(state);
 			j["selected_names"] = Selection::Names(state);
 			j["selected_template"] = state.selected_template;
+			j["template_edit"] = state.template_edit.active ? state.template_edit.template_name : std::string();
 			static const char* GIZMO_MODE_NAME[3] = { "translate", "rotate", "scale" };
 			j["gizmo_mode"] = GIZMO_MODE_NAME[(int)state.gizmo_mode];
 			j["mask_paint_brush_mode"] = state.mask_paint_brush_mode;
@@ -910,6 +986,7 @@ namespace HotBiteEditor {
 
 		static void Execute(const std::string& line, EditorState& state, SceneEditorApp& app)
 		{
+			current_app = &app;
 			response_lines.push_back("# " + line);
 			std::vector<std::string> args = Tokenize(line);
 			if (args.empty()) {
@@ -977,11 +1054,18 @@ namespace HotBiteEditor {
 					std::vector<std::string> lines;
 					for (const auto& [name, entity] : c->GetEntites()) {
 						//Parked (cut) entities are hidden here just like in the panel.
-						if (!c->ContainsComponent<Base>(entity) || EntityOps::IsParkedName(name)) {
+						if (!c->ContainsComponent<Base>(entity) || EntityOps::IsParkedName(name) ||
+							TemplateOps::HiddenInTemplateEdit(state, name)) {
 							continue;
 						}
 						std::ostringstream os;
 						os << name << " id=" << entity;
+						if (c->ContainsComponent<Base>(entity)) {
+							const Entity parent = c->GetConstComponent<Base>(entity).parent;
+							if (parent != INVALID_ENTITY_ID && c->ContainsComponent<Base>(parent)) {
+								os << " parent=" << c->GetConstComponent<Base>(parent).name;
+							}
+						}
 						if (c->ContainsComponent<Transform>(entity)) {
 							const Transform& t = c->GetComponent<Transform>(entity);
 							os << " pos=(" << t.position.x << "," << t.position.y << "," << t.position.z << ")";
@@ -3205,6 +3289,7 @@ namespace HotBiteEditor {
 					j["rotation_deg"] = { DirectX::XMConvertToDegrees(pose.rotation.x),
 						DirectX::XMConvertToDegrees(pose.rotation.y), DirectX::XMConvertToDegrees(pose.rotation.z) };
 					j["distance"] = distance;
+					j["near_plane"] = pose.near_plane;
 					response_lines.push_back("OK " + j.dump());
 				}
 			}

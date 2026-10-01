@@ -62,17 +62,19 @@
         },
         "render": {
             "aa": true,
-            "dof": false,
-            "dof_amplitude": 5.0,
-            "dof_autofocus": true,
-            "dof_focus": 30.0,
+            "dof": true,
+            "dof_amplitude": 0.19200000166893005,
+            "dof_autofocus": false,
+            "dof_focus": 144.80799865722656,
+            "gi_confidence": 1.0,
             "lens": true,
-            "lens_aberration": 0.0,
+            "lens_aberration": 0.9129999876022339,
             "lens_flare": true,
-            "lens_grain": 0.0,
-            "lens_vignette": 0.0,
+            "lens_grain": 0.38499999046325684,
+            "lens_vignette": 0.36500000953674316,
             "motion_blur": true,
-            "rt_indirect": false,
+            "motion_blur_scale": 1.0,
+            "rt_indirect": true,
             "rt_quality": "high",
             "rt_reflections": false,
             "rt_refractions": false,
@@ -81,53 +83,7 @@
     },
     "world": {
         "clones": [],
-        "created_entities": [
-            {
-                "components": {
-                    "Bounds": {
-                        "center": {
-                            "x": -0.016262054443359375,
-                            "y": 89.52552032470703,
-                            "z": -6.316316604614258
-                        },
-                        "extents": {
-                            "x": 90.47869873046875,
-                            "y": 90.11438751220703,
-                            "z": 68.30810546875
-                        }
-                    },
-                    "Lighted": {},
-                    "Material": {
-                        "name": "__default_material"
-                    },
-                    "Mesh": {
-                        "lod_bias": 1.0,
-                        "lod_enabled": true,
-                        "lod_mode": "auto",
-                        "lods": [],
-                        "name": "archer",
-                        "smooth": true
-                    }
-                },
-                "name": "Player",
-                "position": {
-                    "x": 0.0,
-                    "y": -0.48290205001831055,
-                    "z": 90.11137390136719
-                },
-                "rotation": {
-                    "w": 0.023518145084381104,
-                    "x": 0.0,
-                    "y": -0.9997233152389526,
-                    "z": 0.0
-                },
-                "scale": {
-                    "x": 0.20000000298023224,
-                    "y": 0.20000000298023224,
-                    "z": 0.20000000298023224
-                }
-            }
-        ],
+        "created_entities": [],
         "entities": [
             {
                 "components": {
@@ -1452,12 +1408,12 @@
                         },
                         "density": 3.0,
                         "direction": {
-                            "x": 0.3775752782821655,
-                            "y": 0.6109315752983093,
-                            "z": -0.6958444714546204
+                            "x": 0.21410895884037018,
+                            "y": 0.34643667936325073,
+                            "z": -0.9133121371269226
                         },
                         "fog": false,
-                        "intensity": 1.399999976158142,
+                        "intensity": 1.0,
                         "inverse_shadow": false,
                         "position": {
                             "x": 0.0,
@@ -2372,6 +2328,18 @@
                 "name": "Tile_r6_c6_lod3",
                 "ratio": 0.12492500245571136,
                 "source": "Tile_r6_c6"
+            },
+            {
+                "file": "Objects\\Meshy_AI_Frostbound_Industrial_0929212215_texture_fbx\\Meshy_AI_Frostbound_Industrial_0929212215_texture_fbx_lod1.hbmesh",
+                "name": "Meshy_AI_Frostbound_Industrial_0929212215_texture_fbx_lod1",
+                "ratio": 0.5,
+                "source": "Mesh_0"
+            },
+            {
+                "file": "Objects\\Meshy_AI_Frostbound_Industrial_0929212215_texture_fbx\\Meshy_AI_Frostbound_Industrial_0929212215_texture_fbx_lod2.hbmesh",
+                "name": "Meshy_AI_Frostbound_Industrial_0929212215_texture_fbx_lod2",
+                "ratio": 0.25,
+                "source": "Mesh_0"
             }
         ],
         "instances": [
@@ -4516,6 +4484,26 @@
                     "z": 1.0
                 },
                 "template": "tf_Tile_r6_c6"
+            },
+            {
+                "name": "Meshy_AI_Frostbound_Industrial_0929212215_texture_fbx_inst_2",
+                "position": {
+                    "x": -66.48445129394531,
+                    "y": -0.11003875732421875,
+                    "z": 0.0
+                },
+                "rotation": {
+                    "w": 0.9999999403953552,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "scale": {
+                    "x": 339.358642578125,
+                    "y": 339.358642578125,
+                    "z": 339.358642578125
+                },
+                "template": "Meshy_AI_Frostbound_Industrial_0929212215_texture_fbx"
             }
         ],
         "lights": [
@@ -4545,11 +4533,8 @@
         ],
         "models": [
             {
-                "file": "Objects\\terrain.fbx",
-                "triangulate": false
-            },
-            {
-                "file": "Objects\\archer.fbx",
+                "file": "Objects\\Meshy_AI_Frostbound_Industrial_0929212215_texture_fbx\\Meshy_AI_Frostbound_Industrial_0929212215_texture.fbx",
+                "name": "Meshy_AI_Frostbound_Industrial_0929212215_texture_fbx",
                 "triangulate": false
             }
         ],
@@ -5160,6 +5145,9 @@
                     }
                 },
                 "name": "tf_Tile_r6_c6"
+            },
+            {
+                "file": "Templates\\Meshy_AI_Frostbound_Industrial_0929212215_texture_fbx.tpl"
             }
         ]
     }

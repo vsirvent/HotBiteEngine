@@ -77,6 +77,30 @@ Test 'camera_zoom dollies toward the focus point and stops before it' {
     Assert-True -Condition ($clamped.distance -gt 0.0) -Message 'the dolly is clamped before the focus point'
 }
 
+Test 'the near plane follows the focus distance, so a small object can be looked at closely' {
+    foreach ($far in 60, 10, 1.2) {
+        SendOk 'camera_rot 0 0 0', "camera_pos 0 0 -$far", 'camera_target 0 0 0' | Out-Null
+        Step-EditorFrames -Session $Session -Count 3
+        Assert-Near -Expected 1.0 -Actual (Get-Camera -Session $Session).near_plane -Tolerance 0.001 -Message "a view $far units out keeps the near plane it always had"
+    }
+
+    # A template 0.26 units across: the view has to come within a fraction of a unit of it.
+    SendOk 'camera_pos 0 0 -0.4', 'camera_target 0 0 0' | Out-Null
+    Step-EditorFrames -Session $Session -Count 3
+    $close = Get-Camera -Session $Session
+    Assert-True -Condition ($close.near_plane -lt 0.2) -Message "near plane $($close.near_plane) is well inside the focus distance $($close.distance)"
+
+    SendOk 'camera_zoom 500' | Out-Null
+    Step-EditorFrames -Session $Session -Count 3
+    $closest = Get-Camera -Session $Session
+    Assert-True -Condition ($closest.distance -lt 0.1) -Message "the dolly can get as close as $($closest.distance)"
+    Assert-True -Condition ($closest.near_plane -lt $closest.distance) -Message 'and the near plane stays in front of the focus'
+
+    SendOk 'camera_pos 0 0 -60', 'camera_target 0 0 0' | Out-Null
+    Step-EditorFrames -Session $Session -Count 3
+    Assert-Near -Expected 1.0 -Actual (Get-Camera -Session $Session).near_plane -Tolerance 0.001 -Message 'back out, the near plane goes back'
+}
+
 Test 'camera_fly translates the whole rig by the distance asked for' {
     SendOk 'camera_rot 0 0 0', 'camera_pos 0 0 -20', 'camera_target 0 0 0' | Out-Null
     Step-EditorFrames -Session $Session -Count 2

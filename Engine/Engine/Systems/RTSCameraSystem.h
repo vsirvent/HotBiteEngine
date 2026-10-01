@@ -101,6 +101,11 @@ namespace HotBite {
 				//Panning by pushing the mouse against a screen edge. A game that pans with the
 				//keyboard turns it off so the pointer can rest on a HUD at the edge.
 				bool edge_pan_enabled = true;
+				//Multipliers on the wheel zoom (both the size of a notch and how fast the smooth
+				//zoom travels) and on the middle-drag rotation, for a game that exposes them as
+				//options. 1 is the engine's own tuning.
+				float zoom_speed = 1.0f;
+				float mouse_rotate_speed = 1.0f;
 				bool zooming = false;
 				float current_zoom = MAX_ZOOM;
 				float new_zoom = current_zoom;
@@ -167,6 +172,11 @@ namespace HotBite {
 				// e.g. a keyboard rotate key, called once per tick with a small step
 				// while held, the same "explicit per-tick call" shape as Pan() above.
 				void Rotate(float yaw_radians);
+
+				void SetZoomSpeed(float value) { zoom_speed = value; }
+				float GetZoomSpeed() const { return zoom_speed; }
+				void SetMouseRotateSpeed(float value) { mouse_rotate_speed = value; }
+				float GetMouseRotateSpeed() const { return mouse_rotate_speed; }
 
 				void SetMaximumZoom(float value) { max_zoom = value; }
 				void SetMinimumZoom(float value) { min_zoom = value; }

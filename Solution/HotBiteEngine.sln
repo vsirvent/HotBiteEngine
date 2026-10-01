@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio Version 17
-VisualStudioVersion = 17.4.33205.214
+# Visual Studio Version 18
+VisualStudioVersion = 18.11.12224.323 insiders
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Engine", "..\Engine\Engine.vcxproj", "{3F7F4E79-D4AD-4969-83E6-7F3FCBC54AC2}"
 EndProject
@@ -18,6 +18,8 @@ EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "GameServer", "..\..\HotBite\Tests\GameServer\GameServer.vcxproj", "{8E403B35-E983-498C-833C-7BB39E91D9DA}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "SceneEditor", "..\Tools\SceneEditor\SceneEditor.vcxproj", "{AFD8BEBA-7D68-4206-9988-43DE938A9145}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Survival", "..\..\Survival\Game\Survival.vcxproj", "{10013F94-6D06-4AD8-BF21-AD733AD38D2B}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -125,6 +127,18 @@ Global
 		{AFD8BEBA-7D68-4206-9988-43DE938A9145}.Release|x64.Build.0 = Release|x64
 		{AFD8BEBA-7D68-4206-9988-43DE938A9145}.Release|x86.ActiveCfg = Release|Win32
 		{AFD8BEBA-7D68-4206-9988-43DE938A9145}.Release|x86.Build.0 = Release|Win32
+		{10013F94-6D06-4AD8-BF21-AD733AD38D2B}.Debug|x64.ActiveCfg = Release|x64
+		{10013F94-6D06-4AD8-BF21-AD733AD38D2B}.Debug|x64.Build.0 = Release|x64
+		{10013F94-6D06-4AD8-BF21-AD733AD38D2B}.Debug|x86.ActiveCfg = Release|x64
+		{10013F94-6D06-4AD8-BF21-AD733AD38D2B}.Debug|x86.Build.0 = Release|x64
+		{10013F94-6D06-4AD8-BF21-AD733AD38D2B}.Release_Production|x64.ActiveCfg = Release|x64
+		{10013F94-6D06-4AD8-BF21-AD733AD38D2B}.Release_Production|x64.Build.0 = Release|x64
+		{10013F94-6D06-4AD8-BF21-AD733AD38D2B}.Release_Production|x86.ActiveCfg = Release|x64
+		{10013F94-6D06-4AD8-BF21-AD733AD38D2B}.Release_Production|x86.Build.0 = Release|x64
+		{10013F94-6D06-4AD8-BF21-AD733AD38D2B}.Release|x64.ActiveCfg = Release|x64
+		{10013F94-6D06-4AD8-BF21-AD733AD38D2B}.Release|x64.Build.0 = Release|x64
+		{10013F94-6D06-4AD8-BF21-AD733AD38D2B}.Release|x86.ActiveCfg = Release|x64
+		{10013F94-6D06-4AD8-BF21-AD733AD38D2B}.Release|x86.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

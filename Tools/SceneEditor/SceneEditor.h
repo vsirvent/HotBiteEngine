@@ -175,6 +175,42 @@ namespace HotBiteEditor {
 
 	// Shared, session-long editor state passed to every panel each frame. Owns the
 	// bookkeeping needed to save the scene back out (see SceneSerializer.h).
+	// Template edit mode (TemplatePanel.h, "Template edit mode"): one template is
+	// placed alone at the origin as a session instance and edited with the ordinary
+	// tools. Never part of the level - Save Level refuses while it is active.
+	struct TemplateEditSession {
+		bool active = false;
+		std::string template_name;
+		// The session instance's name, which is also its root entity; the parts the
+		// template already had are "<instance>__<part>".
+		std::string instance;
+		// Every entity the level had when the session began: left out of the Entities
+		// list, hidden from the scene (see `hidden`), never saved by the session.
+		std::set<std::string> level_entities;
+		// The session's own camera and ambient light, when the level has none.
+		std::set<std::string> internal;
+		// The drawn entities hidden for the session, by name.
+		std::vector<std::string> hidden;
+		// The level's ambient lights, set to a plain default for the session.
+		struct AmbientBackup {
+			std::string name;
+			HotBite::Engine::float3 up;
+			HotBite::Engine::float3 down;
+		};
+		std::vector<AmbientBackup> ambient_backup;
+		// Session entity -> the part of the template it was spawned from. An entity not
+		// here was added during the session.
+		std::map<std::string, std::string> part_of;
+		// What the root and each part looked like when the session was (re)built: Save
+		// writes only what differs from it.
+		std::map<std::string, nlohmann::json> baseline;
+		// Whether the level had no unsaved edits going in, so the session's undo
+		// steps can be dropped cleanly at the end.
+		bool level_was_clean = true;
+		// Frames left to frame the camera on it once its bounds exist.
+		int focus_pending = 0;
+	};
+
 	struct EditorState {
 		HotBite::Engine::World* world = nullptr;
 
@@ -325,6 +361,9 @@ namespace HotBiteEditor {
 		std::set<std::string> removed_templates;
 		std::set<std::string> inline_templates;
 
+		// Template edit mode (TemplatePanel.h, "Template edit mode"): see TemplateEditSession.
+		TemplateEditSession template_edit;
+
 		// Materials panel state. `selected_material` is the material whose properties
 		// the panel is editing, by name (the editor's stable key for materials, exactly
 		// as entity names are for entities).
@@ -453,6 +492,11 @@ namespace HotBiteEditor {
 		// drawing UI) must use: OpenLevel renders its own progress frames and a nested
 		// frame would trip ImGui's Begin/End balance.
 		void RequestOpenLevel(const std::string& level_json_path);
+		// Opens a .tpl for editing (TemplateOps::OpenTemplateFile). With no level open, the
+		// project's own level that lists the template is opened first - a template needs the
+		// models and materials its level loads. The request form is what the File menu uses.
+		bool OpenTemplateFromFile(const std::string& tpl_path, std::string& error);
+		void RequestOpenTemplate(const std::string& tpl_path);
 
 		// Imports one .fbx (or splat .ply), painting the same loading overlay OpenLevel
 		// does - a complex model's FBX read, mesh build and skeleton import can take
@@ -563,6 +607,8 @@ namespace HotBiteEditor {
 
 		// Set by RequestOpenLevel, consumed by the render tick (see the constructor).
 		std::string pending_level_path;
+		// A template to open once the level just requested has loaded.
+		std::string pending_template_path;
 		// Set by RequestCloseLevel, consumed by the render tick the same way and at
 		// the same safe point, before pending_level_path.
 		bool close_level_requested = false;
@@ -594,6 +640,9 @@ namespace HotBiteEditor {
 		bool grid_settings_requested = false;
 
 		void DrawMenuBar();
+		// While a template is being edited (TemplateOps::BeginTemplateEdit), frames the camera on it
+		// once its bounds exist. Called every frame.
+		void FrameTemplateEdit();
 		void DrawDeleteRequest();
 		void DrawGridSettingsPopup();
 		void DrawCloseConfirmPopup();

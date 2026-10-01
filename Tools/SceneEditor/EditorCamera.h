@@ -31,6 +31,7 @@ namespace HotBiteEditor {
 			HotBite::Engine::float3 world_position; // final rendered camera position
 			HotBite::Engine::float3 target;         // focus point the camera orbits/looks at
 			HotBite::Engine::float3 rotation;       // orbit pitch/yaw/roll, radians
+			float near_plane = 1.0f;                // the projection's near clip distance (it follows the focus distance)
 		};
 
 		// Hooks the DXCore input events; call once the World's coordinator exists.

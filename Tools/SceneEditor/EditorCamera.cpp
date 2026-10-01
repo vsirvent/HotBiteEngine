@@ -2,8 +2,11 @@
 
 #include "imgui.h"
 
+#include <Systems/RenderSystem.h>
+
 #include <algorithm>
 #include <cmath>
+#include <mutex>
 
 using namespace HotBite::Engine;
 using namespace HotBite::Engine::Core;
@@ -22,7 +25,21 @@ namespace HotBiteEditor {
 	static constexpr float MIN_FLY_SPEED_SCALE = 0.1f;
 	static constexpr float MAX_FLY_SPEED_SCALE = 10.0f;
 	static constexpr float DOLLY_DISTANCE_FRACTION = 0.15f; // per wheel step
-	static constexpr float MIN_FOCUS_DISTANCE = 0.5f;
+	//Small enough to look closely at a template a few hundredths of a unit across (a prop modelled
+	//at real-world scale, then scaled up by the game at spawn).
+	static constexpr float MIN_FOCUS_DISTANCE = 0.05f;
+	//The smallest step a wheel notch takes, however close the focus is.
+	static constexpr float MIN_DOLLY_STEP = 0.005f;
+	//CameraSystem builds every camera with a near plane at 1 unit, so anything closer than that to the
+	//eye is cut away and a small object cannot be looked at. When the focus is nearer than the plane
+	//(the focus point itself would be cut) the editor's camera pulls the plane in to a fraction of the
+	//focus distance. From 1 unit out the plane stays at 1, so every view that ever worked is unchanged.
+	static constexpr float NEAR_FIT_BELOW_FOCUS = 1.0f;
+	static constexpr float NEAR_FRACTION_OF_FOCUS = 0.3f;
+	static constexpr float MIN_NEAR_PLANE = 0.005f;
+	static constexpr float MAX_NEAR_PLANE = 1.0f;
+	//A change in the plane smaller than this is left alone, so a steady view does not rebuild the matrix.
+	static constexpr float NEAR_PLANE_TOLERANCE = 0.1f;
 	//Straight up / straight down is reachable: CameraSystem picks the view's up
 	//from the orbit rotation at the poles. Past them a fixed-up view would flip
 	//over, so this is exactly the pole and no further.
@@ -67,6 +84,37 @@ namespace HotBiteEditor {
 	{
 		float3 to_target = cam.camera->direction - cam.transform->position;
 		return XMVectorGetX(XMVector3Length(XMLoadFloat3(&to_target)));
+	}
+
+	//Moves the projection's near plane to suit how close the focus is. The field of view, aspect and far
+	//plane are kept: they are read back out of the matrix CameraSystem built.
+	static void FitNearPlane(CameraSystem::CameraData& cam)
+	{
+		const float focus = FocusDistance(cam);
+		const float desired = focus >= NEAR_FIT_BELOW_FOCUS ? MAX_NEAR_PLANE
+			: std::clamp(focus * NEAR_FRACTION_OF_FOCUS, MIN_NEAR_PLANE, MAX_NEAR_PLANE);
+		XMFLOAT4X4 p;
+		XMStoreFloat4x4(&p, cam.camera->xm_projection);
+		//Left-handed perspective: _33 = f / (f - n), _43 = -n * f / (f - n).
+		if (p._33 == 0.0f || p._11 == 0.0f) {
+			return;
+		}
+		const float current = -p._43 / p._33;
+		const float far_z = -p._43 / (p._33 - 1.0f);
+		if (!(far_z > desired) || std::fabs(desired - current) < current * NEAR_PLANE_TOLERANCE) {
+			return;
+		}
+		const float fov_y = 2.0f * std::atan(1.0f / p._22);
+		const float aspect = p._22 / p._11;
+		//The render thread reads the matrices.
+		std::scoped_lock lock(Systems::RenderSystem::mutex);
+		cam.camera->xm_projection = XMMatrixPerspectiveFovLH(fov_y, aspect, desired, far_z);
+		XMStoreFloat4x4(&cam.camera->projection, XMMatrixTranspose(cam.camera->xm_projection));
+		XMStoreFloat4x4(&cam.camera->inverse_projection,
+			XMMatrixTranspose(XMMatrixInverse(nullptr, cam.camera->xm_projection)));
+		//CameraSystem builds view_projection only when the pose changed; make it build it again.
+		cam.camera->pose_measured = false;
+		cam.transform->dirty = true;
 	}
 
 	//CameraSystem places the eye at `direction + Rz*Rx*Ry * (position - direction)`:
@@ -129,7 +177,7 @@ namespace HotBiteEditor {
 		//The scene should follow the cursor: mouse right pushes the camera left,
 		//mouse down pushes it up. Speed scales with the focus distance so panning
 		//feels the same zoomed in or out.
-		float scale = (std::max)(FocusDistance(*cam), 1.0f) * PAN_UNITS_PER_PIXEL;
+		float scale = (std::max)(FocusDistance(*cam), MIN_FOCUS_DISTANCE) * PAN_UNITS_PER_PIXEL;
 		Translate(*cam, (right * (-dx_pixels) + up * dy_pixels) * scale);
 	}
 
@@ -140,7 +188,7 @@ namespace HotBiteEditor {
 			return;
 		}
 		float distance = FocusDistance(*cam);
-		float step = wheel_steps * (std::max)(distance * DOLLY_DISTANCE_FRACTION, 0.1f);
+		float step = wheel_steps * (std::max)(distance * DOLLY_DISTANCE_FRACTION, MIN_DOLLY_STEP);
 		//Never dolly through the focus point: the orbit math degenerates there.
 		step = (std::min)(step, distance - MIN_FOCUS_DISTANCE);
 		if (step != 0.0f) {
@@ -189,6 +237,9 @@ namespace HotBiteEditor {
 
 	void EditorCamera::Update(float elapsed_sec)
 	{
+		if (CameraSystem::CameraData* cam = GetCamera()) {
+			FitNearPlane(*cam);
+		}
 		if (ImGui::GetIO().WantTextInput) {
 			//A text field grabbed the keyboard mid-hold (e.g. clicking into a
 			//name filter while flying): drop the held keys so the camera stops.
@@ -227,6 +278,9 @@ namespace HotBiteEditor {
 		out.world_position = cam->camera->final_position;
 		out.target = cam->camera->direction;
 		out.rotation = cam->camera->rotation;
+		XMFLOAT4X4 p;
+		XMStoreFloat4x4(&p, cam->camera->xm_projection);
+		out.near_plane = p._33 != 0.0f ? -p._43 / p._33 : 1.0f;
 		return true;
 	}
 

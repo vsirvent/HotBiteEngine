@@ -160,9 +160,48 @@ namespace HotBiteEditor {
 		// that template. Anything else gets a template created from it first
 		// (CreateFromEntity, under a name from UniqueTemplateName), because a part is a
 		// reference and there has to be something to refer to.
+		//
+		// `template_name` may also be the template the root itself was placed from
+		// ("farm" for a placed farm): nothing is created then, the other selected
+		// entities are added to that template as parts and what it already has stays.
+		// That is how lights, markers and props are put on an existing building. Any
+		// entity can be a part except a camera or the sky - a point light is fine - and
+		// the game components on it (see EditorState::opaque_components) go with it.
 		bool CreateFromSelection(EditorState& state, const std::vector<std::string>& entity_names,
 			const std::string& root_entity, bool pivot_root, const std::string& template_name,
 			std::string& error);
+
+		// The template an entity was placed from, or "" when it is not a placed instance.
+		std::string InstanceTemplate(const EditorState& state, const std::string& entity_name);
+
+		// == Template edit mode ====================================================
+		//
+		// Editing a template directly, without placing it in a level first. Begin puts
+		// it alone at the origin (a session instance, with every other entity hidden),
+		// selects it and arranges for the camera to frame it. The ordinary tools then
+		// work on it: gizmos move its parts, the Inspector edits the root and the parts,
+		// game components from a schema can be added and edited, Add Component works.
+		// Save writes the result into the template's own .tpl: the parts' poses and
+		// registry edits (as apply_to_template does), the root's components, and the
+		// game components of the root and of each part (a part's as an override on that
+		// part, so a shared part template is not changed under its other users).
+		// End gives everything back and removes the session instance; the level is
+		// untouched. Save Level is refused while a session is open.
+		bool BeginTemplateEdit(EditorState& state, const std::string& name, std::string& error);
+		bool SaveTemplateEdit(EditorState& state, std::string& error);
+		bool EndTemplateEdit(EditorState& state, bool save, std::string& error);
+		// Whether an entity is one of the level's and so out of the way while a template is
+		// edited: left out of the Entities list (and of `list_entities`).
+		bool HiddenInTemplateEdit(const EditorState& state, const std::string& name);
+		// Delete while editing a template removes just the selected entities (and their
+		// children) from it, not the whole session instance. `handled` says whether a session
+		// is open and the keypress was this function's to answer.
+		bool DeleteInTemplateEdit(EditorState& state, bool& handled, std::string& error);
+		// Opens a .tpl file for editing: one the project already has is edited in place;
+		// any other is imported into Assets/Templates first (as Import Template does).
+		bool OpenTemplateFile(EditorState& state, const std::string& path, std::string& error);
+		// The Open Template file dialog: the chosen .tpl path, or "" when cancelled.
+		std::string ChooseTemplateFile();
 
 		// == Editing a composed object through one of its instances ================
 		//

@@ -4,6 +4,7 @@
 #include "EditorLayout.h"
 #include "EntityOps.h"
 #include "Selection.h"
+#include "TemplatePanel.h"
 
 #include "imgui.h"
 #include <Components/Base.h>
@@ -21,6 +22,9 @@ namespace HotBiteEditor {
 		//Drag-and-drop payload: the entity's name (NUL-terminated), dropped onto a
 		//group header to assign it or onto the panel's empty space to ungroup it.
 		static constexpr const char* ENTITY_PAYLOAD = "HB_ENTITY_NAME";
+
+		static void ReparentDropped(EditorState& state, const std::string& dragged,
+			const std::string& parent_name);
 
 		bool FocusSelected(EditorState& state, EditorCamera& camera, std::string& error)
 		{
@@ -280,6 +284,10 @@ namespace HotBiteEditor {
 			if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(ENTITY_PAYLOAD)) {
 				std::string entity_name((const char*)payload->Data);
 				std::string error;
+				//Dropped on the empty space, an entity is also let go of its parent.
+				if (group.empty()) {
+					ReparentDropped(state, entity_name, std::string());
+				}
 				//Dragging a row that belongs to a multi-entity selection drags the
 				//whole selection (one undo step); dragging an unselected row moves
 				//only that row, leaving the selection alone.
@@ -340,6 +348,40 @@ namespace HotBiteEditor {
 
 		static void DrawEntityRow(EditorState& state, EditorCamera& camera,
 			const std::string& name, Entity entity);
+
+		static bool c_has_parent(EditorState& state, Entity entity)
+		{
+			Coordinator* c = state.world->GetCoordinator();
+			return c != nullptr && c->ContainsComponent<Base>(entity) &&
+				c->GetConstComponent<Base>(entity).parent != INVALID_ENTITY_ID;
+		}
+
+		//Makes `dragged` (or the whole selection, when it is one of several selected) a child
+		//of `parent_name`, or lets it go when that is empty: one undo step.
+		static void ReparentDropped(EditorState& state, const std::string& dragged,
+			const std::string& parent_name)
+		{
+			Coordinator* c = state.world->GetCoordinator();
+			if (c == nullptr) {
+				return;
+			}
+			std::vector<std::string> names{ dragged };
+			const Entity e = c->GetEntityByName(dragged);
+			if (e != INVALID_ENTITY_ID && Selection::Contains(state, e) && Selection::Count(state) > 1) {
+				names = Selection::Names(state);
+			}
+			EditorHistory::BeginGroup("parent " + std::to_string(names.size()) + " entities");
+			for (const std::string& n : names) {
+				if (n == parent_name) {
+					continue;
+				}
+				std::string error;
+				if (!EntityOps::SetEntityParent(state, n, parent_name, error)) {
+					state.status_message = "Parent failed: " + error;
+				}
+			}
+			EditorHistory::EndGroup();
+		}
 
 		//The children of `entity`, indented under it. Depth-limited for the same reason
 		//the engine limits composition depth: a hand-edited level can describe a parent
@@ -411,6 +453,14 @@ namespace HotBiteEditor {
 				ImGui::TextUnformatted(name.c_str());
 				ImGui::EndDragDropSource();
 			}
+			//Dropping an entity onto this one makes it a child of this one; its transform
+			//becomes relative to it. Dragging a row of a multi-entity selection drags them all.
+			if (ImGui::BeginDragDropTarget()) {
+				if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(ENTITY_PAYLOAD)) {
+					ReparentDropped(state, std::string((const char*)payload->Data), name);
+				}
+				ImGui::EndDragDropTarget();
+			}
 			if (ImGui::BeginPopupContextItem()) {
 				//The row's operations act on this entity, so make it the selection
 				//first (matches right-click-then-act behaviour elsewhere) - unless it
@@ -441,6 +491,9 @@ namespace HotBiteEditor {
 					if (!EntityOps::Paste(state, error)) {
 						state.status_message = "Paste failed: " + error;
 					}
+				}
+				if (c_has_parent(state, entity) && ImGui::MenuItem("Unparent")) {
+					ReparentDropped(state, name, std::string());
 				}
 				ImGui::Separator();
 				//Group moves and delete act on the whole selection, which is why the
@@ -531,7 +584,8 @@ namespace HotBiteEditor {
 			for (const auto& [name, entity] : c->GetEntites()) {
 				//Parked (cut) entities still live in the world so a paste can clone
 				//them and an undo can revive them; they are hidden from the panel.
-				if (c->ContainsComponent<Base>(entity) && !EntityOps::IsParkedName(name)) {
+				if (c->ContainsComponent<Base>(entity) && !EntityOps::IsParkedName(name) &&
+					!TemplateOps::HiddenInTemplateEdit(state, name)) {
 					sorted.emplace_back(name, entity);
 				}
 			}

@@ -37,6 +37,7 @@
 #include <Core/PostProcess.h>
 #include <Core/Log.h>
 
+#include <fstream>
 #include "imgui.h"
 #include "backends/imgui_impl_win32.h"
 #include "backends/imgui_impl_dx11.h"
@@ -136,6 +137,14 @@ namespace HotBiteEditor {
 				pending_level_path.clear();
 				OpenLevel(path);
 			}
+			if (!pending_template_path.empty()) {
+				std::string tpl_path = pending_template_path;
+				pending_template_path.clear();
+				std::string tpl_error;
+				if (!OpenTemplateFromFile(tpl_path, tpl_error)) {
+					state.status_message = "Open template failed: " + tpl_error;
+				}
+			}
 			//Queued by the Asset Browser's Import button, for the same reason as the
 			//open/close pair above: ImportModelWithProgress paints its own frames.
 			if (!pending_model_import_path.empty()) {
@@ -178,6 +187,7 @@ namespace HotBiteEditor {
 			world->FlushMeshBuffers();
 			if (level_loaded) {
 				editor_camera.Update((float)t.period / 1000000000.0f);
+				FrameTemplateEdit();
 				world->GetSystem<RenderSystem>()->Update();
 			}
 			else {
@@ -217,6 +227,30 @@ namespace HotBiteEditor {
 		menu_commands.push_back({ "File/Import Template...",
 			[this]() { return level_loaded; },
 			[this]() { TemplateOps::ImportTemplateWithDialog(state); } });
+		menu_commands.push_back({ "File/Open Template...",
+			[this]() { return !state.template_edit.active; },
+			[this]() {
+				const std::string tpl_path = TemplateOps::ChooseTemplateFile();
+				if (!tpl_path.empty()) {
+					RequestOpenTemplate(tpl_path);
+				}
+			} });
+		menu_commands.push_back({ "File/Save Template",
+			[this]() { return level_loaded && state.template_edit.active; },
+			[this]() {
+				std::string error;
+				if (!TemplateOps::SaveTemplateEdit(state, error)) {
+					state.status_message = "Save template failed: " + error;
+				}
+			} });
+		menu_commands.push_back({ "File/Close Template",
+			[this]() { return level_loaded && state.template_edit.active; },
+			[this]() {
+				std::string error;
+				if (!TemplateOps::EndTemplateEdit(state, false, error)) {
+					state.status_message = "Close template failed: " + error;
+				}
+			} });
 		menu_commands.push_back({ "File/Save Level",
 			[this]() { return level_loaded; },
 			[this]() {
@@ -992,10 +1026,36 @@ namespace HotBiteEditor {
 				}
 			}
 			RenderSettings::DrawMenu(*this);
+			if (state.template_edit.active) {
+				ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.2f, 1.0f), "[Editing template: %s]",
+					state.template_edit.template_name.c_str());
+			}
 			if (!state.status_message.empty()) {
 				ImGui::TextUnformatted(state.status_message.c_str());
 			}
 			ImGui::EndMainMenuBar();
+		}
+	}
+
+	void SceneEditorApp::FrameTemplateEdit()
+	{
+		TemplateEditSession& session = state.template_edit;
+		if (!session.active || session.focus_pending <= 0 || world == nullptr) {
+			return;
+		}
+		--session.focus_pending;
+		Coordinator* c = world->GetCoordinator();
+		const Entity e = (c != nullptr) ? c->GetEntityByName(session.instance) : INVALID_ENTITY_ID;
+		if (e == INVALID_ENTITY_ID || !c->ContainsComponent<Components::Bounds>(e)) {
+			return;
+		}
+		const box& b = c->GetComponent<Components::Bounds>(e).final_box;
+		if (b.Extents.x <= 0.0f && b.Extents.y <= 0.0f && b.Extents.z <= 0.0f) {
+			return; //the bounds are built a frame after the spawn; try again
+		}
+		std::string error;
+		if (Outliner::FocusSelected(state, editor_camera, error)) {
+			session.focus_pending = 0;
 		}
 	}
 
@@ -1115,6 +1175,70 @@ namespace HotBiteEditor {
 	void SceneEditorApp::RequestOpenLevel(const std::string& level_json_path)
 	{
 		pending_level_path = level_json_path;
+	}
+
+	//The level of this template's project that lists it: <assets>/Levels/**.json whose world.templates
+	//names the file. "" when there is none.
+	static std::string FindLevelForTemplate(const std::string& tpl_path)
+	{
+		namespace fs = std::filesystem;
+		std::error_code ec;
+		const fs::path tpl(tpl_path);
+		const fs::path levels = tpl.parent_path().parent_path() / "Levels";
+		if (!fs::is_directory(levels, ec)) {
+			return std::string();
+		}
+		const std::string file_name = tpl.filename().string();
+		for (const auto& entry : fs::recursive_directory_iterator(levels, ec)) {
+			if (!entry.is_regular_file(ec) || entry.path().extension() != ".json") {
+				continue;
+			}
+			try {
+				std::ifstream in(entry.path());
+				const nlohmann::json level = nlohmann::json::parse(in);
+				const auto world_it = level.find("world");
+				if (world_it == level.end() || !world_it->contains("templates")) {
+					continue;
+				}
+				for (const auto& t : (*world_it)["templates"]) {
+					const std::string listed = t.value("file", std::string());
+					if (fs::path(listed).filename().string() == file_name) {
+						return entry.path().string();
+					}
+				}
+			}
+			catch (const std::exception&) {
+				//Not a level; keep looking.
+			}
+		}
+		return std::string();
+	}
+
+	bool SceneEditorApp::OpenTemplateFromFile(const std::string& tpl_path, std::string& error)
+	{
+		if (!level_loaded) {
+			const std::string level = FindLevelForTemplate(tpl_path);
+			if (level.empty()) {
+				error = "no level in this template's project lists it - open a level first";
+				return false;
+			}
+			if (state.project_root.empty()) {
+				state.project_root = ProjectBrowser::DeriveProjectRoot(level);
+			}
+			if (!OpenLevel(level)) {
+				error = "could not open " + level;
+				return false;
+			}
+		}
+		return TemplateOps::OpenTemplateFile(state, tpl_path, error);
+	}
+
+	void SceneEditorApp::RequestOpenTemplate(const std::string& tpl_path)
+	{
+		//Opening a level paints frames of its own, so it waits for the safe point in the
+		//tick like every other open; with a level already open there is nothing to wait for
+		//beyond the same hand-off.
+		pending_template_path = tpl_path;
 	}
 
 	void SceneEditorApp::RequestImportModel(const std::string& fbx_path, const std::string& model_name)

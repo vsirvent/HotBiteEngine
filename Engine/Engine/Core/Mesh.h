@@ -98,6 +98,19 @@ namespace HotBite {
 				}
 
 			public:
+				// A joint's name without its rig namespace ("mixamorig:Hips" ->
+				// "Hips"): the same bone, exported from two tools, differs only there.
+				static std::string BaseJointName(const std::string& name);
+				// Same joint count and the same parent of every joint: the two can be
+				// played by index against each other.
+				bool HasSameHierarchy(Skeleton& other);
+				// A copy of this skeleton - joints, order, hierarchy, bind poses -
+				// carrying `source`'s animations. Each joint takes the animations of the
+				// source joint with the same BaseJointName; a joint the source lacks has
+				// none and stays in its bind pose, and source joints this one lacks
+				// (leaf "_end" joints, a face rig) are dropped.
+				std::shared_ptr<Skeleton> RetargetFrom(Skeleton& source);
+
 				void AddJoint(const Joint& joint, int parent) {
 					joints_by_cpu_id[joint.cpu_data.joint_id] = joint;
 					joint_tree[parent].push_back(&joints_by_cpu_id[joint.cpu_data.joint_id]);
@@ -301,6 +314,13 @@ namespace HotBite {
 				void InitOwned(const std::string& mesh_name, const std::vector<Core::Vertex>& vertices, const std::vector<uint32_t>& indices);
 				void Release();
 				void LoadTextures();
+				// Attaches an animation set. The mesh skins with skeletons[0] and every set
+				// is played by joint *index* into it, so a set whose hierarchy differs
+				// (another rig's export of the same character: other joint names, extra
+				// leaf joints, a different count) cannot be attached as it is - it would
+				// index past the mesh's joints. Such a set is attached as a Skeleton::
+				// RetargetFrom copy instead, matched joint by joint on the name; a set
+				// that lines up is attached untouched, exactly as before.
 				void AddSkeleton(std::shared_ptr<Skeleton> skl);
 				std::unordered_map<int, std::string> GetAnimations();
 
@@ -489,6 +509,16 @@ namespace HotBite {
 				//DrawIndexed and restore after - see Systems::RenderSystem::DrawMeshEntity.
 				Core::VertexBuffer<Core::Vertex>* GetOwnedBuffer() const { return owns_vertex_buffer ? vertex_buffer : nullptr; }
 				std::vector<std::shared_ptr<Skeleton>> skeletons;
+				// {the set that was asked for, the copy actually attached}: what AddSkeleton
+				// made of every clip set whose rig did not line up with skeletons[0].
+				std::vector<std::pair<std::shared_ptr<Skeleton>, std::shared_ptr<Skeleton>>> retargeted;
+				// Whether `skl` is already attached, as itself or as the retargeted copy
+				// AddSkeleton made of it.
+				bool HasSkeleton(const std::shared_ptr<Skeleton>& skl) const;
+				// The set a skeleton in `skeletons` was asked for: the retargeted copy's
+				// source, or `skl` itself when it was attached as it was. What a level
+				// writes back by name, since the copy has none.
+				std::shared_ptr<Skeleton> RequestedSkeleton(const std::shared_ptr<Skeleton>& skl) const;
 				ID3D11ShaderResourceView* normal_map = nullptr;
 				bool init = false;
 				std::string mesh_normal_texture;

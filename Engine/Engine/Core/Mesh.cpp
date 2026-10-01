@@ -33,6 +33,47 @@ using namespace HotBite::Engine::Core;
 using namespace DirectX;
 
 
+std::string Skeleton::BaseJointName(const std::string& name) {
+	const size_t colon = name.find_last_of(':');
+	return colon == std::string::npos ? name : name.substr(colon + 1);
+}
+
+bool Skeleton::HasSameHierarchy(Skeleton& other) {
+	if (joint_cpu_data.size() != other.joint_cpu_data.size()) {
+		return false;
+	}
+	for (size_t i = 0; i < joint_cpu_data.size(); ++i) {
+		if (joint_cpu_data[i].parent_id != other.joint_cpu_data[i].parent_id) {
+			return false;
+		}
+	}
+	return true;
+}
+
+std::shared_ptr<Skeleton> Skeleton::RetargetFrom(Skeleton& source) {
+	std::unordered_map<std::string, const JointCpuData*> by_name;
+	for (const JointCpuData& joint : source.joint_cpu_data) {
+		by_name.emplace(BaseJointName(joint.name), &joint);
+	}
+	std::shared_ptr<Skeleton> copy = std::make_shared<Skeleton>();
+	//Added in index order, so each parent's children keep the order they have here and
+	//Flush numbers the joints exactly as this skeleton's are numbered: the mesh's
+	//vertices name joints by that number.
+	for (const JointCpuData& joint : joint_cpu_data) {
+		Joint added;
+		added.cpu_data = joint;
+		added.cpu_data.animations.clear();
+		auto match = by_name.find(BaseJointName(joint.name));
+		if (match != by_name.end()) {
+			added.cpu_data.animations = match->second->animations;
+		}
+		const int parent = joint.parent_id < 0 ? -1 : joint_cpu_data[joint.parent_id].joint_id;
+		copy->AddJoint(added, parent);
+	}
+	copy->Flush();
+	return copy;
+}
+
 std::unordered_map<int, std::string> Skeleton::GetAnimations() {
 	std::unordered_map<int, std::string> animations;
 	for (int i = 0; i < joint_cpu_data.size(); ++i) {
@@ -500,15 +541,36 @@ void MeshData::Release() {
 	init = false;
 }
 
-void MeshData::AddSkeleton(std::shared_ptr<Skeleton> skl) {
-	bool found = false;
+bool MeshData::HasSkeleton(const std::shared_ptr<Skeleton>& skl) const {
 	for (const auto& s : skeletons) {
 		if (s == skl) {
-			found = true;
-			break;
+			return true;
 		}
 	}
-	if (!found) {
+	for (const auto& r : retargeted) {
+		if (r.first == skl) {
+			return true;
+		}
+	}
+	return false;
+}
+
+std::shared_ptr<Skeleton> MeshData::RequestedSkeleton(const std::shared_ptr<Skeleton>& skl) const {
+	for (const auto& r : retargeted) {
+		if (r.second == skl) {
+			return r.first;
+		}
+	}
+	return skl;
+}
+
+void MeshData::AddSkeleton(std::shared_ptr<Skeleton> skl) {
+	if (skl != nullptr && !HasSkeleton(skl)) {
+		if (!skeletons.empty() && !skeletons[0]->HasSameHierarchy(*skl)) {
+			std::shared_ptr<Skeleton> copy = skeletons[0]->RetargetFrom(*skl);
+			retargeted.emplace_back(skl, copy);
+			skl = copy;
+		}
 		skeletons.push_back(skl);
 		//A set attached after Init brings animations of its own, and their boxes are
 		//what any entity playing them measures its Bounds with.

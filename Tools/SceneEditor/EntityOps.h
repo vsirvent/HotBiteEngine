@@ -117,6 +117,15 @@ namespace HotBiteEditor {
 		// accepts (drives the Edit menu enabled state).
 		bool CanCopySelected(EditorState& state);
 
+		// Makes `child_name` a child of `parent_name` ("" lets it go), keeping it where it is in
+		// the world: its transform becomes relative to the parent. One undo step. The hierarchy
+		// is one level deep (the engine composes a child with its parent's own pose only), so a
+		// parent cannot itself be a child and a child cannot have children; the root of a
+		// template being edited cannot be made a child. This is what dragging an entity onto
+		// another in the Entities panel does.
+		bool SetEntityParent(EditorState& state, const std::string& child_name,
+			const std::string& parent_name, std::string& error);
+
 		// Removes every deletable entity in the selection (parked like a cut, placed
 		// instances despawn) as ONE undoable action, leaving the clipboard alone.
 		// Sky - the one entity the editor refuses to remove - is skipped rather

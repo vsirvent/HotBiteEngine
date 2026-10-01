@@ -1594,6 +1594,17 @@ All network work is on worker threads over WinHTTP; a finished download becomes 
 in `PolyHaven::Tick`, between frames on the main thread. `polyhaven_source <folder>` points it
 at a local mirror of the API, which is how `33-polyhaven` runs offline.
 
+**A rigged Meshy export (`<base>_Character_output.fbx` + `<base>_Animation_<Clip>_without_skin.fbx`
+files + `<base>_texture_0*.png`) goes through the same `import_meshy_model`**: each clip file
+becomes a model `<name>_<clip>`, the template gets a clip library (walk/run/idle) and stands
+upright (its Z-up correction is the mesh node's own -90° X, kept by `CreateFromModel`; added
+only when the rotated bounds still stand on Z). The clip files use another rig (`mixamorig:`
+names, extra leaf joints) than the character's skin skeleton (`smartrig:`), and the engine plays
+a clip by joint *index* into `skeletons[0]` — so `MeshData::AddSkeleton` retargets a set whose
+hierarchy differs by joint name (namespace prefix stripped, `Skeleton::RetargetFrom`) instead of
+attaching it raw, which used to overrun `joint_gpu_data` (heap corruption). Done at attach
+time, so it needs no saved data. Suite `43-meshyrigged`.
+
 **A Meshy AI (or similar) export is a model plus loose PBR maps FBX itself has no slot
 for, and `MeshyImport::Import` (`File/Import Meshy Model...`, `import_meshy_model`) is
 the one-step version of model-import-then-hand-wire-the-maps.** A Meshy package is one
