@@ -803,6 +803,17 @@ namespace HotBite {
 			// components that resolve file references during deserialization.
 			const std::string& GetAssetsPath() const { return path; }
 
+			// A level's "generated_meshes" section (the levels of detail the Scene Editor made), for a game that
+			// reads its asset level itself rather than through Load(): `root` is the assets folder the entries'
+			// "file" paths are relative to, with its trailing separator. Call it after the models it simplifies
+			// are loaded and before the templates whose Mesh blocks list the levels are created.
+			void LoadGeneratedMeshesFrom(const nlohmann::json& entries, const std::string& root) {
+				const std::string saved = path;
+				path = root;
+				LoadGeneratedMeshes(entries);
+				path = saved;
+			}
+
 			// Stand-in assets for a Mesh or Material component created from nothing -
 			// added in the editor, or a level record carrying an empty block.
 			//
