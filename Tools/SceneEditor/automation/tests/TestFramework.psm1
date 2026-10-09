@@ -454,6 +454,15 @@ function Assert-FileNotExists {
 
 Add-Type -AssemblyName System.Drawing -ErrorAction SilentlyContinue
 
+# What a screenshot of the whole window shows of the 3D scene: the scene is drawn across
+# the whole window and centred at x 0.50, but the Entities / Asset Browser panels cover
+# the left 40% and the Components panel the right 20%, so only x 0.40-0.80 is scene. A
+# rectangle that reaches into the panels measures their text and buttons - lit pixels
+# that never change - so a lit share, a mean or a difference taken over them is wrong
+# (this is what made the motion, point-size, denoiser and spotlight tests fail). Keep
+# rectangles inside x 0.42-0.78, and symmetric about 0.50 where they are centred on
+# something placed at the origin.
+
 # Mean RGB and the share of non-black pixels over a rectangle given in fractions
 # of the image, so a test is independent of the window size. The default rect is
 # the middle of the viewport: the editor's panels occupy the left and right edges
@@ -461,8 +470,8 @@ Add-Type -AssemblyName System.Drawing -ErrorAction SilentlyContinue
 function Get-ImageStats {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
-        [double]$Left = 0.35, [double]$Top = 0.35,
-        [double]$Right = 0.65, [double]$Bottom = 0.65,
+        [double]$Left = 0.42, [double]$Top = 0.35,
+        [double]$Right = 0.58, [double]$Bottom = 0.65,
         [int]$Step = 4
     )
     Assert-FileExists -Path $Path -Message 'screenshot'
@@ -504,8 +513,8 @@ function Get-ImageDifference {
     param(
         [Parameter(Mandatory = $true)][string]$PathA,
         [Parameter(Mandatory = $true)][string]$PathB,
-        [double]$Left = 0.15, [double]$Top = 0.05,
-        [double]$Right = 0.85, [double]$Bottom = 0.95,
+        [double]$Left = 0.42, [double]$Top = 0.05,
+        [double]$Right = 0.78, [double]$Bottom = 0.95,
         [int]$Step = 4, [int]$Threshold = 8
     )
     Assert-FileExists -Path $PathA -Message 'screenshot A'

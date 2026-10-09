@@ -2190,3 +2190,83 @@ ImGui needs a frame to settle a window into its dock node, and a batch of
 `menu "View/Templates"` + `screenshot` captures the settling frame, in which the panels
 render as nothing at all. A blank editor in a screenshot is that, not a crash: send the
 screenshot as its own batch afterwards.
+
+## Cooked models (`<model>.fbx.cooked`)
+
+Reading an .fbx is the slowest thing a game does at start, and the FBX SDK cannot read two
+files at once. So **an .fbx is only a source**: the first load writes a cooked file beside it
+(`Loader/CookedModel.h`), and every later load reads that, on any thread, without opening
+the .fbx or the SDK. Survival's 29 Meshy models went from 15.4 s to 0.15 s of reading.
+
+- **One install path.** `FBXLoader::Extract` turns an .fbx into a `CookedModel` (plain data:
+  the *flat* vertices exactly as `MeshData::Init` takes them with their smoothing groups and
+  default, skeletons as `Skeleton::CpuData()` with every keyframe already sampled, collision
+  triangles, the node tree, materials). `World::InstallCookedModel` is the only code that
+  turns one into meshes, materials, `reactphysics3d` shapes, animation sets and entities, so
+  a model cannot load differently by origin. It replaced `FBXLoader::LoadMeshes /
+  LoadMaterials / LoadShapes / LoadSkeletons / ProcessEntity` (older notes in this file that
+  name `ProcessEntity` mean `ExtractNodes` + the node loop of `InstallCookedModel` now). The
+  physics shape is built at install, never in the cook: a cook needs no `World`, device or
+  physics library (`Loader::CookModel`, what a command-line cook calls).
+- **`Loader::AcquireModel(path, triangulate, use_animation_names)`** is the one door: a
+  current cooked file, else the .fbx (cooked on the way, atomically: temp file + rename, so
+  two processes cooking at once never leave a half file). Thread-safe; the SDK is behind one
+  lock, so cooks are serial while reads of cooked files run in parallel around them.
+- **`World::LoadModels(requests)`** is `LoadModel` for a list, with the files read ahead (a
+  window of 8 `std::async` reads) while the current one is installed on the calling thread,
+  in order. `World::Load` uses it for the level's `models`; a game should too. Installing
+  stays serial on purpose: the coordinator, the FlatMaps (whose pointers must not move), the
+  world vertex buffer's offsets and the physics library are not thread-safe, and installing
+  a model is ~10 ms next to its read.
+- **Stale means:** the .fbx's size or last-write time differs from what the file recorded, the
+  loader options (`triangulate`, `use_animation_names`) differ, the file is truncated or
+  corrupt (head/tail magic, every count checked against what is left, indices against
+  vertices), or `CookedModel::VERSION` / `sizeof(Vertex)` / `sizeof(Keyframe)` moved. **Bump
+  `VERSION` whenever extraction produces something different or the layout changes.** No
+  .fbx beside a cooked file means it is used as it is (a shipped build).
+- **`HOTBITE_MODEL_CACHE=0`** in the environment reads every .fbx and writes nothing.
+  `Loader::GetModelCacheStats()` says which way each model went and what installing took.
+- **Not cooked yet (measured 2026-10-08, 29 models):** the textures. `LoadMaterialFiles`
+  (4.6 s) and `World::Init` (4.9 s) are now most of a Survival New Game. The BVH is rebuilt
+  per mesh at install (a mean split, cheap, and it could move to a worker thread).
+- **Tests:** Survival's suite `48-cooked-models` (the engine has no test of its own yet: no
+  automation command loads an .fbx under a counter; the Scene Editor suite exercises the
+  install path through every import and level load).
+
+**Screenshot rectangles must stay inside the scene (fixed 2026-10-09).** A screenshot is the
+whole window. The 3D scene is drawn across all of it, centred at x 0.50, but the Entities /
+Asset Browser panels cover x 0..0.40 and the Components panel x 0.80..1, so only 0.40-0.80
+is scene. A rectangle reaching into the panels measures their text, which is lit and never
+changes: it made a still scene read "41% moving", the point-size ratios meaningless and the
+spotlight's "outside the cone" zone a panel. Keep rectangles inside 0.42-0.78 (symmetric
+about 0.50 when centred on the origin); `Get-ImageStats` and `Get-ImageDifference` default
+to that. Also fixed: `AssetBrowser::EnsureAssetsScanned` remembered the last scanned World
+by address, and a World allocated where the closed one was looked already scanned, so a
+reopened level had no templates; it is `EditorState::assets_scanned` now.
+
+### Cooked textures (`<image>.png.cooked`, `Core/TextureCache.h`)
+
+The same idea for textures (2026-10-09; Survival's New Game went 11.5 s -> 1.5 s with models *and*
+textures cooked). `LoadTexture` asks `LoadCookedTexture` first: a header (source size/time,
+version) and a `.dds` with the full mip chain, BC7 for 8-bit RGB/RGBA, BC4 for 8-bit grey, the
+`_SRGB` flag kept as the PNG had it; anything else (16-bit, ...) returns null and loads the old
+WIC way. It is read with `CreateDDSTextureFromMemory(device, ...)` - **no context**, so it is
+thread-safe, which is what lets `World::LoadMaterialFiles` call `Core::PreloadTextures` for a
+whole .mat file's textures (`CollectMaterialTextures`) on every core before the materials ask
+for them one by one.
+
+- **Preloaded textures are `unclaimed`** until a `LoadTexture` takes them: the first taker takes
+  over the cache's reference (no AddRef), so the count stays one per user and
+  `ReleaseTexture`'s erase-at-zero still frees them; `ReleaseUnclaimedTextures()` (end of
+  `LoadMaterialFiles`) lets go of what no material used.
+- **Cooking is slow and never happens while a game loads.** A BC7 encode is ~4 s per 2048x2048 on
+  DirectXTex's compute encoder (`Compress(device, ...)`), 30 s on the CPU one. The compute encoder
+  needs a device and drives its immediate context, so the cooker has a device of its own behind a
+  mutex (never the renderer's); a worker that finds it busy encodes on the CPU (`--cook` uses
+  both). A texture with no current cooked file loads plain **and** is queued to one
+  low-priority detached background thread; its statics are leaked on purpose (the thread may be
+  running at exit). `Core::CookTextures` is the synchronous parallel version for a build step.
+- Lossy: BC7. `HOTBITE_TEXTURE_CACHE=0` bypasses it. Stats: `GetTextureCacheStats()` and
+  `PlainTextureLoads()` (which images loaded the old way).
+- **Textures that change under the editor** (mask paint, imports) are new or changed files: stamp
+  mismatch, so they load plain once and are cooked behind. Same stamp rule as models: size + time.

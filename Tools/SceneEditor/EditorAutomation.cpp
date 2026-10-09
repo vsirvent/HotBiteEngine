@@ -28,6 +28,7 @@
 
 #include <Windows.h>
 #include <Components/Base.h>
+#include <Loader/ModelCache.h>
 #include <Components/Physics.h>
 #include <Systems/RenderSystem.h>
 #include <Core/Json.h>
@@ -426,6 +427,20 @@ namespace HotBiteEditor {
 		static bool HandleComponentSchemaCommand(EditorState& state, const std::string& cmd,
 			const std::vector<std::string>& args)
 		{
+			//model_cache: the cooked-model cache's counters for this process (Loader/ModelCache.h) -
+			//how the models loaded so far were read, and whether a first load cooked them. Here
+			//because the main ladder is at the compiler's C1061 nesting limit.
+			if (cmd == "model_cache") {
+				const Loader::ModelCacheStats cache = Loader::GetModelCacheStats();
+				nlohmann::json j;
+				j["cache_enabled"] = Loader::ModelCacheEnabled();
+				j["cooked_reads"] = cache.cooked_reads;
+				j["fbx_reads"] = cache.fbx_reads;
+				j["cooked_writes"] = cache.cooked_writes;
+				j["failures"] = cache.failures;
+				response_lines.push_back("OK " + j.dump());
+				return true;
+			}
 			if (cmd == "component_schemas" || cmd == "reload_component_schemas") {
 				if (cmd == "reload_component_schemas") {
 					ComponentSchemas::Load(state);

@@ -23,6 +23,10 @@ SOFTWARE.
 */
 
 #include <algorithm>
+#include <chrono>
+#include <future>
+#include <map>
+#include <thread>
 #include <filesystem>
 #include <fstream>
 #include "World.h"
@@ -329,6 +333,188 @@ void World::SetPostProcessPipeline(Core::PostProcess* pipeline) {
 	render_system->SetPostProcessPipeline(pipeline);
 }
 
+//The one place a CookedModel becomes meshes, materials, shapes, clips and entities.
+//An .fbx and a cooked file both end up here (see Loader/CookedModel.h), so what a model
+//looks like once loaded cannot depend on which of the two it came from.
+std::set<Entity> World::InstallCookedModel(Loader::CookedModel& model,
+	Core::FlatMap<std::string, Core::MaterialData>& materials,
+	Core::FlatMap<std::string, Core::MeshData>& meshes,
+	Core::FlatMap<std::string, Core::ShapeData>& shapes,
+	ECS::Coordinator* c, Core::VertexBuffer<Core::Vertex>* vb) {
+	using namespace DirectX;
+	std::set<Entity> entities;
+
+	//Materials. One that is already in the world stays as it is: models share material
+	//names (every Meshy export carries its own, but a rig and its clip files do not).
+	for (const CookedMaterial& cm : model.materials) {
+		if (materials.Get(cm.name) != nullptr) {
+			continue;
+		}
+		MaterialData* m = materials.Create(cm.name);
+		m->name = cm.name;
+		m->props.diffuseColor = cm.diffuse_color;
+		m->texture_names.diffuse_texname = cm.diffuse_texture;
+		m->props.specIntensity = 0.0f;
+	}
+	coordinator->SendEvent(this, EVENT_ID_MATERIALS_LOADED);
+
+	const auto t_meshes = std::chrono::steady_clock::now();
+	for (const CookedMesh& cm : model.meshes) {
+		MeshData* mesh = meshes.Create(cm.name);
+		std::shared_ptr<Skeleton> skeleton = cm.skinned ? MakeSkeleton(cm.joints) : nullptr;
+		//Fusing the clones is MeshData's job, so it can be undone: the vertices handed
+		//over are the flat ones, plus the grouping and the import-time default.
+		mesh->Init(vb, cm.name, cm.vertices, cm.indices, skeleton, &cm.smooth_groups, cm.smooth);
+	}
+	coordinator->SendEvent(this, EVENT_ID_MESHES_LOADED);
+	const auto t_shapes = std::chrono::steady_clock::now();
+	RecordInstallTime(InstallPart::Meshes, std::chrono::duration<double, std::milli>(t_shapes - t_meshes).count());
+
+	for (CookedShape& cs : model.shapes) {
+		Core::ShapeData* shape = shapes.Create(cs.name);
+		shape->authored_scale = cs.authored_scale;
+		shape->vertices = std::move(cs.vertices);
+		shape->normals = std::move(cs.normals);
+		shape->indices = std::move(cs.indices);
+		if (shape->vertices.size() > 0) {
+			// Create the polygon vertex array
+			reactphysics3d::TriangleVertexArray* triangleVertexArray = new reactphysics3d::TriangleVertexArray((uint32_t)shape->vertices.size(),
+				shape->vertices.data(), (uint32_t)sizeof(float3),
+				shape->normals.data(), (uint32_t)sizeof(float),
+				(uint32_t)shape->indices.size() / 3, shape->indices.data(), (uint32_t)sizeof(unsigned int) * 3,
+				reactphysics3d::TriangleVertexArray::VertexDataType::VERTEX_FLOAT_TYPE,
+				reactphysics3d::TriangleVertexArray::NormalDataType::NORMAL_FLOAT_TYPE,
+				reactphysics3d::TriangleVertexArray::IndexDataType::INDEX_INTEGER_TYPE);
+
+			// Create the polyhedron mesh
+			reactphysics3d::TriangleMesh* triangleMesh = Core::physics_common.createTriangleMesh();
+			triangleMesh->addSubpart(triangleVertexArray);
+			shape->shape = Core::physics_common.createConcaveMeshShape(triangleMesh);
+		}
+	}
+	coordinator->SendEvent(this, EVENT_ID_SHAPES_LOADED);
+	RecordInstallTime(InstallPart::Shapes, std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t_shapes).count());
+
+	for (const CookedSkeleton& cs : model.skeletons) {
+		animations.Insert(cs.name, MakeSkeleton(cs.joints));
+	}
+
+	//The scene's nodes, parents first. A node whose name is already an entity is left
+	//alone, and so is everything below it.
+	const auto t_nodes = std::chrono::steady_clock::now();
+	std::vector<Entity> created(model.nodes.size(), INVALID_ENTITY_ID);
+	for (size_t i = 0; i < model.nodes.size(); ++i) {
+		const CookedNode& node = model.nodes[i];
+		if (node.parent >= 0 && created[node.parent] == INVALID_ENTITY_ID) {
+			continue;
+		}
+		if (c->GetEntityByName(node.name) != INVALID_ENTITY_ID) {
+			printf("Entity %s already exists.", node.name.c_str());
+			continue;
+		}
+		const Entity parent = node.parent >= 0 ? created[node.parent] : INVALID_ENTITY_ID;
+		const Entity e = c->CreateEntity(node.name);
+		created[i] = e;
+		entities.insert(e);
+
+		c->AddComponent<Components::Base>(e);
+		c->AddComponent<Components::Transform>(e);
+		c->AddComponent<Components::Bounds>(e);
+
+		Components::Base& base = c->GetComponent<Components::Base>(e);
+		Components::Transform& transform = c->GetComponent<Components::Transform>(e);
+		base.name = node.name;
+		base.id = e;
+		if (parent != INVALID_ENTITY_ID) {
+			base.parent = parent;
+		}
+		transform.position = node.position;
+		transform.scale = node.scale;
+		transform.rotation = node.rotation;
+		transform.initial_rotation = transform.rotation;
+
+		if (parent != INVALID_ENTITY_ID) {
+			base.parent_position = true;
+			base.parent_rotation = false;
+		}
+		matrix trans = XMMatrixTranslation(transform.position.x, transform.position.y, transform.position.z);
+		matrix rot = XMMatrixRotationQuaternion(XMLoadFloat4(&transform.rotation));
+		matrix scle = XMMatrixScaling(transform.scale.x, transform.scale.y, transform.scale.z);
+		transform.world_xmmatrix = scle * rot * trans;
+
+		XMStoreFloat4x4(&transform.world_matrix, XMMatrixTranspose(transform.world_xmmatrix));
+		XMStoreFloat4x4(&transform.world_inv_matrix, XMMatrixTranspose(XMMatrixInverse(nullptr, transform.world_xmmatrix)));
+
+		transform.prev_world_matrix = transform.world_matrix;
+
+		switch (node.kind) {
+		case CookedNode::Kind::DirectionalLight: {
+			c->AddComponent(e, Components::DirectionalLight{});
+			Components::DirectionalLight& dl = c->GetComponent<Components::DirectionalLight>(e);
+			dl.GetData().color = node.light_color;
+			vector4d dir = XMVectorSet(transform.position.x, transform.position.y, transform.position.z, 0.0f);
+			XMVECTOR rotation = { transform.rotation.x, transform.rotation.y, transform.rotation.z, transform.rotation.w };
+			dir = XMVector3Rotate(dir, rotation);
+			XMStoreFloat3(&dl.GetData().direction, dir);
+			dl.Init(dl.GetData().color, dl.GetData().direction, true, 1, 0.0f);
+		}break;
+		case CookedNode::Kind::AmbientLight: {
+			c->AddComponent(e, Components::AmbientLight{});
+			Components::AmbientLight& al = c->GetComponent<Components::AmbientLight>(e);
+			al.GetData().colorUp = node.light_color;
+			al.GetData().colorDown = node.light_color;
+		}break;
+		case CookedNode::Kind::PointLight: {
+			c->AddComponent(e, Components::PointLight{});
+			Components::PointLight& pl = c->GetComponent<Components::PointLight>(e);
+			pl.Init(node.light_color, node.light_intensity, true, 1, 0.0f);
+		}break;
+		case CookedNode::Kind::Camera: {
+			c->AddComponent(e, Components::Camera{});
+		}break;
+		case CookedNode::Kind::Mesh: {
+			Components::Mesh mesh;
+			mesh.SetData(meshes.Get(node.mesh));
+			assert(mesh.GetData() != nullptr && "Mesh not found.");
+			c->AddComponent(e, std::move(mesh));
+			c->AddComponent(e, Components::Lighted{});
+
+			Bounds& bounds = c->GetComponent<Bounds>(e);
+			Components::Mesh& m = c->GetComponent<Components::Mesh>(e);
+
+			auto minV = m.GetData()->minDimensions;
+			auto maxV = m.GetData()->maxDimensions;
+
+			float3 center = float3((maxV.x + minV.x) / 2.0f, (maxV.y + minV.y) / 2.0f, (maxV.z + minV.z) / 2.0f);
+			float3 extends = float3(abs(maxV.x - minV.x) / 2.0f, abs(maxV.y - minV.y) / 2.0f, abs(maxV.z - minV.z) / 2.0f);
+			bounds.local_box.Extents = extends;
+			bounds.local_box.Center = center;
+			bounds.final_box = bounds.local_box;
+
+			bounds.local_box.Transform(bounds.final_box, transform.world_xmmatrix);
+
+			BoundingOrientedBox local_oriented;
+			local_oriented.Center = bounds.local_box.Center;
+			local_oriented.Extents = bounds.local_box.Extents;
+			local_oriented.Transform(bounds.bounding_box, transform.world_xmmatrix);
+		}break;
+		default:
+			break;
+		}
+		if (!node.material.empty()) {
+			MaterialData* m = materials.Get(node.material);
+			assert(m != nullptr && "Unknown material");
+			Components::Material material;
+			material.data = m;
+			c->AddComponent(e, std::move(material));
+		}
+		c->NotifySignatureChange(e);
+		printf("Entity %s created with ID %d, Parent %d\n", node.name.c_str(), e, base.parent);
+	}
+	RecordInstallTime(InstallPart::Nodes, std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t_nodes).count());
+	return entities;
+}
+
 std::set<Entity> World::LoadFBX(const std::string& file, bool triangulate, bool relative,
 	                Core::FlatMap<std::string, Core::MaterialData>& materials,
 	                Core::FlatMap<std::string, Core::MeshData>& meshes,
@@ -347,56 +533,106 @@ std::set<Entity> World::LoadFBX(const std::string& file, bool triangulate, bool 
 	if (!file.empty() && !loaded_files.contains(full_path_file)) {
 		loaded_files.insert(full_path_file);
 
-		//Coarse phase boundaries only - there is no visibility into fxsdk's own work to
-		//report anything finer, and the weights below are a guess at relative cost
-		//(meshes and animations are usually where a complex model's time actually goes),
-		//exactly like World::Load's own per-phase units.
-		auto report = [&on_progress](float p, const char* stage) {
-			if (on_progress != nullptr) { on_progress(p, stage); }
-			};
-		report(0.0f, "Reading FBX file...");
-
-		FBXLoader loader;
-		if (!loader.LoadScene(full_path_file, triangulate)) { throw "Load scene failed"; }
-		report(0.15f, "Loading materials...");
-
-		FbxScene* scene = loader.GetScene();
-		//Load materials
-		for (int i = 0; i < scene->GetRootNode()->GetChildCount(); ++i) {
-			fbxsdk::FbxNode* n = scene->GetRootNode()->GetChild(i);
-			loader.LoadMaterials(materials, n);
+		//A batch load (LoadModels) reads the files ahead of this call, on other threads.
+		std::shared_ptr<CookedModel> model;
+		auto prefetched = prefetched_models.find(full_path_file);
+		if (prefetched != prefetched_models.end()) {
+			model = std::move(prefetched->second);
+			prefetched_models.erase(prefetched);
 		}
-		coordinator->SendEvent(this, EVENT_ID_MATERIALS_LOADED);
-		report(0.30f, "Loading meshes...");
-		//Load meshes
-		for (int i = 0; i < scene->GetRootNode()->GetChildCount(); ++i) {
-			fbxsdk::FbxNode* n = scene->GetRootNode()->GetChild(i);
-			loader.LoadMeshes(meshes, n, vb);
+		else {
+			model = AcquireModel(full_path_file, triangulate, use_animation_names, on_progress);
 		}
-		coordinator->SendEvent(this, EVENT_ID_MESHES_LOADED);
-		report(0.70f, "Loading collision shapes...");
-		//Load shapes
-		for (int i = 0; i < scene->GetRootNode()->GetChildCount(); ++i) {
-			fbxsdk::FbxNode* n = scene->GetRootNode()->GetChild(i);
-			loader.LoadShapes(shapes, n);
-		}
-		coordinator->SendEvent(this, EVENT_ID_SHAPES_LOADED);
-		report(0.80f, "Loading animations...");
-
-		//Load animations
-		loader.LoadSkeletons(file, animations, scene->GetRootNode(), use_animation_names);
-		report(0.90f, "Building scene entities...");
-
-		//Load scene entities
-		for (int i = 0; i < scene->GetRootNode()->GetChildCount(); ++i) {
-			fbxsdk::FbxNode* n = scene->GetRootNode()->GetChild(i);
-			for (const auto& e : loader.ProcessEntity(meshes, materials, shapes, c, n))
-			{
-				entities.insert(e);
-			}
-		}
+		if (model == nullptr) { throw "Load scene failed"; }
+		if (on_progress != nullptr) { on_progress(0.95f, "Building scene entities..."); }
+		entities = InstallCookedModel(*model, materials, meshes, shapes, c, vb);
 	}
 	return entities;
+}
+
+void World::LoadModels(const std::vector<ModelRequest>& requests,
+	std::function<void(float, const std::string&)> on_progress) {
+	//What can be read ahead: a file that is an .fbx, is not loaded yet and is asked for
+	//once. A .ply, or a file already in the world, takes LoadModel's own path unchanged.
+	struct Job {
+		std::string full_path;
+		bool triangulate = false;
+		bool use_animation_names = false;
+		std::future<std::shared_ptr<CookedModel>> result;
+		bool started = false;
+	};
+	std::vector<Job> jobs;
+	std::map<std::string, size_t> job_of_path;
+	std::vector<int> request_job(requests.size(), -1);
+	for (size_t i = 0; i < requests.size(); ++i) {
+		const ModelRequest& r = requests[i];
+		std::string ext = std::filesystem::path(r.file).extension().string();
+		std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char ch) { return (char)std::tolower(ch); });
+		if (r.file.empty() || ext == ".ply") {
+			continue;
+		}
+		const std::string full = (!r.relative || r.file.find(":") != std::string::npos) ? r.file : path + r.file;
+		if (loaded_files.contains(full) || job_of_path.contains(full)) {
+			continue;
+		}
+		job_of_path[full] = jobs.size();
+		request_job[i] = (int)jobs.size();
+		jobs.emplace_back();
+		jobs.back().full_path = full;
+		jobs.back().triangulate = r.triangulate;
+		jobs.back().use_animation_names = r.use_animation_names;
+	}
+
+	//A window of models being read ahead of the one being installed. Bounded because a
+	//cooked model is held whole until it is installed: reading all of them first would
+	//hold every model's vertices twice over at the peak.
+	const size_t hardware = (std::max)(2u, std::thread::hardware_concurrency());
+	const size_t window = (std::min)((size_t)8, hardware);
+	size_t next_to_start = 0;
+	size_t in_flight = 0;
+	auto top_up = [&]() {
+		while (next_to_start < jobs.size() && in_flight < window) {
+			Job& job = jobs[next_to_start++];
+			job.started = true;
+			++in_flight;
+			job.result = std::async(std::launch::async, [full = job.full_path, tri = job.triangulate,
+				anim = job.use_animation_names]() -> std::shared_ptr<CookedModel> {
+				try {
+					return AcquireModel(full, tri, anim);
+				}
+				catch (...) {
+					return nullptr;
+				}
+			});
+		}
+	};
+
+	const auto begin = std::chrono::steady_clock::now();
+	size_t done = 0;
+	for (size_t i = 0; i < requests.size(); ++i) {
+		const ModelRequest& r = requests[i];
+		top_up();
+		if (request_job[i] >= 0) {
+			Job& job = jobs[request_job[i]];
+			std::shared_ptr<CookedModel> model = job.result.get();
+			--in_flight;
+			if (model != nullptr) {
+				prefetched_models[job.full_path] = std::move(model);
+			}
+			//A model that could not be read is left out of the prefetch, so LoadModel
+			//below tries it the way it always has and fails the way it always did.
+		}
+		LoadModel(r.file, r.triangulate, r.relative, r.use_animation_names, r.name);
+		prefetched_models.clear();
+		++done;
+		if (on_progress != nullptr) {
+			on_progress((float)done / (float)requests.size(), r.file);
+		}
+	}
+	const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin).count();
+	const ModelCacheStats stats = GetModelCacheStats();
+	LOG_INFO("World::LoadModels: %zu models in %.0f ms (cooked reads %u, fbx reads %u, cooked written %u)",
+		requests.size(), ms, stats.cooked_reads, stats.fbx_reads, stats.cooked_writes);
 }
 
 void World::LoadSky(const json& sky_info) {	
@@ -502,6 +738,10 @@ void  World::LoadMaterialFiles(const nlohmann::json& materials_info, const std::
 		//these materials back where they came from.
 		material_files[file] = root;
 
+		//Every texture the file names, loaded on every core before the materials ask for them
+		//one by one (Core/TextureCache.h).
+		PreloadTextures(CollectMaterialTextures(scene["materials"], root));
+
 		auto& materials = GetMaterials();
 		for (const auto& m : scene["materials"]) {
 			std::string name = m["name"];
@@ -533,6 +773,8 @@ void  World::LoadMaterialFiles(const nlohmann::json& materials_info, const std::
 	//A material may name a stack this file declares below it, or one another file
 	//declared - so binding is a pass of its own, after everything is in.
 	ResolveMultiMaterials();
+	//What the preload brought in and no material took.
+	ReleaseUnclaimedTextures();
 }
 
 std::string World::GetMaterialOrigin(const std::string& material_name) const {
@@ -3263,6 +3505,7 @@ bool World::Load(const std::string& scene_file, float* progress, std::function<v
 		//bringing in meshes, materials, collision shapes and animation clips. They
 		//come first because everything below names the assets they carry.
 		if (jw.contains("models")) {
+			std::vector<ModelRequest> requests;
 			for (json& m : jw["models"]) {
 				if (!m.contains("file") || !m["file"].is_string()) {
 					printf("World::Load: model entry without a \"file\", skipping.\n");
@@ -3271,9 +3514,11 @@ bool World::Load(const std::string& scene_file, float* progress, std::function<v
 				//"name" is optional and is only there when the import was given one:
 				//without it the stem is the key, which is what every level written
 				//before models could be named relies on.
-				LoadModel(m["file"], m.value("triangulate", false), true, false,
-					m.value("name", std::string()));
+				requests.push_back({ m["file"], m.value("triangulate", false), true, false,
+					m.value("name", std::string()) });
 			}
+			//All at once, so the files are read ahead on other threads (LoadModels).
+			LoadModels(requests);
 		}
 
 		//Splat clouds' inferred shadow/collision proxies - a mesh cache read the same

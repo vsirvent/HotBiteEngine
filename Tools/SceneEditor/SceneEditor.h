@@ -314,6 +314,11 @@ namespace HotBiteEditor {
 		ComponentSchemaSet component_schemas;
 
 		std::vector<TemplateAsset> templates; // the project's placeable templates
+		// The models and templates folders have been scanned for this World (AssetBrowser::
+		// EnsureAssetsScanned). A flag of the state, which CloseLevel resets with the World:
+		// it used to be the last scanned World's address, and a new World allocated at the old
+		// one's address was taken for the scanned one, so a reopened level had no templates.
+		bool assets_scanned = false;
 		std::string selected_template;        // template name chosen in the Asset Browser
 											  // or the Templates panel (they share it, so
 											  // selecting in one shows it in the other)

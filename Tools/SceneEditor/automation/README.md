@@ -105,6 +105,7 @@ directory so relative asset paths in level files resolve the same way the other 
 | `set_scale x y z` | ditto |
 | `set_rotation p y r` | Euler degrees, pitch/yaw/roll |
 | `list_templates` | every template (all of them placeable, all of them editable), with `in=file`/`in=level`, plus `unsaved` and `[selected]` |
+| `model_cache` | `OK {json}`: the cooked-model cache's counters for this process (`Loader/ModelCache.h`) - `cache_enabled`, `cooked_reads` (models read from a current `.fbx.cooked`), `fbx_reads` (read from the `.fbx`), `cooked_writes` and `failures`. A new project has no cooked files, so its models are all `fbx_reads` and `cooked_writes` the first time it opens |
 | `list_models` | every imported model (`.fbx`), with how many meshes, materials and animation clips each brought in, and `[selected]`. Models are assets, not objects: nothing here can be placed |
 | `model_info <name>` | one model's contents, one asset per line (`mesh` / `material` / `animation`) |
 | `import_model <.fbx path> [name]` | same as File/Import Model...: copies the file into `<assets>/Objects/`, loads its assets, creates no template. `name` is what the project knows the model by — the file stem when omitted, which is what it always used to be. It is only a registry key: the meshes, materials and clips inside the file keep their own names. A named import is written to the level's `models` array as `"name"` beside `"file"`, and earns its entry there even when nothing uses it yet (the name exists nowhere else) |

@@ -257,6 +257,8 @@ namespace HotBiteEditor {
 				error = "could not delete " + abs + ": " + ec.message();
 				return false;
 			}
+			//Its cooked copy (Core/TextureCache.h) goes with it, or the folder is never empty.
+			fs::remove(abs + ".cooked", ec);
 			PruneEmptyParents(state, fs::path(abs).parent_path());
 			MaterialOps::RefreshTextureList();
 			if (state.selected_texture == texture) {

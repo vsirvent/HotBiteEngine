@@ -187,7 +187,9 @@ function Get-SplatInfo {
 function Get-CloudShare {
     param([string]$Name)
     Step-EditorFrames -Session $Session -Count 6
-    return (Get-ImageStats -Path (Shot $Name)).LitShare
+    # The visible scene, wide: a cloud at the origin fills a small middle rectangle at 1x and 2x
+    # alike, which cannot tell them apart. The panels cover x 0..0.40 and 0.80..1 (TestFramework).
+    return (Get-ImageStats -Path (Shot $Name) -Left 0.42 -Top 0.20 -Right 0.78 -Bottom 0.85).LitShare
 }
 
 function Move-Entity {

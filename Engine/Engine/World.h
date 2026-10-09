@@ -32,6 +32,7 @@ SOFTWARE.
 #include <set>
 #include <map>
 #include <Loader\FBXLoader.h>
+#include <Loader\ModelCache.h>
 #include <ECS/Coordinator.h>
 #include <ECS/ComponentRegistry.h>
 #include <Systems\CameraSystem.h>
@@ -274,6 +275,19 @@ namespace HotBite {
 							Core::FlatMap<std::string, Core::ShapeData>& shapes,
 							ECS::Coordinator* c, Core::VertexBuffer<Core::Vertex>* vb, bool use_animation_names = false,
 							std::function<void(float, const std::string&)> on_progress = nullptr);
+			// Models a batch load (LoadModels) has already read on other threads, by the
+			// path LoadFBX would resolve them to. LoadFBX takes its model from here before it
+			// asks the cache, and the batch clears whatever was not taken.
+			std::unordered_map<std::string, std::shared_ptr<Loader::CookedModel>> prefetched_models;
+			// Turns a cooked model into meshes, materials, collision shapes, animation sets and
+			// entities (the nodes of the scene, in `c`). The single place that does, whether
+			// the model was just read from an .fbx or from its cooked file - see
+			// Loader/CookedModel.h. Moves the collision geometry out of `model`.
+			std::set<ECS::Entity> InstallCookedModel(Loader::CookedModel& model,
+							Core::FlatMap<std::string, Core::MaterialData>& materials,
+							Core::FlatMap<std::string, Core::MeshData>& meshes,
+							Core::FlatMap<std::string, Core::ShapeData>& shapes,
+							ECS::Coordinator* c, Core::VertexBuffer<Core::Vertex>* vb);
 			void LoadInstances(const nlohmann::json& instances_json);
 			static void ParsePhysicsJson(const nlohmann::json& physics_json, Components::Physics& physics);
 			// The two halves of SpawnInstance. SpawnTemplateEntities creates the entities
@@ -356,6 +370,24 @@ namespace HotBite {
 			// nothing and gets the old silent behaviour.
 			virtual void LoadModel(const std::string& model_file, bool triangulate, bool relative,
 							bool use_animation_names = false, const std::string& name = "",
+							std::function<void(float, const std::string&)> on_progress = nullptr);
+			// One model of a batch (LoadModels): LoadModel's arguments.
+			struct ModelRequest {
+				std::string file;
+				bool triangulate = false;
+				bool relative = false;
+				bool use_animation_names = false;
+				std::string name;
+			};
+			// LoadModel for each request, in order, with the files read ahead on other
+			// threads. What a model costs is mostly reading it, and a cooked model (see
+			// Loader/CookedModel.h) can be read on any thread, so the next several are being
+			// read while the current one is installed - which has to stay on this thread, in
+			// request order, because it touches the world. The result is the same as calling
+			// LoadModel for each; only the waiting differs. An .fbx without a current cooked
+			// file is read and cooked on the way (the FBX SDK takes one at a time).
+			// `on_progress` gets the fraction of the batch done and the file just installed.
+			virtual void LoadModels(const std::vector<ModelRequest>& requests,
 							std::function<void(float, const std::string&)> on_progress = nullptr);
 			virtual bool IsModelLoaded(const std::string& name) const;
 			// Unregisters a model: it stops being listed, stops being saved with the

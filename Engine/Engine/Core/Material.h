@@ -400,6 +400,16 @@ namespace HotBite {
 
 			void ReleaseTexture(ID3D11ShaderResourceView* srv);
 			ID3D11ShaderResourceView* LoadTexture(const std::string& filename);
+			//Puts the cooked textures of `filenames` in LoadTexture's cache, loading them on every
+			//core at once (Core/TextureCache.h), so the LoadTexture calls a material load then
+			//makes find them. Anything not cookable is left for LoadTexture to load as ever.
+			//Pair with ReleaseUnclaimedTextures when the load is over.
+			void PreloadTextures(const std::vector<std::string>& filenames);
+			//Lets go of preloaded textures nothing ended up using.
+			void ReleaseUnclaimedTextures();
+			//The texture files a "materials" array of a .mat names (every "*_textname" key), as
+			//the paths MaterialData::Load will ask LoadTexture for under `root`.
+			std::vector<std::string> CollectMaterialTextures(const nlohmann::json& materials, const std::string& root);
 		}
 	}
 }

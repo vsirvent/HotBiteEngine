@@ -183,13 +183,16 @@
     <ClCompile Include="Engine\Core\SplatCloud.cpp" />
     <ClCompile Include="Engine\Core\SplatMeshReconstruction.cpp" />
     <ClCompile Include="Engine\Core\Texture.cpp" />
+    <ClCompile Include="Engine\Core\TextureCache.cpp" />
     <ClCompile Include="Engine\Core\Utils.cpp" />
     <ClCompile Include="Engine\Core\Log.cpp" />
     <ClCompile Include="Engine\Core\Vertex.cpp" />
     <ClCompile Include="Engine\Defines.cpp" />
     <ClCompile Include="Engine\GUI\GUI.cpp" />
     <ClCompile Include="Engine\GUI\Widget.cpp" />
+    <ClCompile Include="Engine\Loader\CookedModel.cpp" />
     <ClCompile Include="Engine\Loader\FBXLoader.cpp" />
+    <ClCompile Include="Engine\Loader\ModelCache.cpp" />
     <ClCompile Include="Engine\Loader\FBXUtil.cpp" />
     <ClCompile Include="Engine\Network\Commons.cpp" />
     <ClCompile Include="Engine\Network\LockStepClient.cpp" />
@@ -241,6 +244,7 @@
     <ClInclude Include="Engine\Core\SplatCloud.h" />
     <ClInclude Include="Engine\Core\SplatMeshReconstruction.h" />
     <ClInclude Include="Engine\Core\Texture.h" />
+    <ClInclude Include="Engine\Core\TextureCache.h" />
     <ClInclude Include="Engine\Core\Utils.h" />
     <ClInclude Include="Engine\Core\Log.h" />
     <ClInclude Include="Engine\Core\Vertex.h" />
@@ -266,7 +270,9 @@
     <ClInclude Include="Engine\GUI\ProgressBar.h" />
     <ClInclude Include="Engine\GUI\TextureWidget.h" />
     <ClInclude Include="Engine\GUI\Widget.h" />
+    <ClInclude Include="Engine\Loader\CookedModel.h" />
     <ClInclude Include="Engine\Loader\FBXLoader.h" />
+    <ClInclude Include="Engine\Loader\ModelCache.h" />
     <ClInclude Include="Engine\Loader\FBXUtil.h" />
     <ClInclude Include="Engine\Network\Commons.h" />
     <ClInclude Include="Engine\Network\LockStepClient.h" />

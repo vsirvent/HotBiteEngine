@@ -174,7 +174,7 @@ void FBXLoader::LoadAnimations(std::shared_ptr<Core::Skeleton> skeleton, FbxNode
 	}
 }
 
-int FBXLoader::LoadSkeletons(const std::string& filename, Core::FlatMap<std::string, std::shared_ptr<Core::Skeleton>>& skeletons, FbxNode* node, bool use_animation_names) {
+int FBXLoader::ExtractSkeletons(const std::string& filename, CookedModel& out, FbxNode* node, bool use_animation_names) {
 	//Load skeleton animations
 	int ret = 0;
 	if (node->GetNodeAttribute() != nullptr && node->GetNodeAttribute()->GetAttributeType() == FbxNodeAttribute::eSkeleton)
@@ -195,21 +195,22 @@ int FBXLoader::LoadSkeletons(const std::string& filename, Core::FlatMap<std::str
 		LoadAnimations(skl, node, node->GetParent(), use_animation_names ? "" : name);
 		skl->Flush();
 		printf("Skeleton with %llu bones loaded\n", skl->CpuData().size());
-		skeletons.Insert(name, skl);
+		out.skeletons.push_back({ name, skl->CpuData() });
+		++ret;
 	}
 	else {
 		//Load node childs
 		for (int i = 0; i < node->GetChildCount(); ++i) {
 			FbxNode* child_node = node->GetChild(i);
-			LoadSkeletons(filename, skeletons, child_node, use_animation_names);
+			ret += ExtractSkeletons(filename, out, child_node, use_animation_names);
 		}
 	}
 	return ret;
 }
 
-int FBXLoader::LoadMeshes(Core::FlatMap<std::string, Core::MeshData>& meshes, FbxNode* node, Core::VertexBuffer<Vertex>* vb) {
+int FBXLoader::ExtractMeshes(CookedModel& out, FbxNode* node) {
 	int ret = 0;
-	if (node->GetNodeAttribute()->GetAttributeType() == FbxNodeAttribute::eMesh)
+	if (node->GetNodeAttribute() != nullptr && node->GetNodeAttribute()->GetAttributeType() == FbxNodeAttribute::eMesh)
 	{
 		std::string name = node->GetName();
 		std::vector<unsigned int> indices;
@@ -436,50 +437,66 @@ int FBXLoader::LoadMeshes(Core::FlatMap<std::string, Core::MeshData>& meshes, Fb
 
 
 		printf("Loaded mesh %s\n", name.c_str());
-		MeshData* mesh = meshes.Create(name);
-		//Fusing the clones is MeshData's job now, so it can be undone: the vertices
-		//handed over are the flat ones, plus the grouping and the default above.
-		mesh->Init(vb, name, vertices, indices, skeleton, &smooth_groups, smooth);
+		//Fusing the clones is MeshData's job (so it can be undone): what is kept is the
+		//flat vertices, plus the grouping and the default above.
+		CookedMesh mesh;
+		mesh.name = name;
+		mesh.smooth = smooth;
+		mesh.vertices = std::move(vertices);
+		mesh.indices.assign(indices.begin(), indices.end());
+		mesh.smooth_groups = std::move(smooth_groups);
+		if (skeleton != nullptr) {
+			mesh.skinned = true;
+			mesh.joints = skeleton->CpuData();
+		}
+		out.meshes.push_back(std::move(mesh));
 		++ret;
 	}
 	//Load node childs
 	for (int i = 0; i < node->GetChildCount(); ++i) {
 		FbxNode* child_node = node->GetChild(i);
-		LoadMeshes(meshes, child_node, vb);
+		ret += ExtractMeshes(out, child_node);
 	}
 	return ret;
 }
 
-int FBXLoader::LoadMaterials(Core::FlatMap<std::string, Core::MaterialData>& materials, FbxNode* node) {
+int FBXLoader::ExtractMaterials(CookedModel& out, FbxNode* node) {
 	int ret = 0;
 	for (int i = 0; i < node->GetMaterialCount(); ++i) {
 		FbxSurfaceMaterial* sm = node->GetMaterial(i);
+		if (sm == nullptr) {
+			continue;
+		}
 		std::string name = sm->GetName();
-		if (sm != nullptr && materials.Get(name) == nullptr) {
-			MaterialData* m = materials.Create(name);
-			m->name = name;
+		const bool known = std::any_of(out.materials.begin(), out.materials.end(),
+			[&name](const CookedMaterial& m) { return m.name == name; });
+		if (!known) {
+			CookedMaterial m;
+			m.name = name;
 			//Only the diffuse channel is imported: the engine's material model has no
 			//ambient term, so an FBX sAmbient had nowhere to go.
-			m->props.diffuseColor = GetMaterialProperty(sm, FbxSurfaceMaterial::sDiffuse, FbxSurfaceMaterial::sDiffuseFactor, &(m->texture_names.diffuse_texname));
-			m->props.specIntensity = 0.0f;
+			m.diffuse_color = GetMaterialProperty(sm, FbxSurfaceMaterial::sDiffuse, FbxSurfaceMaterial::sDiffuseFactor, &m.diffuse_texture);
 			printf("FBXLoader::Added material %s\n", name.c_str());
+			out.materials.push_back(std::move(m));
 			++ret;
 		}
 	}
 	//Load node childs
 	for (int i = 0; i < node->GetChildCount(); ++i) {
 		FbxNode* child_node = node->GetChild(i);
-		LoadMaterials(materials, child_node);
+		ret += ExtractMaterials(out, child_node);
 	}
 	return ret;
 }
 
-int FBXLoader::LoadShapes(Core::FlatMap<std::string, Core::ShapeData>& shapes, FbxNode* node) {
+int FBXLoader::ExtractShapes(CookedModel& out, FbxNode* node) {
 	int ret = 0;
-	if (node->GetNodeAttribute()->GetAttributeType() == FbxNodeAttribute::eMesh)
+	if (node->GetNodeAttribute() != nullptr && node->GetNodeAttribute()->GetAttributeType() == FbxNodeAttribute::eMesh)
 	{
 		std::string name = node->GetName();
-		Core::ShapeData* shape = shapes.Create(name);
+		out.shapes.emplace_back();
+		CookedShape* shape = &out.shapes.back();
+		shape->name = name;
 		FbxAMatrix& matrix = node->EvaluateGlobalTransform();
 		FbxVector4 s = matrix.GetS();
 		float3 scale = { abs((float)s.mData[0] / (RATIO)), abs((float)s.mData[1] / (RATIO)), abs((float)s.mData[2] / (RATIO)) };
@@ -517,28 +534,16 @@ int FBXLoader::LoadShapes(Core::FlatMap<std::string, Core::ShapeData>& shapes, F
 				shape->normals[ind].z += (float)norm.mData[2];
 			}
 		}
-		if (shape->vertices.size() > 0) {
-			// Create the polygon vertex array 
-			reactphysics3d::TriangleVertexArray* triangleVertexArray = new reactphysics3d::TriangleVertexArray((uint32_t)shape->vertices.size(),
-				shape->vertices.data(), (uint32_t)sizeof(float3),
-				shape->normals.data(), (uint32_t)sizeof(float),
-				(uint32_t)shape->indices.size() / 3, shape->indices.data(), (uint32_t)sizeof(unsigned int) * 3,
-				reactphysics3d::TriangleVertexArray::VertexDataType::VERTEX_FLOAT_TYPE,
-				reactphysics3d::TriangleVertexArray::NormalDataType::NORMAL_FLOAT_TYPE,
-				reactphysics3d::TriangleVertexArray::IndexDataType::INDEX_INTEGER_TYPE);
-
-			// Create the polyhedron mesh 
-			reactphysics3d::TriangleMesh* triangleMesh = Core::physics_common.createTriangleMesh();
-			triangleMesh->addSubpart(triangleVertexArray);
-			shape->shape = Core::physics_common.createConcaveMeshShape(triangleMesh);
-		}
+		//The physics shape itself is built when the model is installed
+		//(World::InstallCookedModel), not here: it needs the physics library, which a
+		//cook (no World, no device) does not have, and the triangles are all it needs.
 		printf("Loaded shape %s\n", name.c_str());
 		++ret;
 	}
 	//Load node childs
 	for (int i = 0; i < node->GetChildCount(); ++i) {
 		FbxNode* child_node = node->GetChild(i);
-		LoadShapes(shapes, child_node);
+		ret += ExtractShapes(out, child_node);
 	}
 	return ret;
 }
@@ -617,218 +622,101 @@ bool FBXLoader::LoadScene(const std::string& filename, bool triangulate)
 	return status;
 }
 
-std::unordered_set<Entity>
-FBXLoader::ProcessEntity(Core::FlatMap<std::string, Core::MeshData>& meshes,
-	Core::FlatMap<std::string, Core::MaterialData>& materials,
-	Core::FlatMap<std::string, Core::ShapeData>& shapes,
-	Coordinator* coordinator, FbxNode* node, Entity parent) {
-
-	std::unordered_set<Entity> ret;
-	if (node->GetNodeAttribute()->GetAttributeType() == FbxNodeAttribute::eSkeleton) {
+int FBXLoader::ExtractNodes(CookedModel& out, FbxNode* node, int32_t parent) {
+	int ret = 0;
+	const FbxNodeAttribute* attribute = node->GetNodeAttribute();
+	const FbxNodeAttribute::EType type = attribute != nullptr ? attribute->GetAttributeType() : FbxNodeAttribute::eNull;
+	//Skeleton nodes are not entities, and neither is anything below one: the skeleton
+	//is loaded as part of the mesh it deforms.
+	if (type == FbxNodeAttribute::eSkeleton) {
 		return ret;
 	}
-	std::string name = node->GetName();
-	Entity e = coordinator->GetEntityByName(name);
-	if (e == INVALID_ENTITY_ID) {
-		e = coordinator->CreateEntity(name);
-		ret.insert(e);
+	CookedNode n;
+	n.name = node->GetName();
+	n.parent = parent;
 
-		coordinator->AddComponent<Components::Base>(e);
-		coordinator->AddComponent<Components::Transform>(e);
-		coordinator->AddComponent<Components::Bounds>(e);
+	FbxAMatrix& m = node->EvaluateGlobalTransform();
+	FbxVector4 t = m.GetT();
+	FbxVector4 s = m.GetS();
+	FbxQuaternion r = m.GetQ();
+	n.position = { (float)t.mData[0] / (RATIO), (float)t.mData[1] / (RATIO), (float)t.mData[2] / (RATIO) };
+	n.scale = { abs((float)s.mData[0] / (RATIO)), abs((float)s.mData[1] / (RATIO)), abs((float)s.mData[2] / (RATIO)) };
+	n.rotation = { (float)r.mData[0], (float)r.mData[1], (float)r.mData[2], (float)r.mData[3] };
 
-		Components::Base& base = coordinator->GetComponent<Components::Base>(e);
-		Components::Transform& transform = coordinator->GetComponent<Components::Transform>(e);
-		base.name = name;
-		base.id = e;
-		if (parent != INVALID_ENTITY_ID) {
-			base.parent = parent;
+	switch (type) {
+	case FbxNodeAttribute::eLight: {
+		const FbxLight* fl = (const FbxLight*)attribute;
+		const FbxLight::EType light_type = fl->LightType.Get();
+		n.light_color = { (float)fl->Color.Get()[0], (float)fl->Color.Get()[1], (float)fl->Color.Get()[2] };
+		n.light_intensity = (float)fl->Intensity / (RATIO);
+		switch (light_type) {
+		case FbxLight::EType::eDirectional: n.kind = CookedNode::Kind::DirectionalLight; break;
+		case FbxLight::EType::eArea: n.kind = CookedNode::Kind::AmbientLight; break;
+		case FbxLight::EType::ePoint: n.kind = CookedNode::Kind::PointLight; break;
+		default: printf("Unknown light type %d\n", (int)light_type); break;
 		}
-		FbxAMatrix& m = node->EvaluateGlobalTransform();
-		FbxVector4 t = m.GetT();
-		FbxVector4 s = m.GetS();
-		FbxQuaternion r = m.GetQ();
-
-		transform.position.x = (float)t.mData[0] / (RATIO);
-		transform.position.y = (float)t.mData[1] / (RATIO);
-		transform.position.z = (float)t.mData[2] / (RATIO);
-		transform.scale.x = abs((float)s.mData[0] / (RATIO));
-		transform.scale.y = abs((float)s.mData[1] / (RATIO));
-		transform.scale.z = abs((float)s.mData[2] / (RATIO));
-		transform.rotation.x = (float)r.mData[0];
-		transform.rotation.y = (float)r.mData[1];
-		transform.rotation.z = (float)r.mData[2];
-		transform.rotation.w = (float)r.mData[3];
-		transform.initial_rotation = transform.rotation;
-
-		if (parent != INVALID_ENTITY_ID) {
-			base.parent_position = true;
-			base.parent_rotation = false;
-		}
-		matrix trans = XMMatrixTranslation(transform.position.x, transform.position.y, transform.position.z);
-		matrix rot = XMMatrixRotationQuaternion(XMLoadFloat4(&transform.rotation));
-		matrix scle = XMMatrixScaling(transform.scale.x, transform.scale.y, transform.scale.z);
-		transform.world_xmmatrix = scle * rot * trans;
-
-		XMStoreFloat4x4(&transform.world_matrix, XMMatrixTranspose(transform.world_xmmatrix));
-		XMStoreFloat4x4(&transform.world_inv_matrix, XMMatrixTranspose(XMMatrixInverse(nullptr, transform.world_xmmatrix)));
-
-		transform.prev_world_matrix = transform.world_matrix;
-
-		if (node->GetNodeAttribute())
-		{
-			auto type = node->GetNodeAttribute()->GetAttributeType();
-			switch (type) {
-			case FbxNodeAttribute::eLight: {
-				ProcessLight(coordinator, e, node);
-			}break;
-			case FbxNodeAttribute::eCamera: {
-				ProcessCamera(coordinator, e, node);
-			}break;
-			case FbxNodeAttribute::eMesh: {
-				Components::Mesh mesh;
-				mesh.SetData(meshes.Get(name));
-				assert(mesh.GetData() != nullptr && "Mesh not found.");
-				coordinator->AddComponent(e, std::move(mesh));
-				coordinator->AddComponent(e, Components::Lighted{});
-
-				Bounds& bounds = coordinator->GetComponent<Bounds>(e);
-				Mesh& m = coordinator->GetComponent<Mesh>(e);
-
-				auto minV = m.GetData()->minDimensions;
-				auto maxV = m.GetData()->maxDimensions;
-
-				float3 center = float3((maxV.x + minV.x) / 2.0f, (maxV.y + minV.y) / 2.0f, (maxV.z + minV.z) / 2.0f);
-				float3 extends = float3(abs(maxV.x - minV.x) / 2.0f, abs(maxV.y - minV.y) / 2.0f, abs(maxV.z - minV.z) / 2.0f);
-				bounds.local_box.Extents = extends;
-				bounds.local_box.Center = center;
-				bounds.final_box = bounds.local_box;
-
-				matrix trans = XMMatrixTranslation(transform.position.x, transform.position.y, transform.position.z);
-				matrix rot = XMMatrixRotationQuaternion(XMLoadFloat4(&transform.rotation));
-				matrix scle = XMMatrixScaling(transform.scale.x, transform.scale.y, transform.scale.z);
-				transform.world_xmmatrix = scle * rot * trans;
-
-				vector4d extents = XMLoadFloat3(&bounds.final_box.Extents);
-				extents = XMVector4Transform(extents, transform.world_xmmatrix);
-				bounds.local_box.Transform(bounds.final_box, transform.world_xmmatrix);
-
-				BoundingOrientedBox local_oriented;
-				local_oriented.Center = bounds.local_box.Center;
-				local_oriented.Extents = bounds.local_box.Extents;
-				local_oriented.Transform(bounds.bounding_box, transform.world_xmmatrix);
-
-			}break;
-			case FbxNodeAttribute::eSkeleton: {
-				//Skeletons are loaded as part of the mesh
-			}break;
-			case FbxNodeAttribute::eNull: {
-				//Empty node
-			}
-			default:
-				printf("FBXLoader::ProcessEntity: Node %s, type %d has no components\n", name.c_str(), (int)type);
-				break;
-			}
-		}
-		for (int i = 0; i < node->GetMaterialCount(); ++i) {
-			FbxSurfaceMaterial* sm = node->GetMaterial(i);
-			std::string name = sm->GetName();
-			MaterialData* m = materials.Get(name);
-			assert(m != nullptr && "Unknown material");
-			Components::Material material;
-			material.data = m;
-			coordinator->AddComponent(e, std::move(material));
-			//We can only add one material component, even if the FBX file
-			//includes multiple materials to the entity
-			break;
-		}
-		coordinator->NotifySignatureChange(e);
-		printf("Entity %s created with ID %d, Parent %d\n", name.c_str(), e, base.parent);
-		//Load node childs
-		for (int i = 0; i < node->GetChildCount(); ++i) {
-			FbxNode* child_node = node->GetChild(i);
-			for (const auto& ec : ProcessEntity(meshes, materials, shapes, coordinator, child_node, e)) {
-				ret.insert(ec);
-			}
-		}
+	}break;
+	case FbxNodeAttribute::eCamera: {
+		n.kind = CookedNode::Kind::Camera;
+	}break;
+	case FbxNodeAttribute::eMesh: {
+		n.kind = CookedNode::Kind::Mesh;
+		n.mesh = n.name;
+	}break;
+	default:
+		printf("FBXLoader::ExtractNodes: Node %s, type %d has no components\n", n.name.c_str(), (int)type);
+		break;
 	}
-	else {
-		printf("Entity %s already exists.", name.c_str());
+	//We can only add one material component, even if the FBX file includes multiple
+	//materials to the entity, so it is the first that counts.
+	for (int i = 0; i < node->GetMaterialCount(); ++i) {
+		n.material = node->GetMaterial(i)->GetName();
+		break;
+	}
+	out.nodes.push_back(std::move(n));
+	++ret;
+	const int32_t self = (int32_t)out.nodes.size() - 1;
+	//Load node childs
+	for (int i = 0; i < node->GetChildCount(); ++i) {
+		ret += ExtractNodes(out, node->GetChild(i), self);
 	}
 	return ret;
 }
 
-bool FBXLoader::ProcessCamera(ECS::Coordinator* coordinator, ECS::Entity e, FbxNode* node) {
-	bool ret = true;
-	coordinator->AddComponent(e, Components::Camera{});
-	return ret;
-}
-
-bool FBXLoader::ProcessShape(ECS::Coordinator* coordinator, ECS::Entity e, FbxNode* node) {
-	bool ret = true;
-	return ret;
-}
-
-bool FBXLoader::ProcessMesh(ECS::Coordinator* coordinator, ECS::Entity e, FbxNode* node) {
-	bool ret = true;
-	return ret;
-}
-
-
-bool FBXLoader::ProcessLight(Coordinator* coordinator, Entity entity, FbxNode* node) {
-	bool ret = false;
-	if (node->GetNodeAttribute()->GetAttributeType() == FbxNodeAttribute::eLight)
-	{
-		FbxLight* fl = (FbxLight*)node->GetNodeAttribute();
-		FbxLight::EType type = fl->LightType.Get();
-		float intensity = (float)fl->Intensity / (RATIO);
-		Components::Transform& t = coordinator->GetComponent<Components::Transform>(entity);
-
-		switch (type) {
-		case FbxLight::EType::eDirectional: {
-
-			coordinator->AddComponent(entity, Components::DirectionalLight{});
-			Components::DirectionalLight& dl = coordinator->GetComponent<Components::DirectionalLight>(entity);
-			dl.GetData().color = { (float)fl->Color.Get()[0],
-							   (float)fl->Color.Get()[1],
-							   (float)fl->Color.Get()[2] };
-			vector4d dir = XMVectorSet(t.position.x, t.position.y, t.position.z, 0.0f);
-			XMVECTOR rot = { t.rotation.x, t.rotation.y, t.rotation.z, t.rotation.w };
-			dir = XMVector3Rotate(dir, rot);
-			XMStoreFloat3(&dl.GetData().direction, dir);
-			dl.Init(dl.GetData().color, dl.GetData().direction, true, 1, 0.0f);
-
-			ret = true;
-		} break;
-		case FbxLight::EType::eArea: {
-			coordinator->AddComponent(entity, Components::AmbientLight{});
-			Components::AmbientLight& al = coordinator->GetComponent<Components::AmbientLight>(entity);
-			al.GetData().colorUp = { (float)fl->Color.Get()[0],
-							   (float)fl->Color.Get()[1],
-							   (float)fl->Color.Get()[2] };
-			al.GetData().colorDown = { (float)fl->Color.Get()[0],
-							   (float)fl->Color.Get()[1],
-							   (float)fl->Color.Get()[2] };
-
-			ret = true;
-		} break;
-		case FbxLight::EType::ePoint: {
-			coordinator->AddComponent(entity, Components::PointLight{});
-			Components::PointLight& pl = coordinator->GetComponent<Components::PointLight>(entity);
-			pl.Init({ (float)fl->Color.Get()[0],
-					  (float)fl->Color.Get()[1],
-					  (float)fl->Color.Get()[2] },
-				(float)intensity,
-				true, 1, 0.0f);
-			ret = true;
-		} break;
-		default: {
-			printf("Unknown light type %d\n", (int)type);
-			ret = false;
-		} break;
-		}
+bool FBXLoader::Extract(const std::string& filename, bool triangulate, bool use_animation_names, CookedModel& out,
+	std::function<void(float, const std::string&)> on_progress) {
+	auto report = [&on_progress](float p, const char* stage) {
+		if (on_progress != nullptr) { on_progress(p, stage); }
+	};
+	report(0.0f, "Reading FBX file...");
+	if (!LoadScene(filename, triangulate)) {
+		return false;
 	}
-	return ret;
+	out = CookedModel{};
+	out.triangulate = triangulate;
+	out.use_animation_names = use_animation_names;
+	CookedModel::StampOf(filename, out.source_size, out.source_time);
+
+	FbxNode* root = scene->GetRootNode();
+	report(0.15f, "Loading materials...");
+	for (int i = 0; i < root->GetChildCount(); ++i) {
+		ExtractMaterials(out, root->GetChild(i));
+	}
+	report(0.30f, "Loading meshes...");
+	for (int i = 0; i < root->GetChildCount(); ++i) {
+		ExtractMeshes(out, root->GetChild(i));
+	}
+	report(0.70f, "Loading collision shapes...");
+	for (int i = 0; i < root->GetChildCount(); ++i) {
+		ExtractShapes(out, root->GetChild(i));
+	}
+	report(0.80f, "Loading animations...");
+	ExtractSkeletons(filename, out, root, use_animation_names);
+	report(0.90f, "Building scene entities...");
+	for (int i = 0; i < root->GetChildCount(); ++i) {
+		ExtractNodes(out, root->GetChild(i), -1);
+	}
+	return true;
 }
 
 void FBXLoader::CalculateTangents(std::vector<Vertex>& vertices, const std::vector<unsigned int>& indices) {

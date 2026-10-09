@@ -6,7 +6,7 @@
 # frame has sun, ambient and temporal GI in it and an absolute level would say
 # nothing. Bright is measured in two rectangles - the middle of the viewport,
 # which the camera is aimed at, and a band near the left/right edges of the floor
-# (the editor's panels are outside 0.15..0.85) - so "inside the cone" and
+# (the editor's panels cover x 0..0.40 and 0.80..1) - so "inside the cone" and
 # "outside the cone" are both in frame.
 
 function Get-Zones {
@@ -15,9 +15,11 @@ function Get-Zones {
     $path = Shot $Name
     # Inner is the pool a spot aimed straight down leaves under the lamp, outer the
     # far corner of the floor, total everything the floor fills.
+    # Only x 0.40-0.80 of the window is scene (the panels cover the rest, see TestFramework's
+    # note on the viewport); the lamp is over x 0.50.
     $inner = Get-ImageStats -Path $path -Left 0.47 -Top 0.46 -Right 0.53 -Bottom 0.53 -Step 2
-    $outer = Get-ImageStats -Path $path -Left 0.20 -Top 0.75 -Right 0.35 -Bottom 0.95
-    $total = Get-ImageStats -Path $path -Left 0.20 -Top 0.30 -Right 0.80 -Bottom 0.95
+    $outer = Get-ImageStats -Path $path -Left 0.42 -Top 0.75 -Right 0.47 -Bottom 0.95
+    $total = Get-ImageStats -Path $path -Left 0.42 -Top 0.30 -Right 0.58 -Bottom 0.95
     return [pscustomobject]@{ Inner = $inner.Mean; Outer = $outer.Mean; Total = $total.Mean }
 }
 

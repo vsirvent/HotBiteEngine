@@ -146,6 +146,12 @@
     <ClCompile Include="Engine\Systems\PointLightSystem.cpp">
       <Filter>Engine\Systems</Filter>
     </ClCompile>
+    <ClCompile Include="Engine\Loader\CookedModel.cpp">
+      <Filter>Engine\Loader</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\Loader\ModelCache.cpp">
+      <Filter>Engine\Loader</Filter>
+    </ClCompile>
     <ClCompile Include="Engine\Loader\FBXLoader.cpp">
       <Filter>Engine\Loader</Filter>
     </ClCompile>
@@ -345,6 +351,12 @@
     </ClInclude>
     <ClInclude Include="Engine\Core\Json.h">
       <Filter>Engine\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\Loader\CookedModel.h">
+      <Filter>Engine\Loader</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\Loader\ModelCache.h">
+      <Filter>Engine\Loader</Filter>
     </ClInclude>
     <ClInclude Include="Engine\Loader\FBXLoader.h">
       <Filter>Engine\Loader</Filter>

@@ -36,6 +36,8 @@ SOFTWARE.
 #include <Components/Physics.h>
 #include <Components/Lights.h>
 #include <ECS/Coordinator.h>
+#include <functional>
+#include "CookedModel.h"
 
 #pragma comment(lib, "libfbxsdk.lib")
 
@@ -61,10 +63,12 @@ namespace HotBite {
 				void DestroySdkObjects();
 				void SaveScene(std::string filename);
 
-				bool ProcessLight(ECS::Coordinator* coordinator, ECS::Entity e, FbxNode* node);
-				bool ProcessCamera(ECS::Coordinator* coordinator, ECS::Entity e, FbxNode* node);
-				bool ProcessMesh(ECS::Coordinator* coordinator, ECS::Entity e, FbxNode* node);
-				bool ProcessShape(ECS::Coordinator* coordinator, ECS::Entity e, FbxNode* node);
+				int ExtractSkeletons(const std::string& filename, CookedModel& out, FbxNode* node, bool use_animation_names);
+				int ExtractMeshes(CookedModel& out, FbxNode* node);
+				int ExtractMaterials(CookedModel& out, FbxNode* node);
+				int ExtractShapes(CookedModel& out, FbxNode* node);
+				int ExtractNodes(CookedModel& out, FbxNode* node, int32_t parent);
+				bool LoadScene(const std::string& file, bool triangulate);
 
 				void LoadAnimations(std::shared_ptr<Core::Skeleton> skeleton, FbxNode* node, FbxNode* root_node, const std::string& animation_name = "");
 			public:
@@ -72,18 +76,13 @@ namespace HotBite {
 				FBXLoader();
 				~FBXLoader();
 
-				FbxScene* GetScene() { return scene; };
-				bool LoadScene(const std::string& file, bool triangulate);
-
-				int LoadSkeletons(const std::string& filename, Core::FlatMap<std::string, std::shared_ptr<Core::Skeleton>>& skeletons, FbxNode* node, bool use_animation_names = false);
-				int LoadMeshes(Core::FlatMap<std::string, Core::MeshData>& meshes, FbxNode* node, Core::VertexBuffer<Core::Vertex>* vb);
-				int LoadMaterials(Core::FlatMap<std::string, Core::MaterialData>& materials, FbxNode* node);
-				int LoadShapes(Core::FlatMap<std::string, Core::ShapeData>& shapes, FbxNode* node);
-
-				std::unordered_set<ECS::Entity> ProcessEntity(Core::FlatMap<std::string, Core::MeshData>& meshes,
-					Core::FlatMap<std::string, Core::MaterialData>& materials,
-					Core::FlatMap<std::string, Core::ShapeData>& shapes,
-					ECS::Coordinator* coordinator, FbxNode* node, ECS::Entity parent = ECS::INVALID_ENTITY_ID);
+				// Reads the scene into a CookedModel - the data the engine installs, and the
+				// file a cook writes. Nothing here touches a World, a device or the physics
+				// library, which is what lets a command-line cook run without any of them.
+				// False when the file cannot be read. `on_progress` gets the same coarse phases
+				// World::LoadFBX has always reported.
+				bool Extract(const std::string& filename, bool triangulate, bool use_animation_names, CookedModel& out,
+					std::function<void(float, const std::string&)> on_progress = nullptr);
 			};
 		}
 	}

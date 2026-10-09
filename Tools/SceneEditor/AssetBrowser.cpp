@@ -156,13 +156,12 @@ namespace HotBiteEditor {
 			//dangling pointer here would only ever be compared against, never
 			//dereferenced, but state.world is repointed at a live World before
 			//this runs on every frame, so there is nothing to dangle in practice.
-			static const World* scanned_world = nullptr;
-			if (!state.project_root.empty() && scanned_world != state.world) {
+			if (!state.project_root.empty() && !state.assets_scanned) {
 				ScanModelsFolder(state);
 				//Templates second: a .tpl names meshes and animation clips, and those
 				//only exist once the models carrying them are loaded.
 				TemplateOps::ScanTemplatesFolder(state);
-				scanned_world = state.world;
+				state.assets_scanned = true;
 			}
 		}
 

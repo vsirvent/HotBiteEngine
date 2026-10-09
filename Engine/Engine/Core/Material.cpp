@@ -33,6 +33,12 @@ SOFTWARE.
 #include <Core/Json.h>
 
 #include "Material.h"
+#include "TextureCache.h"
+
+#include <atomic>
+#include <future>
+#include <thread>
+#include <unordered_set>
 
 namespace HotBite {
 	namespace Engine {
@@ -42,14 +48,99 @@ namespace HotBite {
 			std::unordered_map<std::string, ID3D11ShaderResourceView*> textures;
 			std::unordered_map<ID3D11ShaderResourceView*, std::string> textures_names;
 
-			void ReleaseTexture(ID3D11ShaderResourceView* srv) {
-				std::lock_guard<std::mutex> l(texture_mutex);
+			//Textures PreloadTextures put in the cache that nothing has taken a reference to
+			//yet. The cache's own reference is what they carry, and the first LoadTexture of
+			//one takes it over (no AddRef) so the count stays "one per user", which is what
+			//ReleaseTexture's erase-at-zero relies on. Whatever is still here when the load
+			//that preloaded them is over is let go (ReleaseUnclaimedTextures).
+			std::unordered_set<ID3D11ShaderResourceView*> unclaimed_textures;
+
+			//texture_mutex held.
+			static void ReleaseTextureLocked(ID3D11ShaderResourceView* srv) {
 				if (srv != nullptr && srv->Release() == 0) {
 					auto it0 = textures_names.find(srv);
-					auto it1 = textures.find(it0->second);
-					textures.erase(it1);
-					textures_names.erase(it0);
+					if (it0 != textures_names.end()) {
+						textures.erase(it0->second);
+						textures_names.erase(it0);
+					}
 				}
+			}
+
+			void ReleaseTexture(ID3D11ShaderResourceView* srv) {
+				std::lock_guard<std::mutex> l(texture_mutex);
+				ReleaseTextureLocked(srv);
+			}
+
+			void ReleaseUnclaimedTextures() {
+				std::lock_guard<std::mutex> l(texture_mutex);
+				for (ID3D11ShaderResourceView* srv : unclaimed_textures) {
+					ReleaseTextureLocked(srv);
+				}
+				unclaimed_textures.clear();
+			}
+
+			static bool IsDdsName(const std::string& filename) {
+				return filename.find(".dds") != std::string::npos || filename.find(".DDS") != std::string::npos;
+			}
+
+			void PreloadTextures(const std::vector<std::string>& filenames) {
+				//Only what is not in the cache, once each, and not a .dds (read as it is).
+				std::vector<std::string> wanted;
+				{
+					std::lock_guard<std::mutex> l(texture_mutex);
+					std::unordered_set<std::string> seen;
+					for (const std::string& f : filenames) {
+						if (!f.empty() && !IsDdsName(f) && textures.find(f) == textures.end() && seen.insert(f).second) {
+							wanted.push_back(f);
+						}
+					}
+				}
+				if (wanted.empty() || !TextureCacheEnabled()) {
+					return;
+				}
+				std::vector<ID3D11ShaderResourceView*> loaded(wanted.size(), nullptr);
+				std::atomic<size_t> next{ 0 };
+				const size_t workers = (std::min)((size_t)(std::max)(2u, std::thread::hardware_concurrency()), wanted.size());
+				std::vector<std::thread> threads;
+				for (size_t t = 0; t < workers; ++t) {
+					threads.emplace_back([&]() {
+						for (size_t i = next++; i < wanted.size(); i = next++) {
+							loaded[i] = LoadCookedTexture(wanted[i]);
+						}
+					});
+				}
+				for (std::thread& t : threads) { t.join(); }
+				std::lock_guard<std::mutex> l(texture_mutex);
+				for (size_t i = 0; i < wanted.size(); ++i) {
+					if (loaded[i] == nullptr) { continue; }
+					if (textures.find(wanted[i]) != textures.end()) {
+						loaded[i]->Release();
+						continue;
+					}
+					textures[wanted[i]] = loaded[i];
+					textures_names[loaded[i]] = wanted[i];
+					unclaimed_textures.insert(loaded[i]);
+				}
+			}
+
+			std::vector<std::string> CollectMaterialTextures(const nlohmann::json& materials, const std::string& root) {
+				std::vector<std::string> files;
+				if (!materials.is_array()) {
+					return files;
+				}
+				const std::string suffix = "_textname";
+				for (const auto& m : materials) {
+					if (!m.is_object()) { continue; }
+					for (auto it = m.begin(); it != m.end(); ++it) {
+						const std::string& key = it.key();
+						if (key.size() > suffix.size() && key.compare(key.size() - suffix.size(), suffix.size(), suffix) == 0 &&
+							it.value().is_string() && !it.value().get<std::string>().empty()) {
+							//The path SetTexture builds.
+							files.push_back(root + std::string("\\") + it.value().get<std::string>());
+						}
+					}
+				}
+				return files;
 			}
 
 			ID3D11ShaderResourceView* LoadTexture(const std::string& filename)
@@ -60,9 +151,16 @@ namespace HotBite {
 				if (!filename.empty()) {
 					auto it = textures.find(filename);
 					if (it == textures.end()) {
+						//A cooked texture first: no decode, no GPU mip build, a quarter of the memory.
+						if (!IsDdsName(filename)) {
+							srv = LoadCookedTexture(filename);
+						}
 						try {
 							std::wstring ws(filename.begin(), filename.end());
-							if (filename.find(".dds") != std::string::npos || filename.find(".DDS") != std::string::npos) {
+							if (srv != nullptr) {
+								ret = S_OK;
+							}
+							else if (IsDdsName(filename)) {
 								ret = DirectX::CreateDDSTextureFromFile(DXCore::Get()->device, DXCore::Get()->context, ws.c_str(), nullptr, &srv);
 								if (!SUCCEEDED(ret)) {
 									throw std::exception("CreateDDSTextureFromFile failed");
@@ -74,6 +172,7 @@ namespace HotBite {
 								if (!SUCCEEDED(ret)) {
 									throw std::exception("CreateWICTextureFromMemory failed");
 								}
+								CountPlainTextureLoad(filename);
 							}
 
 						}
@@ -87,7 +186,10 @@ namespace HotBite {
 					}
 					else {
 						srv = it->second;
-						srv->AddRef();
+						//A preloaded texture's reference passes to its first user.
+						if (unclaimed_textures.erase(srv) == 0) {
+							srv->AddRef();
+						}
 					}
 				}
 				return srv;

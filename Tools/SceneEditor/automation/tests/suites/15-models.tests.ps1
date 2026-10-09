@@ -15,6 +15,27 @@ Test 'list_models reports what each file brought in' {
     Assert-Match -Pattern 'animations=1' -Actual $walk
 }
 
+Test 'loading a model cooks it beside the .fbx (Loader/CookedModel.h), and the editor counts it' {
+    # Runs before anything imports another file: the level's three models were read from
+    # their .fbx the first time this project opened (it is new, so nothing was cooked yet) and
+    # each left a cooked file beside the copy in <assets>/Objects, which is what every later
+    # load reads instead of the FBX SDK. The read side, and that both sides load the same
+    # models, is Survival's suite 48-cooked-models.
+    $c = (SendOk 'model_cache')[0].Text | ConvertFrom-Json
+    Assert-True -Condition $c.cache_enabled -Message 'the cache is on'
+    Assert-Equal -Expected 0 -Actual $c.failures -Message 'no model failed'
+    Assert-True -Condition ($c.fbx_reads -ge 3) -Message "the three models were read from their .fbx (read $($c.fbx_reads))"
+    Assert-Equal -Expected $c.fbx_reads -Actual $c.cooked_writes -Message 'and each was cooked on the way'
+    # One cooked file per model read, beside its .fbx (the project also holds .fbx files no
+    # model of the level loads, and those are left alone).
+    $cookedFiles = @(Get-ChildItem $Assets -Recurse -Filter '*.fbx.cooked')
+    Assert-Equal -Expected $c.cooked_writes -Actual $cookedFiles.Count -Message 'one cooked file per model read'
+    foreach ($f in $cookedFiles) {
+        Assert-FileExists -Path ($f.FullName -replace '\.cooked$', '') -Message 'the .fbx the cooked file belongs to'
+        Assert-True -Condition ($f.Length -gt 100) -Message "$($f.Name) is not empty"
+    }
+}
+
 Test 'a material authored inside the FBX is auto-adopted into the level default material file' {
     # LoadModel runs before "material_files" is read, so an FBX-embedded material
     # like this one registers no origin of its own - without adoption it would sit

@@ -100,3 +100,6 @@ Tests/ClaudeLevel/Assets/config.mat
 /Tests/DiabloLevel
 /Tests/test2
 /Tests
+
+# Models cooked from an .fbx (Loader/CookedModel.h): a cache, rebuilt on the next load
+*.cooked

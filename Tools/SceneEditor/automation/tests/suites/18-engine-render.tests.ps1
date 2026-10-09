@@ -26,7 +26,7 @@ function Get-MotionShare {
     Add-Type -AssemblyName System.Drawing
     $bmp = New-Object System.Drawing.Bitmap($path)
     try {
-        $x0 = [int]($bmp.Width * 0.18); $x1 = [int]($bmp.Width * 0.82)
+        $x0 = [int]($bmp.Width * 0.42); $x1 = [int]($bmp.Width * 0.78)
         # y0 starts below the "Debug Buffer" overlay (RenderSettings::DrawOverlay),
         # not at the top of the frame: that panel is centred at the top of the
         # viewport and drawn every frame a debug buffer view is active - which this
@@ -80,7 +80,7 @@ function Measure-RayView {
         # The lower half of the frame, where the ground slab and the troll are: the
         # top of the view is sky, which writes no ray source and would only dilute
         # every share with pixels that carry no information.
-        $x0 = [int]($bmp.Width * 0.18); $x1 = [int]($bmp.Width * 0.82)
+        $x0 = [int]($bmp.Width * 0.42); $x1 = [int]($bmp.Width * 0.78)
         $y0 = [int]($bmp.Height * 0.45); $y1 = [int]($bmp.Height * 0.95)
         $counts = @{}
         $total = 0; $drawn = 0; $green = 0
