@@ -33,7 +33,7 @@ namespace HotBite {
 			// ECS
 			using Entity = int32_t;
 			const Entity INVALID_ENTITY_ID = -1;
-			const int32_t MAX_ENTITIES = 5000;
+			const int32_t MAX_ENTITIES = 10000;
 			using ComponentType = uint8_t;
 			//64 keeps the signature a single machine word on x64, so a system match is still
 			//one AND + compare; past 64 std::bitset spills into a second word.

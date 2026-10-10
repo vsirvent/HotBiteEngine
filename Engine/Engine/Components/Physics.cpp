@@ -337,7 +337,13 @@ Physics::Physics(Physics&& other) {
 	physics_mutex.unlock();
 }
 
+//Assigning a component to itself must leave it alone: ComponentArray::RemoveData fills the hole of a removed entity with the
+//last element, which IS the removed one when it was last, and the destructor below would destroy the rigid body the
+//copy then keeps, to be destroyed a second time when the array pops that element.
 Physics& Physics::operator=(const Physics& other) {
+	if (this == &other) {
+		return *this;
+	}
 	physics_mutex.lock();
 	Physics::~Physics();
 	memcpy(this, &other, sizeof(Physics));
@@ -349,6 +355,9 @@ Physics& Physics::operator=(const Physics& other) {
 }
 
 Physics& Physics::operator=(Physics&& other) {
+	if (this == &other) {
+		return *this;
+	}
 	physics_mutex.lock();
 	Physics::~Physics();
 	memcpy(this, &other, sizeof(Physics));
