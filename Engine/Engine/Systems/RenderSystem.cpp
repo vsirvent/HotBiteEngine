@@ -40,6 +40,50 @@ static const float zero[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 static const float ones[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
 static const float minus_one[4] = { -1.0f, -1.0f, -1.0f, -1.0f };
 
+namespace {
+	//What a directional light's shadow map can hold: a cascade is an orthographic box across the light's `right`
+	//and `up`, so a caster whose box lies outside that square in both directions is clipped whatever its distance
+	//along the light, and drawing it writes nothing. Leaving those casters out gives the same shadow map for a
+	//fraction of the draw calls: every one is a Prepare (an event and the constant buffers of each stage) and a draw,
+	//so a world of thousands of casters had them all drawn into the map every frame however far from the view.
+	//The box is projected on the two axes (its reach along one is its extents weighted by the axis' components), so
+	//the test is exact for a box and a handful of multiplications.
+	struct ShadowFootprint {
+		Components::DirectionalLight::CascadeInfo cascades[MAX_SHADOW_CASCADES];
+		int count = 0;
+
+		void Add(const Components::DirectionalLight::CascadeInfo& info) {
+			//An unfitted cascade (the light has not been through its first update) has no radius: it says nothing
+			//about what the map holds, so it is left out and, if none is fitted, nothing is culled.
+			if (info.radius > 0.0f && count < MAX_SHADOW_CASCADES) {
+				cascades[count++] = info;
+			}
+		}
+
+		bool Covers(const BoundingBox& box) const {
+			if (count == 0) {
+				return true;
+			}
+			for (int i = 0; i < count; ++i) {
+				const Components::DirectionalLight::CascadeInfo& c = cascades[i];
+				const float dx = box.Center.x - c.center.x;
+				const float dy = box.Center.y - c.center.y;
+				const float dz = box.Center.z - c.center.z;
+				const float along_right = dx * c.right.x + dy * c.right.y + dz * c.right.z;
+				const float along_up = dx * c.up.x + dy * c.up.y + dz * c.up.z;
+				const float reach_right = fabsf(c.right.x) * box.Extents.x + fabsf(c.right.y) * box.Extents.y + fabsf(c.right.z) * box.Extents.z;
+				const float reach_up = fabsf(c.up.x) * box.Extents.x + fabsf(c.up.y) * box.Extents.y + fabsf(c.up.z) * box.Extents.z;
+				//A little over the box: the cascades are refitted by another thread while this pass reads them.
+				const float half = c.radius * 1.02f;
+				if (fabsf(along_right) <= half + reach_right && fabsf(along_up) <= half + reach_up) {
+					return true;
+				}
+			}
+			return false;
+		}
+	};
+}
+
 
 const std::string RenderSystem::WORLD = "world";
 const std::string RenderSystem::PREV_WORLD = "prevWorld";
@@ -824,7 +868,10 @@ void RenderSystem::DrawDepth(int w, int h, const float3& camera_position, const 
 		for (auto &mat: shaders.second) {
 			if (!(mat.first->props.flags & (ALPHA_ENABLED_FLAG | BLEND_ENABLED_FLAG))) {
 				for (auto &de : mat.second.second.GetData()) {
-					if (de.base->visible && de.base->draw_depth) {
+					//scene_visible is what CheckSceneVisibility made of the entity this frame (before this pass runs):
+					//the depth of an entity outside the view is never read, and drawing it anyway meant a draw call
+					//and constant-buffer uploads for every entity of the world, every frame.
+					if (de.base->visible && de.base->scene_visible && de.base->draw_depth) {
 						PrepareEntity(de, vs, hs, ds, gs, ps);
 						Mesh* mesh = de.mesh;
 						DrawMeshEntity(mesh);
@@ -1000,7 +1047,19 @@ void RenderSystem::CastShadows(int w, int h, const float3& camera_position, cons
 			context->OMSetRenderTargets(1, rtv, dv);
 			context->RSSetViewports(1, &l.light->GetShadowViewPort());
 			context->RSSetState(dxcore->dir_shadow_rasterizer);
-			
+
+			//What this pass can hold, read once: the static map is the one the refresh above has just fitted, the
+			//dynamic pass fills every live cascade.
+			ShadowFootprint footprint;
+			if (static_shadows) {
+				footprint.Add(l.light->GetStaticCascadeInfo());
+			}
+			else {
+				for (int c = 0; c < l.light->GetCascadeCount() && c < MAX_SHADOW_CASCADES; ++c) {
+					footprint.Add(l.light->GetCascadeInfo(c));
+				}
+			}
+
 			for (auto &shaders: shadow_tree) {
 				SimpleVertexShader* new_vs = std::get<SHADER_KEY_VS>(shaders.first);
 				if (vs != new_vs) {
@@ -1098,7 +1157,9 @@ void RenderSystem::CastShadows(int w, int h, const float3& camera_position, cons
 					for (auto& de: mat.second.second.GetData()) {
 						if (de.base->visible && de.base->cast_shadow && !l.light->IsSkipEntity(de.base->id) &&
 							//we paint static objects if static_shadows = true || dynamic objects if static_shadows = false
-							((!static_shadows && !de.base->is_static) || (static_shadows && de.base->is_static))) {
+							((!static_shadows && !de.base->is_static) || (static_shadows && de.base->is_static)) &&
+							//...and only those the map can hold (an always-drawn entity is not placed by its box)
+							(de.base->draw_method == DRAW_ALWAYS || footprint.Covers(de.bounds->final_box))) {
 							PrepareEntity(de, vs, hs, ds, gs, ps);
 							Mesh* mesh = de.mesh;
 							DrawMeshEntity(mesh);
@@ -1689,14 +1750,19 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 					ds->CopyAllBufferData();
 				}
 				for (auto& de : mat.second.second.GetData()) {
-					PrepareEntity(de, vs, hs, ds, gs, ps);
-					if (de.base->visible && de.base->scene_visible) {
- 						Mesh* mesh = de.mesh;
-						DrawMeshEntity(mesh);
-						draw_count++;
-					}
-					UnprepareEntity(de, vs, hs, ds, gs, ps);
 					total_count++;
+					//An entity that is hidden or outside the view is not drawn, so it is not prepared either:
+					//PrepareEntity sends an event and uploads the constant buffers of every shader stage, which
+					//costs far more than the test that skips the draw. With thousands of entities in the world
+					//and a few hundred in view, preparing them all was most of the frame.
+					if (!de.base->visible || !de.base->scene_visible) {
+						continue;
+					}
+					PrepareEntity(de, vs, hs, ds, gs, ps);
+					Mesh* mesh = de.mesh;
+					DrawMeshEntity(mesh);
+					draw_count++;
+					UnprepareEntity(de, vs, hs, ds, gs, ps);
 				}
 				if (mat.first->multi_material != nullptr) {
 					UnprepareMultiMaterial(mat.first, vs, hs, ds, gs, ps);

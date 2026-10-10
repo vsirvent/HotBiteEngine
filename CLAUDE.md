@@ -344,6 +344,21 @@ follows camera **rotation** as well as position, since the slice being bounded s
 front of the camera; watching position alone (what the pre-cascade code did) leaves the
 map behind when you turn on the spot.
 
+**What a pass is made to draw is what it can show.** `PrepareEntity` is not free: it sends
+an ECS event (a heap-allocated parameter map) and uploads the constant buffers of every
+shader stage, which costs far more than the draw call it precedes, so a pass that
+prepares an entity it then skips pays the most for nothing. `DrawScene` prepares only
+what is `visible && scene_visible` (the flag `CheckSceneVisibility` sets at the top of
+`Draw`), `DrawDepth` draws only what the main pass would (the depth it records is never
+read outside the view), and the directional shadow pass draws only the casters whose box
+touches the square of a cascade (or of the static map) in the light's `right`/`up`: the
+cascade is an orthographic box, so a caster outside that square is clipped whatever its
+distance along the light, and leaving it out gives the same map. All three were once
+unconditional, which is invisible in a level of hundreds of entities and was 9 frames a
+second in a world of five thousand (Survival's resource nodes: ~100 ms a frame in
+`PrepareEntity`, with the GPU driver's own thread busy behind it). An always-drawn entity
+(`DRAW_ALWAYS`) is exempt from the shadow test, since its box does not place it.
+
 Sizing changed with this: the old single map was `8 * screen width` texels covering
 `width/50` world units, so coverage depended on monitor width and a 1080p screen asked
 for a 15360-square map. Coverage is now fitted to the view, so resolution is a plain
