@@ -36,18 +36,15 @@ cbuffer externalData : register(b0)
 	float3 back_color;
 	AmbientLight ambientLight;
 	DirLight dirLights[MAX_LIGHTS];
-	PointLight pointLights[MAX_LIGHTS];
+	AuxLight auxLights[MAX_AUX_LIGHTS];
 	MaterialColor material;
 	int dirLightsCount;
-	int pointLightsCount;
+	int auxLightCount;
 	int materialFlags;
 	float3 cameraPosition;
 	float3 cameraDirection;
 	int screenW;
 	int screenH;
-	float4 LightPerspectiveValues[MAX_LIGHTS / 2];
-	matrix DirPerspectiveMatrix[DIR_SHADOW_MATRIX_COUNT];
-	matrix DirStaticPerspectiveMatrix[MAX_LIGHTS];
 	float time;
 	int is_space;
 	float space_intensity;
@@ -71,6 +68,7 @@ cbuffer externalData : register(b0)
 
 #include "../Common/MultiTexture.hlsli"
 #include "../Common/PixelFunctions.hlsli"
+#include "../Common/LightGlow.hlsli"
 
 float4 SkyEmitPoint(float3 position, matrix worldViewProj, float3 light_position, float3 color, float scale)
 {
@@ -195,13 +193,13 @@ RenderTarget main(VertexToPixel input)
 #if 1
 	//Emission of point lights	
 	float3 p2 = mul(input.worldPos, view).xyz;
-	for (i = 0; i < pointLightsCount; ++i) {
-		float3 p1 = mul(float4(pointLights[i].Position, 1.0f), view).xyz;
+	for (i = 0; i < auxLightCount; ++i) {
+		float3 p1 = mul(float4(auxLights[i].light.position, 1.0f), view).xyz;
 		//if we are in front of camera
 		if (p1.z > 0) {
 			//if pixel is behind light
 			if (p1.z < p2.z) {
-				finalColor.rgb += EmitPoint(input.position.xyz, worldViewProj, pointLights[i]);
+				finalColor.rgb += EmitPoint(input.position.xyz, worldViewProj, auxLights[i]);
 			}
 		}
 	};

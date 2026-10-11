@@ -409,7 +409,7 @@ shadow, which is where you most want to read it, and only one may be on at a tim
 recolour the same term). `Tools/SceneEditor/ShadowDebug.cpp` is only the switches
 (`View/Shadow Cascades`, `View/Static Shadow Map`) and the legends, and its colours
 **must** match `CASCADE_DEBUG_COLOR`/`STATIC_DEBUG_*` in
-`PixelFunctions.hlsli`/`SimpleLight.hlsli`.
+`LightShadows.hlsli`/`SimpleLight.hlsli`.
 
 **Use `SampleCmpLevelZero` for shadow filtering, never `GatherCmp`.** Both compare
 several depths in one instruction, which makes `GatherCmp` look like the right tool, but
@@ -988,19 +988,22 @@ because that is when the primary-pixel fill leans hardest on the cache.
   into 24-pixel blotches. 0.125 / 0.05 gives ~6 pixels; sponza goes 1.5k -> 6.4k live
   cells, which is 1.2% of `RC_ENTRIES`, so there is room to go finer still.
 
-**A game shader can mirror the engine's lighting cbuffer, and nothing checks it.**
-`Tests/DemoGame/TerrainPS.hlsl` declares its own `externalData` block field for field
-and then includes `Common/PixelFunctions.hlsli`, which indexes into it. An array sized
-differently there — `DirPerspectiveMatrix[MAX_LIGHTS]` after cascades made it
-`[DIR_SHADOW_MATRIX_COUNT]` — does not fail to compile: it shifts every field after it
-and reads garbage matrices, which renders as a **solid black surface**. So any change
-to that cbuffer means grepping outside `Engine/Engine/Core/Shaders` for the field names,
-and the shader lives in the *game* project, so it only recompiles when that project
-does. A black material whose shaders look right is this, not a material bug.
+**A game shader can mirror the engine's constant buffer, and nothing checks it.**
+`Tests/DemoGame/TerrainPS.hlsl` declares its own `externalData` block and then includes
+`MainRender/MainRenderPS.hlsli`, which reads fields out of it (`sunDirection`, `hasSun`,
+`renderPass`, `disable_rt`, the multi-texture arrays). A field the include needs and the
+block lacks is a compile error, but one declared *differently* - an array sized otherwise -
+does not fail to compile: it shifts every field after it and reads garbage, which renders as
+a **solid black surface**. So any change to what the G-buffer pass reads means grepping
+outside `Engine/Engine/Core/Shaders` for the field names, and the shader lives in the *game*
+project, so it only recompiles when that project does. A black material whose shaders look
+right is this, not a material bug. (The light arrays that used to make this trap sharp -
+`DirPerspectiveMatrix[DIR_SHADOW_MATRIX_COUNT]` after cascades - are not in any material
+shader any more: see "Tiled deferred lighting" at the end.)
 
-The two arrays are deliberately different lengths: the dynamic one is per light *per
-cascade* (`DIR_SHADOW_MATRIX_COUNT`), the static one is per light (`MAX_LIGHTS`),
-because static casters share one map.
+The two shadow matrix arrays are deliberately different lengths: the dynamic one is per
+light *per cascade* (`DIR_SHADOW_MATRIX_COUNT`), the static one is per light
+(`MAX_LIGHTS`), because static casters share one map.
 
 **"Previous frame" belongs to the renderer, and to nothing else.**
 `RenderSystem::LatchPreviousFrame`, called at the very end of `Draw()`, is the one place
@@ -1495,16 +1498,17 @@ first — `Inspector::StoreInstanceTransform`, via
 (a paste, the undo of a place, the next load) compose the base a second time: with
 the troll template's 0.025 scale, a copy came out 40× too small.
 
-**A spotlight is a `PointLight` with `is_spot` set, not a component of its own.** The
-lights reach ~20 shaders as one `PointLight` struct in a `MAX_LIGHTS` cbuffer array, so
-a cone costs no new register, no new cbuffer and no new shadow texture: the cube shadow
-map already works for it (at the price of rendering faces the cone never reaches).
-`PointLight::Data` grew from 48 to 64 bytes (`spot_cos_inner/outer`, `direction`,
-`is_spot`) and `struct PointLight` in `PixelCommon.hlsli` **must** stay in step - it is
-memcpy'd, and nothing checks the stride. The falloff is `SpotFactor`, a smoothstep between
-the two cosines, multiplied into the attenuation at every point-light site (main render,
-particles, splats, both ray tracers via `SimpleLight.hlsli`, water, lava, the volumetric
-beam); point lights return 1, so a new site multiplies it in unconditionally. It aims
+**A spotlight is a `PointLight` with `is_spot` set, not a component of its own.** It rides
+in the same packed light as a point light (a cone is two float16 cosines and an octahedral
+axis in `PackedLight`), so a cone costs no new register, no new buffer and no new shadow
+texture: the cube shadow map already works for it (at the price of rendering faces the cone
+never reaches). `PointLight::Data` is still 64 bytes (`spot_cos_inner/outer`, `direction`,
+`is_spot`); what crosses to HLSL is `Core::PackedLight`, packed by `PackLight` and read by
+`UnpackLightDirection`/`PackedSpotFactor`, which **must** stay in step with each other. The
+falloff is `PackedSpotFactor`, a smoothstep between the two cosines, multiplied into the
+attenuation at every point-light site (the deferred pass, both ray tracers via
+`SimpleLight.hlsli`, water, lava, the volumetric beam); point lights return 1, so a new site
+multiplies it in unconditionally. It aims
 along the entity's local +Z, and `PointLightSystem` re-derives `direction` every update
 rather than under the dirty test, for the same `Transform::dirty` race as the camera. The
 glow/lens-flare pass around a light source is still omnidirectional.
@@ -2318,3 +2322,46 @@ for them one by one.
   `PlainTextureLoads()` (which images loaded the old way).
 - **Textures that change under the editor** (mask paint, imports) are new or changed files: stamp
   mismatch, so they load plain once and are cooked behind. Same stamp rule as models: size + time.
+
+
+## Tiled deferred lighting (2026-10-11)
+
+The geometry passes evaluate **no light**. `MainRenderPS`, `WaterPS`, `LavaPS` and
+`SplatRasterCS` write a G-buffer of eight targets (the eighth is the *material map*: spec,
+bloom scale, shading model...) and `DeferredLightCS` lights it afterwards, over only the point
+lights each 16x16 screen tile's **1024 bit mask** holds (`TileLightCullCS` fills the masks from
+the tile's frustum and its surfaces' depth range). Every point and spot light of the frame
+(`RenderSystem::GatherLights`: the nearest 1024) lives in one structured buffer of 32 byte
+`PackedLight`s. Full design, layouts, the pass order and the limits: **`Docs/TiledLighting.md`**.
+What a change to lighting has to remember:
+
+- **Light math lives in one place per kind of caller.** Surfaces on screen:
+  `Common/DeferredLighting.hlsli` (+ `LightShadows.hlsli`, the cascaded/point shadow lookups).
+  Ray hits, which have no tile: `Common/SimpleLight.hlsli` (`Hit*`), fed the nearest 8 lights
+  through the `AuxLight` constant buffer (`MAX_AUX_LIGHTS`) - the ray tracers have no texture
+  register to spare. Fog: `Common/VolumetricLights.hlsli`. Glow: `Common/LightGlow.hlsli`.
+  `PixelFunctions.hlsli` has no light code left; do not put any back in a material shader.
+- **A texture array cannot be indexed by data** in `cs_5_0`/`ps_5_0`: fxc tries to unroll the
+  loop that produced the index, and `forced to unroll loop, but unrolling failed` (X3511) is
+  what a loop over a tile mask gives. The point shadow cube maps are therefore matched by
+  slot with a literal index and a branch (`GatherPointShadow`/`SamplePointShadow`). A light's
+  slot is assigned per frame to the nearest `MAX_LIGHTS` (8) shadow casters; the rest light
+  without shadow.
+- **A shader that writes `RenderTargetRT` must write all eight targets**, `material_map`
+  included, and the model/pass in its `w` (`MaterialCode`, `Common/GBuffer.hlsli`). DemoGame's
+  grass (`Tests/DemoGame/TerrainPS.hlsl`) is the example of a game shader that does.
+- **The G-buffer pass is lit after the fact**, so it can no longer ask a light anything: the one
+  exception is a parallax material's self shadow, kept for the first directional light and
+  stored in `material_map.z` (it is a march through the height map, which is gone later).
+- `ProcessDeferredLighting` runs once per geometry pass that wrote something (`filter` 0, then 1
+  for the second pass, 2 for splats) and culls again each time, against the G-buffer as it
+  stands. Water's first dispatch must precede its own pass: it reads the *lit* bottom.
+- **Reading it back:** `lights_info` / `lights_validate` / `tile_culling` / `spawn_lights` /
+  `gpu_timings` (Scene Editor and Survival), `RenderSystem::GetTiledLightStats`,
+  `ValidateTileLights`, `SetTileCulling`. The suite is `44-tiledlights`: counts off the GPU (a lit
+  tile holds ~12 of 1024 lights), a brute-force check that the masks lose none, and culling on
+  vs off for the same picture at 1/27th of the shading cost.
+- **Build traps met on the way:** `std::min/max` inside engine headers reached after
+  `<Windows.h>` are the macros (use a ternary); a header including `<d3d11.h>` before
+  `Defines.h` pulls `<windows.h>` before `<winsock2.h>` and the whole of ws2def.h fails to
+  compile; a Core constant named `MAX_LIGHTS` is the macro (`TiledLights::CAPACITY`).

@@ -3417,6 +3417,21 @@ ECS::Entity World::CreateEmptyEntity(const std::string& name, const float3& posi
 	return e;
 }
 
+ECS::Entity World::CreatePointLight(const std::string& name, const float3& position,
+	const float3& color, float range, bool cast_shadow)
+{
+	ECS::Entity e = CreateEmptyEntity(name, position);
+	if (e == ECS::INVALID_ENTITY_ID) {
+		return e;
+	}
+	//Component first, Init on the stored one: a PointLight that has been Init-ed cannot be
+	//copied (its copy constructor asserts), which is what AddComponent would do to it.
+	coordinator->AddComponent<Components::PointLight>(e, Components::PointLight{});
+	coordinator->GetComponent<Components::PointLight>(e).Init(color, range, cast_shadow, 1, 0.0f);
+	coordinator->NotifySignatureChange(e);
+	return e;
+}
+
 void World::LoadInstances(const nlohmann::json& instances_json) {
 	for (const auto& instance : instances_json) {
 		std::string name = instance["name"];

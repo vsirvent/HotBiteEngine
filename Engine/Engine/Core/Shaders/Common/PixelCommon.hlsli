@@ -52,6 +52,7 @@ SamplerComparisonState PCFSampler;
 #endif
 
 #include "Defines.hlsli"
+#include "TiledLights.hlsli"
 #include "QuickNoise.hlsli"
 #include "NoiseSimplex.hlsli"
 #include "Utils.hlsli"
@@ -63,6 +64,10 @@ struct RenderTarget
 	float4 light_map : SV_TARGET1;
 };
 
+//The G-buffer. `light_map` and `bloom_map` carry only what the surface EMITS here - the
+//light that falls on it is added later by DeferredLightCS, from `pos1_map` (where),
+//`rt_ray1_map` (which way it faces) and `material_map` (how it takes light, see
+//DeferredLighting.hlsli). Eight targets is the D3D11 limit.
 struct RenderTargetRT
 {
 	float4 scene : SV_TARGET0;
@@ -72,6 +77,7 @@ struct RenderTargetRT
 	float4 rt_ray1_map : SV_TARGET4;
 	float4 pos0_map : SV_TARGET5;
 	float4 pos1_map : SV_TARGET6;
+	float4 material_map : SV_TARGET7;
 };
 
 struct DirLight
@@ -102,34 +108,6 @@ struct DirLight
 	int cascade_count;
 	float padding;
 };
-
-struct PointLight
-{
-	float3 Position;
-	float  Range;
-	float3 Color;
-	float  density;
-	uint cast_shadow;
-	float tilt_ratio;
-	//Spotlight cone: cosines of the inner/outer half angles. Mirrors
-	//Components::PointLight::Data - memcpy'd into this layout, keep in step.
-	float spot_cos_inner;
-	float spot_cos_outer;
-	float3 spot_direction;
-	int is_spot;
-};
-
-//Cone falloff of a spotlight: 1 inside the inner angle, 0 outside the outer one, a
-//smoothstep between. `light_to_pos` need not be normalized. Point lights return 1, so
-//every point-light attenuation site can multiply this in unconditionally.
-float SpotFactor(PointLight light, float3 light_to_pos)
-{
-	if (light.is_spot == 0) {
-		return 1.0f;
-	}
-	float cd = dot(light_to_pos, light.spot_direction) * rsqrt(max(dot(light_to_pos, light_to_pos), 1e-8f));
-	return smoothstep(light.spot_cos_outer, light.spot_cos_inner, cd);
-}
 
 //Mirrors Core::MaterialProps (Core/Material.h) field for field - it is memcpy'd into
 //this cbuffer layout, so the two must be edited together.

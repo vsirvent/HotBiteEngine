@@ -37,6 +37,10 @@ using namespace HotBite::Engine::Components;
 using namespace HotBite::Engine::Core;
 using namespace DirectX;
 
+//The packed light buffer and the HLSL that reads it are sized from MAX_TILED_LIGHTS.
+static_assert(TiledLights::CAPACITY == MAX_TILED_LIGHTS, "TiledLights::CAPACITY must match MAX_TILED_LIGHTS");
+static_assert(MAX_AUX_LIGHTS <= 8, "aux lights ride in a constant buffer array");
+
 static const float zero[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 static const float ones[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
 static const float minus_one[4] = { -1.0f, -1.0f, -1.0f, -1.0f };
@@ -140,8 +144,8 @@ const std::string RenderSystem::MESH_NORMAL_MAP_ENABLE = "meshNormalTextureEnabl
 const std::string RenderSystem::AMBIENT_LIGHT = "ambientLight";
 const std::string RenderSystem::DIRLIGHT_COUNT = "dirLightsCount";
 const std::string RenderSystem::DIR_LIGHTS = "dirLights";
-const std::string RenderSystem::POINT_LIGHT_COUNT = "pointLightsCount";
-const std::string RenderSystem::POINT_LIGHTS = "pointLights";
+const std::string RenderSystem::AUX_LIGHT_COUNT = "auxLightCount";
+const std::string RenderSystem::AUX_LIGHTS = "auxLights";
 const std::string RenderSystem::LIGHT_PERSPECTIVE_VALUES = "LightPerspectiveValues";
 const std::string RenderSystem::POINT_SHADOW_MAP_TEXTURE = "PointShadowMapTexture[0]";
 const std::string RenderSystem::DIR_PERSPECTIVE_VALUES = "DirPerspectiveMatrix";
@@ -423,6 +427,17 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 			nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("prev_position_map.Init failed");
 		}
+		//The eighth G-buffer target (see material_map in the header). Half precision is
+		//plenty for a spec intensity, a bloom scale, a transmission depth or a unit
+		//normal's xz, and halves what the eighth target costs; the shading model in w is a
+		//small integer, exact in a half up to 2048.
+		if (FAILED(material_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT,
+			nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+			throw std::exception("material_map.Init failed");
+		}
+		if (!tiled_lights.Init(w, h)) {
+			throw std::exception("tiled_lights.Init failed");
+		}
 		if (FAILED(bloom_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R11G11B10_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("bloom_map.Init failed");
 		}
@@ -548,6 +563,10 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		if (mixer_shader == nullptr) {
 			throw std::exception("mixer shader.Init failed");
 		}
+		deferred_light = ShaderFactory::Get()->GetShader<SimpleComputeShader>("DeferredLightCS.cso");
+		if (deferred_light == nullptr) {
+			throw std::exception("deferred light shader.Init failed");
+		}
 		aa_shader = ShaderFactory::Get()->GetShader<SimpleComputeShader>("AntiAliasCS.cso");
 		if (mixer_shader == nullptr) {
 			throw std::exception("AA shader.Init failed");
@@ -666,6 +685,8 @@ RenderSystem::~RenderSystem() {
 	lens_flare_map.Release();
 	position_map.Release();
 	prev_position_map.Release();
+	material_map.Release();
+	tiled_lights.Release();
 	bloom_map.Release();
 	dust_map.Release();
 	temp_map.Release();
@@ -892,6 +913,8 @@ void RenderSystem::GpuResolve() {
 		gpu_timings.rt += (double)(t[5] - t[4]) * to_ms;
 		gpu_timings.gi += (double)(t[6] - t[5]) * to_ms;
 		gpu_timings.light += (double)(t[7] - t[6]) * to_ms;
+		gpu_timings.tile_cull += (double)(t[12] - t[11]) * to_ms;
+		gpu_timings.deferred += (double)(t[13] - t[12]) * to_ms;
 		gpu_timings.mix += (double)(t[8] - t[7]) * to_ms;
 		gpu_timings.aa += (double)(t[9] - t[8]) * to_ms;
 		gpu_timings.blur += (double)(t[10] - t[9]) * to_ms;
@@ -1251,8 +1274,11 @@ void RenderSystem::CastShadows(int w, int h, const float3& camera_position, cons
 	if (!static_shadows) {
 		for (PointLightEntity& l : point_lights.GetData()) {
 			//A parked (deleted/cut) light is hidden via Base::visible rather than
-			//destroyed, and must not keep rendering into its shadow map.
-			if (l.base->visible && l.light->CastShadow()) {
+			//destroyed, and must not keep rendering into its shadow map. Only the
+			//lights GatherLights gave a shadow slot to (the nearest few) draw one: a
+			//cube map is six passes over the shadow casters, and a map nothing can
+			//sample is pure waste.
+			if (l.base->visible && l.light->CastShadow() && l.light->render_shadow_slot >= 0) {
 				//Render to depth texture					
 				ID3D11RenderTargetView* rtv[1] = { nullptr };
 				context->OMSetRenderTargets(1, rtv, l.light->DepthView());
@@ -1908,15 +1934,20 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 		vertex_buffer->SetBuffers();
 	}
 
-	ID3D11RenderTargetView* rv[7] = { target->RenderTarget(),
+	//The G-buffer: the lit colour target, what the surface emits (light and bloom - the
+	//light that falls on it is added by the deferred pass), the two ray sources (world
+	//position and normal with the material scalars packed), where the point was last
+	//frame and now, and how it takes light. Eight is the most D3D11 binds at once.
+	ID3D11RenderTargetView* rv[8] = { target->RenderTarget(),
 		                              light_target,
 		                              bloom_target,
 		                              rt_ray_sources0.RenderTarget(),
 		                              rt_ray_sources1.RenderTarget(),
 									  prev_position_map.RenderTarget(),
-									  position_map.RenderTarget() };
+									  position_map.RenderTarget(),
+									  material_map.RenderTarget() };
 
-	context->OMSetRenderTargets(7, rv, depth_target_view);
+	context->OMSetRenderTargets(8, rv, depth_target_view);
 	//Depth writes stay on: what the pre-pass skipped (alpha-tested and blended
 	//materials, and the second-pass tree, which is not in depth_tree at all) still has
 	//to occlude itself and whatever comes after it.
@@ -1936,15 +1967,32 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 		speed = sky->sky->CloudSpeed();
 	}
 
-	SimpleVertexShader* vs = nullptr; 
-	SimpleHullShader* hs = nullptr; 
-	SimpleDomainShader* ds = nullptr; 
-	SimplePixelShader* ps = nullptr; 
-	SimpleGeometryShader* gs = nullptr; 
+	SimpleVertexShader* vs = nullptr;
+	SimpleHullShader* hs = nullptr;
+	SimpleDomainShader* ds = nullptr;
+	SimplePixelShader* ps = nullptr;
+	SimpleGeometryShader* gs = nullptr;
 
 	assert(!cameras.GetData().empty() && "No cameras found");
 	CameraEntity& cam_entity = cameras.GetData()[0];
 	time = ((float)Scheduler::Get()->GetElapsedNanoSeconds() * speed) / 1000000000.0f;
+
+	//The only thing this pass still asks of the lights: where the first directional light
+	//is, for a parallax material's self shadow (MainRenderPS.hlsli) - a ray march through
+	//the height map that cannot be done after the fact, since the height map is gone by
+	//then. Every other light is the deferred pass's business.
+	float3 sun_direction = { 0.0f, 1.0f, 0.0f };
+	int has_sun = 0;
+	for (const DirectionalLightEntity& l : directional_lights.GetData()) {
+		if (l.base->visible) {
+			sun_direction = l.light->GetData().direction;
+			has_sun = 1;
+			break;
+		}
+	}
+	//Which of the two geometry passes this is, written into the material map so the deferred
+	//lighting can tell what the second pass drew over the first (GBUFFER_PASS2).
+	const int render_pass = (prev_pass_texture != nullptr) ? 2 : 1;
 
 	context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST);
 	for (auto &shaders : tree) {
@@ -2038,6 +2086,15 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 				ps->SetMatrix4x4(PROJECTION, cam_entity.camera->projection);
 				ps->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
 				ps->SetFloat3("cameraDirection", dir);
+				ps->SetFloat3("sunDirection", sun_direction);
+				ps->SetInt("hasSun", has_sun);
+				ps->SetInt("renderPass", render_pass);
+				//A material shader that draws the visible glow of a lamp (lava) takes the
+				//nearest few; nothing here lights a surface, see ProcessDeferredLighting.
+				ps->SetInt(AUX_LIGHT_COUNT, (int)aux_lights.size());
+				if (!aux_lights.empty()) {
+					ps->SetData(AUX_LIGHTS, aux_lights.data(), (int)(sizeof(AuxLight) * aux_lights.size()));
+				}
 				ps->SetSamplerState(PCF_SAMPLER, dxcore->shadow_sampler);
 				ps->SetSamplerState(BASIC_SAMPLER, dxcore->basic_sampler);
 				ps->SetShaderResourceView(DEPTH_TEXTURE, depth_map.SRV());
@@ -2061,8 +2118,6 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 		Event e(this, EVENT_ID_PREPARE_SHADER);
 		e.SetParam<ShaderKey>(EVENT_PARAM_SHADER, sk);
 		coordinator->SendEvent(e);
-		SetEntityLights(&scene_lighting, directional_lights, point_lights);
-		PrepareLights(vs, hs, ds, gs, ps);
 
 		for (auto &mat: shaders.second) {
 			if (!mat.second.second.GetData().empty()) {
@@ -2086,7 +2141,6 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 				UnprepareMaterial(mat.first, vs, hs, ds, gs, ps);
 			}
 		}
-		UnprepareLights(vs, hs, ds, gs, ps);
 
 		e.SetType(EVENT_ID_UNPREPARE_SHADER);
 		coordinator->SendEvent(e);
@@ -2254,10 +2308,13 @@ void RenderSystem::DrawSplats(int w, int h, const float3& camera_position, const
 	const float frame_time = (float)Scheduler::Get()->GetElapsedNanoSeconds() / 1000000000.0f;
 	ID3D11DeviceContext* context = dxcore->context;
 
-	//A cloud carries no Lighted component to gather per-entity lights from, so it takes
-	//the scene's whole light set - the same thing DrawSky does, and refilled here rather
-	//than relying on DrawSky having run, since a level need not contain a sky.
-	SetEntityLights(&scene_lighting, directional_lights, point_lights);
+	//The rasterizer writes the G-buffer, including the material map (the ninth-and-tenth
+	//UAVs of a compute shader exist only at feature level 11_1: see
+	//DXCore::SupportsExtendedUAVSlots). Without that slot the cloud has nowhere to say how
+	//it takes light, and a cloud lit with whatever the map held would be worse than none.
+	if (!dxcore->SupportsExtendedUAVSlots()) {
+		return;
+	}
 
 	//Everything a splat's material is. The rasterizer overwrites specIntensity per
 	//pixel (it is a per-cloud constant carried on the SplatView) and clears the flags,
@@ -2277,6 +2334,7 @@ void RenderSystem::DrawSplats(int w, int h, const float3& camera_position, const
 	//ReSTIR.
 	splat_material.flags = RAY_TRACING_ENABLED_FLAG;
 
+	bool drew_cloud = false;
 	for (SplatEntity& e : splat_clouds.GetData()) {
 		if (!e.base->visible || e.cloud->data == nullptr || !e.cloud->data->Prepared()) {
 			continue;
@@ -2558,14 +2616,7 @@ void RenderSystem::DrawSplats(int w, int h, const float3& camera_position, const
 		splat_material.bloom_scale = e.cloud->bloom_scale;
 		splat_material.emission = e.cloud->emission;
 		splat_raster->SetData(MATERIAL, &splat_material, sizeof(MaterialProps));
-		if (sky != nullptr) {
-			splat_raster->SetFloat("cloud_density", sky->sky->cloud_density);
-			splat_raster->SetMatrix4x4("spot_view", sky->sky->dir_light->GetSpotMatrix());
-		}
 		splat_raster->SetSamplerState(BASIC_SAMPLER, dxcore->basic_sampler);
-		splat_raster->SetSamplerState(PCF_SAMPLER, dxcore->shadow_sampler);
-		splat_raster->SetShaderResourceView("rgbaNoise", rgba_noise_texture.SRV());
-		PrepareLights(splat_raster);
 		//SRVs, not the UAVs the preprocess wrote them through: nothing here writes them
 		//back, and a read-only bind does not serialize against the other UAV users.
 		splat_raster->SetShaderResourceView("splat_views", splat_views.SRV());
@@ -2583,13 +2634,12 @@ void RenderSystem::DrawSplats(int w, int h, const float3& camera_position, const
 		splat_raster->SetUnorderedAccessView("position_out", position_map.UAV());
 		splat_raster->SetUnorderedAccessView("prev_position_out", prev_position_map.UAV());
 		splat_raster->SetUnorderedAccessView("splat_stats", splat_stats.UAV());
-		//The ninth UAV, and the only one that needs asking permission for: a compute
-		//shader may bind more than eight only at feature level 11_1. Left unbound on an
-		//11_0 device the shader's writes to it are discarded, so the cloud renders exactly
-		//as it did before and the bloom behind it is simply not occluded.
-		if (dxcore->SupportsExtendedUAVSlots()) {
-			splat_raster->SetUnorderedAccessView("bloom_out", bloom_map.UAV());
-		}
+		//The ninth and tenth UAVs: a compute shader may bind more than eight only at
+		//feature level 11_1 (checked at the top of this function). bloom_out is the
+		//emission behind the cloud, which it takes away in proportion to what it hides;
+		//material_out is how the cloud takes light, for DeferredLightCS.
+		splat_raster->SetUnorderedAccessView("bloom_out", bloom_map.UAV());
+		splat_raster->SetUnorderedAccessView("material_out", material_map.UAV());
 		splat_raster->CopyAllBufferData();
 		splat_raster->SetShader();
 		//One group per *covered* tile, and the group is the tile: SPLAT_TILE_SIZE^2
@@ -2604,7 +2654,6 @@ void RenderSystem::DrawSplats(int w, int h, const float3& camera_position, const
 		splat_raster->SetShaderResourceView("tile_base", nullptr);
 		splat_raster->SetShaderResourceView("tile_total", nullptr);
 		splat_raster->SetShaderResourceView("splat_entries", nullptr);
-		splat_raster->SetShaderResourceView("rgbaNoise", nullptr);
 		//Released before the next cloud's preprocess reads depth_map as an SRV, and
 		//before anything downstream binds these three as inputs.
 		splat_raster->SetUnorderedAccessView("scene_out", nullptr);
@@ -2615,10 +2664,9 @@ void RenderSystem::DrawSplats(int w, int h, const float3& camera_position, const
 		splat_raster->SetUnorderedAccessView("position_out", nullptr);
 		splat_raster->SetUnorderedAccessView("prev_position_out", nullptr);
 		splat_raster->SetUnorderedAccessView("splat_stats", nullptr);
-		if (dxcore->SupportsExtendedUAVSlots()) {
-			splat_raster->SetUnorderedAccessView("bloom_out", nullptr);
-		}
-		UnprepareLights(splat_raster);
+		splat_raster->SetUnorderedAccessView("bloom_out", nullptr);
+		splat_raster->SetUnorderedAccessView("material_out", nullptr);
+		drew_cloud = true;
 
 		//Never blocks: the copy taken this frame is read several frames from now, and a
 		//failed map leaves the previous reading in place - the right answer for counters
@@ -2645,6 +2693,11 @@ void RenderSystem::DrawSplats(int w, int h, const float3& camera_position, const
 		}
 	}
 	context->CSSetShader(nullptr, nullptr, 0);
+	//The clouds wrote their G-buffer and the light they emit; the light that falls on them
+	//is added here, for their pixels only, weighted by their coverage.
+	if (drew_cloud) {
+		ProcessDeferredLighting(2);
+	}
 }
 
 void RenderSystem::ProcessAntiAlias() {
@@ -3718,7 +3771,7 @@ void RenderSystem::UnprepareMultiMaterial(Core::MaterialData* material, Core::Si
 	}
 }
 
-void RenderSystem::PrepareLights(Core::ISimpleShader* s) {
+void RenderSystem::PrepareLights(Core::ISimpleShader* s, bool volumetric) {
 	//First *visible* ambient light: a deleted one is parked (Base::visible false)
 	//rather than destroyed, so it stays in this list and must not be picked as
 	//index 0 the way it used to be.
@@ -3732,9 +3785,12 @@ void RenderSystem::PrepareLights(Core::ISimpleShader* s) {
 	if (!scene_lighting.dir_lights.empty()) {
 		s->SetData(DIR_LIGHTS, scene_lighting.dir_lights.data(), (int)(sizeof(DirectionalLight::Data) * scene_lighting.dir_lights.size()));
 	}
-	s->SetInt(POINT_LIGHT_COUNT, (int)scene_lighting.point_lights.size());
-	if (!scene_lighting.point_lights.empty()) {
-		s->SetData(POINT_LIGHTS, scene_lighting.point_lights.data(), (int)(sizeof(PointLight::Data) * scene_lighting.point_lights.size()));
+	//The point lights a shader without a screen tile can see: the nearest few. A shader
+	//that shades surfaces never reads these - it reads the tile masks.
+	const std::vector<AuxLight>& aux = volumetric ? aux_volumetric_lights : aux_lights;
+	s->SetInt(AUX_LIGHT_COUNT, (int)aux.size());
+	if (!aux.empty()) {
+		s->SetData(AUX_LIGHTS, aux.data(), (int)(sizeof(AuxLight) * aux.size()));
 	}
 	if (!scene_lighting.shadows_perspectives.empty()) {
 		s->SetData(LIGHT_PERSPECTIVE_VALUES, scene_lighting.shadows_perspectives.data(), (int)(sizeof(float2) * scene_lighting.shadows_perspectives.size()));
@@ -3805,7 +3861,9 @@ void RenderSystem::PrepareVolumetricShader(Core::ISimpleShader* s) {
 		s->SetFloat("cloud_density", sky->sky->cloud_density);
 	}
 	s->SetShaderResourceView("worldTexture", position_map.SRV());
-	PrepareLights(s);
+	//The fog of the nearest lights that have a density, not just the nearest lights: a
+	//lamp with no fog would otherwise take the place of one with.
+	PrepareLights(s, true);
 }
 
 void RenderSystem::UnprepareVolumetricShader(Core::ISimpleShader* s) {
@@ -3916,14 +3974,201 @@ void RenderSystem::SetEntityLights(Lighted* lighted, ECS::EntityVector<Direction
 		//The static map is one map per light, not a cascade set, so one matrix.
 		lighted->dir_static_shadows_perspectives.push_back(*l.light->GetStaticViewMatrix());
 	}
-	for (auto const& l : point_lights.GetData()) {
+	//Point lights are not listed here any more: surfaces read them from the tile masks, and
+	//the shaders with no tile from the aux buffer. What is left is the shadow maps, by slot:
+	//GatherLights fixed which lights hold the (at most MAX_LIGHTS) slots, and a light's
+	//packed `flags` say which one, so the shader indexes this array by that number.
+	for (uint32_t slot = 0; slot < shadow_slot_count; ++slot) {
+		PointLight* l = shadow_slot_lights[slot];
+		lighted->shadows.push_back(l->DepthResource());
+		lighted->shadows_perspectives.push_back({ l->GetLightPerspectiveValues().m[2][2] , l->GetLightPerspectiveValues().m[3][2] });
+	}
+}
+
+namespace {
+	//The nearest few of a stream of (distance, index) offers, kept sorted. Eight entries, so
+	//insertion is the right algorithm.
+	struct NearestLights {
+		float dist2[MAX_AUX_LIGHTS];
+		int index[MAX_AUX_LIGHTS];
+		int count = 0;
+
+		void Offer(float d2, int i) {
+			if (count == MAX_AUX_LIGHTS && d2 >= dist2[count - 1]) {
+				return;
+			}
+			int at = (count < MAX_AUX_LIGHTS) ? count++ : count - 1;
+			while (at > 0 && dist2[at - 1] > d2) {
+				dist2[at] = dist2[at - 1];
+				index[at] = index[at - 1];
+				--at;
+			}
+			dist2[at] = d2;
+			index[at] = i;
+		}
+	};
+}
+
+void RenderSystem::GatherLights(const CameraEntity& camera) {
+	const float3 eye = camera.camera->world_position;
+	const auto dist2_to_eye = [&eye](const PointLight::Data& d) {
+		const float dx = d.position.x - eye.x;
+		const float dy = d.position.y - eye.y;
+		const float dz = d.position.z - eye.z;
+		return dx * dx + dy * dy + dz * dz;
+	};
+	const auto nearer = [](const LightCandidate& a, const LightCandidate& b) { return a.dist2 < b.dist2; };
+
+	light_candidates.clear();
+	for (PointLightEntity& l : point_lights.GetData()) {
+		l.light->render_shadow_slot = -1;
+		//A deleted/cut light is parked (Base::visible false), not destroyed, so it stays
+		//registered here and must be skipped or it keeps lighting the scene after being
+		//"removed".
 		if (!l.base->visible) {
 			continue;
 		}
-		lighted->point_lights.push_back(l.light->GetData());
-		lighted->shadows.push_back(l.light->DepthResource());
-		lighted->shadows_perspectives.push_back({ l.light->GetLightPerspectiveValues().m[2][2] , l.light->GetLightPerspectiveValues().m[3][2] });
+		light_candidates.push_back({ dist2_to_eye(l.light->GetData()), &l });
 	}
+	//More lights than the buffer holds: the nearest ones are the ones that matter, the
+	//rest are not lit at all. nth_element is linear, so a scene with ten thousand lights
+	//pays for looking at them once.
+	if (light_candidates.size() > MAX_TILED_LIGHTS) {
+		std::nth_element(light_candidates.begin(), light_candidates.begin() + MAX_TILED_LIGHTS,
+			light_candidates.end(), nearer);
+		light_candidates.resize(MAX_TILED_LIGHTS);
+	}
+
+	//Shadow slots. A cube map is a shader resource slot and six passes over the casters, so
+	//only the nearest MAX_LIGHTS shadow casting lights get one; the others light, unshadowed.
+	shadow_candidates.clear();
+	for (const LightCandidate& c : light_candidates) {
+		if (c.entity->light->CastShadow() && c.entity->light->DepthResource() != nullptr) {
+			shadow_candidates.push_back(c);
+		}
+	}
+	if (shadow_candidates.size() > MAX_LIGHTS) {
+		std::nth_element(shadow_candidates.begin(), shadow_candidates.begin() + MAX_LIGHTS,
+			shadow_candidates.end(), nearer);
+		shadow_candidates.resize(MAX_LIGHTS);
+	}
+	shadow_slot_count = (uint32_t)shadow_candidates.size();
+	for (uint32_t slot = 0; slot < shadow_slot_count; ++slot) {
+		PointLight* light = shadow_candidates[slot].entity->light;
+		shadow_slot_lights[slot] = light;
+		light->render_shadow_slot = (int)slot;
+	}
+
+	//Pack. The buffer index of a light is its position in light_candidates, which is what
+	//the aux lists below point back into.
+	packed_lights.clear();
+	NearestLights nearest;
+	NearestLights nearest_volumetric;
+	for (size_t i = 0; i < light_candidates.size(); ++i) {
+		const LightCandidate& c = light_candidates[i];
+		const PointLight::Data& d = c.entity->light->GetData();
+		packed_lights.push_back(PackLight(&d.position.x, d.range, &d.color.x, d.is_spot != 0, &d.direction.x,
+			d.spot_cos_inner, d.spot_cos_outer, c.entity->light->render_shadow_slot));
+		nearest.Offer(c.dist2, (int)i);
+		if (d.density > 0.0f) {
+			nearest_volumetric.Offer(c.dist2, (int)i);
+		}
+	}
+	const auto fill_aux = [this](const NearestLights& chosen, std::vector<AuxLight>& out) {
+		out.clear();
+		for (int k = 0; k < chosen.count; ++k) {
+			const PointLight::Data& d = light_candidates[chosen.index[k]].entity->light->GetData();
+			AuxLight a = {};
+			a.light = packed_lights[chosen.index[k]];
+			a.density = d.density;
+			a.tilt_ratio = d.tilt_ratio;
+			out.push_back(a);
+		}
+	};
+	fill_aux(nearest, aux_lights);
+	fill_aux(nearest_volumetric, aux_volumetric_lights);
+
+	tiled_lights.Upload(packed_lights.data(), (uint32_t)packed_lights.size());
+	tiled_stats.lights = (uint32_t)packed_lights.size();
+	tiled_stats.shadowed = shadow_slot_count;
+}
+
+void RenderSystem::ProcessDeferredLighting(int pass_filter) {
+	if (deferred_light == nullptr || cameras.GetData().empty()) {
+		return;
+	}
+	CameraEntity& cam_entity = cameras.GetData()[0];
+	ID3D11DeviceContext* context = dxcore->context;
+	const int w = dxcore->GetWidth();
+	const int h = dxcore->GetHeight();
+	const bool first = (lighting_passes_this_frame++ == 0);
+	const bool want_stats = tiled_stats_requested && frame_count - tiled_stats_request_frame < TILED_STATS_KEEPALIVE;
+
+	//Which lights reach which tile, against the surfaces in the G-buffer right now (a later
+	//pass has overwritten some of them, which is why every dispatch culls again).
+	if (first) {
+		GpuStamp(11);
+	}
+	tiled_lights.Cull(cam_entity.camera->view, cam_entity.camera->inverse_projection, position_map.SRV(), want_stats,
+		tile_culling_enabled);
+	if (first) {
+		GpuStamp(12);
+	}
+
+	SkyEntity* sky = skies.GetData().empty() ? nullptr : &(skies.GetData()[0]);
+	const float speed = (sky != nullptr) ? sky->sky->CloudSpeed() : 1.0f;
+	const float light_time = ((float)Scheduler::Get()->GetElapsedNanoSeconds() * speed) / 1000000000.0f;
+
+	//Ambient, the directional lights and their shadow maps, and the point light shadow
+	//maps by slot. The point lights themselves are in the buffer the masks index.
+	SetEntityLights(&scene_lighting, directional_lights, point_lights);
+	PrepareLights(deferred_light);
+	deferred_light->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
+	deferred_light->SetInt(SCREEN_W, w);
+	deferred_light->SetInt(SCREEN_H, h);
+	deferred_light->SetInt("tiles_x", (int)tiled_lights.TilesX());
+	deferred_light->SetInt("pass_filter", pass_filter);
+	deferred_light->SetFloat(TIME, light_time);
+	if (sky != nullptr) {
+		deferred_light->SetFloat("cloud_density", sky->sky->cloud_density);
+	}
+	deferred_light->SetSamplerState(BASIC_SAMPLER, dxcore->basic_sampler);
+	deferred_light->SetSamplerState(PCF_SAMPLER, dxcore->shadow_sampler);
+	deferred_light->SetShaderResourceView("rgbaNoise", rgba_noise_texture.SRV());
+	deferred_light->SetShaderResourceView("positionTexture", position_map.SRV());
+	deferred_light->SetShaderResourceView("normalTexture", rt_ray_sources1.SRV());
+	deferred_light->SetShaderResourceView("materialTexture", material_map.SRV());
+	deferred_light->SetShaderResourceView("lightsBuffer", tiled_lights.LightsSRV());
+	deferred_light->SetShaderResourceView("tileMasks", tiled_lights.MasksSRV());
+	deferred_light->SetUnorderedAccessView("light_out", current_light_map->UAV());
+	deferred_light->SetUnorderedAccessView("bloom_out", bloom_map.UAV());
+	deferred_light->CopyAllBufferData();
+	deferred_light->SetShader();
+	context->Dispatch(tiled_lights.TilesX(), tiled_lights.TilesY(), 1);
+	deferred_light->SetShaderResourceView("rgbaNoise", nullptr);
+	deferred_light->SetShaderResourceView("positionTexture", nullptr);
+	deferred_light->SetShaderResourceView("normalTexture", nullptr);
+	deferred_light->SetShaderResourceView("materialTexture", nullptr);
+	deferred_light->SetShaderResourceView("lightsBuffer", nullptr);
+	deferred_light->SetShaderResourceView("tileMasks", nullptr);
+	deferred_light->SetUnorderedAccessView("light_out", nullptr);
+	deferred_light->SetUnorderedAccessView("bloom_out", nullptr);
+	UnprepareLights(deferred_light);
+	context->CSSetShader(nullptr, nullptr, 0);
+	if (first) {
+		GpuStamp(13);
+		if (want_stats) {
+			tiled_lights.ReadStats(tiled_stats);
+			tiled_stats.frame = frame_count;
+		}
+	}
+}
+
+Core::TiledLightValidation RenderSystem::ValidateTileLights() {
+	//The render thread holds this for a whole frame; taking it keeps the G-buffer and the
+	//masks from changing under the check.
+	std::lock_guard<std::recursive_mutex> lock(mutex);
+	return tiled_lights.Validate(position_map.SRV());
 }
 
 void RenderSystem::Clear(const float color[4]) {
@@ -3933,6 +4178,7 @@ void RenderSystem::Clear(const float color[4]) {
 	depth_view.Clear();
 	position_map.Clear(max_depth);
 	prev_position_map.Clear(max_depth);
+	material_map.Clear(zero);
 	for (int i = 0; i < 2; ++i)
 	{
 		light_map[i].Clear(color);
@@ -4120,6 +4366,11 @@ void RenderSystem::Draw() {
 		//geometry - see SelectLods.
 		SelectLods(*(cam_entity.camera));
 		cpu_lap(cpu_timings.lods);
+		//Which point lights the frame lights with and which of them hold a shadow slot - before
+		//CastShadows, which draws the maps of those that do and nobody else's.
+		lighting_passes_this_frame = 0;
+		GatherLights(cam_entity);
+		cpu_lap(cpu_timings.lights);
 		static int count = 0;
 		//Only one every STATIC_SHADOW_REFRESH_PERIOD frames we refresh static shadows (directional light can change location due to sky component)
 		//but this is fine to just make the overhead of casting shadow of static objects almost zero (cost reduced by /STATIC_SHADOW_REFRESH_PERIOD)
@@ -4181,17 +4432,31 @@ void RenderSystem::Draw() {
 		DrawScene(w, h, camera_position, view, projection, nullptr, first_pass_target, render_tree);
 		EndTessStats(tess_query_open);
 		ResolveTessStats();
+		//Light what the first pass drew. This is where the frame's light is computed - the
+		//geometry passes above evaluated none - and it runs before the second pass because
+		//water reads the lit result of what lies under it (prevLightTexture).
+		ProcessDeferredLighting(0);
 		if (second_pass_target != nullptr && !render_pass2_tree.empty()) {
 			CheckSceneVisibility(render_pass2_tree);
 			current_light_map = &light_map[1];
 			prev_light_map = &light_map[0];
 			CopyTexture(*prev_light_map, *current_light_map);
 			DrawScene(w, h, camera_position, view, projection, first_pass_texture.SRV(), second_pass_target, render_pass2_tree);
+			//Only what that pass drew: the rest is already lit in the map it was copied from.
+			ProcessDeferredLighting(1);
 		}
 		//After every DrawScene, so the clouds test against a complete depth buffer and
 		//composite over the finished scene colour; before ProcessMotion and everything
-		//after it, which build the frame out of the buffers this writes into.
+		//after it, which build the frame out of the buffers this writes into. It lights
+		//the clouds itself (a third lighting dispatch, filtered to them).
 		DrawSplats(w, h, camera_position, view, projection);
+		//GpuResolve waits for every stamp of a frame, so a frame that ran no lighting at all
+		//still has to issue the three it timed.
+		if (lighting_passes_this_frame == 0) {
+			GpuStamp(11);
+			GpuStamp(12);
+			GpuStamp(13);
+		}
 		cpu_lap(cpu_timings.scene);
 		GpuStamp(3);
 		ProcessMotion();

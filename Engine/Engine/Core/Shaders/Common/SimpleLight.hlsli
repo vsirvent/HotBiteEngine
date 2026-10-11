@@ -1,32 +1,33 @@
 
-float PointShadowPCFFAST(float3 ToPixel, PointLight light, int index)
+//Light at a ray hit.
+//
+//A ray hit has no screen tile - it can be anywhere in the world, behind the camera or off
+//screen - so the reflection, refraction and indirect light tracers cannot use the tile masks
+//DeferredLightCS reads. This is the one place in the engine, besides the deferred pass, that
+//evaluates a light on a surface, and it deliberately does less than it: Lambert only, one
+//shadow tap, the directional lights and the nearest few point lights (the aux lights,
+//MAX_AUX_LIGHTS of them, read from a constant buffer because these shaders have no texture
+//register to spare - see the note on Texture2DArray below). A hit that is out of reach of
+//those is lit by the sun, ambient and the radiance cache, as it always was.
+//
+//The shadow of point light `slot` (PackedLight::flags, see LightShadowSlot). The slot is
+//data, and a texture array cannot be indexed by data, so it is matched against each map by
+//a literal index (see GatherPointShadow in LightShadows.hlsli).
+float PointShadowPCFFAST(float3 ToPixel, int slot)
 {
     float3 ToPixelAbs = abs(ToPixel);
     float Z = max(ToPixelAbs.x, max(ToPixelAbs.y, ToPixelAbs.z));
-    float d = (lps[index].x * Z + lps[index].y) / Z;
+    float d = (lps[slot].x * Z + lps[slot].y) / Z;
     //This offset allows to avoid self shadow
     d -= 0.0001f;
-    float att1 = PointShadowMapTexture[index].SampleCmpLevelZero(PCFSampler, float3(ToPixel.x, ToPixel.y, ToPixel.z), d).r;
-    return saturate(att1);
-}
-
-float PointShadowPCF(float3 ToPixel, PointLight light, int index)
-{
-    float3 ToPixelAbs = abs(ToPixel);
-    float Z = max(ToPixelAbs.x, max(ToPixelAbs.y, ToPixelAbs.z));
-    float d = ((lps[index].x * Z + lps[index].y) / Z);
-    //This offset allows to avoid self shadow
-    d -= 0.01f;
-    float step = 0.02f;
-    float att1 = 0.0f;
-    float count = 0.00001f;
-    for (float x = -0.06f; x < 0.06f; x += step) {
-        for (float y = -0.06f; y < 0.06f; y += step) {
-            att1 += PointShadowMapTexture[index].SampleCmpLevelZero(PCFSampler, float3(ToPixel.x + x, ToPixel.y + y, ToPixel.z), d).r;
-            count += 1.0f;
+    float att1 = 1.0f;
+    [unroll]
+    for (int s = 0; s < MAX_LIGHTS; ++s) {
+        [branch]
+        if (s == slot) {
+            att1 = PointShadowMapTexture[s].SampleCmpLevelZero(PCFSampler, float3(ToPixel.x, ToPixel.y, ToPixel.z), d).r;
         }
     }
-    att1 /= count;
     return saturate(att1);
 }
 
@@ -47,7 +48,7 @@ bool OutsideShadowMap(float3 p)
            p.z < 0.0f || p.z > 1.0f;
 }
 
-//See PixelFunctions.hlsli for what the cascade search is doing and why containment is
+//See LightShadows.hlsli for what the cascade search is doing and why containment is
 //the selection test. The two copies exist because these two headers are alternative
 //lighting front ends, never included together.
 int SelectDirCascade(float4 position, DirLight light, int index, out float3 uvz)
@@ -64,7 +65,7 @@ int SelectDirCascade(float4 position, DirLight light, int index, out float3 uvz)
     return -1;
 }
 
-//See PixelFunctions.hlsli - same colours, same floor, duplicated for the same reason
+//See LightShadows.hlsli - same colours, same floor, duplicated for the same reason
 //the cascade search is.
 static const float3 CASCADE_DEBUG_COLOR[MAX_SHADOW_CASCADES] = {
     float3(0.15f, 1.00f, 0.25f),
@@ -167,7 +168,7 @@ float DirShadowPCFFASTAll(float4 position, DirLight light, int index)
                DirStaticShadowPCFFAST(position, light, index));
 }
 
-//See PixelFunctions.hlsli for what these colours mean.
+//See LightShadows.hlsli for what these colours mean.
 static const float3 STATIC_DEBUG_OUTSIDE = float3(1.00f, 0.12f, 0.12f);
 static const float3 STATIC_DEBUG_SHADOWED = float3(0.20f, 0.45f, 1.00f);
 static const float3 STATIC_DEBUG_LIT = float3(0.25f, 1.00f, 0.45f);
@@ -200,7 +201,7 @@ float3 ApplyDirShadowDebug(float3 lit, float4 position, DirLight light, int inde
 }
 #endif
 
-float3 CalcAmbient(float3 normal)
+float3 HitAmbient(float3 normal)
 {
     // Convert from [-1, 1] to [0, 1]
     float up = normal.y * 0.5 + 0.5;
@@ -210,7 +211,7 @@ float3 CalcAmbient(float3 normal)
     return Ambient;
 }
 
-float3 CalcDirectionalNoShadow(float3 normal, float3 position, DirLight light, int index)
+float3 HitDirectionalNoShadow(float3 normal, float3 position, DirLight light, int index)
 {
     float3 color = light.Color.rgb * light.intensity;
     // Phong diffuse
@@ -219,7 +220,7 @@ float3 CalcDirectionalNoShadow(float3 normal, float3 position, DirLight light, i
     return finalColor;
 }
 
-float3 CalcDirectional(float3 normal, float3 position, DirLight light, int index)
+float3 HitDirectional(float3 normal, float3 position, DirLight light, int index)
 {
     float3 color = light.Color.rgb * light.intensity;
     // Phong diffuse
@@ -232,24 +233,25 @@ float3 CalcDirectional(float3 normal, float3 position, DirLight light, int index
     return ApplyDirShadowDebug(finalColor, float4(position, 1.0f), light, index);
 }
 
-float3 CalcPoint(float3 normal, float3 position, PointLight light, int index)
+float3 HitPoint(float3 normal, float3 position, PackedLight light)
 {
     float3 finalColor = { 0.f, 0.f, 0.f };
-    float3 lposition = light.Position;
+    float3 lposition = light.position;
     float3 ToLight = lposition - position;
     float DistToLight = length(ToLight);
     // Phong diffuse
-    ToLight /= DistToLight; // Normalize
+    ToLight /= max(DistToLight, 1e-5f); // Normalize
     float NDotL = saturate(dot(ToLight, normal));
-    finalColor = light.Color * NDotL;
+    finalColor = UnpackLightColor(light) * NDotL;
 
     // Attenuation
-    float LightRange = (light.Range - DistToLight) / light.Range;
+    float LightRange = (light.range - DistToLight) / light.range;
     float DistToLightNorm = LightRange;
     float Attn = saturate(DistToLightNorm * DistToLightNorm);
-    Attn *= SpotFactor(light, position - lposition);
-    if (light.cast_shadow && Attn > 0.0f) {
-        float shadow = PointShadowPCFFAST(position - lposition, light, index);
+    Attn *= PackedSpotFactor(light, position - lposition);
+    int slot = LightShadowSlot(light);
+    if (slot >= 0 && Attn > 0.0f) {
+        float shadow = PointShadowPCFFAST(position - lposition, slot);
         finalColor *= shadow;
     }
     finalColor *= Attn;

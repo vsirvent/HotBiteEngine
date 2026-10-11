@@ -26,19 +26,21 @@ SOFTWARE.
 #include <Common/ShaderStructs.hlsli>
 #include <Common/FastNoise.hlsli>
 #include <Common/PixelCommon.hlsli>
+#include <Common/GBuffer.hlsli>
 
+//No lights here either (see MainRender/MainRenderPS.hlsl): the terrain branch is the engine's
+//own G-buffer shader, and the grass writes its albedo and normal like any other surface and
+//is lit by the deferred pass. What this still reads of the lights is the nearest few lamps,
+//for the visible glow around them.
 cbuffer externalData : register(b0)
 {
 	matrix world;
 	matrix prevWorld;
 	matrix view;
 	matrix projection;
-	AmbientLight ambientLight;
-	DirLight dirLights[MAX_LIGHTS];
-	PointLight pointLights[MAX_LIGHTS];
+	AuxLight auxLights[MAX_AUX_LIGHTS];
 	MaterialColor material;
-	int dirLightsCount;
-	int pointLightsCount;
+	int auxLightCount;
 	float parallaxScale;
 	int meshNormalTextureEnable;
 	int highTextureEnable;
@@ -46,18 +48,11 @@ cbuffer externalData : register(b0)
 	float3 cameraDirection;
 	int screenW;
 	int screenH;
-	float4 LightPerspectiveValues[MAX_LIGHTS / 2];
-	//This block mirrors the engine's own lighting cbuffer (MainRender/MainRenderPS.hlsl)
-	//field for field, because PixelFunctions.hlsli is included below and indexes into
-	//it. Cascades made the dynamic array MAX_LIGHTS * MAX_SHADOW_CASCADES long; a game
-	//shader left at MAX_LIGHTS here does not fail to compile, it silently shifts every
-	//field after it and reads garbage matrices - which renders as a black surface.
-	matrix DirPerspectiveMatrix[DIR_SHADOW_MATRIX_COUNT];
-	//Static casters are one plain map per light, so this one stays MAX_LIGHTS long.
-	matrix DirStaticPerspectiveMatrix[MAX_LIGHTS];
-	matrix spot_view;
 	float time;
-	float cloud_density;
+	float3 sunDirection;
+	int hasSun;
+	//1 for the first geometry pass, 2 for the second (see RenderSystem::DrawScene).
+	int renderPass;
 
 	uint multi_texture_count;
 	float multi_parallax_scale;
@@ -81,6 +76,7 @@ cbuffer externalData : register(b0)
 
 #include <Common/MultiTexture.hlsli>
 #include <Common/PixelFunctions.hlsli>
+#include <Common/LightGlow.hlsli>
 #include <MainRender/MainRenderPS.hlsli>
 #include "DemoCommons.hlsli"
 
@@ -104,42 +100,28 @@ RenderTargetRT main(GSOutput input)
 		}
 		float4 wpos = input.worldPos;
 		int i = 0;
-		float4 finalColor = { 0.0f, 0.0f, 0.0f, 1.0f };
-		float4 lightColor = { 0.0f, 0.0f, 0.0f, 0.0f };
 		float3 normal = input.normal;
-		// Calculate the ambient light
-		finalColor.rgb += CalcAmbient(normal);
-		// Calculate the directional light
-		for (i = 0; i < dirLightsCount; ++i) {
-			finalColor.rgb += CalcDirectional(normal, wpos, input.uv, material, dirLights[i], cloud_density, i, lightColor);
-		}
-		
-		// Calculate the point lights
-		for (i = 0; i < pointLightsCount; ++i) {
-			if (length(wpos - pointLights[i].Position) < pointLights[i].Range) {
-				finalColor.rgb += CalcPoint(normal, wpos, input.uv, material, pointLights[i], i, lightColor);
-			}
-		}
 
-		//Emission of point lights	
+		//The visible glow of the nearest lamps, behind which this grass is: emission, so it
+		//goes in the light map and is not lit again.
+		float3 glow = { 0.0f, 0.0f, 0.0f };
 		matrix worldViewProj = mul(view, projection);
 		float3 p2 = mul(input.worldPos, view).xyz;
-		for (i = 0; i < pointLightsCount; ++i) {
-			float3 p1 = mul(float4(pointLights[i].Position, 1.0f), view).xyz;
+		for (i = 0; i < auxLightCount; ++i) {
+			float3 p1 = mul(float4(auxLights[i].light.position, 1.0f), view).xyz;
 			//if we are in front of camera
 			if (p1.z > 0) {
 				//if pixel is behind light
 				if (p1.z < p2.z) {
-					finalColor.rgb += EmitPoint(input.position.xyz, worldViewProj, pointLights[i]);
+					glow += EmitPoint(input.position.xyz, worldViewProj, auxLights[i]);
 				}
 			}
 		};
 
-		finalColor.rgb *= color;
 		RenderTargetRT output;
-		output.light_map = lightColor;
-		output.bloom_map = lightColor;
-		output.scene = finalColor;
+		output.light_map = float4(glow, 0.0f);
+		output.bloom_map = float4(glow, 0.0f);
+		output.scene = float4(color, 1.0f);
 
 		RaySource ray;
 		ray.orig = wpos.xyz;
@@ -159,6 +141,8 @@ RenderTargetRT main(GSOutput input)
 		//position is its current one, same as WaterPS and LavaPS do.
 		output.pos0_map = input.worldPos;
 		output.pos1_map = input.worldPos;
+		//Grass takes light like any standard surface, with no specular.
+		output.material_map = float4(0.0f, 0.0f, 1.0f, MaterialCode(SHADING_STANDARD, renderPass));
 
 		return output;
 	}

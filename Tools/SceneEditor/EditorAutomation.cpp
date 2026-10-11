@@ -34,6 +34,7 @@
 #include <Core/Json.h>
 #include <Core/SplatCloud.h>
 #include <algorithm>
+#include <cmath>
 #include <mutex>
 #include <filesystem>
 #include <fstream>
@@ -212,6 +213,165 @@ namespace HotBiteEditor {
 			return false;
 		}
 
+		//Tiled point lights (Core/TiledLights.h): what the culling made of the frame's lights, and
+		//the means to put a few hundred in a level and measure them. Chained off the material
+		//surface handler like the rest, for the same reason it is: the main ladder is at the
+		//compiler's C1061 limit.
+		//
+		//  spawn_lights <count> <range> <intensity> <extent> <height> [cast_shadow 0|1]
+		//      `count` point lights on a jittered grid covering <extent> x <extent> world units
+		//      around the origin, <height> above y = 0, named tl_0, tl_1, ... Colours cycle through
+		//      six hues. Not part of the level (no undo, never saved).
+		//  clear_lights                 destroys what spawn_lights made
+		//  lights_info                  OK lights= shadowed= tiles=TXxTY lit= geometry= max= avg= valid= frame=
+		//  lights_validate              OK pixels= reached= missed=  (missed must be 0)
+		//  lights_packed <index>        the light as the GPU will decode it, for the packing tests
+		//  tile_culling [on|off]        reports / switches the culling off (the brute-force reference)
+		//  gpu_timings                  OK frames= <pass>=<ms summed over frames> ... (two reads, differenced)
+		static std::vector<std::pair<std::string, ECS::Entity>> spawned_lights;
+
+		static uint32_t LightHash(uint32_t x)
+		{
+			x ^= x >> 16; x *= 0x7feb352dU; x ^= x >> 15; x *= 0x846ca68bU; x ^= x >> 16;
+			return x;
+		}
+
+		static bool HandleLightingCommand(EditorState& state, const std::string& cmd,
+			const std::vector<std::string>& args, std::string& error)
+		{
+			if (cmd != "spawn_lights" && cmd != "clear_lights" && cmd != "lights_info" && cmd != "lights_validate" &&
+				cmd != "lights_packed" && cmd != "tile_culling" && cmd != "gpu_timings") {
+				return false;
+			}
+			Systems::RenderSystem* rs =
+				(state.world != nullptr) ? state.world->GetSystem<Systems::RenderSystem>().get() : nullptr;
+			if (rs == nullptr) {
+				response_lines.push_back("ERR no render system");
+				return true;
+			}
+			if (cmd == "spawn_lights") {
+				if (args.size() < 6) {
+					response_lines.push_back("ERR usage: spawn_lights <count> <range> <intensity> <extent> <height> [cast_shadow 0|1]");
+					return true;
+				}
+				int count = 0;
+				float range = 0.0f, intensity = 0.0f, extent = 0.0f, height = 0.0f;
+				try {
+					count = std::stoi(args[1]);
+					range = std::stof(args[2]);
+					intensity = std::stof(args[3]);
+					extent = std::stof(args[4]);
+					height = std::stof(args[5]);
+				}
+				catch (const std::exception&) {
+					response_lines.push_back("ERR spawn_lights takes numbers");
+					return true;
+				}
+				const bool cast_shadow = args.size() > 6 && args[6] == "1";
+				if (count < 1 || count > 100000 || range <= 0.0f) {
+					response_lines.push_back("ERR count must be 1..100000 and range positive");
+					return true;
+				}
+				//Six hues, so a mixed-colour mistake in the packing would show.
+				static const float3 hues[6] = { { 1.0f, 0.55f, 0.2f }, { 0.3f, 0.6f, 1.0f }, { 0.4f, 1.0f, 0.4f },
+					{ 1.0f, 0.3f, 0.3f }, { 0.9f, 0.4f, 1.0f }, { 1.0f, 0.95f, 0.5f } };
+				const int side = (int)std::ceil(std::sqrt((double)count));
+				const float spacing = extent / (float)side;
+				int made = 0;
+				const size_t first = spawned_lights.size();
+				for (int i = 0; i < count; ++i) {
+					const uint32_t h0 = LightHash((uint32_t)(first + i) * 2u + 1u);
+					const uint32_t h1 = LightHash((uint32_t)(first + i) * 2u + 2u);
+					const float jx = ((float)(h0 & 0xFFFF) / 65535.0f - 0.5f) * 0.6f * spacing;
+					const float jz = ((float)(h1 & 0xFFFF) / 65535.0f - 0.5f) * 0.6f * spacing;
+					const float3 position = { -extent * 0.5f + ((float)(i % side) + 0.5f) * spacing + jx, height,
+						-extent * 0.5f + ((float)(i / side) + 0.5f) * spacing + jz };
+					const float3& hue = hues[(h0 >> 16) % 6];
+					const float3 color = { hue.x * intensity, hue.y * intensity, hue.z * intensity };
+					const std::string name = "tl_" + std::to_string(first + i);
+					const ECS::Entity e = state.world->CreatePointLight(name, position, color, range, cast_shadow);
+					if (e == ECS::INVALID_ENTITY_ID) {
+						continue;
+					}
+					spawned_lights.push_back({ name, e });
+					++made;
+				}
+				response_lines.push_back("OK made=" + std::to_string(made) + " total=" + std::to_string(spawned_lights.size()));
+			}
+			else if (cmd == "clear_lights") {
+				ECS::Coordinator* c = state.world->GetCoordinator();
+				size_t removed = 0;
+				for (const auto& light : spawned_lights) {
+					//Only if the name still names the entity this made: a scripted delete or a
+					//reload may have taken it, or reused the id.
+					if (c->GetEntityByName(light.first) == light.second) {
+						c->DestroyEntity(light.second);
+						++removed;
+					}
+				}
+				spawned_lights.clear();
+				response_lines.push_back("OK removed=" + std::to_string(removed));
+			}
+			else if (cmd == "lights_info") {
+				const Core::TiledLightStats st = rs->GetTiledLightStats();
+				const double avg = st.tiles_lit > 0 ? (double)st.total_bits / (double)st.tiles_lit : 0.0;
+				char text[320];
+				snprintf(text, sizeof(text), "OK lights=%u shadowed=%u tiles=%ux%u lit=%u geometry=%u max=%u avg=%.3f valid=%d frame=%u",
+					st.lights, st.shadowed, st.tiles_x, st.tiles_y, st.tiles_lit, st.tiles_with_geometry,
+					st.max_per_tile, avg, st.valid ? 1 : 0, st.frame);
+				response_lines.push_back(text);
+			}
+			else if (cmd == "lights_validate") {
+				const Core::TiledLightValidation v = rs->ValidateTileLights();
+				if (!v.valid) {
+					response_lines.push_back("ERR validation did not run");
+				}
+				else {
+					response_lines.push_back("OK pixels=" + std::to_string(v.pixels) + " reached=" + std::to_string(v.reached) +
+						" missed=" + std::to_string(v.missed));
+				}
+			}
+			else if (cmd == "lights_packed") {
+				const auto& packed = rs->GetPackedLights();
+				size_t index = 0;
+				try { index = args.size() > 1 ? (size_t)std::stoul(args[1]) : 0; }
+				catch (const std::exception&) { index = packed.size(); }
+				if (index >= packed.size()) {
+					response_lines.push_back("ERR no light " + (args.size() > 1 ? args[1] : std::string("0")) +
+						" (" + std::to_string(packed.size()) + " packed)");
+				}
+				else {
+					const Core::PackedLight& l = packed[index];
+					float color[3], dir[3];
+					Core::UnpackLightColor(l, color);
+					Core::UnpackLightDirection(l, dir);
+					char text[400];
+					snprintf(text, sizeof(text), "OK pos=%.4f,%.4f,%.4f range=%.4f color=%.4f,%.4f,%.4f spot=%d dir=%.4f,%.4f,%.4f slot=%d",
+						l.position[0], l.position[1], l.position[2], l.range, color[0], color[1], color[2],
+						(l.flags & Core::PACKED_LIGHT_SPOT) ? 1 : 0, dir[0], dir[1], dir[2],
+						(l.flags & Core::PACKED_LIGHT_SHADOW) ? (int)((l.flags >> Core::PACKED_LIGHT_SLOT_SHIFT) & 15u) : -1);
+					response_lines.push_back(text);
+				}
+			}
+			else if (cmd == "tile_culling") {
+				if (args.size() > 1) {
+					rs->SetTileCulling(args[1] != "off");
+				}
+				response_lines.push_back(std::string("OK ") + (rs->GetTileCulling() ? "on" : "off"));
+			}
+			else {
+				//gpu_timings. Summed over `frames`, not averaged: two reads some frames apart give
+				//the cost of each pass per frame by subtraction. Asking is what turns the queries on.
+				const Systems::RenderSystem::GpuTimings g = rs->GetGpuTimings();
+				char text[480];
+				snprintf(text, sizeof(text),
+					"OK frames=%u shadows=%.4f depth=%.4f scene=%.4f tile_cull=%.4f deferred=%.4f motion=%.4f rt=%.4f gi=%.4f light=%.4f mix=%.4f aa=%.4f blur=%.4f",
+					g.frames, g.shadows, g.depth, g.scene, g.tile_cull, g.deferred, g.motion, g.rt, g.gi, g.light, g.mix, g.aa, g.blur);
+				response_lines.push_back(text);
+			}
+			return true;
+		}
+
 		//A material's surface parameters - tessellation and the displacement the height map
 		//gets from it. Chained off the Poly Haven handler below for the same reason that one
 		//is chained off the asset-import one: the main ladder is at the compiler's C1061 limit.
@@ -229,6 +389,9 @@ namespace HotBiteEditor {
 			//meaningful as a difference between two states of one scene, and a few frames stale: asking
 			//is what turns the query on, so the first call answers valid=0. Poll.
 			if (HandleTemplateEditCommand(state, cmd, args, error)) {
+				return true;
+			}
+			if (HandleLightingCommand(state, cmd, args, error)) {
 				return true;
 			}
 			if (cmd == "tess_info") {

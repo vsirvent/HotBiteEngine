@@ -30,7 +30,19 @@ SOFTWARE.
 #include <ECS/Coordinator.h>
 #include <ECS/Serialization.h>
 
+//Directional lights, and the point lights that can cast a shadow at once (every shadow
+//map is a shader resource slot). Mirrored by MAX_LIGHTS in Shaders/Common/Defines.hlsli.
 #define MAX_LIGHTS 8
+//Point and spot lights the scene can show in one frame. They are not bound to shaders one
+//by one any more: the nearest MAX_TILED_LIGHTS to the camera are packed into one buffer
+//and a compute pass records, per 16x16 screen tile, which of them reach it (see
+//Core/TiledLights.h). Mirrored by MAX_TILED_LIGHTS in Shaders/Common/Defines.hlsli, and
+//both the mask layout and the shaders depend on it being a multiple of 32.
+#define MAX_TILED_LIGHTS 1024
+//Point lights handed to the shaders that have no screen tile to read a mask for - ray
+//hits, light glows, the volumetric march - through a constant buffer: the nearest ones.
+//Mirrored by MAX_AUX_LIGHTS in Defines.hlsli.
+#define MAX_AUX_LIGHTS 8
 #define MAX_OBJECTS 100
 #define MAX_INTENSITY 1000.0f
 
@@ -407,6 +419,14 @@ namespace HotBite {
 					float3 direction = { 0.0f, 0.0f, 1.0f };
 					int is_spot = 0;
 				};
+
+			public:
+				//Which PointShadowMapTexture slot this light's cube map is bound to this
+				//frame, or -1 for none. Written by RenderSystem::GatherLights, never
+				//serialized: with up to MAX_TILED_LIGHTS lights and MAX_LIGHTS slots, the
+				//nearest shadow-casting lights hold the slots and only those render a map
+				//(a light without one lights without shadows rather than not at all).
+				int render_shadow_slot = -1;
 
 			private:
 				struct Data data = {};

@@ -184,6 +184,7 @@
     <ClCompile Include="Engine\Core\SplatMeshReconstruction.cpp" />
     <ClCompile Include="Engine\Core\Texture.cpp" />
     <ClCompile Include="Engine\Core\TextureCache.cpp" />
+    <ClCompile Include="Engine\Core\TiledLights.cpp" />
     <ClCompile Include="Engine\Core\Utils.cpp" />
     <ClCompile Include="Engine\Core\Log.cpp" />
     <ClCompile Include="Engine\Core\Vertex.cpp" />
@@ -245,6 +246,7 @@
     <ClInclude Include="Engine\Core\SplatMeshReconstruction.h" />
     <ClInclude Include="Engine\Core\Texture.h" />
     <ClInclude Include="Engine\Core\TextureCache.h" />
+    <ClInclude Include="Engine\Core\TiledLights.h" />
     <ClInclude Include="Engine\Core\Utils.h" />
     <ClInclude Include="Engine\Core\Log.h" />
     <ClInclude Include="Engine\Core\Vertex.h" />
@@ -297,7 +299,14 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="Engine\Core\Shaders\Common\Complex.hlsli" />
+    <None Include="Engine\Core\Shaders\Common\DeferredLighting.hlsli" />
     <None Include="Engine\Core\Shaders\Common\Defines.hlsli" />
+    <None Include="Engine\Core\Shaders\Common\LightShadows.hlsli" />
+    <None Include="Engine\Core\Shaders\Common\TiledLights.hlsli" />
+    <None Include="Engine\Core\Shaders\Common\GBuffer.hlsli" />
+    <None Include="Engine\Core\Shaders\Common\LightGlow.hlsli" />
+    <None Include="Engine\Core\Shaders\Common\ParticleLight.hlsli" />
+    <None Include="Engine\Core\Shaders\Common\VolumetricLights.hlsli" />
     <None Include="Engine\Core\Shaders\Common\FastNoise.hlsli" />
     <None Include="Engine\Core\Shaders\Common\Matrix.hlsli" />
     <None Include="Engine\Core\Shaders\Common\MultiTexture.hlsli" />
@@ -324,6 +333,24 @@
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Compute</ShaderType>
       <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Compute</ShaderType>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\ComputeShaders\DeferredLightCS.hlsl">
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Compute</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Compute</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|x64'">5.0</ShaderModel>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\ComputeShaders\TileLightCullCS.hlsl">
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Compute</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Compute</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|x64'">5.0</ShaderModel>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\ComputeShaders\TileLightValidateCS.hlsl">
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Compute</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Compute</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|x64'">5.0</ShaderModel>
     </FxCompile>
     <FxCompile Include="Engine\Core\Shaders\ComputeShaders\AutoFocusCS.hlsl">
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Compute</ShaderType>
@@ -832,5 +859,68 @@
       <MaterialUVDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\MainRender\MainRenderDS.hlsl" />
     </ItemGroup>
     <Touch Files="@(MaterialUVDependent)" Condition="Exists('$(MaterialUVHeader)') And $([System.IO.File]::GetLastWriteTime('$(MaterialUVHeader)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('%(MaterialUVDependent.FullPath)').Ticks)" />
+    <!-- The lighting headers: every shader that includes one of them, directly or through another, is touched when the header is newer, since FxCompile does not track includes. One shared list, one block per header. -->
+    <ItemGroup>
+      <LightingDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\MainRender\MainRenderPS.hlsl" />
+      <LightingDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\Splats\SplatRasterCS.hlsl" />
+      <LightingDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\Effects\Lava\LavaPS.hlsl" />
+      <LightingDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\Effects\Water\WaterPS.hlsl" />
+      <LightingDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\Particles\FireBall2ParticlePS.hlsl" />
+      <LightingDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\Particles\FireBallParticlePS.hlsl" />
+      <LightingDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\Particles\FireParticlePS.hlsl" />
+      <LightingDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\Particles\ParticlePS.hlsl" />
+      <LightingDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\Particles\SmokeParticlePS.hlsl" />
+      <LightingDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\Particles\DebugParticlePS.hlsl" />
+      <LightingDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\SkyRender\SkyPS.hlsl" />
+      <LightingDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\MaterialPreview\MaterialPreviewPS.hlsl" />
+      <LightingDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightCS.hlsl" />
+      <LightingDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\TileLightCullCS.hlsl" />
+      <LightingDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\TileLightValidateCS.hlsl" />
+      <LightingDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\VolumetricLightCS.hlsl" />
+      <LightingDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\LensFlareCS.hlsl" />
+      <LightingDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\RenderDustCS.hlsl" />
+      <LightingDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\RayTrace\RayTraceCS.hlsl" />
+      <LightingDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\RayTrace\GIRayTraceCS.hlsl" />
+    </ItemGroup>
+    <PropertyGroup>
+      <TiledLightsLightHeader>$(MSBuildThisFileDirectory)Engine\Core\Shaders\Common\TiledLights.hlsli</TiledLightsLightHeader>
+    </PropertyGroup>
+    <Touch Files="@(LightingDependent)" Condition="Exists('$(TiledLightsLightHeader)') And $([System.IO.File]::GetLastWriteTime('$(TiledLightsLightHeader)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('%(LightingDependent.FullPath)').Ticks)" />
+    <PropertyGroup>
+      <LightShadowsLightHeader>$(MSBuildThisFileDirectory)Engine\Core\Shaders\Common\LightShadows.hlsli</LightShadowsLightHeader>
+    </PropertyGroup>
+    <Touch Files="@(LightingDependent)" Condition="Exists('$(LightShadowsLightHeader)') And $([System.IO.File]::GetLastWriteTime('$(LightShadowsLightHeader)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('%(LightingDependent.FullPath)').Ticks)" />
+    <PropertyGroup>
+      <DeferredLightingLightHeader>$(MSBuildThisFileDirectory)Engine\Core\Shaders\Common\DeferredLighting.hlsli</DeferredLightingLightHeader>
+    </PropertyGroup>
+    <Touch Files="@(LightingDependent)" Condition="Exists('$(DeferredLightingLightHeader)') And $([System.IO.File]::GetLastWriteTime('$(DeferredLightingLightHeader)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('%(LightingDependent.FullPath)').Ticks)" />
+    <PropertyGroup>
+      <GBufferLightHeader>$(MSBuildThisFileDirectory)Engine\Core\Shaders\Common\GBuffer.hlsli</GBufferLightHeader>
+    </PropertyGroup>
+    <Touch Files="@(LightingDependent)" Condition="Exists('$(GBufferLightHeader)') And $([System.IO.File]::GetLastWriteTime('$(GBufferLightHeader)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('%(LightingDependent.FullPath)').Ticks)" />
+    <PropertyGroup>
+      <VolumetricLightsLightHeader>$(MSBuildThisFileDirectory)Engine\Core\Shaders\Common\VolumetricLights.hlsli</VolumetricLightsLightHeader>
+    </PropertyGroup>
+    <Touch Files="@(LightingDependent)" Condition="Exists('$(VolumetricLightsLightHeader)') And $([System.IO.File]::GetLastWriteTime('$(VolumetricLightsLightHeader)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('%(LightingDependent.FullPath)').Ticks)" />
+    <PropertyGroup>
+      <LightGlowLightHeader>$(MSBuildThisFileDirectory)Engine\Core\Shaders\Common\LightGlow.hlsli</LightGlowLightHeader>
+    </PropertyGroup>
+    <Touch Files="@(LightingDependent)" Condition="Exists('$(LightGlowLightHeader)') And $([System.IO.File]::GetLastWriteTime('$(LightGlowLightHeader)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('%(LightingDependent.FullPath)').Ticks)" />
+    <PropertyGroup>
+      <ParticleLightLightHeader>$(MSBuildThisFileDirectory)Engine\Core\Shaders\Common\ParticleLight.hlsli</ParticleLightLightHeader>
+    </PropertyGroup>
+    <Touch Files="@(LightingDependent)" Condition="Exists('$(ParticleLightLightHeader)') And $([System.IO.File]::GetLastWriteTime('$(ParticleLightLightHeader)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('%(LightingDependent.FullPath)').Ticks)" />
+    <PropertyGroup>
+      <SimpleLightLightHeader>$(MSBuildThisFileDirectory)Engine\Core\Shaders\Common\SimpleLight.hlsli</SimpleLightLightHeader>
+    </PropertyGroup>
+    <Touch Files="@(LightingDependent)" Condition="Exists('$(SimpleLightLightHeader)') And $([System.IO.File]::GetLastWriteTime('$(SimpleLightLightHeader)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('%(LightingDependent.FullPath)').Ticks)" />
+    <PropertyGroup>
+      <PixelFunctionsLightHeader>$(MSBuildThisFileDirectory)Engine\Core\Shaders\Common\PixelFunctions.hlsli</PixelFunctionsLightHeader>
+    </PropertyGroup>
+    <Touch Files="@(LightingDependent)" Condition="Exists('$(PixelFunctionsLightHeader)') And $([System.IO.File]::GetLastWriteTime('$(PixelFunctionsLightHeader)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('%(LightingDependent.FullPath)').Ticks)" />
+    <PropertyGroup>
+      <DefinesLightHeader>$(MSBuildThisFileDirectory)Engine\Core\Shaders\Common\Defines.hlsli</DefinesLightHeader>
+    </PropertyGroup>
+    <Touch Files="@(LightingDependent)" Condition="Exists('$(DefinesLightHeader)') And $([System.IO.File]::GetLastWriteTime('$(DefinesLightHeader)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('%(LightingDependent.FullPath)').Ticks)" />
   </Target>
 </Project>

@@ -28,18 +28,21 @@ SOFTWARE.
 #include "../../Common/PixelCommon.hlsli"
 #include "../../Common/FastNoise.hlsli"
 #include "../../Common/Utils.hlsli"
+#include "../../Common/GBuffer.hlsli"
 
+//Lava lights nothing itself either: the sun and the point lights that fall on it are added
+//by DeferredLightCS (ShadeLavaDirectional/ShadeLavaPoint, the LAVA model of
+//Common/GBuffer.hlsli), weighted by the same 0.6 * shore fade this pass puts on its own
+//colour. What is left here is the lava's own glow, and the visible halo of the nearest
+//point lamps behind it (the aux lights).
 cbuffer externalData : register(b0)
 {
 	matrix world;
 	matrix view;
 	matrix projection;
-	AmbientLight ambientLight;
-	DirLight dirLights[MAX_LIGHTS];
-	PointLight pointLights[MAX_LIGHTS];
+	AuxLight auxLights[MAX_AUX_LIGHTS];
 	MaterialColor material;
-	int dirLightsCount;
-	int pointLightsCount;
+	int auxLightCount;
 	int materialFlags;
 	float parallaxScale;
 	int meshNormalTextureEnable;
@@ -48,12 +51,9 @@ cbuffer externalData : register(b0)
 	float3 cameraDirection;
 	int screenW;
 	int screenH;
-	float4 LightPerspectiveValues[MAX_LIGHTS / 2];
-	matrix DirPerspectiveMatrix[DIR_SHADOW_MATRIX_COUNT];
-	matrix DirStaticPerspectiveMatrix[MAX_LIGHTS];
-	matrix spot_view;
 	float time;
-	float cloud_density;
+	//1 for the first geometry pass, 2 for the second (see RenderSystem::DrawScene).
+	int renderPass;
 
 	uint multi_texture_count;
 	float multi_parallax_scale;
@@ -73,63 +73,8 @@ cbuffer externalData : register(b0)
 }
 
 #include "../../Common/PixelFunctions.hlsli"
+#include "../../Common/LightGlow.hlsli"
 Texture2D renderTexture;
-
-float3 CalcLavaDirectional(float3 normal, float4 position, float2 uv, DirLight light, int index, const float spec_intensity, inout float4 bloom)
-{
-	float3 color = light.Color.rgb * light.intensity;
-	// Phong diffuse
-	float NDotL = dot(light.DirToLight, normal);
-	float3 finalColor = pow(color * saturate(NDotL), 4.0f);
-	float3 bloomColor = { 0.f, 0.f, 0.f };
-	// Blinn specular
-	float3 ToEye = cameraPosition.xyz - position.xyz;
-	ToEye = normalize(ToEye);
-	float3 HalfWay = normalize(ToEye + light.DirToLight);
-	float NDotH = saturate(dot(HalfWay, normal));
-	float3 spec_color = { 0.f, 0.f, 0.f };
-	
-	float shadow = 1.0f;
-	shadow = (DirShadowPCFAll(position, light, index));
-	shadow = saturate(shadow);
-	
-	return finalColor * shadow;
-}
-
-
-float3 CalcLavaPoint(float3 normal, float3 position, float2 uv, PointLight light, int index, const float spec_intensity, inout float4 bloom)
-{
-	float3 finalColor = { 0.f, 0.f, 0.f };
-	float3 bloomColor = { 0.f, 0.f, 0.f };
-	float3 lposition = light.Position;
-	float lum = (light.Color.r + light.Color.g + light.Color.b) / 3.0f;
-	float3 ToLight = lposition - position;
-	float3 ToEye = cameraPosition.xyz - position;
-	float DistToLight = length(ToLight);
-	// Phong diffuse
-	ToLight /= DistToLight; // Normalize
-	float NDotL = saturate(dot(ToLight, normal));
-	float NDotL2 = saturate(dot(-ToLight, normal));
-	finalColor = pow(light.Color * NDotL, 4.0f);
-	// Blinn specular
-	ToEye = normalize(ToEye);
-	ToLight = normalize(ToLight);
-	float3 HalfWay = normalize(ToEye + ToLight);
-	float NDotH = saturate(dot(HalfWay, normal));
-	
-	float LightRange = (light.Range - DistToLight) / light.Range;
-	float DistToLightNorm = saturate(LightRange);
-	float shadow = 1.0f;
-	float Attn = saturate(DistToLightNorm * DistToLightNorm);
-	Attn *= SpotFactor(light, position - light.Position);
-	bloom.rgb += bloomColor;
-	if (light.cast_shadow) {
-		shadow = PointShadowPCF(position - light.Position, light, index);
-	}
-	finalColor *= Attn * shadow;
-	bloomColor *= Attn * shadow;
-	return finalColor;
-}
 
 RenderTargetRT main(GSOutput input)
 {
@@ -161,19 +106,6 @@ RenderTargetRT main(GSOutput input)
 	
 	float3 normal = { 0.0f, 1.0f, 0.0f };
 	float spec_intensity = 0.4f;
-#if 1
-	//Apply directional light
-	for (i = 0; i < dirLightsCount; ++i) {
-		finalColor.rgb += CalcLavaDirectional(normal, input.worldPos, input.uv, dirLights[i], i, spec_intensity, lightColor).rgb;
-	}
-
-	// Apply point lights
-	for (i = 0; i < pointLightsCount; ++i) {
-		if (length(input.worldPos.xyz - pointLights[i].Position) < pointLights[i].Range) {
-			finalColor.rgb += CalcLavaPoint(normal, input.worldPos.xyz, input.uv, pointLights[i], i, spec_intensity, lightColor).rgb;
-		}
-	}
-#endif
 	fnl_state state = fnlCreateState();
 	state.noise_type = FNL_NOISE_CELLULAR;
 	state.octaves = 2;
@@ -211,13 +143,13 @@ RenderTargetRT main(GSOutput input)
 
 	//Emission of point lights	
 	float3 p2 = mul(input.worldPos, view).xyz;
-	for (i = 0; i < pointLightsCount; ++i) {
-		float3 p1 = mul(float4(pointLights[i].Position, 1.0f), view).xyz;
+	for (i = 0; i < auxLightCount; ++i) {
+		float3 p1 = mul(float4(auxLights[i].light.position, 1.0f), view).xyz;
 		//if we are in front of camera
 		if (p1.z > 0) {
 			//if pixel is behind light
 			if (p1.z < p2.z) {
-				finalColor.rgb += EmitPoint(input.position.xyz, worldViewProj, pointLights[i]);
+				finalColor.rgb += EmitPoint(input.position.xyz, worldViewProj, auxLights[i]);
 			}
 		}
 	};
@@ -239,6 +171,9 @@ RenderTargetRT main(GSOutput input)
 	output.rt_ray1_map = getColor1(ray);
 	output.pos0_map = input.worldPos;
 	output.pos1_map = input.worldPos;
+	//The lava model: the deferred pass adds the sun and the point lights (lit towards (0,1,0))
+	//scaled by the weight in x, the same 0.6 * shore fade the colour above carries.
+	output.material_map = float4(0.6f * dz_pcf, 0.0f, 0.0f, MaterialCode(SHADING_LAVA, renderPass));
 	return output;
 }
 

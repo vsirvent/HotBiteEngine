@@ -1,5 +1,8 @@
-// Rasterizes the binned Gaussians, lights them with the scene's own lights and
-// shadows, and writes the result into the same targets MainRenderPS writes.
+// Rasterizes the binned Gaussians and writes the result into the same targets MainRenderPS
+// writes. It lights nothing: where it owns a pixel it writes the material (albedo, normal,
+// spec and how the pixel takes light - the SPLAT model of Common/GBuffer.hlsli) and
+// DeferredLightCS adds the light that falls on it, with the scene's own lights, shadows and
+// the tile masks, weighted by the cloud's coverage.
 //
 // One thread group per 16x16 tile, one thread per pixel, over the contiguous slice of
 // the entry pool that belongs to this tile.
@@ -56,8 +59,6 @@
 // The cost of the whole design is that you cannot see *through* a splat cloud - which
 // the G-buffer could not represent anyway.
 
-#define HB_COMPUTE_LIGHTING 1
-
 // Diagnostic switch. 0 walks each tile's whole slice instead of stopping once the
 // remaining transmittance can no longer matter. Flipping it is how to tell "the walk
 // stops too soon" from "the binning is wrong"; it found the answer once already.
@@ -86,36 +87,19 @@
 #include "SplatCommon.hlsli"
 #include "../Common/ShaderStructs.hlsli"
 #include "../Common/PixelCommon.hlsli"
+#include "../Common/GBuffer.hlsli"
 
 cbuffer externalData : register(b0)
 {
 	matrix world;
 	matrix view;
 	matrix projection;
-	AmbientLight ambientLight;
-	DirLight dirLights[MAX_LIGHTS];
-	PointLight pointLights[MAX_LIGHTS];
 	MaterialColor material;
-	int dirLightsCount;
-	int pointLightsCount;
 	float3 cameraPosition;
 	float3 cameraDirection;
 	int screenW;
 	int screenH;
-	float4 LightPerspectiveValues[MAX_LIGHTS / 2];
-	matrix DirPerspectiveMatrix[DIR_SHADOW_MATRIX_COUNT];
-	matrix DirStaticPerspectiveMatrix[MAX_LIGHTS];
-	matrix spot_view;
 	float time;
-	float cloud_density;
-	uint  multi_texture_count;
-	float multi_parallax_scale;
-	uint4 packed_multi_texture_operations[MAX_MULTI_TEXTURE / 4];
-	float4 packed_multi_texture_values[MAX_MULTI_TEXTURE / 4];
-	float4 packed_multi_texture_uv_scales[MAX_MULTI_TEXTURE / 4];
-	float4 multi_texture_slope[MAX_MULTI_TEXTURE];
-	float4 multi_texture_height[MAX_MULTI_TEXTURE];
-	float4 multi_texture_mask_uv[MAX_MULTI_TEXTURE];
 }
 
 cbuffer splatData : register(b1)
@@ -148,9 +132,6 @@ cbuffer splatData : register(b1)
 // any more: the slice is exactly sorted, so the walk consumes it in order and never asks
 // where an entry sits in the depth range. That also frees a texture register in a shader
 // that reads eight resources.
-
-#include "../Common/MultiTexture.hlsli"
-#include "../Common/PixelFunctions.hlsli"
 
 StructuredBuffer<SplatView> splat_views : register(t20);
 // Where this tile's slice starts in the pool, and how many entries it holds. There is
@@ -192,6 +173,10 @@ RWByteAddressBuffer splat_stats : register(u3);
 // to lerp *towards* - the cloud can only take emission away, in the proportion it hides
 // whatever is behind it.
 RWTexture2D<float4> bloom_out : register(u8);
+// How the cloud takes light: the tenth UAV, and not optional - without it DeferredLightCS
+// has nothing to light the cloud's pixels with, so RenderSystem::DrawSplats draws no cloud
+// on a device without feature level 11_1.
+RWTexture2D<float4> material_out : register(u9);
 
 // Cooperative batch. Each thread fetches one splat of the batch and every thread
 // then reads all 256 out of groupshared, which turns 256 scattered loads per splat
@@ -460,25 +445,18 @@ void main(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID, uint gi : SV_Gr
 	float3 normal = normalize(k.normal);
 	float spec = k.spec / alpha;
 
-	// --- light it, with the scene's own lights -----------------------------------
-	// The whole reason this component stores material rather than baked radiance:
-	// these are the same functions MainRenderPS calls, so a cloud takes the level's
-	// sun, its point lights and its shadow cascades exactly as the geometry beside
-	// it does.
-	// Where this pixel's splat surface is in the world. Rebuilt from the pixel and
-	// the depth rather than interpolated, since a compute thread has no vertex to
-	// carry it - but it has to be the *world* point CalcDirectional's shadow
-	// lookups and CalcPoint's range test expect, so both the field of view and the
-	// camera's orientation have to come back in:
-	//   - dividing the NDC by projection._11/._22 undoes the perspective scaling,
-	//     giving a direction in view space (where +z is forward, and the frustum's
-	//     shape is exactly what those two terms encode).
-	//   - `view` maps world to view for a row vector, so its upper 3x3 rotates a
-	//     world direction into view space; the inverse of a rotation is its
-	//     transpose, which takes the ray back out to the world.
+	// --- what the cloud emits and what it hides -----------------------------------------
+	// Where this pixel's splat surface is in the world. Rebuilt from the pixel and the depth
+	// rather than interpolated, since a compute thread has no vertex to carry it:
+	//   - dividing the NDC by projection._11/._22 undoes the perspective scaling, giving a
+	//     direction in view space (where +z is forward, and the frustum's shape is exactly
+	//     what those two terms encode).
+	//   - `view` maps world to view for a row vector, so its upper 3x3 rotates a world
+	//     direction into view space; the inverse of a rotation is its transpose, which takes
+	//     the ray back out to the world.
 	// view_depth is a radial distance from the camera (SplatPreprocessCS stores
-	// length(world_pos - cameraPosition)), so the direction is normalized before it
-	// is scaled - not divided down to a z-depth.
+	// length(world_pos - cameraPosition)), so the direction is normalized before it is
+	// scaled - not divided down to a z-depth.
 	float2 ndc = float2((pixel_centre.x / screenW) * 2.0f - 1.0f,
 						1.0f - (pixel_centre.y / screenH) * 2.0f);
 	float3 view_dir = float3(ndc.x / projection._11, ndc.y / projection._22, 1.0f);
@@ -486,7 +464,7 @@ void main(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID, uint gi : SV_Gr
 	float4 world_pos = float4(cameraPosition + world_dir * surface_depth, 1.0f);
 
 	MaterialColor m = material;
-	m.specIntensity = float3(spec, spec, spec);
+	m.specIntensity = spec;
 	// Every texture-map bit cleared - everything is per splat - but the ray tracing bit
 	// kept, because that is what decides whether the ray sources written below are ones
 	// the tracers will follow rather than pixels they skip.
@@ -500,45 +478,35 @@ void main(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID, uint gi : SV_Gr
 	// with no emission set contributes nothing here.
 	float3 emission_rgb = climit3(albedo * material.emission);
 
-	float4 bloom = float4(0.0f, 0.0f, 0.0f, 0.0f);
-	float3 lum = CalcAmbient(normal);
-	int li;
-	for (li = 0; li < dirLightsCount; ++li) {
-		lum += CalcDirectional(normal, world_pos, float2(0.0f, 0.0f), m,
-							   dirLights[li], cloud_density, li, bloom);
-	}
-	for (li = 0; li < pointLightsCount; ++li) {
-		if (length(world_pos.xyz - pointLights[li].Position) < pointLights[li].Range) {
-			lum += CalcPoint(normal, world_pos.xyz, float2(0.0f, 0.0f), m,
-							 pointLights[li], li, bloom);
-		}
-	}
-	// Mirrors MainRenderPS.hlsli's own emission block: added directly to the light
-	// output, never lit a second time, and to bloom - exactly where a textured
-	// material's emission reaches lumColor and lightColor there.
-	lum += emission_rgb;
-	bloom.rgb += emission_rgb;
-
-	// scene holds the albedo and light_map the lighting, because the mixer
-	// multiplies the two (TextureMixerCS: color * (l + rt0 + rt2) + ...). Writing a
-	// pre-multiplied colour into scene would have it lit a second time.
+	// scene holds the albedo and light_map the lighting, because the mixer multiplies the
+	// two (TextureMixerCS: color * (l + rt0 + rt2) + ...). Writing a pre-multiplied colour
+	// into scene would have it lit a second time.
 	scene_out[px] = float4(lerp(scene_out[px].rgb, albedo, alpha), 1.0f);
-	light_out[px] = float4(lerp(light_out[px].rgb, lum, alpha), 1.0f);
 
-	// bloom_map holds what the geometry passes emitted at this pixel, and the mixer
-	// adds it back after a blur (TextureMixerCS: ... + b + ...). A cloud both takes
-	// bloom away, from whatever it occludes behind it, and - now that bloom_scale and
-	// emission exist - can add its own: the specular highlight CalcDirectional/
-	// CalcPoint already computed into `bloom` above (scaled by SplatCloud::bloom_scale,
-	// carried on the material cbuffer exactly like a textured material's own Bloom
-	// slider) and the emission term just added to it.
+	// light_map and bloom_map hold what the geometry passes emitted at this pixel (the mixer
+	// adds the bloom back after a blur). A cloud both takes that away, from whatever it
+	// occludes behind it, and adds its own emission - exactly where a textured material's
+	// emission reaches lumColor and lightColor in MainRenderPS.
 	//
 	// alpha is 1 - T, the share of the pixel the cloud won, so 1 - alpha is exactly the
-	// transmittance still reaching the camera from behind it - the same coverage the
-	// scene/light lerps above use, and lerp(x, 0, alpha) == x * (1 - alpha), so at
-	// bloom_scale 0 and emission 0 (every cloud placed before either field existed)
-	// this is bit-identical to the old occlusion-only form.
-	bloom_out[px] = float4(lerp(bloom_out[px].rgb, bloom.rgb, alpha), 1.0f);
+	// transmittance still reaching the camera from behind it. At bloom_scale 0 and emission 0
+	// (every cloud placed before either field existed) the bloom lerp is the old
+	// occlusion-only form, bit for bit.
+	//
+	// The light that FALLS on the cloud is not here: DeferredLightCS adds it, weighted by
+	// alpha, so lerp(light, lit + emission, alpha) comes out the same as it always did.
+	if (alpha > surface_alpha) {
+		light_out[px] = float4(lerp(light_out[px].rgb, emission_rgb, alpha), 1.0f);
+		bloom_out[px] = float4(lerp(bloom_out[px].rgb, emission_rgb, alpha), 1.0f);
+	}
+	else {
+		// A partial edge does not own the G-buffer - the surface behind it stays - so there is
+		// no normal or position of the cloud's for the deferred pass to light the pixel with.
+		// It keeps the light of what is behind it, plus the cloud's emission in proportion to
+		// its coverage; the albedo above is still blended in.
+		light_out[px] = float4(light_out[px].rgb + emission_rgb * alpha, 1.0f);
+		bloom_out[px] = float4(bloom_out[px].rgb + emission_rgb * alpha, 1.0f);
+	}
 
 	// --- the G-buffer ------------------------------------------------------------
 	// One surface per pixel, so unlike scene and light there is nothing to blend into:
@@ -576,5 +544,11 @@ void main(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID, uint gi : SV_Gr
 		ray.opacity = alpha;
 		rt_ray0_out[px] = getColor0(ray);
 		rt_ray1_out[px] = getColor1(ray);
+
+		// How this pixel takes light: the SPLAT model (spec, bloom scale, and the coverage that
+		// weights every light that falls on it). Never the second pass's: a cloud is drawn
+		// after both, and DeferredLightCS tells it apart by the model alone.
+		material_out[px] = float4(spec, material.bloom_scale, alpha,
+			MaterialCode(SHADING_SPLAT, 1));
 	}
 }

@@ -46,7 +46,7 @@ cbuffer externalData : register(b0)
 
     AmbientLight ambientLight;
     DirLight dirLights[MAX_LIGHTS];
-    PointLight pointLights[MAX_LIGHTS];
+    AuxLight auxLights[MAX_AUX_LIGHTS];
 
     float3 cameraPosition;
     float3 cameraDirection;
@@ -55,7 +55,7 @@ cbuffer externalData : register(b0)
     matrix projection;
     
     float4 LightPerspectiveValues[MAX_LIGHTS / 2];
-    uint pointLightsCount;
+    uint auxLightCount;
 
     matrix DirPerspectiveMatrix[DIR_SHADOW_MATRIX_COUNT];
     matrix DirStaticPerspectiveMatrix[MAX_LIGHTS];
@@ -73,33 +73,35 @@ static float2 lps[MAX_LIGHTS] = (float2[MAX_LIGHTS])LightPerspectiveValues;
 #include "../Common/SimpleLight.hlsli"
 #include "../Common/RGBANoise.hlsli"
 
-float4 EmitPoint(float2 pixel, float2 light_screen_pos, float2 dimenstion, PointLight light, float focus)
+float4 EmitPoint(float2 pixel, float2 light_screen_pos, float2 dimenstion, AuxLight aux, float focus)
 {
+    const PackedLight light = aux.light;
+    const float3 lcolor = UnpackLightColor(light);
     float2 ToLight = light_screen_pos - pixel;
     float DistToLight = length(ToLight);
-    float DistToCamera = length(light.Position - cameraPosition);
+    float DistToCamera = length(light.position - cameraPosition);
 
     //The light's glow radius (PointLight::Data::tilt_ratio), in pixels: the core falls
     //to zero at ten times it and the wider halo at twenty times. 10 is the 100 px / 50 px
     //this used to hard-code, so an untouched light looks as it did. Zero or less turns the
     //whole flare off - the streaks are built from the same term, so leaving them would
     //draw a flare with no light at its centre.
-    if (light.tilt_ratio <= 0.0f) {
+    if (aux.tilt_ratio <= 0.0f) {
         return float4(0.0f, 0.0f, 0.0f, 1.0f);
     }
-    float DistLightToPixel = 1.0 - saturate(DistToLight / (light.tilt_ratio * 10.0f));
-    float DistLightToPixel2 = 1.0 - saturate(DistToLight / (light.tilt_ratio * 5.0f));
+    float DistLightToPixel = 1.0 - saturate(DistToLight / (aux.tilt_ratio * 10.0f));
+    float DistLightToPixel2 = 1.0 - saturate(DistToLight / (aux.tilt_ratio * 5.0f));
 
     float2 delta = pixel - light_screen_pos;
     float angle = atan2(delta.x, delta.y);
-    float angle_rot = angle + dot(light.Position, cameraPosition) * 0.0001f;;
+    float angle_rot = angle + dot(light.position, cameraPosition) * 0.0001f;;
     float angle1 = angle_rot * 12.0f + 1.55;
     float angle2 = angle_rot * 6.0f - 1.55;
     float angle3 = angle * 2.0f - 1.55;
 
-    float3 color = 20.0f * light.Color * pow(DistLightToPixel, 100.0f);
+    float3 color = 20.0f * lcolor * pow(DistLightToPixel, 100.0f);
     float3 color1 = color * 0.5f;
-    float3 color2 = light.Color;
+    float3 color2 = lcolor;
 
     float3 flare1 = saturate(color1 * sin(angle1));
     float3 flare2 = saturate(color * sin(angle2));
@@ -113,7 +115,7 @@ float4 EmitPoint(float2 pixel, float2 light_screen_pos, float2 dimenstion, Point
     float3 att_height_by_color = float3(att_height, att_height, att_height * 1.2f);
     att_height_by_color = att_height_by_color;
 
-    color += (flare1 + flare2) * att_dist_by_color * light.Range * 0.1f * focus + flare3 * att_dist_by_color * att_height_by_color * light.Range * 0.01f * saturate(focus + 0.2f);
+    color += (flare1 + flare2) * att_dist_by_color * light.range * 0.1f * focus + flare3 * att_dist_by_color * att_height_by_color * light.range * 0.01f * saturate(focus + 0.2f);
     color += pow(DistLightToPixel2, 10.0f);
     return float4(color, 1.0f);
 }
@@ -141,9 +143,9 @@ void main(uint3 DTid : SV_DispatchThreadID)
     float2 depth_pixel = pixel * depth_ratio;
 
     //Calculate the lens flare effect for each available point light
-    for (uint i = 0; i < pointLightsCount; ++i) {
+    for (uint i = 0; i < auxLightCount; ++i) {
         //if we are in front of camera and we are not behind an object
-        float4 light_view_pos = mul(float4(pointLights[i].Position, 1.0f), view);
+        float4 light_view_pos = mul(float4(auxLights[i].light.position, 1.0f), view);
         light_view_pos /= light_view_pos.w;
 
         if (light_view_pos.z > 0.0f) {
@@ -155,7 +157,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
             light_screen_pos.x = (lposition.x * 0.5f + 0.5f) * dimensions.x;
             light_screen_pos.y = (1.0f - (lposition.y * 0.5f + 0.5f)) * dimensions.y; // Invert y-axis for screen coordinates
 
-            float dist_to_cam = length(pointLights[i].Position - cameraPosition);
+            float dist_to_cam = length(auxLights[i].light.position - cameraPosition);
             float visibility = 0.0f;
             float count = 0.0f;
             float z0 = 0.0f;
@@ -183,7 +185,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
                     focus = 1.0f - saturate(pow((focus_z - z0), 2.0f) * amplitude * 0.001f) + 0.1f;
                 }
 
-                float4 color = EmitPoint(pixel, light_screen_pos, dimensions, pointLights[i], focus);
+                float4 color = EmitPoint(pixel, light_screen_pos, dimensions, auxLights[i], focus);
 
                 output[pixel] += color * visibility;
             }

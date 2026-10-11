@@ -26,7 +26,23 @@ SOFTWARE.
 #define __DEFINES_HLSLI__
 
 #define MAX_MULTI_TEXTURE 8
+//Directional lights, and the shadow-casting point lights (each one needs a cube map bound
+//as a shader resource, so those are limited by registers, not by data). Point lights as
+//such are not limited by this any more: see MAX_TILED_LIGHTS.
 #define MAX_LIGHTS 8
+//The point lights the tiled lighting pass knows about. Mirrors MAX_TILED_LIGHTS in
+//Components/Lights.h. The per-tile mask has one bit per light, so this is
+//TILE_MASK_WORDS 32-bit words per tile, and both numbers are baked into the layout of
+//the mask buffer: change them together on both sides.
+#define MAX_TILED_LIGHTS 1024
+#define TILE_MASK_WORDS (MAX_TILED_LIGHTS / 32)
+//Screen tile edge, in pixels. The culling dispatch is one 16x16 group per tile, so this
+//is also the group size of TileLightCullCS and DeferredLightCS.
+#define TILE_SIZE 16
+//Point lights a shader that has no screen tile (ray hits, glows, the volumetric march)
+//gets through a constant buffer: the nearest ones to the camera. Mirrors
+//MAX_AUX_LIGHTS in Components/Lights.h.
+#define MAX_AUX_LIGHTS 8
 //Shadow cascade slices per directional light. Mirrors MAX_SHADOW_CASCADES in
 //Components/Lights.h - the two size the same arrays from opposite sides and must
 //match. Per-light cascade matrices are packed at this fixed stride, so the entry for

@@ -26,19 +26,21 @@ SOFTWARE.
 #include "../Common/ShaderStructs.hlsli"
 #include "../Common/FastNoise.hlsli"
 #include "../Common/PixelCommon.hlsli"
+#include "../Common/GBuffer.hlsli"
 
+//No lights in here. This pass writes what the surface IS - albedo, emission, normal,
+//position and the material map (Common/GBuffer.hlsli) - and DeferredLightCS lights it
+//afterwards, over the lights its screen tile holds. The one thing it still asks of a light
+//is where the first directional light is (sunDirection), for the self shadow of a parallax
+//material, which is a march through the height map and cannot be done once the height
+//map is gone.
 cbuffer externalData : register(b0)
 {
 	matrix world;
 	matrix prevWorld;
 	matrix view;
 	matrix projection;
-	AmbientLight ambientLight;
-	DirLight dirLights[MAX_LIGHTS];
-	PointLight pointLights[MAX_LIGHTS];
 	MaterialColor material;
-	int dirLightsCount;
-	int pointLightsCount;
 	float parallaxScale;
 	int meshNormalTextureEnable;
 	int highTextureEnable;
@@ -46,12 +48,11 @@ cbuffer externalData : register(b0)
 	float3 cameraDirection;
 	int screenW;
 	int screenH;
-	float4 LightPerspectiveValues[MAX_LIGHTS/2];
-	matrix DirPerspectiveMatrix[DIR_SHADOW_MATRIX_COUNT];
-	matrix DirStaticPerspectiveMatrix[MAX_LIGHTS];
-	matrix spot_view;
 	float time;
-	float cloud_density;
+	float3 sunDirection;
+	int hasSun;
+	//1 for the first geometry pass, 2 for the second (see RenderSystem::DrawScene).
+	int renderPass;
 
 	uint multi_texture_count;
 	float multi_parallax_scale;

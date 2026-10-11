@@ -41,7 +41,7 @@ cbuffer externalData : register(b0)
     float amplitude;
     AmbientLight ambientLight;
     DirLight dirLights[MAX_LIGHTS];
-    PointLight pointLights[MAX_LIGHTS];
+    AuxLight auxLights[MAX_AUX_LIGHTS];
     float3 cameraPosition;
     float3 cameraDirection;
 
@@ -54,7 +54,7 @@ cbuffer externalData : register(b0)
     matrix DirStaticPerspectiveMatrix[MAX_LIGHTS];
 
     uint dirLightsCount;
-    uint pointLightsCount;
+    uint auxLightCount;
 
 }
 
@@ -139,14 +139,14 @@ void main(uint3 DTid : SV_DispatchThreadID)
                     // Calculate the directional lights
                     [unroll]
                     for (i = 0; i < dirLightsCount; ++i) {
-                        color += CalcDirectional(normal, wpos.xyz, dirLights[i], i);
+                        color += HitDirectional(normal, wpos.xyz, dirLights[i], i);
                     }
 
                     // Calculate the point lights
                     [unroll]
-                    for (i = 0; i < pointLightsCount; ++i) {
-                        if (length(wpos.xyz - pointLights[i].Position) < pointLights[i].Range) {
-                            color += CalcPoint(normal, wpos.xyz, pointLights[i], i);
+                    for (i = 0; i < auxLightCount; ++i) {
+                        if (length(wpos.xyz - auxLights[i].light.position) < auxLights[i].light.range) {
+                            color += HitPoint(normal, wpos.xyz, auxLights[i].light);
                         }
                     }
 #define MAX_GLOBAL_ILLUMINATION 1.0f

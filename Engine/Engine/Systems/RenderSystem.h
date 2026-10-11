@@ -39,6 +39,7 @@ SOFTWARE.
 #include <Core\PostProcess.h>
 #include <Core\BVH.h>
 #include <Core\RWBuffer.h>
+#include <Core\TiledLights.h>
 
 namespace HotBite {
 	namespace Engine {
@@ -76,8 +77,11 @@ namespace HotBite {
 				static const std::string AMBIENT_LIGHT;
 				static const std::string DIRLIGHT_COUNT;
 				static const std::string DIR_LIGHTS;
-				static const std::string POINT_LIGHT_COUNT;
-				static const std::string POINT_LIGHTS;
+				//The nearest MAX_AUX_LIGHTS point lights, for the shaders with no screen tile to
+				//read a mask for (ray hits, glows, the volumetric march). Surfaces are lit from
+				//the tile masks instead, see Core::TiledLights.
+				static const std::string AUX_LIGHT_COUNT;
+				static const std::string AUX_LIGHTS;
 				static const std::string LIGHT_PERSPECTIVE_VALUES;
 				static const std::string POINT_SHADOW_MAP_TEXTURE;
 				static const std::string DIR_PERSPECTIVE_VALUES;
@@ -404,7 +408,11 @@ namespace HotBite {
 				void OnEntitySignatureChanged(ECS::Entity entity, const ECS::Signature& entity_signature) override;
 				void OnEntityDestroyed(ECS::Entity entity) override;
 
-				void PrepareLights(Core::ISimpleShader* s);
+				//Binds the ambient and directional lights, their shadow maps, and the nearest
+				//point lights in the aux constant buffer (`volumetric` picks the nearest of the
+				//lights that have a fog density instead). Surface shading does not go through
+				//this: it reads the tile masks.
+				void PrepareLights(Core::ISimpleShader* s, bool volumetric = false);
 				void UnprepareLights(Core::ISimpleShader* s);
 
 				void PrepareLights(Core::SimpleVertexShader* vs, Core::SimpleHullShader* hs, Core::SimpleDomainShader* ds, Core::SimpleGeometryShader* gs, Core::SimplePixelShader* ps);
@@ -423,6 +431,11 @@ namespace HotBite {
 				Core::RenderTexture2D vol_light_map2;
 				Core::RenderTexture2D position_map;
 				Core::RenderTexture2D prev_position_map;
+				//The G-buffer's eighth target: how each surface takes light (spec, bloom, the
+				//shading model, ...), written by the geometry passes and read by the deferred
+				//lighting. Layout and meaning per model in Shaders/Common/DeferredLighting.hlsli.
+				//UNORDERED_ACCESS so SplatRasterCS can write it from compute.
+				Core::RenderTexture2D material_map;
 				Core::RenderTexture2D bloom_map;
 				Core::RenderTexture2D temp_map;
 				Core::RenderTexture2D rgba_noise_texture;
@@ -564,6 +577,12 @@ namespace HotBite {
 					double rt = 0.0;
 					double gi = 0.0;
 					double light = 0.0;
+					//Inside `scene`, not on top of it: the tile culling and the deferred lighting
+					//dispatch that run between the geometry and the splats, measured for the first
+					//of the frame's lighting passes (a frame with a second pass or splat clouds runs
+					//another, which costs more than is reported here).
+					double tile_cull = 0.0;
+					double deferred = 0.0;
 					double mix = 0.0;
 					double aa = 0.0;
 					double blur = 0.0;
@@ -576,6 +595,8 @@ namespace HotBite {
 				struct CpuTimings {
 					double visibility = 0.0;
 					double lods = 0.0;
+					//Choosing and packing the frame's point lights (GatherLights).
+					double lights = 0.0;
 					double signature = 0.0;
 					double static_shadows = 0.0;
 					double shadows = 0.0;
@@ -634,7 +655,7 @@ namespace HotBite {
 				void DrawBucket(ECS::EntityVector<DrawableEntity>& bucket, InstancePass pass, bool can_instance, Core::SimpleVertexShader* vs,
 					Core::SimpleHullShader* hs, Core::SimpleDomainShader* ds, Core::SimpleGeometryShader* gs, Core::SimplePixelShader* ps, Accept&& accept);
 				static constexpr int GPU_RING = 4;
-				static constexpr int GPU_STAMPS = 11;
+				static constexpr int GPU_STAMPS = 14;
 				struct GpuFrame {
 					ID3D11Query* disjoint = nullptr;
 					ID3D11Query* stamp[GPU_STAMPS] = {};
@@ -889,6 +910,44 @@ namespace HotBite {
 				};
 				Core::RenderTexture2D vol_data;
 
+				//Tiled deferred lighting. Every point and spot light of the frame is packed into
+				//one 1024 entry buffer (GatherLights); a compute pass records per 16x16 screen
+				//tile which of them reach it (Core::TiledLights::Cull) and a second one shades the
+				//G-buffer with only those (DeferredLightCS). The geometry passes evaluate no
+				//light at all.
+				Core::TiledLights tiled_lights;
+				Core::SimpleComputeShader* deferred_light = nullptr;
+				//What GatherLights chose this frame. `packed_lights` is the uploaded buffer;
+				//the two aux lists are the nearest lights (all of them, and those with a
+				//volumetric density) for the shaders that have no tile.
+				std::vector<Core::PackedLight> packed_lights;
+				std::vector<Core::AuxLight> aux_lights;
+				std::vector<Core::AuxLight> aux_volumetric_lights;
+				//The lights holding a PointShadowMapTexture slot, by slot. They are the only
+				//point lights whose cube map is rendered.
+				std::array<Components::PointLight*, MAX_LIGHTS> shadow_slot_lights = {};
+				uint32_t shadow_slot_count = 0;
+				//GatherLights scratch, kept so a frame allocates nothing.
+				struct LightCandidate {
+					float dist2;
+					PointLightEntity* entity;
+				};
+				std::vector<LightCandidate> light_candidates;
+				std::vector<LightCandidate> shadow_candidates;
+				Core::TiledLightStats tiled_stats;
+				//Read back only while something asks (the same keepalive as the other counters).
+				mutable uint32_t tiled_stats_request_frame = 0;
+				mutable bool tiled_stats_requested = false;
+				static constexpr uint32_t TILED_STATS_KEEPALIVE = 120;
+				//Lighting dispatches so far this frame: the first one is the one that is timed.
+				int lighting_passes_this_frame = 0;
+				bool tile_culling_enabled = true;
+				void GatherLights(const CameraEntity& camera);
+				//Culls the lights against the G-buffer as it stands and shades the surfaces the
+				//filter selects into the current light map: 0 everything, 1 only what the second
+				//pass drew, 2 only Gaussian splats (see DeferredLightCS).
+				void ProcessDeferredLighting(int pass_filter);
+
 				//Texture mixer
 				Core::SimpleComputeShader* mixer_shader = nullptr;
 
@@ -1135,6 +1194,32 @@ namespace HotBite {
 				//frames stale by construction (Core::RWByteBuffer::Readback), so a caller
 				//that changes something and reads immediately sees the state before it.
 				SplatStats GetSplatStats() const { return splat_stats_cpu; }
+
+				//What the tiled lighting did: how many point lights the frame packed, how many
+				//hold a shadow slot, and - read back off the GPU a few frames late - how many
+				//tiles are lit and how many lights the busiest tile and the average lit tile
+				//hold. The point of the design is that the last two stay small however many
+				//lights there are, so this is the readout that shows it. Asking is what turns
+				//the readback on, as with the other counters: poll, and expect `valid` false
+				//until the first reading has landed.
+				Core::TiledLightStats GetTiledLightStats() const {
+					tiled_stats_request_frame = frame_count;
+					tiled_stats_requested = true;
+					return tiled_stats;
+				}
+				//Checks the masks against every visible pixel by brute force and returns the
+				//count of (pixel, light) pairs the masks lost: 0 when the culling is right.
+				//Stalls the GPU - for tests, not for frames. Call from the render thread (the
+				//automation channel does), at a point where the G-buffer holds a frame.
+				Core::TiledLightValidation ValidateTileLights();
+				//The point lights in the packed buffer last frame, in buffer order: for tests.
+				const std::vector<Core::PackedLight>& GetPackedLights() const { return packed_lights; }
+				//Turns the per-tile light culling off: every light is then shaded at every pixel
+				//that shows a surface, which is the brute-force answer. The image is the same -
+				//a light out of range adds nothing - and the cost is what the culling saves,
+				//which is why the tests flip it. On by default; not for games.
+				void SetTileCulling(bool enabled) { tile_culling_enabled = enabled; }
+				bool GetTileCulling() const { return tile_culling_enabled; }
 
 				void EnableNormalMaterialMapping(bool enabled);
 				bool IsEnabledEnableNormalMaterialMapping() const;

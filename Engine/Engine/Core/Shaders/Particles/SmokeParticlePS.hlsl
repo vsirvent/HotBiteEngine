@@ -34,10 +34,8 @@ cbuffer externalData : register(b0)
 	matrix projection;
 	AmbientLight ambientLight;
 	DirLight dirLights[MAX_LIGHTS];
-	PointLight pointLights[MAX_LIGHTS];
 	MaterialColor material;
 	int dirLightsCount;
-	int pointLightsCount;
 	float parallaxScale;
 	int meshNormalTextureEnable;
 	int highTextureEnable;
@@ -45,9 +43,6 @@ cbuffer externalData : register(b0)
 	float3 cameraDirection;
 	int screenW;
 	int screenH;
-	float4 LightPerspectiveValues[MAX_LIGHTS / 2];
-	matrix DirPerspectiveMatrix[DIR_SHADOW_MATRIX_COUNT];
-	matrix DirStaticPerspectiveMatrix[MAX_LIGHTS];
 	matrix spot_view;
 	float time;
 	float sizeIncrementRatio;
@@ -71,6 +66,7 @@ cbuffer externalData : register(b0)
 
 
 #include "../Common/PixelFunctions.hlsli"
+#include "../Common/ParticleLight.hlsli"
 static const int nsteps = 1;
 
 RenderTarget main(GSParticleOutput input)
@@ -86,21 +82,13 @@ RenderTarget main(GSParticleOutput input)
 	float fade_in = saturate((1.0f - input.life) / 0.1f);
 #if 1
 	// Calculate the ambient light
-	finalColor.rgb += CalcAmbient(float3(0.0f, 1.0f, 0.0f));
+	finalColor.rgb += ParticleAmbient();
 #endif
 #if 1
 	uint i = 0;
 	// Calculate the directional light
 	for (i = 0; i < (uint)dirLightsCount; ++i) {
-		finalColor.rgb += 0.6f * CalcDirectionalWithoutNormal(wpos, material, dirLights[i], 0.0f, i, lightColor);
-	}
-#endif
-#if 0
-	// Apply point lights
-	for (i = 0; i < pointLightsCount; ++i) {
-		if (length(input.worldPos.xyz - pointLights[i].Position) < pointLights[i].Range) {
-			finalColor.rgb += 0.6f * CalcPointWithoutNormal(wpos, material, pointLights[i], i, lightColor);
-		}
+		finalColor.rgb += 0.6f * ParticleDirectional(dirLights[i]);
 	}
 #endif
 	float t = time * 0.5f;

@@ -33,17 +33,12 @@ cbuffer externalData : register(b0)
 	matrix projection;
 	AmbientLight ambientLight;
 	DirLight dirLights[MAX_LIGHTS];
-	PointLight pointLights[MAX_LIGHTS];
 	MaterialColor material;
 	int dirLightsCount;
-	int pointLightsCount;
 	float3 cameraPosition;
 	float3 cameraDirection;
 	int screenW;
 	int screenH;
-	float4 LightPerspectiveValues[MAX_LIGHTS / 2];
-	matrix DirPerspectiveMatrix[DIR_SHADOW_MATRIX_COUNT];
-	matrix DirStaticPerspectiveMatrix[MAX_LIGHTS];
 	matrix spot_view;
 	float time;
 }

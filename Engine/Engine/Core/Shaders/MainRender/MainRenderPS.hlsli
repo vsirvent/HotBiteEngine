@@ -71,36 +71,17 @@ RenderTargetRT MainRenderPS(GSOutput input)
 			input.worldPos.xyz, input.normal);
 	}
 
-	spec_intensity = material.specIntensity;
-	if (multi_texture_count > 0) {
-		spec_intensity *= getMutliTextureValueLevel(basicSampler, 2, MULTITEXT_SPEC, multi_texture_count, multi_texture_operations,
-			calculated_values, multi_texture_uv_scales, input.uv, multi_specularTexture).r;
-
-	}
-	else {
-		if (material.flags & SPECULAR_MAP_ENABLED_FLAG) {
-			spec_intensity *= specularTexture.Sample(basicSampler, input.uv).r;
-		}
-		else if (material.flags & ARM_MAP_ENABLED_FLAG) {
-			spec_intensity *= armTexture.Sample(basicSampler, input.uv).g;
-		}
-	}
-
 	if (meshNormalTextureEnable) {
 		float3 mesh_normal = meshNormalTexture.Sample(basicSampler, input.mesh_uv).xyz;
 		mesh_normal = mesh_normal * 2.0f - 1.0f;
 		normal = normalize(mul(float4(mesh_normal, 0.0f), world)).xyz;
 	}
 
-	float DirLightParallaxAtt[MAX_LIGHTS];
-	float PointLightParallaxAtt[MAX_LIGHTS];
-	for (i = 0; i < dirLightsCount; ++i) {
-		DirLightParallaxAtt[i] = 1.0f;
-	}
-	// Calculate the point lights
-	for (i = 0; i < pointLightsCount; ++i) {
-		PointLightParallaxAtt[i] = 1.0f;
-	}
+	//How much of the first directional light a parallax material's own relief lets
+	//through, 1 for everything that has none. Stored in the material map: the deferred
+	//pass multiplies the sun with it. Only the sun - the self shadow is a march through the
+	//height map towards the light, and this pass has no business knowing 1024 of them.
+	float sun_parallax_att = 1.0f;
 	//wpos without parallax displacement
 	float3 wpos2 = wpos.xyz;
 	if (material.flags & NORMAL_MAP_ENABLED_FLAG || multi_texture_count > 0) {
@@ -136,26 +117,15 @@ RenderTargetRT MainRenderPS(GSOutput input)
 			input.uv = CalculateDepthUVBinary(scale, steps, angle_steps, input.uv, tbn_cam_pos, tbn_fragment_pos, calculated_values, h, tbn_fragment_displacement);
 			wpos.xyz += 0.5f*(mul(tbn_fragment_displacement, (float3x3)tbn) + normal);
 
-			if (material.flags & PARALLAX_SHADOW_ENABLED_FLAG) {
+			if ((material.flags & PARALLAX_SHADOW_ENABLED_FLAG) && hasSun != 0) {
 				float lh = 0.0f;
 				float3 tbn_light_pos;
 				float3 tbn_dummy_displacement;
-				// Calculate the directional light
-				for (i = 0; i < dirLightsCount; ++i) {
-					float3 tolight = normalize(dirLights[i].DirToLight);
-					float3 sky_pos = input.worldPos.xyz + tolight * (1000.0f / tolight.y);
-					tbn_light_pos = mul(float4(sky_pos, 0.0f), global_to_tbn).xyz;
-					CalculateDepthUVBinary(scale, steps, angle_steps, input.uv, tbn_light_pos, tbn_fragment_pos, calculated_values, lh, tbn_dummy_displacement);
-					DirLightParallaxAtt[i] = saturate(1.0f - pow(material.parallax_shadow_scale * (lh - h), 1.0f));
-				}
-				// Calculate the point lights
-				for (i = 0; i < pointLightsCount; ++i) {
-					if (length(input.worldPos.xyz - pointLights[i].Position) < pointLights[i].Range) {
-						tbn_light_pos = mul(float4(pointLights[i].Position, 0.0f), global_to_tbn).xyz;
-						CalculateDepthUVBinary(scale, steps, angle_steps, input.uv, tbn_light_pos, tbn_fragment_pos, calculated_values, lh, tbn_dummy_displacement);
-						PointLightParallaxAtt[i] = saturate(1.0f - pow(material.parallax_shadow_scale * (lh - h), 1.0f));
-					}
-				}
+				float3 tolight = normalize(sunDirection);
+				float3 sky_pos = input.worldPos.xyz + tolight * (1000.0f / tolight.y);
+				tbn_light_pos = mul(float4(sky_pos, 0.0f), global_to_tbn).xyz;
+				CalculateDepthUVBinary(scale, steps, angle_steps, input.uv, tbn_light_pos, tbn_fragment_pos, calculated_values, lh, tbn_dummy_displacement);
+				sun_parallax_att = saturate(1.0f - pow(material.parallax_shadow_scale * (lh - h), 1.0f));
 			}
 		}
 		float3 texture_normal;
@@ -170,26 +140,29 @@ RenderTargetRT MainRenderPS(GSOutput input)
 		normal = normalize(mul(texture_normal, (float3x3)tbn) + normal);
 	}
 
-#if 1
-	float4 lumColor = float4(0.0f, 0.0f, 0.0f, 0.0f);
-	// Calculate the ambient light
-	lumColor.rgb += CalcAmbient(normal);
-#endif
-#if 1
-	// Calculate the directional light
-	for (i = 0; i < dirLightsCount; ++i) {
-		lumColor.rgb += CalcDirectional(normal, wpos, input.uv, material, dirLights[i], cloud_density, i, lightColor) * DirLightParallaxAtt[i];
+	//The specular intensity the deferred pass will light this pixel with (and the ray
+	//dispersion below), read at the uv that survived parallax - the point the surface is
+	//actually seen at, which is where the lighting used to sample it.
+	spec_intensity = material.specIntensity;
+	if (multi_texture_count > 0) {
+		spec_intensity *= getMutliTextureValueLevel(basicSampler, 2, MULTITEXT_SPEC, multi_texture_count, multi_texture_operations,
+			calculated_values, multi_texture_uv_scales, input.uv, multi_specularTexture).r;
+
 	}
-#endif
-#if 1
-	// Calculate the point lights
-	for (i = 0; i < pointLightsCount; ++i) {
-		if (length(wpos.xyz - pointLights[i].Position) < pointLights[i].Range) {
-			lumColor.rgb += CalcPoint(normal, wpos.xyz, input.uv, material, pointLights[i], i, lightColor) * PointLightParallaxAtt[i];
+	else {
+		if (material.flags & SPECULAR_MAP_ENABLED_FLAG) {
+			spec_intensity *= specularTexture.Sample(basicSampler, input.uv).r;
+		}
+		else if (material.flags & ARM_MAP_ENABLED_FLAG) {
+			spec_intensity *= armTexture.Sample(basicSampler, input.uv).g;
 		}
 	}
-#endif
-	
+
+	//What the surface emits, and nothing else: the light that falls on it is added to this
+	//by DeferredLightCS (ambient, the directional lights, every point light that reaches
+	//the pixel's tile).
+	float4 lumColor = float4(0.0f, 0.0f, 0.0f, 0.0f);
+
 #if 1
 	// Apply textures
 	if (material.flags & DIFFUSSE_MAP_ENABLED_FLAG || multi_texture_count > 0) {
@@ -282,5 +255,8 @@ RenderTargetRT MainRenderPS(GSOutput input)
 	float4 prev_world_pos = mul(input.prevObjectPos, prevWorld);
 	output.pos0_map = prev_world_pos / prev_world_pos.w;
 	output.pos1_map = input.worldPos / input.worldPos.w;
+	//How the deferred pass shades this pixel (Common/GBuffer.hlsli, STANDARD model).
+	output.material_map = float4(spec_intensity, material.bloom_scale, sun_parallax_att,
+		MaterialCode(SHADING_STANDARD, renderPass));
 	return output;
 }

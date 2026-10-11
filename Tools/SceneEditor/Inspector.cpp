@@ -1658,10 +1658,14 @@ namespace HotBiteEditor {
 
 		static void DrawLighted(Coordinator* c, Entity e)
 		{
-			const Lighted& l = c->GetConstComponent<Lighted>(e);
-			ImGui::Text("Point lights: %d  Dir lights: %d",
-				(int)l.point_lights.size(), (int)l.dir_lights.size());
-			ImGui::Text("Shadow maps: %d", (int)(l.shadows.size() + l.dir_shadows.size()));
+			//The lists this component carries were never per entity (the renderer rebuilt one
+			//scratch copy of them for every draw), and with tiled lighting nothing fills them at
+			//all: a surface is lit by the deferred pass from whichever lights reach its screen
+			//tile. What is true of an entity that has it is that it is drawn, and lit.
+			(void)c;
+			(void)e;
+			ImGui::TextWrapped("Drawn and lit. Every point light that reaches a pixel of it lights it "
+				"(up to 1024 in the frame, culled per screen tile).");
 		}
 
 		//Platform, LinearPlatform and Force all edit in place through SectionEdit, like the

@@ -761,6 +761,16 @@ namespace HotBite {
 							const float4& rotation = { 0.0f, 0.0f, 0.0f, 1.0f },
 							const float3& scale = { 1.0f, 1.0f, 1.0f });
 
+			// Creates a point light at `position`: an empty entity (see CreateEmptyEntity)
+			// carrying a PointLight of the given colour and range. It is how a game or a
+			// test makes lights at runtime - lights are no longer limited to a handful
+			// per draw call (RenderSystem packs the nearest Components::MAX_TILED_LIGHTS
+			// of them), so a few hundred of these is an ordinary thing to ask for.
+			// Shadows are off unless asked for: only the nearest MAX_LIGHTS casters get a
+			// shadow map at all. INVALID_ENTITY_ID when the name is empty or taken.
+			virtual ECS::Entity CreatePointLight(const std::string& name, const float3& position,
+							const float3& color, float range, bool cast_shadow = false);
+
 			// Registers T with the ECS and, when T declares the serialization members
 			// (see ECS/Serialization.h), with the component registry as well - so a
 			// game's own components become level-authorable and editor-visible without

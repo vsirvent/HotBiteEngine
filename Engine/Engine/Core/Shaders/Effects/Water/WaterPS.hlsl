@@ -28,32 +28,30 @@ SOFTWARE.
 #include "../../Common/PixelCommon.hlsli"
 #include "../../Common/FastNoise.hlsli"
 #include "../../Common/Utils.hlsli"
+#include "../../Common/GBuffer.hlsli"
 
+//Water lights nothing itself: it writes the colour of what is seen through it, the light of
+//the bottom that shows through (weighted by what is transmitted) and the shading normal -
+//wave bumps and all - in the material map, and DeferredLightCS adds the surface's own light
+//(ShadeWaterDirectional/ShadeWaterPoint in Common/DeferredLighting.hlsli) in the share the
+//water scatters back. See the WATER model in Common/GBuffer.hlsli.
 cbuffer externalData : register(b0)
 {
 	matrix world;
 	matrix view;
 	matrix projection;
-	AmbientLight ambientLight;
-	DirLight dirLights[MAX_LIGHTS];
-	PointLight pointLights[MAX_LIGHTS];
 	MaterialColor material;
-	int dirLightsCount;
-	int pointLightsCount;
 	int materialFlags;
 	float parallaxScale;
 	int meshNormalTextureEnable;
 	int highTextureEnable;
-	float cloud_density;
 	float3 cameraPosition;
 	float3 cameraDirection;
 	int screenW;
 	int screenH;
-	float4 LightPerspectiveValues[MAX_LIGHTS / 2];
-	matrix DirPerspectiveMatrix[DIR_SHADOW_MATRIX_COUNT];
-	matrix DirStaticPerspectiveMatrix[MAX_LIGHTS];
-	matrix spot_view;
 	float time;
+	//1 for the first geometry pass, 2 for the second (see RenderSystem::DrawScene).
+	int renderPass;
 
 	uint multi_texture_count;
 	float multi_parallax_scale;
@@ -81,85 +79,16 @@ Texture2D prevLightTexture;
 //small values a murky pond. WaterPS never read `opacity` before, so giving it this
 //meaning changes nothing that was authored earlier.
 #define WATER_CLARITY_SCALE 45.0f
-//Per-channel absorption at that distance. Water kills red first - which is the whole
-//reason deep clear water reads blue-green over a sandy bottom instead of grey - so a
-//single coefficient for all three channels would only dim the image toward black.
-#define WATER_EXTINCTION float3(3.2f, 1.0f, 0.65f)
+//Per-channel absorption at that distance (WATER_EXTINCTION, in Common/GBuffer.hlsli, since
+//the deferred pass needs it too). Water kills red first - which is the whole reason deep
+//clear water reads blue-green over a sandy bottom instead of grey - so a single coefficient
+//for all three channels would only dim the image toward black.
 //Where nothing opaque sits behind the surface (the horizon past the far shore) the
 //water is treated as this deep rather than as depth zero. Otherwise it turns
 //*transparent* exactly where it should look deepest.
 #define WATER_HORIZON_DEPTH 400.0f
 //Width in world units of the shallow band that grows foam along a shore.
 #define WATER_SHORE_WIDTH 2.2f
-
-float3 CalcWaterDirectional(float3 normal, float3 position, float2 uv, DirLight light, int index, const float spec_intensity, inout float4 bloom)
-{
-	float3 color = light.Color.rgb * light.intensity;
-	float3 finalColor = { 0.f, 0.f, 0.f };
-	float3 bloomColor = { 0.f, 0.f, 0.f };
-	float3 ToEye = cameraPosition.xyz - position.xyz;
-	ToEye = normalize(ToEye);
-
-	//Diffuse. This term did not exist: the surface was lit by a specular highlight and
-	//nothing else, so every part of a lake the sun's reflection did not land on was
-	//left completely unlit - which is what made the water read as tar rather than as
-	//water with a colour.
-	float NDotL = saturate(dot(normal, light.DirToLight));
-	finalColor += color * NDotL;
-
-	// Blinn specular
-	float3 HalfWay = normalize(ToEye + light.DirToLight);
-	float NDotH = saturate(dot(HalfWay, normal));
-	//Fresnel (Schlick, water's F0 = 0.02): a lake is nearly matte looked straight down
-	//into and a mirror at a grazing angle. Without it the sun's glint is equally strong
-	//everywhere, which reads as a flat sheet however good the wave normals are.
-	float NDotV = saturate(dot(normal, ToEye));
-	float fresnel = 0.02f + 0.98f * pow(1.0f - NDotV, 5.0f);
-	//Tinted by the light rather than white, so a low sun lays an orange glare on the
-	//water instead of a white one.
-	float3 spec_color = color * pow(NDotH, 500.0f) * spec_intensity * 15.0f * fresnel;
-	finalColor += spec_color;
-	bloomColor += spec_color;
-
-	bloom.rgb += bloomColor;
-	return finalColor;
-}
-
-float3 CalcWaterPoint(float3 normal, float3 position, float2 uv, PointLight light, int index, const float spec_intensity, inout float4 bloom)
-{
-	float3 finalColor = { 0.f, 0.f, 0.f };
-	float3 bloomColor = { 0.f, 0.f, 0.f };
-	float3 lposition = light.Position;
-	float lum = (light.Color.r + light.Color.g + light.Color.b) / 3.0f;
-	float3 ToLight = lposition - position;
-	float3 ToEye = cameraPosition.xyz - position;
-	float DistToLight = length(ToLight);
-	// Phong diffuse
-	ToLight /= DistToLight; // Normalize
-	float NDotL = saturate(dot(ToLight, normal));
-	float NDotL2 = saturate(dot(-ToLight, normal));
-	finalColor = pow(light.Color * NDotL, 4.0f);
-	// Blinn specular
-	ToEye = normalize(ToEye);
-	ToLight = normalize(ToLight);
-	float3 HalfWay = normalize(ToEye + ToLight);
-	float NDotH = saturate(dot(HalfWay, normal));
-	float3 spec_color = { 0.f, 0.f, 0.f };
-	spec_color += pow(NDotH, 400.0f) * spec_intensity;
-	finalColor += spec_color;
-	bloomColor.rgb += (saturate(NDotH - 0.9999f)) * 9999.0f * (spec_intensity);
-
-	float LightRange = (light.Range - DistToLight) / light.Range;
-	float DistToLightNorm = saturate(LightRange);
-	float Attn = saturate(DistToLightNorm * DistToLightNorm);
-	//Attn is not applied to the water's colour (never was); only the cone is, so a
-	//spotlight does not light the water outside its beam.
-	float spot = SpotFactor(light, position - light.Position);
-	finalColor *= spot;
-	bloomColor *= spot;
-	bloom.rgb += bloomColor;
-	return finalColor;
-}
 
 RenderTargetRT main(GSOutput input)
 {
@@ -221,22 +150,6 @@ RenderTargetRT main(GSOutput input)
 	}
 	float dz = depthTexture.Sample(basicSampler, pos);
 
-	float4 lumColor = float4(0.0f, 0.0f, 0.0f, 1.0f);
-	// Calculate the ambient light
-	lumColor.rgb += CalcAmbient(normal);
-
-	//Apply directional light
-	for (i = 0; i < dirLightsCount; ++i) {
-		lumColor.rgb += CalcWaterDirectional(normal, input.worldPos.xyz, input.uv, dirLights[i], i, spec_intensity, lightColor).rgb;
-	}
-
-	// Apply point lights
-	for (i = 0; i < pointLightsCount; ++i) {
-		if (length(input.worldPos.xyz - pointLights[i].Position) < pointLights[i].Range) {
-			lumColor.rgb += CalcWaterPoint(normal, input.worldPos.xyz, input.uv, pointLights[i], i, spec_intensity, lightColor).rgb;
-		}
-	}
-
 	//The water's own colour. `diffuseColor` could never show before: it was multiplied
 	//into a finalColor that was still zero at that point, so the only water colour in
 	//the frame was a hard-coded (0,0,0.3) that the depth fade below drove to black -
@@ -256,7 +169,11 @@ RenderTargetRT main(GSOutput input)
 	//water. The old code faded it linearly to zero over 30 units instead, so anything
 	//deeper than that was black no matter what was under it or what lit the surface.
 	float clarity = max(0.5f, material.opacity * WATER_CLARITY_SCALE);
-	float3 trans = exp(-water_depth * WATER_EXTINCTION / clarity);
+	//One number is all the transmission is: the three channels are this times a fixed
+	//absorption, so the material map carries `water_depth / clarity` and the deferred pass
+	//rebuilds the same trans.
+	float water_depth_in_clarities = water_depth / clarity;
+	float3 trans = exp(-water_depth_in_clarities * WATER_EXTINCTION);
 
 	//Foam where the bottom rises to meet the surface, broken up by the same noise that
 	//moves the waves so the shoreline is not a clean contour of the terrain under it.
@@ -269,12 +186,13 @@ RenderTargetRT main(GSOutput input)
 	//Shallow water shows the bottom, deep water its own colour. The surface's own
 	//lighting is weighted by (1 - trans), the light scattered back out of the column:
 	//it grows over exactly the path length the transmission shrinks over, so a film of
-	//water over sand still looks like wet sand while a lake looks like lit water.
+	//water over sand still looks like wet sand while a lake looks like lit water. That
+	//weight is applied by the deferred pass; what is written here is the other half, the
+	//light of the bottom.
 	finalColor.rgb = lerp(water_color, bottom_color, trans) + foam;
-	lumColor.rgb = lumColor.rgb * (1.0f - trans) + bottom_light * trans;
 
-	output.light_map = lumColor;
-	output.bloom_map = saturate(lightColor);
+	output.light_map = float4(bottom_light * trans, 1.0f);
+	output.bloom_map = float4(0.0f, 0.0f, 0.0f, 1.0f);
 	output.scene = finalColor;
 	RaySource ray;
 	ray.orig = input.worldPos.xyz;
@@ -287,6 +205,10 @@ RenderTargetRT main(GSOutput input)
 	output.rt_ray1_map = getColor1(ray);
 	output.pos0_map = input.worldPos;
 	output.pos1_map = input.worldPos;
+	//x: the water in clarities, y/z: the shading normal's x and z (its y is recovered, the
+	//normal points up).
+	output.material_map = float4(water_depth_in_clarities, normal.x, normal.z,
+		MaterialCode(SHADING_WATER, renderPass));
 	return output;
 }
 

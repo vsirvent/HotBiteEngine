@@ -37,7 +37,7 @@ cbuffer externalData : register(b0)
     float time;
     AmbientLight ambientLight;
     DirLight dirLights[MAX_LIGHTS];
-    PointLight pointLights[MAX_LIGHTS];
+    AuxLight auxLights[MAX_AUX_LIGHTS];
     float3 cameraPosition;
     float3 cameraDirection;
     float cloud_density;
@@ -48,28 +48,12 @@ cbuffer externalData : register(b0)
     matrix DirStaticPerspectiveMatrix[MAX_LIGHTS];
 
     int dirLightsCount;
-    int pointLightsCount;
-
-    uint multi_texture_count;
-    float multi_parallax_scale;
-
-    uint4 packed_multi_texture_operations[MAX_MULTI_TEXTURE / 4];
-    float4 packed_multi_texture_values[MAX_MULTI_TEXTURE / 4];
-    float4 packed_multi_texture_uv_scales[MAX_MULTI_TEXTURE / 4];
-    //Per layer, the orientation and altitude rules as (min, max, fade, enabled).
-    //Declared here rather than in MultiTexture.hlsli because that file is an
-    //include: every shader that pulls it in has to supply the constants it reads.
-    float4 multi_texture_slope[MAX_MULTI_TEXTURE];
-    float4 multi_texture_height[MAX_MULTI_TEXTURE];
-    //Per layer, the mask image's own UV transform as (scale, scale, offset u,
-    //offset v). Separate from the uv_scale that tiles the detail maps: a splat
-    //map covers the surface once, the rock on it repeats tens of times.
-    float4 multi_texture_mask_uv[MAX_MULTI_TEXTURE];
+    int auxLightCount;
 
     int disable_vol;
 }
 
-#include "../Common/PixelFunctions.hlsli"
+#include "../Common/VolumetricLights.hlsli"
 
 #define NTHREADS 8
 [numthreads(NTHREADS, NTHREADS, 1)]
@@ -115,9 +99,9 @@ void main(uint3 DTid : SV_DispatchThreadID)
     }
 
     // Calculate the point lights
-    for (i = 0; i < pointLightsCount; ++i) {
-        if (pointLights[i].density > 0.0f && disable_vol == 0) {
-            lightColor.rgb += VolumetricLight(wpos.xyz, pointLights[i], i);
+    for (i = 0; i < auxLightCount; ++i) {
+        if (auxLights[i].density > 0.0f && disable_vol == 0) {
+            lightColor.rgb += VolumetricLight(wpos.xyz, auxLights[i]);
         }
     }
 

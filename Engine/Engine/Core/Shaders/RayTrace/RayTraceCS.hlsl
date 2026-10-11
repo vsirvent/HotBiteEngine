@@ -49,9 +49,9 @@ cbuffer externalData : register(b0)
     //Lights
     AmbientLight ambientLight;
     DirLight dirLights[MAX_LIGHTS];
-    PointLight pointLights[MAX_LIGHTS];
+    AuxLight auxLights[MAX_AUX_LIGHTS];
     uint dirLightsCount;
-    uint pointLightsCount;
+    uint auxLightCount;
 
     float4 LightPerspectiveValues[MAX_LIGHTS / 2];
     matrix DirPerspectiveMatrix[DIR_SHADOW_MATRIX_COUNT];
@@ -425,18 +425,18 @@ bool GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
 
         float3 color = float3(0.0f, 0.0f, 0.0f);
 
-        color += CalcAmbient(normal) * 0.5f;
+        color += HitAmbient(normal) * 0.5f;
         color *= o.opacity;
 
         uint i = 0;
         for (i = 0; i < dirLightsCount; ++i) {
-            color += CalcDirectional(normal, pos.xyz, dirLights[i], i);
+            color += HitDirectional(normal, pos.xyz, dirLights[i], i);
         }
 
         // Calculate the point lights
-        for (i = 0; i < pointLightsCount; ++i) {
-            if (length(pos.xyz - pointLights[i].Position) < pointLights[i].Range) {
-                color += CalcPoint(normal, pos.xyz, pointLights[i], i);
+        for (i = 0; i < auxLightCount; ++i) {
+            if (length(pos.xyz - auxLights[i].light.position) < auxLights[i].light.range) {
+                color += HitPoint(normal, pos.xyz, auxLights[i].light);
             }
         }
 
