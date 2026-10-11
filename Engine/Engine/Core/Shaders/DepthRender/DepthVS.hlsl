@@ -23,6 +23,7 @@ SOFTWARE.
 */
 
 #include "../Common/ShaderStructs.hlsli"
+#include "../Common/Instancing.hlsli"
 
 cbuffer externalData : register(b0)
 {
@@ -31,9 +32,12 @@ cbuffer externalData : register(b0)
 	matrix projection;
 	matrix joints[MAX_JOINTS];
 	uint njoints;
+	//An instanced draw: the world matrix comes from `instances` (Common/Instancing.hlsli).
+	int instanced;
+	uint instance_base;
 };
 
-DepthVertexToPixel main(VertexShaderInput input)
+DepthVertexToPixel main(VertexShaderInput input, uint instance_id : SV_InstanceID)
 {
 	DepthVertexToPixel output;
 	int use_bones = 0;
@@ -52,8 +56,12 @@ DepthVertexToPixel main(VertexShaderInput input)
 		pos = float4(input.position, 1.0f);
 	}
 
-	matrix worldViewProj = mul(mul(world, view), projection);
-	output.worldPos = mul(pos, world);
+	matrix object_world = world;
+	if (instanced != 0) {
+		object_world = instances[instance_base + instance_id].world;
+	}
+	matrix worldViewProj = mul(mul(object_world, view), projection);
+	output.worldPos = mul(pos, object_world);
 	output.position = mul(pos, worldViewProj);
 	return output;
 }

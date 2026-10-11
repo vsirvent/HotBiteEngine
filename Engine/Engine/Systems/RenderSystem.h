@@ -549,6 +549,112 @@ namespace HotBite {
 				int nobjects = 0;
 				RtGeometryStats rt_geometry_stats;
 
+			public:
+				struct InstancingStats {
+					uint32_t draws = 0;
+					uint32_t entities = 0;
+				};
+				struct GpuTimings {
+					double shadows = 0.0;
+					double depth = 0.0;
+					double scene = 0.0;
+					//Everything after the scene up to the post-process chain: the sum of the seven below.
+					double post = 0.0;
+					double motion = 0.0;
+					double rt = 0.0;
+					double gi = 0.0;
+					double light = 0.0;
+					double mix = 0.0;
+					double aa = 0.0;
+					double blur = 0.0;
+					uint32_t frames = 0;
+				};
+				//What the CPU spent on each part of a frame's Draw, in milliseconds summed over rames frames: the
+				//per-entity passes over the world (visibility, level of detail, the static-shadow signature), the shadow
+				//maps (the static one only on the frames it is redrawn), the depth pre-pass, the scene, what follows it up
+				//to the post-process chain, and the latch of the previous frame. Always on (a handful of clock reads).
+				struct CpuTimings {
+					double visibility = 0.0;
+					double lods = 0.0;
+					double signature = 0.0;
+					double static_shadows = 0.0;
+					double shadows = 0.0;
+					double depth = 0.0;
+					double scene = 0.0;
+					double post = 0.0;
+					double latch = 0.0;
+					uint64_t frames = 0;
+				};
+			private:
+				//Instanced draws (SetInstancing). The matrices of the instances of a draw, as the vertex shaders
+				//read them (Core/Shaders/Common/Instancing.hlsli): where the entity stands, and where it stood
+				//in the previous rendered frame.
+				struct InstanceData {
+					float4x4 world;
+					float4x4 prev_world;
+				};
+				enum class InstancePass { Scene, Depth, Shadow };
+				//One entity waiting to be grouped: the geometry its draw would use, and the entity.
+				struct InstanceRef {
+					const Core::MeshData* data;
+					size_t index_count;
+					size_t index_offset;
+					size_t vertex_offset;
+					DrawableEntity* drawable;
+					bool SameGeometry(const InstanceRef& o) const {
+						return data == o.data && index_count == o.index_count && index_offset == o.index_offset && vertex_offset == o.vertex_offset;
+					}
+					bool operator<(const InstanceRef& o) const {
+						if (data != o.data) { return data < o.data; }
+						if (index_count != o.index_count) { return index_count < o.index_count; }
+						if (index_offset != o.index_offset) { return index_offset < o.index_offset; }
+						return vertex_offset < o.vertex_offset;
+					}
+				};
+				//Fewer than this many alike entities are drawn one by one: a group is not worth its buffer.
+				static constexpr size_t MIN_INSTANCES = 4;
+				bool instancing_enabled = true;
+				uint32_t instancing_passes = 7;
+				ID3D11Buffer* instance_buffer = nullptr;
+				ID3D11ShaderResourceView* instance_view = nullptr;
+				uint32_t instance_capacity = 0;
+				std::vector<InstanceRef> instance_pending;
+				std::vector<InstanceData> instance_data;
+				InstancingStats instancing_stats_frame;
+				InstancingStats instancing_stats_last;
+				bool EnsureInstanceBuffer(uint32_t count);
+				void ReleaseInstanceBuffer();
+				//Whether the shaders a bucket draws with are the engine's own (the ones the instanced vertex shaders
+				//are written for) and its material allows it, for each pass.
+				bool CanInstanceBucket(InstancePass pass, const Core::MaterialData* material, Core::SimpleVertexShader* vs, Core::SimpleHullShader* hs,
+					Core::SimpleDomainShader* ds, Core::SimpleGeometryShader* gs, Core::SimplePixelShader* ps);
+				static bool CanInstanceEntity(const DrawableEntity& entity);
+				//Draws the entities `accept` lets through, in groups where they are alike.
+				template <class Accept>
+				void DrawBucket(ECS::EntityVector<DrawableEntity>& bucket, InstancePass pass, bool can_instance, Core::SimpleVertexShader* vs,
+					Core::SimpleHullShader* hs, Core::SimpleDomainShader* ds, Core::SimpleGeometryShader* gs, Core::SimplePixelShader* ps, Accept&& accept);
+				static constexpr int GPU_RING = 4;
+				static constexpr int GPU_STAMPS = 11;
+				struct GpuFrame {
+					ID3D11Query* disjoint = nullptr;
+					ID3D11Query* stamp[GPU_STAMPS] = {};
+					bool pending = false;
+				};
+				GpuFrame gpu_ring[GPU_RING];
+				int gpu_next = 0;
+				GpuFrame* gpu_open = nullptr;
+				GpuTimings gpu_timings;
+				CpuTimings cpu_timings;
+				mutable bool gpu_requested = false;
+				mutable uint32_t gpu_requested_frame = 0;
+				void GpuBegin();
+				void GpuStamp(int index);
+				void GpuEnd();
+				void GpuResolve();
+				void GpuRelease();
+				void DrawInstanceGroup(InstancePass pass, const InstanceRef* first, size_t count, Core::SimpleVertexShader* vs, Core::SimpleHullShader* hs,
+					Core::SimpleDomainShader* ds, Core::SimpleGeometryShader* gs, Core::SimplePixelShader* ps);
+
 				//A ring of pipeline-statistics queries around the main scene pass. It runs only
 				//while something is reading it (GetTessStats), like the radiance cache counters:
 				//a query and its readback are not free and nothing in the frame depends on them.
@@ -970,6 +1076,40 @@ namespace HotBite {
 				void RefreshDrawable(ECS::Entity entity);
 
 				RtGeometryStats GetRtGeometryStats() const { return rt_geometry_stats; }
+
+				//Instancing: entities of one bucket that draw the same geometry and differ only in where they
+				//stand (a forest: the same few tree meshes, thousands of times) are drawn with one instanced
+				//draw call per pass, taking their matrices from a structured buffer, instead of one draw each
+				//with the constant buffers of every shader stage uploaded again for each. Only static, opaque
+				//meshes of the engine's own shaders are grouped (not skinned, tessellated, displaced, blended
+				//or world-aligned ones, and not a material with its own shaders): everything else draws as
+				//before. It is on by default; switching it off draws the frame the old way, which is what the
+				//tests compare against.
+				void SetInstancing(bool enabled) { instancing_enabled = enabled; }
+				bool IsInstancing() const { return instancing_enabled; }
+				//Which passes may instance: bit 0 the scene, bit 1 the depth pre-pass, bit 2 the shadow maps (all by default).
+				//For finding which pass a difference between the two ways of drawing comes from.
+				void SetInstancingPasses(uint32_t mask) { instancing_passes = mask; }
+				uint32_t GetInstancingPasses() const { return instancing_passes; }
+				//What the last complete frame drew that way, summed over its passes (depth, shadows, scene):
+				//instanced draw calls, and the entities they stood for.
+				InstancingStats GetInstancingStats() const { return instancing_stats_last; }
+
+				//How long the GPU spent on each part of a frame, in milliseconds summed over `frames` frames (timestamp
+				//queries read back a few frames late): the shadow maps, the depth pre-pass, the scene (main pass and
+				//what is drawn with it) and everything after it up to the post-process chain. Asking is what turns
+				//the queries on, as with the tessellation counters: the first call answers with zeros, and the values
+				//are live a few frames later. Two reads some seconds apart give the average cost of each part. The GPU
+				//runs behind the CPU, so a part waiting for the CPU to submit it reads long: this says where the GPU
+				//was busy or starved, not what is expensive to submit.
+
+				CpuTimings GetCpuTimings() const { return cpu_timings; }
+
+				GpuTimings GetGpuTimings() const {
+					gpu_requested_frame = frame_count;
+					gpu_requested = true;
+					return gpu_timings;
+				}
 				//Asking is what turns the readback on; the first call after a quiet
 				//period therefore answers with whatever was last read (zeros at
 				//startup) and the values become live a few frames later. Callers poll

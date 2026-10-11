@@ -359,6 +359,39 @@ second in a world of five thousand (Survival's resource nodes: ~100 ms a frame i
 `PrepareEntity`, with the GPU driver's own thread busy behind it). An always-drawn entity
 (`DRAW_ALWAYS`) is exempt from the shadow test, since its box does not place it.
 
+**Culling is six planes, the ray tracing candidates are the nearest hundred, and similar
+entities are drawn together.** `CheckSceneVisibility` tests each drawable's box against the
+six planes of the view-projection matrix (`ViewFrustum`, a half-unit of slack) once a frame,
+where it used to project eight corners for each. `PrepareRT` (the thread that builds the BVH
+of the `MAX_OBJECTS` nearest drawables for GI and reflections) measures each drawable's
+distance and `nth_element`s the nearest, describing only those: it used to describe every
+drawable into a map keyed by distance with collisions moved along a unit, which was quadratic
+with entities standing at one distance and held the main thread (22 fps in Survival with GI
+low and 5,000 nodes; with GI off the thread never ran, so no suite saw it). **Instancing**
+(`SetInstancing`, on by default): static opaque meshes with the engine's own shaders and the
+same geometry (mesh, index range, vertex offset), at least four of them, are drawn with one
+`DrawIndexedInstanced` per pass, their world and previous-world matrices in a structured
+buffer (`Common/Instancing.hlsli`) read by `SV_InstanceID` in `MainRenderVS`, `DepthVS` and
+`ShadowVS` (with the `instanced` constant 0 they read their own constant buffer, as before);
+skinned, tessellated, displaced, blended, world-aligned and own-shader materials draw as
+before, and `SetInstancingPasses` says which passes may group (bit 0 scene, 1 depth, 2
+shadows). It saves the CPU, not the GPU: the cost of a small mesh is its triangles. Do not
+bypass the hull and domain stages of an instanced scene draw (VS straight to GS): measured,
+it saved nothing and blacked out foliage. `Base::is_static` entities cast their shadow into
+the one static map (redrawn when the set of static casters or their positions change, when
+the view leaves its footprint, and every `STATIC_SHADOW_REFRESH_PERIOD` frames) instead of the
+cascades every frame; a game whose scenery never moves should set it. **Timers:**
+`RenderSystem::GetGpuTimings` (timestamp queries by pass: shadows, depth, scene, and the post
+passes motion / rt / gi / light / mix / aa / blur, read back a few frames late; asking turns
+them on) and `GetCpuTimings` (always on: visibility, lods, signature, static_shadows, shadows,
+depth, scene, post, latch). **Every loop over all drawables is ~25 ns an entity per frame**
+(four of them: visibility, level of detail, the static shadows' signature, the latch of the
+previous frame), so a game with tens of thousands of entities keeps the far ones out of the
+render lists (Survival's `NodeStreaming` takes `Lighted` off them); and the engine's three
+background threads hold `RenderSystem::mutex` for a whole update of every entity (static
+meshes, physics, animation), so main-thread code that takes the lock every frame waits for
+it, ~65 ns an entity: take it only when there is something to change. `MAX_ENTITIES` is 50,000
+(about 4 GB of commit for a game; the arrays reserve the whole cap).
 Sizing changed with this: the old single map was `8 * screen width` texels covering
 `width/50` world units, so coverage depended on monitor width and a 1080p screen asked
 for a 15360-square map. Coverage is now fitted to the view, so resolution is a plain

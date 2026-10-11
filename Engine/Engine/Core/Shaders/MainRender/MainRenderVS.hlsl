@@ -24,6 +24,7 @@ SOFTWARE.
 
 #include "../Common/Matrix.hlsli"
 #include "../Common/ShaderStructs.hlsli"
+#include "../Common/Instancing.hlsli"
 
 cbuffer externalData : register(b0)
 {
@@ -41,9 +42,16 @@ cbuffer externalData : register(b0)
 	uint njoints;
 	int tessType;
 	float tessFactor;
+	//An instanced draw (see Common/Instancing.hlsli): a static mesh, no tessellation, drawn once for
+	//many objects. The object's matrices come from `instances` and this shader does the whole of
+	//what the later stages would do with them - the world position, the previous position and
+	//the normal leave here in world space - while the hull, domain, geometry and pixel stages are
+	//given an identity `world`, so they leave those alone.
+	int instanced;
+	uint instance_base;
 };
 
-VertexOutput main(VertexShaderInput input)
+VertexOutput main(VertexShaderInput input, uint instance_id : SV_InstanceID)
 {
 	VertexOutput output;
 	int use_bones = 0;
@@ -71,10 +79,22 @@ VertexOutput main(VertexShaderInput input)
 		prev_pos = pos;
 		normal = input.normal;
 	}
-	output.position = pos;
-	output.worldPos = mul(pos, world);
-	output.prevPos = prev_pos;
-	output.normal = normal;
+	if (instanced != 0) {
+		const InstanceData instance = instances[instance_base + instance_id];
+		const float4 instance_pos = mul(pos, instance.world);
+		//The position, too, is in the world: the geometry shader builds the tangent frame from
+		//the triangle's edges, and its own `world` is the identity here.
+		output.position = instance_pos;
+		output.worldPos = instance_pos;
+		output.prevPos = mul(prev_pos, instance.prev_world);
+		output.normal = mul(normal, (float3x3)instance.world);
+	}
+	else {
+		output.position = pos;
+		output.worldPos = mul(pos, world);
+		output.prevPos = prev_pos;
+		output.normal = normal;
+	}
 	output.uv = input.uv;
 	output.mesh_uv = input.mesh_uv;
 

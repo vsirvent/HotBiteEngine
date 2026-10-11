@@ -27,6 +27,7 @@ SOFTWARE.
 #include <Core/Vertex.h>
 #include <Core/SimpleShader.h>
 #include <Core/Utils.h>
+#include <chrono>
 #include "RenderSystem.h"
 
 using namespace HotBite::Engine;
@@ -41,6 +42,53 @@ static const float ones[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
 static const float minus_one[4] = { -1.0f, -1.0f, -1.0f, -1.0f };
 
 namespace {
+	//The camera's view frustum as six planes, read off its view-projection matrix (row vectors, `view * projection`,
+	//Direct3D's depth range: a point is inside when (p, 1) . plane >= 0 for all six). A box is outside when it lies
+	//wholly behind one of them: exact for the box against the planes (it can keep a box near a corner of the frustum
+	//that no plane alone rejects), and a few multiplications a plane. The test that was here projected the eight corners
+	//of the box to the screen and divided by w without looking at its sign, so a corner behind the camera landed
+	//mirrored on the screen: an entity behind the camera or far to a side could pass and be prepared and drawn in every
+	//pass for nothing (and a large one straddling the camera's plane could be wrongly dropped).
+	struct ViewFrustum {
+		float planes[6][4];
+
+		explicit ViewFrustum(const matrix& view_projection) {
+			XMFLOAT4X4 m;
+			XMStoreFloat4x4(&m, view_projection);
+			auto column = [&m](int c, float* out) { for (int r = 0; r < 4; ++r) { out[r] = m.m[r][c]; } };
+			float c0[4], c1[4], c2[4], c3[4];
+			column(0, c0); column(1, c1); column(2, c2); column(3, c3);
+			for (int i = 0; i < 4; ++i) {
+				planes[0][i] = c3[i] + c0[i];	//left
+				planes[1][i] = c3[i] - c0[i];	//right
+				planes[2][i] = c3[i] + c1[i];	//bottom
+				planes[3][i] = c3[i] - c1[i];	//top
+				planes[4][i] = c2[i];			//near
+				planes[5][i] = c3[i] - c2[i];	//far
+			}
+			for (int p = 0; p < 6; ++p) {
+				const float length = sqrtf(planes[p][0] * planes[p][0] + planes[p][1] * planes[p][1] + planes[p][2] * planes[p][2]);
+				if (length > 0.0f) {
+					for (int i = 0; i < 4; ++i) { planes[p][i] /= length; }
+				}
+			}
+		}
+
+		bool MayShow(const BoundingBox& box) const {
+			//Half a unit of room, so rounding at an edge never drops what is just in.
+			constexpr float kSlack = 0.5f;
+			for (int p = 0; p < 6; ++p) {
+				const float* plane = planes[p];
+				const float distance = plane[0] * box.Center.x + plane[1] * box.Center.y + plane[2] * box.Center.z + plane[3];
+				const float reach = fabsf(plane[0]) * box.Extents.x + fabsf(plane[1]) * box.Extents.y + fabsf(plane[2]) * box.Extents.z;
+				if (distance + reach + kSlack < 0.0f) {
+					return false;
+				}
+			}
+			return true;
+		}
+	};
+
 	//What a directional light's shadow map can hold: a cascade is an orthographic box across the light's `right`
 	//and `up`, so a caster whose box lies outside that square in both directions is clipped whatever its distance
 	//along the light, and drawing it writes nothing. Leaving those casters out gives the same shadow map for a
@@ -594,6 +642,8 @@ void RenderSystem::ResolveTessStats() {
 }
 
 RenderSystem::~RenderSystem() {
+	ReleaseInstanceBuffer();
+	GpuRelease();
 	rt_end = true;
 	rt_signal.notify_all();
 	rt_thread.join();
@@ -770,6 +820,288 @@ void RenderSystem::RemoveDrawable(ECS::Entity entity, RenderTree& tree) {
 	}
 }
 
+void RenderSystem::GpuBegin() {
+	gpu_open = nullptr;
+	if (!gpu_requested || frame_count - gpu_requested_frame > 120) {
+		return;
+	}
+	GpuFrame& f = gpu_ring[gpu_next];
+	if (f.pending) {
+		//The GPU is still several frames behind: this frame goes unmeasured rather than waiting for the ring.
+		return;
+	}
+	if (f.disjoint == nullptr) {
+		D3D11_QUERY_DESC desc = {};
+		desc.Query = D3D11_QUERY_TIMESTAMP_DISJOINT;
+		bool ok = SUCCEEDED(dxcore->device->CreateQuery(&desc, &f.disjoint));
+		desc.Query = D3D11_QUERY_TIMESTAMP;
+		for (int i = 0; i < GPU_STAMPS && ok; ++i) {
+			ok = SUCCEEDED(dxcore->device->CreateQuery(&desc, &f.stamp[i]));
+		}
+		if (!ok) {
+			GpuRelease();
+			gpu_requested = false;
+			return;
+		}
+	}
+	dxcore->context->Begin(f.disjoint);
+	gpu_open = &f;
+	gpu_next = (gpu_next + 1) % GPU_RING;
+}
+
+void RenderSystem::GpuStamp(int index) {
+	if (gpu_open != nullptr) {
+		dxcore->context->End(gpu_open->stamp[index]);
+	}
+}
+
+void RenderSystem::GpuEnd() {
+	if (gpu_open != nullptr) {
+		dxcore->context->End(gpu_open->disjoint);
+		gpu_open->pending = true;
+		gpu_open = nullptr;
+	}
+}
+
+void RenderSystem::GpuResolve() {
+	for (GpuFrame& f : gpu_ring) {
+		if (!f.pending) {
+			continue;
+		}
+		D3D11_QUERY_DATA_TIMESTAMP_DISJOINT disjoint = {};
+		if (dxcore->context->GetData(f.disjoint, &disjoint, sizeof(disjoint), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK) {
+			continue;
+		}
+		UINT64 t[GPU_STAMPS] = {};
+		bool ready = true;
+		for (int i = 0; i < GPU_STAMPS && ready; ++i) {
+			ready = dxcore->context->GetData(f.stamp[i], &t[i], sizeof(UINT64), D3D11_ASYNC_GETDATA_DONOTFLUSH) == S_OK;
+		}
+		if (!ready) {
+			continue;
+		}
+		f.pending = false;
+		if (disjoint.Disjoint) {
+			continue;
+		}
+		const double to_ms = 1000.0 / (double)disjoint.Frequency;
+		gpu_timings.shadows += (double)(t[1] - t[0]) * to_ms;
+		gpu_timings.depth += (double)(t[2] - t[1]) * to_ms;
+		gpu_timings.scene += (double)(t[3] - t[2]) * to_ms;
+		gpu_timings.motion += (double)(t[4] - t[3]) * to_ms;
+		gpu_timings.rt += (double)(t[5] - t[4]) * to_ms;
+		gpu_timings.gi += (double)(t[6] - t[5]) * to_ms;
+		gpu_timings.light += (double)(t[7] - t[6]) * to_ms;
+		gpu_timings.mix += (double)(t[8] - t[7]) * to_ms;
+		gpu_timings.aa += (double)(t[9] - t[8]) * to_ms;
+		gpu_timings.blur += (double)(t[10] - t[9]) * to_ms;
+		gpu_timings.post += (double)(t[10] - t[3]) * to_ms;
+		++gpu_timings.frames;
+	}
+}
+
+void RenderSystem::GpuRelease() {
+	for (GpuFrame& f : gpu_ring) {
+		if (f.disjoint != nullptr) { f.disjoint->Release(); f.disjoint = nullptr; }
+		for (int i = 0; i < GPU_STAMPS; ++i) {
+			if (f.stamp[i] != nullptr) { f.stamp[i]->Release(); f.stamp[i] = nullptr; }
+		}
+		f.pending = false;
+	}
+	gpu_open = nullptr;
+}
+
+bool RenderSystem::EnsureInstanceBuffer(uint32_t count) {	if (instance_buffer != nullptr && count <= instance_capacity) {
+		return true;
+	}
+	ReleaseInstanceBuffer();
+	uint32_t capacity = 4096;
+	while (capacity < count) {
+		capacity *= 2;
+	}
+	D3D11_BUFFER_DESC desc = {};
+	desc.ByteWidth = capacity * (UINT)sizeof(InstanceData);
+	desc.Usage = D3D11_USAGE_DYNAMIC;
+	desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+	desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+	desc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+	desc.StructureByteStride = (UINT)sizeof(InstanceData);
+	if (FAILED(dxcore->device->CreateBuffer(&desc, nullptr, &instance_buffer))) {
+		instance_buffer = nullptr;
+		return false;
+	}
+	D3D11_SHADER_RESOURCE_VIEW_DESC view = {};
+	view.Format = DXGI_FORMAT_UNKNOWN;
+	view.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
+	view.Buffer.FirstElement = 0;
+	view.Buffer.NumElements = capacity;
+	if (FAILED(dxcore->device->CreateShaderResourceView(instance_buffer, &view, &instance_view))) {
+		ReleaseInstanceBuffer();
+		return false;
+	}
+	instance_capacity = capacity;
+	return true;
+}
+
+void RenderSystem::ReleaseInstanceBuffer() {
+	if (instance_view != nullptr) {
+		instance_view->Release();
+		instance_view = nullptr;
+	}
+	if (instance_buffer != nullptr) {
+		instance_buffer->Release();
+		instance_buffer = nullptr;
+	}
+	instance_capacity = 0;
+}
+
+bool RenderSystem::CanInstanceBucket(InstancePass pass, const Core::MaterialData* material, Core::SimpleVertexShader* vs, Core::SimpleHullShader* hs,
+	Core::SimpleDomainShader* ds, Core::SimpleGeometryShader* gs, Core::SimplePixelShader* ps) {
+	if (!instancing_enabled || material == nullptr || vs == nullptr || !((instancing_passes >> (int)pass) & 1u)) {
+		return false;
+	}
+	//Only the shaders the instanced vertex shaders were written for: a material with its own (water, lava, grass)
+	//may use the object's matrix in a stage that is not given the instance.
+	ShaderFactory* factory = ShaderFactory::Get();
+	switch (pass) {
+	case InstancePass::Depth:
+		return hs == nullptr && ds == nullptr && gs == nullptr
+			&& vs == factory->GetShader<SimpleVertexShader>("DepthVS.cso") && ps == factory->GetShader<SimplePixelShader>("DepthPS.cso");
+	case InstancePass::Shadow:
+		return hs == nullptr && ds == nullptr && ps == nullptr
+			&& vs == factory->GetShader<SimpleVertexShader>("ShadowVS.cso") && gs == factory->GetShader<SimpleGeometryShader>("ShadowMapCubeGS.cso");
+	case InstancePass::Scene:
+		//Opaque, one texture set, no tessellation and a UV mapping that does not look at the world matrix.
+		return material->multi_material == nullptr && material->tessellation_type == 0
+			&& !(material->props.flags & (ALPHA_ENABLED_FLAG | BLEND_ENABLED_FLAG | WORLD_UV_ENABLED_FLAG))
+			&& vs == factory->GetShader<SimpleVertexShader>("MainRenderVS.cso") && hs == factory->GetShader<SimpleHullShader>("MainRenderHS.cso")
+			&& ds == factory->GetShader<SimpleDomainShader>("MainRenderDS.cso") && gs == factory->GetShader<SimpleGeometryShader>("MainRenderGS.cso")
+			&& ps == factory->GetShader<SimplePixelShader>("MainRenderPS.cso");
+	}
+	return false;
+}
+
+bool RenderSystem::CanInstanceEntity(const DrawableEntity& entity) {
+	const Core::MeshData* data = entity.mesh->GetData();
+	//A static mesh in the shared vertex buffer: nothing skins it, tessellates it or displaces it, and it is not
+	//one that owns its own buffer (a terrain chunk).
+	return data != nullptr && data->skeletons.empty() && data->GetOwnedBuffer() == nullptr && data->tessellation_type == 0
+		&& data->displacement_scale <= 0.0f && entity.mesh->index_count > 0;
+}
+
+template <class Accept>
+void RenderSystem::DrawBucket(ECS::EntityVector<DrawableEntity>& bucket, InstancePass pass, bool can_instance, Core::SimpleVertexShader* vs,
+	Core::SimpleHullShader* hs, Core::SimpleDomainShader* ds, Core::SimpleGeometryShader* gs, Core::SimplePixelShader* ps, Accept&& accept) {
+	instance_pending.clear();
+	for (DrawableEntity& de : bucket.GetData()) {
+		if (!accept(de)) {
+			continue;
+		}
+		if (can_instance && CanInstanceEntity(de)) {
+			instance_pending.push_back({ de.mesh->GetData(), de.mesh->index_count, de.mesh->index_offset, de.mesh->vertex_offset, &de });
+			continue;
+		}
+		PrepareEntity(de, vs, hs, ds, gs, ps);
+		DrawMeshEntity(de.mesh);
+		UnprepareEntity(de, vs, hs, ds, gs, ps);
+	}
+	if (instance_pending.empty()) {
+		return;
+	}
+	//The ones that draw the same range of the same mesh (a level of detail of one model) go together.
+	std::sort(instance_pending.begin(), instance_pending.end());
+	for (size_t first = 0; first < instance_pending.size();) {
+		size_t end = first + 1;
+		while (end < instance_pending.size() && instance_pending[end].SameGeometry(instance_pending[first])) {
+			++end;
+		}
+		if (end - first >= MIN_INSTANCES) {
+			DrawInstanceGroup(pass, &instance_pending[first], end - first, vs, hs, ds, gs, ps);
+		}
+		else {
+			for (size_t i = first; i < end; ++i) {
+				DrawableEntity& de = *instance_pending[i].drawable;
+				PrepareEntity(de, vs, hs, ds, gs, ps);
+				DrawMeshEntity(de.mesh);
+				UnprepareEntity(de, vs, hs, ds, gs, ps);
+			}
+		}
+		first = end;
+	}
+}
+
+void RenderSystem::DrawInstanceGroup(InstancePass pass, const InstanceRef* first, size_t count, Core::SimpleVertexShader* vs, Core::SimpleHullShader* hs,
+	Core::SimpleDomainShader* ds, Core::SimpleGeometryShader* gs, Core::SimplePixelShader* ps) {
+	ID3D11DeviceContext* context = dxcore->context;
+	const auto draw_one_by_one = [&]() {
+		for (size_t i = 0; i < count; ++i) {
+			DrawableEntity& de = *first[i].drawable;
+			PrepareEntity(de, vs, hs, ds, gs, ps);
+			DrawMeshEntity(de.mesh);
+			UnprepareEntity(de, vs, hs, ds, gs, ps);
+		}
+	};
+	D3D11_MAPPED_SUBRESOURCE mapped = {};
+	if (!EnsureInstanceBuffer((uint32_t)count) || FAILED(context->Map(instance_buffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
+		draw_one_by_one();
+		return;
+	}
+	InstanceData* out = (InstanceData*)mapped.pData;
+	for (size_t i = 0; i < count; ++i) {
+		const DrawableEntity& de = *first[i].drawable;
+		out[i].world = de.transform->world_matrix;
+		out[i].prev_world = de.transform->prev_world_matrix;
+	}
+	context->Unmap(instance_buffer, 0);
+
+	static const std::string INSTANCED = "instanced";
+	static const std::string INSTANCE_BASE = "instance_base";
+	static const std::string INSTANCES = "instances";
+	static const float4x4 identity = []() { float4x4 m; XMStoreFloat4x4(&m, XMMatrixIdentity()); return m; }();
+	DrawableEntity& lead = *first[0].drawable;
+	Mesh* mesh = lead.mesh;
+	ID3D11ShaderResourceView* mesh_normal_map = mesh->GetData()->normal_map;
+	//What PrepareEntity would set, but once for the whole group, and with the world matrices taken out of the
+	//stages that cannot be given the instance: they get the identity, and the vertex shader hands them positions and
+	//normals that are already in the world (Core/Shaders/Common/Instancing.hlsli).
+	mesh->Prepare(vs);
+	vs->SetInt(INSTANCED, 1);
+	vs->SetInt(INSTANCE_BASE, 0);
+	vs->SetShaderResourceView(INSTANCES, instance_view);
+	vs->CopyAllBufferData();
+	if (pass == InstancePass::Scene) {
+		if (ds != nullptr) {
+			ds->SetMatrix4x4(WORLD, identity);
+			ds->CopyAllBufferData();
+		}
+		if (gs != nullptr) {
+			gs->SetMatrix4x4(WORLD, identity);
+			gs->SetMatrix4x4("inv_world", identity);
+			gs->CopyAllBufferData();
+		}
+	}
+	if (ps != nullptr && pass != InstancePass::Shadow) {
+		ps->SetMatrix4x4(WORLD, identity);
+		ps->SetMatrix4x4(PREV_WORLD, identity);
+		ps->SetShaderResourceView(MESH_NORMAL_MAP, mesh_normal_map);
+		ps->SetInt(MESH_NORMAL_MAP_ENABLE, mesh_normal_map != nullptr);
+		ps->CopyAllBufferData();
+	}
+	//The hull and domain stages stay in the pipeline: handing the vertex shader's output straight to the geometry
+	//shader (a plain triangle list) was tried and measured, and it saved nothing while turning parts of the foliage
+	//black.
+	context->DrawIndexedInstanced((UINT)mesh->index_count, (UINT)count, (UINT)mesh->index_offset, (INT)mesh->vertex_offset, 0);
+	//Back to what the entities drawn one by one expect.
+	vs->SetInt(INSTANCED, 0);
+	vs->SetShaderResourceView(INSTANCES, nullptr);
+	vs->CopyAllBufferData();
+	mesh->Unprepare(vs);
+	if (ps != nullptr && pass != InstancePass::Shadow) {
+		ps->SetShaderResourceView(MESH_NORMAL_MAP, nullptr);
+	}
+	++instancing_stats_frame.draws;
+	instancing_stats_frame.entities += (uint32_t)count;
+}
 void RenderSystem::DrawDepth(int w, int h, const float3& camera_position, const matrix& view, const matrix& projection) {
 
 	ID3D11DeviceContext* context = dxcore->context;
@@ -867,17 +1199,11 @@ void RenderSystem::DrawDepth(int w, int h, const float3& camera_position, const 
 		coordinator->SendEvent(e);
 		for (auto &mat: shaders.second) {
 			if (!(mat.first->props.flags & (ALPHA_ENABLED_FLAG | BLEND_ENABLED_FLAG))) {
-				for (auto &de : mat.second.second.GetData()) {
-					//scene_visible is what CheckSceneVisibility made of the entity this frame (before this pass runs):
-					//the depth of an entity outside the view is never read, and drawing it anyway meant a draw call
-					//and constant-buffer uploads for every entity of the world, every frame.
-					if (de.base->visible && de.base->scene_visible && de.base->draw_depth) {
-						PrepareEntity(de, vs, hs, ds, gs, ps);
-						Mesh* mesh = de.mesh;
-						DrawMeshEntity(mesh);
-						UnprepareEntity(de, vs, hs, ds, gs, ps);
-					}
-				}
+				//scene_visible is what CheckSceneVisibility made of the entity this frame (before this pass runs):
+				//the depth of an entity outside the view is never read, and drawing it anyway meant a draw call
+				//and constant-buffer uploads for every entity of the world, every frame.
+				DrawBucket(mat.second.second, InstancePass::Depth, CanInstanceBucket(InstancePass::Depth, mat.first, vs, hs, ds, gs, ps), vs, hs, ds, gs, ps,
+					[](const DrawableEntity& de) { return de.base->visible && de.base->scene_visible && de.base->draw_depth; });
 			}
 		}
 		e.SetType(EVENT_ID_DEPTH_UNPREPARE_SHADER);
@@ -1154,18 +1480,16 @@ void RenderSystem::CastShadows(int w, int h, const float3& camera_position, cons
 				coordinator->SendEvent(e);
 
 				for (auto &mat: shaders.second) {
-					for (auto& de: mat.second.second.GetData()) {
-						if (de.base->visible && de.base->cast_shadow && !l.light->IsSkipEntity(de.base->id) &&
-							//we paint static objects if static_shadows = true || dynamic objects if static_shadows = false
-							((!static_shadows && !de.base->is_static) || (static_shadows && de.base->is_static)) &&
-							//...and only those the map can hold (an always-drawn entity is not placed by its box)
-							(de.base->draw_method == DRAW_ALWAYS || footprint.Covers(de.bounds->final_box))) {
-							PrepareEntity(de, vs, hs, ds, gs, ps);
-							Mesh* mesh = de.mesh;
-							DrawMeshEntity(mesh);
-							UnprepareEntity(de, vs, hs, ds, gs, ps);
-						}
-					}
+					DrawBucket(mat.second.second, InstancePass::Shadow, CanInstanceBucket(InstancePass::Shadow, mat.first, vs, hs, ds, gs, ps), vs, hs, ds, gs, ps,
+						[&](const DrawableEntity& de) {
+							return de.base->visible && de.base->cast_shadow &&
+								//we paint static objects if static_shadows = true || dynamic objects if static_shadows = false
+								((!static_shadows && !de.base->is_static) || (static_shadows && de.base->is_static)) &&
+								//...and only those the map can hold (an always-drawn entity is not placed by its box)
+								(de.base->draw_method == DRAW_ALWAYS || footprint.Covers(de.bounds->final_box)) &&
+								//the light's own skip list (a hash set) last: it is asked of what is left, not of every entity of the world
+								!l.light->IsSkipEntity(de.base->id);
+						});
 				}
 				e.SetType(EVENT_ID_SHADOW_DIR_LIGHT_UNPREPARE_SHADER);
 				coordinator->SendEvent(e);
@@ -1277,10 +1601,13 @@ void RenderSystem::CheckSceneVisibility(RenderTree& tree) {
 	int w = dxcore->GetWidth();
 	int h = dxcore->GetHeight();
 
+	(void)w;
+	(void)h;
+	const ViewFrustum frustum(cam_entity.camera->xm_view_projection);
 	for (auto& shaders : tree) {
 		for (auto& mat : shaders.second) {
 			for (auto& de : mat.second.second.GetData()) {
-				de.base->scene_visible = IsVisible(cam_entity.camera->world_position, de, cam_entity.camera->xm_view_projection, w, h);
+				de.base->scene_visible = de.base->draw_method == DRAW_ALWAYS || frustum.MayShow(de.bounds->final_box);
 			}
 		}
 	}
@@ -1539,8 +1866,6 @@ void RenderSystem::DrawParticles(int w, int h, const float3& camera_position, co
 
 void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const matrix& view, const matrix& projection,
 	                         ID3D11ShaderResourceView* prev_pass_texture, Core::IRenderTarget* target, RenderTree& tree) {
-	int draw_count = 0;
-	int total_count = 0;
 	ID3D11DeviceContext* context = dxcore->context;
 	//Render scene to target texture, can be the final backbuffer render
 	//or a post process texture pipeline
@@ -1749,21 +2074,12 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 					PrepareMultiMaterial(mat.first, vs, hs, ds, gs, ps);
 					ds->CopyAllBufferData();
 				}
-				for (auto& de : mat.second.second.GetData()) {
-					total_count++;
-					//An entity that is hidden or outside the view is not drawn, so it is not prepared either:
-					//PrepareEntity sends an event and uploads the constant buffers of every shader stage, which
-					//costs far more than the test that skips the draw. With thousands of entities in the world
-					//and a few hundred in view, preparing them all was most of the frame.
-					if (!de.base->visible || !de.base->scene_visible) {
-						continue;
-					}
-					PrepareEntity(de, vs, hs, ds, gs, ps);
-					Mesh* mesh = de.mesh;
-					DrawMeshEntity(mesh);
-					draw_count++;
-					UnprepareEntity(de, vs, hs, ds, gs, ps);
-				}
+				//An entity that is hidden or outside the view is not drawn, so it is not prepared either:
+				//PrepareEntity sends an event and uploads the constant buffers of every shader stage, which
+				//costs far more than the test that skips the draw. With thousands of entities in the world
+				//and a few hundred in view, preparing them all was most of the frame.
+				DrawBucket(mat.second.second, InstancePass::Scene, CanInstanceBucket(InstancePass::Scene, mat.first, vs, hs, ds, gs, ps), vs, hs, ds, gs, ps,
+					[](const DrawableEntity& de) { return de.base->visible && de.base->scene_visible; });
 				if (mat.first->multi_material != nullptr) {
 					UnprepareMultiMaterial(mat.first, vs, hs, ds, gs, ps);
 				}
@@ -1800,11 +2116,6 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 
 	ID3D11RenderTargetView* rv_zero[1] = { nullptr };
 	context->OMSetRenderTargets(1, rv_zero, nullptr);
-	//Print stats
-	static int n = 0;
-	if (n++ % 500 == 0) {
-		printf("Rendered %d / %d objects\n", draw_count, total_count);
-	}
 }
 
 bool RenderSystem::EnsureSplatBuffers(uint32_t splat_count, uint32_t tiles_x, uint32_t tiles_y) {
@@ -2662,119 +2973,52 @@ const Core::MeshData* RenderSystem::LodGeometry(Core::MeshData* data, int lod) {
 
 void RenderSystem::PrepareRT() {
 	if (rt_quality != eRtQuality::OFF && rt_enabled && bvh_buffer != nullptr) {
-		auto& device = dxcore->device;
-
 		CameraEntity& cam_entity = cameras.GetData()[0];
 
-		struct Node {
-			ObjectInfo obj;
-			MaterialProps mat;
-			ID3D11ShaderResourceView* diff;
-			//Only for the readout below; nothing traced reads them.
-			uint32_t full_indices;
-			uint32_t traced_indices;
+		//Only the nearest MAX_OBJECTS drawables are traced, so a drawable first costs what it takes to say how far it is
+		//(a few words), and only the ones that make the cut are described in full. This used to describe every drawable
+		//of the world into a map keyed by distance, a key already taken being moved a unit along until a free one was
+		//found: the cost of a frame grew faster than the number of entities (45 ms a frame at 5,900 of them, with the
+		//main thread waiting on this thread's lock), for an answer that is the same hundred objects.
+		struct Candidate {
+			float distance;
+			uint32_t order;
+			const DrawableEntity* drawable;
 		};
-		std::map<float, Node> distance_map;
+		//Reused from frame to frame: this runs on the one ray tracing thread.
+		thread_local std::vector<Candidate> candidates;
+		candidates.clear();
 
-		bool enabled_layer[RT_NTEXTURES]{ false };
-		enabled_layer[2] = rt_enabled & RT_INDIRECT_ENABLE;
-
-		auto fill = [op = &enabled_layer[0], tr = &enabled_layer[1],
-			ca = &cam_entity](const RenderTree& tree, std::map<float, Node>& distance_map) {
+		auto gather = [ca = &cam_entity](const RenderTree& tree) {
 			for (const auto& shaders : tree) {
 				for (const auto& mat : shaders.second) {
 					for (const auto& de : mat.second.second.GetConstData()) {
-						if (de.base->visible &&  de.mesh->GetData()->skeletons.empty()) {
-
+						if (de.base->visible && de.mesh->GetData()->skeletons.empty()) {
 							// Get the center and extents of the oriented box
 							const float3& orientedBoxCenter = de.bounds->final_box.Center;
 							const float3& orientedBoxExtents = de.bounds->final_box.Extents;
-
-							//float distance = LENGHT_F3(de.transform->position - (ADD_F3_F3(ca->camera->world_position, ca->camera->direction)));
-							float distance = LENGHT_F3(MAX_F3_F3(SUB_F3_F3(orientedBoxCenter - ca->transform->position, orientedBoxExtents), { 0.0f, 0.0f, 0.0f }));
-
-
-							MaterialProps mo = de.mat->data->props;
-							ID3D11ShaderResourceView* diffuse_text = de.mat->data->diffuse;
-
-							ObjectInfo o;
-
-							// Calculate the minimum and maximum points of the AABB
-							o.aabb_min = { orientedBoxCenter.x - orientedBoxExtents.x,
-											orientedBoxCenter.y - orientedBoxExtents.y,
-											orientedBoxCenter.z - orientedBoxExtents.z };
-
-							o.aabb_max = { orientedBoxCenter.x + orientedBoxExtents.x,
-											orientedBoxCenter.y + orientedBoxExtents.y,
-											orientedBoxCenter.z + orientedBoxExtents.z };
-
-							Core::MeshData* data = de.mesh->GetData();
-							//Every ray traces the coarsest level in the chain, whatever is
-							//being drawn and whatever the quality setting says. Neither
-							//consumer wants the detail: a reflection is a filtered,
-							//denoised, half-resolution image of the scene and indirect
-							//light is a diffuse integral accumulated over many frames, and
-							//this pass is ~64% of a ray traced frame (see the cost table in
-							//CLAUDE.md), so a mesh's silhouette in a reflection is the
-							//cheapest thing in the frame to be approximate about.
-							//
-							//`lods` is finest-first with [0] being the mesh itself, so the
-							//last entry is the answer and an empty chain means there is
-							//only the mesh.
-							const int trace_lod = data->lods.empty() ? 0 : (int)data->lods.size() - 1;
-							const Core::MeshData* geometry = LodGeometry(data, trace_lod);
-
-							o.position = orientedBoxCenter;
-							o.world = de.transform->world_matrix;
-							o.inv_world = de.transform->world_inv_matrix;
-
-							o.density = de.mat->data->props.density;
-							o.opacity = de.mat->data->props.opacity;
-
-							o.vertex_offset = (uint32_t)geometry->vertexOffset;
-							o.index_offset = (uint32_t)geometry->indexOffset;
-							o.object_offset = (uint32_t)geometry->bvhOffset;
-
-							if (o.opacity > 0.0f) {
-								*op = true;
-							}
-							if (o.opacity < 1.0f) {
-								*tr = true;
-							}
-							while (true) {
-								if (!distance_map.contains(distance)) {
-									distance_map[distance] = { o, mo, diffuse_text,
-										data->indexCount, geometry->indexCount };
-									break;
-								}
-								else {
-									distance += 1.0f;
-								}
-							}
+							const float distance = LENGHT_F3(MAX_F3_F3(SUB_F3_F3(orientedBoxCenter - ca->transform->position, orientedBoxExtents), { 0.0f, 0.0f, 0.0f }));
+							candidates.push_back({ distance, (uint32_t)candidates.size(), &de });
 						}
 					}
 				}
 			}
 		};
+		gather(render_tree);
+		gather(render_pass2_tree);
 
-		auto sort = [=](const std::map<float, Node>& distance_map, ObjectInfo objects[MAX_OBJECTS],
-			MaterialProps objectMaterials[MAX_OBJECTS],
-			ID3D11ShaderResourceView* diffuseTextures[MAX_OBJECTS],
-			int& len) {
-				len = 0;
-				for (auto& o : distance_map) {
-					objects[len] = o.second.obj;
-					objectMaterials[len] = o.second.mat;
-					diffuseTextures[len++] = o.second.diff;
-					if (len >= MAX_OBJECTS) {
-						break;
-					}
-				}
+		//The nearest ones, in order: a tie goes to the one the trees hold first, as it did when the map kept the first
+		//of two equal keys.
+		const size_t keep = (std::min)(candidates.size(), (size_t)MAX_OBJECTS);
+		const auto nearer = [](const Candidate& a, const Candidate& b) {
+			return a.distance < b.distance || (a.distance == b.distance && a.order < b.order);
 		};
+		if (candidates.size() > keep) {
+			std::nth_element(candidates.begin(), candidates.begin() + keep, candidates.end(), nearer);
+		}
+		std::sort(candidates.begin(), candidates.begin() + keep, nearer);
 
-		fill(render_tree, distance_map);
-		fill(render_pass2_tree, distance_map);
-		sort(distance_map, objects, objectMaterials, diffuseTextures, nobjects);
+		nobjects = (int)keep;
 		//An empty object list has no hierarchy to build, and Subdivide does not
 		//survive being asked for one: the root gets a count of zero, neither
 		//termination case matches, and it recurses into two equally empty children
@@ -2785,26 +3029,63 @@ void RenderSystem::PrepareRT() {
 			rt_geometry_stats = RtGeometryStats{};
 			return;
 		}
-		//Over the objects that were actually sent, which is the nearest MAX_OBJECTS of
-		//them and not everything the trees hold.
-		{
-			RtGeometryStats stats;
-			int index = 0;
-			for (const auto& o : distance_map) {
-				if (index++ >= nobjects) {
-					break;
-				}
-				stats.objects++;
-				stats.full_indices += o.second.full_indices;
-				stats.traced_indices += o.second.traced_indices;
-			}
-			rt_geometry_stats = stats;
+
+		RtGeometryStats stats;
+		for (size_t i = 0; i < keep; ++i) {
+			const DrawableEntity& de = *candidates[i].drawable;
+			const Core::MeshData* data = de.mesh->GetData();
+			//Every ray traces the coarsest level in the chain, whatever is
+			//being drawn and whatever the quality setting says. Neither
+			//consumer wants the detail: a reflection is a filtered,
+			//denoised, half-resolution image of the scene and indirect
+			//light is a diffuse integral accumulated over many frames, and
+			//this pass is ~64% of a ray traced frame (see the cost table in
+			//CLAUDE.md), so a mesh's silhouette in a reflection is the
+			//cheapest thing in the frame to be approximate about.
+			//
+			//`lods` is finest-first with [0] being the mesh itself, so the
+			//last entry is the answer and an empty chain means there is
+			//only the mesh.
+			const int trace_lod = data->lods.empty() ? 0 : (int)data->lods.size() - 1;
+			const Core::MeshData* geometry = LodGeometry(de.mesh->GetData(), trace_lod);
+
+			const float3& orientedBoxCenter = de.bounds->final_box.Center;
+			const float3& orientedBoxExtents = de.bounds->final_box.Extents;
+
+			ObjectInfo& o = objects[i];
+			// Calculate the minimum and maximum points of the AABB
+			o.aabb_min = { orientedBoxCenter.x - orientedBoxExtents.x,
+							orientedBoxCenter.y - orientedBoxExtents.y,
+							orientedBoxCenter.z - orientedBoxExtents.z };
+
+			o.aabb_max = { orientedBoxCenter.x + orientedBoxExtents.x,
+							orientedBoxCenter.y + orientedBoxExtents.y,
+							orientedBoxCenter.z + orientedBoxExtents.z };
+
+			o.position = orientedBoxCenter;
+			o.world = de.transform->world_matrix;
+			o.inv_world = de.transform->world_inv_matrix;
+
+			o.density = de.mat->data->props.density;
+			o.opacity = de.mat->data->props.opacity;
+
+			o.vertex_offset = (uint32_t)geometry->vertexOffset;
+			o.index_offset = (uint32_t)geometry->indexOffset;
+			o.object_offset = (uint32_t)geometry->bvhOffset;
+
+			objectMaterials[i] = de.mat->data->props;
+			diffuseTextures[i] = de.mat->data->diffuse;
+
+			//Only for the readout: what the ray tracers send, against what the meshes have.
+			stats.objects++;
+			stats.full_indices += data->indexCount;
+			stats.traced_indices += geometry->indexCount;
 		}
+		rt_geometry_stats = stats;
 		//From the AABBs, which are the entity bounds and so identical in both arrays.
 		tbvh.Load(objects, nobjects);
-	}	
+	}
 }
-
 void RenderSystem::ProcessGI() {
 	if (rt_enabled & RT_INDIRECT_ENABLE && rt_quality != eRtQuality::OFF && rt_enabled && bvh_buffer != nullptr && nobjects > 0) {
 
@@ -3821,10 +4102,24 @@ void RenderSystem::Draw() {
 		matrix projection = XMMatrixTranspose(XMLoadFloat4x4(&cam_entity.camera->projection));
 		float3 camera_position = cam_entity.camera->world_position;
 
+		//The CPU time of each part of the frame (CpuTimings): each lap adds what has passed since the last one.
+		auto cpu_last = std::chrono::steady_clock::now();
+		const auto cpu_lap = [&cpu_last](double& slot) {
+			const auto now = std::chrono::steady_clock::now();
+			slot += std::chrono::duration<double, std::milli>(now - cpu_last).count();
+			cpu_last = now;
+		};
+		GpuResolve();
+		GpuBegin();
+		GpuStamp(0);
+		instancing_stats_frame = InstancingStats{};
+		cpu_last = std::chrono::steady_clock::now();
 		CheckSceneVisibility(render_tree);
+		cpu_lap(cpu_timings.visibility);
 		//Before CastShadows and DrawDepth, so every pass of this frame draws the same
 		//geometry - see SelectLods.
 		SelectLods(*(cam_entity.camera));
+		cpu_lap(cpu_timings.lods);
 		static int count = 0;
 		//Only one every STATIC_SHADOW_REFRESH_PERIOD frames we refresh static shadows (directional light can change location due to sky component)
 		//but this is fine to just make the overhead of casting shadow of static objects almost zero (cost reduced by /STATIC_SHADOW_REFRESH_PERIOD)
@@ -3843,10 +4138,12 @@ void RenderSystem::Draw() {
 			}
 		}
 		const uint64_t static_shadow_signature = StaticShadowSignature();
+		cpu_lap(cpu_timings.signature);
 		if ((count++ % STATIC_SHADOW_REFRESH_PERIOD) == 0 || static_stale ||
 			static_shadow_signature != last_static_shadow_signature) {
 			last_static_shadow_signature = static_shadow_signature;
 			CastShadows(w, h, camera_position, view, projection, true);
+			cpu_lap(cpu_timings.static_shadows);
 		}
 		//Both effects are re-enabled from the stored flags every frame, which is what
 		//lets a debug buffer view suppress them for as long as it is up without
@@ -3866,8 +4163,13 @@ void RenderSystem::Draw() {
 		current_light_map = &light_map[0];
 		prev_light_map = nullptr;
 
+		cpu_lap(cpu_timings.post);
 		CastShadows(w, h, camera_position, view, projection, false);
+		cpu_lap(cpu_timings.shadows);
+		GpuStamp(1);
 		DrawDepth(w, h, camera_position, view, projection);
+		cpu_lap(cpu_timings.depth);
+		GpuStamp(2);
 		ProcessAutoFocus();
 		DrawSky(w, h, camera_position, view, projection);
 		//The main pass is the one that draws every tessellated surface, so it is what the
@@ -3890,12 +4192,20 @@ void RenderSystem::Draw() {
 		//composite over the finished scene colour; before ProcessMotion and everything
 		//after it, which build the frame out of the buffers this writes into.
 		DrawSplats(w, h, camera_position, view, projection);
+		cpu_lap(cpu_timings.scene);
+		GpuStamp(3);
 		ProcessMotion();
+		GpuStamp(4);
 		ProcessRT();
+		GpuStamp(5);
 		ProcessGI();
+		GpuStamp(6);
 		PostProcessLight();
+		GpuStamp(7);
 		ProcessMix();
+		GpuStamp(8);
 		ProcessAntiAlias();
+		GpuStamp(9);
 		ProcessMotionBlur();
 
 		if (post_process_pipeline != nullptr) {
@@ -3903,7 +4213,13 @@ void RenderSystem::Draw() {
 			post_process_pipeline->SetShaderResourceView(AUTOFOCUS_TEXTURE, autofocus_map.SRV());
 			post_process_pipeline->SetView(*(cam_entity.camera));
 		}
+		cpu_lap(cpu_timings.post);
+		GpuStamp(10);
+		GpuEnd();
 		LatchPreviousFrame(*(cam_entity.camera));
+		cpu_lap(cpu_timings.latch);
+		++cpu_timings.frames;
+		instancing_stats_last = instancing_stats_frame;
 	}
 	if (post_process_pipeline != nullptr) {
 		DXCore::Get()->context->RSSetViewports(1, &dxcore->viewport);

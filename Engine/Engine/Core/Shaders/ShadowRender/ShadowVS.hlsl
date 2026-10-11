@@ -24,15 +24,19 @@ SOFTWARE.
 
 #include "../Common/Matrix.hlsli"
 #include "../Common/ShaderStructs.hlsli"
+#include "../Common/Instancing.hlsli"
 
 cbuffer externalData : register(b0)
 {
 	matrix joints[MAX_JOINTS];
 	matrix world;
 	uint njoints;
+	//An instanced draw: the world matrix comes from `instances` (Common/Instancing.hlsli).
+	int instanced;
+	uint instance_base;
 };
 
-float4 main(VertexShaderInput input): SV_POSITION
+float4 main(VertexShaderInput input, uint instance_id : SV_InstanceID): SV_POSITION
 {
 	VertexOutput output;
 	int use_bones = 0;
@@ -49,6 +53,9 @@ float4 main(VertexShaderInput input): SV_POSITION
 	}
 	else {
 		pos = float4(input.position, 1.0f);
+	}
+	if (instanced != 0) {
+		return mul(pos, instances[instance_base + instance_id].world);
 	}
 	return mul(pos, world);
 }
