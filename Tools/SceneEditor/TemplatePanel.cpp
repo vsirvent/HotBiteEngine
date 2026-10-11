@@ -2,6 +2,7 @@
 #include "AssetBrowser.h"
 #include "EditorHistory.h"
 #include "EditorLayout.h"
+#include "EntityOps.h"
 #include "Inspector.h"
 #include "MaterialPanel.h"
 #include "Selection.h"
@@ -1009,6 +1010,21 @@ namespace HotBiteEditor {
 					return inst.name;
 				}
 			}
+			//An entity added to an instance - a light parented to it - is not something its
+			//template spawned, but it is the instance's all the same.
+			Coordinator* c = (state.world != nullptr) ? state.world->GetCoordinator() : nullptr;
+			const Entity e = (c != nullptr) ? c->GetEntityByName(entity_name) : INVALID_ENTITY_ID;
+			if (e != INVALID_ENTITY_ID && c->ContainsComponent<Base>(e)) {
+				const Entity parent = c->GetConstComponent<Base>(e).parent;
+				if (parent != INVALID_ENTITY_ID && c->ContainsComponent<Base>(parent)) {
+					const std::string& parent_name = c->GetConstComponent<Base>(parent).name;
+					for (const PlacedInstance& inst : state.placed_instances) {
+						if (inst.name == parent_name) {
+							return inst.name;
+						}
+					}
+				}
+			}
 			return std::string();
 		}
 
@@ -1068,8 +1084,65 @@ namespace HotBiteEditor {
 				? scale : UnscaleBy(scale, instance_scale);
 		}
 
-		bool ApplyInstanceToTemplate(EditorState& state, const std::string& instance_name,
-			std::string& error) {
+		//Defined with the template edit mode below, which builds its inline parts the same way.
+		static nlohmann::json InlineDefinition(EditorState& state, Coordinator* c, Entity e);
+
+		//The level entities that hang off a placed instance without being part of what its
+		//template spawns: the point light dragged onto a house, a torch placed on it. They
+		//belong to this instance and to the level - which is what makes them loose - and
+		//applying the instance to a template is what turns them into parts of it.
+		std::vector<std::string> ListInstanceChildren(const EditorState& state,
+			const std::string& instance_name) {
+			std::vector<std::string> children;
+			if (state.world == nullptr) {
+				return children;
+			}
+			Coordinator* c = state.world->GetCoordinator();
+			const std::string instance = InstanceOf(state, instance_name);
+			if (c == nullptr || instance.empty()) {
+				return children;
+			}
+			const PlacedInstance* record = nullptr;
+			for (const PlacedInstance& inst : state.placed_instances) {
+				if (inst.name == instance) {
+					record = &inst;
+					break;
+				}
+			}
+			const Entity root = c->GetEntityByName(instance);
+			if (record == nullptr || root == INVALID_ENTITY_ID) {
+				return children;
+			}
+			//What the template itself spawned is not loose, whoever it is parented to.
+			const std::vector<std::string> spawned_names =
+				state.world->InstanceEntityNames(instance, record->template_name);
+			const std::set<std::string> spawned(spawned_names.begin(), spawned_names.end());
+			for (const auto& [name, entity] : c->GetEntites()) {
+				if (spawned.count(name) != 0 || EntityOps::IsParkedName(name) ||
+					!c->ContainsComponent<Base>(entity) || !c->ContainsComponent<Transform>(entity) ||
+					c->GetConstComponent<Base>(entity).parent != root) {
+					continue;
+				}
+				//A camera and the sky are not objects a template can carry.
+				if (c->ContainsComponent<Camera>(entity) || c->ContainsComponent<Sky>(entity)) {
+					continue;
+				}
+				children.push_back(name);
+			}
+			std::sort(children.begin(), children.end());
+			return children;
+		}
+
+		//What "apply to the template" and "save as a new template" both start from: the
+		//placed instance an entity belongs to, and the template it was placed from as it
+		//stands now.
+		struct InstanceSource {
+			PlacedInstance record;
+			TemplateSnapshot before;
+		};
+
+		static bool ResolveInstanceSource(EditorState& state, const std::string& instance_name,
+			InstanceSource& out, std::string& error) {
 			if (state.world == nullptr) {
 				error = "no world";
 				return false;
@@ -1095,37 +1168,65 @@ namespace HotBiteEditor {
 				error = "no record for instance: " + instance;
 				return false;
 			}
-			const std::string template_name = record->template_name;
-			if (!IsAuthored(state, template_name)) {
-				error = "not an authored template: " + template_name;
+			if (!IsAuthored(state, record->template_name)) {
+				error = "not an authored template: " + record->template_name;
 				return false;
 			}
-			Entity root = c->GetEntityByName(instance);
+			const Entity root = c->GetEntityByName(instance);
 			if (root == INVALID_ENTITY_ID || !c->ContainsComponent<Transform>(root)) {
 				error = "instance entity not found: " + instance;
 				return false;
 			}
-			const Transform root_transform = c->GetConstComponent<Transform>(root);
-			const float3 instance_scale = record->scale;
-
-			TemplateSnapshot before;
-			if (!GetSnapshot(state, template_name, before) || !before.exists) {
-				error = "unknown template: " + template_name;
+			out.record = *record;
+			if (!GetSnapshot(state, record->template_name, out.before) || !out.before.exists) {
+				error = "unknown template: " + record->template_name;
 				return false;
 			}
-			//Captured before anything is erased, so one undo puts back both halves of
-			//what this does.
-			std::vector<std::pair<std::string, ComponentDelta>> deltas_before;
-			std::vector<std::string> overridden_before;
+			return true;
+		}
 
-			nlohmann::json parts = before.parts;
-			int applied = 0;
-			for (auto& entry : parts) {
+		//What an instance says its template's parts are: the parts the template had,
+		//measured back off the spawned entities, followed by every loose child made into a
+		//part. Read-only - nothing is changed until the caller commits it.
+		struct InstanceFold {
+			nlohmann::json parts = nlohmann::json::array();
+			int measured = 0;                 // parts the template had, read back off the instance
+			std::vector<std::string> adopted; // loose children that became parts
+			//The edits made to the template's own parts. They now say the same thing as the
+			//template, so committing drops them - and keeps them here for undo.
+			std::vector<std::pair<std::string, ComponentDelta>> deltas;
+			std::vector<std::string> overridden;
+		};
+
+		//The component edits made to a part's entity, folded into the part's overrides.
+		static void FoldPartEdits(EditorState& state, const std::string& entity_name,
+			TemplatePart& part) {
+			const auto delta = state.component_deltas.find(entity_name);
+			if (delta == state.component_deltas.end()) {
+				return;
+			}
+			for (const auto& [component, value] : delta->second.added) {
+				part.components[component] = value;
+			}
+			for (const std::string& removed : delta->second.removed) {
+				part.components.erase(removed);
+			}
+		}
+
+		static void FoldInstance(EditorState& state, Coordinator* c, const InstanceSource& source,
+			InstanceFold& fold) {
+			const PlacedInstance& record = source.record;
+			const Transform root_transform = c->GetConstComponent<Transform>(c->GetEntityByName(record.name));
+			if (source.before.parts.is_array()) {
+				fold.parts = source.before.parts;
+			}
+
+			for (auto& entry : fold.parts) {
 				if (!entry.is_object()) {
 					continue;
 				}
 				TemplatePart part = PartFromJson(entry);
-				const std::string entity_name = instance + World::PART_NAME_SEPARATOR + part.name;
+				const std::string entity_name = record.name + World::PART_NAME_SEPARATOR + part.name;
 				Entity e = c->GetEntityByName(entity_name);
 				if (e == INVALID_ENTITY_ID || !c->ContainsComponent<Transform>(e)) {
 					//A part the level removed from this instance: the template keeps what
@@ -1133,64 +1234,264 @@ namespace HotBiteEditor {
 					continue;
 				}
 				MeasureSpawnedPart(state, root_transform, c->GetConstComponent<Transform>(e),
-					instance_scale, part);
+					record.scale, part);
 				//Component edits made to this part travel with it: the point of applying
 				//is that what you see on this instance is what the template becomes.
-				auto delta = state.component_deltas.find(entity_name);
+				const auto delta = state.component_deltas.find(entity_name);
 				if (delta != state.component_deltas.end()) {
-					deltas_before.push_back({ entity_name, delta->second });
-					for (const auto& [component, value] : delta->second.added) {
-						part.components[component] = value;
-					}
-					for (const std::string& removed : delta->second.removed) {
-						part.components.erase(removed);
-					}
-					state.component_deltas.erase(delta);
+					fold.deltas.push_back({ entity_name, delta->second });
+					FoldPartEdits(state, entity_name, part);
 				}
-				if (state.overridden_entities.erase(entity_name) != 0) {
-					overridden_before.push_back(entity_name);
+				if (state.overridden_entities.count(entity_name) != 0) {
+					fold.overridden.push_back(entity_name);
 				}
 				entry = PartToJson(part);
-				++applied;
+				++fold.measured;
 			}
-			if (applied == 0) {
+
+			//The loose children. One that was placed from a template is a reference to it, as
+			//in CreateFromSelection; anything else (a light, a marker, a prop built by hand)
+			//is defined inline, in the template's own file - the same two kinds of part the
+			//template edit mode saves, and for the same reason: nothing is made up that the
+			//author did not ask for, such as a template of its own for every light.
+			std::vector<TemplatePart> built;
+			for (const auto& entry : fold.parts) {
+				if (entry.is_object()) {
+					built.push_back(PartFromJson(entry));
+				}
+			}
+			for (const std::string& child : ListInstanceChildren(state, record.name)) {
+				const Entity e = c->GetEntityByName(child);
+				TemplatePart part;
+				part.template_name = InstanceTemplateOf(state, child);
+				part.name = UniquePartName(built, child);
+				part.attach = true;
+				MeasureSpawnedPart(state, root_transform, c->GetConstComponent<Transform>(e),
+					record.scale, part);
+				if (part.template_name.empty()) {
+					part.components = InlineDefinition(state, c, e);
+				}
+				else {
+					FoldPartEdits(state, child, part);
+				}
+				built.push_back(part);
+				fold.parts.push_back(PartToJson(part));
+				fold.adopted.push_back(child);
+			}
+		}
+
+		//Writes a fold into `target`: the template the instance was placed from (replacing
+		//its parts) or a new one (`create_new`, which the instance then becomes an instance
+		//of, so the children it carried are still there afterwards - as parts).
+		//
+		//With loose children, or a new template, the instance has to be spawned again to
+		//show what the template now says; the children leave the level, being parts now,
+		//or the next load would spawn each of them twice. One undo step covers all of it.
+		//The order is what makes that step undo cleanly, since undo runs it backwards:
+		//the old instance and its children come out *first*, so that undoing the
+		//template change happens before the old instance is respawned from it.
+		static bool CommitInstanceFold(EditorState& state, const InstanceSource& source,
+			const std::string& target, bool create_new, const InstanceFold& fold,
+			const std::string& description, std::string& error) {
+			const PlacedInstance& record = source.record;
+			TemplateSnapshot wanted = source.before;
+			wanted.parts = fold.parts;
+			if (create_new) {
+				wanted.inline_in_level = false;
+			}
+			//Registering a template does not look for cycles, only the operations that author
+			//parts do (AddPart, SetPart): a child placed from the very template it is being
+			//applied to would otherwise be written in, and refused only when something spawned.
+			for (const auto& entry : fold.parts) {
+				const std::string referenced = entry.is_object() ? entry.value("template", std::string()) : std::string();
+				if (!referenced.empty() && !state.world->CanComposeTemplate(target, referenced)) {
+					error = referenced + " cannot be a part of " + target;
+					return false;
+				}
+			}
+
+			const bool respawn = create_new || !fold.adopted.empty();
+			if (!respawn) {
+				//Nothing leaves the level and nothing needs spawning: the instance already
+				//shows exactly what the template becomes.
+				if (!ApplySnapshot(state, target, wanted, error)) {
+					return false;
+				}
+				for (const auto& [name, delta] : fold.deltas) {
+					state.component_deltas.erase(name);
+				}
+				for (const std::string& name : fold.overridden) {
+					state.overridden_entities.erase(name);
+				}
+				EditorHistory::Push({
+					description,
+					[target, before = source.before, deltas = fold.deltas, overridden = fold.overridden](EditorState& s) {
+						std::string err;
+						ApplySnapshot(s, target, before, err);
+						for (const auto& [name, delta] : deltas) {
+							s.component_deltas[name] = delta;
+						}
+						for (const std::string& name : overridden) {
+							s.overridden_entities.insert(name);
+						}
+					},
+					[target, wanted, deltas = fold.deltas, overridden = fold.overridden](EditorState& s) {
+						std::string err;
+						ApplySnapshot(s, target, wanted, err);
+						for (const auto& [name, delta] : deltas) {
+							s.component_deltas.erase(name);
+						}
+						for (const std::string& name : overridden) {
+							s.overridden_entities.erase(name);
+						}
+					} });
+				return true;
+			}
+
+			if (!fold.adopted.empty() && state.template_edit.active &&
+				record.name == state.template_edit.instance) {
+				error = "this is the template being edited - File/Save Template writes its entities";
+				return false;
+			}
+			//Found out before anything leaves the level: whether the template accepts the new
+			//parts (a child placed from this very template would compose it into itself).
+			TemplateSnapshot target_before;
+			GetSnapshot(state, target, target_before);
+			if (!ApplySnapshot(state, target, wanted, error)) {
+				return false;
+			}
+			std::string restore_error;
+			ApplySnapshot(state, target, target_before, restore_error);
+
+			//Inside whatever group the caller has open (an agent turn), or one of its own.
+			const bool own_group = !EditorHistory::GroupOpen();
+			if (own_group) {
+				EditorHistory::BeginGroup(description);
+			}
+			auto finish = [own_group](bool ok) {
+				if (own_group) {
+					EditorHistory::EndGroup();
+				}
+				return ok;
+			};
+
+			//1. Out of the level: the loose children, then the instance itself - listed last so
+			//undo respawns it before the children are put back under it.
+			std::vector<std::string> leaving = fold.adopted;
+			leaving.push_back(record.name);
+			if (!EntityOps::DeleteEntities(state, leaving, error)) {
+				return finish(false);
+			}
+			//2. The template.
+			if (!MutateTemplate(state, target, wanted.components, false, error, &fold.parts)) {
+				return finish(false);
+			}
+			//3. The edits the template now says for itself.
+			if (!fold.deltas.empty() || !fold.overridden.empty()) {
+				for (const auto& [name, delta] : fold.deltas) {
+					state.component_deltas.erase(name);
+				}
+				for (const std::string& name : fold.overridden) {
+					state.overridden_entities.erase(name);
+				}
+				EditorHistory::Push({
+					description,
+					[deltas = fold.deltas, overridden = fold.overridden](EditorState& s) {
+						for (const auto& [name, delta] : deltas) {
+							s.component_deltas[name] = delta;
+						}
+						for (const std::string& name : overridden) {
+							s.overridden_entities.insert(name);
+						}
+					},
+					[deltas = fold.deltas, overridden = fold.overridden](EditorState& s) {
+						for (const auto& [name, delta] : deltas) {
+							s.component_deltas.erase(name);
+						}
+						for (const std::string& name : overridden) {
+							s.overridden_entities.erase(name);
+						}
+					} });
+			}
+			//4. The instance again, from the template as it is now.
+			PlacedInstance respawned = record;
+			respawned.template_name = target;
+			if (!AssetBrowser::SpawnRecordedInstance(state, respawned, error)) {
+				return finish(false);
+			}
+			EditorHistory::Push({
+				description,
+				[name = respawned.name](EditorState& s) {
+					AssetBrowser::RemovePlacedInstance(s, name);
+				},
+				[respawned](EditorState& s) {
+					std::string err;
+					AssetBrowser::SpawnRecordedInstance(s, respawned, err);
+				} });
+			return finish(true);
+		}
+
+		bool ApplyInstanceToTemplate(EditorState& state, const std::string& instance_name,
+			std::string& error) {
+			InstanceSource source;
+			if (!ResolveInstanceSource(state, instance_name, source, error)) {
+				return false;
+			}
+			Coordinator* c = state.world->GetCoordinator();
+			InstanceFold fold;
+			FoldInstance(state, c, source, fold);
+			const std::string& instance = source.record.name;
+			const std::string& template_name = source.record.template_name;
+			if (fold.measured == 0 && fold.adopted.empty()) {
 				error = instance + " has no parts to apply";
 				return false;
 			}
-
-			TemplateSnapshot target = before;
-			target.parts = parts;
-			if (!ApplySnapshot(state, template_name, target, error)) {
+			if (!CommitInstanceFold(state, source, template_name, false, fold,
+				"apply " + instance + " to template " + template_name, error)) {
 				return false;
 			}
-			TemplateSnapshot after;
-			GetSnapshot(state, template_name, after);
-			EditorHistory::Push({
-				"apply " + instance + " to template " + template_name,
-				[template_name, before, deltas_before, overridden_before](EditorState& s) {
-					std::string err;
-					ApplySnapshot(s, template_name, before, err);
-					for (const auto& [name, delta] : deltas_before) {
-						s.component_deltas[name] = delta;
-					}
-					for (const std::string& name : overridden_before) {
-						s.overridden_entities.insert(name);
-					}
-				},
-				[template_name, after, deltas_before, overridden_before](EditorState& s) {
-					std::string err;
-					ApplySnapshot(s, template_name, after, err);
-					for (const auto& [name, delta] : deltas_before) {
-						s.component_deltas.erase(name);
-					}
-					for (const std::string& name : overridden_before) {
-						s.overridden_entities.erase(name);
-					}
-				} });
-
 			state.selected_template = template_name;
-			state.status_message = "Applied " + std::to_string(applied) + " part(s) of " +
+			state.status_message = "Applied " + std::to_string(fold.measured) + " part(s) of " +
 				instance + " to template " + template_name;
+			if (!fold.adopted.empty()) {
+				state.status_message += " and " + std::to_string(fold.adopted.size()) +
+					" child entity(ies) as new parts";
+			}
+			return true;
+		}
+
+		bool SaveInstanceAsTemplate(EditorState& state, const std::string& instance_name,
+			const std::string& new_name, std::string& error) {
+			InstanceSource source;
+			if (!ResolveInstanceSource(state, instance_name, source, error)) {
+				return false;
+			}
+			if (new_name.empty()) {
+				error = "template name is empty";
+				return false;
+			}
+			if (state.world->IsTemplateLoaded(new_name)) {
+				error = "a template named '" + new_name + "' already exists";
+				return false;
+			}
+			Coordinator* c = state.world->GetCoordinator();
+			InstanceFold fold;
+			FoldInstance(state, c, source, fold);
+			const std::string& instance = source.record.name;
+			if (fold.measured == 0 && fold.adopted.empty()) {
+				error = instance + " has no parts or child entities to save - Duplicate "
+					"makes a plain copy of a template";
+				return false;
+			}
+			if (!CommitInstanceFold(state, source, new_name, true, fold,
+				"save " + instance + " as template " + new_name, error)) {
+				return false;
+			}
+			state.selected_template = new_name;
+			state.status_message = "Saved " + instance + " as new template " + new_name + " (" +
+				std::to_string(fold.measured + (int)fold.adopted.size()) + " part(s), " +
+				std::to_string(fold.adopted.size()) + " from child entities); " + instance +
+				" is now an instance of it";
 			return true;
 		}
 
@@ -1858,7 +2159,12 @@ namespace HotBiteEditor {
 				error = "a template named '" + new_name + "' already exists";
 				return false;
 			}
-			if (!MutateTemplate(state, new_name, *components, false, error)) {
+			//A composed template's parts are part of what it is: without them the copy would be
+			//a bare root, and editing it would not be editing a copy of anything.
+			const nlohmann::json* source_parts = state.world->GetTemplateParts(source);
+			nlohmann::json parts = (source_parts != nullptr && source_parts->is_array())
+				? *source_parts : nlohmann::json::array();
+			if (!MutateTemplate(state, new_name, *components, false, error, &parts)) {
 				return false;
 			}
 			state.selected_template = new_name;
@@ -2253,6 +2559,10 @@ namespace HotBiteEditor {
 			//Raised by RequestTemplateFromSelection (the Edit menu) and consumed by the
 			//toolbar, which is the only scope that may open the modal.
 			bool from_selection_requested = false;
+
+			//Raised by RequestSaveInstanceAsTemplate: the placed instance to save as a new
+			//template ("" when nothing was asked for), opened by the toolbar like the above.
+			std::string save_instance_requested;
 
 			void EndEdit(EditorState& state);
 
@@ -3251,6 +3561,8 @@ namespace HotBiteEditor {
 				static char new_name[128] = "";
 				static char from_entity_name[128] = "";
 				static char duplicate_name[128] = "";
+				static char instance_template_name[128] = "";
+				static std::string instance_to_save;
 
 				if (ImGui::Button("New...")) {
 					strncpy_s(new_name, UniqueName(state, "template").c_str(), sizeof(new_name) - 1);
@@ -3288,6 +3600,18 @@ namespace HotBiteEditor {
 				//More than one entity selected means the arrangement itself is what is
 				//being saved: a composed template, with the others as parts of the one
 				//picked first. That is the "build it in the scene, then keep it" path.
+				//Edit/Save Instance as New Template asks for the name of the template the placed
+				//object, with the entities added to it, is saved as.
+				if (!save_instance_requested.empty()) {
+					instance_to_save = TemplateOps::InstanceOf(state, save_instance_requested);
+					save_instance_requested.clear();
+					if (!instance_to_save.empty()) {
+						strncpy_s(instance_template_name,
+							UniqueName(state, TemplateOps::InstanceTemplate(state, instance_to_save) + "_copy").c_str(),
+							sizeof(instance_template_name) - 1);
+						ImGui::OpenPopup("Save Instance As Template");
+					}
+				}
 				const std::vector<std::string> selection = SelectedEntityNames(state);
 				if (from_selection) {
 					if (selection.size() > 1) {
@@ -3396,6 +3720,14 @@ namespace HotBiteEditor {
 					if (!TemplateOps::CreateFromSelection(state, selection, composed_root,
 						composed_pivot_root, from_entity_name, error)) {
 						state.status_message = "Create failed: " + error;
+					}
+				}
+				if (DrawNameModal("Save Instance As Template",
+					"Name for the new template (the instance becomes an instance of it):",
+					instance_template_name, sizeof(instance_template_name))) {
+					if (!TemplateOps::SaveInstanceAsTemplate(state, instance_to_save,
+						instance_template_name, error)) {
+						state.status_message = "Save as template failed: " + error;
 					}
 				}
 				if (DrawNameModal("Duplicate Template", "Name for the copy:",
@@ -3541,6 +3873,10 @@ namespace HotBiteEditor {
 
 		void RequestTemplateFromSelection(EditorState& state) {
 			from_selection_requested = true;
+		}
+
+		void RequestSaveInstanceAsTemplate(EditorState& state, const std::string& instance_name) {
+			save_instance_requested = instance_name;
 		}
 
 		void Draw(EditorState& state) {

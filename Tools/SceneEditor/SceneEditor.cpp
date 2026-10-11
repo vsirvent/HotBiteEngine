@@ -339,30 +339,34 @@ namespace HotBiteEditor {
 			} });
 
 		//Edit: the other direction - an object placed in the scene, its parts dragged
-		//into place, pushed back into the definition. Enabled for any entity of a
-		//placed instance, so selecting the part you just moved is enough.
+		//into place and entities added to it (a light parented to it), pushed back into
+		//the definition. Enabled for any entity of a placed instance - a part, or an
+		//entity added to it - so selecting the thing you just moved or added is enough.
+		//"Apply" replaces the template the object was placed from; "Save as New" leaves
+		//that one alone and makes another out of what the object is now.
+		auto selected_instance = [this]() -> std::string {
+			Coordinator* c = world->GetCoordinator();
+			if (!level_loaded || c == nullptr ||
+				state.selected_entity == INVALID_ENTITY_ID ||
+				!c->ContainsComponent<Components::Base>(state.selected_entity)) {
+				return std::string();
+			}
+			return TemplateOps::InstanceOf(state,
+				c->GetConstComponent<Components::Base>(state.selected_entity).name);
+		};
 		menu_commands.push_back({ "Edit/Apply Instance to Template",
-			[this]() {
-				Coordinator* c = world->GetCoordinator();
-				if (!level_loaded || c == nullptr ||
-					state.selected_entity == INVALID_ENTITY_ID ||
-					!c->ContainsComponent<Components::Base>(state.selected_entity)) {
-					return false;
-				}
-				const std::string& name =
-					c->GetConstComponent<Components::Base>(state.selected_entity).name;
-				return !TemplateOps::InstanceOf(state, name).empty();
-			},
-			[this]() {
-				Coordinator* c = world->GetCoordinator();
-				if (c == nullptr || !c->ContainsComponent<Components::Base>(state.selected_entity)) {
-					return;
-				}
+			[selected_instance]() { return !selected_instance().empty(); },
+			[this, selected_instance]() {
 				std::string error;
-				if (!TemplateOps::ApplyInstanceToTemplate(state,
-					c->GetConstComponent<Components::Base>(state.selected_entity).name, error)) {
+				if (!TemplateOps::ApplyInstanceToTemplate(state, selected_instance(), error)) {
 					state.status_message = "Apply to template failed: " + error;
 				}
+			} });
+		menu_commands.push_back({ "Edit/Save Instance as New Template...",
+			[selected_instance]() { return !selected_instance().empty(); },
+			[this, selected_instance]() {
+				state.show_template_panel = true;
+				TemplatePanel::RequestSaveInstanceAsTemplate(state, selected_instance());
 			} });
 
 		//Edit: physics preview. Off by default (see SetPhysicsPause above); while
@@ -838,6 +842,14 @@ namespace HotBiteEditor {
 	void SceneEditorApp::DrawDeleteRequest()
 	{
 		static constexpr const char* CONFIRM_POPUP = "Delete entities?";
+		if (!state.apply_instance_requested.empty()) {
+			const std::string instance = state.apply_instance_requested;
+			state.apply_instance_requested.clear();
+			std::string err;
+			if (!TemplateOps::ApplyInstanceToTemplate(state, instance, err)) {
+				state.status_message = "Apply to template failed: " + err;
+			}
+		}
 		if (state.delete_requested) {
 			state.delete_requested = false;
 			if (!EntityOps::CanDeleteSelected(state)) {

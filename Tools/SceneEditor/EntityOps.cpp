@@ -14,6 +14,7 @@
 #include <Components/Sky.h>
 #include <algorithm>
 #include <cctype>
+#include <set>
 
 using namespace HotBite::Engine;
 using namespace HotBite::Engine::ECS;
@@ -629,6 +630,12 @@ namespace HotBiteEditor {
 			//entity (keeps the persisted "clones" chain resolvable). Undo restores
 			//their source to this entity's name.
 			std::vector<std::string> repointed_dependents;
+			//Who the entity hung off when it was parked ("" for nobody). Base keeps the link
+			//as an entity id, and a parent that was removed and spawned again (a placed
+			//instance is) comes back under whatever id is free - so the link is put back by
+			//name when the entity is unparked.
+			std::string parent;
+			std::string parent_bone; // the joint of the parent's skeleton it rode, if any
 			bool visible = true;
 			bool scene_visible = true;
 			bool cast_shadow = true;
@@ -679,6 +686,15 @@ namespace HotBiteEditor {
 			base.visible = false;
 			base.scene_visible = false;
 			base.cast_shadow = false;
+			//A parked entity must not point at an entity that may be destroyed while it is away
+			//(a placed instance is removed and spawned again): the lights and the cameras read
+			//their parent's Transform every frame, and one whose parent is gone throws. The
+			//link is kept by name in `info` and put back by UnparkEntity.
+			if (!info.parent.empty()) {
+				base.parent = INVALID_ENTITY_ID;
+				base.parent_bone.clear();
+				base.parent_joint = Base::UNRESOLVED_JOINT;
+			}
 			if (c->ContainsComponent<Physics>(e)) {
 				std::lock_guard<std::recursive_mutex> lock(Core::physics_mutex);
 				c->GetComponent<Physics>(e).SetEnabled(false);
@@ -725,6 +741,14 @@ namespace HotBiteEditor {
 			base.visible = info.visible;
 			base.scene_visible = info.scene_visible;
 			base.cast_shadow = info.cast_shadow;
+			if (!info.parent.empty()) {
+				const Entity parent = c->GetEntityByName(info.parent);
+				if (parent != INVALID_ENTITY_ID) {
+					base.parent = parent;
+					base.parent_bone = info.parent_bone;
+					base.parent_joint = Base::UNRESOLVED_JOINT;
+				}
+			}
 			if (c->ContainsComponent<Physics>(e)) {
 				std::lock_guard<std::recursive_mutex> lock(Core::physics_mutex);
 				c->GetComponent<Physics>(e).SetEnabled(true);
@@ -748,6 +772,10 @@ namespace HotBiteEditor {
 			info.visible = base.visible;
 			info.scene_visible = base.scene_visible;
 			info.cast_shadow = base.cast_shadow;
+			if (base.parent != INVALID_ENTITY_ID && c->ContainsComponent<Base>(base.parent)) {
+				info.parent = c->GetConstComponent<Base>(base.parent).name;
+				info.parent_bone = base.parent_bone;
+			}
 			for (int n = 0;; ++n) {
 				info.parked_name = PARKED_PREFIX + info.name + (n > 0 ? "_" + std::to_string(n) : "");
 				if (c->GetEntityByName(info.parked_name) == INVALID_ENTITY_ID) {
@@ -988,15 +1016,11 @@ namespace HotBiteEditor {
 			return false;
 		}
 
-		bool DeleteSelected(EditorState& state, std::string& error)
+		//The body of Delete, for whichever entities the caller resolved: the selection, or
+		//the ones a command names. One undo step either way.
+		static bool DeleteResolved(EditorState& state, const std::vector<Entity>& entities,
+			std::string& error)
 		{
-			//While a template is being edited, Delete takes entities out of the template
-			//rather than removing the whole session instance.
-			bool handled = false;
-			const bool done = TemplateOps::DeleteInTemplateEdit(state, handled, error);
-			if (handled) {
-				return done;
-			}
 			Coordinator* c = state.world->GetCoordinator();
 			if (c == nullptr) {
 				error = "no scene loaded";
@@ -1006,7 +1030,7 @@ namespace HotBiteEditor {
 			//as it goes, so ids and names captured mid-loop would go stale.
 			std::vector<std::string> names;
 			std::vector<PlacedInstance> instances; //instance records to despawn
-			for (Entity e : state.selected_entities) {
+			for (Entity e : entities) {
 				if (!IsDeletable(state, e)) {
 					continue; //the sky, or an entity with no Transform: nothing safe to remove
 				}
@@ -1027,6 +1051,44 @@ namespace HotBiteEditor {
 			if (names.empty() && instances.empty()) {
 				error = "nothing in the selection can be deleted";
 				return false;
+			}
+
+			//A child goes with its parent, as it does when a template being edited loses one.
+			//Left behind, it would hang off an entity that no longer exists - a point light
+			//reads its parent's Transform every frame and throws - and standing free is not
+			//what removing the parent means. The ones that were placed from a template are
+			//listed before their parent, so undo respawns the parent first.
+			for (size_t i = 0; i < instances.size(); ++i) {
+				const PlacedInstance root_record = instances[i];
+				const Entity root = c->GetEntityByName(root_record.name);
+				if (root == INVALID_ENTITY_ID) {
+					continue;
+				}
+				const std::vector<std::string> spawned_names =
+					state.world->InstanceEntityNames(root_record.name, root_record.template_name);
+				const std::set<std::string> spawned(spawned_names.begin(), spawned_names.end());
+				std::vector<std::string> children;
+				for (const auto& [child_name, child] : c->GetEntites()) {
+					if (spawned.count(child_name) == 0 && !IsParkedName(child_name) &&
+						c->ContainsComponent<Base>(child) &&
+						c->GetConstComponent<Base>(child).parent == root) {
+						children.push_back(child_name);
+					}
+				}
+				std::sort(children.begin(), children.end());
+				for (const std::string& child_name : children) {
+					if (state.instance_entity_ids.count(c->GetEntityByName(child_name)) != 0) {
+						PlacedInstance* child_record = FindInstanceRecord(state, child_name);
+						if (child_record != nullptr && std::none_of(instances.begin(), instances.end(),
+							[child_record](const PlacedInstance& i) { return i.name == child_record->name; })) {
+							instances.insert(instances.begin() + i, *child_record);
+							++i;
+						}
+					}
+					else if (std::find(names.begin(), names.end(), child_name) == names.end()) {
+						names.push_back(child_name);
+					}
+				}
 			}
 
 			std::vector<ParkInfo> parked;
@@ -1067,6 +1129,38 @@ namespace HotBiteEditor {
 					}
 				} });
 			return true;
+		}
+
+		bool DeleteSelected(EditorState& state, std::string& error)
+		{
+			//While a template is being edited, Delete takes entities out of the template
+			//rather than removing the whole session instance.
+			bool handled = false;
+			const bool done = TemplateOps::DeleteInTemplateEdit(state, handled, error);
+			if (handled) {
+				return done;
+			}
+			return DeleteResolved(state, state.selected_entities, error);
+		}
+
+		bool DeleteEntities(EditorState& state, const std::vector<std::string>& names,
+			std::string& error)
+		{
+			Coordinator* c = state.world->GetCoordinator();
+			if (c == nullptr) {
+				error = "no scene loaded";
+				return false;
+			}
+			std::vector<Entity> entities;
+			for (const std::string& name : names) {
+				const Entity e = c->GetEntityByName(name);
+				if (e == INVALID_ENTITY_ID) {
+					error = "unknown entity: " + name;
+					return false;
+				}
+				entities.push_back(e);
+			}
+			return DeleteResolved(state, entities, error);
 		}
 
 		//Creates the clone described by `clip` under `new_name`, with the full

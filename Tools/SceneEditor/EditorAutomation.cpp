@@ -190,6 +190,53 @@ namespace HotBiteEditor {
 				}
 				return true;
 			}
+			if (cmd == "instance_children" || cmd == "save_instance_as_template") {
+				//instance_children [instance]: the entities added to a placed object that its
+				//template does not spawn - what apply_to_template would take in as parts.
+				//save_instance_as_template <new template> [instance]: the object, parts and
+				//children both, as a template of its own. The instance defaults to the
+				//selection, and may be any entity that belongs to it.
+				const bool save = (cmd == "save_instance_as_template");
+				const size_t target_at = save ? 2 : 1;
+				std::string target;
+				if (args.size() > target_at) {
+					target = args[target_at];
+				}
+				else if (state.selected_entity != INVALID_ENTITY_ID) {
+					Coordinator* c = state.world->GetCoordinator();
+					if (c != nullptr && c->ContainsComponent<Base>(state.selected_entity)) {
+						target = c->GetConstComponent<Base>(state.selected_entity).name;
+					}
+				}
+				if (save && args.size() < 2) {
+					response_lines.push_back("ERR usage: save_instance_as_template <new template name>"
+						" [instance or part] (defaults to the selection)");
+				}
+				else if (target.empty()) {
+					response_lines.push_back("ERR usage: " + cmd + (save ? " <new template name>" : "") +
+						" [instance or part] (defaults to the selection)");
+				}
+				else if (save) {
+					if (TemplateOps::SaveInstanceAsTemplate(state, target, args[1], error)) {
+						response_lines.push_back("OK " + state.status_message);
+					}
+					else {
+						response_lines.push_back("ERR " + error);
+					}
+				}
+				else if (TemplateOps::InstanceOf(state, target).empty()) {
+					response_lines.push_back("ERR " + target + " is not a placed instance");
+				}
+				else {
+					const std::vector<std::string> children = TemplateOps::ListInstanceChildren(state, target);
+					response_lines.push_back("OK " + std::to_string(children.size()) + " child entities on " +
+						TemplateOps::InstanceOf(state, target));
+					for (const std::string& child : children) {
+						response_lines.push_back(child);
+					}
+				}
+				return true;
+			}
 			if (cmd == "save_template_edit") {
 				if (TemplateOps::SaveTemplateEdit(state, error)) {
 					response_lines.push_back("OK " + state.status_message);
@@ -3145,7 +3192,7 @@ namespace HotBiteEditor {
 						" parts on template " + args[1]);
 					for (const TemplateOps::TemplatePart& part : parts) {
 						std::ostringstream os;
-						os << part.name << " is=" << part.template_name
+						os << part.name << " is=" << (part.template_name.empty() ? "(inline)" : part.template_name)
 							<< " attached_to=" << (!part.attach ? "(free)"
 								: part.bone.empty() ? "root" : part.bone)
 							<< " pos=" << part.position.x << "," << part.position.y << "," << part.position.z

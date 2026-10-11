@@ -495,6 +495,20 @@ namespace HotBiteEditor {
 				if (c_has_parent(state, entity) && ImGui::MenuItem("Unparent")) {
 					ReparentDropped(state, name, std::string());
 				}
+				//An object placed from a template, one of its parts, or an entity added to it:
+				//what is on screen can be written back to the template (replacing it), or to a
+				//new one - the entities added to it come along as parts (see TemplatePanel.h).
+				const std::string owning_instance = TemplateOps::InstanceOf(state, name);
+				if (!owning_instance.empty()) {
+					ImGui::Separator();
+					if (ImGui::MenuItem("Apply to Template")) {
+						state.apply_instance_requested = owning_instance;
+					}
+					if (ImGui::MenuItem("Save as New Template...")) {
+						state.show_template_panel = true;
+						TemplatePanel::RequestSaveInstanceAsTemplate(state, owning_instance);
+					}
+				}
 				ImGui::Separator();
 				//Group moves and delete act on the whole selection, which is why the
 				//labels count it: right-clicking one row of a multi-entity selection

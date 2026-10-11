@@ -147,7 +147,9 @@ directory so relative asset paths in level files resolve the same way the other 
 | `template_remove_part <template> <part>` | drops a part |
 | `template_set_part <template> <part> <json>` | edits one part as a delta — `name`, `template`, `attach`, `bone`, `position`, `rotation`, `scale`. Keys left out keep their values. `"{'bone':'hand_r'}"` sockets a part to a joint; `"{'attach':false}"` cuts it loose. **Single-quoted**, as `template_set` |
 | `template_from_selection <template> [root entity] [pivot]` | turns the current multi-entity selection into one composed template. The root defaults to the entity picked **first** (`list_selection` marks it `[root]`); `pivot` makes the template's own body an invisible marker and every selected object a part. The template name may also be **the root's own template** (`template_from_selection farm` with a placed `farm` first in the selection): nothing is created, the other selected entities are added to `farm` as parts and what it had stays. Any entity can be a part except a camera or the sky, so a point light is fine, and the game components on it (a `NightLight`) go into its template. The originals stay in the scene: delete them, or reload, to see the instance's own copies |
-| `apply_to_template [instance or part]` | the other direction: pushes a placed instance's parts — where they now sit, plus any component edits made to them — back into the template it came from. Defaults to the selection, and a part resolves to the instance it belongs to, so "move the sword, apply" is two commands. The instance's own placement is not applied, and the per-instance overrides it consumes are dropped |
+| `apply_to_template [instance or part]` | the other direction: pushes a placed instance's parts — where they now sit, plus any component edits made to them — back into the template it came from. Defaults to the selection, and a part resolves to the instance it belongs to, so "move the sword, apply" is two commands. The instance's own placement is not applied, and the per-instance overrides it consumes are dropped Entities added to the instance - a light parented to it - are taken in as new parts (inline, defined in the template's own file, or a reference when the child was placed from a template), removed from the level, and the instance is spawned again from the updated template; one undo step. The selection may be such a child |
+| `instance_children [instance or child]` | the entities added to a placed object that its template does not spawn - what `apply_to_template` would take in as parts. `OK N child entities on <instance>`, then one name per line |
+| `save_instance_as_template <new template> [instance or child]` | the instance's template root and parts as the instance shows them, plus its child entities, saved as a **new** template; the instance becomes an instance of it and the original template is untouched. Refuses a taken name, and an instance with no parts and no children (Duplicate makes a plain copy). One undo step |
 | `deselect` | selects nothing. The same as Esc in the editor, or clicking the empty space below the Entities list |
 | `save_templates` | writes every `.tpl` with unsaved edits and unlinks the removed ones. Also run automatically by `menu "File/Save Level"`, because the level references these files by name |
 | `edit_template <name>` | **template edit mode**: the template is placed alone at the origin as a session instance named `<name>_editing` (its parts `<name>_editing__<part>`), every other visible entity is hidden, and the instance is selected and framed. The ordinary commands (`set_position`, `set_component`, `add_component`, including schema game components) then edit it. The level is not touched: `Save Level` refuses while the mode is open. `ERR` for an unknown template or when a session is already open |
@@ -344,6 +346,13 @@ edits its offset, a socketed one its offset from the joint), then
 `apply_to_template` — which measures every part back out of the instance and writes
 it into the definition. Edits to a part that are *not* applied stay as overrides on
 that one instance.
+
+Entities *added* to the placed object go the same way. Drag a light onto it in the
+Entities panel (or `set_parent <light> <instance>`), put it where it belongs, and
+`apply_to_template` (or `save_instance_as_template <name>` for a new template instead
+of replacing the one it came from) writes it in as a part and spawns the instance
+again from the result, so the level holds the light once - as `<instance>__<light>`.
+`template_parts` shows an inline part as `is=(inline)`.
 
 Which object the others hang off is the one picked **first**: `list_selection`
 marks it `[root]` and the Entities panel draws it amber with a `*`. That is the

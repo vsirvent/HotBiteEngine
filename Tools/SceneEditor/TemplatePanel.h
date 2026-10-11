@@ -230,6 +230,40 @@ namespace HotBiteEditor {
 		// the instance it belongs to, so "select the sword, apply" works.
 		bool ApplyInstanceToTemplate(EditorState& state, const std::string& instance_name,
 			std::string& error);
+
+		// == Entities added to an instance ========================================
+		//
+		// The other thing a placed object gets edited with: entities added *to* it. Drag a
+		// point light onto a house in the Entities panel (or Add/Point Light, then
+		// set_parent) and it is a child of the instance - an entity of the level, not yet
+		// of the template. Applying the instance takes those children in as parts, with
+		// whatever components they carry:
+		//   - a child placed from a template becomes a part referencing it;
+		//   - any other entity (a light, a marker, a prop) becomes an *inline* part,
+		//     defined in this template's own file, so no template is made for it.
+		// A child's pose is measured exactly as an existing part's is, so a template
+		// placed again puts each one where it stands now.
+		//
+		// What has become a part cannot also stay in the level, or the next load would
+		// spawn it twice: the children are removed from the level and the instance is
+		// spawned again from the updated template, where they are its `<instance>__<part>`
+		// entities. The instance keeps its name, its pose and its own component edits.
+		// One undo step puts the level, the template and the old instance back.
+		//
+		// The loose children of `instance_name`'s instance: entities parented to its root
+		// that its template did not spawn, by name. Empty when it is not a placed instance.
+		std::vector<std::string> ListInstanceChildren(const EditorState& state,
+			const std::string& instance_name);
+
+		// The same fold, written to a *new* template instead of the one the instance came
+		// from: that template's root and parts as the instance shows them, plus every
+		// child. The original template is left as it is, and the instance becomes an
+		// instance of the new one (so what it carried is still there, as parts), which is
+		// what makes this "Save As" rather than a copy. `new_name` must be free - to
+		// replace the existing template, Apply is the operation. One undoable step.
+		bool SaveInstanceAsTemplate(EditorState& state, const std::string& instance_name,
+			const std::string& new_name, std::string& error);
+
 		// The instance an entity belongs to (itself, or the instance a "<inst>__<part>"
 		// name is a part of), or "" when it is not part of one. What the menu item's
 		// enabled() predicate asks.
@@ -405,5 +439,11 @@ namespace HotBiteEditor {
 		// and because an ImGui popup can only be opened from the window scope that
 		// owns it, never from a menu handler.
 		void RequestTemplateFromSelection(EditorState& state);
+
+		// Opens the panel's "save this placed object as a new template" prompt on the next
+		// frame (Edit/Save Instance as New Template). `instance_name` is the instance, or
+		// any entity that belongs to it. Routed through the panel for the same reason as
+		// above: the name is asked in one place, and a popup opens only from its own window.
+		void RequestSaveInstanceAsTemplate(EditorState& state, const std::string& instance_name);
 	}
 }

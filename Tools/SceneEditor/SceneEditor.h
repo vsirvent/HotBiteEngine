@@ -439,6 +439,12 @@ namespace HotBiteEditor {
 		// handled in place because the modal has to be driven from window scope.
 		bool delete_requested = false;
 
+		// An instance the Entities panel's context menu asked to apply to its template. Like
+		// delete_requested it is carried out once per frame by the main loop, not in place:
+		// applying respawns the instance, and the panel is still walking the entities
+		// it would destroy.
+		std::string apply_instance_requested;
+
 		std::string status_message;
 
 		// Panel visibility, driven by the View menu. Nothing is drawn until a level

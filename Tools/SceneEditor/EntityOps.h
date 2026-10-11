@@ -135,5 +135,14 @@ namespace HotBiteEditor {
 		// multi-entity delete is the caller's job (SceneEditorApp::Present).
 		bool DeleteSelected(EditorState& state, std::string& error);
 		bool CanDeleteSelected(EditorState& state);
+
+		// The same removal for entities named by the caller instead of selected - one undo
+		// step, nothing selected or deselected. A placed instance is named by any of its
+		// entities; list the instances *last*, so undo respawns them before the entities
+		// that hung off them are put back (each is re-linked to its parent by name).
+		// Template-edit mode is not consulted: this is for operations that already know
+		// what they are taking out of the level.
+		bool DeleteEntities(EditorState& state, const std::vector<std::string>& names,
+			std::string& error);
 	}
 }

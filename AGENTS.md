@@ -2108,6 +2108,39 @@ into every instance and would be folded in twice. The per-instance overrides it 
 are dropped in the same undo step, or that instance would stay pinned while every other
 one followed later edits.
 
+**Entities added to an instance travel with it.** A point light dragged onto a placed
+object (Entities panel, or `set_parent`) is a *child* of the instance: a level entity,
+not yet part of the template. `Edit/Apply Instance to Template` takes those children in
+as parts (`TemplateOps::ListInstanceChildren`, `FoldInstance`) - one that was placed from
+a template becomes a reference part, anything else an **inline part** defined in the
+template's own file, the shape template edit mode writes - each measured with
+`MeasureSpawnedPart` like any other part. `Edit/Save Instance as New Template...`
+(`save_instance_as_template`) writes the same fold, the root and its parts as the
+instance shows them plus the children, to a *new* template and makes the instance an
+instance of it; the original template is not touched. A part cannot also stay a level
+entity (the next load would spawn it twice), so both remove the children from the level
+and **spawn the instance again** from the updated template, as one undo step
+(`EntityOps::DeleteEntities`, then the template change, then `SpawnRecordedInstance`).
+That order is the point: undo runs it backwards, and the old instance must only be
+respawned once the old template is back. The instance keeps its name, pose and own
+component edits. The children are *its* entities, so selecting one is enough to apply
+(`InstanceOf` resolves a child to the instance it hangs off). What this turned up:
+
+- `World::CreateTemplate` does not look for cycles - only `CanComposeTemplate` does, and
+  `AddPart`/`SetPart` call it. `CommitInstanceFold` calls it too, or a child placed from
+  the very template being applied would be written in and only refused at spawn.
+- A parked entity keeps its parent **by name** (`ParkInfo::parent`), not as an id.
+  `PointLightSystem` and `CameraSystem` call `GetComponent<Transform>(parent)` unguarded,
+  so a light whose parent was destroyed throws on the next frame (a fast-fail,
+  `0xC0000409`, with no `crash.txt`: find it in the Application event log). Deleting an
+  instance therefore also takes the entities hanging off it, as a template being edited
+  already did, and undo puts each link back by name.
+- `AssetBrowser::SpawnRecordedInstance` re-applies the editor's recorded component edits
+  (`component_deltas`) to the entities it spawns. A respawn - undo of a delete or of an
+  apply - used to bring back a fresh instance without them.
+- `TemplateOps::DuplicateTemplate` copied the components only, so duplicating a composed
+  template gave a bare root.
+
 **The root of a composed selection is the entity picked *first*** (`Selection::Root`,
 `selected_entities.front()`), not the primary — the primary is the most recent pick,
 which is what anchors a shift-range and what the Components panel edits, so it changes

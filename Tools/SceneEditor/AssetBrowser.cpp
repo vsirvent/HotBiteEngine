@@ -297,6 +297,32 @@ namespace HotBiteEditor {
 			}
 			state.placed_instances.push_back(inst);
 			state.instance_entity_ids.insert(e);
+			//An instance that is spawned again - undo of a delete, or of an apply - is a fresh
+			//entity from its template, but the edits made to it are still in the editor's
+			//bookkeeping (keyed by name, and kept current by every edit). Put them back, as
+			//World::LoadInstances does for a record read from a level. A name with nothing
+			//recorded - every first placement and every paste - is left exactly as spawned.
+			if (ECS::Coordinator* c = state.world->GetCoordinator()) {
+				for (const std::string& entity_name : InstancePartNames(state, inst.name, inst.template_name)) {
+					const auto delta = state.component_deltas.find(entity_name);
+					const ECS::Entity spawned = c->GetEntityByName(entity_name);
+					if (delta == state.component_deltas.end() || spawned == ECS::INVALID_ENTITY_ID) {
+						continue;
+					}
+					nlohmann::json entry = nlohmann::json::object();
+					entry["components"] = nlohmann::json::object();
+					for (const auto& [component, value] : delta->second.added) {
+						entry["components"][component] = value;
+					}
+					if (!delta->second.removed.empty()) {
+						entry["remove"] = nlohmann::json::array();
+						for (const std::string& component : delta->second.removed) {
+							entry["remove"].push_back(component);
+						}
+					}
+					state.world->ApplyComponents(spawned, entry);
+				}
+			}
 			Selection::Set(state, e);
 			return true;
 		}
