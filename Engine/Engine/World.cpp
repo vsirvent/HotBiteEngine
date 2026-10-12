@@ -3072,6 +3072,11 @@ ECS::Entity World::SpawnComposed(const std::string& name, const std::string& tem
 			strip["remove"] = nlohmann::json::array({ Components::Physics::NAME });
 			for (ECS::Entity e : part_entities) {
 				bool remove = !bone.empty();
+				//A part with no body at all is recorded as removed too, or World::Init hands it
+				//a default static one, and a Platform on it then spins in world space.
+				if (!remove && !coordinator->ContainsComponent<Components::Physics>(e)) {
+					remove = true;
+				}
 				if (!remove && coordinator->ContainsComponent<Components::Physics>(e)) {
 					//A static body is kept and seated at the composed pose; a simulated one
 					//would drive the Transform and silently undo the attachment.

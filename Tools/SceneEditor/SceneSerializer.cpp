@@ -119,6 +119,39 @@ namespace HotBiteEditor {
 			}
 		}
 
+		bool SaveGeneratedMeshes(EditorState& state)
+		{
+			if (state.world == nullptr || state.current_level_path.empty()) {
+				return true;
+			}
+			json level;
+			try {
+				level = json::parse(std::ifstream(state.current_level_path));
+			}
+			catch (std::exception&) {
+				return false;
+			}
+			json& jw = level["world"];
+			json generated = json::array();
+			for (const World::GeneratedMesh& g : state.world->GetGeneratedMeshes()) {
+				generated.push_back(json{ {"name", g.name}, {"source", g.source},
+										  {"ratio", g.ratio}, {"file", g.file} });
+			}
+			const json before = jw.contains("generated_meshes") ? jw["generated_meshes"] : json::array();
+			if (before == generated) {
+				return true;
+			}
+			if (generated.empty()) {
+				jw.erase("generated_meshes");
+			}
+			else {
+				jw["generated_meshes"] = generated;
+			}
+			std::ofstream out(state.current_level_path);
+			out << level.dump(4);
+			return out.good();
+		}
+
 		void Save(EditorState& state)
 		{
 			//The level would be written with the session's instance in it and everything
@@ -525,6 +558,16 @@ namespace HotBiteEditor {
 				const json* components = state.world->GetTemplateComponents(t.name);
 				if (components != nullptr) {
 					credit_components(*components);
+				}
+				//An inline part carries its own components (a fan's Mesh, say), and its
+				//model is needed by every fresh load of the template.
+				const json* parts = state.world->GetTemplateParts(t.name);
+				if (parts != nullptr && parts->is_array()) {
+					for (const auto& part : *parts) {
+						if (part.contains("components") && part["components"].is_object()) {
+							credit_components(part["components"]);
+						}
+					}
 				}
 			}
 			for (const auto& inst : state.placed_instances) {

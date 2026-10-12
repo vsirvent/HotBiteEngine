@@ -6,6 +6,7 @@
 #include "Inspector.h"
 #include "MaterialPanel.h"
 #include "Selection.h"
+#include "SceneSerializer.h"
 #include "ModelPreview.h"
 
 #include "imgui.h"
@@ -2492,6 +2493,12 @@ namespace HotBiteEditor {
 			}
 			state.dirty_templates.clear();
 			state.removed_templates.clear();
+			//The levels of detail a template names are generated meshes, rebuilt from the
+			//level's recipes; without them a fresh load cannot find what the template says.
+			if (!SceneSerializer::SaveGeneratedMeshes(state)) {
+				error = "templates written, but the level's generated meshes could not be";
+				return false;
+			}
 			state.status_message = "Saved " + std::to_string(written) + " template(s)" +
 				(removed > 0 ? (", removed " + std::to_string(removed)) : "");
 			return true;
