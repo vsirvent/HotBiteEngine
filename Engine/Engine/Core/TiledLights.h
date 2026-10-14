@@ -59,13 +59,18 @@ namespace HotBite {
 			static constexpr uint32_t PACKED_LIGHT_SPOT = 1u;
 			static constexpr uint32_t PACKED_LIGHT_SHADOW = 2u;
 			static constexpr uint32_t PACKED_LIGHT_SLOT_SHIFT = 2u;
+			//Bits 2..5 hold the shadow map slot; this one says the light's shadow is a ray
+			//traced in the lighting pass (Core/ShadowRays.h) instead. Never set together with
+			//PACKED_LIGHT_SHADOW: a light casts a shadow map or a ray traced shadow, not both.
+			static constexpr uint32_t PACKED_LIGHT_RAYTRACED = 64u;
 
 			//Packs a light for the GPU. `shadow_slot` is the PointShadowMapTexture slot the
-			//light's cube map is bound to, or -1 for no shadow. The colour keeps a 9 bit
-			//mantissa per channel under one shared exponent; the cone is stored as two
-			//float16 cosines and the axis as an octahedral pair of int16.
+			//light's cube map is bound to, or -1 for no shadow map. `ray_traced` marks a light
+			//whose shadow the lighting pass traces; it is ignored when the light holds a slot.
+			//The colour keeps a 9 bit mantissa per channel under one shared exponent; the cone
+			//is stored as two float16 cosines and the axis as an octahedral pair of int16.
 			PackedLight PackLight(const float position[3], float range, const float color[3], bool is_spot,
-				const float direction[3], float cos_inner, float cos_outer, int shadow_slot);
+				const float direction[3], float cos_inner, float cos_outer, int shadow_slot, bool ray_traced = false);
 
 			//The inverse of the three lossy fields, in C++: what the GPU will decode. Tests
 			//use these to check that packing does not move a light.
@@ -76,6 +81,9 @@ namespace HotBite {
 			struct TiledLightStats {
 				uint32_t lights = 0;            //point/spot lights packed this frame
 				uint32_t shadowed = 0;          //of those, how many hold a shadow slot
+				uint32_t raytraced = 0;         //of those, how many trace their shadow instead
+				uint32_t raytraced_directional = 0;//ray traced directional lights
+				uint32_t shadow_ray_objects = 0;//objects in the scene those rays are traced through
 				uint32_t tiles_x = 0;
 				uint32_t tiles_y = 0;
 				uint32_t tiles_lit = 0;         //tiles whose mask holds at least one light

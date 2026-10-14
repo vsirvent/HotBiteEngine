@@ -1236,6 +1236,16 @@ namespace HotBiteEditor {
 				state.status_message = "Could not allocate shadow maps to cast shadows";
 			}
 			track(cast_shadow_changed);
+			//Instead of the cascades: a ray per lit pixel towards the sun, no depth maps.
+			bool ray_shadow = l.RayTracedShadow();
+			const bool ray_shadow_changed = ImGui::Checkbox("Ray traced shadow", &ray_shadow);
+			if (ray_shadow_changed) {
+				l.SetRayTracedShadow(ray_shadow);
+			}
+			if (ImGui::IsItemHovered()) {
+				ImGui::SetTooltip("Traces a ray to the sun in the lighting pass instead of rendering\ncascaded shadow maps, out to the 'Shadow distance' of the cascade settings.\nExclusive with 'Cast shadow'. Skinned meshes do not cast it.");
+			}
+			track(ray_shadow_changed);
 
 			//Shadow cascades. These reach the light through its own setters rather than
 			//through Data: the slice count reallocates the depth arrays, and the rest
@@ -1355,6 +1365,17 @@ namespace HotBiteEditor {
 				state.status_message = "Could not allocate shadow map to cast shadows";
 			}
 			edit.Track(cast_shadow_changed);
+			//The alternative to the shadow map: no memory, no six passes over the casters, one
+			//ray per lit pixel instead. Turning one on turns the other off.
+			bool ray_shadow = l.RayTracedShadow();
+			const bool ray_shadow_changed = ImGui::Checkbox("Ray traced shadow", &ray_shadow);
+			if (ray_shadow_changed) {
+				l.SetRayTracedShadow(ray_shadow);
+			}
+			if (ImGui::IsItemHovered()) {
+				ImGui::SetTooltip("Traces a ray to the light in the lighting pass instead of rendering a\nshadow map. Exclusive with 'Cast shadow'. Skinned meshes do not cast it.");
+			}
+			edit.Track(ray_shadow_changed);
 			edit.Commit();
 		}
 

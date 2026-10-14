@@ -31,7 +31,8 @@ SOFTWARE.
 //material shader.
 //
 //The includer supplies as constants: cameraPosition, ambientLight, `time`, and what
-//LightShadows.hlsli asks for.
+//LightShadows.hlsli asks for - and what ShadowRays.hlsli asks for, which it includes
+//before this file: ShadePoint traces a ray for the lights flagged PACKED_LIGHT_RAYTRACED.
 
 #ifndef __DEFERRED_LIGHTING_HLSLI__
 #define __DEFERRED_LIGHTING_HLSLI__
@@ -72,8 +73,19 @@ float3 ShadeDirectional(float3 normal, float4 position, float spec_intensity, fl
 	bloomColor += spec_color;
 
 	float shadow = 1.0f;
-	if (light.cast_shadow) {
-		shadow = (DirShadowPCFAll(position, light, index));
+	//A ray traced sun traces only where its caster scene reaches (shadow_ray_sun_distance round
+	//the camera, the cascades' own reach); beyond it the ground is lit, as it is past the last
+	//cascade.
+	const bool ray_traced = !light.cast_shadow && (light.flags & DIR_LIGHT_FLAG_RAYTRACED) != 0 &&
+		length(position.xyz - cameraPosition) < shadow_ray_sun_distance;
+	if (light.cast_shadow || ray_traced) {
+		if (ray_traced) {
+			const float side = (NDotL >= 0.0f) ? 1.0f : -1.0f;
+			shadow = ShadowRayOccludedDirectional(position.xyz + normal * (side * SR_SURFACE_BIAS), light.DirToLight) ? 0.0f : 1.0f;
+		}
+		else {
+			shadow = (DirShadowPCFAll(position, light, index));
+		}
 		if (cloud_density > 0.0f) {
 			shadow -= CloudPCF(position, light, cloud_density);
 		}
@@ -133,6 +145,13 @@ float3 ShadePoint(float3 normal, float3 position, float spec_intensity, float bl
 	int slot = LightShadowSlot(light);
 	if (slot >= 0) {
 		shadow = PointShadowPCF(position - light.position, slot);
+	}
+	else if (LightIsRayTraced(light)) {
+		//No shadow map: one ray from the surface to the light. It starts on the side of the
+		//surface the light is on, so a face turned away from it is blocked by its own
+		//object rather than lit through it.
+		const float side = (dot(ToLight, normal) >= 0.0f) ? 1.0f : -1.0f;
+		shadow = ShadowRayOccluded(position + normal * (side * SR_SURFACE_BIAS), light.position) ? 0.0f : 1.0f;
 	}
 	finalColor *= Attn * shadow;
 	bloomColor *= Attn * shadow;

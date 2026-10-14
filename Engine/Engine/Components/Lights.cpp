@@ -227,7 +227,24 @@ bool DirectionalLight::CastShadow() const {
 	return data.cast_shadow;
 }
 
+void DirectionalLight::SetRayTracedShadow(bool enable) {
+	if (enable) {
+		//Exclusive with the cascades. The maps stay allocated (see SetCastShadow).
+		SetCastShadow(false);
+		data.flags |= DIR_LIGHT_FLAG_RAYTRACED;
+	}
+	else {
+		data.flags &= ~DIR_LIGHT_FLAG_RAYTRACED;
+	}
+	dirty = true;
+}
+
 bool DirectionalLight::SetCastShadow(bool enable) {
+	//Exclusive with the ray traced shadow; given back if the maps cannot be had.
+	const bool was_raytraced = (data.flags & DIR_LIGHT_FLAG_RAYTRACED) != 0;
+	if (enable) {
+		data.flags &= ~DIR_LIGHT_FLAG_RAYTRACED;
+	}
 	if (enable == (data.cast_shadow != 0)) {
 		return true;
 	}
@@ -249,6 +266,9 @@ bool DirectionalLight::SetCastShadow(bool enable) {
 		//Never allocated - this light was constructed or loaded with shadows off.
 		if (FAILED(AllocateShadowMaps(cascade_settings.count,
 			CascadeResolutionFor(shadow_resolution_divisor)))) {
+			if (was_raytraced) {
+				data.flags |= DIR_LIGHT_FLAG_RAYTRACED;
+			}
 			return false;
 		}
 	}
@@ -383,7 +403,21 @@ bool PointLight::CastShadow() const {
 	return this->data.cast_shadow;
 }
 
+void PointLight::SetRayTracedShadow(bool enable) {
+	if (enable) {
+		//Exclusive with the shadow map. The map stays allocated (see SetCastShadow).
+		SetCastShadow(false);
+	}
+	raytraced_shadow = enable;
+	dirty = true;
+}
+
 bool PointLight::SetCastShadow(bool enable) {
+	//Exclusive with the ray traced shadow; given back if the map cannot be had.
+	const bool was_raytraced = raytraced_shadow;
+	if (enable) {
+		raytraced_shadow = false;
+	}
 	if (enable == (data.cast_shadow != 0)) {
 		return true;
 	}
@@ -404,6 +438,7 @@ bool PointLight::SetCastShadow(bool enable) {
 		//Never allocated - this light was constructed or loaded with shadows off.
 		int w = DXCore::Get()->GetWidth() / shadow_resolution_divisor;
 		if (FAILED(AllocateShadowMap(w))) {
+			raytraced_shadow = was_raytraced;
 			return false;
 		}
 	}
@@ -500,6 +535,7 @@ json DirectionalLight::ToJson(const ECS::SerializeContext& ctx) const {
 	j["resolution"] = shadow_resolution_divisor;
 	j["fog"] = (data.flags & DIR_LIGHT_FLAG_FOG) != 0;
 	j["inverse_shadow"] = (data.flags & DIR_LIGHT_FLAG_INVERSE) != 0;
+	j["raytraced_shadow"] = (data.flags & DIR_LIGHT_FLAG_RAYTRACED) != 0;
 	cascade_settings.ToJson(j);
 	return j;
 }
@@ -552,6 +588,10 @@ void DirectionalLight::FromJson(const json& j, const ECS::SerializeContext& ctx)
 			data.density = j["density"].get<float>() / 1000.0f;
 		}
 	}
+	//After cast_shadow, so a record that says both is a ray traced light.
+	if (j.contains("raytraced_shadow")) {
+		SetRayTracedShadow(j["raytraced_shadow"].get<bool>());
+	}
 	ToFloat3(j, "position", data.position);
 	data.intensity = j.value("intensity", data.intensity);
 	data.range = j.value("range", data.range);
@@ -568,6 +608,7 @@ json PointLight::ToJson(const ECS::SerializeContext& ctx) const {
 	j["density"] = data.density * 1000.0f;
 	j["tilt_ratio"] = data.tilt_ratio;
 	j["cast_shadow"] = (data.cast_shadow != 0);
+	j["raytraced_shadow"] = raytraced_shadow;
 	j["resolution"] = shadow_resolution_divisor;
 	//Written unconditionally, never "only when it differs from the default": undo replays
 	//an earlier ToJson and every FromJson reads a missing key as "leave alone".
@@ -615,6 +656,10 @@ void PointLight::FromJson(const json& j, const ECS::SerializeContext& ctx) {
 		if (j.contains("density")) {
 			data.density = j["density"].get<float>() / 1000.0f;
 		}
+	}
+	//After cast_shadow, so a record that says both is a ray traced light.
+	if (j.contains("raytraced_shadow")) {
+		SetRayTracedShadow(j["raytraced_shadow"].get<bool>());
 	}
 	ToFloat3(j, "position", data.position);
 	data.tilt_ratio = j.value("tilt_ratio", data.tilt_ratio);

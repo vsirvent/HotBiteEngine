@@ -135,6 +135,10 @@ namespace HotBite {
 				//what it shadows. Runtime-only, and never set at the same time as the
 				//cascade tint (they recolour the same term).
 #define DIR_LIGHT_FLAG_DEBUG_STATIC 16
+				//The shadow is a ray traced in the lighting pass (Core/ShadowRays.h) instead of
+				//the cascaded maps. Authored (serialized as raytraced_shadow), exclusive with
+				//cast_shadow, mirrored by DIR_LIGHT_FLAG_RAYTRACED in PixelCommon.hlsli.
+#define DIR_LIGHT_FLAG_RAYTRACED 32
 				//Mirrored field for field by struct DirLight in
 				//Shaders/Common/PixelCommon.hlsli - it is memcpy'd straight into that
 				//cbuffer layout, so the two must be edited together, trailing padding
@@ -309,6 +313,11 @@ namespace HotBite {
 				//Returns false if the maps could not be allocated, in which case shadows
 				//stay off.
 				bool SetCastShadow(bool enable);
+				//Ray traced shadow instead of the cascades: no depth maps are rendered, and the
+				//lighting pass traces a ray from each lit surface towards the light. Exclusive
+				//with CastShadow(): turning either on turns the other off.
+				bool RayTracedShadow() const { return (data.flags & DIR_LIGHT_FLAG_RAYTRACED) != 0; }
+				void SetRayTracedShadow(bool enable);
 				struct Data& GetData();
 				const D3D11_VIEWPORT& GetShadowViewPort() const;
 
@@ -430,6 +439,9 @@ namespace HotBite {
 
 			private:
 				struct Data data = {};
+				//Not in Data: that is memcpy'd into a shader layout, and the packed light
+				//the lighting pass reads carries this as a flag instead.
+				bool raytraced_shadow = false;
 				//Authored in degrees (half angles); data holds the cosines.
 				float spot_inner_deg = 20.0f;
 				float spot_outer_deg = 30.0f;
@@ -480,6 +492,13 @@ namespace HotBite {
 				//same trade-off as DirectionalLight::SetCastShadow. Returns false if the map
 				//could not be allocated, leaving the light as it was.
 				bool SetCastShadow(bool enable);
+				//Ray traced shadow: no cube map, no six passes over the casters. The lighting
+				//pass traces one ray from the surface to the light (Core/ShadowRays.h) and
+				//drops the light when something is in between. Exclusive with CastShadow():
+				//turning either on turns the other off. Costs no memory per light; the cost
+				//is the ray, per lit pixel.
+				bool RayTracedShadow() const { return raytraced_shadow; }
+				void SetRayTracedShadow(bool enable);
 				const D3D11_VIEWPORT& GetShadowViewPort() const;
 
 				virtual ID3D11ShaderResourceView* DepthResource() override;

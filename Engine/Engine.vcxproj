@@ -184,6 +184,7 @@
     <ClCompile Include="Engine\Core\SplatMeshReconstruction.cpp" />
     <ClCompile Include="Engine\Core\Texture.cpp" />
     <ClCompile Include="Engine\Core\TextureCache.cpp" />
+    <ClCompile Include="Engine\Core\ShadowRays.cpp" />
     <ClCompile Include="Engine\Core\TiledLights.cpp" />
     <ClCompile Include="Engine\Core\Utils.cpp" />
     <ClCompile Include="Engine\Core\Log.cpp" />
@@ -246,6 +247,7 @@
     <ClInclude Include="Engine\Core\SplatMeshReconstruction.h" />
     <ClInclude Include="Engine\Core\Texture.h" />
     <ClInclude Include="Engine\Core\TextureCache.h" />
+    <ClInclude Include="Engine\Core\ShadowRays.h" />
     <ClInclude Include="Engine\Core\TiledLights.h" />
     <ClInclude Include="Engine\Core\Utils.h" />
     <ClInclude Include="Engine\Core\Log.h" />
@@ -321,6 +323,7 @@
     <None Include="Engine\Core\Shaders\Common\RayDefines.hlsli" />
     <None Include="Engine\Core\Shaders\Common\RGBANoise.hlsli" />
     <None Include="Engine\Core\Shaders\Common\ShaderStructs.hlsli" />
+    <None Include="Engine\Core\Shaders\Common\ShadowRays.hlsli" />
     <None Include="Engine\Core\Shaders\Common\SimpleLight.hlsli" />
     <None Include="Engine\Core\Shaders\Common\Utils.hlsli" />
     <None Include="Engine\Core\Shaders\GUI\GUICommon.hlsli" />
@@ -335,6 +338,12 @@
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Compute</ShaderType>
     </FxCompile>
     <FxCompile Include="Engine\Core\Shaders\ComputeShaders\DeferredLightCS.hlsl">
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Compute</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Compute</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|x64'">5.0</ShaderModel>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\ComputeShaders\ShadowAccumulateCS.hlsl">
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Compute</ShaderType>
       <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Compute</ShaderType>
@@ -906,6 +915,10 @@
       <LightGlowLightHeader>$(MSBuildThisFileDirectory)Engine\Core\Shaders\Common\LightGlow.hlsli</LightGlowLightHeader>
     </PropertyGroup>
     <Touch Files="@(LightingDependent)" Condition="Exists('$(LightGlowLightHeader)') And $([System.IO.File]::GetLastWriteTime('$(LightGlowLightHeader)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('%(LightingDependent.FullPath)').Ticks)" />
+    <PropertyGroup>
+      <ShadowRaysLightHeader>$(MSBuildThisFileDirectory)Engine\Core\Shaders\Common\ShadowRays.hlsli</ShadowRaysLightHeader>
+    </PropertyGroup>
+    <Touch Files="@(LightingDependent)" Condition="Exists('$(ShadowRaysLightHeader)') And $([System.IO.File]::GetLastWriteTime('$(ShadowRaysLightHeader)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('%(LightingDependent.FullPath)').Ticks)" />
     <PropertyGroup>
       <ParticleLightLightHeader>$(MSBuildThisFileDirectory)Engine\Core\Shaders\Common\ParticleLight.hlsli</ParticleLightLightHeader>
     </PropertyGroup>

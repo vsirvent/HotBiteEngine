@@ -40,6 +40,7 @@ SOFTWARE.
 #include <Core\BVH.h>
 #include <Core\RWBuffer.h>
 #include <Core\TiledLights.h>
+#include <Core\ShadowRays.h>
 
 namespace HotBite {
 	namespace Engine {
@@ -935,6 +936,57 @@ namespace HotBite {
 				std::vector<LightCandidate> light_candidates;
 				std::vector<LightCandidate> shadow_candidates;
 				Core::TiledLightStats tiled_stats;
+				//Ray traced point light shadows: the lights GatherLights flagged, and the scene
+				//BuildShadowRays loaded for them (see Core::ShadowRays). `shadow_ray_scratch` is
+				//the per-frame object list, kept so a frame allocates nothing.
+				Core::ShadowRays shadow_rays;
+				uint32_t raytraced_light_count = 0;
+				struct ShadowRayCandidate {
+					float distance;
+					const DrawableEntity* drawable;
+				};
+				std::vector<ShadowRayCandidate> shadow_ray_candidates;
+				std::vector<Core::ObjectInfo> shadow_ray_scratch;
+				//Which level of detail of a mesh the rays hit: the second one when it has a chain
+				//(the coarsest is a few triangles of a tree, and a ray that passes between them
+				//lets light through the real canopy), the mesh itself otherwise.
+				static constexpr int SHADOW_RAY_LOD = 1;
+				//Radius, in world units, of the ball round a light that its shadow rays aim into.
+				//The aim changes every frame and every pixel, so the temporal anti aliasing
+				//averages the hard shadows into a soft edge as wide as this ball. 0 = hard.
+				float shadow_ray_radius = 1.0f;
+				//Ray traced directional lights (the sun): how many there are this frame, how far from
+				//the camera they are traced (the largest cascade shadow distance among them), how far a
+				//ray looks for a caster (mirrored by SR_SUN_RAY_LENGTH in ShadowRays.hlsli) and the tangent
+				//of the cone the rays aim into - the sun is half a degree wide, this is a soft 1.5.
+				uint32_t raytraced_directional_count = 0;
+				float shadow_ray_sun_distance = 0.0f;
+				static constexpr float SHADOW_RAY_SUN_LENGTH = 120.0f;
+				float shadow_ray_sun_spread = 0.026f;
+				//The jitter makes one frame's shadow edge noise, so the light of the ray traced
+				//lights is accumulated over the frames (ShadowAccumulateCS): `shadow_rt_light` is
+				//this frame's, the two history textures hold the running average (one read, one
+				//written, swapped every frame). `shadow_ray_blend` is the weight of the new frame.
+				Core::RenderTexture2D shadow_rt_light;
+				Core::RenderTexture2D shadow_rt_history[2];
+				Core::SimpleComputeShader* shadow_accumulate = nullptr;
+				int shadow_rt_history_read = 0;
+				bool shadow_rt_history_valid = false;
+				float shadow_ray_blend = 0.08f;
+			public:
+				//How soft ray traced shadows are (the radius of the ball the rays aim into, in world
+				//units; 0 = hard) and how fast the result settles (the weight of the newest frame,
+				//1 = no averaging, noisy). The defaults are what games should use; these are for
+				//tuning and for tests.
+				void SetShadowRaySettings(float radius, float blend) {
+					shadow_ray_radius = radius < 0.0f ? 0.0f : radius;
+					shadow_ray_blend = blend < 0.01f ? 0.01f : (blend > 1.0f ? 1.0f : blend);
+				}
+				float GetShadowRayRadius() const { return shadow_ray_radius; }
+				float GetShadowRayBlend() const { return shadow_ray_blend; }
+			private:
+				//Gathers the casters in reach of the ray traced lights and builds their scene.
+				void BuildShadowRays();
 				//Read back only while something asks (the same keepalive as the other counters).
 				mutable uint32_t tiled_stats_request_frame = 0;
 				mutable bool tiled_stats_requested = false;

@@ -287,7 +287,7 @@ namespace HotBiteEditor {
 			const std::vector<std::string>& args, std::string& error)
 		{
 			if (cmd != "spawn_lights" && cmd != "clear_lights" && cmd != "lights_info" && cmd != "lights_validate" &&
-				cmd != "lights_packed" && cmd != "tile_culling" && cmd != "gpu_timings") {
+				cmd != "lights_packed" && cmd != "tile_culling" && cmd != "gpu_timings" && cmd != "shadow_rays") {
 				return false;
 			}
 			Systems::RenderSystem* rs =
@@ -362,9 +362,9 @@ namespace HotBiteEditor {
 			else if (cmd == "lights_info") {
 				const Core::TiledLightStats st = rs->GetTiledLightStats();
 				const double avg = st.tiles_lit > 0 ? (double)st.total_bits / (double)st.tiles_lit : 0.0;
-				char text[320];
-				snprintf(text, sizeof(text), "OK lights=%u shadowed=%u tiles=%ux%u lit=%u geometry=%u max=%u avg=%.3f valid=%d frame=%u",
-					st.lights, st.shadowed, st.tiles_x, st.tiles_y, st.tiles_lit, st.tiles_with_geometry,
+				char text[400];
+				snprintf(text, sizeof(text), "OK lights=%u shadowed=%u raytraced=%u raytraced_dir=%u shadow_ray_objects=%u tiles=%ux%u lit=%u geometry=%u max=%u avg=%.3f valid=%d frame=%u",
+					st.lights, st.shadowed, st.raytraced, st.raytraced_directional, st.shadow_ray_objects, st.tiles_x, st.tiles_y, st.tiles_lit, st.tiles_with_geometry,
 					st.max_per_tile, avg, st.valid ? 1 : 0, st.frame);
 				response_lines.push_back(text);
 			}
@@ -393,12 +393,29 @@ namespace HotBiteEditor {
 					Core::UnpackLightColor(l, color);
 					Core::UnpackLightDirection(l, dir);
 					char text[400];
-					snprintf(text, sizeof(text), "OK pos=%.4f,%.4f,%.4f range=%.4f color=%.4f,%.4f,%.4f spot=%d dir=%.4f,%.4f,%.4f slot=%d",
+					snprintf(text, sizeof(text), "OK pos=%.4f,%.4f,%.4f range=%.4f color=%.4f,%.4f,%.4f spot=%d dir=%.4f,%.4f,%.4f slot=%d rt=%d",
 						l.position[0], l.position[1], l.position[2], l.range, color[0], color[1], color[2],
 						(l.flags & Core::PACKED_LIGHT_SPOT) ? 1 : 0, dir[0], dir[1], dir[2],
-						(l.flags & Core::PACKED_LIGHT_SHADOW) ? (int)((l.flags >> Core::PACKED_LIGHT_SLOT_SHIFT) & 15u) : -1);
+						(l.flags & Core::PACKED_LIGHT_SHADOW) ? (int)((l.flags >> Core::PACKED_LIGHT_SLOT_SHIFT) & 15u) : -1,
+						(l.flags & Core::PACKED_LIGHT_RAYTRACED) ? 1 : 0);
 					response_lines.push_back(text);
 				}
+			}
+			else if (cmd == "shadow_rays") {
+				//shadow_rays [<radius> <blend>]: how soft the ray traced shadows are and how fast
+				//they settle (blend 1 = no averaging over frames). -> OK radius= blend=
+				if (args.size() >= 3) {
+					try {
+						rs->SetShadowRaySettings(std::stof(args[1]), std::stof(args[2]));
+					}
+					catch (const std::exception&) {
+						response_lines.push_back("ERR usage: shadow_rays [<radius> <blend>]");
+						return true;
+					}
+				}
+				char text[96];
+				snprintf(text, sizeof(text), "OK radius=%.3f blend=%.3f", rs->GetShadowRayRadius(), rs->GetShadowRayBlend());
+				response_lines.push_back(text);
 			}
 			else if (cmd == "tile_culling") {
 				if (args.size() > 1) {

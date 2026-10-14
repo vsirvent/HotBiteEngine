@@ -112,6 +112,34 @@ data - it tries to unroll the loop that produced the index and fails. `GatherPoi
 `SamplePointShadow` match the slot against each map by a literal index, one branch per slot,
 one taken.
 
+## Ray traced shadows
+
+A point light with `raytraced_shadow` (or a directional light with `raytraced_shadow`) holds no
+shadow map: no cube map or cascades in memory, no six passes over the casters. `ShadePoint` /
+`ShadeDirectional` trace **one any-hit ray** from the surface to the light instead
+(`Common/ShadowRays.hlsli`). It is exclusive with `cast_shadow`: turning either on turns the other
+off. A point light carries it as `PACKED_LIGHT_RAYTRACED` (bit 6 of the packed flags), a sun as
+`DIR_LIGHT_FLAG_RAYTRACED`.
+
+**The scene the rays go through** (`Core::ShadowRays`, built by `RenderSystem::BuildShadowRays` each
+frame after `GatherLights`): the shadow casters whose boxes a ray traced light's range reaches (for a
+sun: whatever lies within its cascade shadow distance + `SHADOW_RAY_SUN_LENGTH` of the camera), at
+most 2048, nearest first; a top level BVH over their world boxes, a structured buffer of their
+transforms, and the mesh BVHs / vertex / index buffers the reflection tracers already use (LOD 1 of
+a mesh with a chain). Nothing is built when no light traces.
+
+**Soft edges.** Each ray aims at a different point of a ball round the light (`shadow_ray_radius`,
+a cone of tangent `shadow_ray_sun_spread` for the sun) - per pixel, and per frame along an R3
+low discrepancy sequence. That is noise, so the light of the ray traced lights goes to its own
+buffer and `ShadowAccumulateCS` averages it over the frames (reprojected through `prev_position_map`,
+depth validated, history clamped to the 3x3 neighbourhood so a moved caster snaps instead of fading)
+before adding it to the light map. Only the first lighting dispatch accumulates; water and splats add
+their ray traced light directly. Tune with the `shadow_rays [radius blend]` editor command.
+
+**Not done:** skinned meshes do not cast (their BVH is the bind pose); water and lava ignore it;
+volumetric fog and the reflection / GI tracers do not see a ray traced sun's shadow.
+Tests: editor suites `46-raytracedshadows` (point) and `47-raytracedsun`.
+
 ## Limits and things worth knowing
 
 * **1024 point lights** per frame; past that the nearest 1024 to the camera are lit.

@@ -386,8 +386,13 @@ namespace HotBite {
 					if (buffer != nullptr) {
 						int count = buffer->Release();
 						hr |= (count == 0) ? S_OK : E_FAIL;
-						srv->Release();
-						srv = nullptr;
+						//Null both, so an explicit Unprepare followed by the destructor's
+						//(or a second Prepare) does not release twice.
+						buffer = nullptr;
+						if (srv != nullptr) {
+							srv->Release();
+							srv = nullptr;
+						}
 					}
 					return hr;
 				}

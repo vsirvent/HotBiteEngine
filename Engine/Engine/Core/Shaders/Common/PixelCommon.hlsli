@@ -95,6 +95,9 @@ struct DirLight
 	//precedence over the cascade tint if both are somehow set, since they recolour the
 	//same term and their palettes would multiply into nonsense.
 #define DIR_LIGHT_FLAG_DEBUG_STATIC 16
+	//The shadow is traced by the lighting pass (Common/ShadowRays.hlsli) and no cascade is
+	//sampled. Mirrors DIR_LIGHT_FLAG_RAYTRACED in Components/Lights.h.
+#define DIR_LIGHT_FLAG_RAYTRACED 32
 	float3 Color;
 	float  intensity;
 	float3 DirToLight;

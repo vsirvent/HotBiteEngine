@@ -62,7 +62,7 @@ namespace {
 }
 
 PackedLight Core::PackLight(const float position[3], float range, const float color[3], bool is_spot,
-	const float direction[3], float cos_inner, float cos_outer, int shadow_slot)
+	const float direction[3], float cos_inner, float cos_outer, int shadow_slot, bool ray_traced)
 {
 	PackedLight p = {};
 	p.position[0] = position[0];
@@ -88,6 +88,9 @@ PackedLight Core::PackLight(const float position[3], float range, const float co
 	}
 	if (shadow_slot >= 0) {
 		p.flags |= PACKED_LIGHT_SHADOW | ((uint32_t)shadow_slot << PACKED_LIGHT_SLOT_SHIFT);
+	}
+	else if (ray_traced) {
+		p.flags |= PACKED_LIGHT_RAYTRACED;
 	}
 	return p;
 }

@@ -54,8 +54,8 @@ struct PackedLight
 	//cos(outer half angle) in the low half, cos(inner) in the high one, both float16.
 	//Unused for a point light.
 	uint   cones;
-	//bit 0 spot, bit 1 has a shadow map, bits 2.. the slot of that shadow map in the
-	//PointShadowMapTexture array (0..MAX_LIGHTS-1).
+	//bit 0 spot, bit 1 has a shadow map, bits 2..5 the slot of that shadow map in the
+	//PointShadowMapTexture array (0..MAX_LIGHTS-1), bit 6 ray traced shadow.
 	uint   flags;
 };
 
@@ -76,6 +76,9 @@ struct AuxLight
 #define PACKED_LIGHT_SHADOW 2u
 #define PACKED_LIGHT_SLOT_SHIFT 2u
 #define PACKED_LIGHT_SLOT_MASK 15u
+//The shadow is a ray traced to the light in the lighting pass (Common/ShadowRays.hlsli).
+//Exclusive with PACKED_LIGHT_SHADOW.
+#define PACKED_LIGHT_RAYTRACED 64u
 
 float3 UnpackLightColor(PackedLight l)
 {
@@ -96,6 +99,11 @@ int LightShadowSlot(PackedLight l)
 		return -1;
 	}
 	return (int)((l.flags >> PACKED_LIGHT_SLOT_SHIFT) & PACKED_LIGHT_SLOT_MASK);
+}
+
+bool LightIsRayTraced(PackedLight l)
+{
+	return (l.flags & PACKED_LIGHT_RAYTRACED) != 0u;
 }
 
 float3 UnpackLightDirection(PackedLight l)

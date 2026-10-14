@@ -438,6 +438,19 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		if (!tiled_lights.Init(w, h)) {
 			throw std::exception("tiled_lights.Init failed");
 		}
+		if (FAILED(shadow_rt_light.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS)) ||
+			FAILED(shadow_rt_history[0].Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS)) ||
+			FAILED(shadow_rt_history[1].Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+			throw std::exception("shadow ray accumulation textures Init failed");
+		}
+		shadow_accumulate = ShaderFactory::Get()->GetShader<SimpleComputeShader>("ShadowAccumulateCS.cso");
+		if (shadow_accumulate == nullptr) {
+			throw std::exception("ShadowAccumulateCS shader.Init failed");
+		}
+		//Not fatal: without it a ray traced light is simply unshadowed (GatherLights asks Ready()).
+		if (!shadow_rays.Init()) {
+			printf("RenderSystem::Init: shadow ray buffers could not be created, ray traced shadows disabled\n");
+		}
 		if (FAILED(bloom_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R11G11B10_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("bloom_map.Init failed");
 		}
@@ -687,6 +700,10 @@ RenderSystem::~RenderSystem() {
 	prev_position_map.Release();
 	material_map.Release();
 	tiled_lights.Release();
+	shadow_rays.Release();
+	shadow_rt_light.Release();
+	shadow_rt_history[0].Release();
+	shadow_rt_history[1].Release();
 	bloom_map.Release();
 	dust_map.Release();
 	temp_map.Release();
@@ -4062,13 +4079,21 @@ void RenderSystem::GatherLights(const CameraEntity& camera) {
 	//Pack. The buffer index of a light is its position in light_candidates, which is what
 	//the aux lists below point back into.
 	packed_lights.clear();
+	raytraced_light_count = 0;
 	NearestLights nearest;
 	NearestLights nearest_volumetric;
 	for (size_t i = 0; i < light_candidates.size(); ++i) {
 		const LightCandidate& c = light_candidates[i];
 		const PointLight::Data& d = c.entity->light->GetData();
+		//A light that holds a shadow slot never also traces (the two are exclusive on the
+		//component; PackLight ignores the flag when there is a slot all the same).
+		const bool ray_traced = shadow_rays.Ready() && c.entity->light->RayTracedShadow() &&
+			c.entity->light->render_shadow_slot < 0;
+		if (ray_traced) {
+			++raytraced_light_count;
+		}
 		packed_lights.push_back(PackLight(&d.position.x, d.range, &d.color.x, d.is_spot != 0, &d.direction.x,
-			d.spot_cos_inner, d.spot_cos_outer, c.entity->light->render_shadow_slot));
+			d.spot_cos_inner, d.spot_cos_outer, c.entity->light->render_shadow_slot, ray_traced));
 		nearest.Offer(c.dist2, (int)i);
 		if (d.density > 0.0f) {
 			nearest_volumetric.Offer(c.dist2, (int)i);
@@ -4091,6 +4116,106 @@ void RenderSystem::GatherLights(const CameraEntity& camera) {
 	tiled_lights.Upload(packed_lights.data(), (uint32_t)packed_lights.size());
 	tiled_stats.lights = (uint32_t)packed_lights.size();
 	tiled_stats.shadowed = shadow_slot_count;
+	tiled_stats.raytraced = raytraced_light_count;
+}
+
+void RenderSystem::BuildShadowRays() {
+	//The ray traced lights' reach, as spheres. A caster outside every one of them cannot be
+	//between a lit surface and its light, so it is not in the scene: the scene is a few
+	//lamps' worth of geometry, not the world.
+	struct Reach {
+		float3 position;
+		float range;
+	};
+	thread_local std::vector<Reach> reach;
+	reach.clear();
+	raytraced_directional_count = 0;
+	shadow_ray_sun_distance = 0.0f;
+	if (shadow_rays.Ready() && bvh_buffer != nullptr) {
+		if (raytraced_light_count > 0) {
+			for (const LightCandidate& c : light_candidates) {
+				if (c.entity->light->RayTracedShadow()) {
+					const PointLight::Data& d = c.entity->light->GetData();
+					reach.push_back({ d.position, d.range });
+				}
+			}
+		}
+		//A ray traced sun has no position: what can shade a pixel the camera sees is whatever stands
+		//within SHADOW_RAY_SUN_LENGTH of it, and the pixels it is traced for are within the cascades'
+		//shadow distance of the camera. One sphere round the camera covers both.
+		for (DirectionalLightEntity& l : directional_lights.GetData()) {
+			if (l.base->visible && l.light->RayTracedShadow() && !l.light->CastShadow() && !cameras.GetData().empty()) {
+				++raytraced_directional_count;
+				shadow_ray_sun_distance = (std::max)(shadow_ray_sun_distance, l.light->GetCascadeSettings().distance);
+			}
+		}
+		if (raytraced_directional_count > 0) {
+			reach.push_back({ cameras.GetData()[0].camera->world_position, shadow_ray_sun_distance + SHADOW_RAY_SUN_LENGTH });
+		}
+	}
+	tiled_stats.raytraced_directional = raytraced_directional_count;
+	shadow_ray_candidates.clear();
+	shadow_ray_scratch.clear();
+	if (reach.empty()) {
+		shadow_rays.Load(nullptr, 0);
+		tiled_stats.shadow_ray_objects = 0;
+		return;
+	}
+
+	for (const auto& shaders : shadow_tree) {
+		for (const auto& mat : shaders.second) {
+			for (const DrawableEntity& de : mat.second.second.GetConstData()) {
+				//Skinned meshes are posed on the GPU: their triangles in the BVH are the bind pose.
+				if (!de.base->visible || !de.base->cast_shadow || !de.mesh->GetData()->skeletons.empty()) {
+					continue;
+				}
+				const float3& center = de.bounds->final_box.Center;
+				const float3& extents = de.bounds->final_box.Extents;
+				float nearest = FLT_MAX;
+				for (const Reach& r : reach) {
+					//Distance from the light to the box (0 inside it), against the light's range.
+					const float dx = (std::max)(fabsf(r.position.x - center.x) - extents.x, 0.0f);
+					const float dy = (std::max)(fabsf(r.position.y - center.y) - extents.y, 0.0f);
+					const float dz = (std::max)(fabsf(r.position.z - center.z) - extents.z, 0.0f);
+					const float dist = sqrtf(dx * dx + dy * dy + dz * dz);
+					if (dist < r.range) {
+						nearest = (std::min)(nearest, dist);
+					}
+				}
+				if (nearest < FLT_MAX) {
+					shadow_ray_candidates.push_back({ nearest, &de });
+				}
+			}
+		}
+	}
+
+	//Past the cap the objects nearest a light are the ones that matter.
+	const size_t keep = (std::min)(shadow_ray_candidates.size(), (size_t)Core::ShadowRays::MAX_SHADOW_OBJECTS);
+	if (shadow_ray_candidates.size() > keep) {
+		std::nth_element(shadow_ray_candidates.begin(), shadow_ray_candidates.begin() + keep, shadow_ray_candidates.end(),
+			[](const ShadowRayCandidate& a, const ShadowRayCandidate& b) { return a.distance < b.distance; });
+	}
+	shadow_ray_scratch.reserve(keep);
+	for (size_t i = 0; i < keep; ++i) {
+		const DrawableEntity& de = *shadow_ray_candidates[i].drawable;
+		const Core::MeshData* data = de.mesh->GetData();
+		const int lod = (std::min)(SHADOW_RAY_LOD, (int)data->lods.size() - 1);
+		const Core::MeshData* geometry = LodGeometry(de.mesh->GetData(), lod);
+		const float3& center = de.bounds->final_box.Center;
+		const float3& extents = de.bounds->final_box.Extents;
+		Core::ObjectInfo o = {};
+		o.aabb_min = { center.x - extents.x, center.y - extents.y, center.z - extents.z };
+		o.aabb_max = { center.x + extents.x, center.y + extents.y, center.z + extents.z };
+		o.position = center;
+		o.world = de.transform->world_matrix;
+		o.inv_world = de.transform->world_inv_matrix;
+		o.vertex_offset = (uint32_t)geometry->vertexOffset;
+		o.index_offset = (uint32_t)geometry->indexOffset;
+		o.object_offset = (uint32_t)geometry->bvhOffset;
+		shadow_ray_scratch.push_back(o);
+	}
+	shadow_rays.Load(shadow_ray_scratch.data(), (uint32_t)shadow_ray_scratch.size());
+	tiled_stats.shadow_ray_objects = shadow_rays.Count();
 }
 
 void RenderSystem::ProcessDeferredLighting(int pass_filter) {
@@ -4128,6 +4253,20 @@ void RenderSystem::ProcessDeferredLighting(int pass_filter) {
 	deferred_light->SetInt(SCREEN_H, h);
 	deferred_light->SetInt("tiles_x", (int)tiled_lights.TilesX());
 	deferred_light->SetInt("pass_filter", pass_filter);
+	deferred_light->SetInt("shadow_ray_objects", (int)shadow_rays.Count());
+	//Only the first lighting dispatch accumulates: the later ones (water, splats) light a few pixels each
+	//and add their ray traced light straight to the map.
+	const bool accumulate_shadows = (pass_filter == 0) && (raytraced_light_count + raytraced_directional_count) > 0 &&
+		shadow_rays.Count() > 0;
+	if (accumulate_shadows) {
+		shadow_rt_light.Clear(zero);
+		deferred_light->SetUnorderedAccessView("rt_shadow_out", shadow_rt_light.UAV());
+	}
+	deferred_light->SetInt("shadow_ray_accumulate", accumulate_shadows ? 1 : 0);
+	deferred_light->SetFloat("shadow_ray_radius", shadow_ray_radius);
+	deferred_light->SetFloat("shadow_ray_sun_spread", shadow_ray_sun_spread);
+	deferred_light->SetFloat("shadow_ray_sun_distance", shadow_ray_sun_distance);
+	deferred_light->SetInt("shadow_ray_frame", (int)frame_count);
 	deferred_light->SetFloat(TIME, light_time);
 	if (sky != nullptr) {
 		deferred_light->SetFloat("cloud_density", sky->sky->cloud_density);
@@ -4140,6 +4279,16 @@ void RenderSystem::ProcessDeferredLighting(int pass_filter) {
 	deferred_light->SetShaderResourceView("materialTexture", material_map.SRV());
 	deferred_light->SetShaderResourceView("lightsBuffer", tiled_lights.LightsSRV());
 	deferred_light->SetShaderResourceView("tileMasks", tiled_lights.MasksSRV());
+	//The ray traced shadow scene. Only bound when there is one: the geometry buffers are the
+	//ones the reflection tracer reads, and a frame with no ray traced light never touches them.
+	const bool shadow_rays_bound = shadow_rays.Count() > 0 && bvh_buffer != nullptr;
+	if (shadow_rays_bound) {
+		deferred_light->SetShaderResourceView("srMeshNodes", *bvh_buffer->SRV());
+		deferred_light->SetShaderResourceView("srTlas", *shadow_rays.TlasSRV());
+		deferred_light->SetShaderResourceView("srObjects", *shadow_rays.ObjectsSRV());
+		deferred_light->SetShaderResourceView("srVertices", *vertex_buffer->VertexSRV());
+		deferred_light->SetShaderResourceView("srIndices", *vertex_buffer->IndexSRV());
+	}
 	deferred_light->SetUnorderedAccessView("light_out", current_light_map->UAV());
 	deferred_light->SetUnorderedAccessView("bloom_out", bloom_map.UAV());
 	deferred_light->CopyAllBufferData();
@@ -4151,10 +4300,53 @@ void RenderSystem::ProcessDeferredLighting(int pass_filter) {
 	deferred_light->SetShaderResourceView("materialTexture", nullptr);
 	deferred_light->SetShaderResourceView("lightsBuffer", nullptr);
 	deferred_light->SetShaderResourceView("tileMasks", nullptr);
+	if (shadow_rays_bound) {
+		deferred_light->SetShaderResourceView("srMeshNodes", nullptr);
+		deferred_light->SetShaderResourceView("srTlas", nullptr);
+		deferred_light->SetShaderResourceView("srObjects", nullptr);
+		deferred_light->SetShaderResourceView("srVertices", nullptr);
+		deferred_light->SetShaderResourceView("srIndices", nullptr);
+	}
 	deferred_light->SetUnorderedAccessView("light_out", nullptr);
 	deferred_light->SetUnorderedAccessView("bloom_out", nullptr);
+	deferred_light->SetUnorderedAccessView("rt_shadow_out", nullptr);
 	UnprepareLights(deferred_light);
 	context->CSSetShader(nullptr, nullptr, 0);
+
+	if (accumulate_shadows) {
+		//Average the ray traced lights' jittered light over the frames and add it to the map.
+		const int read = shadow_rt_history_read;
+		const int write = 1 - read;
+		shadow_accumulate->SetMatrix4x4("view_proj", cam_entity.camera->view_projection);
+		shadow_accumulate->SetMatrix4x4("prev_view_proj", prev_view_projection);
+		shadow_accumulate->SetInt("screenW", w);
+		shadow_accumulate->SetInt("screenH", h);
+		shadow_accumulate->SetInt("history_valid", shadow_rt_history_valid ? 1 : 0);
+		shadow_accumulate->SetFloat("blend", shadow_ray_blend);
+		shadow_accumulate->SetShaderResourceView("positionTexture", position_map.SRV());
+		shadow_accumulate->SetShaderResourceView("prevPositionTexture", prev_position_map.SRV());
+		shadow_accumulate->SetShaderResourceView("currentLight", shadow_rt_light.SRV());
+		shadow_accumulate->SetShaderResourceView("history", shadow_rt_history[read].SRV());
+		shadow_accumulate->SetSamplerState("basicSampler", dxcore->basic_sampler);
+		shadow_accumulate->SetUnorderedAccessView("history_out", shadow_rt_history[write].UAV());
+		shadow_accumulate->SetUnorderedAccessView("light_out", current_light_map->UAV());
+		shadow_accumulate->CopyAllBufferData();
+		shadow_accumulate->SetShader();
+		context->Dispatch((w + 7) / 8, (h + 7) / 8, 1);
+		shadow_accumulate->SetShaderResourceView("positionTexture", nullptr);
+		shadow_accumulate->SetShaderResourceView("prevPositionTexture", nullptr);
+		shadow_accumulate->SetShaderResourceView("currentLight", nullptr);
+		shadow_accumulate->SetShaderResourceView("history", nullptr);
+		shadow_accumulate->SetUnorderedAccessView("history_out", nullptr);
+		shadow_accumulate->SetUnorderedAccessView("light_out", nullptr);
+		context->CSSetShader(nullptr, nullptr, 0);
+		shadow_rt_history_read = write;
+		shadow_rt_history_valid = true;
+	}
+	else if (pass_filter == 0) {
+		//A frame without ray traced lights leaves the history stale; the next one starts afresh.
+		shadow_rt_history_valid = false;
+	}
 	if (first) {
 		GpuStamp(13);
 		if (want_stats) {
@@ -4370,6 +4562,8 @@ void RenderSystem::Draw() {
 		//CastShadows, which draws the maps of those that do and nobody else's.
 		lighting_passes_this_frame = 0;
 		GatherLights(cam_entity);
+		//The casters the ray traced lights are shadowed by (nothing at all when none is).
+		BuildShadowRays();
 		cpu_lap(cpu_timings.lights);
 		static int count = 0;
 		//Only one every STATIC_SHADOW_REFRESH_PERIOD frames we refresh static shadows (directional light can change location due to sky component)

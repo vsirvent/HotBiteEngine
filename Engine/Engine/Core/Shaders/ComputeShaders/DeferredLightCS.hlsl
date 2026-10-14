@@ -56,6 +56,20 @@ cbuffer externalData : register(b0)
 	matrix DirStaticPerspectiveMatrix[MAX_LIGHTS];
 	float time;
 	float cloud_density;
+	//Objects in the ray traced shadow scene (Core::ShadowRays); 0 when no light needs it.
+	uint shadow_ray_objects;
+	//Radius of the ball the shadow rays aim into round each light, and the frame counter that
+	//moves the aim from one frame to the next (soft edges once the frames are averaged).
+	float shadow_ray_radius;
+	uint shadow_ray_frame;
+	//1: the light of the ray traced lights goes to rt_shadow_out, not the light map, and
+	//ShadowAccumulateCS averages it over the frames and adds it (their jittered edges are noise
+	//until then). 0: it is added to the light map like any other light's.
+	int shadow_ray_accumulate;
+	//Tangent of the cone a ray traced directional light's rays are aimed into, and how far from
+	//the camera such a light is traced at all (the shadow distance of its cascades).
+	float shadow_ray_sun_spread;
+	float shadow_ray_sun_distance;
 }
 
 Texture2D<float4> positionTexture : register(t0);
@@ -67,7 +81,9 @@ ByteAddressBuffer tileMasks : register(t4);
 
 RWTexture2D<float4> light_out : register(u0);
 RWTexture2D<float4> bloom_out : register(u1);
+RWTexture2D<float4> rt_shadow_out : register(u2);
 
+#include "../Common/ShadowRays.hlsli"
 #include "../Common/DeferredLighting.hlsli"
 
 [numthreads(TILE_SIZE, TILE_SIZE, 1)]
@@ -77,6 +93,7 @@ void main(uint3 gid : SV_GroupID, uint3 dtid : SV_DispatchThreadID)
 		return;
 	}
 	const uint2 px = dtid.xy;
+	sr_pixel = px;
 	const float4 wp = positionTexture[px];
 	//Nothing was drawn here: the G-buffer is cleared to FLT_MAX.
 	if (wp.x >= 1.0e30f) {
@@ -95,6 +112,7 @@ void main(uint3 gid : SV_GroupID, uint3 dtid : SV_DispatchThreadID)
 	const float3 P = wp.xyz;
 	float3 N = normalTexture[px].xyz;
 	float3 lum = float3(0.0f, 0.0f, 0.0f);
+	float3 lum_rt = float3(0.0f, 0.0f, 0.0f);
 	float3 bloom = float3(0.0f, 0.0f, 0.0f);
 	float weight = 1.0f;
 
@@ -152,19 +170,35 @@ void main(uint3 gid : SV_GroupID, uint3 dtid : SV_DispatchThreadID)
 		}
 		lum = ShadeAmbient(N);
 		for (i = 0; i < dirLightsCount; ++i) {
-			lum += ShadeDirectional(N, float4(P, 1.0f), spec, bloom_scale, dirLights[i],
+			const float3 dir_light = ShadeDirectional(N, float4(P, 1.0f), spec, bloom_scale, dirLights[i],
 			                        cloud_density, i, bloom) * ((i == 0) ? sun : 1.0f);
+			if (shadow_ray_accumulate != 0 && (dirLights[i].flags & DIR_LIGHT_FLAG_RAYTRACED) != 0 && !dirLights[i].cast_shadow) {
+				lum_rt += dir_light;
+			}
+			else {
+				lum += dir_light;
+			}
 		}
 		for (uint w = 0; w < TILE_MASK_WORDS; ++w) {
 			uint bits = tileMasks.Load(mask_base + w * 4);
 			while (bits != 0u) {
 				const uint b = firstbitlow(bits);
 				bits &= bits - 1u;
-				lum += ShadePoint(N, P, spec, bloom_scale, lightsBuffer[w * 32u + b], bloom);
+				const PackedLight L = lightsBuffer[w * 32u + b];
+				const float3 point_light = ShadePoint(N, P, spec, bloom_scale, L, bloom);
+				if (shadow_ray_accumulate != 0 && LightIsRayTraced(L)) {
+					lum_rt += point_light;
+				}
+				else {
+					lum += point_light;
+				}
 			}
 		}
 	}
 
+	if (shadow_ray_accumulate != 0) {
+		rt_shadow_out[px] = float4(lum_rt * weight, 0.0f);
+	}
 	const float4 l = light_out[px];
 	light_out[px] = float4(l.rgb + lum * weight, l.a);
 
