@@ -46,6 +46,16 @@ static const float ones[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
 static const float minus_one[4] = { -1.0f, -1.0f, -1.0f, -1.0f };
 
 namespace {
+	//Which of the drawables the ray tracers can hold (MAX_OBJECTS) are held, best first: see PrepareRT.
+	constexpr uint32_t RT_PRIORITY_EMISSIVE = 0;
+	constexpr uint32_t RT_PRIORITY_VIEW = 1;
+	constexpr uint32_t RT_PRIORITY_REST = 2;
+	//How far outside the screen a drawable still counts as in view: the length of an indirect light ray (max_distance in
+	//GIRayTraceCS), since the pixels at the edge of the screen gather from what lies that far beyond it.
+	constexpr float RT_VIEW_REACH = 10.0f;
+	//The share of the slots emitters can take of the ones in view, so the surfaces they light are traced too.
+	constexpr size_t RT_EMISSIVE_SHARE_PERCENT = 75;
+
 	//The camera's view frustum as six planes, read off its view-projection matrix (row vectors, `view * projection`,
 	//Direct3D's depth range: a point is inside when (p, 1) . plane >= 0 for all six). A box is outside when it lies
 	//wholly behind one of them: exact for the box against the planes (it can keep a box near a corner of the frustum
@@ -78,9 +88,9 @@ namespace {
 			}
 		}
 
-		bool MayShow(const BoundingBox& box) const {
-			//Half a unit of room, so rounding at an edge never drops what is just in.
-			constexpr float kSlack = 0.5f;
+		//`slack` is the room given to every plane: half a unit by default, so rounding at an edge never drops what is just
+		//in. The ray tracers ask for more, because what they need is not what is drawn but what is within a ray's reach of it.
+		bool MayShow(const BoundingBox& box, float kSlack = 0.5f) const {
 			for (int p = 0; p < 6; ++p) {
 				const float* plane = planes[p];
 				const float distance = plane[0] * box.Center.x + plane[1] * box.Center.y + plane[2] * box.Center.z + plane[3];
@@ -447,7 +457,16 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		if (shadow_accumulate == nullptr) {
 			throw std::exception("ShadowAccumulateCS shader.Init failed");
 		}
+		//A debug view only: not fatal, the buffer then shows black.
+		shadow_bvh_debug = ShaderFactory::Get()->GetShader<SimpleComputeShader>("ShadowBvhDebugCS.cso");
+		if (shadow_bvh_debug == nullptr || FAILED(shadow_bvh_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+			printf("RenderSystem::Init: the shadow_bvh debug view is not available\n");
+			shadow_bvh_debug = nullptr;
+		}
 		//Not fatal: without it a ray traced light is simply unshadowed (GatherLights asks Ready()).
+		if (FAILED(shadow_ray_counters.Init(32, true))) {
+			printf("RenderSystem::Init: shadow ray counters could not be created\n");
+		}
 		if (!shadow_rays.Init()) {
 			printf("RenderSystem::Init: shadow ray buffers could not be created, ray traced shadows disabled\n");
 		}
@@ -729,6 +748,7 @@ RenderSystem::~RenderSystem() {
 	tiled_lights.Release();
 	shadow_rays.Release();
 	shadow_rt_light.Release();
+	shadow_bvh_map.Release();
 	shadow_rt_history[0].Release();
 	shadow_rt_history[1].Release();
 	bloom_map.Release();
@@ -2830,6 +2850,7 @@ void RenderSystem::ProcessMix() {
 	mixer_shader->SetShaderResourceView("positions", rt_ray_sources0.SRV());
 	mixer_shader->SetShaderResourceView("normals", rt_ray_sources1.SRV());
 	mixer_shader->SetShaderResourceView("motionTexture", motion_texture.SRV());
+	mixer_shader->SetShaderResourceView("bvhDebugTexture", shadow_bvh_map.SRV());
 	mixer_shader->SetShaderResourceView("input", post_process_pipeline->RenderResource());
 	//For the two radiance cache views only. Bound every frame rather than behind a
 	//test on the debug value: the branch that reads them is uniform and costs
@@ -2855,6 +2876,7 @@ void RenderSystem::ProcessMix() {
 	mixer_shader->SetShaderResourceView("rtTexture3", nullptr);
 	mixer_shader->SetShaderResourceView("volLightTexture", nullptr);
 	mixer_shader->SetShaderResourceView("motionTexture", nullptr);
+	mixer_shader->SetShaderResourceView("bvhDebugTexture", nullptr);
 	mixer_shader->SetShaderResourceView("dustTexture", nullptr);
 	mixer_shader->SetShaderResourceView("input", nullptr);
 	mixer_shader->SetShaderResourceView("lensFlareTexture", nullptr);
@@ -3135,30 +3157,57 @@ void RenderSystem::PrepareRT() {
 	if (rt_quality != eRtQuality::OFF && rt_enabled && bvh_buffer != nullptr) {
 		CameraEntity& cam_entity = cameras.GetData()[0];
 
-		//Only the nearest MAX_OBJECTS drawables are traced, so a drawable first costs what it takes to say how far it is
-		//(a few words), and only the ones that make the cut are described in full. This used to describe every drawable
-		//of the world into a map keyed by distance, a key already taken being moved a unit along until a free one was
-		//found: the cost of a frame grew faster than the number of entities (45 ms a frame at 5,900 of them, with the
-		//main thread waiting on this thread's lock), for an answer that is the same hundred objects.
+		//Only MAX_OBJECTS drawables are traced (the shaders hold one texture and one material for each), so a drawable
+		//first costs what it takes to say how much it matters (a few words), and only the ones that make the cut are
+		//described in full. This used to describe every drawable of the world into a map keyed by distance, a key
+		//already taken being moved a unit along until a free one was found: the cost of a frame grew faster than the
+		//number of entities (45 ms a frame at 5,900 of them, with the main thread waiting on this thread's lock), for an
+		//answer that is the same hundred objects.
+		//
+		//What matters is not only how near the camera a drawable is. In a world of thousands of drawables the hundred
+		//nearest to the camera are whatever stands under it, off to its sides and behind it, and a lamp in the middle of
+		//the screen was left out of its own indirect light (nothing it lit, and nothing that lit it, was traced). So the
+		//priority is, in order:
+		//  0. what emits light and is in reach of the screen: the sources indirect light is made of, and a reflection of
+		//     them (a selection or a hover highlight is an emissive material too). At most EMISSIVE_SHARE of the slots, the
+		//     nearest first, so that a night of lit windows cannot leave no room for what they shine on.
+		//  1. what is in reach of the screen: within a ray of the view frustum, since indirect light travels
+		//     max_distance (10 units) from the pixel it is gathered for.
+		//  2. the rest, which only reflections can see.
+		//Within a class the nearest to the camera goes first, as before.
 		struct Candidate {
 			float distance;
 			uint32_t order;
+			uint32_t priority;
 			const DrawableEntity* drawable;
 		};
 		//Reused from frame to frame: this runs on the one ray tracing thread.
 		thread_local std::vector<Candidate> candidates;
+		thread_local std::vector<uint32_t> emissive;
 		candidates.clear();
+		emissive.clear();
 
-		auto gather = [ca = &cam_entity](const RenderTree& tree) {
+		const ViewFrustum frustum(cam_entity.camera->xm_view_projection);
+		auto gather = [ca = &cam_entity, &frustum](const RenderTree& tree) {
 			for (const auto& shaders : tree) {
 				for (const auto& mat : shaders.second) {
 					for (const auto& de : mat.second.second.GetConstData()) {
-						if (de.base->visible && de.mesh->GetData()->skeletons.empty()) {
+						//A mesh with a buffer of its own (the terrain's chunks) is not in the shared geometry the
+						//rays read: its offsets are 0, which is some other model's triangles.
+						if (de.base->visible && de.mesh->GetData()->skeletons.empty() && de.mesh->GetData()->GetOwnedBuffer() == nullptr) {
 							// Get the center and extents of the oriented box
 							const float3& orientedBoxCenter = de.bounds->final_box.Center;
 							const float3& orientedBoxExtents = de.bounds->final_box.Extents;
 							const float distance = LENGHT_F3(MAX_F3_F3(SUB_F3_F3(orientedBoxCenter - ca->transform->position, orientedBoxExtents), { 0.0f, 0.0f, 0.0f }));
-							candidates.push_back({ distance, (uint32_t)candidates.size(), &de });
+							uint32_t priority = RT_PRIORITY_REST;
+							if (frustum.MayShow(de.bounds->final_box, RT_VIEW_REACH)) {
+								priority = RT_PRIORITY_VIEW;
+								if (de.mat->data->props.emission > 0.0f) {
+									priority = RT_PRIORITY_EMISSIVE;
+									emissive.push_back((uint32_t)candidates.size());
+								}
+							}
+							candidates.push_back({ distance, (uint32_t)candidates.size(), priority, &de });
 						}
 					}
 				}
@@ -3167,14 +3216,42 @@ void RenderSystem::PrepareRT() {
 		gather(render_tree);
 		gather(render_pass2_tree);
 
-		//The nearest ones, in order: a tie goes to the one the trees hold first, as it did when the map kept the first
+		//The emitters past the share the nearest ones leave are only in view.
+		const size_t emissive_cap = (size_t)MAX_OBJECTS * RT_EMISSIVE_SHARE_PERCENT / 100;
+		if (emissive.size() > emissive_cap) {
+			std::nth_element(emissive.begin(), emissive.begin() + emissive_cap, emissive.end(),
+				[](uint32_t a, uint32_t b) {
+					const Candidate& ca = candidates[a];
+					const Candidate& cb = candidates[b];
+					return ca.distance < cb.distance || (ca.distance == cb.distance && ca.order < cb.order);
+				});
+			for (size_t i = emissive_cap; i < emissive.size(); ++i) {
+				candidates[emissive[i]].priority = RT_PRIORITY_VIEW;
+			}
+		}
+		RtGeometryStats stats;
+		stats.candidates = (int)candidates.size();
+		for (const Candidate& c : candidates) {
+			stats.view_candidates += c.priority != RT_PRIORITY_REST;
+		}
+		stats.emissive_candidates = (int)emissive.size();
+
+		//The best ones, in order: a tie goes to the one the trees hold first, as it did when the map kept the first
 		//of two equal keys.
 		const size_t keep = (std::min)(candidates.size(), (size_t)MAX_OBJECTS);
 		const auto nearer = [](const Candidate& a, const Candidate& b) {
+			if (a.priority != b.priority) {
+				return a.priority < b.priority;
+			}
 			return a.distance < b.distance || (a.distance == b.distance && a.order < b.order);
 		};
 		if (candidates.size() > keep) {
 			std::nth_element(candidates.begin(), candidates.begin() + keep, candidates.end(), nearer);
+			//What did not make it: everything past the cut that was in reach of the screen.
+			for (size_t i = keep; i < candidates.size(); ++i) {
+				stats.view_dropped += candidates[i].priority != RT_PRIORITY_REST;
+				stats.emissive_dropped += candidates[i].priority == RT_PRIORITY_EMISSIVE;
+			}
 		}
 		std::sort(candidates.begin(), candidates.begin() + keep, nearer);
 
@@ -3186,11 +3263,10 @@ void RenderSystem::PrepareRT() {
 		//(every drawable skinned, or hidden), which is why it went unnoticed while
 		//the shaders ignored the result.
 		if (nobjects <= 0) {
-			rt_geometry_stats = RtGeometryStats{};
+			rt_geometry_stats = stats;
 			return;
 		}
 
-		RtGeometryStats stats;
 		for (size_t i = 0; i < keep; ++i) {
 			const DrawableEntity& de = *candidates[i].drawable;
 			const Core::MeshData* data = de.mesh->GetData();
@@ -3206,8 +3282,7 @@ void RenderSystem::PrepareRT() {
 			//`lods` is finest-first with [0] being the mesh itself, so the
 			//last entry is the answer and an empty chain means there is
 			//only the mesh.
-			const int trace_lod = data->lods.empty() ? 0 : (int)data->lods.size() - 1;
-			const Core::MeshData* geometry = LodGeometry(de.mesh->GetData(), trace_lod);
+			const Core::MeshData* geometry = data->TraceGeometry();
 
 			const float3& orientedBoxCenter = de.bounds->final_box.Center;
 			const float3& orientedBoxExtents = de.bounds->final_box.Extents;
@@ -4308,7 +4383,7 @@ void RenderSystem::GatherLights(const CameraEntity& camera) {
 		const PointLight::Data& d = c.entity->light->GetData();
 		//A light that holds a shadow slot never also traces (the two are exclusive on the
 		//component; PackLight ignores the flag when there is a slot all the same).
-		const bool ray_traced = shadow_rays.Ready() && c.entity->light->RayTracedShadow() &&
+		const bool ray_traced = raytraced_lights_enabled && shadow_rays.Ready() && c.entity->light->RayTracedShadow() &&
 			c.entity->light->render_shadow_slot < 0;
 		if (ray_traced) {
 			++raytraced_light_count;
@@ -4341,23 +4416,40 @@ void RenderSystem::GatherLights(const CameraEntity& camera) {
 }
 
 void RenderSystem::BuildShadowRays() {
-	//The ray traced lights' reach, as spheres. A caster outside every one of them cannot be
-	//between a lit surface and its light, so it is not in the scene: the scene is a few
-	//lamps' worth of geometry, not the world.
+	//The ray traced lights' reach, as spheres: a ray from a surface to a light lies inside the light's range,
+	//so a caster outside it cannot be between them, and a light's scene is the casters its sphere reaches
+	//- a few lamps' worth of geometry each, not the world. The sun has one too (last).
 	struct Reach {
 		float3 position;
 		float range;
+		//Its place in packed_lights, or none for the sun.
+		size_t light;
+		//What the light is part of, nearest first (a lamp on a house: the house). Its rays go through that at full detail:
+		//a lamp stands on or in a building, and what the building lets out (a window, a door, a gap in its boards) is the
+		//look of the lamp, which a solid stand-in would close - the building would put out its own lamp.
+		ECS::Entity owners[4] = { ECS::INVALID_ENTITY_ID, ECS::INVALID_ENTITY_ID, ECS::INVALID_ENTITY_ID, ECS::INVALID_ENTITY_ID };
 	};
+	constexpr size_t SUN = (size_t)-1;
+	constexpr size_t VIEW = (size_t)-2;
 	thread_local std::vector<Reach> reach;
 	reach.clear();
 	raytraced_directional_count = 0;
 	shadow_ray_sun_distance = 0.0f;
+	shadow_ray_sun_scene = Core::ShadowRays::NO_SCENE;
+	shadow_bvh_scene = Core::ShadowRays::NO_SCENE;
+	shadow_rays.Begin();
 	if (shadow_rays.Ready() && bvh_buffer != nullptr) {
 		if (raytraced_light_count > 0) {
-			for (const LightCandidate& c : light_candidates) {
-				if (c.entity->light->RayTracedShadow()) {
-					const PointLight::Data& d = c.entity->light->GetData();
-					reach.push_back({ d.position, d.range });
+			for (size_t i = 0; i < light_candidates.size(); ++i) {
+				if ((packed_lights[i].flags & Core::PACKED_LIGHT_RAYTRACED) != 0) {
+					const PointLight::Data& d = light_candidates[i].entity->light->GetData();
+					Reach lamp = { d.position, d.range, i };
+					ECS::Entity up = light_candidates[i].entity->base->parent;
+					for (int k = 0; k < 4 && up != ECS::INVALID_ENTITY_ID && coordinator->ContainsComponent<Base>(up); ++k) {
+						lamp.owners[k] = up;
+						up = coordinator->GetComponent<Base>(up).parent;
+					}
+					reach.push_back(lamp);
 				}
 			}
 		}
@@ -4371,18 +4463,32 @@ void RenderSystem::BuildShadowRays() {
 			}
 		}
 		if (raytraced_directional_count > 0) {
-			reach.push_back({ cameras.GetData()[0].camera->world_position, shadow_ray_sun_distance + SHADOW_RAY_SUN_LENGTH });
+			reach.push_back({ cameras.GetData()[0].camera->world_position, shadow_ray_sun_distance + SHADOW_RAY_SUN_LENGTH, SUN });
+		}
+		//The debug views draw everything in reach of the camera, whatever lights there are.
+		const eDebugBuffer view = GetDebugBuffer();
+		if ((view == eDebugBuffer::SHADOW_BVH || view == eDebugBuffer::SHADOW_BVH_COST) && !cameras.GetData().empty()) {
+			reach.push_back({ cameras.GetData()[0].camera->world_position, SHADOW_BVH_VIEW_RANGE, VIEW });
 		}
 	}
 	tiled_stats.raytraced_directional = raytraced_directional_count;
-	shadow_ray_candidates.clear();
-	shadow_ray_scratch.clear();
+	tiled_stats.shadow_ray_objects = 0;
+	tiled_stats.shadow_ray_indices = 0;
+	tiled_stats.shadow_ray_full_indices = 0;
+	tiled_stats.shadow_ray_scenes = 0;
+	tiled_stats.shadow_ray_dropped = 0;
+	tiled_stats.shadow_ray_owned_skipped = 0;
 	if (reach.empty()) {
-		shadow_rays.Load(nullptr, 0);
-		tiled_stats.shadow_ray_objects = 0;
 		return;
 	}
 
+	if (shadow_scene_candidates.size() < reach.size()) {
+		shadow_scene_candidates.resize(reach.size());
+	}
+	for (size_t r = 0; r < reach.size(); ++r) {
+		shadow_scene_candidates[r].clear();
+	}
+	uint32_t owned_skipped = 0;
 	for (const auto& shaders : shadow_tree) {
 		for (const auto& mat : shaders.second) {
 			for (const DrawableEntity& de : mat.second.second.GetConstData()) {
@@ -4390,55 +4496,136 @@ void RenderSystem::BuildShadowRays() {
 				if (!de.base->visible || !de.base->cast_shadow || !de.mesh->GetData()->skeletons.empty()) {
 					continue;
 				}
+				//A mesh with a buffer of its own (the terrain's chunks) is not in the shared geometry
+				//buffers the rays read: its offsets are 0, which would be some other model's triangles.
+				if (de.mesh->GetData()->GetOwnedBuffer() != nullptr) {
+					++owned_skipped;
+					continue;
+				}
 				const float3& center = de.bounds->final_box.Center;
 				const float3& extents = de.bounds->final_box.Extents;
-				float nearest = FLT_MAX;
-				for (const Reach& r : reach) {
+				for (size_t r = 0; r < reach.size(); ++r) {
 					//Distance from the light to the box (0 inside it), against the light's range.
-					const float dx = (std::max)(fabsf(r.position.x - center.x) - extents.x, 0.0f);
-					const float dy = (std::max)(fabsf(r.position.y - center.y) - extents.y, 0.0f);
-					const float dz = (std::max)(fabsf(r.position.z - center.z) - extents.z, 0.0f);
+					const float dx = (std::max)(fabsf(reach[r].position.x - center.x) - extents.x, 0.0f);
+					const float dy = (std::max)(fabsf(reach[r].position.y - center.y) - extents.y, 0.0f);
+					const float dz = (std::max)(fabsf(reach[r].position.z - center.z) - extents.z, 0.0f);
 					const float dist = sqrtf(dx * dx + dy * dy + dz * dz);
-					if (dist < r.range) {
-						nearest = (std::min)(nearest, dist);
+					if (dist < reach[r].range) {
+						shadow_scene_candidates[r].push_back({ dist, &de });
 					}
-				}
-				if (nearest < FLT_MAX) {
-					shadow_ray_candidates.push_back({ nearest, &de });
 				}
 			}
 		}
 	}
 
-	//Past the cap the objects nearest a light are the ones that matter.
-	const size_t keep = (std::min)(shadow_ray_candidates.size(), (size_t)Core::ShadowRays::MAX_SHADOW_OBJECTS);
-	if (shadow_ray_candidates.size() > keep) {
-		std::nth_element(shadow_ray_candidates.begin(), shadow_ray_candidates.begin() + keep, shadow_ray_candidates.end(),
-			[](const ShadowRayCandidate& a, const ShadowRayCandidate& b) { return a.distance < b.distance; });
+	uint64_t indices = 0;
+	uint64_t full_indices = 0;
+	bool lights_changed = false;
+	for (size_t r = 0; r < reach.size(); ++r) {
+		std::vector<ShadowRayCandidate>& candidates = shadow_scene_candidates[r];
+		//Past the cap the objects nearest the light are the ones that matter.
+		const size_t keep = (std::min)(candidates.size(), (size_t)Core::ShadowRays::MAX_SCENE_OBJECTS);
+		if (candidates.size() > keep) {
+			std::nth_element(candidates.begin(), candidates.begin() + keep, candidates.end(),
+				[](const ShadowRayCandidate& a, const ShadowRayCandidate& b) { return a.distance < b.distance; });
+		}
+		shadow_ray_scratch.clear();
+		shadow_ray_scratch.reserve(keep);
+		for (size_t i = 0; i < keep; ++i) {
+			const DrawableEntity& de = *candidates[i].drawable;
+			const Core::MeshData* data = de.mesh->GetData();
+			//`lods` is finest-first with [0] the mesh itself (an empty chain: only the mesh).
+			//-1: what the tracers are given (the solid stand-in the mesh has, else its coarsest level).
+			const int coarsest = data->lods.empty() ? 0 : (int)data->lods.size() - 1;
+			const Reach& lamp = reach[r];
+			const bool owner = de.base->id == lamp.owners[0] || de.base->id == lamp.owners[1] || de.base->id == lamp.owners[2] ||
+				de.base->id == lamp.owners[3];
+			if (owner && shadow_ray_owner == eShadowRayOwner::NONE) {
+				continue;
+			}
+			const Core::MeshData* geometry = (owner && shadow_ray_owner == eShadowRayOwner::FULL) ? data
+				: (shadow_ray_lod < 0 ? data->TraceGeometry() : LodGeometry(de.mesh->GetData(), (std::min)(shadow_ray_lod, coarsest)));
+			indices += geometry->indexCount;
+			full_indices += data->indexCount;
+			const float3& center = de.bounds->final_box.Center;
+			const float3& extents = de.bounds->final_box.Extents;
+			Core::ObjectInfo o = {};
+			o.aabb_min = { center.x - extents.x, center.y - extents.y, center.z - extents.z };
+			o.aabb_max = { center.x + extents.x, center.y + extents.y, center.z + extents.z };
+			o.position = center;
+			o.world = de.transform->world_matrix;
+			o.inv_world = de.transform->world_inv_matrix;
+			o.vertex_offset = (uint32_t)geometry->vertexOffset;
+			o.index_offset = (uint32_t)geometry->indexOffset;
+			o.object_offset = (uint32_t)geometry->bvhOffset;
+			shadow_ray_scratch.push_back(o);
+		}
+		//A light with no scene (nothing in reach, or the frame's budget spent) still traces on the screen: it
+		//names SR_NO_SCENE and the world half of its ray answers "nothing in the way".
+		const uint32_t scene = shadow_rays.AddScene(shadow_ray_scratch.data(), (uint32_t)shadow_ray_scratch.size());
+		if (reach[r].light == SUN) {
+			shadow_ray_sun_scene = scene;
+		}
+		else if (reach[r].light == VIEW) {
+			shadow_bvh_scene = scene;
+		}
+		else {
+			Core::PackedLight& light = packed_lights[reach[r].light];
+			light.flags = (light.flags & ((1u << Core::PACKED_LIGHT_SCENE_SHIFT) - 1u)) | (scene << Core::PACKED_LIGHT_SCENE_SHIFT);
+			lights_changed = true;
+		}
 	}
-	shadow_ray_scratch.reserve(keep);
-	for (size_t i = 0; i < keep; ++i) {
-		const DrawableEntity& de = *shadow_ray_candidates[i].drawable;
-		const Core::MeshData* data = de.mesh->GetData();
-		const int lod = (std::min)(SHADOW_RAY_LOD, (int)data->lods.size() - 1);
-		const Core::MeshData* geometry = LodGeometry(de.mesh->GetData(), lod);
-		const float3& center = de.bounds->final_box.Center;
-		const float3& extents = de.bounds->final_box.Extents;
-		Core::ObjectInfo o = {};
-		o.aabb_min = { center.x - extents.x, center.y - extents.y, center.z - extents.z };
-		o.aabb_max = { center.x + extents.x, center.y + extents.y, center.z + extents.z };
-		o.position = center;
-		o.world = de.transform->world_matrix;
-		o.inv_world = de.transform->world_inv_matrix;
-		o.vertex_offset = (uint32_t)geometry->vertexOffset;
-		o.index_offset = (uint32_t)geometry->indexOffset;
-		o.object_offset = (uint32_t)geometry->bvhOffset;
-		shadow_ray_scratch.push_back(o);
+	shadow_rays.Upload();
+	if (lights_changed) {
+		//GatherLights sent them before their scenes were known.
+		tiled_lights.Upload(packed_lights.data(), (uint32_t)packed_lights.size());
 	}
-	shadow_rays.Load(shadow_ray_scratch.data(), (uint32_t)shadow_ray_scratch.size());
 	tiled_stats.shadow_ray_objects = shadow_rays.Count();
+	tiled_stats.shadow_ray_indices = indices;
+	tiled_stats.shadow_ray_full_indices = full_indices;
+	tiled_stats.shadow_ray_scenes = shadow_rays.SceneCount();
+	tiled_stats.shadow_ray_dropped = shadow_rays.Dropped();
+	tiled_stats.shadow_ray_owned_skipped = owned_skipped;
 }
-
+void RenderSystem::ProcessShadowBvhDebug() {
+	const eDebugBuffer view = GetDebugBuffer();
+	if ((view != eDebugBuffer::SHADOW_BVH && view != eDebugBuffer::SHADOW_BVH_COST) || shadow_bvh_debug == nullptr ||
+		cameras.GetData().empty() || bvh_buffer == nullptr || !shadow_rays.Ready()) {
+		return;
+	}
+	CameraEntity& cam_entity = cameras.GetData()[0];
+	const int w = dxcore->GetWidth();
+	const int h = dxcore->GetHeight();
+	DirectX::XMMATRIX view_projection = DirectX::XMLoadFloat4x4(&cam_entity.camera->view_projection);
+	float4x4 inverse;
+	DirectX::XMStoreFloat4x4(&inverse, DirectX::XMMatrixInverse(nullptr, view_projection));
+	shadow_bvh_debug->SetMatrix4x4("inv_view_proj", inverse);
+	shadow_bvh_debug->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
+	shadow_bvh_debug->SetInt("screenW", w);
+	shadow_bvh_debug->SetInt("screenH", h);
+	shadow_bvh_debug->SetInt("debug_scene", (int)shadow_bvh_scene);
+	shadow_bvh_debug->SetInt("mode", view == eDebugBuffer::SHADOW_BVH ? 1 : 2);
+	shadow_bvh_debug->SetFloat("cost_scale", 150.0f * (std::max)(debug_gain, 0.01f));
+	shadow_bvh_debug->SetInt("shadow_ray_objects", (int)shadow_rays.Count());
+	shadow_bvh_debug->SetShaderResourceView("srMeshNodes", *bvh_buffer->SRV());
+	shadow_bvh_debug->SetShaderResourceView("srTlas", *shadow_rays.TlasSRV());
+	shadow_bvh_debug->SetShaderResourceView("srObjects", *shadow_rays.ObjectsSRV());
+	shadow_bvh_debug->SetShaderResourceView("srScenes", *shadow_rays.ScenesSRV());
+	shadow_bvh_debug->SetShaderResourceView("srVertices", *vertex_buffer->VertexSRV());
+	shadow_bvh_debug->SetShaderResourceView("srIndices", *vertex_buffer->IndexSRV());
+	shadow_bvh_debug->SetUnorderedAccessView("picture", shadow_bvh_map.UAV());
+	shadow_bvh_debug->CopyAllBufferData();
+	shadow_bvh_debug->SetShader();
+	dxcore->context->Dispatch((w + 7) / 8, (h + 7) / 8, 1);
+	shadow_bvh_debug->SetShaderResourceView("srMeshNodes", nullptr);
+	shadow_bvh_debug->SetShaderResourceView("srTlas", nullptr);
+	shadow_bvh_debug->SetShaderResourceView("srObjects", nullptr);
+	shadow_bvh_debug->SetShaderResourceView("srScenes", nullptr);
+	shadow_bvh_debug->SetShaderResourceView("srVertices", nullptr);
+	shadow_bvh_debug->SetShaderResourceView("srIndices", nullptr);
+	shadow_bvh_debug->SetUnorderedAccessView("picture", nullptr);
+	dxcore->context->CSSetShader(nullptr, nullptr, 0);
+}
 void RenderSystem::ProcessDeferredLighting(int pass_filter) {
 	if (deferred_light == nullptr || cameras.GetData().empty()) {
 		return;
@@ -4479,6 +4666,7 @@ void RenderSystem::ProcessDeferredLighting(int pass_filter) {
 	const bool world_shadows = (shadow_space == eRtSpace::WORLD || shadow_space == eRtSpace::BOTH) && shadow_rays.Count() > 0;
 	const bool screen_shadows = ShadowScreenWanted() && high_z_valid;
 	deferred_light->SetInt("shadow_ray_objects", world_shadows ? (int)shadow_rays.Count() : 0);
+	deferred_light->SetInt("shadow_ray_sun_scene", (int)shadow_ray_sun_scene);
 	deferred_light->SetInt("ss_steps", screen_shadows ? SHADOW_SCREEN_STEPS : 0);
 	if (screen_shadows) {
 		deferred_light->SetMatrix4x4("ss_view_proj", cam_entity.camera->view_projection);
@@ -4521,14 +4709,25 @@ void RenderSystem::ProcessDeferredLighting(int pass_filter) {
 		deferred_light->SetShaderResourceView("srMeshNodes", *bvh_buffer->SRV());
 		deferred_light->SetShaderResourceView("srTlas", *shadow_rays.TlasSRV());
 		deferred_light->SetShaderResourceView("srObjects", *shadow_rays.ObjectsSRV());
+		deferred_light->SetShaderResourceView("srScenes", *shadow_rays.ScenesSRV());
 		deferred_light->SetShaderResourceView("srVertices", *vertex_buffer->VertexSRV());
 		deferred_light->SetShaderResourceView("srIndices", *vertex_buffer->IndexSRV());
 	}
 	deferred_light->SetUnorderedAccessView("light_out", current_light_map->UAV());
 	deferred_light->SetUnorderedAccessView("bloom_out", bloom_map.UAV());
+	const bool count_rays = pass_filter == 0 && shadow_ray_counters_requested && shadow_ray_counters.IsValid() &&
+		frame_count - shadow_ray_counters_frame < TILED_STATS_KEEPALIVE && (world_shadows || screen_shadows);
+	if (count_rays) {
+		shadow_ray_counters.Clear(0);
+		deferred_light->SetUnorderedAccessView("sr_counters", shadow_ray_counters.UAV());
+	}
 	deferred_light->CopyAllBufferData();
 	deferred_light->SetShader();
 	context->Dispatch(tiled_lights.TilesX(), tiled_lights.TilesY(), 1);
+	if (count_rays) {
+		deferred_light->SetUnorderedAccessView("sr_counters", nullptr);
+		shadow_ray_counters.Readback(shadow_ray_counters_cpu, sizeof(shadow_ray_counters_cpu));
+	}
 	deferred_light->SetShaderResourceView("rgbaNoise", nullptr);
 	deferred_light->SetShaderResourceView("positionTexture", nullptr);
 	deferred_light->SetShaderResourceView("normalTexture", nullptr);
@@ -4543,6 +4742,7 @@ void RenderSystem::ProcessDeferredLighting(int pass_filter) {
 		deferred_light->SetShaderResourceView("srMeshNodes", nullptr);
 		deferred_light->SetShaderResourceView("srTlas", nullptr);
 		deferred_light->SetShaderResourceView("srObjects", nullptr);
+		deferred_light->SetShaderResourceView("srScenes", nullptr);
 		deferred_light->SetShaderResourceView("srVertices", nullptr);
 		deferred_light->SetShaderResourceView("srIndices", nullptr);
 	}
@@ -4887,6 +5087,7 @@ void RenderSystem::Draw() {
 		//after it, which build the frame out of the buffers this writes into. It lights
 		//the clouds itself (a third lighting dispatch, filtered to them).
 		DrawSplats(w, h, camera_position, view, projection);
+		ProcessShadowBvhDebug();
 		//GpuResolve waits for every stamp of a frame, so a frame that ran no lighting at all
 		//still has to issue the three it timed.
 		if (lighting_passes_this_frame == 0) {
@@ -5201,7 +5402,7 @@ const char* RenderSystem::DebugBufferName(eDebugBuffer buffer) {
 		"off", "scene", "light", "bloom", "emission", "reflection", "refraction",
 		"indirect", "volumetric", "dust", "lens_flare", "depth", "position", "normal",
 		"motion", "gi_cache", "gi_cache_conf", "ray_sources", "ray_dispersion",
-		"ray_reflex", "ray_density", "ray_opacity"
+		"ray_reflex", "ray_density", "ray_opacity", "shadow_bvh", "shadow_bvh_cost"
 	};
 	const int i = (int)buffer;
 	return (i >= 0 && i < (int)eDebugBuffer::COUNT) ? names[i] : "off";

@@ -63,6 +63,9 @@ namespace HotBite {
 			//traced in the lighting pass (Core/ShadowRays.h) instead. Never set together with
 			//PACKED_LIGHT_SHADOW: a light casts a shadow map or a ray traced shadow, not both.
 			static constexpr uint32_t PACKED_LIGHT_RAYTRACED = 64u;
+			//Bits 8 and up of a ray traced light: its shadow ray scene (Core::ShadowRays), set by
+			//RenderSystem::BuildShadowRays once the scenes are made.
+			static constexpr uint32_t PACKED_LIGHT_SCENE_SHIFT = 8u;
 
 			//Packs a light for the GPU. `shadow_slot` is the PointShadowMapTexture slot the
 			//light's cube map is bound to, or -1 for no shadow map. `ray_traced` marks a light
@@ -84,6 +87,11 @@ namespace HotBite {
 				uint32_t raytraced = 0;         //of those, how many trace their shadow instead
 				uint32_t raytraced_directional = 0;//ray traced directional lights
 				uint32_t shadow_ray_objects = 0;//objects in the scene those rays are traced through
+				uint64_t shadow_ray_indices = 0;     //index count of the geometry those objects hold in the scene (the level the rays hit)
+				uint64_t shadow_ray_full_indices = 0;//what their finest levels would have been
+				uint32_t shadow_ray_scenes = 0;      //scenes the rays go through (one per ray traced light, one for the sun)
+				uint32_t shadow_ray_dropped = 0;     //scenes that did not fit the frame's budget: those lights trace nothing in the world
+				uint32_t shadow_ray_owned_skipped = 0;//casters left out because their mesh has a buffer of its own (the BVH cannot hold one): the terrain
 				uint32_t tiles_x = 0;
 				uint32_t tiles_y = 0;
 				uint32_t tiles_lit = 0;         //tiles whose mask holds at least one light
@@ -99,6 +107,7 @@ namespace HotBite {
 				uint64_t pixels = 0;   //pixels showing a surface
 				uint64_t reached = 0;  //(pixel, light) pairs where the light's range covers the pixel
 				uint64_t missed = 0;   //of those, the pairs the pixel's tile mask does not hold. 0 when right.
+				uint64_t reached_raytraced = 0;//of `reached`, the pairs whose light traces its shadow: the most rays the lighting pass can cast
 				bool valid = false;
 			};
 

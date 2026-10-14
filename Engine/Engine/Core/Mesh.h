@@ -455,6 +455,22 @@ namespace HotBite {
 				// Finest first, [0] being this mesh. Empty or of size one means "no
 				// chain", which is every mesh until something declares otherwise.
 				std::vector<MeshLod> lods;
+				// The geometry the ray tracers (reflections, indirect light, the ray traced
+				// shadows) are given instead of the chain's coarsest level, and never drawn:
+				// a stand-in that has only to be in the way, and so is made solid
+				// (Core::VoxelizeMesh) where a level of detail is made to look like the model
+				// and may have gaps. Null when there is none, and then the tracers take the
+				// chain's last level, or the mesh itself.
+				MeshData* trace_mesh = nullptr;
+				const MeshData* TraceGeometry() const {
+					if (trace_mesh != nullptr) {
+						return trace_mesh;
+					}
+					if (lods.size() > 1 && lods.back().mesh != nullptr) {
+						return lods.back().mesh;
+					}
+					return this;
+				}
 				int lod_mode = LOD_AUTO;
 				// LOD_AUTO only: scales the detail the rule demands. Above 1 the model
 				// holds each level further out (2 asks for twice the vertices, so it

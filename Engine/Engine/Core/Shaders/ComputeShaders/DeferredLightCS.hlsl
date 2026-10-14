@@ -34,6 +34,9 @@ SOFTWARE.
 //left there (the surface's own emission), so the mixer sees the same two buffers it
 //always did.
 
+//TEMP: ray counters (Common/ShadowRays.hlsli), read back by RenderSystem::GetShadowRayCounters.
+//#define SR_STATS 1
+
 #include "../Common/Defines.hlsli"
 #include "../Common/ShaderStructs.hlsli"
 #include "../Common/PixelCommon.hlsli"
@@ -58,6 +61,9 @@ cbuffer externalData : register(b0)
 	float cloud_density;
 	//Objects in the ray traced shadow scene (Core::ShadowRays); 0 when no light needs it.
 	uint shadow_ray_objects;
+	//The scene a ray traced directional light's rays go through (SR_NO_SCENE: none). The point lights name
+	//theirs in their flags.
+	uint shadow_ray_sun_scene;
 	//Radius of the ball the shadow rays aim into round each light, and the frame counter that
 	//moves the aim from one frame to the next (soft edges once the frames are averaged).
 	float shadow_ray_radius;
@@ -97,6 +103,9 @@ Texture2D<float> ssHiZ[HIZ_TEXTURES] : register(t10);
 RWTexture2D<float4> light_out : register(u0);
 RWTexture2D<float4> bloom_out : register(u1);
 RWTexture2D<float4> rt_shadow_out : register(u2);
+#ifdef SR_STATS
+RWByteAddressBuffer sr_counters : register(u3);
+#endif
 
 //Whether the screen space march is on this frame.
 bool ScreenShadowActive()
@@ -239,6 +248,18 @@ void main(uint3 gid : SV_GroupID, uint3 dtid : SV_DispatchThreadID)
 	if (shadow_ray_accumulate != 0) {
 		rt_shadow_out[px] = float4(lum_rt * weight, 0.0f);
 	}
+#ifdef SR_STATS
+	if (sr_stat[0] + sr_stat[1] > 0u) {
+		sr_stat[7] = 1u;
+		[unroll]
+		for (uint k = 0; k < 8; ++k) {
+			if (sr_stat[k] > 0u) {
+				uint old;
+				sr_counters.InterlockedAdd(k * 4, sr_stat[k], old);
+			}
+		}
+	}
+#endif
 	const float4 l = light_out[px];
 	light_out[px] = float4(l.rgb + lum * weight, l.a);
 

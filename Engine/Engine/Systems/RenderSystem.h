@@ -124,7 +124,7 @@ namespace HotBite {
 				static const std::string DISPLACEMENT_SCALE;
 
 				//What the last PrepareRT handed the ray tracers, in triangle indices
-				//summed over the objects it sent (the nearest MAX_OBJECTS of them).
+				//summed over the objects it sent (the MAX_OBJECTS best of them: see PrepareRT).
 				//The only readout there is of the level of detail selection actually
 				//reaching them: which geometry a ray hits is invisible in a screenshot
 				//- a reflection tracing the wrong mesh still looks like a reflection -
@@ -138,6 +138,15 @@ namespace HotBite {
 					int objects = 0;
 					uint64_t full_indices = 0;   //what tracing level 0 would have cost
 					uint64_t traced_indices = 0; //what every ray actually walks
+						//Which drawables make the cut is a matter of priority, not only of distance (see PrepareRT).
+						//These say how many drawables in reach of the screen (and how many of them emit light) there
+						//were and how many of those were left out, so a scene that lacks an object in its indirect
+						//light can be told from one that is only dim.
+						int candidates = 0;          //traceable drawables of the world
+						int view_candidates = 0;     //... of them within a ray's reach of the screen
+						int view_dropped = 0;        //... that did not fit in MAX_OBJECTS
+						int emissive_candidates = 0; //... of them that emit light
+						int emissive_dropped = 0;    //... that did not fit (stays 0 below the emissive cap)
 				};
 
 				//The world radiance cache's occupancy, read back off the GPU. The
@@ -216,7 +225,7 @@ namespace HotBite {
 				//Where a reflection or refraction ray is solved. SCREEN marches the depth buffer:
 				//cheap, and it answers with the colour already drawn, but it only knows what is on
 				//the screen, so a ray that leaves it or hides behind something is not answered.
-				//WORLD walks the BVH of the nearest MAX_OBJECTS objects: it sees all of them, at the
+				//WORLD walks the BVH of the best MAX_OBJECTS objects (emitters and what the screen sees first): it sees all of them, at the
 				//price of a walk per ray. BOTH runs the screen first and hands the world only what
 				//it left (packed, so the world's warps are full - see RayReflexScreenSolverCS).
 				//Refractions only ever exist in the world: the back of an object is not on the
@@ -276,6 +285,13 @@ namespace HotBite {
 					RAY_REFLEX,      //MaterialProps::rt_reflex; 0 means no ray at all
 					RAY_DENSITY,     //refraction index, for the refracted ray
 					RAY_OPACITY,     //below 1 is what spawns a refraction ray
+					//The geometry the ray traced shadows are traced through (the objects of the
+					//scenes in reach of the camera, each at the level of detail its rays hit),
+					//seen from the camera. SHADOW_BVH colours each triangle by its size in world
+					//units (red tiny, blue large: density), SHADOW_BVH_COST by how many nodes of
+					//the hierarchies the camera ray walked (the cost of a ray there).
+					SHADOW_BVH,
+					SHADOW_BVH_COST,
 					COUNT
 				};
 
@@ -1018,12 +1034,34 @@ namespace HotBite {
 					float distance;
 					const DrawableEntity* drawable;
 				};
-				std::vector<ShadowRayCandidate> shadow_ray_candidates;
+				//The casters in reach of each ray traced light (and of the sun, last), by the order of
+				//BuildShadowRays' reach list, and the objects of the scene being built.
+				std::vector<std::vector<ShadowRayCandidate>> shadow_scene_candidates;
 				std::vector<Core::ObjectInfo> shadow_ray_scratch;
-				//Which level of detail of a mesh the rays hit: the second one when it has a chain
-				//(the coarsest is a few triangles of a tree, and a ray that passes between them
-				//lets light through the real canopy), the mesh itself otherwise.
-				static constexpr int SHADOW_RAY_LOD = 1;
+				//The scene a ray traced directional light's rays go through (the point lights name theirs in
+				//their packed flags).
+				uint32_t shadow_ray_sun_scene = Core::ShadowRays::NO_SCENE;
+				//Which level of detail of a mesh the rays hit: -1 is the coarsest the mesh has (the
+				//default: a shadow ray is a yes or no per pixel per light, and the walk of the
+				//hierarchy is the cost of a ray traced light), 0 the mesh itself, n the nth level of
+				//its chain (the last one when it has fewer). A mesh with no chain is its own level.
+				int shadow_ray_lod = -1;
+			public:
+				//What a ray traced light's own building (the entities it is part of) does to its rays: `NONE` the building
+				//is left out of the light's scene and the light shines evenly out of it; `FULL` it is traced as the model
+				//is, so its windows and gaps let the light out (the default); `PROXY` it is traced as the solid stand-in
+				//every other model is, which closes the openings and can put the light out altogether.
+				enum class eShadowRayOwner { NONE, FULL, PROXY };
+			private:
+				eShadowRayOwner shadow_ray_owner = eShadowRayOwner::FULL;
+				//Whether the lights that ask for a ray traced shadow get one. Off, they light without
+				//any shadow (they hold no map either): for measuring what the rays cost.
+				bool raytraced_lights_enabled = true;
+				//What the shadow rays did (the SR_STATS counters of DeferredLightCS), while something asks.
+				Core::RWByteBuffer shadow_ray_counters;
+				uint32_t shadow_ray_counters_cpu[8] = {};
+				mutable uint32_t shadow_ray_counters_frame = 0;
+				mutable bool shadow_ray_counters_requested = false;
 				//Radius, in world units, of the ball round a light that its shadow rays aim into.
 				//The aim changes every frame and every pixel, so the temporal anti aliasing
 				//averages the hard shadows into a soft edge as wide as this ball. 0 = hard.
@@ -1043,6 +1081,13 @@ namespace HotBite {
 				Core::RenderTexture2D shadow_rt_light;
 				Core::RenderTexture2D shadow_rt_history[2];
 				Core::SimpleComputeShader* shadow_accumulate = nullptr;
+				//The shadow_bvh debug buffers: the picture (ShadowBvhDebugCS), and the scene it traces, which
+				//BuildShadowRays makes while one is selected (everything that casts, within SHADOW_BVH_VIEW_RANGE).
+				Core::SimpleComputeShader* shadow_bvh_debug = nullptr;
+				Core::RenderTexture2D shadow_bvh_map;
+				uint32_t shadow_bvh_scene = Core::ShadowRays::NO_SCENE;
+				static constexpr float SHADOW_BVH_VIEW_RANGE = 300.0f;
+				void ProcessShadowBvhDebug();
 				int shadow_rt_history_read = 0;
 				bool shadow_rt_history_valid = false;
 				float shadow_ray_blend = 0.08f;
@@ -1056,6 +1101,24 @@ namespace HotBite {
 					shadow_ray_blend = blend < 0.01f ? 0.01f : (blend > 1.0f ? 1.0f : blend);
 				}
 				float GetShadowRayRadius() const { return shadow_ray_radius; }
+				void SetShadowRayLod(int lod) { shadow_ray_lod = lod < -1 ? -1 : lod; }
+				int GetShadowRayLod() const { return shadow_ray_lod; }
+				void SetRayTracedLights(bool enable) { raytraced_lights_enabled = enable; }
+				void SetShadowRayOwner(eShadowRayOwner mode) { shadow_ray_owner = mode; }
+				eShadowRayOwner GetShadowRayOwner() const { return shadow_ray_owner; }
+				bool GetRayTracedLights() const { return raytraced_lights_enabled; }
+				//What the shadow rays of the last frames did, per frame: rays that went on to the world, rays the screen
+				//ended, steps of the top level hierarchy, objects entered, steps of an object's hierarchy, triangles
+				//tested, rays the world ended, pixels that traced. Asking turns the counting on: poll.
+				struct ShadowRayCounters {
+					uint32_t rays = 0, screen_hits = 0, tlas_steps = 0, objects_entered = 0, object_steps = 0, triangles = 0, world_hits = 0, pixels = 0;
+				};
+				ShadowRayCounters GetShadowRayCounters() const {
+					shadow_ray_counters_frame = frame_count;
+					shadow_ray_counters_requested = true;
+					const uint32_t* c = shadow_ray_counters_cpu;
+					return { c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7] };
+				}
 				float GetShadowRayBlend() const { return shadow_ray_blend; }
 			private:
 				//Gathers the casters in reach of the ray traced lights and builds their scene.

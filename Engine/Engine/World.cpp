@@ -1985,9 +1985,48 @@ namespace {
 		return stem;
 	}
 
+	//The solid stand-in for the ray tracers: geometry only, no shading data to carry across.
+	bool BuildTraceGeometry(const Core::MeshData& source, int voxels, int triangles, LodGeometry& geometry) {
+		Core::SimplifyResult result;
+		if (!Core::VoxelizeMesh(source.vertices, source.indices, voxels, triangles, result)) {
+			return false;
+		}
+		geometry.vertices = std::move(result.vertices);
+		geometry.indices = std::move(result.indices);
+		geometry.smooth_groups.clear();
+		return !geometry.indices.empty();
+	}
+
+	//What a generated mesh's cache is keyed by besides the source: a level's ratio, or for a trace mesh the cells it
+	//was voxelized in, as a negative number no ratio can be.
+	float CacheKey(float ratio, int voxels, int triangles = 0) {
+		return voxels > 0 ? -(float)(voxels * 100000 + (std::min)(triangles, 99999)) : ratio;
+	}
+
 	bool BuildLodGeometry(const Core::MeshData& source, float ratio, LodGeometry& geometry) {
 		Core::SimplifyResult result;
-		if (!Core::SimplifyMesh(source.vertices, source.indices, ratio, result)) {
+		bool reduced = Core::SimplifyMesh(source.vertices, source.indices, ratio, result);
+		//The edge collapse stops where no collapse is legal, which for a model of shells and seams (the buildings
+		//Meshy makes) is about a tenth of its vertices. A level asked for further than that is cut down the rest
+		//of the way by clustering - what is wanted is a coarse stand-in (for the rays), not an exact one. Never
+		//a skinned mesh: its bone weights are the model's, not an average's.
+		const size_t wanted = (std::max)((size_t)12, (size_t)((double)source.vertices.size() * (double)ratio));
+		if ((!reduced || result.vertices.size() > wanted + wanted / 4) && source.skeletons.empty()) {
+			Core::SimplifyResult clustered;
+			const std::vector<Core::Vertex>& base_vertices = reduced ? result.vertices : source.vertices;
+			const std::vector<uint32_t>& base_indices = reduced ? result.indices : source.indices;
+			if (Core::ClusterMesh(base_vertices, base_indices, wanted, clustered)) {
+				if (reduced) {
+					//Named by what they came from in the source, as the caller expects.
+					for (uint32_t& src : clustered.source_vertex) {
+						src = result.source_vertex[src];
+					}
+				}
+				result = std::move(clustered);
+				reduced = true;
+			}
+		}
+		if (!reduced) {
 			return false;
 		}
 		geometry.vertices = std::move(result.vertices);
@@ -2173,6 +2212,118 @@ Core::MeshData* World::InstallGeneratedMesh(const std::string& name,
 	return mesh;
 }
 
+std::string World::GeneratedMeshDir(const std::string& source_mesh) const {
+	std::string cache_dir = GENERATED_MESH_DIR;
+	for (const auto& [model_name, assets] : model_assets) {
+		if (std::find(assets.meshes.begin(), assets.meshes.end(), source_mesh) ==
+			assets.meshes.end()) {
+			continue;
+		}
+		namespace fs = std::filesystem;
+		const fs::path model_file(assets.file);
+		std::error_code ec;
+		fs::path relative_dir;
+		if (model_file.is_absolute()) {
+			relative_dir = fs::relative(model_file.parent_path(), fs::path(path), ec);
+			if (ec) {
+				relative_dir.clear();
+			}
+		}
+		else {
+			relative_dir = model_file.parent_path();
+		}
+		//"." is the assets root itself and ".." leads outside it; neither is somewhere
+		//to scatter cache files.
+		if (!relative_dir.empty() && relative_dir != "." && *relative_dir.begin() != "..") {
+			cache_dir = relative_dir.make_preferred().string();
+		}
+		break;
+	}
+	return cache_dir;
+}
+
+bool World::GenerateTraceMesh(const std::string& source_mesh, int voxels, int triangles, std::string& out_name,
+	std::string& error, const std::string& name_base) {
+	out_name.clear();
+	if (vertex_buffer == nullptr) {
+		error = "no vertex buffer";
+		return false;
+	}
+	if (voxels < 4 || voxels > 160) {
+		error = "voxels must be between 4 and 160";
+		return false;
+	}
+	Core::MeshData* source = meshes.Get(source_mesh);
+	if (source == nullptr) {
+		error = "unknown mesh '" + source_mesh + "'";
+		return false;
+	}
+	if (!source->skeletons.empty()) {
+		error = "'" + source_mesh + "' is skinned; the ray tracers leave it out";
+		return false;
+	}
+	const bool smooth = source->smooth;
+	const uint32_t source_vertices = source->vertexCount;
+	const uint32_t source_indices = source->indexCount;
+	const std::string& base = name_base.empty() ? source_mesh : name_base;
+	const std::string name = base + "_trace";
+	//Generated again over the one that is there: a different resolution replaces it, which is the point of asking.
+	if (meshes.Get(name) != nullptr) {
+		error = "'" + name + "' exists already; remove the trace level first";
+		return false;
+	}
+	LodGeometry geometry;
+	if (!BuildTraceGeometry(*source, voxels, triangles, geometry)) {
+		error = "'" + source_mesh + "' cannot be voxelized (see the log)";
+		return false;
+	}
+	const std::string cache_dir = GeneratedMeshDir(source_mesh);
+	const std::string stem = SafeFileStem(name);
+	const std::string file = cache_dir + "\\" + stem + ".hbmesh";
+	if (!WriteLodCache(path + file, source_mesh, source_vertices, source_indices, CacheKey(0.0f, voxels, triangles), geometry)) {
+		LOG_WARN("World::GenerateTraceMesh: could not write '%s'", (path + file).c_str());
+	}
+	if (InstallGeneratedMesh(name, geometry.vertices, geometry.indices, geometry.smooth_groups, nullptr, smooth) == nullptr) {
+		error = "could not register the generated mesh";
+		return false;
+	}
+	GeneratedMesh recipe{ name, source_mesh, 0.5f, file };
+	recipe.voxels = voxels;
+	recipe.triangles = triangles;
+	generated_meshes.push_back(recipe);
+	{
+		Core::SimplifyResult proxy;
+		proxy.vertices = geometry.vertices;
+		proxy.indices = geometry.indices;
+		double mean = 0.0, worst = 0.0, to_proxy = 0.0, to_model = 0.0;
+		Core::MeshError(source->vertices, source->indices, proxy, mean, worst, &to_proxy, &to_model);
+		last_trace_error_model_to_proxy = (float)to_proxy;
+		last_trace_error_proxy_to_model = (float)to_model;
+		last_trace_error_mean = (float)mean;
+		last_trace_error_worst = (float)worst;
+		LOG_INFO("World::GenerateTraceMesh: '%s' from '%s' in %d cells - %zu vertices, %zu indices, off the model by %.2f%% on average and %.2f%% at worst of its size",
+			name.c_str(), source_mesh.c_str(), voxels, geometry.vertices.size(), geometry.indices.size(), mean * 100.0, worst * 100.0);
+	}
+	out_name = name;
+	return true;
+}
+
+bool World::SetMeshTraceLod(Core::MeshData* mesh, const std::string& name) {
+	if (mesh == nullptr || !mesh->skeletons.empty()) {
+		return false;
+	}
+	if (name.empty()) {
+		mesh->trace_mesh = nullptr;
+		return true;
+	}
+	Core::MeshData* trace = meshes.Get(name);
+	if (trace == nullptr) {
+		printf("World::SetMeshTraceLod: unknown mesh '%s'.\n", name.c_str());
+		return false;
+	}
+	mesh->trace_mesh = (trace == mesh) ? nullptr : trace;
+	return true;
+}
 bool World::GenerateMeshLod(const std::string& source_mesh, float ratio,
 	std::string& out_name, std::string& error, const std::string& name_base) {
 	out_name.clear();
@@ -2217,32 +2368,7 @@ bool World::GenerateMeshLod(const std::string& source_mesh, float ratio,
 	//with the asset it stands in for and two models can never share a file. Only a
 	//mesh no model claims (one generated from another generated mesh, say) or a model
 	//outside the assets tree falls back to the shared GENERATED_MESH_DIR.
-	std::string cache_dir = GENERATED_MESH_DIR;
-	for (const auto& [model_name, assets] : model_assets) {
-		if (std::find(assets.meshes.begin(), assets.meshes.end(), source_mesh) ==
-			assets.meshes.end()) {
-			continue;
-		}
-		namespace fs = std::filesystem;
-		const fs::path model_file(assets.file);
-		std::error_code ec;
-		fs::path relative_dir;
-		if (model_file.is_absolute()) {
-			relative_dir = fs::relative(model_file.parent_path(), fs::path(path), ec);
-			if (ec) {
-				relative_dir.clear();
-			}
-		}
-		else {
-			relative_dir = model_file.parent_path();
-		}
-		//"." is the assets root itself and ".." leads outside it; neither is somewhere
-		//to scatter cache files.
-		if (!relative_dir.empty() && relative_dir != "." && *relative_dir.begin() != "..") {
-			cache_dir = relative_dir.make_preferred().string();
-		}
-		break;
-	}
+	const std::string cache_dir = GeneratedMeshDir(source_mesh);
 
 	LodGeometry geometry;
 	if (!BuildLodGeometry(*source, ratio, geometry)) {
@@ -2293,6 +2419,8 @@ void World::LoadGeneratedMeshes(const nlohmann::json& entries) {
 		const std::string name = entry.value("name", std::string());
 		const std::string source_name = entry.value("source", std::string());
 		const float ratio = entry.value("ratio", 0.5f);
+		const int voxels = entry.value("voxels", 0);
+		const int triangles = entry.value("triangles", 0);
 		if (name.empty() || source_name.empty()) {
 			printf("World::Load: generated mesh entry without a \"name\" or \"source\", skipping.\n");
 			continue;
@@ -2320,9 +2448,9 @@ void World::LoadGeneratedMeshes(const nlohmann::json& entries) {
 
 		LodGeometry geometry;
 		const bool cached = ReadLodCache(path + file, source_name, source_vertices,
-			source_indices, ratio, geometry);
+			source_indices, CacheKey(ratio, voxels, triangles), geometry);
 		if (!cached) {
-			if (!BuildLodGeometry(*source, ratio, geometry)) {
+			if (!(voxels > 0 ? BuildTraceGeometry(*source, voxels, triangles, geometry) : BuildLodGeometry(*source, ratio, geometry))) {
 				printf("World::Load: generated mesh '%s' could not be rebuilt from '%s', skipping.\n",
 					name.c_str(), source_name.c_str());
 				continue;
@@ -2330,7 +2458,7 @@ void World::LoadGeneratedMeshes(const nlohmann::json& entries) {
 			//Rewritten so the next load is a read again. This is the path a changed
 			//model takes, and it is why the cache never has to be invalidated by hand.
 			if (!WriteLodCache(path + file, source_name, source_vertices, source_indices,
-				ratio, geometry)) {
+				CacheKey(ratio, voxels, triangles), geometry)) {
 				LOG_WARN("World::LoadGeneratedMeshes: could not write '%s'", (path + file).c_str());
 			}
 		}
@@ -2338,7 +2466,10 @@ void World::LoadGeneratedMeshes(const nlohmann::json& entries) {
 		geometry.smooth_groups, skeleton, smooth) == nullptr) {
 			continue;
 		}
-		generated_meshes.push_back(GeneratedMesh{ name, source_name, ratio, file });
+		GeneratedMesh recipe{ name, source_name, ratio, file };
+		recipe.voxels = voxels;
+		recipe.triangles = triangles;
+		generated_meshes.push_back(recipe);
 		LOG_INFO("World::LoadGeneratedMeshes: '%s' from '%s' (%s) - %zu vertices",
 			name.c_str(), source_name.c_str(), cached ? "cached" : "rebuilt",
 			geometry.vertices.size());
@@ -3508,7 +3639,33 @@ bool World::Load(const std::string& scene_file, float* progress, std::function<v
 		json scene = json::parse(std::ifstream(scene_file));
 		json& jw = scene["world"];
 		path = jw["path"];
-		if (OnLoadProgress != nullptr) { OnLoadProgress(*progress += 5.0f * progress_unit); }
+		//Where the assets are. A relative "path" is relative to the level file ("..\" for a level in <assets>\Levels), which
+		//is what lets a project be cloned or moved to another folder or computer and still open; one that names no folder
+		//from there keeps its old meaning, relative to the working directory of the process (the levels of the demos). An
+		//absolute one is where the assets were when the level was last saved on some machine: when it is not there on this
+		//one, a level that lives in <assets>\Levels (or deeper) finds its assets from its own place.
+		{
+			namespace fs = std::filesystem;
+			std::error_code ec;
+			const fs::path level_dir = fs::absolute(fs::path(scene_file), ec).parent_path();
+			const fs::path recorded(path);
+			if (!path.empty() && recorded.is_relative()) {
+				const fs::path from_level = level_dir / recorded;
+				if (fs::is_directory(from_level, ec)) {
+					path = (fs::weakly_canonical(from_level, ec) / "").string();
+				}
+			}
+			else if (!path.empty() && !fs::is_directory(recorded, ec)) {
+				for (fs::path dir = level_dir; !dir.empty() && dir != dir.parent_path(); dir = dir.parent_path()) {
+					if (dir.filename() == "Levels" || dir.filename() == "levels") {
+						const std::string found = (dir.parent_path() / "").string();
+						LOG_WARN("World::Load: the assets folder the level recorded (%s) does not exist; using %s", path.c_str(), found.c_str());
+						path = found;
+						break;
+					}
+				}
+			}
+		}		if (OnLoadProgress != nullptr) { OnLoadProgress(*progress += 5.0f * progress_unit); }
 		//Load the FBX scene, entities
 		//can point to already created materials and meshes
 		//The base level FBX is optional: a project can start from an empty,

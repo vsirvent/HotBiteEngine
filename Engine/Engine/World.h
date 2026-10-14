@@ -105,6 +105,11 @@ namespace HotBite {
 				std::string source; // the mesh it was made from
 				float ratio = 0.5f; // the share of the source's vertices it aimed for
 				std::string file;   // where the geometry is cached, assets-path relative
+				// Not zero: a solid stand-in for the ray tracers made by Core::VoxelizeMesh with this
+				// many cells along the longest side (GenerateTraceMesh), and `ratio` means nothing.
+				int voxels = 0;
+				// With voxels: the most triangles the stand-in is reduced to (0: as the surface nets made it).
+				int triangles = 0;
 			};
 
 			// Where GenerateMeshLod caches its geometry, under the assets path, when the
@@ -651,6 +656,26 @@ namespace HotBite {
 			virtual bool GenerateMeshLod(const std::string& source_mesh, float ratio,
 				std::string& out_name, std::string& error,
 				const std::string& name_base = std::string());
+			// A solid stand-in for the ray tracers (reflections, indirect light, the ray traced shadows),
+			// by Core::VoxelizeMesh with `voxels` cells along the longest side, registered as a mesh of its
+			// own named `<base>_trace` and cached like a level of detail (and in the same place). Not part
+			// of any chain: SetMeshTraceLod gives it to a mesh, which then draws what it drew.
+			// Where the cache file of a mesh generated from `source_mesh` goes (see GenerateMeshLod).
+			std::string GeneratedMeshDir(const std::string& source_mesh) const;
+			virtual bool GenerateTraceMesh(const std::string& source_mesh, int voxels, int triangles,
+				std::string& out_name, std::string& error,
+				const std::string& name_base = std::string());
+			// Gives `mesh` the stand-in the ray tracers use (a mesh of the world, by name; empty takes it
+			// away). False for a name that is not a mesh, or a skinned mesh.
+			virtual bool SetMeshTraceLod(Core::MeshData* mesh, const std::string& name);
+			// How far the stand-in GenerateTraceMesh made last is from its model (Core::MeshError), as shares of the
+			// model's longest side: on average, and at worst.
+			float last_trace_error_mean = 0.0f;
+			float last_trace_error_worst = 0.0f;
+			// The worst of it in each direction: a part of the model the stand-in does not reach, and a part of the
+			// stand-in that is not on the model.
+			float last_trace_error_model_to_proxy = 0.0f;
+			float last_trace_error_proxy_to_model = 0.0f;
 			// The generated meshes this world holds, in creation order - what a level
 			// has to write out for a future load to find them again.
 			const std::vector<GeneratedMesh>& GetGeneratedMeshes() const { return generated_meshes; }

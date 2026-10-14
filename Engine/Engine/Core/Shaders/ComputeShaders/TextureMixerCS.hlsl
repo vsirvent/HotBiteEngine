@@ -58,6 +58,8 @@ Texture2D positions: register(t13);
 Texture2D normals: register(t14);
 Texture2D emissionTexture: register(t15);
 Texture2D<float2> motionTexture: register(t16);
+//ShadowBvhDebugCS's picture, for the two shadow_bvh views.
+Texture2D bvhDebugTexture: register(t17);
 SamplerState basicSampler : register(s0);
 
 //Read-only: the mixer inspects the cache for the two debug views and never writes
@@ -228,6 +230,8 @@ float4 DebugBufferColor(uint buffer_id, float2 tpos, float2 pixel, uint w, uint 
     case RT_DEBUG_BUFFER_NORMAL:     return float4(DebugNormalColor(normals[pixel].xyz), 1.0f);
     //Motion is the exception to "mapped buffers ignore the gain" - see DebugMotionColor.
     case RT_DEBUG_BUFFER_MOTION:     return float4(DebugMotionColor(motionTexture[pixel], debug_gain), 1.0f);
+    case RT_DEBUG_BUFFER_SHADOW_BVH:
+    case RT_DEBUG_BUFFER_SHADOW_BVH_COST: return float4(bvhDebugTexture[pixel].rgb, 1.0f);
     //The world radiance cache, looked up at whatever surface this pixel sees. Unlike
     //every other view here this is not a texture being displayed - there is no
     //screen-space image of the cache to show - so it is resolved per pixel through

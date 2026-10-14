@@ -26,7 +26,7 @@ SOFTWARE.
 
 using namespace HotBite::Engine::Core;
 
-ShadowRays::ShadowRays() : tbvh(MAX_SHADOW_OBJECTS) {
+ShadowRays::ShadowRays() : tbvh(MAX_SCENE_OBJECTS) {
 }
 
 ShadowRays::~ShadowRays() {
@@ -35,11 +35,15 @@ ShadowRays::~ShadowRays() {
 
 bool ShadowRays::Init() {
 	Release();
-	if (FAILED(tlas_buffer.Prepare(MAX_SHADOW_OBJECTS * 2 - 1)) ||
-		FAILED(object_buffer.Prepare(MAX_SHADOW_OBJECTS))) {
+	if (FAILED(tlas_buffer.Prepare(MAX_FRAME_NODES)) ||
+		FAILED(object_buffer.Prepare(MAX_FRAME_OBJECTS)) ||
+		FAILED(scene_buffer.Prepare(MAX_SCENES))) {
 		Release();
 		return false;
 	}
+	nodes.reserve(MAX_FRAME_NODES);
+	objects.reserve(MAX_FRAME_OBJECTS);
+	scenes.reserve(MAX_SCENES);
 	ready = true;
 	return true;
 }
@@ -47,17 +51,48 @@ bool ShadowRays::Init() {
 void ShadowRays::Release() {
 	tlas_buffer.Unprepare();
 	object_buffer.Unprepare();
-	count = 0;
+	scene_buffer.Unprepare();
+	Begin();
 	ready = false;
 }
 
-void ShadowRays::Load(const ObjectInfo* objects, uint32_t n) {
-	count = 0;
+void ShadowRays::Begin() {
+	nodes.clear();
+	objects.clear();
+	scenes.clear();
+	dropped = 0;
+}
+
+uint32_t ShadowRays::AddScene(const ObjectInfo* in, uint32_t n) {
 	if (!ready || n == 0) {
+		return NO_SCENE;
+	}
+	if (n > MAX_SCENE_OBJECTS) {
+		n = MAX_SCENE_OBJECTS;
+	}
+	//A hierarchy over n objects has 2n - 1 nodes at most.
+	if (scenes.size() >= MAX_SCENES || objects.size() + n > MAX_FRAME_OBJECTS || nodes.size() + 2 * n - 1 > MAX_FRAME_NODES) {
+		++dropped;
+		return NO_SCENE;
+	}
+	tbvh.Load(in, (int)n);
+	ShadowScene scene;
+	scene.node_offset = (uint32_t)nodes.size();
+	scene.object_offset = (uint32_t)objects.size();
+	scene.object_count = n;
+	//The hierarchy's links are local to it and its leaves name an object by its place in `in`; the
+	//shader adds the two offsets.
+	nodes.insert(nodes.end(), tbvh.Root(), tbvh.Root() + tbvh.Size());
+	objects.insert(objects.end(), in, in + n);
+	scenes.push_back(scene);
+	return (uint32_t)scenes.size() - 1;
+}
+
+void ShadowRays::Upload() {
+	if (!ready || scenes.empty()) {
 		return;
 	}
-	count = n < MAX_SHADOW_OBJECTS ? n : MAX_SHADOW_OBJECTS;
-	tbvh.Load(objects, (int)count);
-	tlas_buffer.Refresh(tbvh.Root(), 0, tbvh.Size());
-	object_buffer.Refresh(objects, 0, count);
+	tlas_buffer.Refresh(nodes.data(), 0, (uint32_t)nodes.size());
+	object_buffer.Refresh(objects.data(), 0, (uint32_t)objects.size());
+	scene_buffer.Refresh(scenes.data(), 0, (uint32_t)scenes.size());
 }

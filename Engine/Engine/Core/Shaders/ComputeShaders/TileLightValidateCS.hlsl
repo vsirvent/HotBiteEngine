@@ -47,12 +47,15 @@ Texture2D<float4> positionTexture : register(t0);
 StructuredBuffer<PackedLight> lightsBuffer : register(t1);
 ByteAddressBuffer tileMasks : register(t2);
 //[4] (pixel, light) pairs where the light reaches the pixel, [5] of those, how many were
-//absent from the mask, [6] pixels with geometry.
+//absent from the mask, [6] pixels with geometry, [7] the pairs of [4] whose light traces its
+//shadow with rays: what the lighting pass may trace at most, since a pixel only traces for the
+//lights of its tile that reach it.
 RWByteAddressBuffer validateStats : register(u0);
 
 groupshared uint g_reached;
 groupshared uint g_missed;
 groupshared uint g_pixels;
+groupshared uint g_traced;
 
 [numthreads(TILE_SIZE, TILE_SIZE, 1)]
 void main(uint3 gid : SV_GroupID, uint3 dtid : SV_DispatchThreadID, uint gi : SV_GroupIndex)
@@ -61,6 +64,7 @@ void main(uint3 gid : SV_GroupID, uint3 dtid : SV_DispatchThreadID, uint gi : SV
 		g_reached = 0;
 		g_missed = 0;
 		g_pixels = 0;
+		g_traced = 0;
 	}
 	GroupMemoryBarrierWithGroupSync();
 
@@ -70,6 +74,7 @@ void main(uint3 gid : SV_GroupID, uint3 dtid : SV_DispatchThreadID, uint gi : SV
 			const uint tile = gid.y * (uint)tiles_x + gid.x;
 			uint reached = 0;
 			uint missed = 0;
+			uint traced = 0;
 			for (int i = 0; i < light_count; ++i) {
 				const PackedLight l = lightsBuffer[i];
 				const float3 d = wp.xyz - l.position;
@@ -79,6 +84,9 @@ void main(uint3 gid : SV_GroupID, uint3 dtid : SV_DispatchThreadID, uint gi : SV
 				const float r = l.range * 0.999f;
 				if (dot(d, d) < r * r) {
 					++reached;
+					if (LightIsRayTraced(l)) {
+						++traced;
+					}
 					const uint word = tileMasks.Load((tile * TILE_MASK_WORDS + ((uint)i >> 5)) * 4);
 					if ((word & (1u << ((uint)i & 31u))) == 0u) {
 						++missed;
@@ -88,6 +96,7 @@ void main(uint3 gid : SV_GroupID, uint3 dtid : SV_DispatchThreadID, uint gi : SV
 			InterlockedAdd(g_reached, reached);
 			InterlockedAdd(g_missed, missed);
 			InterlockedAdd(g_pixels, 1);
+			InterlockedAdd(g_traced, traced);
 		}
 	}
 	GroupMemoryBarrierWithGroupSync();
@@ -96,5 +105,6 @@ void main(uint3 gid : SV_GroupID, uint3 dtid : SV_DispatchThreadID, uint gi : SV
 		validateStats.InterlockedAdd(16, g_reached, ignored);
 		validateStats.InterlockedAdd(20, g_missed, ignored);
 		validateStats.InterlockedAdd(24, g_pixels, ignored);
+		validateStats.InterlockedAdd(28, g_traced, ignored);
 	}
 }

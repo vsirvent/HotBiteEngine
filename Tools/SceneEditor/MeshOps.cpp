@@ -30,6 +30,39 @@ namespace HotBiteEditor {
 			return ratio;
 		}
 
+		bool GenerateTraceLod(EditorState& state, const std::string& entity_name, int voxels, int triangles,
+			std::string& generated_name, std::string& error) {
+			generated_name.clear();
+			Coordinator* c = (state.world != nullptr) ? state.world->GetCoordinator() : nullptr;
+			if (c == nullptr) {
+				error = "no level loaded";
+				return false;
+			}
+			const Entity e = c->GetEntityByName(entity_name);
+			if (e == INVALID_ENTITY_ID || !c->ContainsComponent<Mesh>(e)) {
+				error = "entity '" + entity_name + "' has no Mesh";
+				return false;
+			}
+			Core::MeshData* data = c->GetComponent<Mesh>(e).GetData();
+			if (data == nullptr) {
+				error = "entity '" + entity_name + "' has no mesh data";
+				return false;
+			}
+			//Replaces the one the mesh has: the old one stays registered (a mesh asset is never destroyed
+			//under what may still point at it) and is simply no longer the mesh's.
+			const std::string source = data->name;
+			std::string base = source;
+			for (int i = 2; state.world->GetMeshes().Get(base + "_trace") != nullptr && i < 100; ++i) {
+				base = source + "_v" + std::to_string(i);
+			}
+			if (!state.world->GenerateTraceMesh(source, voxels, triangles, generated_name, error, base)) {
+				return false;
+			}
+			nlohmann::json block = ComponentOps::GetValue(state, entity_name, Mesh::NAME);
+			block["trace_lod"] = generated_name;
+			return ComponentOps::SetValue(state, entity_name, Mesh::NAME, block, error);
+		}
+
 		bool GenerateLod(EditorState& state, const std::string& entity_name, float ratio,
 			std::string& generated_name, std::string& error) {
 			generated_name.clear();

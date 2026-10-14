@@ -136,6 +136,10 @@ namespace HotBiteEditor {
 			for (const World::GeneratedMesh& g : state.world->GetGeneratedMeshes()) {
 				generated.push_back(json{ {"name", g.name}, {"source", g.source},
 										  {"ratio", g.ratio}, {"file", g.file} });
+				if (g.voxels > 0) {
+					generated.back()["voxels"] = g.voxels;
+				generated.back()["triangles"] = g.triangles;
+				}
 			}
 			const json before = jw.contains("generated_meshes") ? jw["generated_meshes"] : json::array();
 			if (before == generated) {
@@ -688,6 +692,10 @@ namespace HotBiteEditor {
 					for (const World::GeneratedMesh& g : state.world->GetGeneratedMeshes()) {
 						generated.push_back(json{ {"name", g.name}, {"source", g.source},
 												  {"ratio", g.ratio}, {"file", g.file} });
+						if (g.voxels > 0) {
+							generated.back()["voxels"] = g.voxels;
+				generated.back()["triangles"] = g.triangles;
+						}
 					}
 					if (generated.empty()) {
 						jw.erase("generated_meshes");

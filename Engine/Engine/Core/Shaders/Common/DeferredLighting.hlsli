@@ -151,7 +151,7 @@ float3 ShadePoint(float3 normal, float3 position, float spec_intensity, float bl
 		//surface the light is on, so a face turned away from it is blocked by its own
 		//object rather than lit through it.
 		const float side = (dot(ToLight, normal) >= 0.0f) ? 1.0f : -1.0f;
-		shadow = ShadowRayOccluded(position + normal * (side * SR_SURFACE_BIAS), light.position) ? 0.0f : 1.0f;
+		shadow = ShadowRayOccluded(position + normal * (side * SR_SURFACE_BIAS), light.position, LightRayScene(light)) ? 0.0f : 1.0f;
 	}
 	finalColor *= Attn * shadow;
 	bloomColor *= Attn * shadow;

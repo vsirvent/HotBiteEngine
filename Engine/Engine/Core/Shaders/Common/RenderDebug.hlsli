@@ -67,6 +67,9 @@ SOFTWARE.
 #define RT_DEBUG_BUFFER_RAY_REFLEX     19u
 #define RT_DEBUG_BUFFER_RAY_DENSITY    20u
 #define RT_DEBUG_BUFFER_RAY_OPACITY    21u
+//The geometry of the ray traced shadows, drawn by ShadowBvhDebugCS: triangle size, and the cost of walking it.
+#define RT_DEBUG_BUFFER_SHADOW_BVH      22u
+#define RT_DEBUG_BUFFER_SHADOW_BVH_COST 23u
 
 #define DebugBuffer(d)   ((d) & RT_DEBUG_BUFFER_MASK)
 #define DebugFlag(d, f)  (((d) & (f)) != 0u)

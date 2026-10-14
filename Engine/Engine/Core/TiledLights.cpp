@@ -292,6 +292,7 @@ TiledLightValidation TiledLights::Validate(ID3D11ShaderResourceView* positions) 
 			result.reached = raw[4];
 			result.missed = raw[5];
 			result.pixels = raw[6];
+			result.reached_raytraced = raw[7];
 			result.valid = true;
 			context->Unmap(staging, 0);
 		}

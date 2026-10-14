@@ -79,6 +79,9 @@ struct AuxLight
 //The shadow is a ray traced to the light in the lighting pass (Common/ShadowRays.hlsli).
 //Exclusive with PACKED_LIGHT_SHADOW.
 #define PACKED_LIGHT_RAYTRACED 64u
+//Bits 8 and up: the scene the light's rays go through (the objects its range reaches), an index into
+//srScenes. Meaningful only with PACKED_LIGHT_RAYTRACED.
+#define PACKED_LIGHT_SCENE_SHIFT 8u
 
 float3 UnpackLightColor(PackedLight l)
 {
@@ -104,6 +107,11 @@ int LightShadowSlot(PackedLight l)
 bool LightIsRayTraced(PackedLight l)
 {
 	return (l.flags & PACKED_LIGHT_RAYTRACED) != 0u;
+}
+
+uint LightRayScene(PackedLight l)
+{
+	return l.flags >> PACKED_LIGHT_SCENE_SHIFT;
 }
 
 float3 UnpackLightDirection(PackedLight l)

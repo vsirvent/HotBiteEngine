@@ -1728,7 +1728,11 @@ namespace HotBiteEditor {
 					response_lines.push_back(os.str());
 				}
 			}
-			else if (cmd == "generate_lod") {
+			else if (cmd == "generate_lod" || cmd == "generate_trace_lod") {
+				//generate_trace_lod [<voxels>] is the solid stand-in the ray tracers use instead (MeshOps::GenerateTraceLod): the mesh
+				//voxelized in that many cells along its longest side (24 by default), given to the mesh as its trace_lod. It shares this
+				//branch because the chain of commands this is part of is as deep as the compiler goes.
+				const bool trace_only = (cmd == "generate_trace_lod");
 				//Builds a coarser level out of the selected entity's mesh and adds it
 				//to the chain (MeshOps::GenerateLod), which is the Components panel's
 				//"Generate level" button. The percentage is optional and defaults to
@@ -1752,6 +1756,9 @@ namespace HotBiteEditor {
 					if (args.size() > 1) {
 						try {
 							ratio = std::stof(args[1]) / 100.0f;
+							if (trace_only) {
+								ratio = std::stof(args[1]);
+							}
 						}
 						catch (...) {
 							response_lines.push_back("ERR usage: generate_lod [<percent>]");
@@ -1761,7 +1768,10 @@ namespace HotBiteEditor {
 					if (ok) {
 						std::string generated;
 						std::string error;
-						if (MeshOps::GenerateLod(state, name, ratio, generated, error)) {
+						const bool made = trace_only ? MeshOps::GenerateTraceLod(state, name, args.size() > 1 ? (int)ratio : 24,
+							args.size() > 2 ? std::stoi(args[2]) : 0, generated, error)
+							: MeshOps::GenerateLod(state, name, ratio, generated, error);
+						if (made) {
 							Core::MeshData* lod = state.world->GetMeshes().Get(generated);
 							std::ostringstream os;
 							os << "OK " << generated
@@ -1769,6 +1779,12 @@ namespace HotBiteEditor {
 								<< " indices=" << (lod != nullptr ? lod->indexCount : 0)
 								<< " source=" << (data != nullptr ? data->name : std::string())
 								<< " source_vertices=" << (data != nullptr ? data->vertexCount : 0);
+							if (trace_only) {
+								os << " error_mean=" << state.world->last_trace_error_mean * 100.0f
+									<< " error_worst=" << state.world->last_trace_error_worst * 100.0f
+									<< " model_to_proxy=" << state.world->last_trace_error_model_to_proxy * 100.0f
+									<< " proxy_to_model=" << state.world->last_trace_error_proxy_to_model * 100.0f;
+							}
 							response_lines.push_back(os.str());
 						}
 						else {

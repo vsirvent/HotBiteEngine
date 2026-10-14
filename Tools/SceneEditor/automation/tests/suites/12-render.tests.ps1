@@ -10,7 +10,9 @@ $DebugBuffers = @('off', 'scene', 'light', 'bloom', 'emission', 'reflection', 'r
                   # The ray source pair (rt_ray_sources0/1): the mask of which pixels
                   # trace rays, and the four packed scalars that decide it.
                   'ray_sources', 'ray_dispersion', 'ray_reflex', 'ray_density',
-                  'ray_opacity')
+                  'ray_opacity',
+                  # The geometry the ray traced shadows are traced through, by triangle size and by cost of a ray.
+                  'shadow_bvh', 'shadow_bvh_cost')
 
 Test 'render dumps every setting the Render menu has' {
     $r = Get-Render -Session $Session

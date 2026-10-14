@@ -29,7 +29,9 @@ namespace HotBiteEditor {
 			//The ray source pair. "Mask" first because it is the one that answers a
 			//question on its own; the four scalars are what it is made of.
 			"Ray sources (mask)", "Ray dispersion", "Ray reflex", "Ray density",
-			"Ray opacity"
+			"Ray opacity",
+			//The geometry the ray traced shadows are traced through, by triangle size and by cost.
+			"Shadow BVH (triangle size)", "Shadow BVH (cost of a ray)"
 		};
 		static_assert(IM_ARRAYSIZE(DEBUG_BUFFER_LABELS) ==
 			(int)RenderSystem::eDebugBuffer::COUNT,

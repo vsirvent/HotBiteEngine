@@ -730,6 +730,8 @@ namespace HotBite {
 											 {"distance", data->lods[i].distance} });
 					}
 					j["lods"] = lods;
+					//Written always, like the chain: "" is "none", and what replays this takes it away again.
+					j["trace_lod"] = data->trace_mesh != nullptr ? data->trace_mesh->name : std::string();
 					j["lod_mode"] = (data->lod_mode == Core::MeshData::LOD_DISTANCE) ?
 						"distance" : "auto";
 					j["lod_bias"] = data->lod_bias;
@@ -912,6 +914,10 @@ namespace HotBite {
 						}
 					}
 					ctx.world->SetMeshLods(target, names, distances);
+				}
+				//The solid stand-in the ray tracers use in place of the chain's coarsest level (never drawn).
+				if (target != nullptr && j.contains("trace_lod") && j["trace_lod"].is_string()) {
+					ctx.world->SetMeshTraceLod(target, j["trace_lod"].get<std::string>());
 				}
 				if (target != nullptr && j.contains("lod_mode") && j["lod_mode"].is_string()) {
 					target->lod_mode = (j["lod_mode"].get<std::string>() == "distance") ?

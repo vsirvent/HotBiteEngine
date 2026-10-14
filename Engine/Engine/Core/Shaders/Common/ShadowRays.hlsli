@@ -26,9 +26,12 @@ SOFTWARE.
 //
 //A light flagged PACKED_LIGHT_RAYTRACED holds no shadow map. DeferredLightCS asks
 //ShadowRayOccluded() once per lit pixel instead: one any-hit ray from the surface to the
-//light through the scene Core::ShadowRays uploaded this frame -
+//light through the scene Core::ShadowRays uploaded for that light this frame (the objects its
+//range reaches, which are all that can be between a surface it lights and itself) -
 //
-//  srTlas     the top level hierarchy, one leaf per object, over the objects' world boxes
+//  srScenes   where each scene's hierarchy and objects start (the light names its scene in the
+//             bits of its flags from PACKED_LIGHT_SCENE_SHIFT up)
+//  srTlas     the top level hierarchies, one leaf per object, over the objects' world boxes
 //  srObjects  the objects: world / inverse world matrices and where their mesh lives
 //  srMeshNodes, srVertices, srIndices   every mesh's own triangle hierarchy and geometry
 //             (the buffers the reflection / indirect light tracers read)
@@ -40,13 +43,17 @@ SOFTWARE.
 //Includer: Defines.hlsli before this file, and the cbuffer constants `shadow_ray_objects`
 //(0 turns every ray into "not occluded"), `shadow_ray_radius` (how far the ray's target
 //wanders round the light, for soft edges; 0 is a hard shadow), `shadow_ray_sun_spread` (the
-//same for a directional light, as a cone) and `shadow_ray_frame`.
+//same for a directional light, as a cone), `shadow_ray_sun_scene` (the scene a directional
+//light's rays go through, SR_NO_SCENE for none) and `shadow_ray_frame`.
 
 #ifndef __SHADOW_RAYS_HLSLI__
 #define __SHADOW_RAYS_HLSLI__
 
 #include "RayDefines.hlsli"
 
+//Where the scenes of the frame start: x its first node in srTlas, y its first object in
+//srObjects, z how many objects it has.
+StructuredBuffer<uint4> srScenes : register(t14);
 StructuredBuffer<BVHNode> srMeshNodes : register(t5);
 StructuredBuffer<BVHNode> srTlas : register(t6);
 StructuredBuffer<ObjectInfo> srObjects : register(t7);
@@ -67,6 +74,19 @@ ByteAddressBuffer srIndices : register(t9);
 //How far a directional light's ray looks for a caster. RenderSystem gathers casters out to this far
 //beyond the shadow distance; mirrored by SHADOW_RAY_SUN_LENGTH there.
 #define SR_SUN_RAY_LENGTH 120.0f
+//The scene index of a light that has none (its scene did not fit in the frame's budget).
+#define SR_NO_SCENE 0xFFFFFFu
+
+//Counters of what the rays did, compiled in only while SR_STATS is defined (DeferredLightCS adds them up
+//over the frame into sr_counters): 0 rays that reached the world, 1 ended by the screen, 2 steps of the top
+//level hierarchy, 3 objects entered, 4 steps of an object's hierarchy, 5 triangles tested, 6 ended by the
+//world, 7 pixels that traced at least one ray.
+#ifdef SR_STATS
+static uint sr_stat[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
+#define SR_COUNT(i) sr_stat[i]++
+#else
+#define SR_COUNT(i)
+#endif
 
 //Where along the ray it first lies inside the box, or FLT_MAX if it never does within
 //[0, max_t].
@@ -94,6 +114,7 @@ bool SrTriangleHit(float3 orig, float3 dir, uint index_offset, uint vertex_offse
 	const float3 v0 = asfloat(srVertices.Load3(vindex.x));
 	const float3 v1 = asfloat(srVertices.Load3(vindex.y));
 	const float3 v2 = asfloat(srVertices.Load3(vindex.z));
+	SR_COUNT(5);
 	const float3 e1 = v1 - v0;
 	const float3 e2 = v2 - v0;
 	const float3 h = cross(dir, e2);
@@ -120,6 +141,7 @@ bool SrTriangleHit(float3 orig, float3 dir, uint index_offset, uint vertex_offse
 //Any triangle of one object on the segment, in the object's own space.
 bool SrObjectOccluded(ObjectInfo o, float3 world_from, float3 world_dir, float world_len)
 {
+	SR_COUNT(3);
 	float4 oo = mul(float4(world_from, 1.0f), o.inv_world);
 	const float3 orig = oo.xyz / oo.w;
 	float3 dir = mul(world_dir, (float3x3)o.inv_world);
@@ -134,41 +156,58 @@ bool SrObjectOccluded(ObjectInfo o, float3 world_from, float3 world_dir, float w
 	const float max_t = world_len * scale;
 	const float3 inv_dir = 1.0f / dir;
 
+	//The nearer child first, and a child the ray misses is never visited (nor pushed): a ray that is
+	//stopped by something stops at the first thing it meets instead of after the walk of the rest, and
+	//most rays of a lit scene are stopped (the lamp of a building is inside the building).
+	BVHNode node = srMeshNodes[o.objectOffset];
+	if (SrBoxEntry(orig, inv_dir, node.reg0.xyz, node.reg1.xyz, max_t) == FLT_MAX) {
+		return false;
+	}
 	uint stack[MAX_STACK_SIZE];
 	uint stack_size = 0;
-	uint node_index = 0;
 	uint visits = 0;
 	[loop]
 	while (visits++ < MAX_NODE_VISITS) {
-		const BVHNode node = srMeshNodes[o.objectOffset + node_index];
-		bool descend = false;
-		if (SrBoxEntry(orig, inv_dir, node.reg0.xyz, node.reg1.xyz, max_t) < FLT_MAX) {
-			if (SrIsLeaf(node)) {
-				if (SrTriangleHit(orig, dir, asuint(node.reg1.w) + o.indexOffset, o.vertexOffset, max_t)) {
-					return true;
-				}
-			}
-			else {
-				const uint packed_children = asuint(node.reg0.w);
-				const uint left = (packed_children & 0xffff0000u) >> 16;
-				const uint right = packed_children & 0xffffu;
-				if (stack_size < MAX_STACK_SIZE) {
-					stack[stack_size++] = right;
-				}
-				node_index = left;
-				descend = true;
+		SR_COUNT(4);
+		bool have = false;
+		if (SrIsLeaf(node)) {
+			if (SrTriangleHit(orig, dir, asuint(node.reg1.w) + o.indexOffset, o.vertexOffset, max_t)) {
+				return true;
 			}
 		}
-		if (!descend) {
+		else {
+			const uint packed_children = asuint(node.reg0.w);
+			const uint left = (packed_children & 0xffff0000u) >> 16;
+			const uint right = packed_children & 0xffffu;
+			const BVHNode ln = srMeshNodes[o.objectOffset + left];
+			const BVHNode rn = srMeshNodes[o.objectOffset + right];
+			const float tl = SrBoxEntry(orig, inv_dir, ln.reg0.xyz, ln.reg1.xyz, max_t);
+			const float tr = SrBoxEntry(orig, inv_dir, rn.reg0.xyz, rn.reg1.xyz, max_t);
+			if (tl < FLT_MAX && tr < FLT_MAX) {
+				if (stack_size < MAX_STACK_SIZE) {
+					stack[stack_size++] = (tl <= tr) ? right : left;
+				}
+				if (tl <= tr) { node = ln; } else { node = rn; }
+				have = true;
+			}
+			else if (tl < FLT_MAX) {
+				node = ln;
+				have = true;
+			}
+			else if (tr < FLT_MAX) {
+				node = rn;
+				have = true;
+			}
+		}
+		if (!have) {
 			if (stack_size == 0u) {
 				break;
 			}
-			node_index = stack[--stack_size];
+			node = srMeshNodes[o.objectOffset + stack[--stack_size]];
 		}
 	}
 	return false;
 }
-
 //The pixel being shaded and its place in the frame sequence: the seed of the per ray jitter.
 static uint2 sr_pixel = uint2(0, 0);
 
@@ -199,49 +238,72 @@ float3 SrBallSample()
 	return float3(r * cos(phi), r * sin(phi), z) * pow(u.z, 1.0f / 3.0f);
 }
 
-//Anything solid on the segment of length `len` from `from` along the unit vector `dir`.
-bool SrTrace(float3 from, float3 dir, float len)
+//Anything solid on the segment of length `len` from `from` along the unit vector `dir`, among
+//the objects of scene `scene_index`.
+bool SrTrace(float3 from, float3 dir, float len, uint scene_index)
 {
-	if (shadow_ray_objects == 0u || len <= 1e-4f) {
+	if (shadow_ray_objects == 0u || scene_index == SR_NO_SCENE || len <= 1e-4f) {
+		return false;
+	}
+	const uint4 scene = srScenes[scene_index];
+	if (scene.z == 0u) {
 		return false;
 	}
 	const float3 inv_dir = 1.0f / dir;
 
+	//Same walk as an object's: the nearer child first, the ones the ray misses not at all. A leaf is an
+	//object, whose own hierarchy is walked only when the ray is in its box.
+	BVHNode node = srTlas[scene.x];
+	if (SrBoxEntry(from, inv_dir, node.reg0.xyz, node.reg1.xyz, len) == FLT_MAX) {
+		return false;
+	}
 	uint stack[SR_TLAS_STACK];
 	uint stack_size = 0;
-	uint node_index = 0;
 	uint visits = 0;
 	[loop]
 	while (visits++ < 4096u) {
-		const BVHNode node = srTlas[node_index];
-		bool descend = false;
-		if (SrBoxEntry(from, inv_dir, node.reg0.xyz, node.reg1.xyz, len) < FLT_MAX) {
-			if (SrIsLeaf(node)) {
-				if (SrObjectOccluded(srObjects[asuint(node.reg1.w)], from, dir, len)) {
-					return true;
-				}
-			}
-			else {
-				const uint packed_children = asuint(node.reg0.w);
-				const uint left = (packed_children & 0xffff0000u) >> 16;
-				const uint right = packed_children & 0xffffu;
-				if (stack_size < SR_TLAS_STACK) {
-					stack[stack_size++] = right;
-				}
-				node_index = left;
-				descend = true;
+		SR_COUNT(2);
+		bool have = false;
+		if (SrIsLeaf(node)) {
+			if (SrObjectOccluded(srObjects[scene.y + asuint(node.reg1.w)], from, dir, len)) {
+				SR_COUNT(6);
+				return true;
 			}
 		}
-		if (!descend) {
+		else {
+			const uint packed_children = asuint(node.reg0.w);
+			const uint left = (packed_children & 0xffff0000u) >> 16;
+			const uint right = packed_children & 0xffffu;
+			const BVHNode ln = srTlas[scene.x + left];
+			const BVHNode rn = srTlas[scene.x + right];
+			const float tl = SrBoxEntry(from, inv_dir, ln.reg0.xyz, ln.reg1.xyz, len);
+			const float tr = SrBoxEntry(from, inv_dir, rn.reg0.xyz, rn.reg1.xyz, len);
+			if (tl < FLT_MAX && tr < FLT_MAX) {
+				//A ray that fills the stack drops the subtree it could not push, which can only lose a shadow.
+				if (stack_size < SR_TLAS_STACK) {
+					stack[stack_size++] = (tl <= tr) ? right : left;
+				}
+				if (tl <= tr) { node = ln; } else { node = rn; }
+				have = true;
+			}
+			else if (tl < FLT_MAX) {
+				node = ln;
+				have = true;
+			}
+			else if (tr < FLT_MAX) {
+				node = rn;
+				have = true;
+			}
+		}
+		if (!have) {
 			if (stack_size == 0u) {
 				break;
 			}
-			node_index = stack[--stack_size];
+			node = srTlas[scene.x + stack[--stack_size]];
 		}
 	}
 	return false;
 }
-
 //An includer that can also look for casters ON THE SCREEN defines SR_SCREEN_SHADOWS and
 //provides, before this point,
 //    bool ScreenShadowActive()                                   whether it is on this frame
@@ -254,8 +316,9 @@ bool SrTrace(float3 from, float3 dir, float len)
 //first yes is the answer.
 
 //True when something solid is on the straight line from `from` (a point on the lit side of
-//a surface) to `to` (the light, jittered inside shadow_ray_radius).
-bool ShadowRayOccluded(float3 from, float3 to)
+//a surface) to `to` (the light, jittered inside shadow_ray_radius), among the objects of the
+//light's scene.
+bool ShadowRayOccluded(float3 from, float3 to, uint scene)
 {
 #ifdef SR_SCREEN_SHADOWS
 	const bool screen = ScreenShadowActive();
@@ -271,10 +334,14 @@ bool ShadowRayOccluded(float3 from, float3 to)
 	dir = normalize(dir);
 #ifdef SR_SCREEN_SHADOWS
 	if (screen && ScreenShadowOccluded(from, dir, len)) {
+		SR_COUNT(1);
 		return true;
 	}
 #endif
-	return SrTrace(from, dir, len);
+	SR_COUNT(0);
+	//From the light to the surface, not the other way: a lamp stands on or in a building, and what stops most rays is that
+	//building, which the ray then meets first. Any hit anywhere on the segment is the same answer from either end.
+	return SrTrace(to - dir * SR_LIGHT_MARGIN, -dir, len, scene);
 }
 
 //The same for a directional light: `to_light` is the unit vector towards it, aimed inside a
@@ -296,7 +363,7 @@ bool ShadowRayOccludedDirectional(float3 from, float3 to_light)
 		return true;
 	}
 #endif
-	return SrTrace(from, dir, SR_SUN_RAY_LENGTH);
+	return SrTrace(from, dir, SR_SUN_RAY_LENGTH, shadow_ray_sun_scene);
 }
 
 #endif

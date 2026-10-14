@@ -92,6 +92,57 @@ namespace HotBite {
 				const std::vector<uint32_t>& indices,
 				float target_ratio,
 				SimplifyResult& result);
+
+			// A coarser stand-in by vertex clustering, for what SimplifyMesh cannot reach. The edge collapse
+			// stops where no collapse is legal - a model of shells and cuts (a Meshy building) stalls at about a
+			// tenth of its vertices - and a level that is wanted far coarser than that (the geometry the ray
+			// traced shadows are walked through) has to come from somewhere else: the vertices are snapped to a
+			// grid, the cell as coarse as it takes to leave `target_vertices` of them, and the triangles that
+			// land on fewer than three cells go.
+			//
+			// Not the optimal reduction by any measure - a vertex is the average of its cell, so unlike
+			// SimplifyMesh no output vertex is one of the input's, and a skinned mesh cannot take it - but it
+			// always gets there, whatever the topology. The attributes of a vertex (UV, tangent frame) are those
+			// of the input vertex nearest the average; `source_vertex` names it.
+			//
+			// False when there is nothing to do (no triangles, already at or under the target) or the mesh is
+			// skinned. `target_vertices` is floored at 12.
+			bool ClusterMesh(const std::vector<Vertex>& vertices,
+				const std::vector<uint32_t>& indices,
+				size_t target_vertices,
+				SimplifyResult& result);
+
+			// A solid stand-in for a mesh, for what only has to be in the way: the geometry the ray traced
+			// shadows are traced through. Neither SimplifyMesh nor ClusterMesh makes one - a model made of
+			// shells and cuts (a Meshy building, a tree of leaf cards) comes out of both full of gaps a ray
+			// goes through - so this does not reduce the surface, it replaces it: the model is voxelized on a
+			// grid of `resolution` cells along its longest side (every cell a triangle touches is solid, so a
+			// gap narrower than a cell closes), the space outside it is found by flooding in from the
+			// edge of the grid, and the surface of what is not outside is built, flat faces merged into
+			// rectangles. What comes out is closed, whatever came in; the price is a blocky look and a
+			// surface up to one cell off the model, which a shadow does not mind and a picture would.
+			//
+			// The surface is a surface-nets mesh of the solid, its vertices moved onto the model (to the mean of the
+			// nearest points of the triangles round them), so it follows the model within a fraction of a cell. With
+			// `max_triangles` above 0 it is then reduced to about that many by SimplifyMesh, which has no seams to
+			// stall on (there are no UVs) and a surface that is closed and manifold.
+			//
+			// The vertices carry a position and the face's normal and nothing else (no UV, no bones): it is
+			// not drawn. False when there is nothing to voxelize or the mesh is skinned.
+			bool VoxelizeMesh(const std::vector<Vertex>& vertices,
+				const std::vector<uint32_t>& indices,
+				int resolution,
+				int max_triangles,
+				SimplifyResult& result);
+
+			// How far a stand-in is from the model it stands in for: the distance from points on each to the
+			// nearest point of the other (sampled: the vertices and the centres of the triangles, at most about
+			// 4,000 of each), as a share of the model's longest side. `mean` and `worst` take the larger of the two
+			// directions - the proxy's surface lying off the model, and a piece of the model the proxy does not
+			// cover. 0 for a perfect copy.
+			void MeshError(const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices,
+				const SimplifyResult& proxy, double& mean, double& worst, double* worst_model_to_proxy = nullptr,
+				double* worst_proxy_to_model = nullptr);
 		}
 	}
 }

@@ -32,6 +32,11 @@ namespace HotBiteEditor {
 		// Like everything else about a chain, this reaches the mesh *asset*: every
 		// entity drawing that mesh gains the level. The entity is only where the edit
 		// is recorded.
+		// A solid stand-in for the ray tracers (World::GenerateTraceMesh, Core::VoxelizeMesh) with `voxels` cells along the
+		// longest side, given to the entity's mesh as its `trace_lod` - not a level of the chain, and never drawn.
+		bool GenerateTraceLod(EditorState& state, const std::string& entity_name, int voxels, int triangles,
+			std::string& generated_name, std::string& error);
+
 		bool GenerateLod(EditorState& state, const std::string& entity_name, float ratio,
 			std::string& generated_name, std::string& error);
 

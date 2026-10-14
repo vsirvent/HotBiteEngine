@@ -32,6 +32,7 @@ SOFTWARE.
 #include <limits>
 #include <queue>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 using namespace HotBite::Engine;
@@ -670,6 +671,654 @@ namespace HotBite {
 				}
 				s.Emit(result);
 				return !result.indices.empty();
+			}
+		}
+	}
+}
+
+namespace {
+	// What one pass of the clustering makes at a cell size: the cell of every vertex, and how many cells the
+	// surviving triangles use. Deterministic: a cell is numbered by the first vertex that falls in it.
+	struct ClusterPass {
+		std::vector<uint32_t> cell_of;
+		std::vector<uint32_t> triangles;
+		size_t used = 0;
+	};
+
+	struct CellKey {
+		int32_t x = 0, y = 0, z = 0;
+		bool operator==(const CellKey& o) const { return x == o.x && y == o.y && z == o.z; }
+	};
+	struct CellKeyHash {
+		size_t operator()(const CellKey& k) const {
+			size_t h = 1469598103934665603ULL;
+			for (int32_t w : { k.x, k.y, k.z }) {
+				h ^= (size_t)(uint32_t)w;
+				h *= 1099511628211ULL;
+			}
+			return h;
+		}
+	};
+
+	void RunCluster(const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices, const float3& lo, float cell,
+		ClusterPass& pass) {
+		pass.cell_of.assign(vertices.size(), 0);
+		pass.triangles.clear();
+		std::unordered_map<CellKey, uint32_t, CellKeyHash> cells;
+		cells.reserve(vertices.size());
+		const double inv = 1.0 / (double)cell;
+		for (size_t i = 0; i < vertices.size(); ++i) {
+			const Vertex& v = vertices[i];
+			const CellKey key = { (int32_t)std::floor((v.Position.x - lo.x) * inv), (int32_t)std::floor((v.Position.y - lo.y) * inv),
+				(int32_t)std::floor((v.Position.z - lo.z) * inv) };
+			auto it = cells.find(key);
+			if (it == cells.end()) {
+				it = cells.emplace(key, (uint32_t)cells.size()).first;
+			}
+			pass.cell_of[i] = it->second;
+		}
+		// The surviving triangles, once each: two that land on the same three cells are one surface.
+		struct Tri {
+			uint32_t a, b, c;
+			bool operator==(const Tri& o) const { return a == o.a && b == o.b && c == o.c; }
+		};
+		struct TriHash {
+			size_t operator()(const Tri& t) const {
+				return (size_t)t.a * 73856093u ^ (size_t)t.b * 19349663u ^ (size_t)t.c * 83492791u;
+			}
+		};
+		std::unordered_set<Tri, TriHash> seen;
+		std::vector<bool> used(cells.size(), false);
+		pass.used = 0;
+		for (size_t t = 0; t + 2 < indices.size(); t += 3) {
+			const uint32_t a = pass.cell_of[indices[t]], b = pass.cell_of[indices[t + 1]], c = pass.cell_of[indices[t + 2]];
+			if (a == b || b == c || a == c) {
+				continue;
+			}
+			// The same three cells in any order, the same winding: a rotation of the triple is the same face.
+			Tri key = { a, b, c };
+			if (b < key.a && b < c) { key = { b, c, a }; }
+			else if (c < key.a && c < b) { key = { c, a, b }; }
+			if (!seen.insert(key).second) {
+				continue;
+			}
+			pass.triangles.push_back(a);
+			pass.triangles.push_back(b);
+			pass.triangles.push_back(c);
+			for (uint32_t cell_index : { a, b, c }) {
+				if (!used[cell_index]) {
+					used[cell_index] = true;
+					++pass.used;
+				}
+			}
+		}
+	}
+}
+
+namespace HotBite {
+	namespace Engine {
+		namespace Core {
+
+			bool ClusterMesh(const std::vector<Vertex>& vertices,
+				const std::vector<uint32_t>& indices,
+				size_t target_vertices,
+				SimplifyResult& result) {
+				result = SimplifyResult{};
+				if (vertices.empty() || indices.size() < 3) {
+					return false;
+				}
+				// Bone weights belong to the vertices of the model, not to an average of them.
+				for (const Vertex& v : vertices) {
+					if (v.Boneids[0] >= 0) {
+						return false;
+					}
+				}
+				if (target_vertices < 12) {
+					target_vertices = 12;
+				}
+				if (target_vertices >= vertices.size()) {
+					return false;
+				}
+				float3 lo = vertices[0].Position, hi = vertices[0].Position;
+				for (const Vertex& v : vertices) {
+					lo = { (std::min)(lo.x, v.Position.x), (std::min)(lo.y, v.Position.y), (std::min)(lo.z, v.Position.z) };
+					hi = { (std::max)(hi.x, v.Position.x), (std::max)(hi.y, v.Position.y), (std::max)(hi.z, v.Position.z) };
+				}
+				const float extent = (std::max)({ hi.x - lo.x, hi.y - lo.y, hi.z - lo.z });
+				if (!(extent > 0.0f)) {
+					return false;
+				}
+				// The coarsest cell that still leaves no more than the target: a bisection on the cell size, a pass
+				// per step. The count of cells in use falls as the cell grows, not strictly, but near enough that
+				// the bisection ends on a size no worse than the best of the sizes it tried.
+				float fine = extent / 4096.0f, coarse = extent;
+				ClusterPass best;
+				bool have = false;
+				for (int step = 0; step < 24; ++step) {
+					const float cell = 0.5f * (fine + coarse);
+					ClusterPass pass;
+					RunCluster(vertices, indices, lo, cell, pass);
+					if (pass.used > target_vertices || pass.triangles.empty()) {
+						if (pass.triangles.empty()) {
+							coarse = cell;
+						}
+						else {
+							fine = cell;
+						}
+					}
+					else {
+						coarse = cell;
+						best = std::move(pass);
+						have = true;
+					}
+				}
+				if (!have || best.triangles.empty()) {
+					return false;
+				}
+
+				// One vertex per cell in use, in the order the triangles first name them.
+				std::unordered_map<uint32_t, uint32_t> remap;
+				remap.reserve(best.used * 2);
+				std::vector<uint32_t> cell_order;
+				for (uint32_t cell : best.triangles) {
+					if (remap.emplace(cell, (uint32_t)cell_order.size()).second) {
+						cell_order.push_back(cell);
+					}
+				}
+				struct Sum {
+					double x = 0, y = 0, z = 0, nx = 0, ny = 0, nz = 0;
+					uint32_t count = 0;
+				};
+				std::vector<Sum> sums(cell_order.size());
+				for (size_t i = 0; i < vertices.size(); ++i) {
+					auto it = remap.find(best.cell_of[i]);
+					if (it == remap.end()) {
+						continue;
+					}
+					Sum& s = sums[it->second];
+					const Vertex& v = vertices[i];
+					s.x += v.Position.x; s.y += v.Position.y; s.z += v.Position.z;
+					s.nx += v.Normal.x; s.ny += v.Normal.y; s.nz += v.Normal.z;
+					++s.count;
+				}
+				// The member nearest the average lends its UV and frame.
+				std::vector<uint32_t> donor(cell_order.size(), UINT32_MAX);
+				std::vector<double> donor_d(cell_order.size(), 1e300);
+				for (size_t i = 0; i < vertices.size(); ++i) {
+					auto it = remap.find(best.cell_of[i]);
+					if (it == remap.end()) {
+						continue;
+					}
+					const Sum& s = sums[it->second];
+					const double dx = vertices[i].Position.x - s.x / s.count, dy = vertices[i].Position.y - s.y / s.count,
+						dz = vertices[i].Position.z - s.z / s.count;
+					const double d = dx * dx + dy * dy + dz * dz;
+					if (d < donor_d[it->second]) {
+						donor_d[it->second] = d;
+						donor[it->second] = (uint32_t)i;
+					}
+				}
+				result.vertices.resize(cell_order.size());
+				result.source_vertex.resize(cell_order.size());
+				for (size_t k = 0; k < cell_order.size(); ++k) {
+					Vertex v = vertices[donor[k]];
+					const Sum& s = sums[k];
+					v.Position = { (float)(s.x / s.count), (float)(s.y / s.count), (float)(s.z / s.count) };
+					const double n = std::sqrt(s.nx * s.nx + s.ny * s.ny + s.nz * s.nz);
+					if (n > 1e-12) {
+						v.Normal = { (float)(s.nx / n), (float)(s.ny / n), (float)(s.nz / n) };
+					}
+					result.vertices[k] = v;
+					result.source_vertex[k] = donor[k];
+				}
+				result.indices.reserve(best.triangles.size());
+				for (uint32_t cell : best.triangles) {
+					result.indices.push_back(remap[cell]);
+				}
+				return true;
+			}
+		}
+	}
+}
+
+namespace {
+	struct P3 { double x, y, z; };
+	P3 Sub3(const P3& a, const P3& b) { return { a.x - b.x, a.y - b.y, a.z - b.z }; }
+	double Dot3(const P3& a, const P3& b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
+	P3 Pos3(const Vertex& v) { return { v.Position.x, v.Position.y, v.Position.z }; }
+
+	// The point of triangle abc nearest p (Ericson, Real-Time Collision Detection 5.1.5).
+	P3 ClosestPointOnTriangle(const P3& p, const P3& a, const P3& b, const P3& c) {
+		const P3 ab = Sub3(b, a), ac = Sub3(c, a), ap = Sub3(p, a);
+		const double d1 = Dot3(ab, ap), d2 = Dot3(ac, ap);
+		if (d1 <= 0 && d2 <= 0) return a;
+		const P3 bp = Sub3(p, b);
+		const double d3 = Dot3(ab, bp), d4 = Dot3(ac, bp);
+		if (d3 >= 0 && d4 <= d3) return b;
+		const double vc = d1 * d4 - d3 * d2;
+		if (vc <= 0 && d1 >= 0 && d3 <= 0) {
+			const double v = d1 / (d1 - d3);
+			return { a.x + v * ab.x, a.y + v * ab.y, a.z + v * ab.z };
+		}
+		const P3 cp = Sub3(p, c);
+		const double d5 = Dot3(ab, cp), d6 = Dot3(ac, cp);
+		if (d6 >= 0 && d5 <= d6) return c;
+		const double vb = d5 * d2 - d1 * d6;
+		if (vb <= 0 && d2 >= 0 && d6 <= 0) {
+			const double w = d2 / (d2 - d6);
+			return { a.x + w * ac.x, a.y + w * ac.y, a.z + w * ac.z };
+		}
+		const double va = d3 * d6 - d5 * d4;
+		if (va <= 0 && (d4 - d3) >= 0 && (d5 - d6) >= 0) {
+			const double w = (d4 - d3) / ((d4 - d3) + (d5 - d6));
+			return { b.x + w * (c.x - b.x), b.y + w * (c.y - b.y), b.z + w * (c.z - b.z) };
+		}
+		const double denom = 1.0 / (va + vb + vc);
+		const double v = vb * denom, w = vc * denom;
+		return { a.x + ab.x * v + ac.x * w, a.y + ab.y * v + ac.y * w, a.z + ab.z * v + ac.z * w };
+	}
+}
+namespace {
+	// Triangle against a box (Akenine-Moeller's separating axis test): does the triangle touch the box at all.
+	bool TriangleTouchesBox(const double v0[3], const double v1[3], const double v2[3], const double c[3], double h) {
+		double a[3][3];
+		for (int k = 0; k < 3; ++k) {
+			a[0][k] = v0[k] - c[k];
+			a[1][k] = v1[k] - c[k];
+			a[2][k] = v2[k] - c[k];
+		}
+		// The box's three face normals.
+		for (int k = 0; k < 3; ++k) {
+			const double lo = (std::min)({ a[0][k], a[1][k], a[2][k] });
+			const double hi = (std::max)({ a[0][k], a[1][k], a[2][k] });
+			if (lo > h || hi < -h) {
+				return false;
+			}
+		}
+		// The triangle's plane.
+		double e0[3], e1[3], e2[3];
+		for (int k = 0; k < 3; ++k) {
+			e0[k] = a[1][k] - a[0][k];
+			e1[k] = a[2][k] - a[1][k];
+			e2[k] = a[0][k] - a[2][k];
+		}
+		const double n[3] = { e0[1] * e1[2] - e0[2] * e1[1], e0[2] * e1[0] - e0[0] * e1[2], e0[0] * e1[1] - e0[1] * e1[0] };
+		const double r = h * (std::fabs(n[0]) + std::fabs(n[1]) + std::fabs(n[2]));
+		const double d = n[0] * a[0][0] + n[1] * a[0][1] + n[2] * a[0][2];
+		if (std::fabs(d) > r) {
+			return false;
+		}
+		// The nine cross products of an edge with a box axis.
+		const double* edges[3] = { e0, e1, e2 };
+		for (const double* e : edges) {
+			for (int axis = 0; axis < 3; ++axis) {
+				// axis x edge
+				double ax[3] = { 0, 0, 0 };
+				ax[axis] = 1.0;
+				const double q[3] = { ax[1] * e[2] - ax[2] * e[1], ax[2] * e[0] - ax[0] * e[2], ax[0] * e[1] - ax[1] * e[0] };
+				const double p0 = q[0] * a[0][0] + q[1] * a[0][1] + q[2] * a[0][2];
+				const double p1 = q[0] * a[1][0] + q[1] * a[1][1] + q[2] * a[1][2];
+				const double p2 = q[0] * a[2][0] + q[1] * a[2][1] + q[2] * a[2][2];
+				const double rad = h * (std::fabs(q[0]) + std::fabs(q[1]) + std::fabs(q[2]));
+				if ((std::min)({ p0, p1, p2 }) > rad || (std::max)({ p0, p1, p2 }) < -rad) {
+					return false;
+				}
+			}
+		}
+		return true;
+	}
+}
+
+namespace HotBite {
+	namespace Engine {
+		namespace Core {
+
+			bool VoxelizeMesh(const std::vector<Vertex>& vertices,
+				const std::vector<uint32_t>& indices,
+				int resolution,
+				int max_triangles,
+				SimplifyResult& result) {
+				result = SimplifyResult{};
+				if (vertices.empty() || indices.size() < 3 || resolution < 2) {
+					return false;
+				}
+				for (const Vertex& v : vertices) {
+					if (v.Boneids[0] >= 0) {
+						return false;
+					}
+				}
+				double lo[3] = { 1e300, 1e300, 1e300 }, hi[3] = { -1e300, -1e300, -1e300 };
+				for (const Vertex& v : vertices) {
+					const double p[3] = { v.Position.x, v.Position.y, v.Position.z };
+					for (int k = 0; k < 3; ++k) {
+						lo[k] = (std::min)(lo[k], p[k]);
+						hi[k] = (std::max)(hi[k], p[k]);
+					}
+				}
+				const double extent = (std::max)({ hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2] });
+				if (!(extent > 0.0)) {
+					return false;
+				}
+				const double cell = extent / (double)resolution;
+				// One empty cell of padding all round, so the outside is one piece the flood can start in.
+				int dim[3];
+				double origin[3];
+				for (int k = 0; k < 3; ++k) {
+					dim[k] = (int)std::ceil((hi[k] - lo[k]) / cell) + 2;
+					origin[k] = lo[k] - cell;
+				}
+				const size_t count = (size_t)dim[0] * dim[1] * dim[2];
+				enum : uint8_t { EMPTY = 0, SURFACE = 1, OUTSIDE = 2 };
+				std::vector<uint8_t> grid(count, EMPTY);
+				std::vector<std::vector<uint32_t>> cell_triangles(count);
+				auto at = [&](int x, int y, int z) -> size_t { return ((size_t)z * dim[1] + y) * dim[0] + x; };
+
+				// Every cell a triangle touches. A hair of slack on the box, so a triangle lying exactly on a cell's
+				// face (a flat wall on the grid) marks both cells beside it and cannot slip between them.
+				const double half = cell * 0.5 * 1.0001;
+				for (size_t t = 0; t + 2 < indices.size(); t += 3) {
+					const Vertex* tv[3] = { &vertices[indices[t]], &vertices[indices[t + 1]], &vertices[indices[t + 2]] };
+					double p[3][3];
+					int from[3], to[3];
+					for (int k = 0; k < 3; ++k) {
+						p[0][k] = k == 0 ? tv[0]->Position.x : (k == 1 ? tv[0]->Position.y : tv[0]->Position.z);
+						p[1][k] = k == 0 ? tv[1]->Position.x : (k == 1 ? tv[1]->Position.y : tv[1]->Position.z);
+						p[2][k] = k == 0 ? tv[2]->Position.x : (k == 1 ? tv[2]->Position.y : tv[2]->Position.z);
+						const double a = (std::min)({ p[0][k], p[1][k], p[2][k] }), b = (std::max)({ p[0][k], p[1][k], p[2][k] });
+						from[k] = (std::max)(0, (int)std::floor((a - origin[k]) / cell));
+						to[k] = (std::min)(dim[k] - 1, (int)std::floor((b - origin[k]) / cell));
+					}
+					for (int z = from[2]; z <= to[2]; ++z) {
+						for (int y = from[1]; y <= to[1]; ++y) {
+							for (int x = from[0]; x <= to[0]; ++x) {
+								const double c[3] = { origin[0] + (x + 0.5) * cell, origin[1] + (y + 0.5) * cell, origin[2] + (z + 0.5) * cell };
+								if (TriangleTouchesBox(p[0], p[1], p[2], c, half)) {
+									grid[at(x, y, z)] = SURFACE;
+									cell_triangles[at(x, y, z)].push_back((uint32_t)(t / 3));
+								}
+							}
+						}
+					}
+				}
+
+				// The outside: the empty cells that connect to the corner of the grid. Whatever it cannot reach - the
+				// inside of a closed model - is solid.
+				{
+					std::vector<uint32_t> stack;
+					stack.push_back((uint32_t)at(0, 0, 0));
+					grid[at(0, 0, 0)] = OUTSIDE;
+					while (!stack.empty()) {
+						const uint32_t i = stack.back();
+						stack.pop_back();
+						const int x = (int)(i % dim[0]), y = (int)((i / dim[0]) % dim[1]), z = (int)(i / ((size_t)dim[0] * dim[1]));
+						const int step[6][3] = { { 1, 0, 0 }, { -1, 0, 0 }, { 0, 1, 0 }, { 0, -1, 0 }, { 0, 0, 1 }, { 0, 0, -1 } };
+						for (const auto& s : step) {
+							const int nx = x + s[0], ny = y + s[1], nz = z + s[2];
+							if (nx < 0 || ny < 0 || nz < 0 || nx >= dim[0] || ny >= dim[1] || nz >= dim[2]) {
+								continue;
+							}
+							const size_t n = at(nx, ny, nz);
+							if (grid[n] == EMPTY) {
+								grid[n] = OUTSIDE;
+								stack.push_back((uint32_t)n);
+							}
+						}
+					}
+				}
+				auto solid = [&](int x, int y, int z) {
+					if (x < 0 || y < 0 || z < 0 || x >= dim[0] || y >= dim[1] || z >= dim[2]) {
+						return false;
+					}
+					return grid[at(x, y, z)] != OUTSIDE;
+				};
+
+				// The surface of the solid, as a surface-nets mesh: the solid cells are the points of a lattice, a vertex
+				// sits in every block of 2x2x2 of them that is part solid and part not, and every lattice edge that
+				// crosses the boundary gets a quad of the four blocks round it. Unlike a mesh of the cells' faces it has
+				// no T-junctions to leave a crack a ray goes through, and its vertices are free to move: each is put on
+				// the model, at the mean of the nearest points of the triangles in the cells round it, so the stand-in
+				// follows the surface within a fraction of a cell instead of stepping along it.
+				const int bdim[3] = { dim[0] - 1, dim[1] - 1, dim[2] - 1 };
+				auto bat = [&](int x, int y, int z) -> size_t { return ((size_t)z * bdim[1] + y) * bdim[0] + x; };
+				std::vector<int32_t> block_vertex((size_t)bdim[0] * bdim[1] * bdim[2], -1);
+				for (int z = 0; z < bdim[2]; ++z) {
+					for (int y = 0; y < bdim[1]; ++y) {
+						for (int x = 0; x < bdim[0]; ++x) {
+							int inside = 0;
+							for (int c = 0; c < 8; ++c) {
+								inside += solid(x + (c & 1), y + ((c >> 1) & 1), z + ((c >> 2) & 1)) ? 1 : 0;
+							}
+							if (inside == 0 || inside == 8) {
+								continue;
+							}
+							// The corner the eight cells share, and where the model is round it.
+							const P3 centre = { origin[0] + (x + 1) * cell, origin[1] + (y + 1) * cell, origin[2] + (z + 1) * cell };
+							P3 sum = { 0, 0, 0 };
+							int found = 0;
+							const double reach2 = (1.5 * cell) * (1.5 * cell);
+							for (int c = 0; c < 8; ++c) {
+								const int cx = x + (c & 1), cy = y + ((c >> 1) & 1), cz = z + ((c >> 2) & 1);
+								for (uint32_t tri : cell_triangles[at(cx, cy, cz)]) {
+									const P3 a3 = Pos3(vertices[indices[tri * 3]]), b3 = Pos3(vertices[indices[tri * 3 + 1]]),
+										c3 = Pos3(vertices[indices[tri * 3 + 2]]);
+									const P3 q = ClosestPointOnTriangle(centre, a3, b3, c3);
+									const P3 d = Sub3(q, centre);
+									if (Dot3(d, d) <= reach2) {
+										sum = { sum.x + q.x, sum.y + q.y, sum.z + q.z };
+										++found;
+									}
+								}
+							}
+							P3 pos = centre;
+							if (found > 0) {
+								pos = { sum.x / found, sum.y / found, sum.z / found };
+								// Never out of the block it stands for, or neighbours cross.
+								pos = { (std::max)(centre.x - cell, (std::min)(centre.x + cell, pos.x)),
+									(std::max)(centre.y - cell, (std::min)(centre.y + cell, pos.y)),
+									(std::max)(centre.z - cell, (std::min)(centre.z + cell, pos.z)) };
+							}
+							block_vertex[bat(x, y, z)] = (int32_t)result.vertices.size();
+							Vertex vert;
+							vert.Position = { (float)pos.x, (float)pos.y, (float)pos.z };
+							result.vertices.push_back(vert);
+							result.source_vertex.push_back(0);
+						}
+					}
+				}
+				// A quad for every lattice edge with a solid end and an open one: the four blocks that share it.
+				for (int axis = 0; axis < 3; ++axis) {
+					const int u = (axis + 1) % 3, v = (axis + 2) % 3;
+					for (int z = 0; z < dim[2]; ++z) {
+						for (int y = 0; y < dim[1]; ++y) {
+							for (int x = 0; x < dim[0]; ++x) {
+								int p[3] = { x, y, z };
+								int q[3] = { x, y, z };
+								q[axis] += 1;
+								if (q[axis] >= dim[axis] || p[u] < 1 || p[v] < 1 || p[u] >= dim[u] || p[v] >= dim[v]) {
+									continue;
+								}
+								const bool a_in = solid(p[0], p[1], p[2]), b_in = solid(q[0], q[1], q[2]);
+								if (a_in == b_in) {
+									continue;
+								}
+								// The blocks round the edge, in the order that goes round it.
+								int32_t quad[4];
+								const int du[4] = { -1, 0, 0, -1 }, dv[4] = { -1, -1, 0, 0 };
+								bool whole = true;
+								for (int k = 0; k < 4; ++k) {
+									int b[3] = { p[0], p[1], p[2] };
+									b[u] += du[k];
+									b[v] += dv[k];
+									if (b[0] < 0 || b[1] < 0 || b[2] < 0 || b[0] >= bdim[0] || b[1] >= bdim[1] || b[2] >= bdim[2]) {
+										whole = false;
+										break;
+									}
+									quad[k] = block_vertex[bat(b[0], b[1], b[2])];
+									whole = whole && quad[k] >= 0;
+								}
+								if (!whole) {
+									continue;
+								}
+								const bool flip = a_in;
+								const int order[6] = { 0, 1, 2, 0, 2, 3 };
+								for (int k = 0; k < 6; ++k) {
+									result.indices.push_back((uint32_t)quad[flip ? order[5 - k] : order[k]]);
+								}
+							}
+						}
+					}
+				}
+				// Normals from the faces, for whatever looks at them.
+				{
+					std::vector<P3> normals(result.vertices.size(), P3{ 0, 0, 0 });
+					for (size_t t = 0; t + 2 < result.indices.size(); t += 3) {
+						const P3 a3 = Pos3(result.vertices[result.indices[t]]), b3 = Pos3(result.vertices[result.indices[t + 1]]),
+							c3 = Pos3(result.vertices[result.indices[t + 2]]);
+						const P3 e1 = Sub3(b3, a3), e2 = Sub3(c3, a3);
+						const P3 n = { e1.y * e2.z - e1.z * e2.y, e1.z * e2.x - e1.x * e2.z, e1.x * e2.y - e1.y * e2.x };
+						for (int k = 0; k < 3; ++k) {
+							P3& s = normals[result.indices[t + k]];
+							s = { s.x + n.x, s.y + n.y, s.z + n.z };
+						}
+					}
+					for (size_t i = 0; i < normals.size(); ++i) {
+						const double len = std::sqrt(Dot3(normals[i], normals[i]));
+						if (len > 1e-12) {
+							result.vertices[i].Normal = { (float)(normals[i].x / len), (float)(normals[i].y / len), (float)(normals[i].z / len) };
+						}
+					}
+				}				if (result.indices.empty()) {
+					result = SimplifyResult{};
+					return false;
+				}
+				if (max_triangles > 0 && result.indices.size() / 3 > (size_t)max_triangles) {
+					SimplifyResult reduced;
+					const float ratio = (float)max_triangles / (float)(result.indices.size() / 3);
+					if (SimplifyMesh(result.vertices, result.indices, ratio, reduced)) {
+						reduced.source_vertex.assign(reduced.vertices.size(), 0);
+						result = std::move(reduced);
+					}
+				}
+				return true;
+			}
+		}
+	}
+}
+
+namespace {
+
+	// The squared distance from p to the triangle abc (Ericson, Real-Time Collision Detection 5.1.5).
+	double PointTriangleDistance2(const P3& p, const P3& a, const P3& b, const P3& c) {
+		const P3 ab = Sub3(b, a), ac = Sub3(c, a), ap = Sub3(p, a);
+		const double d1 = Dot3(ab, ap), d2 = Dot3(ac, ap);
+		auto d2of = [&](const P3& q) { const P3 d = Sub3(p, q); return Dot3(d, d); };
+		if (d1 <= 0 && d2 <= 0) return d2of(a);
+		const P3 bp = Sub3(p, b);
+		const double d3 = Dot3(ab, bp), d4 = Dot3(ac, bp);
+		if (d3 >= 0 && d4 <= d3) return d2of(b);
+		const double vc = d1 * d4 - d3 * d2;
+		if (vc <= 0 && d1 >= 0 && d3 <= 0) {
+			const double v = d1 / (d1 - d3);
+			return d2of({ a.x + v * ab.x, a.y + v * ab.y, a.z + v * ab.z });
+		}
+		const P3 cp = Sub3(p, c);
+		const double d5 = Dot3(ab, cp), d6 = Dot3(ac, cp);
+		if (d6 >= 0 && d5 <= d6) return d2of(c);
+		const double vb = d5 * d2 - d1 * d6;
+		if (vb <= 0 && d2 >= 0 && d6 <= 0) {
+			const double w = d2 / (d2 - d6);
+			return d2of({ a.x + w * ac.x, a.y + w * ac.y, a.z + w * ac.z });
+		}
+		const double va = d3 * d6 - d5 * d4;
+		if (va <= 0 && (d4 - d3) >= 0 && (d5 - d6) >= 0) {
+			const double w = (d4 - d3) / ((d4 - d3) + (d5 - d6));
+			return d2of({ b.x + w * (c.x - b.x), b.y + w * (c.y - b.y), b.z + w * (c.z - b.z) });
+		}
+		const double denom = 1.0 / (va + vb + vc);
+		const double v = vb * denom, w = vc * denom;
+		return d2of({ a.x + ab.x * v + ac.x * w, a.y + ab.y * v + ac.y * w, a.z + ab.z * v + ac.z * w });
+	}
+
+	// Points on a mesh to measure from: its vertices and the centres of its triangles, thinned to about `limit`.
+	std::vector<P3> SamplePoints(const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices, size_t limit) {
+		std::vector<P3> all;
+		all.reserve(vertices.size() + indices.size() / 3);
+		// Only the vertices a triangle uses: a model can carry vertices that belong to no surface, and they are
+		// not part of what a ray hits.
+		std::vector<bool> used(vertices.size(), false);
+		for (uint32_t i : indices) {
+			if (i < used.size() && !used[i]) {
+				used[i] = true;
+				all.push_back(Pos3(vertices[i]));
+			}
+		}
+		for (size_t t = 0; t + 2 < indices.size(); t += 3) {
+			const P3 a = Pos3(vertices[indices[t]]), b = Pos3(vertices[indices[t + 1]]), c = Pos3(vertices[indices[t + 2]]);
+			all.push_back({ (a.x + b.x + c.x) / 3, (a.y + b.y + c.y) / 3, (a.z + b.z + c.z) / 3 });
+		}
+		if (all.size() <= limit) {
+			return all;
+		}
+		std::vector<P3> thinned;
+		const double step = (double)all.size() / (double)limit;
+		for (double i = 0; i < (double)all.size(); i += step) {
+			thinned.push_back(all[(size_t)i]);
+		}
+		return thinned;
+	}
+
+	// Distance from each sample to the nearest triangle of a mesh, as mean and worst.
+	void DistanceToMesh(const std::vector<P3>& samples, const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices,
+		double& sum, double& worst) {
+		for (const P3& p : samples) {
+			double best = 1e300;
+			for (size_t t = 0; t + 2 < indices.size(); t += 3) {
+				best = (std::min)(best, PointTriangleDistance2(p, Pos3(vertices[indices[t]]), Pos3(vertices[indices[t + 1]]),
+					Pos3(vertices[indices[t + 2]])));
+			}
+			const double d = std::sqrt(best);
+			sum += d;
+			worst = (std::max)(worst, d);
+		}
+	}
+}
+
+namespace HotBite {
+	namespace Engine {
+		namespace Core {
+
+			void MeshError(const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices,
+				const SimplifyResult& proxy, double& mean, double& worst, double* worst_model_to_proxy, double* worst_proxy_to_model) {
+				mean = 0.0;
+				worst = 0.0;
+				if (vertices.empty() || proxy.vertices.empty()) {
+					return;
+				}
+				double lo[3] = { 1e300, 1e300, 1e300 }, hi[3] = { -1e300, -1e300, -1e300 };
+				for (const Vertex& v : vertices) {
+					const double p[3] = { v.Position.x, v.Position.y, v.Position.z };
+					for (int k = 0; k < 3; ++k) {
+						lo[k] = (std::min)(lo[k], p[k]);
+						hi[k] = (std::max)(hi[k], p[k]);
+					}
+				}
+				const double extent = (std::max)({ hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2] });
+				if (!(extent > 0.0)) {
+					return;
+				}
+				double sum_a = 0, worst_a = 0, sum_b = 0, worst_b = 0;
+				const std::vector<P3> from_model = SamplePoints(vertices, indices, 4000);
+				const std::vector<P3> from_proxy = SamplePoints(proxy.vertices, proxy.indices, 4000);
+				DistanceToMesh(from_model, proxy.vertices, proxy.indices, sum_a, worst_a);
+				DistanceToMesh(from_proxy, vertices, indices, sum_b, worst_b);
+				mean = (std::max)(sum_a / (double)from_model.size(), sum_b / (double)from_proxy.size()) / extent;
+				worst = (std::max)(worst_a, worst_b) / extent;
+				if (worst_model_to_proxy != nullptr) {
+					*worst_model_to_proxy = worst_a / extent;
+				}
+				if (worst_proxy_to_model != nullptr) {
+					*worst_proxy_to_model = worst_b / extent;
+				}
 			}
 		}
 	}
