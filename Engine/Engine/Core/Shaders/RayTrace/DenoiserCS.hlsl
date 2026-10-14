@@ -26,6 +26,18 @@ Texture2D<float2> motion_texture : register(t4);
 Texture2D<float4> prev_position_map: register(t5);
 Texture2D<uint> tiles_output : register(t7);
 
+//A value that is not a number, or is infinite, as nothing. The blend with last frame's output
+//below feeds this pass its own result, and a lerp with a NaN is a NaN whatever the weights are:
+//one such value in one frame (a ray that came back not a number) would be written to the
+//history, read from it the next frame, written again - and stay, in a block as wide as the
+//kernel that spread it, for as long as the camera does not move. Black, because the mixer
+//multiplies by it. It is the history that must not be able to hold one, so it is read through
+//this, and so is what is blurred into it.
+float4 Finite(float4 v)
+{
+    return all(isfinite(v)) ? v : float4(0.0f, 0.0f, 0.0f, 0.0f);
+}
+
 #define NTHREADS 8
 [numthreads(NTHREADS, NTHREADS, 1)]
 void main(uint3 DTid : SV_DispatchThreadID)
@@ -122,7 +134,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
         }
         w = max(w, 0.1f);
         count += w;
-        c0 += input[p] * w;
+        c0 += Finite(input[p]) * w;
     }
     count = max(0.01f, count);
     if (count > Epsilon) {
@@ -169,7 +181,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
             prev_pos.xy /= normalRatio;
         }
 
-        float4 prev_color = prev_output[floor(prev_pos.xy)];
+        float4 prev_color = Finite(prev_output[floor(prev_pos.xy)]);
         float w = saturate(0.7f - motion * 50.0f);
         output[pixel] = lerp(prev_color, c0, (1.0f - w));
     }

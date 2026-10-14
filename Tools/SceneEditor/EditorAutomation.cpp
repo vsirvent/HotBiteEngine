@@ -287,7 +287,7 @@ namespace HotBiteEditor {
 			const std::vector<std::string>& args, std::string& error)
 		{
 			if (cmd != "spawn_lights" && cmd != "clear_lights" && cmd != "lights_info" && cmd != "lights_validate" &&
-				cmd != "lights_packed" && cmd != "tile_culling" && cmd != "gpu_timings" && cmd != "shadow_rays") {
+				cmd != "lights_packed" && cmd != "tile_culling" && cmd != "gpu_timings" && cmd != "shadow_rays" && cmd != "rt_stats") {
 				return false;
 			}
 			Systems::RenderSystem* rs =
@@ -400,6 +400,21 @@ namespace HotBiteEditor {
 						(l.flags & Core::PACKED_LIGHT_RAYTRACED) ? 1 : 0);
 					response_lines.push_back(text);
 				}
+			}
+			else if (cmd == "rt_stats") {
+				//Where the reflections were solved last frame: the pixels that reflect, how many
+				//the screen march answered, and how many rays were left for the world tracer (and
+				//how many refracting pixels it was given). The two solvers are meant to agree, so
+				//the picture cannot say which one drew a pixel; this can.
+				//
+				//A few frames stale, and asking is what turns the counting on: poll it.
+				const Systems::RenderSystem::RtSpaceStats stats = rs->GetRayTracingStats();
+				std::ostringstream os;
+				os << "OK reflective=" << stats.reflective
+					<< " screen_solved=" << stats.screen_solved
+					<< " world_reflect=" << stats.world_reflect
+					<< " world_refract=" << stats.world_refract;
+				response_lines.push_back(os.str());
 			}
 			else if (cmd == "shadow_rays") {
 				//shadow_rays [<radius> <blend>]: how soft the ray traced shadows are and how fast
@@ -1962,9 +1977,18 @@ namespace HotBiteEditor {
 			//Plain UV tiling (Material.h's MaterialProps::uv_scale, MainRenderPS.hlsli).
 			//Same reuse of the snapshot/undo path as set_material_world_uv above, for
 			//the same reason: no generic command edits an arbitrary material property.
-			else if (cmd == "set_material_uv_scale") {
-				if (args.size() < 3) {
-					response_lines.push_back("ERR usage: set_material_uv_scale <material name> <scale>");
+			//
+			//set_material_prop <material> <specular|rt_reflex|opacity|uv_scale> <value> is the
+			//same edit for the four scalars the ray tracing tests need to set (how shiny a
+			//surface is decides how its reflection is spread, rt_reflex how much of it is
+			//kept). It shares this branch rather than adding one: the command chain this sits
+			//in is at the compiler's block nesting limit.
+			else if (cmd == "set_material_uv_scale" || cmd == "set_material_prop") {
+				const bool generic = (cmd == "set_material_prop");
+				if (args.size() < (generic ? 4u : 3u)) {
+					response_lines.push_back(generic
+						? "ERR usage: set_material_prop <material name> <specular|rt_reflex|opacity|uv_scale> <value>"
+						: "ERR usage: set_material_uv_scale <material name> <scale>");
 				}
 				else {
 					MaterialOps::MaterialSnapshot before;
@@ -1973,12 +1997,19 @@ namespace HotBiteEditor {
 					}
 					else {
 						float scale = 0.0f;
-						if (!ParseFloats(args, 2, 1, &scale)) {
-							response_lines.push_back("ERR scale must be a number");
+						const std::string prop = generic ? args[2] : std::string("uv_scale");
+						if (!ParseFloats(args, generic ? 3 : 2, 1, &scale)) {
+							response_lines.push_back("ERR value must be a number");
+						}
+						else if (prop != "specular" && prop != "rt_reflex" && prop != "opacity" && prop != "uv_scale") {
+							response_lines.push_back("ERR unknown material property: " + prop);
 						}
 						else {
 							MaterialOps::MaterialSnapshot after = before;
-							after.props.uv_scale = scale;
+							if (prop == "specular") { after.props.specIntensity = scale; }
+							else if (prop == "rt_reflex") { after.props.rt_reflex = scale; }
+							else if (prop == "opacity") { after.props.opacity = scale; }
+							else { after.props.uv_scale = scale; }
 							if (MaterialOps::ApplySnapshot(state, args[1], after, error)) {
 								MaterialOps::RecordEdit(state, args[1], before);
 								response_lines.push_back("OK");

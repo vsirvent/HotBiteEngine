@@ -242,17 +242,39 @@ bool SrTrace(float3 from, float3 dir, float len)
 	return false;
 }
 
+//An includer that can also look for casters ON THE SCREEN defines SR_SCREEN_SHADOWS and
+//provides, before this point,
+//    bool ScreenShadowActive()                                   whether it is on this frame
+//    bool ScreenShadowOccluded(float3 from, float3 dir, float len)
+//and the screen is looked at first: a caster the depth buffer shows ends the ray without the
+//walk of the hierarchy, and it is the only way a mesh the hierarchy does not hold - a skinned
+//one, posed on the GPU, whose triangles in the BVH are its bind pose - can cast at all.
+//Neither is the whole answer: the screen sees only what is on it (and the front of that), the
+//hierarchy sees everything in it that is not skinned, so they are asked in that order and the
+//first yes is the answer.
+
 //True when something solid is on the straight line from `from` (a point on the lit side of
 //a surface) to `to` (the light, jittered inside shadow_ray_radius).
 bool ShadowRayOccluded(float3 from, float3 to)
 {
-	if (shadow_ray_objects == 0u) {
+#ifdef SR_SCREEN_SHADOWS
+	const bool screen = ScreenShadowActive();
+#else
+	const bool screen = false;
+#endif
+	if (shadow_ray_objects == 0u && !screen) {
 		return false;
 	}
 	to += SrBallSample() * shadow_ray_radius;
 	float3 dir = to - from;
 	const float len = length(dir) - SR_LIGHT_MARGIN;
-	return SrTrace(from, normalize(dir), len);
+	dir = normalize(dir);
+#ifdef SR_SCREEN_SHADOWS
+	if (screen && ScreenShadowOccluded(from, dir, len)) {
+		return true;
+	}
+#endif
+	return SrTrace(from, dir, len);
 }
 
 //The same for a directional light: `to_light` is the unit vector towards it, aimed inside a
@@ -260,10 +282,20 @@ bool ShadowRayOccluded(float3 from, float3 to)
 //SR_SUN_RAY_LENGTH long - what is further away than that is not in the scene.
 bool ShadowRayOccludedDirectional(float3 from, float3 to_light)
 {
-	if (shadow_ray_objects == 0u) {
+#ifdef SR_SCREEN_SHADOWS
+	const bool screen = ScreenShadowActive();
+#else
+	const bool screen = false;
+#endif
+	if (shadow_ray_objects == 0u && !screen) {
 		return false;
 	}
 	const float3 dir = normalize(to_light + SrBallSample() * shadow_ray_sun_spread);
+#ifdef SR_SCREEN_SHADOWS
+	if (screen && ScreenShadowOccluded(from, dir, SR_SUN_RAY_LENGTH)) {
+		return true;
+	}
+#endif
 	return SrTrace(from, dir, SR_SUN_RAY_LENGTH);
 }
 

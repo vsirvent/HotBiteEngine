@@ -2398,3 +2398,97 @@ What a change to lighting has to remember:
   `<Windows.h>` are the macros (use a ternary); a header including `<d3d11.h>` before
   `Defines.h` pulls `<windows.h>` before `<winsock2.h>` and the whole of ws2def.h fails to
   compile; a Core constant named `MAX_LIGHTS` is the macro (`TiledLights::CAPACITY`).
+
+
+## Ray traced effects in two steps: the screen first, the world for what is left (2026-10-14)
+
+Reflections and refractions, and the shadows of the ray traced lights, can be solved **on the screen**
+(march the depth buffer; what it hits is the lit pixel already drawn there), **in the world** (walk the
+BVH of the nearest 100 objects, what the engine always did) or **both**: the screen first, the world for
+the rays the screen could not answer. Ported from the `main` branch's SSR work (`RayScreenSolver`,
+`HiZDownSample`, the screen/world solver split), and reworked to fit what this branch had grown since.
+
+| setting | what it picks | default |
+| --- | --- | --- |
+| `SetRayTracingSpace(eRtSpace)` / `render rt_space` | reflections (refractions are world only: the back of an object is not on the screen) | `WORLD` |
+| `SetShadowRaySpace(eRtSpace)` / `render shadow_space` | the ray traced lights' shadows | `WORLD` |
+| `SetRayTracingScreenSteps(n)` / `render rt_screen_steps` | the march's budget per ray; 0 = the mode's own (96 with the world behind it, 256 alone) | 0 |
+
+`WORLD` is bit for bit the old path: one dispatch over the screen, no extra pass. Saved in the level's
+render settings (`rt_space`, `shadow_space`, `rt_screen_steps`); a level without them keeps `world`.
+
+**Reflections, in order (`RenderSystem::ProcessRT`):** `ProcessHighZ` (3 levels, 5x5 min of `depth_map`,
+built right after `DrawDepth` because the lighting asks for it too) -> `RayReflexScreenSolverCS` ->
+`RayListArgsCS` -> `RayTraceCS` twice, `DispatchIndirect`, once per list -> the denoiser as before.
+The screen pass looks at every pixel once: it answers the reflections it can, writes black for the rest,
+and **appends what is left (and every refracting pixel) to two lists**. The point of the lists is the
+warp: a world tracer that walked the screen and skipped the pixels the screen solved would still pay
+for every warp that held one unsolved pixel (a warp costs what its slowest lane does), so the screen
+pass would have saved nothing. Lists are packed per 8x8 group in pixel order (a group scans its own
+flags and reserves its range with one atomic), so the 32 entries of a warp are neighbouring pixels with
+rays that go the same way. Layout, counters and the `RT_*` constants: `Shaders/RayTrace/RayLists.hlsli`.
+
+- **The screen pass and the world tracer start from the same ray.** `ReflexRay.hlsli` holds the
+  direction (the mirror direction spread by dispersion, seeded by the surface *point*, so a point
+  reflects along the same ray every frame). If the two ever disagreed a reflection would change with
+  whichever solver found it. `RayTraceCS`'s own copy of `GenerateHemisphereRay` moved there.
+- **The march (`RayScreenSolver.hlsli`) is not main's.** Main found the ray's depth at a pixel by
+  intersecting the eye ray with a plane through the ray and the camera's *up axis*; by my reading of that
+  code (it was not run), the plane goes through the camera for every ray in the vertical plane through
+  it (the middle of the screen), where the depth comes out 0 and nothing can hit. Here the ray is a line in homogeneous space: `1/w` and
+  `(position - camera)/w` are linear along its projection, so the exact distance under any pixel is one
+  lerp and a divide, no unprojection, no degenerate case, and a fraction of the cost per step.
+- **A hit is a sign change at pixel centres**, not a comparison at the pixel's edge: the ray's depth at
+  the edge against the surface's at the centre disagrees by half a pixel of the surface's slope, and on
+  a steep one the crossing fell between the two readings (a regular stripe of misses every few rows).
+- **A Hi-Z min pyramid skips little over a floor seen from above** (depth varies a lot inside one
+  cell, so the nearest point says nothing about the pixels), and a cleared pixel climbs a level only to
+  be refused and drop again - three steps a pixel. `SCREEN_TRACE_LINGER` keeps it at the level it
+  dropped to for a few cells; `SCREEN_TRACE_MAX_HIDDEN` gives up on a ray that has been behind a
+  surface for 48 pixels in a row (it started inside something, or went behind a wall).
+- **Facing test** (reflections): the surface has to face the ray, asked of the G-buffer normal *and* of
+  one rebuilt from neighbouring positions, a pass from either being a pass: a box with smooth normals
+  has side normals half way to their neighbour's and fails the first on a hit that is real.
+- What the screen cannot see: what is off it, what is behind what is on it, and the back of anything.
+  A hit is shaded with the lit frame (`colorTexture * lightTexture + bloomTexture`) and faded by the
+  distance by the *landing* surface's roughness (the G-buffer's spec), the same law `RayTraceCS`
+  applies. **The two do not agree on brightness**: the world tracer shades a hit with an approximation
+  (`Hit*`: ambient, directional, the 8 nearest lights), the screen with the real thing, and on the test
+  scene a mirror image reads about twice as bright from the screen. Not tuned away; visible as
+  patches where the two meet in `both`.
+
+**Shadows:** `ShadowRayOccluded*` (`Common/ShadowRays.hlsli`) asks the screen first through a hook the
+includer defines (`SR_SCREEN_SHADOWS`, `ScreenShadowOccluded`, `DeferredLightCS`): a caster in the depth
+buffer ends the ray without the BVH walk, and it is the only way a **skinned** mesh casts, since
+`BuildShadowRays` leaves them out (their BVH triangles are the bind pose). The march is the same code
+with a bias (so a surface does not shadow itself at a pixel's reach), a thickness (the ray went behind
+a *nearer* surface by more than a body is thick: not in its way) and no facing test (a caster faces any
+way). 32 steps, 60 units. This one is **inline, not listed**: a shadow ray is one call among a pixel's
+lights inside the lighting loop, so there is no list to pack without turning the lighting pass inside
+out; the BVH walk is skipped where the screen already found the caster, but a warp that has one lane
+needing it still runs it. +1.1 ms for three lights at 1536x793 in `49-screenshadows`' scene.
+
+**Costs** (the editor's 93-box scene, ~870k reflective pixels, denoiser out): world 2.7 ms (the old path
+measured 3.35 against 3.25 for this tree, a wash), screen 1.7, both 2.45 with 56% of the rays solved on
+screen. The denoiser is ~2 ms in all of them. The screen march does not pay for itself on cheap
+geometry (boxes); it is for a BVH walk that is expensive (many triangles per object), which this scene is
+not. `rt_stats` / `GetRayTracingStats` read the split back.
+
+**Also fixed on the way:** (1) `DenoiserCS` blends with *its own previous output*, and `lerp(NaN, x, t)` is
+NaN whatever `t` is, so one non-finite value in one frame was kept for good as a black block (as wide as
+the kernel that spread it) for as long as the camera stood still. Reflection rays were doing this in
+Survival's world; `Finite()` now guards what is read from history and what is blurred into it. The
+tracer's NaN itself was never caught (it does not reproduce once the shader is instrumented, and the
+instrumented hit shading found none); `GIAverageCS` has the same shape of history and was not touched.
+(2) `RayTraceCS` ignored the reflection switch (it traced reflections with only refractions on);
+it honours `RT_REFLEX_ENABLE` now.
+
+**Not done:** the indirect light. `GIRayTraceCS` is a ReSTIR estimator that picks 1-2 rays a pixel from a
+per-pixel pdf, deposits what it finds into the radiance cache and feeds the hit back into the pdf; a
+screen step there is a redesign of that estimator, not a port.
+
+**Tests and tools:** suites `48-screenspacert` (reflections: settings, counters, the mirror image,
+budget) and `49-screenshadows` (the troll casts only through the screen); commands `rt_stats`,
+`set_material_prop <material> <specular|rt_reflex|opacity|uv_scale> <value>` (a test hook: the chain in
+`EditorAutomation.cpp` is at MSVC's C1061 block-nesting limit, so new commands go in an existing
+`Handle*Command` or share a branch), `render rt_space|shadow_space|rt_screen_steps`.

@@ -43,6 +43,11 @@ cbuffer externalData : register(b0)
     float3 cameraDirection;
     uint enabled;
     int kernel_size;
+    //Whether this dispatch walks a list of rays or the screen, which list it is (RT_LIST_REFLECT /
+    //RT_LIST_REFRACT), and how many entries each list can hold - the second starts at one capacity.
+    uint list_mode;
+    uint trace_kind;
+    uint list_capacity;
 
     matrix prev_view_proj;
     
@@ -70,6 +75,10 @@ RWTexture2D<float4> bloom : register(u7);
 //Must be uint: this is bound to the R8_UINT tiles texture. Declaring it float4
 //made every tile write undefined and the DI denoiser skipped the whole frame.
 RWTexture2D<uint> tiles_output : register(u4);
+//The rays this dispatch traces: the pixels RayReflexScreenSolverCS did not answer on the
+//screen (and the ones that refract), packed - see RayLists.hlsli. A thread is one entry.
+RWBuffer<uint> ray_list : register(u2);
+RWByteAddressBuffer ray_counts : register(u3);
 
 Texture2D<float4> ray0;
 Texture2D<float4> ray1;
@@ -94,53 +103,11 @@ static float2 lps[MAX_LIGHTS] = (float2[MAX_LIGHTS])LightPerspectiveValues;
 
 #include "../Common/SimpleLight.hlsli"
 #include "../Common/RayFunctions.hlsli"
+//The reflection ray's direction, shared with the screen space solver that runs first.
+#include "ReflexRay.hlsli"
+#include "RayLists.hlsli"
 
 #define max_distance 20.0f
-
-float3 GenerateHemisphereRay(float3 dir, float3 tangent, float3 bitangent, float dispersion, float N, float NLevels, float rX)
-{
-    float index = rX * N * dispersion;
-
-    // First point at the top (up direction)
-    if (index < 1.0f) {
-        return dir; // The first point is directly at the top
-    }
-
-    //Largest m >= 0 with 1 + m * (m + 1) < index, closed form of the previous
-    //linear search (levels grow by 2 points per level).
-    float m = max(ceil((sqrt(max(4.0f * (index - 1.0f) + 1.0f, 0.0f)) - 1.0f) * 0.5f) - 1.0f, 0.0f);
-    float level = m + 1.0f;
-    float cumulativePoints = 1.0f + m * (m + 1.0f);
-
-    float pointsAtLevel = level * 2;  // Quadratic growth
-
-    // Calculate local index within the current level
-    float localIndex = index - cumulativePoints;
-
-    float phi = level / NLevels * M_PI * (0.4 + rX);
-
-    // Azimuthal angle (theta) based on number of points at this level
-    float theta = (2.0f * M_PI + rX) * localIndex / pointsAtLevel; // Spread points evenly in azimuthal direction
-
-    // Convert spherical coordinates to Cartesian coordinates
-    float sinPhi = sin(phi);
-    float cosPhi = cos(phi);
-    float sinTheta = sin(theta);
-    float cosTheta = cos(theta);
-
-    // Local ray direction in spherical coordinates
-    float3 localRay = float3(sinPhi * cosTheta, sinPhi * sinTheta, cosPhi);
-
-    // Convert local ray to global coordinates (tangent space to world space)
-    float3 globalRay = localRay.x * tangent + localRay.y * bitangent + localRay.z * dir;
-
-
-    return normalize(dir + globalRay);
-}
-
-static float NCOUNT = 32.0f;
-static uint N2 = 32;
-static float N = N2 * NCOUNT;
 
 struct RayTraceColor {
     float3 color[2];
@@ -498,12 +465,39 @@ return out_color.hit;
 #define DENSITY 1.0f
 #define NTHREADS 8
 
+        //Two ways to be dispatched, and the difference is which rays there are.
+        //
+        //list_mode 0: one thread per PIXEL of the screen, a slice of the dispatch per kind
+        //of ray (z 0 the reflection, z 1 the refraction) - everything is traced here, the
+        //way this always was, and the pixels that trace nothing write black and leave.
+        //
+        //list_mode 1: one thread per ENTRY of the list `trace_kind` names. The screen space
+        //solver ran first and kept, in the list, only the rays that are left (see
+        //RayReflexScreenSolverCS). Walking the screen and skipping the pixels it solved
+        //would not have saved their cost - a warp is as slow as its slowest lane, and one
+        //unsolved pixel in it still walks the whole BVH. Packed, every lane has a ray.
+        //The group is NTHREADS * NTHREADS = RAY_LIST_GROUP entries, in the order the list
+        //holds them (pixel order within each 8x8 block of the screen), so the lanes of a
+        //warp are neighbouring pixels whose rays go the same way. That solver also wrote the
+        //black for the pixels that trace nothing.
         [numthreads(NTHREADS, NTHREADS, 1)]
-        void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thread : SV_GroupThreadID)
+        void main(uint3 DTid : SV_DispatchThreadID, uint3 group : SV_GroupID, uint group_index : SV_GroupIndex)
         {
+            uint kind = DTid.z;
+            float2 pixel = float2(DTid.xy);
+            [branch]
+            if (list_mode != 0) {
+                uint index = group.x * RAY_LIST_GROUP + group_index;
+                //The count lives on the GPU: the dispatch was sized from it in whole groups.
+                if (index >= ray_counts.Load(trace_kind * 4)) {
+                    return;
+                }
+                kind = trace_kind;
+                pixel = float2(UnpackRayPixel(ray_list[trace_kind * list_capacity + index]));
+            }
+
             float2 dimensions;
             float2 ray_map_dimensions;
-            float2 bloom_dimensions;
             {
                 uint w, h;
                 output0.GetDimensions(w, h);
@@ -513,41 +507,30 @@ return out_color.hit;
                 ray0.GetDimensions(w, h);
                 ray_map_dimensions.x = w;
                 ray_map_dimensions.y = h;
-
-                bloom.GetDimensions(w, h);
-                bloom_dimensions.x = w;
-                bloom_dimensions.y = h;
             }
-            float x = (float)DTid.x;
-            float y = (float)DTid.y;
 
             float2 rayMapRatio = ray_map_dimensions / dimensions;
-            float2 bloomRatio = bloom_dimensions / dimensions;
 
             float4 color_reflex = float4(0.0f, 0.0f, 0.0f, 1.0f);
             float4 color_reflex2 = float4(0.0f, 0.0f, 0.0f, 1.0f);
             float4 color_refrac = float4(0.0f, 0.0f, 0.0f, 1.0f);
 
-            float2 pixel = float2(x, y);
-
             float2 ray_pixel = round(pixel * rayMapRatio);
 
             RaySource ray_source = fromColor(ray0[ray_pixel], ray1[ray_pixel]);
             [branch]
-            if (ray_source.reflex <= Epsilon || dist2(ray_source.normal) <= Epsilon || ray_source.dispersion < 0.0f || ray_source.dispersion >= 1.0f)
+            if (!PixelReflects(ray_source))
             {
+                //A listed pixel is always reflective, so this is the screen walk's.
                 output0[pixel] = color_reflex;
                 output1[pixel] = color_refrac;
                 return;
             }
-
             //Reflected ray
             float3 orig_pos = ray_source.orig.xyz;
             float camDist = length(orig_pos - cameraPosition);
             bool process = camDist < max_distance;
 
-            float3 tangent;
-            float3 bitangent;
             RayTraceColor rc;
             Ray ray = GetReflectedRayFromSource(ray_source);
     
@@ -563,15 +546,19 @@ return out_color.hit;
 
                 rc.hit = false;
                 [branch]
-                if (DTid.z == 0) {
+                if (kind == RT_LIST_REFLECT) {
+                    //Reflections are their own switch: with only refractions on, this
+                    //slice has nothing to do (it used to trace them regardless).
+                    [branch]
+                    if (!(enabled & REFLEX_ENABLED)) {
+                        output0[pixel] = color_reflex;
+                        return;
+                    }
 #if !USE_OBH
                     BuildCandidateList(orig_pos);
 #endif
-                    float3 seed = orig_pos * 100.0f;
-                    float rX = rgba_tnoise(seed);
-                    rX = pow(rX, 4.0f);
-                    GetSpaceVectors(orig_dir, tangent, bitangent);
-                    ray.dir = GenerateHemisphereRay(orig_dir, tangent, bitangent, ray_source.dispersion, N, level, rX);
+                    float rX;
+                    ray.dir = ReflexRayDirection(orig_pos, orig_dir, ray_source.dispersion, rX);
                     ray.orig.xyz = orig_pos.xyz + ray.dir * 0.001f;
                     float dist = FLT_MAX;
                     GetColor(ray, rX, level, 0, rc, ray_source.dispersion, true, false);

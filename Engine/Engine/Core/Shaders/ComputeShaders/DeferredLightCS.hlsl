@@ -70,6 +70,17 @@ cbuffer externalData : register(b0)
 	//the camera such a light is traced at all (the shadow distance of its cascades).
 	float shadow_ray_sun_spread;
 	float shadow_ray_sun_distance;
+	//The screen space half of the ray traced shadows (RayScreenSolver.hlsli): the camera's
+	//view-projection, the pyramid's ratio, how many steps one ray may take (0 turns the screen
+	//off), how far it looks, what counts as behind a surface (a bias, and a thickness that
+	//grows with the surface's distance) - see ScreenShadowOccluded.
+	matrix ss_view_proj;
+	float ss_hiz_ratio;
+	int ss_steps;
+	float ss_max_distance;
+	float ss_bias;
+	float ss_thickness;
+	float ss_thickness_rel;
 }
 
 Texture2D<float4> positionTexture : register(t0);
@@ -78,11 +89,40 @@ Texture2D<float4> normalTexture : register(t1);
 Texture2D<float4> materialTexture : register(t2);
 StructuredBuffer<PackedLight> lightsBuffer : register(t3);
 ByteAddressBuffer tileMasks : register(t4);
+//The Hi-Z pyramid of the depth map (level 0 is depth_map), after the ray traced shadow scene's
+//t5-t9 (Common/ShadowRays.hlsli).
+#include "../RayTrace/RayScreenSolver.hlsli"
+Texture2D<float> ssHiZ[HIZ_TEXTURES] : register(t10);
 
 RWTexture2D<float4> light_out : register(u0);
 RWTexture2D<float4> bloom_out : register(u1);
 RWTexture2D<float4> rt_shadow_out : register(u2);
 
+//Whether the screen space march is on this frame.
+bool ScreenShadowActive()
+{
+	return ss_steps > 0;
+}
+
+//Whether the depth buffer shows a caster between `from` and the light, `len` away along `dir`.
+//What the BVH walk cannot see - a skinned mesh - is in the depth buffer like everything else
+//that is drawn, and a ray that goes behind a surface by about as much as a body is thick has
+//gone through it. The normals play no part: a caster faces any way, and the facing test would
+//take away exactly the ones lit from behind.
+bool ScreenShadowOccluded(float3 from, float3 dir, float len)
+{
+	uint w, h;
+	positionTexture.GetDimensions(w, h);
+	uint2 hit;
+	//The bias and the thickness both grow with the distance from the camera, the bias to keep a
+	//surface from shadowing itself at a pixel's reach, the thickness to follow the steps.
+	const float dist = length(from - cameraPosition);
+	return ScreenTrace(from, dir, cameraPosition, float2(w, h), ss_view_proj, ssHiZ, ss_hiz_ratio,
+		min(len, ss_max_distance), ss_steps, ss_bias + 0.004f * dist, ss_thickness, ss_thickness_rel, false,
+		positionTexture, normalTexture, hit);
+}
+
+#define SR_SCREEN_SHADOWS 1
 #include "../Common/ShadowRays.hlsli"
 #include "../Common/DeferredLighting.hlsli"
 

@@ -213,6 +213,32 @@ namespace HotBite {
 					HIGH
 				};
 
+				//Where a reflection or refraction ray is solved. SCREEN marches the depth buffer:
+				//cheap, and it answers with the colour already drawn, but it only knows what is on
+				//the screen, so a ray that leaves it or hides behind something is not answered.
+				//WORLD walks the BVH of the nearest MAX_OBJECTS objects: it sees all of them, at the
+				//price of a walk per ray. BOTH runs the screen first and hands the world only what
+				//it left (packed, so the world's warps are full - see RayReflexScreenSolverCS).
+				//Refractions only ever exist in the world: the back of an object is not on the
+				//screen. The values are bits, and MUST match RT_SPACE_* in Shaders/RayTrace/RayLists.hlsli.
+				enum class eRtSpace : uint32_t {
+					SCREEN = 1,
+					WORLD = 2,
+					BOTH = 3
+				};
+
+				//What the reflection pass did last frame, read back off the GPU: of the pixels that
+				//reflect, how many the screen answered and how many were left to trace in the world.
+				//The picture cannot tell the two solvers apart (they are meant to agree), so this is
+				//the only way to see the split. Stale by a few frames by construction, like the other
+				//counters, and only collected while somebody asks (GetRayTracingStats).
+				struct RtSpaceStats {
+					uint32_t reflective = 0;    //pixels that trace a reflection
+					uint32_t screen_solved = 0; //answered by the screen march
+					uint32_t world_reflect = 0; //left to the world tracer
+					uint32_t world_refract = 0; //refracting pixels the world tracer was given
+				};
+
 				//What the frame is made of, as the texture mixer sees it. Selecting one
 				//makes ProcessMix write that buffer to the screen instead of the mixed
 				//frame - the last point at which every contribution still exists
@@ -478,6 +504,53 @@ namespace HotBite {
 				Core::TBVH tbvh{ MAX_OBJECTS };
 				Core::SimpleComputeShader* rt_di_shader = nullptr;
 				Core::SimpleComputeShader* rt_di_denoiser = nullptr;
+
+				//Reflections and refractions in two steps. The screen solver goes first, marching
+				//what is on the screen and listing, per kind of ray, the pixels it could not answer;
+				//RayListArgsCS turns the lists' lengths into the sizes of the dispatches, and
+				//rt_di_shader (the BVH walk) then runs over the lists and nothing else, so its warps
+				//are full of rays that need it.
+				eRtSpace rt_space = eRtSpace::WORLD;
+				Core::SimpleComputeShader* ray_reflex_screen_solver = nullptr;
+				Core::SimpleComputeShader* ray_list_args = nullptr;
+				//Level 0 is depth_map; each of the others is the min of 5x5 of the one below.
+				//HIZ_NTEXTURES MUST match HIZ_TEXTURES in RayScreenSolver.hlsli.
+				Core::SimpleComputeShader* high_z_shader = nullptr;
+				static constexpr uint32_t HIZ_RATIO = 5;
+				static constexpr uint32_t HIZ_DOWNSAMPLED_NTEXTURES = 3;
+				static constexpr uint32_t HIZ_NTEXTURES = HIZ_DOWNSAMPLED_NTEXTURES + 1;
+				Core::RenderTexture2D high_z_downsampled_map[HIZ_DOWNSAMPLED_NTEXTURES];
+				ID3D11ShaderResourceView* high_z_maps[HIZ_NTEXTURES]{};
+				//How far along a ray, in world units, the screen march looks.
+				static constexpr float RT_SCREEN_MAX_DISTANCE = 100.0f;
+				//Its budget of steps per ray, by who is going to answer the rays it gives up on.
+				static constexpr uint32_t RT_SCREEN_STEPS_WITH_WORLD = 96;
+				static constexpr uint32_t RT_SCREEN_STEPS_ALONE = 256;
+				uint32_t rt_screen_steps = 0;
+				//The ray traced lights' shadows, solved on the screen first. One ray per lit pixel per
+				//light, so the budget is a good deal smaller than a reflection's: a shadow ray goes
+				//toward a light that is usually above what it starts on, and is clear of its own
+				//surface in a few steps.
+				eRtSpace shadow_space = eRtSpace::WORLD;
+				static constexpr int SHADOW_SCREEN_STEPS = 32;
+				static constexpr float SHADOW_SCREEN_DISTANCE = 60.0f;
+				static constexpr float SHADOW_SCREEN_BIAS = 0.03f;
+				static constexpr float SHADOW_SCREEN_THICKNESS = 0.7f;
+				static constexpr float SHADOW_SCREEN_THICKNESS_REL = 0.02f;
+				//Whether ProcessHighZ built the pyramid this frame: the solvers that read it check.
+				bool high_z_valid = false;
+				//The lists of rays for the world tracer (two, one capacity apart: reflection and
+				//refraction), their counters (RT_COUNT_* in RayLists.hlsli) and the arguments of the
+				//two indirect dispatches that walk them. Sized to the DI textures.
+				static constexpr uint32_t RT_LIST_COUNTERS = 4;
+				Core::RWTypedBuffer rt_ray_list;
+				Core::RWByteBuffer rt_ray_counts;
+				Core::RWTypedBuffer rt_ray_args;
+				uint32_t rt_ray_list_capacity = 0;
+				RtSpaceStats rt_stats_cpu;
+				mutable uint32_t rt_stats_request_frame = 0;
+				mutable bool rt_stats_requested = false;
+				static constexpr uint32_t RT_STATS_KEEPALIVE = 120;
 
 				Core::SimpleComputeShader* gi_shader = nullptr;
 				Core::SimpleComputeShader* gi_average = nullptr;
@@ -1089,6 +1162,16 @@ namespace HotBite {
 				void ResetRTBBuffers();
 				void CopyTexture(const Core::RenderTexture2D& input, Core::RenderTexture2D& output);
 				void ProcessMotion();
+				//The depth pyramid the screen solvers march through. Built from depth_map, so after
+				//everything that writes it.
+				void ProcessHighZ();
+				//The solvers this frame's reflections can actually use, as RT_SPACE_* bits: the
+				//screen one needs the lit frame it samples, and so a post-process pipeline to
+				//render into (the one the mixer composes from).
+				uint32_t EffectiveRtSpace() const;
+				//The same for the shadows: whether the screen march is wanted by a ray traced light
+				//that exists this frame.
+				bool ShadowScreenWanted() const;
 				void PrepareRT();
 				void ProcessRT();
 				void ProcessGI();
@@ -1285,6 +1368,32 @@ namespace HotBite {
 				eRtQuality GetRayTracingQuality() const;
 				void SetRayTracing(bool reflex_enabled, bool refract_enabled, bool indirect_enabled);
 				void GetRayTracing(bool& reflex_enabled, bool& refract_enabled, bool& indirect_enabled) const;
+				//Which solvers answer the reflections (and, for the world, the refractions): see
+				//eRtSpace. WORLD, the default, is what the engine always did.
+				void SetRayTracingSpace(eRtSpace space);
+				eRtSpace GetRayTracingSpace() const;
+				//How many steps the screen march may take for one ray before it gives up on it (the
+				//world tracer, if on, takes over). 0, the default, is what the mode wants: the march
+				//is a filter in front of the BVH walk when both are on, and is not worth more than
+				//the walk it saves, but when it is all there is it may look further.
+				void SetRayTracingScreenSteps(uint32_t steps);
+				uint32_t GetRayTracingScreenSteps() const;
+				//The same choice for the ray traced LIGHTS' shadows: SCREEN looks for a caster in the
+				//depth buffer between a surface and its light, WORLD walks the BVH of the casters, BOTH
+				//asks the screen first and the BVH when it finds nothing. What only the screen can do is
+				//cast from a SKINNED mesh: the BVH holds a skinned mesh in its bind pose, which is not
+				//where it stands, so it is left out; the depth buffer has it where it is. What only the
+				//BVH can do is cast from what is off the screen, or behind what is on it. WORLD, the
+				//default, is what the engine always did.
+				void SetShadowRaySpace(eRtSpace space);
+				eRtSpace GetShadowRaySpace() const;
+				//Asking switches the counting on (a few atomics a group and a readback), as with the
+				//radiance cache: poll, and compare readings a few frames after a change.
+				RtSpaceStats GetRayTracingStats() const {
+					rt_stats_request_frame = frame_count;
+					rt_stats_requested = true;
+					return rt_stats_cpu;
+				}
 				void SetDustEnabled(bool enabled);
 				bool GetDustEnabled() const;
 				void SetDustEffectArea(int32_t num_particles, const float3& area, const float3& offset);

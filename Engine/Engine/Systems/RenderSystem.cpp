@@ -460,6 +460,21 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		if (FAILED(depth_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("depth_map.Init failed");
 		}
+		//The pyramid the screen space ray solvers march through: level 0 is depth_map itself,
+		//and each further level is a fifth of the size of the one under it (ProcessHighZ).
+		{
+			uint32_t hiz_w = w;
+			uint32_t hiz_h = h;
+			high_z_maps[0] = depth_map.SRV();
+			for (uint32_t i = 0; i < HIZ_DOWNSAMPLED_NTEXTURES; ++i) {
+				hiz_w = (hiz_w + HIZ_RATIO - 1) / HIZ_RATIO;
+				hiz_h = (hiz_h + HIZ_RATIO - 1) / HIZ_RATIO;
+				if (FAILED(high_z_downsampled_map[i].Init(hiz_w, hiz_h, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+					throw std::exception("high_z_downsampled_map.Init failed");
+				}
+				high_z_maps[i + 1] = high_z_downsampled_map[i].SRV();
+			}
+		}
 		if (FAILED(depth_view.Init(w, h))) {
 			throw std::exception("depth_view.Init failed");
 		}
@@ -592,6 +607,18 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		if (copy_texture == nullptr) {
 			throw std::exception("Copy textures shader.Init failed");
 		}
+		high_z_shader = ShaderFactory::Get()->GetShader<SimpleComputeShader>("HiZDownSample.cso");
+		if (high_z_shader == nullptr) {
+			throw std::exception("HiZDownSample shader.Init failed");
+		}
+		ray_reflex_screen_solver = ShaderFactory::Get()->GetShader<SimpleComputeShader>("RayReflexScreenSolverCS.cso");
+		if (ray_reflex_screen_solver == nullptr) {
+			throw std::exception("RayReflexScreenSolverCS shader.Init failed");
+		}
+		ray_list_args = ShaderFactory::Get()->GetShader<SimpleComputeShader>("RayListArgsCS.cso");
+		if (ray_list_args == nullptr) {
+			throw std::exception("RayListArgsCS shader.Init failed");
+		}
 
 		LoadRTResources();
 
@@ -711,6 +738,12 @@ RenderSystem::~RenderSystem() {
 	rgba_noise_texture.Release();
 	motion_texture.Release();
 	depth_map.Release();
+	for (uint32_t i = 0; i < HIZ_DOWNSAMPLED_NTEXTURES; ++i) {
+		high_z_downsampled_map[i].Release();
+	}
+	rt_ray_list.Release();
+	rt_ray_counts.Release();
+	rt_ray_args.Release();
 	autofocus_map.Release();
 
 	for (int i = 0; i < RT_NTEXTURES; ++i) {
@@ -782,6 +815,20 @@ void RenderSystem::LoadRTResources() {
 	if (FAILED(texture_tmp.Init(w / RT_TEXTURE_RESOLUTION_DIVIDER, h / RT_TEXTURE_RESOLUTION_DIVIDER, DXGI_FORMAT::DXGI_FORMAT_R11G11B10_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 		throw std::exception("texture_tmp.Init failed");
 	}
+
+	//The rays the screen solver leaves for the world tracer: two lists with room for every
+	//pixel of the DI textures each (a refracting plane can list all of them), side by side
+	//in one buffer; their counters, which the readout can also see; and the arguments of
+	//the two indirect dispatches that walk them (x, y, z groups per list). A pixel is
+	//packed in 16 bits a coordinate, which no texture here comes near.
+	rt_ray_list_capacity = (uint32_t)((w / RT_TEXTURE_RESOLUTION_DIVIDER) * (h / RT_TEXTURE_RESOLUTION_DIVIDER));
+	if (FAILED(rt_ray_list.Init(rt_ray_list_capacity * 2)) ||
+		FAILED(rt_ray_counts.Init(RT_LIST_COUNTERS * sizeof(uint32_t), true)) ||
+		FAILED(rt_ray_args.Init(6, DXGI_FORMAT_R32_UINT, 4, true))) {
+		throw std::exception("ray list buffers Init failed");
+	}
+	rt_ray_counts.Clear(0);
+	rt_ray_args.Clear(0);
 
 	//The world radiance cache. Unlike everything above it this is not sized from
 	//the screen - it is keyed by where surfaces are, not by which pixel sees them -
@@ -3041,6 +3088,49 @@ const Core::MeshData* RenderSystem::LodGeometry(Core::MeshData* data, int lod) {
 	return data->lods[lod].mesh;
 }
 
+uint32_t RenderSystem::EffectiveRtSpace() const {
+	uint32_t space = (uint32_t)rt_space;
+	if (post_process_pipeline == nullptr || current_light_map == nullptr) {
+		space &= ~(uint32_t)eRtSpace::SCREEN;
+	}
+	return space;
+}
+
+bool RenderSystem::ShadowScreenWanted() const {
+	return (shadow_space == eRtSpace::SCREEN || shadow_space == eRtSpace::BOTH) &&
+		(raytraced_light_count + raytraced_directional_count) > 0;
+}
+
+void RenderSystem::ProcessHighZ() {
+	high_z_valid = false;
+	//Only built for a solver that reads it: it is three small dispatches, but a frame with the
+	//world solver alone, or with no ray traced light to trace on the screen, has no use for them.
+	const bool reflections = (rt_enabled & RT_REFLEX_ENABLE) && rt_quality != eRtQuality::OFF && bvh_buffer != nullptr &&
+		(EffectiveRtSpace() & (uint32_t)eRtSpace::SCREEN);
+	if (!reflections && !ShadowScreenWanted()) {
+		return;
+	}
+	high_z_valid = true;
+	//depth_map is also a render target of the passes before this one, and a texture still
+	//bound as one reads as black here.
+	ID3D11RenderTargetView* nullRenderTargetViews[1] = { nullptr };
+	dxcore->context->OMSetRenderTargets(1, nullRenderTargetViews, nullptr);
+
+	high_z_shader->SetInt("ratio", HIZ_RATIO);
+	for (uint32_t i = 0; i < HIZ_DOWNSAMPLED_NTEXTURES; ++i) {
+		Core::RenderTexture2D& input = (i == 0) ? depth_map : high_z_downsampled_map[i - 1];
+		Core::RenderTexture2D& output = high_z_downsampled_map[i];
+		high_z_shader->SetShaderResourceView("input", input.SRV());
+		high_z_shader->SetUnorderedAccessView("output", output.UAV());
+		high_z_shader->CopyAllBufferData();
+		high_z_shader->SetShader();
+		dxcore->context->Dispatch((uint32_t)ceil((float)output.Width() / 8.0f), (uint32_t)ceil((float)output.Height() / 8.0f), 1);
+		high_z_shader->SetShaderResourceView("input", nullptr);
+		high_z_shader->SetUnorderedAccessView("output", nullptr);
+		high_z_shader->CopyAllBufferData();
+	}
+}
+
 void RenderSystem::PrepareRT() {
 	if (rt_quality != eRtQuality::OFF && rt_enabled && bvh_buffer != nullptr) {
 		CameraEntity& cam_entity = cameras.GetData()[0];
@@ -3415,78 +3505,209 @@ void RenderSystem::ProcessRT() {
 		rt_texture_di_curr = rt_textures_di[current];
 		rt_texture_di_prev = rt_textures_di[prev];
 
-		if (rt_quality != eRtQuality::OFF && rt_enabled && bvh_buffer != nullptr && nobjects > 0) {
+		if (rt_quality != eRtQuality::OFF && rt_enabled && bvh_buffer != nullptr) {
 
 			rt_textures_gi_tiles.Clear(zero);
 
 			std::lock_guard<std::mutex> lock(rt_mutex);
 			CameraEntity& cam_entity = cameras.GetData()[0];
 
-			tbvh_buffer.Refresh(tbvh.Root(), 0, tbvh.Size());
+			uint32_t space = EffectiveRtSpace();
+			if (!high_z_valid) {
+				space &= ~(uint32_t)eRtSpace::SCREEN;
+			}
+			const bool use_screen = (space & (uint32_t)eRtSpace::SCREEN) != 0;
+			const bool use_world = (space & (uint32_t)eRtSpace::WORLD) != 0 && nobjects > 0;
+			//Only counted while somebody is reading the counters, and only the screen solver has
+			//any: the world alone traces every reflective pixel and has nothing to split.
+			const bool collect_stats = use_screen && rt_stats_requested && frame_count - rt_stats_request_frame < RT_STATS_KEEPALIVE;
+			ID3D11ShaderResourceView* nullsrc = nullptr;
+			ID3D11ShaderResourceView* no_data[MAX_OBJECTS] = {};
 
 			ID3D11RenderTargetView* nullRenderTargetViews[1] = { nullptr };
 			dxcore->context->OMSetRenderTargets(1, nullRenderTargetViews, nullptr);
 
-			rt_di_shader->SetInt("kernel_size", RESTIR_KERNEL);
-			rt_di_shader->SetInt("ray_count", RESTIR_PIXEL_RAYS);
+			int32_t groupsX = (int32_t)(ceil((float)rt_texture_di_curr[RT_TEXTURE_REFLEX].Width() / (8.0f)));
+			int32_t groupsY = (int32_t)(ceil((float)rt_texture_di_curr[RT_TEXTURE_REFLEX].Height() / (8.0f)));
 
-			rt_di_shader->SetInt("kernel_size", RESTIR_KERNEL);
-			rt_di_shader->SetInt("nobjects", nobjects);
-			rt_di_shader->SetInt("enabled", rt_enabled & (rt_quality != eRtQuality::OFF ? 0xFF : 0x00));
-			rt_di_shader->SetMatrix4x4("view_proj", cam_entity.camera->view_projection);
-			rt_di_shader->SetMatrix4x4("prev_view_proj", prev_view_projection);
-			rt_di_shader->SetInt("frame_count", frame_count);
-			rt_di_shader->SetData("objectMaterials", objectMaterials, nobjects * sizeof(MaterialProps));
-			rt_di_shader->SetData("objectInfos", objects, nobjects * sizeof(ObjectInfo));
+			if (use_screen) {
+				//STEP ONE, on the screen: look at every pixel once. A reflection the depth buffer
+				//can answer is answered (the lit colour of the pixel the ray goes behind); what it
+				//cannot, and every refraction, is appended to a list for step two. Both outputs
+				//are written for every pixel, so there is nothing to clear. See
+				//RayReflexScreenSolverCS for why the world tracer is handed lists and not the
+				//screen.
+				rt_ray_counts.Clear(0);
+				ray_reflex_screen_solver->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
+				ray_reflex_screen_solver->SetInt("enabled", rt_enabled);
+				ray_reflex_screen_solver->SetInt("kernel_size", RESTIR_KERNEL);
+				ray_reflex_screen_solver->SetFloat("hiz_ratio", (float)HIZ_RATIO);
+				ray_reflex_screen_solver->SetFloat("max_distance", RT_SCREEN_MAX_DISTANCE);
+				ray_reflex_screen_solver->SetInt("max_steps", (int)(rt_screen_steps != 0 ? rt_screen_steps :
+					((space & (uint32_t)eRtSpace::WORLD) ? RT_SCREEN_STEPS_WITH_WORLD : RT_SCREEN_STEPS_ALONE)));
+				ray_reflex_screen_solver->SetInt("space", (int)space);
+				ray_reflex_screen_solver->SetInt("list_capacity", (int)rt_ray_list_capacity);
+				ray_reflex_screen_solver->SetInt("collect_stats", collect_stats ? 1 : 0);
+				ray_reflex_screen_solver->SetMatrix4x4("view_proj", cam_entity.camera->view_projection);
 
-			rt_di_shader->SetUnorderedAccessView("output0", rt_texture_di_curr[RT_TEXTURE_REFLEX].UAV());
-			rt_di_shader->SetUnorderedAccessView("output1", rt_texture_di_curr[RT_TEXTURE_REFRACT].UAV());
-			rt_di_shader->SetUnorderedAccessView("tiles_output", rt_textures_gi_tiles.UAV());
+				ray_reflex_screen_solver->SetShaderResourceView("ray0", rt_ray_sources0.SRV());
+				ray_reflex_screen_solver->SetShaderResourceView("ray1", rt_ray_sources1.SRV());
+				ray_reflex_screen_solver->SetShaderResourceViewArray("hiz_textures[0]", high_z_maps, HIZ_NTEXTURES);
+				//What the mixer will compose, so what a reflection shows is what is on the screen:
+				//albedo, the light the deferred pass computed for it, and its bloom.
+				ray_reflex_screen_solver->SetShaderResourceView("colorTexture", post_process_pipeline->RenderResource());
+				ray_reflex_screen_solver->SetShaderResourceView("lightTexture", current_light_map->SRV());
+				ray_reflex_screen_solver->SetShaderResourceView("bloomTexture", bloom_map.SRV());
+				ray_reflex_screen_solver->SetShaderResourceView("materialTexture", material_map.SRV());
+				ray_reflex_screen_solver->SetShaderResourceView("rgbaNoise", rgba_noise_texture.SRV());
+				ray_reflex_screen_solver->SetSamplerState(BASIC_SAMPLER, dxcore->basic_sampler);
+				ray_reflex_screen_solver->SetUnorderedAccessView("output0", rt_texture_di_curr[RT_TEXTURE_REFLEX].UAV());
+				ray_reflex_screen_solver->SetUnorderedAccessView("output1", rt_texture_di_curr[RT_TEXTURE_REFRACT].UAV());
+				ray_reflex_screen_solver->SetUnorderedAccessView("ray_list", rt_ray_list.UAV());
+				ray_reflex_screen_solver->SetUnorderedAccessView("ray_counts", rt_ray_counts.UAV());
+				ray_reflex_screen_solver->SetUnorderedAccessView("tiles_output", rt_textures_gi_tiles.UAV());
+				ray_reflex_screen_solver->CopyAllBufferData();
+				ray_reflex_screen_solver->SetShader();
+				dxcore->context->Dispatch(groupsX, groupsY, 1);
 
-			rt_di_shader->SetShaderResourceView("prev_position_map", prev_position_map.SRV());
-			rt_di_shader->SetShaderResourceView("position_map", position_map.SRV());
-			rt_di_shader->SetShaderResourceView("depth_map", depth_map.SRV());
-			rt_di_shader->SetShaderResourceView("motion_texture", motion_texture.SRV());
-			rt_di_shader->SetUnorderedAccessView("bloom", rt_texture_di_curr[RT_TEXTURE_EMISSION].UAV());
-			rt_di_shader->SetShaderResourceView("ray0", rt_ray_sources0.SRV());
-			rt_di_shader->SetShaderResourceView("ray1", rt_ray_sources1.SRV());
-			rt_di_shader->SetShaderResourceView("rgbaNoise", rgba_noise_texture.SRV());
+				ray_reflex_screen_solver->SetShaderResourceView("ray0", nullptr);
+				ray_reflex_screen_solver->SetShaderResourceView("ray1", nullptr);
+				ray_reflex_screen_solver->SetShaderResourceViewArray("hiz_textures[0]", no_data, HIZ_NTEXTURES);
+				ray_reflex_screen_solver->SetShaderResourceView("colorTexture", nullptr);
+				ray_reflex_screen_solver->SetShaderResourceView("lightTexture", nullptr);
+				ray_reflex_screen_solver->SetShaderResourceView("bloomTexture", nullptr);
+				ray_reflex_screen_solver->SetShaderResourceView("materialTexture", nullptr);
+				ray_reflex_screen_solver->SetShaderResourceView("rgbaNoise", nullptr);
+				ray_reflex_screen_solver->SetUnorderedAccessView("output0", nullptr);
+				ray_reflex_screen_solver->SetUnorderedAccessView("output1", nullptr);
+				ray_reflex_screen_solver->SetUnorderedAccessView("ray_list", nullptr);
+				ray_reflex_screen_solver->SetUnorderedAccessView("ray_counts", nullptr);
+				ray_reflex_screen_solver->SetUnorderedAccessView("tiles_output", nullptr);
+				ray_reflex_screen_solver->CopyAllBufferData();
 
-			float3 dir;
-			XMStoreFloat3(&dir, cam_entity.camera->xm_direction);
-			rt_di_shader->SetFloat(TIME, time);
-			rt_di_shader->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
-			rt_di_shader->SetFloat3("cameraDirection", dir);
-			rt_di_shader->SetSamplerState(PCF_SAMPLER, dxcore->shadow_sampler);
-			rt_di_shader->SetSamplerState(BASIC_SAMPLER, dxcore->basic_sampler);
-			rt_di_shader->SetShaderResourceViewArray("DiffuseTextures[0]", diffuseTextures, nobjects);
+				if (use_world) {
+					//The lengths of the lists, as the sizes of the two dispatches that walk them. The
+					//CPU never sees the counts (reading them back would stall the pipeline every
+					//frame), and the arguments buffer cannot be bound as a UAV while it is read as
+					//arguments, so it is released before the dispatches below.
+					ray_list_args->SetUnorderedAccessView("dispatch_args", rt_ray_args.UAV());
+					ray_list_args->SetUnorderedAccessView("ray_counts", rt_ray_counts.UAV());
+					ray_list_args->CopyAllBufferData();
+					ray_list_args->SetShader();
+					dxcore->context->Dispatch(1, 1, 1);
+					ray_list_args->SetUnorderedAccessView("dispatch_args", nullptr);
+					ray_list_args->SetUnorderedAccessView("ray_counts", nullptr);
+					ray_list_args->CopyAllBufferData();
+				}
+			}
+			else if (!use_world) {
+				//Nothing is left to solve a reflection (the world alone, with nothing in it): they are
+				//gone, and the textures hold the last frame they were drawn into.
+				rt_texture_di_curr[RT_TEXTURE_REFLEX].Clear(zero);
+				rt_texture_di_curr[RT_TEXTURE_REFRACT].Clear(zero);
+			}
 
-			PrepareLights(rt_di_shader);
+			//STEP TWO, in the world: the BVH walk. After the screen solver it walks the lists and
+			//nothing else; alone it walks the screen, a thread a pixel, the way it always did - the
+			//lists would only be an extra pass in front of it, with nothing taken off it.
+			if (use_world) {
+				tbvh_buffer.Refresh(tbvh.Root(), 0, tbvh.Size());
 
-			rt_di_shader->CopyAllBufferData();
+				rt_di_shader->SetInt("kernel_size", RESTIR_KERNEL);
+				rt_di_shader->SetInt("list_mode", use_screen ? 1 : 0);
+				rt_di_shader->SetInt("list_capacity", (int)rt_ray_list_capacity);
+				rt_di_shader->SetInt("nobjects", nobjects);
+				rt_di_shader->SetInt("enabled", rt_enabled & (rt_quality != eRtQuality::OFF ? 0xFF : 0x00));
+				rt_di_shader->SetMatrix4x4("prev_view_proj", prev_view_projection);
+				rt_di_shader->SetInt("frame_count", frame_count);
+				rt_di_shader->SetData("objectMaterials", objectMaterials, nobjects * sizeof(MaterialProps));
+				rt_di_shader->SetData("objectInfos", objects, nobjects * sizeof(ObjectInfo));
 
-			dxcore->context->CSSetShaderResources(2, 1, bvh_buffer->SRV());
-			dxcore->context->CSSetShaderResources(3, 1, tbvh_buffer.SRV());
-			dxcore->context->CSSetShaderResources(4, 1, vertex_buffer->VertexSRV());
-			dxcore->context->CSSetShaderResources(5, 1, vertex_buffer->IndexSRV());
-			rt_di_shader->SetShader();
-			int32_t  groupsX = (int32_t)(ceil((float)rt_texture_di_curr[RT_TEXTURE_REFLEX].Width() / (8.0f)));
-			int32_t  groupsY = (int32_t)(ceil((float)rt_texture_di_curr[RT_TEXTURE_REFLEX].Height() / (8.0f)));
-			dxcore->context->Dispatch(groupsX, groupsY, 2);
+				rt_di_shader->SetUnorderedAccessView("output0", rt_texture_di_curr[RT_TEXTURE_REFLEX].UAV());
+				rt_di_shader->SetUnorderedAccessView("output1", rt_texture_di_curr[RT_TEXTURE_REFRACT].UAV());
+				rt_di_shader->SetUnorderedAccessView("tiles_output", rt_textures_gi_tiles.UAV());
+				if (use_screen) {
+					rt_di_shader->SetUnorderedAccessView("ray_list", rt_ray_list.UAV());
+					rt_di_shader->SetUnorderedAccessView("ray_counts", rt_ray_counts.UAV());
+				}
 
-			rt_di_shader->SetUnorderedAccessView("output0", nullptr);
-			rt_di_shader->SetUnorderedAccessView("output1", nullptr);
-			rt_di_shader->SetShaderResourceView("prev_position_map", nullptr);
-			rt_di_shader->SetShaderResourceView("position_map", nullptr);
-			rt_di_shader->SetShaderResourceView("motion_texture", nullptr);
-			rt_di_shader->SetShaderResourceView("ray0", nullptr);
-			rt_di_shader->SetShaderResourceView("ray1", nullptr);
-			rt_di_shader->SetUnorderedAccessView("bloom", nullptr);
-			rt_di_shader->SetShaderResourceView("rgbaNoise", nullptr);
-			rt_di_shader->SetUnorderedAccessView("tiles_output", nullptr);
+				rt_di_shader->SetShaderResourceView("prev_position_map", prev_position_map.SRV());
+				rt_di_shader->SetShaderResourceView("position_map", position_map.SRV());
+				rt_di_shader->SetShaderResourceView("depth_map", depth_map.SRV());
+				rt_di_shader->SetShaderResourceView("motion_texture", motion_texture.SRV());
+				rt_di_shader->SetShaderResourceView("ray0", rt_ray_sources0.SRV());
+				rt_di_shader->SetShaderResourceView("ray1", rt_ray_sources1.SRV());
+				rt_di_shader->SetShaderResourceView("rgbaNoise", rgba_noise_texture.SRV());
 
-			UnprepareLights(rt_di_shader);
-			rt_di_shader->CopyAllBufferData();
+				float3 dir;
+				XMStoreFloat3(&dir, cam_entity.camera->xm_direction);
+				rt_di_shader->SetFloat(TIME, time);
+				rt_di_shader->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
+				rt_di_shader->SetFloat3("cameraDirection", dir);
+				rt_di_shader->SetSamplerState(PCF_SAMPLER, dxcore->shadow_sampler);
+				rt_di_shader->SetSamplerState(BASIC_SAMPLER, dxcore->basic_sampler);
+				rt_di_shader->SetShaderResourceViewArray("DiffuseTextures[0]", diffuseTextures, nobjects);
+
+				PrepareLights(rt_di_shader);
+
+				dxcore->context->CSSetShaderResources(2, 1, bvh_buffer->SRV());
+				dxcore->context->CSSetShaderResources(3, 1, tbvh_buffer.SRV());
+				dxcore->context->CSSetShaderResources(4, 1, vertex_buffer->VertexSRV());
+				dxcore->context->CSSetShaderResources(5, 1, vertex_buffer->IndexSRV());
+
+				if (use_screen) {
+					//One dispatch per list, each as many groups as its list needs (see RayListArgsCS):
+					//the reflection rays, then the refraction rays. Three uints of arguments per list.
+					//An empty list is a dispatch of no groups.
+					for (uint32_t kind = 0; kind < 2; ++kind) {
+						rt_di_shader->SetInt("trace_kind", (int)kind);
+						rt_di_shader->CopyAllBufferData();
+						rt_di_shader->SetShader();
+						dxcore->context->DispatchIndirect(rt_ray_args.Buffer(), kind * 3 * sizeof(uint32_t));
+					}
+				}
+				else {
+					rt_di_shader->CopyAllBufferData();
+					rt_di_shader->SetShader();
+					dxcore->context->Dispatch(groupsX, groupsY, 2);
+				}
+
+				rt_di_shader->SetUnorderedAccessView("output0", nullptr);
+				rt_di_shader->SetUnorderedAccessView("output1", nullptr);
+				rt_di_shader->SetShaderResourceView("prev_position_map", nullptr);
+				rt_di_shader->SetShaderResourceView("position_map", nullptr);
+				rt_di_shader->SetShaderResourceView("motion_texture", nullptr);
+				rt_di_shader->SetShaderResourceView("ray0", nullptr);
+				rt_di_shader->SetShaderResourceView("ray1", nullptr);
+				rt_di_shader->SetShaderResourceView("rgbaNoise", nullptr);
+				rt_di_shader->SetUnorderedAccessView("tiles_output", nullptr);
+				rt_di_shader->SetUnorderedAccessView("ray_list", nullptr);
+				rt_di_shader->SetUnorderedAccessView("ray_counts", nullptr);
+				rt_di_shader->SetShaderResourceViewArray("DiffuseTextures[0]", no_data, nobjects);
+				dxcore->context->CSSetShaderResources(2, 1, &nullsrc);
+				dxcore->context->CSSetShaderResources(3, 1, &nullsrc);
+				dxcore->context->CSSetShaderResources(4, 1, &nullsrc);
+				dxcore->context->CSSetShaderResources(5, 1, &nullsrc);
+
+				UnprepareLights(rt_di_shader);
+				rt_di_shader->CopyAllBufferData();
+			}
+
+			//Never blocks, and never earlier than a few frames after the pass it describes
+			//(see RWByteBuffer::Readback): counters for a readout, not a fence. Taken from the
+			//buffer the passes above filled, so only while somebody asks.
+			if (collect_stats) {
+				uint32_t raw[RT_LIST_COUNTERS] = {};
+				if (rt_ray_counts.Readback(raw, sizeof(raw))) {
+					rt_stats_cpu.world_reflect = raw[0];
+					rt_stats_cpu.world_refract = raw[1];
+					rt_stats_cpu.screen_solved = raw[2];
+					rt_stats_cpu.reflective = raw[3];
+				}
+			}
+			else if (!use_screen) {
+				rt_stats_cpu = RtSpaceStats{};
+			}
 
 			//Denoiser
 			rt_di_denoiser->SetInt("kernel_size", RESTIR_KERNEL);
@@ -4253,11 +4474,25 @@ void RenderSystem::ProcessDeferredLighting(int pass_filter) {
 	deferred_light->SetInt(SCREEN_H, h);
 	deferred_light->SetInt("tiles_x", (int)tiled_lights.TilesX());
 	deferred_light->SetInt("pass_filter", pass_filter);
-	deferred_light->SetInt("shadow_ray_objects", (int)shadow_rays.Count());
+	//Where a shadow ray is solved. The world's casters are only worth handing over when the BVH
+	//is to be walked, and the screen's march only when the pyramid it needs was built.
+	const bool world_shadows = (shadow_space == eRtSpace::WORLD || shadow_space == eRtSpace::BOTH) && shadow_rays.Count() > 0;
+	const bool screen_shadows = ShadowScreenWanted() && high_z_valid;
+	deferred_light->SetInt("shadow_ray_objects", world_shadows ? (int)shadow_rays.Count() : 0);
+	deferred_light->SetInt("ss_steps", screen_shadows ? SHADOW_SCREEN_STEPS : 0);
+	if (screen_shadows) {
+		deferred_light->SetMatrix4x4("ss_view_proj", cam_entity.camera->view_projection);
+		deferred_light->SetFloat("ss_hiz_ratio", (float)HIZ_RATIO);
+		deferred_light->SetFloat("ss_max_distance", SHADOW_SCREEN_DISTANCE);
+		deferred_light->SetFloat("ss_bias", SHADOW_SCREEN_BIAS);
+		deferred_light->SetFloat("ss_thickness", SHADOW_SCREEN_THICKNESS);
+		deferred_light->SetFloat("ss_thickness_rel", SHADOW_SCREEN_THICKNESS_REL);
+		deferred_light->SetShaderResourceViewArray("ssHiZ[0]", high_z_maps, HIZ_NTEXTURES);
+	}
 	//Only the first lighting dispatch accumulates: the later ones (water, splats) light a few pixels each
 	//and add their ray traced light straight to the map.
 	const bool accumulate_shadows = (pass_filter == 0) && (raytraced_light_count + raytraced_directional_count) > 0 &&
-		shadow_rays.Count() > 0;
+		(world_shadows || screen_shadows);
 	if (accumulate_shadows) {
 		shadow_rt_light.Clear(zero);
 		deferred_light->SetUnorderedAccessView("rt_shadow_out", shadow_rt_light.UAV());
@@ -4281,7 +4516,7 @@ void RenderSystem::ProcessDeferredLighting(int pass_filter) {
 	deferred_light->SetShaderResourceView("tileMasks", tiled_lights.MasksSRV());
 	//The ray traced shadow scene. Only bound when there is one: the geometry buffers are the
 	//ones the reflection tracer reads, and a frame with no ray traced light never touches them.
-	const bool shadow_rays_bound = shadow_rays.Count() > 0 && bvh_buffer != nullptr;
+	const bool shadow_rays_bound = world_shadows && bvh_buffer != nullptr;
 	if (shadow_rays_bound) {
 		deferred_light->SetShaderResourceView("srMeshNodes", *bvh_buffer->SRV());
 		deferred_light->SetShaderResourceView("srTlas", *shadow_rays.TlasSRV());
@@ -4300,6 +4535,10 @@ void RenderSystem::ProcessDeferredLighting(int pass_filter) {
 	deferred_light->SetShaderResourceView("materialTexture", nullptr);
 	deferred_light->SetShaderResourceView("lightsBuffer", nullptr);
 	deferred_light->SetShaderResourceView("tileMasks", nullptr);
+	if (screen_shadows) {
+		ID3D11ShaderResourceView* no_hiz[HIZ_NTEXTURES] = {};
+		deferred_light->SetShaderResourceViewArray("ssHiZ[0]", no_hiz, HIZ_NTEXTURES);
+	}
 	if (shadow_rays_bound) {
 		deferred_light->SetShaderResourceView("srMeshNodes", nullptr);
 		deferred_light->SetShaderResourceView("srTlas", nullptr);
@@ -4616,6 +4855,10 @@ void RenderSystem::Draw() {
 		cpu_lap(cpu_timings.depth);
 		GpuStamp(2);
 		ProcessAutoFocus();
+		//The pyramid of the opaque depth the screen space solvers march through: the reflections'
+		//and the ray traced lights' shadows (the lighting below asks for it, so it cannot wait for
+		//the reflections). What draws into depth_map after this - the clouds - is not in it.
+		ProcessHighZ();
 		DrawSky(w, h, camera_position, view, projection);
 		//The main pass is the one that draws every tessellated surface, so it is what the
 		//tessellation counters wrap. Only while something is reading them.
@@ -4738,6 +4981,40 @@ void RenderSystem::GetRayTracing(bool& reflex_enabled, bool& refract_enabled, bo
 	reflex_enabled = rt_enabled & RT_REFLEX_ENABLE;
 	refract_enabled = rt_enabled & RT_REFRACT_ENABLE;
 	indirect_enabled = rt_enabled & RT_INDIRECT_ENABLE;
+}
+
+void RenderSystem::SetRayTracingSpace(eRtSpace space) {
+	std::lock_guard l(mutex);
+	if (rt_space != space) {
+		rt_space = space;
+		//What the denoiser has accumulated was solved the other way: a picture that takes
+		//seconds to settle into the new one would read as the switch not working.
+		ResetRTBBuffers();
+	}
+}
+
+RenderSystem::eRtSpace RenderSystem::GetRayTracingSpace() const {
+	return rt_space;
+}
+
+void RenderSystem::SetShadowRaySpace(eRtSpace space) {
+	std::lock_guard l(mutex);
+	shadow_space = space;
+	//What the shadows accumulated over the frames was solved the other way.
+	shadow_rt_history_valid = false;
+}
+
+RenderSystem::eRtSpace RenderSystem::GetShadowRaySpace() const {
+	return shadow_space;
+}
+
+void RenderSystem::SetRayTracingScreenSteps(uint32_t steps) {
+	std::lock_guard l(mutex);
+	rt_screen_steps = steps;
+}
+
+uint32_t RenderSystem::GetRayTracingScreenSteps() const {
+	return rt_screen_steps;
 }
 
 void RenderSystem::SetRayTracingQuality(eRtQuality quality) {

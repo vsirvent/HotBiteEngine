@@ -686,6 +686,24 @@
     <FxCompile Include="Engine\Core\Shaders\RayTrace\GICalcWeightsCS.hlsl">
       <Filter>Engine\Core\Shaders\RayTrace</Filter>
     </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\ComputeShaders\HiZDownSample.hlsl">
+      <Filter>Engine\Core\Shaders\ComputeShaders</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\RayTrace\RayReflexScreenSolverCS.hlsl">
+      <Filter>Engine\Core\Shaders\RayTrace</Filter>
+    </FxCompile>
+    <None Include="Engine\Core\Shaders\RayTrace\RayScreenSolver.hlsli">
+      <Filter>Engine\Core\Shaders\RayTrace</Filter>
+    </None>
+    <None Include="Engine\Core\Shaders\RayTrace\ReflexRay.hlsli">
+      <Filter>Engine\Core\Shaders\RayTrace</Filter>
+    </None>
+    <None Include="Engine\Core\Shaders\RayTrace\RayLists.hlsli">
+      <Filter>Engine\Core\Shaders\RayTrace</Filter>
+    </None>
+    <FxCompile Include="Engine\Core\Shaders\RayTrace\RayListArgsCS.hlsl">
+      <Filter>Engine\Core\Shaders\RayTrace</Filter>
+    </FxCompile>
     <FxCompile Include="Engine\Core\Shaders\RayTrace\RayTraceCS.hlsl">
       <Filter>Engine\Core\Shaders\RayTrace</Filter>
     </FxCompile>

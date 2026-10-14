@@ -40,6 +40,9 @@ namespace HotBiteEditor {
 			RenderSystem* rs = GetRenderSystem(app);
 			rs->SetRayTracingQuality(RenderSystem::eRtQuality::HIGH);
 			rs->SetRayTracing(true, true, true);
+			rs->SetRayTracingSpace(RenderSystem::eRtSpace::WORLD);
+			rs->SetRayTracingScreenSteps(0);
+			rs->SetShadowRaySpace(RenderSystem::eRtSpace::WORLD);
 			rs->SetAA(true);
 			rs->SetMotionBlur(true);
 			rs->SetMotionBlurScale(1.0f);
@@ -82,6 +85,31 @@ namespace HotBiteEditor {
 			rt_changed |= ImGui::Checkbox("RT indirect light", &indirect);
 			if (rt_changed) {
 				rs->SetRayTracing(reflections, refractions, indirect);
+			}
+			static const char* space_names[] = { "Screen", "World", "Screen + world" };
+			//eRtSpace is a set of bits (1 screen, 2 world, 3 both): the combo is that minus one.
+			int space = (int)rs->GetRayTracingSpace() - 1;
+			ImGui::SetNextItemWidth(120.0f);
+			if (ImGui::Combo("RT solver", &space, space_names, IM_ARRAYSIZE(space_names))) {
+				rs->SetRayTracingSpace((RenderSystem::eRtSpace)(space + 1));
+			}
+			if (ImGui::IsItemHovered()) {
+				ImGui::SetTooltip("Where reflections are solved.\n"
+					"Screen: marches the depth buffer - cheap, but only sees what is on screen.\n"
+					"World: walks the BVH of the nearest objects - sees all of them, costs more.\n"
+					"Screen + world: the screen first, the world for the rays it could not answer.\n"
+					"Refractions are world only.");
+			}
+			int shadow_space = (int)rs->GetShadowRaySpace() - 1;
+			ImGui::SetNextItemWidth(120.0f);
+			if (ImGui::Combo("RT shadow solver", &shadow_space, space_names, IM_ARRAYSIZE(space_names))) {
+				rs->SetShadowRaySpace((RenderSystem::eRtSpace)(shadow_space + 1));
+			}
+			if (ImGui::IsItemHovered()) {
+				ImGui::SetTooltip("Where the ray traced lights' shadows are solved.\n"
+					"Screen: looks for a caster in the depth buffer - the only way a skinned mesh casts.\n"
+					"World: walks the BVH of the casters (no skinned meshes), sees what is off screen.\n"
+					"Screen + world: the screen first, the BVH when it finds nothing.");
 			}
 			float gi_confidence = rs->GetGIMaxConfidence();
 			ImGui::SetNextItemWidth(120.0f);
@@ -386,6 +414,28 @@ namespace HotBiteEditor {
 				rs->SetRayTracingQuality(q);
 				return true;
 			}
+			if (key == "rt_space") {
+				if (value == "screen") { rs->SetRayTracingSpace(RenderSystem::eRtSpace::SCREEN); }
+				else if (value == "world") { rs->SetRayTracingSpace(RenderSystem::eRtSpace::WORLD); }
+				else if (value == "both") { rs->SetRayTracingSpace(RenderSystem::eRtSpace::BOTH); }
+				else { error = "rt_space must be screen|world|both"; return false; }
+				return true;
+			}
+			if (key == "shadow_space") {
+				if (value == "screen") { rs->SetShadowRaySpace(RenderSystem::eRtSpace::SCREEN); }
+				else if (value == "world") { rs->SetShadowRaySpace(RenderSystem::eRtSpace::WORLD); }
+				else if (value == "both") { rs->SetShadowRaySpace(RenderSystem::eRtSpace::BOTH); }
+				else { error = "shadow_space must be screen|world|both"; return false; }
+				return true;
+			}
+			if (key == "rt_screen_steps") {
+				int v;
+				try { v = std::stoi(value); }
+				catch (...) { error = key + " must be an integer"; return false; }
+				if (v < 0 || v > 4096) { error = key + " must be within 0..4096 (0 = the mode's own)"; return false; }
+				rs->SetRayTracingScreenSteps((uint32_t)v);
+				return true;
+			}
 			if (key == "rt_reflections" || key == "rt_refractions" || key == "rt_indirect") {
 				bool enabled;
 				if (!ParseBool(value, enabled)) { error = key + " must be 0|1"; return false; }
@@ -521,6 +571,10 @@ namespace HotBiteEditor {
 				j["rt_reflections"] = reflections;
 				j["rt_refractions"] = refractions;
 				j["rt_indirect"] = indirect;
+				static const char* space_names[] = { "screen", "world", "both" };
+				j["rt_space"] = space_names[(int)rs->GetRayTracingSpace() - 1];
+				j["rt_screen_steps"] = rs->GetRayTracingScreenSteps();
+				j["shadow_space"] = space_names[(int)rs->GetShadowRaySpace() - 1];
 				j["gi_confidence"] = rs->GetGIMaxConfidence();
 				j["aa"] = rs->GetAA();
 				j["motion_blur"] = rs->GetMotionBlur();
@@ -569,6 +623,23 @@ namespace HotBiteEditor {
 				refractions = j.value("rt_refractions", refractions);
 				indirect = j.value("rt_indirect", indirect);
 				rs->SetRayTracing(reflections, refractions, indirect);
+			}
+			//Absent from a level saved before the setting existed: those keep the world solver
+			//they were authored against (ApplyHighDefaults set it).
+			if (j.contains("rt_space") && j["rt_space"].is_string()) {
+				const std::string s = j["rt_space"];
+				if (s == "screen") { rs->SetRayTracingSpace(RenderSystem::eRtSpace::SCREEN); }
+				else if (s == "world") { rs->SetRayTracingSpace(RenderSystem::eRtSpace::WORLD); }
+				else if (s == "both") { rs->SetRayTracingSpace(RenderSystem::eRtSpace::BOTH); }
+			}
+			if (j.contains("shadow_space") && j["shadow_space"].is_string()) {
+				const std::string s = j["shadow_space"];
+				if (s == "screen") { rs->SetShadowRaySpace(RenderSystem::eRtSpace::SCREEN); }
+				else if (s == "world") { rs->SetShadowRaySpace(RenderSystem::eRtSpace::WORLD); }
+				else if (s == "both") { rs->SetShadowRaySpace(RenderSystem::eRtSpace::BOTH); }
+			}
+			if (j.contains("rt_screen_steps") && j["rt_screen_steps"].is_number_unsigned()) {
+				rs->SetRayTracingScreenSteps(j["rt_screen_steps"].get<uint32_t>());
 			}
 			if (j.contains("gi_confidence")) { rs->SetGIMaxConfidence(j.value("gi_confidence", rs->GetGIMaxConfidence())); }
 			if (j.contains("aa")) { rs->SetAA(j.value("aa", rs->GetAA())); }

@@ -321,6 +321,9 @@
     <None Include="Engine\Core\Shaders\Common\RadianceCache.hlsli" />
     <None Include="Engine\Core\Shaders\Common\RayFunctions.hlsli" />
     <None Include="Engine\Core\Shaders\Common\RayDefines.hlsli" />
+    <None Include="Engine\Core\Shaders\RayTrace\RayScreenSolver.hlsli" />
+    <None Include="Engine\Core\Shaders\RayTrace\ReflexRay.hlsli" />
+    <None Include="Engine\Core\Shaders\RayTrace\RayLists.hlsli" />
     <None Include="Engine\Core\Shaders\Common\RGBANoise.hlsli" />
     <None Include="Engine\Core\Shaders\Common\ShaderStructs.hlsli" />
     <None Include="Engine\Core\Shaders\Common\ShadowRays.hlsli" />
@@ -356,6 +359,24 @@
       <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|x64'">5.0</ShaderModel>
     </FxCompile>
     <FxCompile Include="Engine\Core\Shaders\ComputeShaders\TileLightValidateCS.hlsl">
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Compute</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Compute</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|x64'">5.0</ShaderModel>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\ComputeShaders\HiZDownSample.hlsl">
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Compute</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Compute</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|x64'">5.0</ShaderModel>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\RayTrace\RayReflexScreenSolverCS.hlsl">
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Compute</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Compute</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|x64'">5.0</ShaderModel>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\RayTrace\RayListArgsCS.hlsl">
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Compute</ShaderType>
       <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Compute</ShaderType>
@@ -935,5 +956,30 @@
       <DefinesLightHeader>$(MSBuildThisFileDirectory)Engine\Core\Shaders\Common\Defines.hlsli</DefinesLightHeader>
     </PropertyGroup>
     <Touch Files="@(LightingDependent)" Condition="Exists('$(DefinesLightHeader)') And $([System.IO.File]::GetLastWriteTime('$(DefinesLightHeader)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('%(LightingDependent.FullPath)').Ticks)" />
+    <PropertyGroup>
+      <ReflexRayHeader>$(MSBuildThisFileDirectory)Engine\Core\Shaders\RayTrace\ReflexRay.hlsli</ReflexRayHeader>
+    </PropertyGroup>
+    <ItemGroup>
+      <ReflexRayDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\RayTrace\RayTraceCS.hlsl" />
+      <ReflexRayDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\RayTrace\RayReflexScreenSolverCS.hlsl" />
+    </ItemGroup>
+    <Touch Files="@(ReflexRayDependent)" Condition="Exists('$(ReflexRayHeader)') And $([System.IO.File]::GetLastWriteTime('$(ReflexRayHeader)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('%(ReflexRayDependent.FullPath)').Ticks)" />
+    <PropertyGroup>
+      <RayListsHeader>$(MSBuildThisFileDirectory)Engine\Core\Shaders\RayTrace\RayLists.hlsli</RayListsHeader>
+    </PropertyGroup>
+    <ItemGroup>
+      <RayListsDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\RayTrace\RayTraceCS.hlsl" />
+      <RayListsDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\RayTrace\RayReflexScreenSolverCS.hlsl" />
+      <RayListsDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\RayTrace\RayListArgsCS.hlsl" />
+    </ItemGroup>
+    <Touch Files="@(RayListsDependent)" Condition="Exists('$(RayListsHeader)') And $([System.IO.File]::GetLastWriteTime('$(RayListsHeader)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('%(RayListsDependent.FullPath)').Ticks)" />
+    <PropertyGroup>
+      <RayScreenSolverHeader>$(MSBuildThisFileDirectory)Engine\Core\Shaders\RayTrace\RayScreenSolver.hlsli</RayScreenSolverHeader>
+    </PropertyGroup>
+    <ItemGroup>
+      <RayScreenSolverDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\RayTrace\RayReflexScreenSolverCS.hlsl" />
+      <RayScreenSolverDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightCS.hlsl" />
+    </ItemGroup>
+    <Touch Files="@(RayScreenSolverDependent)" Condition="Exists('$(RayScreenSolverHeader)') And $([System.IO.File]::GetLastWriteTime('$(RayScreenSolverHeader)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('%(RayScreenSolverDependent.FullPath)').Ticks)" />
   </Target>
 </Project>
