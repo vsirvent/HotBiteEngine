@@ -476,6 +476,11 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		if (FAILED(temp_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("temp_map.Init failed");
 		}
+		if (FAILED(taa_history[0].Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS)) ||
+			FAILED(taa_history[1].Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+			throw std::exception("taa_history.Init failed");
+		}
+		taa_history_valid = false;
 		if (FAILED(depth_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("depth_map.Init failed");
 		}
@@ -615,8 +620,12 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 			throw std::exception("deferred light shader.Init failed");
 		}
 		aa_shader = ShaderFactory::Get()->GetShader<SimpleComputeShader>("AntiAliasCS.cso");
-		if (mixer_shader == nullptr) {
+		if (aa_shader == nullptr) {
 			throw std::exception("AA shader.Init failed");
+		}
+		taa_shader = ShaderFactory::Get()->GetShader<SimpleComputeShader>("TemporalAACS.cso");
+		if (taa_shader == nullptr) {
+			throw std::exception("Temporal AA shader.Init failed");
 		}
 		motion_shader = ShaderFactory::Get()->GetShader<SimpleComputeShader>("MotionCS.cso");
 		if (motion_shader == nullptr) {
@@ -754,6 +763,8 @@ RenderSystem::~RenderSystem() {
 	bloom_map.Release();
 	dust_map.Release();
 	temp_map.Release();
+	taa_history[0].Release();
+	taa_history[1].Release();
 	first_pass_texture.Release();
 	rgba_noise_texture.Release();
 	motion_texture.Release();
@@ -805,7 +816,7 @@ void RenderSystem::LoadRTResources() {
 		}
 	}
 
-	uint32_t restir_div = 3;// max(RT_TEXTURE_RESOLUTION_DIVIDER, 2);
+	const uint32_t restir_div = gi_resolution_divider;
 
 	for (int n = 0; n < RT_GI_NTEXTURES; ++n) {
 		rt_textures_gi[n].Release();
@@ -1245,7 +1256,7 @@ void RenderSystem::DrawDepth(int w, int h, const float3& camera_position, const 
 			if (vs) {
 				vs->SetMatrix4x4(VIEW, cam_entity.camera->view);
 				vs->SetFloat(TIME, time);
-				vs->SetMatrix4x4(PROJECTION, cam_entity.camera->projection);
+				vs->SetMatrix4x4(PROJECTION, geometry_projection);
 				vs->SetShader();
 			}
 			else {
@@ -1655,13 +1666,13 @@ void RenderSystem::DrawSky(int w, int h, const float3& camera_position, const ma
 		context->DSSetShader(nullptr, nullptr, 0);
 
 		vs->SetMatrix4x4(VIEW, cam_entity.camera->view);
-		vs->SetMatrix4x4(PROJECTION, cam_entity.camera->projection);
+		vs->SetMatrix4x4(PROJECTION, geometry_projection);
 		vs->SetMatrix4x4(WORLD, sky.transform->world_matrix);
 
 		ps->SetInt(SCREEN_W, w);
 		ps->SetInt(SCREEN_H, h);
 		ps->SetMatrix4x4(VIEW, cam_entity.camera->view);
-		ps->SetMatrix4x4(PROJECTION, cam_entity.camera->projection);
+		ps->SetMatrix4x4(PROJECTION, geometry_projection);
 		ps->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
 		ps->SetSamplerState(PCF_SAMPLER, dxcore->shadow_sampler);
 		ps->SetSamplerState(BASIC_SAMPLER, dxcore->basic_sampler);
@@ -1873,7 +1884,7 @@ void RenderSystem::DrawParticles(int w, int h, const float3& camera_position, co
 				ds->SetFloat(TIME, time);
 				ds->SetSamplerState(BASIC_SAMPLER, dxcore->basic_sampler);
 				ds->SetMatrix4x4(VIEW, cam_entity.camera->view);
-				ds->SetMatrix4x4(PROJECTION, cam_entity.camera->projection);
+				ds->SetMatrix4x4(PROJECTION, geometry_projection);
 				ds->SetShader();
 			}
 			else {
@@ -1895,7 +1906,7 @@ void RenderSystem::DrawParticles(int w, int h, const float3& camera_position, co
 				gs->SetInt(SCREEN_H, h);
 				gs->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
 				gs->SetMatrix4x4(VIEW, cam_entity.camera->view);
-				gs->SetMatrix4x4(PROJECTION, cam_entity.camera->projection);
+				gs->SetMatrix4x4(PROJECTION, geometry_projection);
 				gs->SetFloat(TIME, time);
 				gs->SetShader();
 				gs->CopyAllBufferData();
@@ -1916,7 +1927,7 @@ void RenderSystem::DrawParticles(int w, int h, const float3& camera_position, co
 				ps->SetInt(SCREEN_W, w);
 				ps->SetInt(SCREEN_H, h);
 				ps->SetMatrix4x4(VIEW, cam_entity.camera->view);
-				ps->SetMatrix4x4(PROJECTION, cam_entity.camera->projection);
+				ps->SetMatrix4x4(PROJECTION, geometry_projection);
 				ps->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
 				ps->SetSamplerState(PCF_SAMPLER, dxcore->shadow_sampler);
 				ps->SetSamplerState(BASIC_SAMPLER, dxcore->basic_sampler);
@@ -2120,7 +2131,7 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 				ds->SetSamplerState(BASIC_SAMPLER, dxcore->basic_sampler);
 				ds->SetMatrix4x4(VIEW, cam_entity.camera->view);
 				ds->SetMatrix4x4(VIEW, cam_entity.camera->view);
-				ds->SetMatrix4x4(PROJECTION, cam_entity.camera->projection);
+				ds->SetMatrix4x4(PROJECTION, geometry_projection);
 				ds->SetShader();
 			}
 			else {
@@ -2142,7 +2153,7 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 				gs->SetInt(SCREEN_H, h);
 				gs->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
 				gs->SetMatrix4x4(VIEW, cam_entity.camera->view);
-				gs->SetMatrix4x4(PROJECTION, cam_entity.camera->projection);
+				gs->SetMatrix4x4(PROJECTION, geometry_projection);
 				gs->SetFloat(TIME, time);
 				gs->SetShader();
 			}
@@ -2167,7 +2178,7 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 				ps->SetInt(SCREEN_W, w);
 				ps->SetInt(SCREEN_H, h);
 				ps->SetMatrix4x4(VIEW, cam_entity.camera->view);
-				ps->SetMatrix4x4(PROJECTION, cam_entity.camera->projection);
+				ps->SetMatrix4x4(PROJECTION, geometry_projection);
 				ps->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
 				ps->SetFloat3("cameraDirection", dir);
 				ps->SetFloat3("sunDirection", sun_direction);
@@ -2501,7 +2512,7 @@ void RenderSystem::DrawSplats(int w, int h, const float3& camera_position, const
 		const float3 albedo_tint{ e.cloud->albedo_scale, e.cloud->albedo_scale, e.cloud->albedo_scale };
 		splat_preprocess->SetMatrix4x4(WORLD, e.transform->world_matrix);
 		splat_preprocess->SetMatrix4x4(VIEW, cam_entity.camera->view);
-		splat_preprocess->SetMatrix4x4(PROJECTION, cam_entity.camera->projection);
+		splat_preprocess->SetMatrix4x4(PROJECTION, geometry_projection);
 		splat_preprocess->SetFloat3(CAMERA_POSITION, camera_position);
 		splat_preprocess->SetFloat("splat_opacity_scale", e.cloud->opacity_scale);
 		splat_preprocess->SetFloat3("albedo_tint", albedo_tint);
@@ -2662,7 +2673,7 @@ void RenderSystem::DrawSplats(int w, int h, const float3& camera_position, const
 		// --- rasterize the bins, lit by the scene's own lights ------------------------
 		splat_raster->SetMatrix4x4(WORLD, e.transform->world_matrix);
 		splat_raster->SetMatrix4x4(VIEW, cam_entity.camera->view);
-		splat_raster->SetMatrix4x4(PROJECTION, cam_entity.camera->projection);
+		splat_raster->SetMatrix4x4(PROJECTION, geometry_projection);
 		splat_raster->SetFloat3(CAMERA_POSITION, camera_position);
 		splat_raster->SetFloat3(CAMERA_DIRECTION, cam_entity.camera->direction);
 		splat_raster->SetInt(SCREEN_W, w);
@@ -2784,8 +2795,79 @@ void RenderSystem::DrawSplats(int w, int h, const float3& camera_position, const
 	}
 }
 
+namespace {
+	//The n-th element (1-based) of the Halton sequence of the given base, in [0, 1): a low
+	//discrepancy sequence, so a few frames already cover the pixel evenly.
+	float Halton(uint32_t n, uint32_t base) {
+		float f = 1.0f;
+		float r = 0.0f;
+		while (n > 0) {
+			f /= (float)base;
+			r += f * (float)(n % base);
+			n /= base;
+		}
+		return r;
+	}
+
+	//Where, in pixels from its centre, the sample of the frame is taken; eight places, then again.
+	constexpr uint32_t TAA_JITTER_PHASES = 8;
+}
+
+void RenderSystem::UpdateTemporalJitter(const Components::Camera& camera, int w, int h) {
+	taa_active = aa_enabled && taa_enabled && post_process_pipeline != nullptr && !IsDebugBufferActive();
+	if (!taa_active) {
+		//Everything that shows the picture on its own is unfiltered and unjittered, and what
+		//the history held is a frame that no longer leads to this one.
+		geometry_projection = camera.projection;
+		taa_history_valid = false;
+		return;
+	}
+	const uint32_t phase = taa_frame++ % TAA_JITTER_PHASES + 1;
+	const float jitter_x = Halton(phase, 2) - 0.5f;
+	const float jitter_y = Halton(phase, 3) - 0.5f;
+	//The perspective matrix is applied to row vectors and its w is the view depth, so an
+	//offset in its third row is the same offset in NDC after the divide: 2/w is a pixel wide.
+	XMFLOAT4X4 p;
+	XMStoreFloat4x4(&p, camera.xm_projection);
+	p._31 += 2.0f * jitter_x / (float)w;
+	p._32 += -2.0f * jitter_y / (float)h;
+	XMStoreFloat4x4(&geometry_projection, XMMatrixTranspose(XMLoadFloat4x4(&p)));
+}
+
+void RenderSystem::ProcessTemporalAA() {
+	const uint32_t read = taa_history_index;
+	const uint32_t write = 1 - read;
+
+	int32_t groupsX = (int32_t)(ceil((float)motion_blur_map.Width() / 8.0f));
+	int32_t groupsY = (int32_t)(ceil((float)motion_blur_map.Height() / 8.0f));
+
+	taa_shader->SetShaderResourceView("input", temp_map.SRV());
+	taa_shader->SetShaderResourceView("history", taa_history[read].SRV());
+	taa_shader->SetShaderResourceView("motionTexture", motion_texture.SRV());
+	taa_shader->SetSamplerState("linearSampler", dxcore->basic_sampler);
+	taa_shader->SetInt("history_valid", taa_history_valid ? 1 : 0);
+	taa_shader->SetUnorderedAccessView("output", motion_blur_map.UAV());
+	taa_shader->SetUnorderedAccessView("history_out", taa_history[write].UAV());
+	taa_shader->CopyAllBufferData();
+	taa_shader->SetShader();
+	dxcore->context->Dispatch(groupsX, groupsY, 1);
+	taa_shader->SetUnorderedAccessView("output", nullptr);
+	taa_shader->SetUnorderedAccessView("history_out", nullptr);
+	taa_shader->SetShaderResourceView("input", nullptr);
+	taa_shader->SetShaderResourceView("history", nullptr);
+	taa_shader->SetShaderResourceView("motionTexture", nullptr);
+	taa_shader->CopyAllBufferData();
+
+	taa_history_index = write;
+	taa_history_valid = true;
+}
+
 void RenderSystem::ProcessAntiAlias() {
 	if (post_process_pipeline == nullptr) {
+		return;
+	}
+	if (taa_active) {
+		ProcessTemporalAA();
 		return;
 	}
 
@@ -4978,6 +5060,9 @@ void RenderSystem::Draw() {
 		matrix view = XMMatrixTranspose(XMLoadFloat4x4(&cam_entity.camera->view));
 		matrix projection = XMMatrixTranspose(XMLoadFloat4x4(&cam_entity.camera->projection));
 		float3 camera_position = cam_entity.camera->world_position;
+		//The projection the geometry of this frame is drawn with: the camera's own, or with
+		//TAA's sub-pixel offset.
+		UpdateTemporalJitter(*(cam_entity.camera), w, h);
 
 		//The CPU time of each part of the frame (CpuTimings): each lap adds what has passed since the last one.
 		auto cpu_last = std::chrono::steady_clock::now();
@@ -5302,6 +5387,36 @@ void RenderSystem::SetAA(bool enabled) {
 
 bool RenderSystem::GetAA() const {
 	return aa_enabled;
+}
+
+void RenderSystem::SetTemporalAA(bool enabled) {
+	taa_enabled = enabled;
+}
+
+bool RenderSystem::GetTemporalAA() const {
+	return taa_enabled;
+}
+
+bool RenderSystem::IsTemporalAAActive() const {
+	return taa_active;
+}
+
+void RenderSystem::SetGIResolutionDivider(uint32_t divider) {
+	std::lock_guard l(mutex);
+	divider = (std::min)((std::max)(divider, 1u), 4u);
+	if (gi_resolution_divider == divider) {
+		return;
+	}
+	gi_resolution_divider = divider;
+	//Nothing to resize while no ray traced pass has ever allocated anything: the textures
+	//are made, with this divider, the first time a quality turns them on.
+	if (rt_quality != eRtQuality::OFF) {
+		LoadRTResources();
+	}
+}
+
+uint32_t RenderSystem::GetGIResolutionDivider() const {
+	return gi_resolution_divider;
 }
 
 void RenderSystem::SetMotionBlur(bool enabled) {

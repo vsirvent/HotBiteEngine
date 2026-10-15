@@ -512,6 +512,8 @@ namespace HotBite {
 				//against; changing the default means changing what every game looks like.
 				eRtQuality rt_quality = eRtQuality::HIGH;
 				uint32_t RT_TEXTURE_RESOLUTION_DIVIDER = 1;
+				//The indirect light's own (see SetGIResolutionDivider); 3 is what it always was.
+				uint32_t gi_resolution_divider = 3;
 				static constexpr uint32_t RT_REFLEX_ENABLE = 1;
 				static constexpr uint32_t RT_REFRACT_ENABLE = 2;
 				static constexpr uint32_t RT_INDIRECT_ENABLE = 4;
@@ -1142,6 +1144,28 @@ namespace HotBite {
 				//Anti Alias
 				Core::SimpleComputeShader* aa_shader = nullptr;
 
+				//Temporal anti-aliasing. While it is on, the geometry passes (depth, sky, scene,
+				//splats) draw with `geometry_projection`, the camera's projection nudged by a
+				//sub-pixel offset that changes every frame, and TemporalAACS blends each frame
+				//with the previous result, reprojected by the motion vectors. Everything else
+				//(motion vectors, the GI and RT denoisers, the shadows) keeps the camera's own
+				//unjittered matrices, so their reprojection is the one they were written for.
+				Core::SimpleComputeShader* taa_shader = nullptr;
+				//Written by TemporalAACS and read by the next frame's: ping-pong, since a
+				//texture cannot be read and written by the same dispatch. Half float, because
+				//a history that is blended every frame loses a bit of precision each time.
+				Core::RenderTexture2D taa_history[2];
+				uint32_t taa_history_index = 0;
+				//Nothing in the history is worth blending with (first frame, a resize, a frame
+				//the pass did not run): the next resolve takes the current frame as it is.
+				bool taa_history_valid = false;
+				bool taa_enabled = false;
+				//Whether *this frame* is jittered and resolved, which is what taa_enabled is
+				//minus the frames a debug view is up.
+				bool taa_active = false;
+				uint32_t taa_frame = 0;
+				float4x4 geometry_projection{};
+
 				//Motion texture
 				Core::RenderTexture2D motion_texture;
 				//The view-projection the *previous rendered frame* used, which is what
@@ -1243,6 +1267,10 @@ namespace HotBite {
 				void ProcessMotionBlur();
 				void ProcessMix();
 				void ProcessAntiAlias();
+				//The temporal resolve that replaces FXAA while SetTemporalAA is on, and the
+				//jitter it needs (UpdateTemporalJitter, once at the top of the frame).
+				void ProcessTemporalAA();
+				void UpdateTemporalJitter(const Components::Camera& camera, int w, int h);
 				void ProcessAutoFocus();
 
 				void DrawParticles(int w, int h, const float3& camera_position, const matrix& view, const matrix& projection, RenderParticleTree& tree);
@@ -1464,6 +1492,21 @@ namespace HotBite {
 				bool GetLensFlare() const;
 				void SetAA(bool enabled);
 				bool GetAA() const;
+				//Temporal anti-aliasing over the whole frame, in place of FXAA (SetAA decides
+				//whether the frame is anti-aliased at all, this decides how). Off by default:
+				//it jitters the camera, which a game that has not looked at it should not get
+				//by surprise. What it is for is the noise of the ray traced shadows and the
+				//indirect light, which a single frame's filter cannot hide and the history can.
+				void SetTemporalAA(bool enabled);
+				bool GetTemporalAA() const;
+				//Whether the frame being drawn is jittered: TemporalAA on and no debug view up.
+				bool IsTemporalAAActive() const;
+				//How many times smaller than the screen, on each side, the indirect light is
+				//traced (1 = every pixel, 3 = one in nine, the default). It is its own choice
+				//and not the ray tracing quality's, which sizes the reflections and the light
+				//shadows. Takes effect at once, and reallocates what the pass accumulates.
+				void SetGIResolutionDivider(uint32_t divider);
+				uint32_t GetGIResolutionDivider() const;
 				void SetMotionBlur(bool enabled);
 				bool GetMotionBlur() const;
 				//Scales the strength of the motion blur (1.0 = default tuning, 0 = no
