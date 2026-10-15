@@ -584,6 +584,9 @@ namespace HotBite {
 				static constexpr int RT_GI_NTEXTURES = 5;
 				Core::RenderTexture2D rt_textures_gi[RT_GI_NTEXTURES];
 				Core::RenderTexture2D rt_textures_gi_tiles;
+				//The same tiles for the reflections: they are cleared, written and read by ProcessRT alone, so ProcessRT and
+				//ProcessGI share no resource and can run at the same time (one of them on the compute queue).
+				Core::RenderTexture2D rt_textures_di_tiles;
 
 				Core::RenderTexture2D restir_pdf[2];
 				Core::RenderTexture2D restir_w;
@@ -659,7 +662,13 @@ namespace HotBite {
 					uint32_t draws = 0;
 					uint32_t entities = 0;
 				};
-				struct GpuTimings {
+				//The permutations of the lighting shader (DeferredLightCS.hlsl): the ordinary surfaces with the lights that
+					//need no ray, the same surfaces with the lights that trace their shadows, the water, the lava.
+					enum LightPerm { LIGHT_STANDARD = 0, LIGHT_RT = 1, LIGHT_WATER = 2, LIGHT_LAVA = 3, LIGHT_PERMS = 4 };
+					//Who builds the lighting shaders a frame runs: DXC (SM 6.0 DXIL) or fxc (SM 5.0 DXBC, /O3), both from the same HLSL; AUTO is the
+					//one that is faster for each shader (fxc for the ones that trace rays, until DXC's build of the ray tracer catches up).
+					enum class LightingCompiler { DXC = 0, FXC = 1, AUTO = 2 };
+					struct GpuTimings {
 					double shadows = 0.0;
 					double depth = 0.0;
 					double scene = 0.0;
@@ -678,6 +687,13 @@ namespace HotBite {
 					double mix = 0.0;
 					double aa = 0.0;
 					double blur = 0.0;
+					//What each permutation of the lighting shader took, summed over the dispatches of a frame's lighting
+					//passes (the `deferred` stamp above holds the first lighting pass whole). Water and lava only
+					//dispatch when the frame has them, and the ray traced lights' one only when it has such lights.
+					double light_standard = 0.0;
+					double light_rt = 0.0;
+					double light_water = 0.0;
+					double light_lava = 0.0;
 					uint32_t frames = 0;
 				};
 				//What the CPU spent on each part of a frame's Draw, in milliseconds summed over rames frames: the
@@ -747,10 +763,16 @@ namespace HotBite {
 				void DrawBucket(ECS::EntityVector<DrawableEntity>& bucket, InstancePass pass, bool can_instance, Core::SimpleVertexShader* vs,
 					Core::SimpleHullShader* hs, Core::SimpleDomainShader* ds, Core::SimpleGeometryShader* gs, Core::SimplePixelShader* ps, Accept&& accept);
 				static constexpr int GPU_RING = 4;
-				static constexpr int GPU_STAMPS = 14;
+				//The first 14 stamps are the frame's passes (GpuResolve). After them, a begin and an end stamp for each permutation
+				//of the lighting shader in each of a frame's (up to three) lighting passes: LIGHT_STAMP_BASE + 2 * (pass * LIGHT_PERMS + perm).
+				static constexpr int LIGHT_STAMP_BASE = 14;
+				static constexpr int LIGHT_STAMP_PASSES = 3;
+				static constexpr int GPU_STAMPS = LIGHT_STAMP_BASE + 2 * LIGHT_STAMP_PASSES * LIGHT_PERMS;
 				struct GpuFrame {
 					GfxQueryHeap* stamps = nullptr;
 						bool pending = false;
+					//Which begin/end pairs of the lighting permutations this frame recorded (bit pass * LIGHT_PERMS + perm).
+					uint32_t light_pairs = 0;
 				};
 				GpuFrame gpu_ring[GPU_RING];
 				int gpu_next = 0;
@@ -761,6 +783,8 @@ namespace HotBite {
 				mutable uint32_t gpu_requested_frame = 0;
 				void GpuBegin();
 				void GpuStamp(int index);
+				//The begin / end stamp of one permutation of the lighting shader in the current lighting pass.
+				void GpuLightStamp(int perm, bool end);
 				void GpuEnd();
 				void GpuResolve();
 				void GpuRelease();
@@ -1007,9 +1031,24 @@ namespace HotBite {
 				//G-buffer with only those (DeferredLightCS). The geometry passes evaluate no
 				//light at all.
 				Core::TiledLights tiled_lights;
-				Core::SimpleComputeShader* deferred_light = nullptr;
-				//The same shader with the ray traced shadows compiled in; used by the frames that trace any.
-				Core::SimpleComputeShader* deferred_light_rays = nullptr;
+				//The lighting shaders, by compiler: slots 0-3 are the permutations (LightPerm), 4 and 5 the reference that does it all
+				//in one (without and with the ray tracer). Loaded when a compiler is first asked for (LightingShader).
+				static constexpr int LIGHT_SLOT_ALL = LIGHT_PERMS;
+				static constexpr int LIGHT_SLOT_ALL_RAYS = LIGHT_PERMS + 1;
+				static constexpr int LIGHT_SLOTS = LIGHT_PERMS + 2;
+				Core::SimpleComputeShader* lighting_shaders[2][LIGHT_SLOTS] = {};
+				Core::SimpleComputeShader* LightingShader(int slot);
+				//Whether the frame dispatches the permutations (true) or the one shader that does it all (false, the default: measured, the
+				//permutations are not faster with the compilers there are - Docs/D3D12_MIGRATION.md, "Lighting permutations").
+				bool lighting_split = false;
+				LightingCompiler lighting_compiler = LightingCompiler::AUTO;
+				//Dispatches of each permutation in the frame being recorded and in the last one that was.
+				uint32_t lighting_dispatches[LIGHT_PERMS] = {};
+				uint32_t lighting_dispatches_last[LIGHT_PERMS] = {};
+				//Whether the geometry pass drew any visible water / lava this frame (index: the geometry pass, 0 the first, 1 the
+				//second): the lighting only dispatches the permutation of a material that is there.
+				bool scene_has_water[2] = {};
+				bool scene_has_lava[2] = {};
 				//What GatherLights chose this frame. `packed_lights` is the uploaded buffer;
 				//the two aux lists are the nearest lights (all of them, and those with a
 				//volumetric density) for the shaders that have no tile.
@@ -1133,6 +1172,8 @@ namespace HotBite {
 				//Lighting dispatches so far this frame: the first one is the one that is timed.
 				int lighting_passes_this_frame = 0;
 				bool tile_culling_enabled = true;
+				//The passes that put their dispatches on the compute queue (AsyncPass) while async compute is on.
+				uint32_t async_passes = 32;		//ASYNC_RT (declared further down)
 				void GatherLights(const CameraEntity& camera);
 				//Culls the lights against the G-buffer as it stands and shades the surfaces the
 				//filter selects into the current light map: 0 everything, 1 only what the second
@@ -1447,6 +1488,65 @@ namespace HotBite {
 				//which is why the tests flip it. On by default; not for games.
 				void SetTileCulling(bool enabled) { tile_culling_enabled = enabled; }
 				bool GetTileCulling() const { return tile_culling_enabled; }
+				//Async compute: the passes whose dispatches do not depend on the graphics work that follows them (the depth
+				//pyramid, autofocus, motion vectors, the volumetric light, GI and the reflections) are recorded on the compute
+				//queue and run beside it. The picture is the same either way - the queues wait for each other wherever a pass
+				//reads what another wrote (GfxContext, "Async compute") - and only the order the GPU runs it in changes. Off by
+				//default (HOTBITE_ASYNC_COMPUTE=1 starts a process with it on): measured in Survival's ray traced shadow stress
+				//scene, flagging every pass costs 3-5% and the best pairing, the reflections beside GI, is between -0.1% and
+				//+3.9% (noise). So only the reflections ask for the queue by default (and only while GI runs); the others
+				//are for measuring.
+				void SetAsyncCompute(bool enabled);
+				bool GetAsyncCompute() const;
+				//Which passes ask for the compute queue when it is on: a bit each, so the contribution of each can be measured.
+				enum AsyncPass : uint32_t {
+					ASYNC_AUTOFOCUS = 1,		//the depth of the pixel the camera looks at
+					ASYNC_HIZ = 2,				//the depth pyramid the screen space solvers march through
+					ASYNC_MOTION = 4,			//motion vectors
+					ASYNC_VOLUMETRIC = 8,		//the volumetric light and its blur
+					ASYNC_GI = 16,				//global illumination
+					ASYNC_RT = 32,				//reflections and refractions
+					ASYNC_TILECULL = 64,		//which point lights reach which tile of the screen
+					ASYNC_ALL = 127
+				};
+				bool Async(AsyncPass pass) const { return (async_passes & pass) != 0; }
+				//The reflections ask for the compute queue only while GI runs as well: that is the chain they overlap with, and
+				//on their own they would only pay for the waits.
+				bool AsyncReflections() const { return Async(ASYNC_RT) && (rt_enabled & RT_INDIRECT_ENABLE) != 0; }
+				void SetAsyncPasses(uint32_t mask) { async_passes = mask & ASYNC_ALL; }
+				uint32_t GetAsyncPasses() const { return async_passes; }
+				//"all", "none" or names separated by commas (autofocus, hiz, motion, volumetric, gi, rt, tilecull) <-> a mask; for the
+				//automation channels. Parse is false for a name it does not know.
+				static bool ParseAsyncPasses(const std::string& list, uint32_t& mask);
+				static std::string AsyncPassNames(uint32_t mask);
+				//What the last frame that was submitted recorded on the compute queue.
+				struct AsyncComputeStats {
+					bool enabled = false;
+					uint32_t dispatches = 0;		//dispatches recorded on the compute queue
+					uint32_t segments = 0;			//command lists the frame was split into (both queues)
+					uint32_t waits = 0;				//times a queue was made to wait for the other
+				};
+				AsyncComputeStats GetAsyncComputeStats() const;
+
+				//The lighting shader's permutations (DeferredLightCS.hlsl) against the one shader that does it all (the default), and the
+				//compiler that built them (HOTBITE_LIGHT_SPLIT=0|1, HOTBITE_LIGHT_COMPILER=dxc|fxc|auto start a process with
+				//either). Both compilers' builds are always in the build; the picture is the same whichever is chosen (that is
+				//what is tested).
+				void SetLightingSplit(bool split) { lighting_split = split; }
+				bool GetLightingSplit() const { return lighting_split; }
+				void SetLightingCompiler(LightingCompiler compiler) { lighting_compiler = compiler; }
+				LightingCompiler GetLightingCompiler() const { return lighting_compiler; }
+				static const char* LightingCompilerName(LightingCompiler compiler) {
+					return compiler == LightingCompiler::FXC ? "fxc" : (compiler == LightingCompiler::AUTO ? "auto" : "dxc");
+				}
+				static bool ParseLightingCompiler(const std::string& name, LightingCompiler& compiler);
+				//How many dispatches of each permutation the last frame that lit anything recorded.
+				void GetLightingDispatches(uint32_t out[LIGHT_PERMS]) const;
+
+				//PIX (HOTBITE_PIX=1 loads its capturer): whether it is there, and a GPU capture of the next frames saved to `file`
+				//(a full path, .wpix). See GfxDevice::PixCaptureNextFrames.
+				bool PixAvailable() const;
+				bool PixCapture(const std::filesystem::path& file, uint32_t frames, std::string& error);
 
 				void EnableNormalMaterialMapping(bool enabled);
 				bool IsEnabledEnableNormalMaterialMapping() const;

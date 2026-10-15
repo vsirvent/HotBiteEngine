@@ -287,7 +287,8 @@ namespace HotBiteEditor {
 			const std::vector<std::string>& args, std::string& error)
 		{
 			if (cmd != "spawn_lights" && cmd != "clear_lights" && cmd != "lights_info" && cmd != "lights_validate" &&
-				cmd != "lights_packed" && cmd != "tile_culling" && cmd != "gpu_timings" && cmd != "shadow_rays" && cmd != "rt_stats") {
+				cmd != "lights_packed" && cmd != "tile_culling" && cmd != "gpu_timings" && cmd != "shadow_rays" && cmd != "rt_stats" &&
+				cmd != "async_compute" && cmd != "lighting_shaders") {
 				return false;
 			}
 			Systems::RenderSystem* rs =
@@ -438,14 +439,63 @@ namespace HotBiteEditor {
 				}
 				response_lines.push_back(std::string("OK ") + (rs->GetTileCulling() ? "on" : "off"));
 			}
+			else if (cmd == "lighting_shaders") {
+				//lighting_shaders [split|single] [dxc|fxc]: the lighting shader's permutations (DeferredLightCS.hlsl) or the one shader that
+				//does it all, and the compiler of the build that runs. The picture is the same whichever (that is what is tested).
+				//-> OK split=<yes|no> compiler=<dxc|fxc> standard= rt= water= lava= (dispatches of each in the last frame)
+				for (size_t i = 1; i < args.size(); ++i) {
+					Systems::RenderSystem::LightingCompiler compiler;
+					if (args[i] == "split" || args[i] == "single") {
+						rs->SetLightingSplit(args[i] == "split");
+					}
+					else if (Systems::RenderSystem::ParseLightingCompiler(args[i], compiler)) {
+						rs->SetLightingCompiler(compiler);
+					}
+					else {
+						response_lines.push_back("ERR usage: lighting_shaders [split|single] [dxc|fxc|auto]");
+						return true;
+					}
+				}
+				uint32_t dispatches[Systems::RenderSystem::LIGHT_PERMS] = {};
+				rs->GetLightingDispatches(dispatches);
+				char text[160];
+				snprintf(text, sizeof(text), "OK split=%s compiler=%s standard=%u rt=%u water=%u lava=%u", rs->GetLightingSplit() ? "yes" : "no",
+					Systems::RenderSystem::LightingCompilerName(rs->GetLightingCompiler()), dispatches[Systems::RenderSystem::LIGHT_STANDARD],
+					dispatches[Systems::RenderSystem::LIGHT_RT], dispatches[Systems::RenderSystem::LIGHT_WATER],
+					dispatches[Systems::RenderSystem::LIGHT_LAVA]);
+				response_lines.push_back(text);
+			}
+			else if (cmd == "async_compute") {
+				//async_compute [on|off]: the passes whose dispatches are independent run on the compute queue. The picture is the
+				//same either way. -> OK enabled= dispatches= segments= waits= (what the last frame recorded)
+				//async_compute passes <all|none|autofocus,hiz,motion,volumetric,gi,rt> chooses which passes ask for it.
+				if (args.size() > 2 && args[1] == "passes") {
+					uint32_t mask = 0;
+					if (!Systems::RenderSystem::ParseAsyncPasses(args[2], mask)) {
+						response_lines.push_back("ERR usage: async_compute passes <all|none|autofocus,hiz,motion,volumetric,gi,rt>");
+						return true;
+					}
+					rs->SetAsyncPasses(mask);
+				}
+				else if (args.size() > 1) {
+					rs->SetAsyncCompute(args[1] != "off");
+				}
+				const Systems::RenderSystem::AsyncComputeStats stats = rs->GetAsyncComputeStats();
+				char text[192];
+				snprintf(text, sizeof(text), "OK enabled=%s dispatches=%u segments=%u waits=%u passes=%s", stats.enabled ? "on" : "off",
+					stats.dispatches, stats.segments, stats.waits, Systems::RenderSystem::AsyncPassNames(rs->GetAsyncPasses()).c_str());
+				response_lines.push_back(text);
+			}
 			else {
 				//gpu_timings. Summed over `frames`, not averaged: two reads some frames apart give
 				//the cost of each pass per frame by subtraction. Asking is what turns the queries on.
 				const Systems::RenderSystem::GpuTimings g = rs->GetGpuTimings();
-				char text[480];
+				char text[640];
 				snprintf(text, sizeof(text),
-					"OK frames=%u shadows=%.4f depth=%.4f scene=%.4f tile_cull=%.4f deferred=%.4f motion=%.4f rt=%.4f gi=%.4f light=%.4f mix=%.4f aa=%.4f blur=%.4f",
-					g.frames, g.shadows, g.depth, g.scene, g.tile_cull, g.deferred, g.motion, g.rt, g.gi, g.light, g.mix, g.aa, g.blur);
+					"OK frames=%u shadows=%.4f depth=%.4f scene=%.4f tile_cull=%.4f deferred=%.4f motion=%.4f rt=%.4f gi=%.4f light=%.4f mix=%.4f aa=%.4f blur=%.4f"
+					" light_standard=%.4f light_rt=%.4f light_water=%.4f light_lava=%.4f",
+					g.frames, g.shadows, g.depth, g.scene, g.tile_cull, g.deferred, g.motion, g.rt, g.gi, g.light, g.mix, g.aa, g.blur,
+					g.light_standard, g.light_rt, g.light_water, g.light_lava);
 				response_lines.push_back(text);
 			}
 			return true;

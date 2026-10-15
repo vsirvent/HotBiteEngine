@@ -30,6 +30,9 @@ SOFTWARE.
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
+#include <cwchar>
+#include <filesystem>
+#include <string>
 
 using Microsoft::WRL::ComPtr;
 
@@ -60,6 +63,49 @@ namespace HotBite {
 						return false;
 					}
 					return value[0] == '1';
+				}
+
+				//Loads PIX's GPU capturer into the process, as PIXLoadLatestWinPixGpuCapturerLibrary of the WinPixEventRuntime
+				//package does (without the package): the newest PIX under Program Files. PIX can then attach to the running
+				//process (Attach tab) and capture a frame; the library has to be there before the device is created.
+				bool LoadPixCapturer(std::string& loaded) {
+					if (HMODULE already = GetModuleHandleW(L"WinPixGpuCapturer.dll")) {
+						wchar_t path[MAX_PATH] = {};
+						GetModuleFileNameW(already, path, MAX_PATH);
+						std::filesystem::path p(path);
+						loaded = p.string();
+						return true; //PIX started the process: it injected the library itself
+					}
+					wchar_t program_files[MAX_PATH] = {};
+					if (GetEnvironmentVariableW(L"ProgramFiles", program_files, MAX_PATH) == 0) {
+						return false;
+					}
+					const std::filesystem::path root = std::filesystem::path(program_files) / L"Microsoft PIX";
+					std::error_code ec;
+					std::filesystem::path best;
+					int best_major = -1, best_minor = -1;
+					for (const auto& entry : std::filesystem::directory_iterator(root, ec)) {
+						int major = 0, minor = 0;
+						//Folders are named by version, "2603.25": compared as numbers, not as text ("2603.9" < "2603.25").
+						if (!entry.is_directory(ec) || swscanf_s(entry.path().filename().c_str(), L"%d.%d", &major, &minor) != 2 ||
+							!std::filesystem::exists(entry.path() / L"WinPixGpuCapturer.dll", ec)) {
+							continue;
+						}
+						if (major > best_major || (major == best_major && minor > best_minor)) {
+							best = entry.path();
+							best_major = major;
+							best_minor = minor;
+						}
+					}
+					if (best.empty()) {
+						return false;
+					}
+					const std::filesystem::path dll = best / L"WinPixGpuCapturer.dll";
+					if (LoadLibraryW(dll.c_str()) == nullptr) {
+						return false;
+					}
+					loaded = dll.string();
+					return true;
 				}
 
 				D3D12_HEAP_PROPERTIES HeapProps(D3D12_HEAP_TYPE type) {
@@ -207,6 +253,18 @@ namespace HotBite {
 				instance = this;
 				HRESULT hr = S_OK;
 
+				//HOTBITE_PIX=1: PIX can attach to this process (GPU capture); see LoadPixCapturer.
+				if (EnvFlag("HOTBITE_PIX")) {
+					std::string pix_path;
+					pix_loaded = LoadPixCapturer(pix_path);
+					if (pix_loaded) {
+						LOG_INFO("GfxDevice: PIX GPU capturer loaded (%s): attach to this process from PIX", pix_path.c_str());
+					}
+					else {
+						LOG_WARN("GfxDevice: HOTBITE_PIX=1 but no PIX was found under Program Files\\Microsoft PIX");
+					}
+				}
+
 				UINT dxgi_flags = 0;
 #if defined(DEBUG) || defined(_DEBUG)
 				const bool want_debug = true;
@@ -331,12 +389,33 @@ namespace HotBite {
 				qd.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
 				qd.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
 				hr = device->CreateCommandQueue(&qd, IID_PPV_ARGS(&queue));
+				if (SUCCEEDED(hr)) { queue->SetName(L"HotBite direct queue"); }
 				if (FAILED(hr)) { return hr; }
 				hr = device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence));
 				if (FAILED(hr)) { return hr; }
 				fence_event = CreateEvent(nullptr, FALSE, FALSE, nullptr);
 				hr = device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&immediate_fence));
 				if (FAILED(hr)) { return hr; }
+
+				//The queue async compute dispatches go to. Without it (a driver that refuses) everything stays on the direct queue.
+				{
+					D3D12_COMMAND_QUEUE_DESC cqd = {};
+					cqd.Type = D3D12_COMMAND_LIST_TYPE_COMPUTE;
+					cqd.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
+					cqd.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
+					if (SUCCEEDED(device->CreateCommandQueue(&cqd, IID_PPV_ARGS(&compute_queue))) &&
+						SUCCEEDED(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&sync_fence[QUEUE_DIRECT]))) &&
+						SUCCEEDED(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&sync_fence[QUEUE_COMPUTE])))) {
+						compute_queue->SetName(L"HotBite compute queue");
+						LOG_INFO("GfxDevice: compute queue created");
+					}
+					else {
+						LOG_WARN("GfxDevice: no compute queue, async compute is off");
+						compute_queue.Reset();
+						sync_fence[QUEUE_DIRECT].Reset();
+						sync_fence[QUEUE_COMPUTE].Reset();
+					}
+				}
 
 				inc_cbv_srv_uav = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 				inc_sampler = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
@@ -360,6 +439,33 @@ namespace HotBite {
 								queue->GetTimestampFrequency(&timestamp_frequency);
 								CreateNullDescriptors();
 								return S_OK;
+			}
+
+			bool GfxDevice::PixCaptureNextFrames(const std::filesystem::path& file, uint32_t frames, std::string& error) {
+				HMODULE module = pix_loaded ? GetModuleHandleW(L"WinPixGpuCapturer.dll") : nullptr;
+				if (module == nullptr) {
+					error = "PIX's capturer is not loaded: start the process with HOTBITE_PIX=1";
+					return false;
+				}
+				//The export the WinPixEventRuntime's PIXGpuCaptureNextFrames(PCWSTR fileName, UINT32 numFrames) calls.
+				using CaptureNextFrameFn = HRESULT(WINAPI*)(PCWSTR, UINT32);
+				const CaptureNextFrameFn capture = (CaptureNextFrameFn)GetProcAddress(module, "CaptureNextFrame");
+				if (capture == nullptr) {
+					error = "this PIX's capturer has no CaptureNextFrame";
+					return false;
+				}
+				std::error_code ec;
+				const std::filesystem::path full = std::filesystem::absolute(file, ec);
+				std::filesystem::create_directories(full.parent_path(), ec);
+				const HRESULT hr = capture(full.c_str(), frames == 0 ? 1u : (UINT32)frames);
+				if (FAILED(hr)) {
+					char text[64];
+					sprintf_s(text, "the capturer refused the capture (0x%08X)", (unsigned)hr);
+					error = text;
+					return false;
+				}
+				LOG_INFO("GfxDevice: PIX GPU capture of %u frame(s) requested: %s", (unsigned)frames, full.string().c_str());
+				return true;
 			}
 
 			void GfxDevice::CreateNullDescriptors() {
@@ -511,6 +617,9 @@ namespace HotBite {
 				}
 				immediate_fence.Reset();
 				fence.Reset();
+				sync_fence[0].Reset();
+				sync_fence[1].Reset();
+				compute_queue.Reset();
 				queue.Reset();
 				zero_buffer.Reset();
 				null_heap.Reset();
@@ -528,6 +637,33 @@ namespace HotBite {
 				std::lock_guard<std::mutex> lock(queue_mutex);
 				ID3D12CommandList* lists[] = { list };
 				queue->ExecuteCommandLists(1, lists);
+				const uint64_t serial = recording_serial.fetch_add(1);
+				queue->Signal(fence.Get(), serial);
+				return serial;
+			}
+
+			void GfxDevice::ExecuteSegment(int queue_index, ID3D12CommandList* list, const QueueWait* waits, UINT wait_count,
+				uint64_t signal_value) {
+				std::lock_guard<std::mutex> lock(queue_mutex);
+				ID3D12CommandQueue* target = (queue_index == QUEUE_COMPUTE && compute_queue != nullptr) ? compute_queue.Get() : queue.Get();
+				if (target == compute_queue.Get() && immediate_value != 0) {
+					//What the compute queue reads may have been made, with its contents, by an immediate upload: those run on
+					//the direct queue the moment they are asked for, ahead of every frame.
+					target->Wait(immediate_fence.Get(), immediate_value);
+				}
+				for (UINT i = 0; i < wait_count; ++i) {
+					target->Wait(sync_fence[waits[i].queue].Get(), waits[i].value);
+				}
+				ID3D12CommandList* lists[] = { list };
+				target->ExecuteCommandLists(1, lists);
+				target->Signal(sync_fence[queue_index].Get(), signal_value);
+			}
+
+			uint64_t GfxDevice::FinishFrame(const QueueWait* join) {
+				std::lock_guard<std::mutex> lock(queue_mutex);
+				if (join != nullptr) {
+					queue->Wait(sync_fence[join->queue].Get(), join->value);
+				}
 				const uint64_t serial = recording_serial.fetch_add(1);
 				queue->Signal(fence.Get(), serial);
 				return serial;

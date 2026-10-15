@@ -169,8 +169,33 @@ namespace HotBite {
 				void DrawInstanced(UINT vertex_count, UINT instance_count, UINT start_vertex, UINT start_instance);
 				void DrawIndexed(UINT index_count, UINT start_index, INT base_vertex);
 				void DrawIndexedInstanced(UINT index_count, UINT instance_count, UINT start_index, INT base_vertex, UINT start_instance);
-				void Dispatch(UINT x, UINT y, UINT z);
-				void DispatchIndirect(GfxBuffer* args, UINT offset);
+				//`async` asks for the compute queue: the dispatch runs beside the graphics work that follows it in the frame,
+				//and whatever it reads or writes is synchronised with the rest of the frame by the resources' own tracking
+				//(see "Async compute" below), so any dispatch may be flagged. It has no effect while async compute is off
+				//or the device has no compute queue: the dispatch is then recorded in order, as if it were not flagged.
+				void Dispatch(UINT x, UINT y, UINT z, bool async = false);
+				void DispatchIndirect(GfxBuffer* args, UINT offset, bool async = false);
+
+				//---- async compute --------------------------------------------------------------------
+				//
+				//A frame is recorded as *segments*: a command list on the direct or the compute queue that starts after
+				//the waits it was given and signals a value of its queue's sync fence when it ends. Commands are recorded
+				//in the order the engine issues them, as before; what changes is that a flagged dispatch goes to the
+				//compute list, and that every use of a resource (UseSubresource) is checked against the other queue's:
+				//
+				//  - the queue that wrote it last, and the queues that read it since, are remembered per resource;
+				//  - a use on the other queue that conflicts (a read after a write, a write after anything, and every state
+				//    transition, which counts as a write) makes its queue wait for the segment of that earlier use, which
+				//    closes that segment and starts a new one after the wait;
+				//  - a compute list can only change a resource between compute states (UAV, non-pixel shader resource,
+				//    copy, indirect argument): a transition from or to anything else is recorded on the direct list, ahead
+				//    of the point the compute queue is made to wait for.
+				//
+				//Submit() executes the segments in the order they were closed, and the direct queue ends the frame
+				//waiting for the last compute segment, so a frame serial still means the whole frame is done.
+				//Off, nothing is ever recorded on the compute queue and a frame is one direct segment.
+				void SetAsyncCompute(bool enabled);
+				bool AsyncCompute() const { return async_enabled && gfx != nullptr && gfx->HasComputeQueue(); }
 
 				//---- clears and copies --------------------------------------------------------------
 
@@ -207,6 +232,10 @@ namespace HotBite {
 				ID3D12GraphicsCommandList* BeginExternal();
 				void EndExternal();
 
+				//A named point in the direct queue's commands, for PIX (its event list and timeline). Does nothing unless PIX's
+				//capturer is in the process (GfxDevice::PixCapturerLoaded, HOTBITE_PIX=1).
+				void Marker(const char* name);
+
 				void BeginQuery(GfxQueryHeap* heap, UINT index);
 				void EndQuery(GfxQueryHeap* heap, UINT index);
 				//Copies `count` results from `first` into the heap's readback buffer; they can be read when heap->Ready().
@@ -241,6 +270,14 @@ namespace HotBite {
 				Stats stats;
 				size_t PipelineCount() const { return graphics_pipelines.size() + compute_pipelines.size(); }
 
+				//Async compute counters of the frame being recorded; the engine reads them through RenderSystem.
+				struct AsyncStats {
+					uint32_t dispatches = 0;		//dispatches recorded on the compute queue
+					uint32_t segments = 0;			//command lists the frame was split into
+					uint32_t waits = 0;				//waits one queue was made to do for the other
+				};
+				AsyncStats async_stats;
+
 			private:
 				struct StageState {
 					GfxRef<GfxShader> shader;
@@ -255,6 +292,8 @@ namespace HotBite {
 					bool uav_dirty = true;
 					//What the bound constant buffer table was built from, to notice a buffer that was rewritten.
 					D3D12_GPU_VIRTUAL_ADDRESS cb_bound[GFX_CBV_SLOTS] = {};
+					//The list the tables below were set on (compute only: a dispatch may go to either queue's list).
+					uint64_t table_epoch = 0;
 					//Root descriptor tables currently set on the list.
 					D3D12_GPU_DESCRIPTOR_HANDLE srv_table = {};
 					D3D12_GPU_DESCRIPTOR_HANDLE cb_table = {};
@@ -307,10 +346,60 @@ namespace HotBite {
 				};
 
 				GfxDevice* gfx = nullptr;
+				//The direct list is open (commands are being recorded into `list`).
 				bool open = false;
+				//The frame has begun: its slot is free to use and the rings are reset (see BeginFrame).
+				bool frame_open = false;
 
+				//The open direct list, one of direct_pool (a frame may use several: a list is closed when the direct queue has
+				//to wait for the compute queue, and the commands after the wait go to the next one).
 				Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> list;
+				std::vector<Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList>> direct_pool;
+				UINT direct_used = 0;
 				Microsoft::WRL::ComPtr<ID3D12CommandAllocator> allocators[GFX_FRAMES_IN_FLIGHT];
+
+				//Async compute (see the public section): the open compute list, its pool and allocators, and the bookkeeping
+				//that decides what each queue waits for.
+				//Off unless HOTBITE_ASYNC_COMPUTE=1 or SetAsyncCompute(true): measured, it does not pay on this renderer
+				//(see Docs/D3D12_MIGRATION.md, "Async compute").
+				bool async_enabled = false;
+				Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> async_list;
+				bool async_open = false;
+				//Something has been recorded in the open compute list (a wait that would have to precede it cuts the list).
+				bool async_work = false;
+				std::vector<Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList>> async_pool;
+				UINT async_used = 0;
+				Microsoft::WRL::ComPtr<ID3D12CommandAllocator> async_allocators[GFX_FRAMES_IN_FLIGHT];
+				bool async_root_set = false;
+				ID3D12PipelineState* async_pipeline = nullptr;
+				std::vector<D3D12_RESOURCE_BARRIER> async_barriers;
+				//Which queue the commands being resolved belong to (0 direct, 1 compute): where UseSubresource puts barriers.
+				int rec_queue = 0;
+				//Transitions were recorded on the direct list for the compute dispatch being resolved.
+				bool direct_sync_pending = false;
+				//The value of the sync fence the open segment of each queue will signal (or the next one, when none is open).
+				uint64_t seg_value[2] = { 1, 1 };
+				//What the open segment of each queue waits for before it starts.
+				std::vector<GfxDevice::QueueWait> seg_waits[2];
+				//waited[q][o]: the highest value of queue o's sync fence that the commands recorded on queue q from now on
+				//are ordered after.
+				uint64_t waited[2][2] = {};
+				//Each list that was closed this frame, in the order of closing, executed in that order by Submit.
+				struct Segment {
+					int queue = 0;
+					Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> list;
+					std::vector<GfxDevice::QueueWait> waits;
+					uint64_t value = 0;
+				};
+				std::vector<Segment> segments;
+				//Lists closed so far, to notice that resolving a command closed the one it was recording into.
+				uint64_t cut_counter = 0;
+				//Each list that is opened gets a number, so the compute stage knows which list its tables were set on.
+				uint64_t epoch_counter = 0;
+				uint64_t direct_epoch = 0;
+				uint64_t async_epoch = 0;
+				//The last compute segment executed this frame: what the direct queue ends the frame waiting for.
+				uint64_t compute_last_value = 0;
 				//The serial each slot was last submitted under, to wait for before reusing its allocator and rings.
 				uint64_t slot_serial[GFX_FRAMES_IN_FLIGHT] = {};
 				UINT slot = 0;
@@ -375,10 +464,39 @@ namespace HotBite {
 
 				bool CreateRootSignatures();
 				bool CreateRings();
+				//Opens the direct list (and the frame, if it has not begun).
 				void EnsureOpen();
+				void BeginFrame();
+				void OpenDirect();
+				void EnsureOpenAsync();
+				void CloseDirect();
+				void CloseAsync();
+				void CloseQueue(int queue) { if (queue == GfxDevice::QUEUE_DIRECT) { CloseDirect(); } else { CloseAsync(); } }
+				bool QueueOpen(int queue) const { return queue == GfxDevice::QUEUE_DIRECT ? open : async_open; }
+				//The segment of queue q that is open, or opened now.
+				void EnsureOpenQueue(int queue);
 				void ResetRings();
 				void MarkAllDirty();
 				void FlushBarriers();
+				void FlushAsyncBarriers();
+
+				//Cross-queue ordering. Make(q, o, value): the commands queue q records from now on run after segment `value`
+				//of queue o (closing it if it is still open). Touch: a use of a resource on queue q, with the waits it needs;
+				//it leaves queue q's segment open.
+				void MakeWait(int q, int o, uint64_t value);
+				void WaitForAll(int q, int o);
+				void Touch(GfxResource* resource, bool write, int q);
+				//The hazard bookkeeping alone, for a use that has already been ordered (a transition made on the direct queue
+				//for the compute queue's benefit).
+				void Register(GfxResource* resource, bool write, int q);
+				bool Tracking() const { return gfx->HasComputeQueue(); }
+				Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> NewList(D3D12_COMMAND_LIST_TYPE type, ID3D12CommandAllocator* allocator);
+
+				//Moves everything a draw or a dispatch is going to use to the state it needs (this is where a queue may have
+				//to wait). They come before any command of the draw is recorded, because they may close the list.
+				void UseStageSRVs(GfxShader::Stage stage);
+				bool ResolveGraphicsUses();
+				void ResolveComputeUses(GfxBuffer* indirect_args);
 
 				void SetShader(GfxShader::Stage stage, GfxShader* shader);
 				void SetSRVs(GfxShader::Stage stage, UINT start, UINT count, GfxSRV* const* views);
@@ -391,8 +509,11 @@ namespace HotBite {
 												void TraceStage(const char* what, GfxShader::Stage stage);
 												uint64_t trace_serial = 0;
 												bool tracing = false;
-				bool PrepareCompute();
-				bool ResolveStage(GfxShader::Stage stage, bool compute);
+				bool PrepareCompute(bool async, GfxBuffer* indirect_args);
+				template<class F>
+				void RecordDispatch(bool async, F&& record);
+				//Builds the descriptor tables of one stage and sets them on `target` (the open direct list, or the compute one).
+				bool ResolveStage(GfxShader::Stage stage, bool compute, ID3D12GraphicsCommandList* target);
 				ID3D12PipelineState* GraphicsPipeline();
 				ID3D12PipelineState* ComputePipeline();
 
@@ -401,6 +522,10 @@ namespace HotBite {
 				void RepublishConstantBuffer(GfxBuffer* buffer);
 
 				//State transitions.
+				//One use of a resource, `before` being the state it is in now (of a subresource, or of all of them when
+				//`subresource` is D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES): the barrier if one is needed, and what the queues
+				//have to wait for.
+				void UseImpl(GfxResource* resource, UINT subresource, D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after);
 				void UseSubresource(GfxResource* resource, UINT subresource, D3D12_RESOURCE_STATES state);
 				void UseView(const GfxView* view, D3D12_RESOURCE_STATES state);
 				void UseResource(GfxResource* resource, D3D12_RESOURCE_STATES state);

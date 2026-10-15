@@ -178,7 +178,7 @@ void TiledLights::Upload(const PackedLight* lights, uint32_t count) {
 }
 
 void TiledLights::Cull(const float4x4& view, const float4x4& projection_inverse,
-	GfxSRV* positions, bool collect_stats, bool culling)
+	GfxSRV* positions, bool collect_stats, bool culling, bool async)
 {
 	if (cull_shader == nullptr || positions == nullptr) {
 		return;
@@ -216,7 +216,7 @@ void TiledLights::Cull(const float4x4& view, const float4x4& projection_inverse,
 	cull_shader->SetUnorderedAccessView("tileStats", stats_buffer.UAV());
 	cull_shader->CopyAllBufferData();
 	cull_shader->SetShader();
-	context->Dispatch(tiles_x, tiles_y, 1);
+	context->Dispatch(tiles_x, tiles_y, 1, async);
 	cull_shader->SetShaderResourceView("positionTexture", nullptr);
 	cull_shader->SetShaderResourceView("lightsBuffer", nullptr);
 	cull_shader->SetUnorderedAccessView("tileMasks", nullptr);

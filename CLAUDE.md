@@ -16,7 +16,15 @@ engine's classes (`Texture`s, `DynamicTexture2D`, `DXCore::SaveBackBuffer`, widg
 level 12_0, SM6.0, resource binding tier 2. Direct2D cannot target D3D12, so `Label` text is drawn
 by Direct2D on a WIC bitmap on the CPU and uploaded (`Direct2D::RenderText` + `DynamicTexture2D`).
 Diagnostics: `HOTBITE_D3D12_DEBUG=1` (debug layer), `HOTBITE_LOG=<file>`, `HOTBITE_GFX_TRACE=<serial>`,
-`HOTBITE_DUMP_DIR=<dir>` (see the migration doc).
+`HOTBITE_DUMP_DIR=<dir>` (see the migration doc). `HOTBITE_PIX=1` loads PIX's GPU capturer at start so PIX can attach
+to the running process and capture a frame (the passes are named markers).
+**Async compute.** `Dispatch(x, y, z, async)` (and `DispatchByGroups/Threads`, `TiledLights::Cull`) can put a dispatch on a
+second, COMPUTE queue; a frame is then several command lists (segments) ordered by the resources' own last-writer/last-reader tracking
+(`GfxContext::Touch`/`MakeWait`), and the direct queue ends the frame waiting for the last compute one, so a frame serial still means
+the whole frame. **Off by default** (`HOTBITE_ASYNC_COMPUTE=1`, `RenderSystem::SetAsyncCompute`, automation `async_compute`):
+measured, flagging every pass loses 3-5% and nothing gains reliably (the reflections beside GI: -0.1% to +3.9% over four noisy
+runs), see the migration doc, "Async compute". A new resource
+use must go through `UseSubresource`/`UseView`/`UseResource` (never a barrier by hand) or the queues cannot order it.
 
 ## Secrets — none belong in this repository
 
@@ -117,11 +125,15 @@ ran the same `.cso` and read as "the feature does nothing":
   skinning VS turned whole frames into garbage), a global `float` needs `static const`, `[unroll]` needs
   a compile-time bound, and a PSO cannot mix SM5 and SM6 stages. See memory `hotbite_dxc_vs_fxc_traps`
   and the migration doc. Where this file below says "fxc", the same applies to DXC.
-- **Exception, known problem: `DeferredLightCS` and `DeferredLightRaysCS` are built by fxc (SM 5.0, /O3), not DXC.** DXC
+- **Exception, known problem: the lighting shader that runs (`DeferredLightAllCS` / `AllRaysCS`) is built by fxc (SM 5.0, /O3), not DXC.** DXC
   makes the ray traced lighting shader 2-2.5x slower from the same HLSL (22.0 ms against 8.7 ms in Survival's
-  `67-rt-shadow-stress`). They carry `HotBiteFxc` metadata in `Engine.vcxproj` (`Dxc.targets` runs fxc on them) and
-  are listed in `UsesFxc` in `ShaderCompiler.cpp` (hot reload; a reload of the rays shader takes ~90 s). Fix DXC's
-  output and remove both: migration doc, *Performance*. A pipeline cannot mix SM5 and SM6, so only compute stages.
+  `67-rt-shadow-stress`). The `*FxcCS.hlsl` twins carry `HotBiteFxc` metadata in `Engine.vcxproj` (`Dxc.targets` runs fxc on them) and
+  are listed in `UsesFxc` in `ShaderCompiler.cpp` (hot reload; a reload of a rays shader takes ~90 s). Fix DXC's
+  output and switch `RenderSystem::lighting_compiler` back: migration doc, *Performance*. A pipeline cannot mix SM5 and SM6, so only compute stages.
+- **Lighting permutations** (`DeferredLightCS.hlsl` + `DeferredLightRaysCS` / `WaterCS` / `LavaCS`, each also as an `*FxcCS` twin): the lighting cut
+  into ordinary surfaces with the lights that need no ray, the lights that trace, water, lava (those two only when the geometry pass drew some).
+  Same picture (suites 67 and 50), **not faster** (fxc: +3.6% on the lighting pass in the stress scene; DXC: -3 to -18% and still 2x behind fxc),
+  so off by default: `lighting_shaders split|single [dxc|fxc|auto]`, `HOTBITE_LIGHT_SPLIT`, `HOTBITE_LIGHT_COMPILER`. Numbers and next steps: migration doc.
 - **Shader symbols for PIX are on by default** (`-Zi`, `HotBiteShaderDebug=embed`: each `.cso` carries its debug
   module and source; `pdb` writes `<hash>.pdb` to `ShaderPdb\` instead, `none` turns it off). The generated code is
   identical with or without them. Changing the mode rebuilds the project's shaders (`hotbite-dxc.flags` stamp).

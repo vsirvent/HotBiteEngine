@@ -49,6 +49,7 @@ SOFTWARE.
 #include <bitset>
 #include <cstdint>
 #include <deque>
+#include <filesystem>
 #include <functional>
 #include <mutex>
 #include <string>
@@ -165,6 +166,13 @@ namespace HotBite {
 				//Set when a dispatch or draw wrote the resource through a UAV: the next access needs a UAV
 				//barrier (or the transition that replaces it).
 				bool uav_dirty = false;
+
+				//Which queue touched the resource last (GfxContext, async compute): the queue that wrote it and the
+				//sync fence value of the command list segment that did, and the same for each queue's reads since that
+				//write. 0 = nothing recorded. A command on the other queue that conflicts waits for these values.
+				uint8_t last_write_queue = 0;
+				uint64_t last_write_value = 0;
+				uint64_t last_read_value[2] = { 0, 0 };
 
 			protected:
 				friend class GfxDevice;
@@ -457,6 +465,7 @@ namespace HotBite {
 
 				ID3D12Device* Device() const { return device.Get(); }
 				ID3D12CommandQueue* Queue() const { return queue.Get(); }
+				ID3D12CommandQueue* ComputeQueue() const { return compute_queue.Get(); }
 				IDXGIFactory4* Factory() const { return factory.Get(); }
 				IDXGIAdapter1* Adapter() const { return adapter.Get(); }
 				D3D_FEATURE_LEVEL FeatureLevel() const { return feature_level; }
@@ -526,6 +535,29 @@ namespace HotBite {
 				WaitStats TakeWaitStats();
 				//Submitted by GfxContext when it executes a frame; returns the serial that frame was given.
 				uint64_t SubmitFrame(ID3D12CommandList* list);
+
+				//---- the compute queue ----------------------------------------------------------------
+				//
+				//A second queue, of type COMPUTE, that runs beside the direct one: a dispatch flagged async goes there
+				//and overlaps the graphics work of the frame. A frame is a sequence of *segments* - a command list on
+				//one of the queues, started after some waits, signalling a value when it is done. The values are the
+				//sync fences', one per queue, and only ever grow (also across frames). Every frame's segments are
+				//executed by GfxContext::Submit, and the direct queue ends the frame by waiting for the last compute
+				//segment, so a frame serial still means that all of the frame is done.
+				static constexpr int QUEUE_DIRECT = 0;
+				static constexpr int QUEUE_COMPUTE = 1;
+				struct QueueWait {
+					int queue;			//the queue whose segment is waited for
+					uint64_t value;		//the value of its sync fence
+				};
+				bool HasComputeQueue() const { return compute_queue != nullptr; }
+				//Executes one segment: the queue first waits for `waits`, runs `list`, then signals its sync fence with
+				//`signal_value`. A compute segment also waits for the immediate uploads made so far (new resources).
+				void ExecuteSegment(int queue_index, ID3D12CommandList* list, const QueueWait* waits, UINT wait_count,
+					uint64_t signal_value);
+				//Ends a frame whose segments were executed: the direct queue waits for `join` (the last compute
+				//segment, if there was one), then signals the frame fence. Returns the frame's serial.
+				uint64_t FinishFrame(const QueueWait* join);
 				std::mutex wait_stats_mutex;
 				WaitStats wait_stats;
 				//Blocks until the queue is empty.
@@ -565,6 +597,16 @@ namespace HotBite {
 				uint64_t ValidationErrors() const { return validation_errors; }
 				bool DebugLayerEnabled() const { return debug_layer; }
 
+				//---- PIX --------------------------------------------------------------------------
+
+				//True when PIX's GPU capturer is in the process (HOTBITE_PIX=1, loaded before the device exists, or PIX
+				//started the process): PIX can attach and capture, and the frame's passes carry marker names.
+				bool PixCapturerLoaded() const { return pix_loaded; }
+				//Asks the capturer to save the next `frames` frames (Present to Present) as a GPU capture, `file` a full path ending
+				//in .wpix; it returns at once and the file appears when the capture is written, a few seconds later or more
+				//(open it in PIX). False with `error` set when the capturer is not loaded or refuses.
+				bool PixCaptureNextFrames(const std::filesystem::path& file, uint32_t frames, std::string& error);
+
 			private:
 				static GfxDevice* instance;
 
@@ -572,7 +614,10 @@ namespace HotBite {
 				Microsoft::WRL::ComPtr<IDXGIAdapter1> adapter;
 				Microsoft::WRL::ComPtr<ID3D12Device> device;
 				Microsoft::WRL::ComPtr<ID3D12CommandQueue> queue;
+				Microsoft::WRL::ComPtr<ID3D12CommandQueue> compute_queue;
 				Microsoft::WRL::ComPtr<ID3D12Fence> fence;
+				//One per queue, signalled by the segments (see ExecuteSegment).
+				Microsoft::WRL::ComPtr<ID3D12Fence> sync_fence[2];
 				HANDLE fence_event = nullptr;
 				//The serial the frame being recorded will be signalled with.
 				std::atomic<uint64_t> recording_serial{ 1 };
@@ -580,6 +625,7 @@ namespace HotBite {
 				D3D_FEATURE_LEVEL feature_level = D3D_FEATURE_LEVEL_12_0;
 				bool allow_tearing = false;
 				bool debug_layer = false;
+				bool pix_loaded = false;
 								uint64_t validation_errors = 0;
 								UINT64 timestamp_frequency = 1;
 								std::string adapter_name;

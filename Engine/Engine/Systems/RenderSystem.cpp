@@ -401,6 +401,30 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		dxcore = dx_core;
 		vertex_buffer = vb;
 		bvh_buffer = bvh;
+		//HOTBITE_ASYNC_PASSES=<all|none|autofocus,hiz,motion,volumetric,gi,rt,tilecull>: which passes ask for the compute queue
+		//(with HOTBITE_ASYNC_COMPUTE=1), for running a suite with every pass on it.
+		{
+			char list[128] = {};
+			size_t len = 0;
+			uint32_t mask = 0;
+			if (getenv_s(&len, list, sizeof(list), "HOTBITE_ASYNC_PASSES") == 0 && len > 0 && ParseAsyncPasses(list, mask)) {
+				async_passes = mask;
+			}
+		}
+		//HOTBITE_LIGHT_SPLIT=0|1 (the lighting permutations or the one shader that does it all) and HOTBITE_LIGHT_COMPILER=dxc|fxc
+		//(who built the lighting shaders the frame runs), for comparing the two in a process of their own.
+		{
+			char value[16] = {};
+			size_t len = 0;
+			if (getenv_s(&len, value, sizeof(value), "HOTBITE_LIGHT_SPLIT") == 0 && len > 0) {
+				lighting_split = value[0] != '0';
+			}
+			len = 0;
+			LightingCompiler chosen;
+			if (getenv_s(&len, value, sizeof(value), "HOTBITE_LIGHT_COMPILER") == 0 && len > 0 && ParseLightingCompiler(value, chosen)) {
+				lighting_compiler = chosen;
+			}
+		}
 		tbvh_buffer.Prepare(MAX_OBJECTS * 2 - 1);
 		first_pass_target = dxcore;
 		int w = dxcore->GetWidth();
@@ -616,13 +640,11 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		if (mixer_shader == nullptr) {
 			throw std::exception("mixer shader.Init failed");
 		}
-		deferred_light = ShaderFactory::Get()->GetShader<SimpleComputeShader>("DeferredLightCS.cso");
-		if (deferred_light == nullptr) {
-			throw std::exception("deferred light shader.Init failed");
-		}
-		deferred_light_rays = ShaderFactory::Get()->GetShader<SimpleComputeShader>("DeferredLightRaysCS.cso");
-		if (deferred_light_rays == nullptr) {
-			throw std::exception("deferred light (rays) shader.Init failed");
+		//The lighting shaders of the compiler this process runs with (the other compiler's are loaded the first time they are asked for).
+		for (int slot = 0; slot < LIGHT_PERMS; ++slot) {
+			if (LightingShader(slot) == nullptr) {
+				throw std::exception("deferred light shader.Init failed");
+			}
 		}
 		aa_shader = ShaderFactory::Get()->GetShader<SimpleComputeShader>("AntiAliasCS.cso");
 		if (aa_shader == nullptr) {
@@ -792,6 +814,7 @@ RenderSystem::~RenderSystem() {
 	}
 
 	rt_textures_gi_tiles.Release();
+	rt_textures_di_tiles.Release();
 	for (int x = 0; x < 2; ++x) {
 		restir_pdf[x].Release();
 	}
@@ -831,7 +854,9 @@ void RenderSystem::LoadRTResources() {
 		
 	uint32_t tile_div = min(restir_div, RT_TEXTURE_RESOLUTION_DIVIDER) * RESTIR_KERNEL;
 	rt_textures_gi_tiles.Release();
-	if (FAILED(rt_textures_gi_tiles.Init(w / tile_div + 1, h/ tile_div + 1, DXGI_FORMAT::DXGI_FORMAT_R8_UINT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
+	rt_textures_di_tiles.Release();
+	if (FAILED(rt_textures_gi_tiles.Init(w / tile_div + 1, h/ tile_div + 1, DXGI_FORMAT::DXGI_FORMAT_R8_UINT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS)) ||
+		FAILED(rt_textures_di_tiles.Init(w / tile_div + 1, h / tile_div + 1, DXGI_FORMAT::DXGI_FORMAT_R8_UINT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
 		throw std::exception("rt_texture.Init failed");
 	}
 
@@ -940,6 +965,14 @@ void RenderSystem::RemoveDrawable(ECS::Entity entity, RenderTree& tree) {
 	}
 }
 
+namespace {
+	//The material shaders that write the water and lava shading models into the material map (WaterPS.hlsl, LavaPS.hlsl): what the
+	//lighting's water and lava permutations are dispatched for (DrawScene notes that one is drawn). A material shader of a game that
+	//writes those models without being one of these two would not be lit: it has to use these shaders.
+	const char* const WATER_SHADER_NAME = "WaterPS.cso";
+	const char* const LAVA_SHADER_NAME = "LavaPS.cso";
+}
+
 void RenderSystem::GpuBegin() {
 	gpu_open = nullptr;
 	if (!gpu_requested || frame_count - gpu_requested_frame > 120) {
@@ -957,11 +990,39 @@ void RenderSystem::GpuBegin() {
 				return;
 			}
 		}
+		f.light_pairs = 0;
 		gpu_open = &f;
 	gpu_next = (gpu_next + 1) % GPU_RING;
 }
 
+void RenderSystem::GpuLightStamp(int perm, bool end) {
+	static const char* const names[LIGHT_PERMS] = { "lighting: standard", "lighting: ray traced lights", "lighting: water", "lighting: lava" };
+	const int pass = lighting_passes_this_frame - 1;
+	if (!end && dxcore->device->PixCapturerLoaded()) {
+		dxcore->context->Marker(names[perm]);
+	}
+	if (gpu_open == nullptr || pass < 0 || pass >= LIGHT_STAMP_PASSES) {
+		return;
+	}
+	const int pair = pass * LIGHT_PERMS + perm;
+	if (end && (gpu_open->light_pairs & (1u << pair)) == 0) {
+		return;
+	}
+	gpu_open->light_pairs |= 1u << pair;
+	dxcore->context->EndQuery(gpu_open->stamps, (UINT)(LIGHT_STAMP_BASE + 2 * pair + (end ? 1 : 0)));
+}
+
 void RenderSystem::GpuStamp(int index) {
+	//The stamps are the frame's pass boundaries, so with PIX's capturer in the process they are also its named markers
+	//(the stamp is where the named pass starts; see GpuResolve for what each pair measures).
+	if (dxcore->device->PixCapturerLoaded()) {
+		static const char* const names[GPU_STAMPS] = {
+			"frame: shadows", "depth pre-pass", "scene (G-buffer)", "motion vectors", "ray traced reflections", "global illumination",
+			"lighting", "mix", "anti-aliasing", "blur and post", "end of post", "tile culling", "deferred lighting", "end of deferred lighting" };
+		if (index >= 0 && index < LIGHT_STAMP_BASE) {
+			dxcore->context->Marker(names[index]);
+		}
+	}
 	if (gpu_open != nullptr) {
 		dxcore->context->EndQuery(gpu_open->stamps, (UINT)index);
 	}
@@ -969,6 +1030,14 @@ void RenderSystem::GpuStamp(int index) {
 
 void RenderSystem::GpuEnd() {
 	if (gpu_open != nullptr) {
+		//A resolve of a query that was never written is undefined: the pairs of the permutations this frame did not dispatch are
+		//written too (and ignored when read, see light_pairs).
+		for (int pair = 0; pair < LIGHT_STAMP_PASSES * LIGHT_PERMS; ++pair) {
+			if ((gpu_open->light_pairs & (1u << pair)) == 0) {
+				dxcore->context->EndQuery(gpu_open->stamps, (UINT)(LIGHT_STAMP_BASE + 2 * pair));
+				dxcore->context->EndQuery(gpu_open->stamps, (UINT)(LIGHT_STAMP_BASE + 2 * pair + 1));
+			}
+		}
 		dxcore->context->ResolveQueryData(gpu_open->stamps, 0, GPU_STAMPS);
 				gpu_open->pending = true;
 		gpu_open = nullptr;
@@ -999,6 +1068,18 @@ void RenderSystem::GpuResolve() {
 		gpu_timings.aa += (double)(t[9] - t[8]) * to_ms;
 		gpu_timings.blur += (double)(t[10] - t[9]) * to_ms;
 		gpu_timings.post += (double)(t[10] - t[3]) * to_ms;
+		for (int pair = 0; pair < LIGHT_STAMP_PASSES * LIGHT_PERMS; ++pair) {
+			if ((f.light_pairs & (1u << pair)) == 0) {
+				continue;
+			}
+			const double ms = (double)(t[LIGHT_STAMP_BASE + 2 * pair + 1] - t[LIGHT_STAMP_BASE + 2 * pair]) * to_ms;
+			switch (pair % LIGHT_PERMS) {
+			case LIGHT_STANDARD: gpu_timings.light_standard += ms; break;
+			case LIGHT_RT: gpu_timings.light_rt += ms; break;
+			case LIGHT_WATER: gpu_timings.light_water += ms; break;
+			default: gpu_timings.light_lava += ms; break;
+			}
+		}
 		++gpu_timings.frames;
 	}
 }
@@ -2024,7 +2105,10 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 	context->OMSetRenderTargets(8, rv, depth_target_view);
 	//Depth writes stay on: what the pre-pass skipped (alpha-tested and blended
 	//materials, and the second-pass tree, which is not in depth_tree at all) still has
-	//to occlude itself and whatever comes after it.
+	//to occlude itself and whatever comes after it. (Tried 2026-10-15: testing against the
+	//pre-pass depth without writing it, per material, for what the pre-pass drew. No
+	//difference in the frame rate, and the editor's shadow tests (18, 46, 47) stopped
+	//passing: the shadow map's picture lost its shadow. Not understood, so not kept.)
 	context->OMSetDepthStencilState(dxcore->depth_prepass, 1);
 	context->RSSetViewports(1, &dxcore->viewport);
 	if (wireframe_enabled) {
@@ -2067,6 +2151,11 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 	//Which of the two geometry passes this is, written into the material map so the deferred
 	//lighting can tell what the second pass drew over the first (GBUFFER_PASS2).
 	const int render_pass = (prev_pass_texture != nullptr) ? 2 : 1;
+	//Whether this pass draws any water or lava (the engine's shaders for them, the only ones that write those shading models into
+	//the material map): the lighting dispatches the permutation of a material only when it is there (ProcessDeferredLighting).
+	scene_has_water[render_pass - 1] = false;
+	scene_has_lava[render_pass - 1] = false;
+	int ps_light_model = 0;
 
 	context->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST);
 	for (auto &shaders : tree) {
@@ -2150,7 +2239,14 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 				}
 			}
 			ps = new_ps;
+			ps_light_model = 0;
 			if (ps) {
+				if (ps->GetName() == WATER_SHADER_NAME) {
+					ps_light_model = 1;
+				}
+				else if (ps->GetName() == LAVA_SHADER_NAME) {
+					ps_light_model = 2;
+				}
 				float3 dir;
 				XMStoreFloat3(&dir, cam_entity.camera->xm_direction);
 				ps->SetFloat(TIME, time);
@@ -2196,6 +2292,17 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 		for (auto &mat: shaders.second) {
 			if (!mat.second.second.GetData().empty()) {
 				PrepareMaterial(mat.first, vs, hs, ds, gs, ps);
+				if (ps_light_model != 0) {
+					bool& seen = (ps_light_model == 1) ? scene_has_water[render_pass - 1] : scene_has_lava[render_pass - 1];
+					if (!seen) {
+						for (const DrawableEntity& de : mat.second.second.GetData()) {
+							if (de.base->visible && de.base->scene_visible) {
+								seen = true;
+								break;
+							}
+						}
+					}
+				}
 				//The stack belongs to the *material*, not to the representative entity's
 				//component: this bucket draws every entity using mat.first with one set
 				//of layer constants, so there is only one stack it could ever apply.
@@ -3071,7 +3178,7 @@ void RenderSystem::ProcessAutoFocus() {
 	autofocus_shader->SetUnorderedAccessView("focusOutput", autofocus_map.UAV());
 	autofocus_shader->CopyAllBufferData();
 	autofocus_shader->SetShader();
-	dxcore->context->Dispatch(1, 1, 1);
+	dxcore->context->Dispatch(1, 1, 1, Async(ASYNC_AUTOFOCUS));
 	autofocus_shader->SetShaderResourceView("depthTexture", nullptr);
 	autofocus_shader->SetUnorderedAccessView("focusOutput", nullptr);
 	autofocus_shader->CopyAllBufferData();
@@ -3151,7 +3258,7 @@ void RenderSystem::ProcessMotion() {
 		motion_shader->SetShaderResourceView("prevPositionTexture", prev_position_map.SRV());
 		motion_shader->CopyAllBufferData();
 		motion_shader->SetShader();
-		dxcore->context->Dispatch(groupsX, groupsY, 1);
+		dxcore->context->Dispatch(groupsX, groupsY, 1, Async(ASYNC_MOTION));
 		motion_shader->SetUnorderedAccessView("output", nullptr);
 		motion_shader->SetShaderResourceView("positionTexture", nullptr);
 		motion_shader->SetShaderResourceView("prevPositionTexture", nullptr);
@@ -3207,7 +3314,7 @@ void RenderSystem::ProcessHighZ() {
 		high_z_shader->SetUnorderedAccessView("output", output.UAV());
 		high_z_shader->CopyAllBufferData();
 		high_z_shader->SetShader();
-		dxcore->context->Dispatch((uint32_t)ceil((float)output.Width() / 8.0f), (uint32_t)ceil((float)output.Height() / 8.0f), 1);
+		dxcore->context->Dispatch((uint32_t)ceil((float)output.Width() / 8.0f), (uint32_t)ceil((float)output.Height() / 8.0f), 1, Async(ASYNC_HIZ));
 		high_z_shader->SetShaderResourceView("input", nullptr);
 		high_z_shader->SetUnorderedAccessView("output", nullptr);
 		high_z_shader->CopyAllBufferData();
@@ -3460,7 +3567,7 @@ void RenderSystem::ProcessGI() {
 
 		int groupsX = (int32_t)(ceil((float)rt_texture_gi_curr->Width() / (8.0f)));
 		int groupsY = (int32_t)(ceil((float)rt_texture_gi_curr->Height() / (8.0f)));
-		dxcore->context->Dispatch((uint32_t)ceil((float)groupsX), (uint32_t)ceil((float)groupsY), 1);
+		dxcore->context->Dispatch((uint32_t)ceil((float)groupsX), (uint32_t)ceil((float)groupsY), 1, Async(ASYNC_GI));
 
 		gi_shader->SetShaderResourceView("restir_pdf_0", nullptr);
 		gi_shader->SetShaderResourceView("restir_w_0", nullptr);
@@ -3491,7 +3598,7 @@ void RenderSystem::ProcessGI() {
 		gi_weights->SetInt("frame_count", frame_count);
 		gi_weights->CopyAllBufferData();
 
-		dxcore->context->Dispatch(groupsX, groupsY, 1);
+		dxcore->context->Dispatch(groupsX, groupsY, 1, Async(ASYNC_GI));
 
 		gi_weights->SetShaderResourceView("restir_pdf_0", nullptr);
 		gi_weights->SetUnorderedAccessView("restir_pdf_1", nullptr);
@@ -3509,7 +3616,7 @@ void RenderSystem::ProcessGI() {
 		rcache_resolve->SetUnorderedAccessView("rcache_value", rcache_value.UAV());
 		rcache_resolve->SetUnorderedAccessView("rcache_stats", rcache_stats.UAV());
 		rcache_resolve->CopyAllBufferData();
-		dxcore->context->Dispatch(RADIANCE_CACHE_ENTRIES / 64, 1, 1);
+		dxcore->context->Dispatch(RADIANCE_CACHE_ENTRIES / 64, 1, 1, Async(ASYNC_GI));
 		rcache_resolve->SetUnorderedAccessView("rcache", nullptr);
 		rcache_resolve->SetUnorderedAccessView("rcache_value", nullptr);
 		rcache_resolve->SetUnorderedAccessView("rcache_stats", nullptr);
@@ -3564,7 +3671,7 @@ void RenderSystem::ProcessGI() {
 		gi_average->SetUnorderedAccessView("output", rt_texture_gi_tmp[0]->UAV());
 		gi_average->CopyAllBufferData();
 		gi_average->SetShader();
-		dxcore->context->Dispatch(groupsX, groupsY, 1);
+		dxcore->context->Dispatch(groupsX, groupsY, 1, Async(ASYNC_GI));
 		gi_average->SetShaderResourceView("input", nullptr);
 		gi_average->SetUnorderedAccessView("output", nullptr);
 		gi_average->CopyAllBufferData();
@@ -3576,7 +3683,7 @@ void RenderSystem::ProcessGI() {
 		gi_average->SetUnorderedAccessView("output", rt_texture_gi_tmp[1]->UAV());
 		gi_average->CopyAllBufferData();
 		gi_average->SetShader();
-		dxcore->context->Dispatch(groupsX, groupsY, 1);
+		dxcore->context->Dispatch(groupsX, groupsY, 1, Async(ASYNC_GI));
 		gi_average->SetShaderResourceView("input", nullptr);
 		gi_average->SetUnorderedAccessView("output", nullptr);
 		gi_average->CopyAllBufferData();
@@ -3587,7 +3694,7 @@ void RenderSystem::ProcessGI() {
 		gi_average->SetUnorderedAccessView("output", rt_texture_gi_curr->UAV());
 		gi_average->CopyAllBufferData();
 		gi_average->SetShader();
-		dxcore->context->Dispatch(groupsX, groupsY, 1);
+		dxcore->context->Dispatch(groupsX, groupsY, 1, Async(ASYNC_GI));
 #else
 		//Pass 2 
 		gi_average->SetInt("type", 2);
@@ -3596,7 +3703,7 @@ void RenderSystem::ProcessGI() {
 		gi_average->SetUnorderedAccessView("output", rt_texture_gi_curr->UAV());
 		gi_average->CopyAllBufferData();
 		gi_average->SetShader();
-		dxcore->context->Dispatch(groupsX, groupsY, 1);
+		dxcore->context->Dispatch(groupsX, groupsY, 1, Async(ASYNC_GI));
 		gi_average->SetShaderResourceView("input", nullptr);
 		gi_average->SetUnorderedAccessView("output", nullptr);
 		gi_average->CopyAllBufferData();
@@ -3609,7 +3716,7 @@ void RenderSystem::ProcessGI() {
 		gi_average->SetUnorderedAccessView("output", rt_texture_gi_curr->UAV());
 		gi_average->CopyAllBufferData();
 		gi_average->SetShader();
-		dxcore->context->Dispatch(groupsX, groupsY, 1);
+		dxcore->context->Dispatch(groupsX, groupsY, 1, Async(ASYNC_GI));
 #endif
 		gi_average->SetShaderResourceView("input", nullptr);
 		gi_average->SetUnorderedAccessView("output", nullptr);
@@ -3643,7 +3750,7 @@ void RenderSystem::ProcessRT() {
 
 		if (rt_quality != eRtQuality::OFF && rt_enabled && bvh_buffer != nullptr) {
 
-			rt_textures_gi_tiles.Clear(zero);
+			rt_textures_di_tiles.Clear(zero);
 
 			std::lock_guard<std::mutex> lock(rt_mutex);
 			CameraEntity& cam_entity = cameras.GetData()[0];
@@ -3701,10 +3808,10 @@ void RenderSystem::ProcessRT() {
 				ray_reflex_screen_solver->SetUnorderedAccessView("output1", rt_texture_di_curr[RT_TEXTURE_REFRACT].UAV());
 				ray_reflex_screen_solver->SetUnorderedAccessView("ray_list", rt_ray_list.UAV());
 				ray_reflex_screen_solver->SetUnorderedAccessView("ray_counts", rt_ray_counts.UAV());
-				ray_reflex_screen_solver->SetUnorderedAccessView("tiles_output", rt_textures_gi_tiles.UAV());
+				ray_reflex_screen_solver->SetUnorderedAccessView("tiles_output", rt_textures_di_tiles.UAV());
 				ray_reflex_screen_solver->CopyAllBufferData();
 				ray_reflex_screen_solver->SetShader();
-				dxcore->context->Dispatch(groupsX, groupsY, 1);
+				dxcore->context->Dispatch(groupsX, groupsY, 1, AsyncReflections());
 
 				ray_reflex_screen_solver->SetShaderResourceView("ray0", nullptr);
 				ray_reflex_screen_solver->SetShaderResourceView("ray1", nullptr);
@@ -3730,7 +3837,7 @@ void RenderSystem::ProcessRT() {
 					ray_list_args->SetUnorderedAccessView("ray_counts", rt_ray_counts.UAV());
 					ray_list_args->CopyAllBufferData();
 					ray_list_args->SetShader();
-					dxcore->context->Dispatch(1, 1, 1);
+					dxcore->context->Dispatch(1, 1, 1, AsyncReflections());
 					ray_list_args->SetUnorderedAccessView("dispatch_args", nullptr);
 					ray_list_args->SetUnorderedAccessView("ray_counts", nullptr);
 					ray_list_args->CopyAllBufferData();
@@ -3761,7 +3868,7 @@ void RenderSystem::ProcessRT() {
 
 				rt_di_shader->SetUnorderedAccessView("output0", rt_texture_di_curr[RT_TEXTURE_REFLEX].UAV());
 				rt_di_shader->SetUnorderedAccessView("output1", rt_texture_di_curr[RT_TEXTURE_REFRACT].UAV());
-				rt_di_shader->SetUnorderedAccessView("tiles_output", rt_textures_gi_tiles.UAV());
+				rt_di_shader->SetUnorderedAccessView("tiles_output", rt_textures_di_tiles.UAV());
 				if (use_screen) {
 					rt_di_shader->SetUnorderedAccessView("ray_list", rt_ray_list.UAV());
 					rt_di_shader->SetUnorderedAccessView("ray_counts", rt_ray_counts.UAV());
@@ -3799,13 +3906,13 @@ void RenderSystem::ProcessRT() {
 						rt_di_shader->SetInt("trace_kind", (int)kind);
 						rt_di_shader->CopyAllBufferData();
 						rt_di_shader->SetShader();
-						dxcore->context->DispatchIndirect(rt_ray_args.Buffer(), kind * 3 * sizeof(uint32_t));
+						dxcore->context->DispatchIndirect(rt_ray_args.Buffer(), kind * 3 * sizeof(uint32_t), AsyncReflections());
 					}
 				}
 				else {
 					rt_di_shader->CopyAllBufferData();
 					rt_di_shader->SetShader();
-					dxcore->context->Dispatch(groupsX, groupsY, 2);
+					dxcore->context->Dispatch(groupsX, groupsY, 2, AsyncReflections());
 				}
 
 				rt_di_shader->SetUnorderedAccessView("output0", nullptr);
@@ -3859,7 +3966,7 @@ void RenderSystem::ProcessRT() {
 			//has had this for the same reason; this pass simply never had it plumbed in.
 			rt_di_denoiser->SetMatrix4x4("prev_view_proj", prev_view_projection);
 			rt_di_denoiser->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
-			rt_di_denoiser->SetShaderResourceView("tiles_output", rt_textures_gi_tiles.SRV());
+			rt_di_denoiser->SetShaderResourceView("tiles_output", rt_textures_di_tiles.SRV());
 
 			static constexpr int textures[] = { RT_TEXTURE_REFLEX, RT_TEXTURE_REFRACT };
 			static constexpr int ntextures = sizeof(textures) / sizeof(int);
@@ -3878,7 +3985,7 @@ void RenderSystem::ProcessRT() {
 				rt_di_denoiser->SetShader();
 				groupsX = (int32_t)(ceil((float)rt_texture_di_curr[ntexture].Width() / (8.0f)));
 				groupsY = (int32_t)(ceil((float)rt_texture_di_curr[ntexture].Height() / (8.0f)));
-				dxcore->context->Dispatch(groupsX, groupsY, 1);
+				dxcore->context->Dispatch(groupsX, groupsY, 1, AsyncReflections());
 				rt_di_denoiser->SetShaderResourceView("input", nullptr);
 				rt_di_denoiser->SetUnorderedAccessView("output", nullptr);
 				rt_di_denoiser->CopyAllBufferData();
@@ -3888,7 +3995,7 @@ void RenderSystem::ProcessRT() {
 				rt_di_denoiser->SetUnorderedAccessView("output", rt_texture_di_curr[ntexture].UAV());
 				rt_di_denoiser->SetInt("type", 2);
 				rt_di_denoiser->CopyAllBufferData();
-				dxcore->context->Dispatch(groupsX, groupsY, 1);
+				dxcore->context->Dispatch(groupsX, groupsY, 1, AsyncReflections());
 				rt_di_denoiser->SetShaderResourceView("input", nullptr);
 				rt_di_denoiser->SetUnorderedAccessView("output", nullptr);
 				rt_di_denoiser->SetShaderResourceView("prev_output", nullptr);
@@ -4688,7 +4795,7 @@ void RenderSystem::ProcessShadowBvhDebug() {
 	dxcore->context->CSSetShader(nullptr);
 }
 void RenderSystem::ProcessDeferredLighting(int pass_filter) {
-	if (deferred_light == nullptr || deferred_light_rays == nullptr || cameras.GetData().empty()) {
+	if (LightingShader(lighting_split ? LIGHT_STANDARD : LIGHT_SLOT_ALL) == nullptr || cameras.GetData().empty()) {
 		return;
 	}
 	CameraEntity& cam_entity = cameras.GetData()[0];
@@ -4704,7 +4811,7 @@ void RenderSystem::ProcessDeferredLighting(int pass_filter) {
 		GpuStamp(11);
 	}
 	tiled_lights.Cull(cam_entity.camera->view, cam_entity.camera->inverse_projection, position_map.SRV(), want_stats,
-		tile_culling_enabled);
+		tile_culling_enabled, Async(ASYNC_TILECULL));
 	if (first) {
 		GpuStamp(12);
 	}
@@ -4728,97 +4835,138 @@ void RenderSystem::ProcessDeferredLighting(int pass_filter) {
 		shadow_rt_light.Clear(zero);
 	}
 
-	//Two builds of the lighting shader (DeferredLightCS.hlsl): the one that traces rays is a much slower shader (the GPU
-	//keeps fewer pixels in flight when it holds the BVH walk and the screen march), so a dispatch with nothing to trace
-	//uses the one without.
-	SimpleComputeShader* dl = (world_shadows || screen_shadows) ? deferred_light_rays : deferred_light;
-	PrepareLights(dl);
-	dl->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
-	dl->SetInt(SCREEN_W, w);
-	dl->SetInt(SCREEN_H, h);
-	dl->SetInt("tiles_x", (int)tiled_lights.TilesX());
-	dl->SetInt("pass_filter", pass_filter);
-	dl->SetInt("shadow_ray_objects", world_shadows ? (int)shadow_rays.Count() : 0);
-	dl->SetInt("shadow_ray_sun_scene", (int)shadow_ray_sun_scene);
-	dl->SetInt("ss_steps", screen_shadows ? SHADOW_SCREEN_STEPS : 0);
-	if (screen_shadows) {
-		dl->SetMatrix4x4("ss_view_proj", cam_entity.camera->view_projection);
-		dl->SetFloat("ss_hiz_ratio", (float)HIZ_RATIO);
-		dl->SetFloat("ss_max_distance", SHADOW_SCREEN_DISTANCE);
-		dl->SetFloat("ss_bias", SHADOW_SCREEN_BIAS);
-		dl->SetFloat("ss_thickness", SHADOW_SCREEN_THICKNESS);
-		dl->SetFloat("ss_thickness_rel", SHADOW_SCREEN_THICKNESS_REL);
-		dl->SetShaderResourceViewArray("ssHiZ[0]", high_z_maps, HIZ_NTEXTURES);
+	//The lighting shader is a set of permutations (DeferredLightCS.hlsl), each dispatched over the same tiles and adding what its own
+	//surfaces and lights are owed to the maps: the ordinary surfaces with the lights that need no ray, the same surfaces with the
+	//lights that trace their shadows (when the frame has any and somewhere to trace them), the water, the lava. One that holds only
+	//what its pixels need keeps few registers, so the GPU keeps more of them in flight; the ray tracer's registers are paid by the
+	//pixels of the lights that trace and by nobody else. Water and lava are dispatched only when the geometry pass drew some. With
+	//the split off, the one shader that does it all (the reference, DeferredLightAllCS.hlsl) is dispatched instead.
+	const bool rays_active = world_shadows || screen_shadows;
+	const bool rt_lights = (raytraced_light_count + raytraced_directional_count) > 0;
+	const bool rt_pass = lighting_split && rays_active && rt_lights;
+	const int geometry_pass = (pass_filter == 1) ? 1 : 0;
+	const bool has_water = pass_filter != 2 && scene_has_water[geometry_pass];
+	const bool has_lava = pass_filter != 2 && scene_has_lava[geometry_pass];
+	const bool count_rays_wanted = pass_filter == 0 && shadow_ray_counters_requested && shadow_ray_counters.IsValid() &&
+		frame_count - shadow_ray_counters_frame < TILED_STATS_KEEPALIVE;
+
+	//Binds what every permutation reads and writes (the ray tracer's inputs only when `rays`), dispatches over the tiles and lets go.
+	const auto dispatch = [&](int perm, SimpleComputeShader* dl, bool rays, bool skip_rt, bool accumulate) {
+		if (dl == nullptr) {
+			return;
+		}
+		GpuLightStamp(perm, false);
+		PrepareLights(dl);
+		dl->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
+		dl->SetInt(SCREEN_W, w);
+		dl->SetInt(SCREEN_H, h);
+		dl->SetInt("tiles_x", (int)tiled_lights.TilesX());
+		dl->SetInt("pass_filter", pass_filter);
+		dl->SetInt("skip_rt_lights", skip_rt ? 1 : 0);
+		dl->SetInt("shadow_ray_objects", (rays && world_shadows) ? (int)shadow_rays.Count() : 0);
+		dl->SetInt("shadow_ray_sun_scene", (int)shadow_ray_sun_scene);
+		const bool screen_bound = rays && screen_shadows;
+		dl->SetInt("ss_steps", screen_bound ? SHADOW_SCREEN_STEPS : 0);
+		if (screen_bound) {
+			dl->SetMatrix4x4("ss_view_proj", cam_entity.camera->view_projection);
+			dl->SetFloat("ss_hiz_ratio", (float)HIZ_RATIO);
+			dl->SetFloat("ss_max_distance", SHADOW_SCREEN_DISTANCE);
+			dl->SetFloat("ss_bias", SHADOW_SCREEN_BIAS);
+			dl->SetFloat("ss_thickness", SHADOW_SCREEN_THICKNESS);
+			dl->SetFloat("ss_thickness_rel", SHADOW_SCREEN_THICKNESS_REL);
+			dl->SetShaderResourceViewArray("ssHiZ[0]", high_z_maps, HIZ_NTEXTURES);
+		}
+		if (accumulate) {
+			dl->SetUnorderedAccessView("rt_shadow_out", shadow_rt_light.UAV());
+		}
+		dl->SetInt("shadow_ray_accumulate", accumulate ? 1 : 0);
+		dl->SetFloat("shadow_ray_radius", shadow_ray_radius);
+		dl->SetFloat("shadow_ray_sun_spread", shadow_ray_sun_spread);
+		dl->SetFloat("shadow_ray_sun_distance", shadow_ray_sun_distance);
+		dl->SetInt("shadow_ray_frame", (int)frame_count);
+		dl->SetFloat(TIME, light_time);
+		if (sky != nullptr) {
+			dl->SetFloat("cloud_density", sky->sky->cloud_density);
+		}
+		dl->SetSamplerState(BASIC_SAMPLER, dxcore->basic_sampler);
+		dl->SetSamplerState(PCF_SAMPLER, dxcore->shadow_sampler);
+		dl->SetShaderResourceView("rgbaNoise", rgba_noise_texture.SRV());
+		dl->SetShaderResourceView("positionTexture", position_map.SRV());
+		dl->SetShaderResourceView("normalTexture", rt_ray_sources1.SRV());
+		dl->SetShaderResourceView("materialTexture", material_map.SRV());
+		dl->SetShaderResourceView("lightsBuffer", tiled_lights.LightsSRV());
+		dl->SetShaderResourceView("tileMasks", tiled_lights.MasksSRV());
+		//The ray traced shadow scene. Only bound when there is one: the geometry buffers are the
+		//ones the reflection tracer reads, and a frame with no ray traced light never touches them.
+		const bool shadow_rays_bound = rays && world_shadows && bvh_buffer != nullptr;
+		if (shadow_rays_bound) {
+			dl->SetShaderResourceView("srMeshNodes", *bvh_buffer->SRV());
+			dl->SetShaderResourceView("srTlas", *shadow_rays.TlasSRV());
+			dl->SetShaderResourceView("srObjects", *shadow_rays.ObjectsSRV());
+			dl->SetShaderResourceView("srScenes", *shadow_rays.ScenesSRV());
+			dl->SetShaderResourceView("srVertices", *vertex_buffer->VertexSRV());
+			dl->SetShaderResourceView("srIndices", *vertex_buffer->IndexSRV());
+		}
+		dl->SetUnorderedAccessView("light_out", current_light_map->UAV());
+		dl->SetUnorderedAccessView("bloom_out", bloom_map.UAV());
+		const bool count_rays = rays && count_rays_wanted;
+		if (count_rays) {
+			shadow_ray_counters.Clear(0);
+			dl->SetUnorderedAccessView("sr_counters", shadow_ray_counters.UAV());
+		}
+		dl->CopyAllBufferData();
+		dl->SetShader();
+		context->Dispatch(tiled_lights.TilesX(), tiled_lights.TilesY(), 1);
+		if (count_rays) {
+			dl->SetUnorderedAccessView("sr_counters", nullptr);
+			shadow_ray_counters.Readback(shadow_ray_counters_cpu, sizeof(shadow_ray_counters_cpu));
+		}
+		dl->SetShaderResourceView("rgbaNoise", nullptr);
+		dl->SetShaderResourceView("positionTexture", nullptr);
+		dl->SetShaderResourceView("normalTexture", nullptr);
+		dl->SetShaderResourceView("materialTexture", nullptr);
+		dl->SetShaderResourceView("lightsBuffer", nullptr);
+		dl->SetShaderResourceView("tileMasks", nullptr);
+		if (screen_bound) {
+			GfxSRV* no_hiz[HIZ_NTEXTURES] = {};
+			dl->SetShaderResourceViewArray("ssHiZ[0]", no_hiz, HIZ_NTEXTURES);
+		}
+		if (shadow_rays_bound) {
+			dl->SetShaderResourceView("srMeshNodes", nullptr);
+			dl->SetShaderResourceView("srTlas", nullptr);
+			dl->SetShaderResourceView("srObjects", nullptr);
+			dl->SetShaderResourceView("srScenes", nullptr);
+			dl->SetShaderResourceView("srVertices", nullptr);
+			dl->SetShaderResourceView("srIndices", nullptr);
+		}
+		dl->SetUnorderedAccessView("light_out", nullptr);
+		dl->SetUnorderedAccessView("bloom_out", nullptr);
+		dl->SetUnorderedAccessView("rt_shadow_out", nullptr);
+		UnprepareLights(dl);
+		context->CSSetShader(nullptr);
+		GpuLightStamp(perm, true);
+		++lighting_dispatches[perm];
+	};
+
+	if (!lighting_split) {
+		SimpleComputeShader* all = LightingShader(rays_active ? LIGHT_SLOT_ALL_RAYS : LIGHT_SLOT_ALL);
+		if (all != nullptr) {
+			dispatch(rays_active ? LIGHT_RT : LIGHT_STANDARD, all, rays_active, false, accumulate_shadows);
+		}
 	}
-	if (accumulate_shadows) {
-		dl->SetUnorderedAccessView("rt_shadow_out", shadow_rt_light.UAV());
+	else {
+		//The lights that trace are the ray tracing permutation's: the first one leaves them out when that one runs.
+		dispatch(LIGHT_STANDARD, LightingShader(LIGHT_STANDARD), false, rt_pass, false);
+		if (rt_pass) {
+			dispatch(LIGHT_RT, LightingShader(LIGHT_RT), true, false, accumulate_shadows);
+		}
+		if (has_water) {
+			dispatch(LIGHT_WATER, LightingShader(LIGHT_WATER), false, false, false);
+		}
+		if (has_lava) {
+			dispatch(LIGHT_LAVA, LightingShader(LIGHT_LAVA), false, false, false);
+		}
 	}
-	dl->SetInt("shadow_ray_accumulate", accumulate_shadows ? 1 : 0);
-	dl->SetFloat("shadow_ray_radius", shadow_ray_radius);
-	dl->SetFloat("shadow_ray_sun_spread", shadow_ray_sun_spread);
-	dl->SetFloat("shadow_ray_sun_distance", shadow_ray_sun_distance);
-	dl->SetInt("shadow_ray_frame", (int)frame_count);
-	dl->SetFloat(TIME, light_time);
-	if (sky != nullptr) {
-		dl->SetFloat("cloud_density", sky->sky->cloud_density);
-	}
-	dl->SetSamplerState(BASIC_SAMPLER, dxcore->basic_sampler);
-	dl->SetSamplerState(PCF_SAMPLER, dxcore->shadow_sampler);
-	dl->SetShaderResourceView("rgbaNoise", rgba_noise_texture.SRV());
-	dl->SetShaderResourceView("positionTexture", position_map.SRV());
-	dl->SetShaderResourceView("normalTexture", rt_ray_sources1.SRV());
-	dl->SetShaderResourceView("materialTexture", material_map.SRV());
-	dl->SetShaderResourceView("lightsBuffer", tiled_lights.LightsSRV());
-	dl->SetShaderResourceView("tileMasks", tiled_lights.MasksSRV());
-	//The ray traced shadow scene. Only bound when there is one: the geometry buffers are the
-	//ones the reflection tracer reads, and a frame with no ray traced light never touches them.
-	const bool shadow_rays_bound = world_shadows && bvh_buffer != nullptr;
-	if (shadow_rays_bound) {
-		dl->SetShaderResourceView("srMeshNodes", *bvh_buffer->SRV());
-		dl->SetShaderResourceView("srTlas", *shadow_rays.TlasSRV());
-		dl->SetShaderResourceView("srObjects", *shadow_rays.ObjectsSRV());
-		dl->SetShaderResourceView("srScenes", *shadow_rays.ScenesSRV());
-		dl->SetShaderResourceView("srVertices", *vertex_buffer->VertexSRV());
-		dl->SetShaderResourceView("srIndices", *vertex_buffer->IndexSRV());
-	}
-	dl->SetUnorderedAccessView("light_out", current_light_map->UAV());
-	dl->SetUnorderedAccessView("bloom_out", bloom_map.UAV());
-	const bool count_rays = pass_filter == 0 && shadow_ray_counters_requested && shadow_ray_counters.IsValid() &&
-		frame_count - shadow_ray_counters_frame < TILED_STATS_KEEPALIVE && (world_shadows || screen_shadows);
-	if (count_rays) {
-		shadow_ray_counters.Clear(0);
-		dl->SetUnorderedAccessView("sr_counters", shadow_ray_counters.UAV());
-	}
-	dl->CopyAllBufferData();
-	dl->SetShader();
-	context->Dispatch(tiled_lights.TilesX(), tiled_lights.TilesY(), 1);
-	if (count_rays) {
-		dl->SetUnorderedAccessView("sr_counters", nullptr);
-		shadow_ray_counters.Readback(shadow_ray_counters_cpu, sizeof(shadow_ray_counters_cpu));
-	}
-	dl->SetShaderResourceView("rgbaNoise", nullptr);
-	dl->SetShaderResourceView("positionTexture", nullptr);
-	dl->SetShaderResourceView("normalTexture", nullptr);
-	dl->SetShaderResourceView("materialTexture", nullptr);
-	dl->SetShaderResourceView("lightsBuffer", nullptr);
-	dl->SetShaderResourceView("tileMasks", nullptr);
-	if (screen_shadows) {
-		GfxSRV* no_hiz[HIZ_NTEXTURES] = {};
-		dl->SetShaderResourceViewArray("ssHiZ[0]", no_hiz, HIZ_NTEXTURES);
-	}
-	if (shadow_rays_bound) {
-		dl->SetShaderResourceView("srMeshNodes", nullptr);
-		dl->SetShaderResourceView("srTlas", nullptr);
-		dl->SetShaderResourceView("srObjects", nullptr);
-		dl->SetShaderResourceView("srScenes", nullptr);
-		dl->SetShaderResourceView("srVertices", nullptr);
-		dl->SetShaderResourceView("srIndices", nullptr);
-	}
-	dl->SetUnorderedAccessView("light_out", nullptr);
-	dl->SetUnorderedAccessView("bloom_out", nullptr);
-	dl->SetUnorderedAccessView("rt_shadow_out", nullptr);
-	UnprepareLights(dl);
-	context->CSSetShader(nullptr);
 
 	if (accumulate_shadows) {
 		//Average the ray traced lights' jittered light over the frames and add it to the map.
@@ -4960,7 +5108,7 @@ void RenderSystem::PostProcessLight() {
 		vol_shader->SetShader();
 		int32_t  groupsX = (int32_t)(ceil((float)vol_light_map.Width() / (8.0f)));
 		int32_t  groupsY = (int32_t)(ceil((float)vol_light_map.Height() / (8.0f)));
-		dxcore->context->Dispatch(groupsX, groupsY, 1);
+		dxcore->context->Dispatch(groupsX, groupsY, 1, Async(ASYNC_VOLUMETRIC));
 		vol_shader->SetUnorderedAccessView("output", nullptr);
 		vol_shader->SetUnorderedAccessView("vol_data", nullptr);
 		vol_shader->SetShaderResourceView("rgbaNoise", nullptr);
@@ -4976,14 +5124,14 @@ void RenderSystem::PostProcessLight() {
 		blur_shader->SetInt("type", 1);
 		blur_shader->CopyAllBufferData();
 		blur_shader->SetShader();
-		dxcore->context->Dispatch(groupsX, groupsY, 1);
+		dxcore->context->Dispatch(groupsX, groupsY, 1, Async(ASYNC_VOLUMETRIC));
 		blur_shader->SetInt("type", 2);
 		blur_shader->SetUnorderedAccessView("input", nullptr);
 		blur_shader->SetUnorderedAccessView("output", nullptr);
 		blur_shader->SetUnorderedAccessView("input", vol_light_map2.UAV());
 		blur_shader->SetUnorderedAccessView("output", vol_light_map.UAV());
 		blur_shader->CopyAllBufferData();
-		dxcore->context->Dispatch(groupsX, groupsY, 1);
+		dxcore->context->Dispatch(groupsX, groupsY, 1, Async(ASYNC_VOLUMETRIC));
 		blur_shader->SetUnorderedAccessView("input", nullptr);
 		blur_shader->SetUnorderedAccessView("output", nullptr);
 		blur_shader->SetShaderResourceView("vol_data", nullptr);
@@ -5114,6 +5262,10 @@ void RenderSystem::Draw() {
 		//Which point lights the frame lights with and which of them hold a shadow slot - before
 		//CastShadows, which draws the maps of those that do and nobody else's.
 		lighting_passes_this_frame = 0;
+		for (int p = 0; p < LIGHT_PERMS; ++p) {
+			lighting_dispatches_last[p] = lighting_dispatches[p];
+			lighting_dispatches[p] = 0;
+		}
 		GatherLights(cam_entity);
 		//The casters the ray traced lights are shadowed by (nothing at all when none is).
 		BuildShadowRays();
@@ -5183,6 +5335,28 @@ void RenderSystem::Draw() {
 		DrawScene(w, h, camera_position, view, projection, nullptr, first_pass_target, render_tree);
 		EndTessStats(tess_query_open);
 		ResolveTessStats();
+		//Motion vectors and global illumination read the G-buffer and not the light computed from it, so once the last pass that
+		//writes the G-buffer is done (this one, the second geometry pass if there is one, the splat clouds if there are any) they
+		//can be recorded on the compute queue and run beside the lighting instead of after it. Motion goes first even when only
+		//GI is on the compute queue: GI reads it.
+		bool motion_launched = false;
+		bool gi_launched = false;
+		const bool has_second_pass = second_pass_target != nullptr && !render_pass2_tree.empty();
+		const bool early_compute = GetAsyncCompute() && (Async(ASYNC_MOTION) || Async(ASYNC_GI)) && splat_clouds.GetData().empty();
+		const auto launch_gbuffer_compute = [&]() {
+			if (!early_compute || motion_launched) {
+				return;
+			}
+			ProcessMotion();
+			motion_launched = true;
+			if (Async(ASYNC_GI)) {
+				ProcessGI();
+				gi_launched = true;
+			}
+		};
+		if (!has_second_pass) {
+			launch_gbuffer_compute();
+		}
 		//Light what the first pass drew. This is where the frame's light is computed - the
 		//geometry passes above evaluated none - and it runs before the second pass because
 		//water reads the lit result of what lies under it (prevLightTexture).
@@ -5193,6 +5367,7 @@ void RenderSystem::Draw() {
 			prev_light_map = &light_map[0];
 			CopyTexture(*prev_light_map, *current_light_map);
 			DrawScene(w, h, camera_position, view, projection, first_pass_texture.SRV(), second_pass_target, render_pass2_tree);
+			launch_gbuffer_compute();
 			//Only what that pass drew: the rest is already lit in the map it was copied from.
 			ProcessDeferredLighting(1);
 		}
@@ -5211,11 +5386,27 @@ void RenderSystem::Draw() {
 		}
 		cpu_lap(cpu_timings.scene);
 		GpuStamp(3);
-		ProcessMotion();
+		if (!motion_launched) {
+			ProcessMotion();
+		}
 		GpuStamp(4);
-		ProcessRT();
-		GpuStamp(5);
-		ProcessGI();
+		//The reflections and the indirect light read what the G-buffer and the lighting wrote and share nothing with each other
+		//(each has its own tiles), so when one of them is on the compute queue it goes first and the other, recorded after it on
+		//the direct queue, runs beside it. (Already recorded, if the G-buffer was final before the lighting: see above.)
+		if (gi_launched) {
+			ProcessRT();
+			GpuStamp(5);
+		}
+		else if (Async(ASYNC_GI) && !AsyncReflections() && GetAsyncCompute()) {
+			ProcessGI();
+			GpuStamp(5);
+			ProcessRT();
+		}
+		else {
+			ProcessRT();
+			GpuStamp(5);
+			ProcessGI();
+		}
 		GpuStamp(6);
 		PostProcessLight();
 		GpuStamp(7);
@@ -5249,6 +5440,113 @@ void RenderSystem::Draw() {
 		post_process_pipeline->Process();
 		coordinator->SendEvent(this, EVENT_ID_UNPREPARE_POST);
 	}
+}
+
+namespace {
+	const struct { const char* name; uint32_t bit; } ASYNC_PASS_NAMES[] = {
+		{ "autofocus", RenderSystem::ASYNC_AUTOFOCUS }, { "hiz", RenderSystem::ASYNC_HIZ }, { "motion", RenderSystem::ASYNC_MOTION },
+		{ "volumetric", RenderSystem::ASYNC_VOLUMETRIC }, { "gi", RenderSystem::ASYNC_GI }, { "rt", RenderSystem::ASYNC_RT },
+		{ "tilecull", RenderSystem::ASYNC_TILECULL } };
+}
+
+bool RenderSystem::ParseAsyncPasses(const std::string& list, uint32_t& mask) {
+	if (list == "all") { mask = ASYNC_ALL; return true; }
+	if (list == "none") { mask = 0; return true; }
+	uint32_t result = 0;
+	size_t begin = 0;
+	while (begin <= list.size()) {
+		size_t end = list.find(',', begin);
+		if (end == std::string::npos) { end = list.size(); }
+		const std::string name = list.substr(begin, end - begin);
+		bool found = false;
+		for (const auto& n : ASYNC_PASS_NAMES) {
+			if (name == n.name) { result |= n.bit; found = true; }
+		}
+		if (!found) { return false; }
+		begin = end + 1;
+	}
+	mask = result;
+	return true;
+}
+
+std::string RenderSystem::AsyncPassNames(uint32_t mask) {
+	std::string out;
+	for (const auto& n : ASYNC_PASS_NAMES) {
+		if (mask & n.bit) { out += (out.empty() ? "" : ",") + std::string(n.name); }
+	}
+	return out.empty() ? "none" : out;
+}
+
+void RenderSystem::SetAsyncCompute(bool enabled) {
+	std::lock_guard<std::recursive_mutex> lock(mutex);
+	DXCore::Get()->context->SetAsyncCompute(enabled);
+}
+
+bool RenderSystem::GetAsyncCompute() const {
+	return DXCore::Get()->context->AsyncCompute();
+}
+
+RenderSystem::AsyncComputeStats RenderSystem::GetAsyncComputeStats() const {
+	AsyncComputeStats stats;
+	const GfxContext* context = DXCore::Get()->context;
+	stats.enabled = context->AsyncCompute();
+	stats.dispatches = context->async_stats.dispatches;
+	stats.segments = context->async_stats.segments;
+	stats.waits = context->async_stats.waits;
+	return stats;
+}
+
+SimpleComputeShader* RenderSystem::LightingShader(int slot) {
+	//The permutations (DeferredLightCS.hlsl) and the reference, each built by DXC and by fxc: the *Fxc ones are the same HLSL (an
+	//include of the DXC one) that the build hands to fxc, see Engine.vcxproj.
+	static const char* const NAMES[2][LIGHT_SLOTS] = {
+		{ "DeferredLightCS.cso", "DeferredLightRaysCS.cso", "DeferredLightWaterCS.cso", "DeferredLightLavaCS.cso",
+		  "DeferredLightAllCS.cso", "DeferredLightAllRaysCS.cso" },
+		{ "DeferredLightFxcCS.cso", "DeferredLightRaysFxcCS.cso", "DeferredLightWaterFxcCS.cso", "DeferredLightLavaFxcCS.cso",
+		  "DeferredLightAllFxcCS.cso", "DeferredLightAllRaysFxcCS.cso" } };
+	//AUTO: DXC where it is as fast as fxc or faster (the permutations without ray tracing), fxc where it is not (the ones that
+	//trace rays, which DXC builds at half the speed - Docs/D3D12_MIGRATION.md, Performance - and the reference shaders).
+	int preferred = (lighting_compiler == LightingCompiler::FXC) ? 1 : 0;
+	if (lighting_compiler == LightingCompiler::AUTO) {
+		preferred = (slot == LIGHT_RT || slot == LIGHT_SLOT_ALL || slot == LIGHT_SLOT_ALL_RAYS) ? 1 : 0;
+	}
+	for (int attempt = 0; attempt < 2; ++attempt) {
+		//The compiler asked for, and the other one when its shader is not there.
+		const int c = preferred ^ attempt;
+		if (lighting_shaders[c][slot] == nullptr) {
+			lighting_shaders[c][slot] = ShaderFactory::Get()->GetShader<SimpleComputeShader>(NAMES[c][slot]);
+			if (lighting_shaders[c][slot] == nullptr) {
+				LOG_WARN("RenderSystem: lighting shader %s could not be loaded", NAMES[c][slot]);
+			}
+		}
+		if (lighting_shaders[c][slot] != nullptr) {
+			return lighting_shaders[c][slot];
+		}
+	}
+	return nullptr;
+}
+
+bool RenderSystem::ParseLightingCompiler(const std::string& name, LightingCompiler& compiler) {
+	std::string lower = name;
+	std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return (char)std::tolower(c); });
+	if (lower == "dxc") { compiler = LightingCompiler::DXC; return true; }
+	if (lower == "fxc") { compiler = LightingCompiler::FXC; return true; }
+	if (lower == "auto") { compiler = LightingCompiler::AUTO; return true; }
+	return false;
+}
+
+void RenderSystem::GetLightingDispatches(uint32_t out[LIGHT_PERMS]) const {
+	for (int p = 0; p < LIGHT_PERMS; ++p) {
+		out[p] = lighting_dispatches_last[p];
+	}
+}
+
+bool RenderSystem::PixAvailable() const {
+	return dxcore->device->PixCapturerLoaded();
+}
+
+bool RenderSystem::PixCapture(const std::filesystem::path& file, uint32_t frames, std::string& error) {
+	return dxcore->device->PixCaptureNextFrames(file, frames, error);
 }
 
 void RenderSystem::EnableTessellation(bool enabled) {
@@ -5364,6 +5662,7 @@ void RenderSystem::ResetRTBBuffers() {
 	}
 
 	rt_textures_gi_tiles.Clear(zero);
+	rt_textures_di_tiles.Clear(zero);
 
 	static const float nrays[4] = { RESTIR_PIXEL_RAYS, RESTIR_PIXEL_RAYS, RESTIR_PIXEL_RAYS, RESTIR_PIXEL_RAYS };
 

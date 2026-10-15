@@ -80,6 +80,10 @@ the shadow lookups `Common/LightShadows.hlsli`. The result is **added** to the l
 maps, on top of the emission the G-buffer pass left there, so the mixer, the debug buffer
 views and everything downstream see the same two buffers they always did.
 
+`DeferredLightCS.hlsl` is also the source of the **permutations** (ordinary surfaces with the lights that need no ray, the lights that trace
+their shadow, water, lava), which `lighting_shaders split` dispatches one after the other instead of the one shader that does it all
+(`DeferredLightAllCS.hlsl`, what runs by default); they draw the same picture and are not faster: Docs/D3D12_MIGRATION.md, "Lighting permutations".
+
 Shading models: the standard one is the old `CalcDirectional`/`CalcPoint` ported term for term
 (Lambert + back reflex + Blinn specular, range attenuation, spot cone, PCF shadows); water and
 lava are the old `CalcWater*`/`CalcLava*` ported into the same file.

@@ -1789,10 +1789,11 @@ namespace HotBite {
 			// groupsX - Numbers of groups in the X dimension
 			// groupsY - Numbers of groups in the Y dimension
 			// groupsZ - Numbers of groups in the Z dimension
+				// async - run it on the compute queue (GfxContext::Dispatch)
 			// --------------------------------------------------------
-			void SimpleComputeShader::DispatchByGroups(unsigned int groupsX, unsigned int groupsY, unsigned int groupsZ)
+			void SimpleComputeShader::DispatchByGroups(unsigned int groupsX, unsigned int groupsY, unsigned int groupsZ, bool async)
 			{
-				deviceContext->Dispatch(groupsX, groupsY, groupsZ);
+				deviceContext->Dispatch(groupsX, groupsY, groupsZ, async);
 			}
 
 			// --------------------------------------------------------
@@ -1815,12 +1816,12 @@ namespace HotBite {
 			// threadsY - Desired numbers of threads in the Y dimension
 			// threadsZ - Desired numbers of threads in the Z dimension
 			// --------------------------------------------------------
-			void SimpleComputeShader::DispatchByThreads(unsigned int threadsX, unsigned int threadsY, unsigned int threadsZ)
+			void SimpleComputeShader::DispatchByThreads(unsigned int threadsX, unsigned int threadsY, unsigned int threadsZ, bool async)
 			{
 				deviceContext->Dispatch(
 					max((unsigned int)ceil((float)threadsX / this->threadsX), 1),
 					max((unsigned int)ceil((float)threadsY / this->threadsY), 1),
-					max((unsigned int)ceil((float)threadsZ / this->threadsZ), 1));
+					max((unsigned int)ceil((float)threadsZ / this->threadsZ), 1), async);
 			}
 
 			// --------------------------------------------------------

@@ -78,6 +78,19 @@ float3 ShadeDirectional(float3 normal, float4 position, float spec_intensity, fl
 	//cascade.
 	const bool ray_traced = !light.cast_shadow && (light.flags & DIR_LIGHT_FLAG_RAYTRACED) != 0 &&
 		length(position.xyz - cameraPosition) < shadow_ray_sun_distance;
+#ifdef DL_RT_LIGHTS_ONLY
+	//The permutation that lights only the lights that trace (DeferredLightCS.hlsl) never meets one with a shadow map: no cascades,
+	//no PCF, no debug tint of them in its registers.
+	if (ray_traced) {
+		const float side = (NDotL >= 0.0f) ? 1.0f : -1.0f;
+		shadow = ShadowRayOccludedDirectional(position.xyz + normal * (side * SR_SURFACE_BIAS), light.DirToLight) ? 0.0f : 1.0f;
+		if (cloud_density > 0.0f) {
+			shadow -= CloudPCF(position, light, cloud_density);
+		}
+		shadow = saturate(shadow);
+	}
+	float3 final = finalColor * shadow;
+#else
 	if (light.cast_shadow || ray_traced) {
 		if (ray_traced) {
 			const float side = (NDotL >= 0.0f) ? 1.0f : -1.0f;
@@ -92,6 +105,7 @@ float3 ShadeDirectional(float3 normal, float4 position, float spec_intensity, fl
 		shadow = saturate(shadow);
 	}
 	float3 final = ApplyDirShadowDebug(finalColor * shadow, position, light, index);
+#endif
 	bloom += bloomColor * shadow * bloom_scale;
 	return final;
 }
@@ -142,6 +156,14 @@ float3 ShadePoint(float3 normal, float3 position, float spec_intensity, float bl
 	float3 bloomColor = spec_color;
 
 	float shadow = 1.0f;
+#ifdef DL_RT_LIGHTS_ONLY
+	//The permutation that lights only the lights that trace (DeferredLightCS.hlsl): such a light holds no shadow slot (the two are
+	//exclusive, see GatherLights), so there is no shadow map lookup in its registers.
+	if (LightIsRayTraced(light)) {
+		const float side = (dot(ToLight, normal) >= 0.0f) ? 1.0f : -1.0f;
+		shadow = ShadowRayOccluded(position + normal * (side * SR_SURFACE_BIAS), light.position, LightRayScene(light)) ? 0.0f : 1.0f;
+	}
+#else
 	int slot = LightShadowSlot(light);
 	if (slot >= 0) {
 		shadow = PointShadowPCF(position - light.position, slot);
@@ -153,6 +175,7 @@ float3 ShadePoint(float3 normal, float3 position, float spec_intensity, float bl
 		const float side = (dot(ToLight, normal) >= 0.0f) ? 1.0f : -1.0f;
 		shadow = ShadowRayOccluded(position + normal * (side * SR_SURFACE_BIAS), light.position, LightRayScene(light)) ? 0.0f : 1.0f;
 	}
+#endif
 	finalColor *= Attn * shadow;
 	bloomColor *= Attn * shadow;
 	bloom += bloomColor * bloom_scale;

@@ -170,12 +170,23 @@ namespace HotBite {
 					if (FAILED(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocators[i])))) {
 						return false;
 					}
+					if (gfx->HasComputeQueue() &&
+						FAILED(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_COMPUTE, IID_PPV_ARGS(&async_allocators[i])))) {
+						return false;
+					}
 				}
-				if (FAILED(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocators[0].Get(), nullptr,
-					IID_PPV_ARGS(&list)))) {
+				direct_pool.push_back(NewList(D3D12_COMMAND_LIST_TYPE_DIRECT, allocators[0].Get()));
+				if (direct_pool[0] == nullptr) {
 					return false;
 				}
-				list->Close();
+				//HOTBITE_ASYNC_COMPUTE=1 starts with async compute on (the flag can be flipped at run time too).
+				{
+					char value[8] = {};
+					size_t len = 0;
+					if (getenv_s(&len, value, sizeof(value), "HOTBITE_ASYNC_COMPUTE") == 0 && len > 0) {
+						async_enabled = value[0] == '1';
+					}
+				}
 				if (!CreateRootSignatures() || !CreateRings()) {
 					return false;
 				}
@@ -259,7 +270,12 @@ namespace HotBite {
 				compute_pipelines.clear();
 				sampler_tables.clear();
 				list.Reset();
+				async_list.Reset();
+				direct_pool.clear();
+				async_pool.clear();
+				segments.clear();
 				for (auto& a : allocators) { a.Reset(); }
+				for (auto& a : async_allocators) { a.Reset(); }
 				ring_srv = DescriptorRing();
 				ring_sampler = DescriptorRing();
 				upload = UploadRing();
@@ -367,6 +383,7 @@ namespace HotBite {
 				for (StageState& st : stages) {
 					st.srv_dirty = st.cb_dirty = st.sampler_dirty = st.uav_dirty = true;
 					st.srv_table = st.cb_table = st.sampler_table = st.uav_table = {};
+					st.table_epoch = direct_epoch;
 					for (UINT i = 0; i < GFX_CBV_SLOTS; ++i) {
 						st.cb_bound[i] = 0;
 					}
@@ -384,25 +401,138 @@ namespace HotBite {
 				upload.head = 0;
 			}
 
-			void GfxContext::EnsureOpen() {
-				if (open) {
+			ComPtr<ID3D12GraphicsCommandList> GfxContext::NewList(D3D12_COMMAND_LIST_TYPE type, ID3D12CommandAllocator* allocator) {
+				ComPtr<ID3D12GraphicsCommandList> l;
+				if (FAILED(gfx->Device()->CreateCommandList(0, type, allocator, nullptr, IID_PPV_ARGS(&l)))) {
+					return nullptr;
+				}
+				l->Close();
+				return l;
+			}
+
+			//The frame begins with its first command: its slot's allocators and rings are reused, so the frame that used the
+			//slot last must be done first.
+			void GfxContext::BeginFrame() {
+				if (frame_open) {
 					return;
 				}
-				//The frame that used this slot last must be done before its allocator and rings are reused.
 				gfx->WaitFrame(slot_serial[slot]);
 				overflow[slot].clear();
 				gfx->CollectGarbage();
 				gfx->DrainDebugMessages();
 				allocators[slot]->Reset();
-				list->Reset(allocators[slot].Get(), nullptr);
+				if (async_allocators[slot] != nullptr) {
+					async_allocators[slot]->Reset();
+				}
+				direct_used = 0;
+				async_used = 0;
 				ResetRings();
+				stats = Stats();
+				async_stats = AsyncStats();
+				segments.clear();
+				compute_last_value = 0;
+				frame_open = true;
+				tracing = trace_serial != 0 && gfx->FrameSerial() >= trace_serial && gfx->FrameSerial() < trace_serial + 3;
+			}
+
+			void GfxContext::OpenDirect() {
+				if (direct_used == direct_pool.size()) {
+					ComPtr<ID3D12GraphicsCommandList> fresh = NewList(D3D12_COMMAND_LIST_TYPE_DIRECT, allocators[slot].Get());
+					if (fresh == nullptr) {
+						LOG_ERROR("GfxContext: could not create a command list");
+						return;
+					}
+					direct_pool.push_back(fresh);
+				}
+				list = direct_pool[direct_used++];
+				list->Reset(allocators[slot].Get(), nullptr);
 				ID3D12DescriptorHeap* heaps[] = { ring_srv.heap.Get(), ring_sampler.heap.Get() };
 				list->SetDescriptorHeaps(2, heaps);
 				open = true;
+				direct_epoch = ++epoch_counter;
 				MarkAllDirty();
-				stats = Stats();
-					tracing = trace_serial != 0 && gfx->FrameSerial() >= trace_serial && gfx->FrameSerial() < trace_serial + 3;
+			}
+
+			void GfxContext::EnsureOpen() {
+				if (open) {
+					return;
 				}
+				BeginFrame();
+				OpenDirect();
+			}
+
+			void GfxContext::EnsureOpenAsync() {
+				if (async_open) {
+					return;
+				}
+				BeginFrame();
+				if (async_used == async_pool.size()) {
+					ComPtr<ID3D12GraphicsCommandList> fresh = NewList(D3D12_COMMAND_LIST_TYPE_COMPUTE, async_allocators[slot].Get());
+					if (fresh == nullptr) {
+						LOG_ERROR("GfxContext: could not create a compute command list");
+						return;
+					}
+					async_pool.push_back(fresh);
+				}
+				async_list = async_pool[async_used++];
+				async_list->Reset(async_allocators[slot].Get(), nullptr);
+				ID3D12DescriptorHeap* heaps[] = { ring_srv.heap.Get(), ring_sampler.heap.Get() };
+				async_list->SetDescriptorHeaps(2, heaps);
+				async_open = true;
+				async_work = false;
+				async_root_set = false;
+				async_pipeline = nullptr;
+				async_epoch = ++epoch_counter;
+			}
+
+			void GfxContext::EnsureOpenQueue(int queue) {
+				if (queue == GfxDevice::QUEUE_DIRECT) {
+					EnsureOpen();
+				}
+				else {
+					EnsureOpenAsync();
+				}
+			}
+
+			//Closes the open direct list as a segment: the barriers recorded so far are written first, the waits it was
+			//given go with it, and its value is signalled when the direct queue has run it.
+			void GfxContext::CloseDirect() {
+				if (!open) {
+					return;
+				}
+				FlushBarriers();
+				list->Close();
+				open = false;
+				Segment seg;
+				seg.queue = GfxDevice::QUEUE_DIRECT;
+				seg.list = list;
+				seg.waits = std::move(seg_waits[GfxDevice::QUEUE_DIRECT]);
+				seg_waits[GfxDevice::QUEUE_DIRECT].clear();
+				seg.value = seg_value[GfxDevice::QUEUE_DIRECT]++;
+				segments.push_back(std::move(seg));
+				++cut_counter;
+				++async_stats.segments;
+			}
+
+			void GfxContext::CloseAsync() {
+				if (!async_open) {
+					return;
+				}
+				FlushAsyncBarriers();
+				async_list->Close();
+				async_open = false;
+				async_work = false;
+				Segment seg;
+				seg.queue = GfxDevice::QUEUE_COMPUTE;
+				seg.list = async_list;
+				seg.waits = std::move(seg_waits[GfxDevice::QUEUE_COMPUTE]);
+				seg_waits[GfxDevice::QUEUE_COMPUTE].clear();
+				seg.value = seg_value[GfxDevice::QUEUE_COMPUTE]++;
+				compute_last_value = seg.value;
+				segments.push_back(std::move(seg));
+				++cut_counter;
+				++async_stats.segments;
+			}
 
 			ID3D12GraphicsCommandList* GfxContext::List() {
 				EnsureOpen();
@@ -417,16 +547,44 @@ namespace HotBite {
 				}
 			}
 
+			void GfxContext::FlushAsyncBarriers() {
+				if (!async_barriers.empty()) {
+					async_list->ResourceBarrier((UINT)async_barriers.size(), async_barriers.data());
+					stats.barriers += (uint32_t)async_barriers.size();
+					async_barriers.clear();
+				}
+			}
+
+			void GfxContext::SetAsyncCompute(bool enabled) {
+				async_enabled = enabled;
+			}
+
 			uint64_t GfxContext::Submit() {
-				if (!open) {
+				if (!frame_open) {
 					return 0;
 				}
-				FlushBarriers();
-				list->Close();
-				open = false;
-				const uint64_t serial = gfx->SubmitFrame(list.Get());
+				//What is open is closed: the compute list first, so the last direct list can end the frame joined to it.
+				CloseAsync();
+				if (!open && !seg_waits[GfxDevice::QUEUE_DIRECT].empty()) {
+					OpenDirect();
+				}
+				CloseDirect();
+
+				//The segments run in the order they were closed. Every wait refers to a segment that was closed before the one
+				//that waits (MakeWait closes it first), so no queue is made to wait for a signal behind its own position.
+				for (Segment& seg : segments) {
+					gfx->ExecuteSegment(seg.queue, seg.list.Get(), seg.waits.data(), (UINT)seg.waits.size(), seg.value);
+				}
+				segments.clear();
+				GfxDevice::QueueWait join = { GfxDevice::QUEUE_COMPUTE, compute_last_value };
+				const uint64_t serial = gfx->FinishFrame(compute_last_value != 0 ? &join : nullptr);
+				//The direct queue has waited for the compute queue's last segment, and everything that follows on it is behind that.
+				if (compute_last_value > waited[GfxDevice::QUEUE_DIRECT][GfxDevice::QUEUE_COMPUTE]) {
+					waited[GfxDevice::QUEUE_DIRECT][GfxDevice::QUEUE_COMPUTE] = compute_last_value;
+				}
 				slot_serial[slot] = serial;
 				slot = (slot + 1) % GFX_FRAMES_IN_FLIGHT;
+				frame_open = false;
 				return serial;
 			}
 
@@ -441,31 +599,158 @@ namespace HotBite {
 			// Resource states
 			//-------------------------------------------------------------------------------------------
 
-			void GfxContext::UseSubresource(GfxResource* r, UINT subresource, D3D12_RESOURCE_STATES after) {
-				if (r->heap_type != D3D12_HEAP_TYPE_DEFAULT || r->resource == nullptr) {
+			namespace {
+				//What a compute list can put a resource in, and take it from: its barriers may only name these states.
+				constexpr D3D12_RESOURCE_STATES COMPUTE_STATES =
+					D3D12_RESOURCE_STATE_UNORDERED_ACCESS | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE |
+					D3D12_RESOURCE_STATE_COPY_DEST | D3D12_RESOURCE_STATE_COPY_SOURCE | D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT;
+
+				bool ComputeState(D3D12_RESOURCE_STATES state) {
+					return (state & ~COMPUTE_STATES) == 0;
+				}
+
+				bool WritesState(D3D12_RESOURCE_STATES state) {
+					return (state & ~READ_STATES) != 0;
+				}
+
+				//A resource in `before` can be used as `after` with no barrier: it is a state that only reads and `before`
+				//holds it too, or it is the very state.
+				bool Satisfies(D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after) {
+					return before == after ||
+						((after & ~READ_STATES) == 0 && (before & after) == after && (before & ~READ_STATES) == 0);
+				}
+			}
+
+			//-------------------------------------------------------------------------------------------
+			// Async compute: what one queue waits for from the other
+			//-------------------------------------------------------------------------------------------
+
+			//The commands queue q records from now on run after segment `value` of queue o. If that segment is still open
+			//(or is the one about to open) it is closed first, so that it exists to be waited for and is executed before
+			//the segment that waits.
+			void GfxContext::MakeWait(int q, int o, uint64_t value) {
+				if (value == 0 || value <= waited[q][o]) {
 					return;
 				}
-				const D3D12_RESOURCE_STATES before = r->State(subresource);
-				if (before == after ||
-					((after & ~READ_STATES) == 0 && (before & after) == after && (before & ~READ_STATES) == 0)) {
-					if (after == D3D12_RESOURCE_STATE_UNORDERED_ACCESS && r->uav_dirty) {
+				if (value >= seg_value[o]) {
+					CloseQueue(o);
+					value = seg_value[o] - 1;
+					if (value == 0 || value <= waited[q][o]) {
+						return;
+					}
+				}
+				//What queue q has recorded in its open segment cannot be made to start after the wait: that list is closed
+				//and the commands from here on go to the next one. A compute segment that holds nothing yet takes the wait
+				//itself (a list is opened before the resources it is going to use are looked at).
+				if (QueueOpen(q) && (q == GfxDevice::QUEUE_DIRECT || async_work)) {
+					CloseQueue(q);
+				}
+				seg_waits[q].push_back({ o, value });
+				waited[q][o] = value;
+				++async_stats.waits;
+			}
+
+			//Queue q runs after everything queue o has recorded so far.
+			void GfxContext::WaitForAll(int q, int o) {
+				CloseQueue(o);
+				MakeWait(q, o, seg_value[o] - 1);
+			}
+
+			void GfxContext::Register(GfxResource* r, bool write, int q) {
+				if (!Tracking()) {
+					return;
+				}
+				const uint64_t value = seg_value[q];
+				if (write) {
+					r->last_write_queue = (uint8_t)q;
+					r->last_write_value = value;
+					r->last_read_value[0] = r->last_read_value[1] = 0;
+				}
+				else {
+					r->last_read_value[q] = value;
+				}
+			}
+
+			//A use of `r` on queue q. Whatever the other queue did to it that conflicts has to be finished first: its write,
+			//for a read or a write, and its reads, for a write.
+			void GfxContext::Touch(GfxResource* r, bool write, int q) {
+				EnsureOpenQueue(q);
+				if (!Tracking()) {
+					return;
+				}
+				const int o = 1 - q;
+				uint64_t need = (r->last_write_queue == o) ? r->last_write_value : 0;
+				if (write && r->last_read_value[o] > need) {
+					need = r->last_read_value[o];
+				}
+				if (need > waited[q][o]) {
+					MakeWait(q, o, need);
+					EnsureOpenQueue(q);
+				}
+				Register(r, write, q);
+			}
+
+			//-------------------------------------------------------------------------------------------
+			// Resource states
+			//-------------------------------------------------------------------------------------------
+
+			void GfxContext::UseImpl(GfxResource* r, UINT subresource, D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after) {
+				const bool whole = subresource == D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+				const int q = rec_queue;
+				const bool compute = q == GfxDevice::QUEUE_COMPUTE;
+				//A shader read on the compute queue is a non-pixel read; the engine asks for both.
+				const D3D12_RESOURCE_STATES wanted = (compute && after == GFX_STATE_SHADER_READ) ? D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE : after;
+				const auto set_state = [&](D3D12_RESOURCE_STATES state) {
+					if (whole) { r->SetAllState(state); } else { r->SetSubresourceState(subresource, state); }
+				};
+
+				if (Satisfies(before, wanted)) {
+					Touch(r, WritesState(wanted), q);
+					if (wanted == D3D12_RESOURCE_STATE_UNORDERED_ACCESS && r->uav_dirty) {
 						D3D12_RESOURCE_BARRIER b = {};
 						b.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
 						b.UAV.pResource = r->Get();
-						barriers.push_back(b);
+						(compute ? async_barriers : barriers).push_back(b);
 						r->uav_dirty = false;
 					}
 					return;
 				}
+
 				D3D12_RESOURCE_BARRIER b = {};
 				b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
 				b.Transition.pResource = r->Get();
 				b.Transition.Subresource = subresource;
 				b.Transition.StateBefore = before;
-				b.Transition.StateAfter = after;
-				barriers.push_back(b);
-				r->SetSubresourceState(subresource, after);
+
+				if (compute && !ComputeState(before)) {
+					//The resource is in a state a compute list cannot leave (a render target, a depth buffer, a pixel shader
+					//resource). The transition is recorded on the direct queue, which the compute queue is then made to wait
+					//for (once, when every resource of the dispatch has been looked at: PrepareCompute). The resource goes to
+					//the state the direct queue would have used, which also holds what the compute queue reads.
+					Touch(r, true, GfxDevice::QUEUE_DIRECT);
+					b.Transition.StateAfter = after;
+					barriers.push_back(b);
+					set_state(after);
+					r->uav_dirty = false;
+					direct_sync_pending = true;
+					EnsureOpenAsync();
+					Register(r, WritesState(wanted), GfxDevice::QUEUE_COMPUTE);
+					return;
+				}
+
+				//A transition is a write: nobody else may be using the resource while it changes.
+				Touch(r, true, q);
+				b.Transition.StateAfter = wanted;
+				(compute ? async_barriers : barriers).push_back(b);
+				set_state(wanted);
 				r->uav_dirty = false;
+			}
+
+			void GfxContext::UseSubresource(GfxResource* r, UINT subresource, D3D12_RESOURCE_STATES after) {
+				if (r->heap_type != D3D12_HEAP_TYPE_DEFAULT || r->resource == nullptr) {
+					return;
+				}
+				UseImpl(r, subresource, r->State(subresource), after);
 			}
 
 			void GfxContext::UseResource(GfxResource* r, D3D12_RESOURCE_STATES after) {
@@ -473,27 +758,7 @@ namespace HotBite {
 					return;
 				}
 				if (!r->IsSplit()) {
-					const D3D12_RESOURCE_STATES before = r->AllState();
-					if (before == after ||
-						((after & ~READ_STATES) == 0 && (before & after) == after && (before & ~READ_STATES) == 0)) {
-						if (after == D3D12_RESOURCE_STATE_UNORDERED_ACCESS && r->uav_dirty) {
-							D3D12_RESOURCE_BARRIER b = {};
-							b.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
-							b.UAV.pResource = r->Get();
-							barriers.push_back(b);
-							r->uav_dirty = false;
-						}
-						return;
-					}
-					D3D12_RESOURCE_BARRIER b = {};
-					b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-					b.Transition.pResource = r->Get();
-					b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-					b.Transition.StateBefore = before;
-					b.Transition.StateAfter = after;
-					barriers.push_back(b);
-					r->SetAllState(after);
-					r->uav_dirty = false;
+					UseImpl(r, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES, r->AllState(), after);
 					return;
 				}
 				//Subresources are in different states: bring each to the one asked for, then they all agree.
@@ -1120,6 +1385,15 @@ namespace HotBite {
 			// Queries
 			//-------------------------------------------------------------------------------------------
 			
+						void GfxContext::Marker(const char* name) {
+							if (!gfx->PixCapturerLoaded() || name == nullptr) {
+								return;
+							}
+							EnsureOpen();
+							//PIX_EVENT_ANSI_VERSION (1): the data is a null terminated ANSI string, its size in bytes with the null.
+							list->SetMarker(1, name, (UINT)strlen(name) + 1);
+						}
+
 						void GfxContext::BeginQuery(GfxQueryHeap* heap, UINT index) {
 							EnsureOpen();
 							list->BeginQuery(heap->heap.Get(), heap->query_type, index);
@@ -1322,7 +1596,7 @@ namespace HotBite {
 			// Resolving state at a draw or dispatch
 			//-------------------------------------------------------------------------------------------
 
-			bool GfxContext::ResolveStage(GfxShader::Stage stage, bool compute) {
+			bool GfxContext::ResolveStage(GfxShader::Stage stage, bool compute, ID3D12GraphicsCommandList* target) {
 				StageState& st = stages[stage];
 				GfxShader* shader = st.shader;
 				if (shader == nullptr) {
@@ -1330,12 +1604,7 @@ namespace HotBite {
 				}
 				ID3D12Device* device = gfx->Device();
 
-				//---- shader resources
-				for (UINT i = 0; i < shader->srv_count; ++i) {
-					if (shader->srv_used[i] && st.srv[i] != nullptr) {
-						UseView(st.srv[i], GFX_STATE_SHADER_READ);
-					}
-				}
+				//---- shader resources (already in the state they are read in: see ResolveGraphicsUses)
 				if (st.srv_dirty && shader->srv_count > 0) {
 					D3D12_CPU_DESCRIPTOR_HANDLE cpu;
 					D3D12_GPU_DESCRIPTOR_HANDLE gpu;
@@ -1362,10 +1631,10 @@ namespace HotBite {
 					st.srv_table = gpu;
 					st.srv_dirty = false;
 					if (compute) {
-						list->SetComputeRootDescriptorTable(COMPUTE_SRV, gpu);
+						target->SetComputeRootDescriptorTable(COMPUTE_SRV, gpu);
 					}
 					else {
-						list->SetGraphicsRootDescriptorTable(GraphicsParam(stage, PARAM_SRV), gpu);
+						target->SetGraphicsRootDescriptorTable(GraphicsParam(stage, PARAM_SRV), gpu);
 					}
 				}
 
@@ -1409,10 +1678,10 @@ namespace HotBite {
 						st.cb_table = gpu;
 						st.cb_dirty = false;
 						if (compute) {
-							list->SetComputeRootDescriptorTable(COMPUTE_CBV, gpu);
+							target->SetComputeRootDescriptorTable(COMPUTE_CBV, gpu);
 						}
 						else {
-							list->SetGraphicsRootDescriptorTable(GraphicsParam(stage, PARAM_CBV), gpu);
+							target->SetGraphicsRootDescriptorTable(GraphicsParam(stage, PARAM_CBV), gpu);
 						}
 					}
 				}
@@ -1423,20 +1692,15 @@ namespace HotBite {
 					st.sampler_table = gpu;
 					st.sampler_dirty = false;
 					if (compute) {
-						list->SetComputeRootDescriptorTable(COMPUTE_SAMPLER, gpu);
+						target->SetComputeRootDescriptorTable(COMPUTE_SAMPLER, gpu);
 					}
 					else {
-						list->SetGraphicsRootDescriptorTable(GraphicsParam(stage, PARAM_SAMPLER), gpu);
+						target->SetGraphicsRootDescriptorTable(GraphicsParam(stage, PARAM_SAMPLER), gpu);
 					}
 				}
 
 				//---- unordered access (compute)
 				if (compute) {
-					for (UINT i = 0; i < shader->uav_count; ++i) {
-						if (shader->uav_used[i] && st.uav[i] != nullptr) {
-							UseView(st.uav[i], D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-						}
-					}
 					if (st.uav_dirty && shader->uav_count > 0) {
 						D3D12_CPU_DESCRIPTOR_HANDLE cpu;
 						D3D12_GPU_DESCRIPTOR_HANDLE gpu;
@@ -1463,7 +1727,7 @@ namespace HotBite {
 						stats.descriptors_copied += shader->uav_count;
 						st.uav_table = gpu;
 						st.uav_dirty = false;
-						list->SetComputeRootDescriptorTable(COMPUTE_UAV, gpu);
+						target->SetComputeRootDescriptorTable(COMPUTE_UAV, gpu);
 					}
 				}
 				return true;
@@ -1527,35 +1791,21 @@ namespace HotBite {
 			}
 
 			bool GfxContext::PrepareGraphics() {
-				for (int attempt = 0; attempt < 2; ++attempt) {
+				for (int attempt = 0; attempt < 3; ++attempt) {
 					EnsureOpen();
 					if (stages[GfxShader::VS].shader == nullptr && stages[GfxShader::PS].shader == nullptr) {
 								ReportSkipped("no vertex or pixel shader set");
 								return false;
 							}
+					//Every resource is moved to its state before any command of the draw is recorded: that may make the
+					//direct queue wait for the compute queue, which closes the list and starts another.
+					if (!ResolveGraphicsUses()) {
+						continue;
+					}
+					EnsureOpen();
 					if (!graphics_root_set) {
 						list->SetGraphicsRootSignature(graphics_root.Get());
 						graphics_root_set = true;
-					}
-
-					//Targets.
-					for (UINT i = 0; i < render_target_count; ++i) {
-						if (render_targets[i] != nullptr) {
-							UseView(render_targets[i], D3D12_RESOURCE_STATE_RENDER_TARGET);
-						}
-					}
-					if (depth_target != nullptr) {
-						UseView(depth_target, depth_target->read_only ? D3D12_RESOURCE_STATE_DEPTH_READ : D3D12_RESOURCE_STATE_DEPTH_WRITE);
-					}
-
-					//Vertex and index data.
-					for (UINT i = 0; i < 16; ++i) {
-						if (vertex_buffers[i] != nullptr) {
-							UseResource(vertex_buffers[i], D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER);
-						}
-					}
-					if (index_buffer != nullptr) {
-						UseResource(index_buffer, D3D12_RESOURCE_STATE_INDEX_BUFFER);
 					}
 
 					//Pipeline.
@@ -1567,7 +1817,7 @@ namespace HotBite {
 
 					bool exhausted = false;
 					for (UINT s = 0; s < 5 && !exhausted; ++s) {
-						exhausted = !ResolveStage((GfxShader::Stage)s, false);
+						exhausted = !ResolveStage((GfxShader::Stage)s, false, list.Get());
 					}
 					if (exhausted) {
 						//The descriptor region is full: run what is recorded, wait for it, and resolve again against a
@@ -1656,31 +1906,73 @@ namespace HotBite {
 				return false;
 			}
 
-			bool GfxContext::PrepareCompute() {
-				for (int attempt = 0; attempt < 2; ++attempt) {
-					EnsureOpen();
+			bool GfxContext::PrepareCompute(bool async, GfxBuffer* indirect_args) {
+				for (int attempt = 0; attempt < 3; ++attempt) {
+					if (async) {
+						EnsureOpenAsync();
+					}
+					else {
+						EnsureOpen();
+					}
 					if (stages[GfxShader::CS].shader == nullptr) {
-								ReportSkipped("no compute shader set");
-								return false;
-							}
-					if (!compute_root_set) {
-						list->SetComputeRootSignature(compute_root.Get());
-						compute_root_set = true;
+						ReportSkipped("no compute shader set");
+						return false;
+					}
+
+					//Resources first (see PrepareGraphics): the uses are resolved for the queue the dispatch goes to, and if
+					//that closed a list the work starts again on the one that is open now.
+					const uint64_t cuts = cut_counter;
+					rec_queue = async ? GfxDevice::QUEUE_COMPUTE : GfxDevice::QUEUE_DIRECT;
+					direct_sync_pending = false;
+					ResolveComputeUses(indirect_args);
+					if (direct_sync_pending) {
+						//Transitions were recorded on the direct list for this dispatch: it runs after them.
+						direct_sync_pending = false;
+						WaitForAll(GfxDevice::QUEUE_COMPUTE, GfxDevice::QUEUE_DIRECT);
+					}
+					rec_queue = GfxDevice::QUEUE_DIRECT;
+					if (cut_counter != cuts) {
+						continue;
+					}
+					if (async) {
+						EnsureOpenAsync();
+					}
+					else {
+						EnsureOpen();
+					}
+
+					ID3D12GraphicsCommandList* target = async ? async_list.Get() : list.Get();
+					bool& root_set = async ? async_root_set : compute_root_set;
+					ID3D12PipelineState*& bound_pipeline = async ? async_pipeline : current_pipeline;
+					//The tables the stage last set were set on some list; if it was another one they are not there.
+					StageState& cs = stages[GfxShader::CS];
+					const uint64_t epoch = async ? async_epoch : direct_epoch;
+					if (cs.table_epoch != epoch) {
+						cs.srv_dirty = cs.cb_dirty = cs.sampler_dirty = cs.uav_dirty = true;
+						cs.srv_table = cs.cb_table = cs.sampler_table = cs.uav_table = {};
+						for (UINT i = 0; i < GFX_CBV_SLOTS; ++i) {
+							cs.cb_bound[i] = 0;
+						}
+						cs.table_epoch = epoch;
+					}
+					if (!root_set) {
+						target->SetComputeRootSignature(compute_root.Get());
+						root_set = true;
 					}
 					ID3D12PipelineState* pso = ComputePipeline();
-							if (pso == nullptr) {
-								ReportSkipped("the compute pipeline state could not be created");
-								return false;
-							}
-					if (!ResolveStage(GfxShader::CS, true)) {
-						FlushBarriers();
+					if (pso == nullptr) {
+						ReportSkipped("the compute pipeline state could not be created");
+						return false;
+					}
+					if (!ResolveStage(GfxShader::CS, true, target)) {
+						if (async) { FlushAsyncBarriers(); } else { FlushBarriers(); }
 						Flush();
 						continue;
 					}
-					FlushBarriers();
-					if (pso != current_pipeline) {
-						list->SetPipelineState(pso);
-						current_pipeline = pso;
+					if (async) { FlushAsyncBarriers(); } else { FlushBarriers(); }
+					if (pso != bound_pipeline) {
+						target->SetPipelineState(pso);
+						bound_pipeline = pso;
 					}
 					return true;
 				}
@@ -1688,10 +1980,65 @@ namespace HotBite {
 			}
 
 			//-------------------------------------------------------------------------------------------
-			// Draws and dispatches
+			// Resources a draw or a dispatch uses
 			//-------------------------------------------------------------------------------------------
 
-			void GfxContext::Draw(UINT vertex_count, UINT start_vertex) {
+			void GfxContext::UseStageSRVs(GfxShader::Stage stage) {
+				StageState& st = stages[stage];
+				const GfxShader* shader = st.shader;
+				if (shader == nullptr) {
+					return;
+				}
+				//A compute shader reads in the non-pixel state: a texture only compute shaders read then stays in states the
+				//compute queue can move it between, with no help from the direct one.
+				const D3D12_RESOURCE_STATES read = (stage == GfxShader::CS) ? D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE : GFX_STATE_SHADER_READ;
+				for (UINT i = 0; i < shader->srv_count; ++i) {
+					if (shader->srv_used[i] && st.srv[i] != nullptr) {
+						UseView(st.srv[i], read);
+					}
+				}
+			}
+
+			//False if resolving closed the list the draw was going to be recorded in: the caller starts again.
+			bool GfxContext::ResolveGraphicsUses() {
+				const uint64_t cuts = cut_counter;
+				for (UINT i = 0; i < render_target_count; ++i) {
+					if (render_targets[i] != nullptr) {
+						UseView(render_targets[i], D3D12_RESOURCE_STATE_RENDER_TARGET);
+					}
+				}
+				if (depth_target != nullptr) {
+					UseView(depth_target, depth_target->read_only ? D3D12_RESOURCE_STATE_DEPTH_READ : D3D12_RESOURCE_STATE_DEPTH_WRITE);
+				}
+				for (UINT i = 0; i < 16; ++i) {
+					if (vertex_buffers[i] != nullptr) {
+						UseResource(vertex_buffers[i], D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER);
+					}
+				}
+				if (index_buffer != nullptr) {
+					UseResource(index_buffer, D3D12_RESOURCE_STATE_INDEX_BUFFER);
+				}
+				for (UINT s = 0; s < 5; ++s) {
+					UseStageSRVs((GfxShader::Stage)s);
+				}
+				return cut_counter == cuts;
+			}
+
+			void GfxContext::ResolveComputeUses(GfxBuffer* indirect_args) {
+				UseStageSRVs(GfxShader::CS);
+				const StageState& st = stages[GfxShader::CS];
+				const GfxShader* shader = st.shader;
+				for (UINT i = 0; i < shader->uav_count; ++i) {
+					if (shader->uav_used[i] && st.uav[i] != nullptr) {
+						UseView(st.uav[i], D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+					}
+				}
+				if (indirect_args != nullptr) {
+					UseResource(indirect_args, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT);
+				}
+			}
+
+void GfxContext::Draw(UINT vertex_count, UINT start_vertex) {
 				if (PrepareGraphics()) {
 					list->DrawInstanced(vertex_count, 1, start_vertex, 0);
 					++stats.draws;
@@ -1721,35 +2068,40 @@ namespace HotBite {
 				}
 			}
 
-			void GfxContext::Dispatch(UINT x, UINT y, UINT z) {
-				if (PrepareCompute()) {
-					if (tracing) { TraceStage("dispatch", GfxShader::CS); }
-					list->Dispatch(x, y, z);
-					++stats.dispatches;
-					const StageState& st = stages[GfxShader::CS];
-					for (UINT i = 0; i < st.shader->uav_count; ++i) {
-						if (st.shader->uav_used[i] && st.uav[i] != nullptr && st.uav[i]->Resource() != nullptr) {
-							st.uav[i]->Resource()->uav_dirty = true;
-						}
+			//Records the dispatch itself into the list PrepareCompute got ready (the compute queue's, if `async`).
+			template<class F>
+			void GfxContext::RecordDispatch(bool async, F&& record) {
+				record(async ? async_list.Get() : list.Get());
+				++stats.dispatches;
+				if (async) {
+					async_work = true;
+					++async_stats.dispatches;
+				}
+				const StageState& st = stages[GfxShader::CS];
+				for (UINT i = 0; i < st.shader->uav_count; ++i) {
+					if (st.shader->uav_used[i] && st.uav[i] != nullptr && st.uav[i]->Resource() != nullptr) {
+						st.uav[i]->Resource()->uav_dirty = true;
 					}
 				}
 			}
 
-			void GfxContext::DispatchIndirect(GfxBuffer* args, UINT offset) {
+			void GfxContext::Dispatch(UINT x, UINT y, UINT z, bool async) {
+				async = async && AsyncCompute();
+				if (PrepareCompute(async, nullptr)) {
+					if (tracing) { TraceStage("dispatch", GfxShader::CS); }
+					RecordDispatch(async, [&](ID3D12GraphicsCommandList* target) { target->Dispatch(x, y, z); });
+				}
+			}
+
+			void GfxContext::DispatchIndirect(GfxBuffer* args, UINT offset, bool async) {
 				if (args == nullptr) {
 					return;
 				}
-				EnsureOpen();
-				UseResource(args, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT);
-				if (PrepareCompute()) {
-					list->ExecuteIndirect(dispatch_signature.Get(), 1, args->Get(), offset, nullptr, 0);
-					++stats.dispatches;
-					const StageState& st = stages[GfxShader::CS];
-					for (UINT i = 0; i < st.shader->uav_count; ++i) {
-						if (st.shader->uav_used[i] && st.uav[i] != nullptr && st.uav[i]->Resource() != nullptr) {
-							st.uav[i]->Resource()->uav_dirty = true;
-						}
-					}
+				async = async && AsyncCompute();
+				if (PrepareCompute(async, args)) {
+					RecordDispatch(async, [&](ID3D12GraphicsCommandList* target) {
+						target->ExecuteIndirect(dispatch_signature.Get(), 1, args->Get(), offset, nullptr, 0);
+					});
 				}
 			}
 		}

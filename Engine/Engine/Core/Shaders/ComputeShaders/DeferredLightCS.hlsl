@@ -22,7 +22,23 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-//Shades the G-buffer with light.
+//Shades the G-buffer with light, one permutation of this file for each kind of surface and light
+//(RenderSystem::ProcessDeferredLighting dispatches them one after the other over the same tiles,
+//each adding to the light map and the bloom map what its own pixels and lights are owed):
+//
+//  (nothing defined)         the surfaces that are neither water nor lava: ambient, every directional light
+//                            and every point light whose shadow is a shadow map or none.
+//  DEFERRED_LIGHT_RAYS       the same surfaces, only the lights that trace their shadow (flagged ray traced),
+//                            with the ray tracer compiled in. Dispatched when the frame has such lights and a
+//                            place to trace them; until then the first permutation lights them too (no ray).
+//  DEFERRED_LIGHT_WATER      the water: its own ambient, directional and point light, no shadows.
+//  DEFERRED_LIGHT_LAVA       the lava: directional and point light with shadow maps, no rays.
+//
+//DeferredLightRaysCS.hlsl, DeferredLightWaterCS.hlsl and DeferredLightLavaCS.hlsl are this file with the
+//define; the *FxcCS.hlsl twins of the four are the same again, only built by fxc instead of DXC. They are
+//separate shaders because one shader holding all of it (DeferredLightAllCS.hlsl, the reference) keeps the
+//registers of its most demanding branch - the BVH walk and the screen march of the shadow rays - for every
+//pixel, whatever it is: the GPU then holds fewer pixels in flight (occupancy) and the whole pass slows down.
 //
 //One thread group per 16x16 screen tile - the same tile TileLightCullCS filled a mask
 //for - and one thread per pixel. The group reads its tile's mask once (the address is the
@@ -87,6 +103,9 @@ cbuffer externalData : register(b0)
 	float ss_bias;
 	float ss_thickness;
 	float ss_thickness_rel;
+	//1: the lights flagged ray traced are the business of the DEFERRED_LIGHT_RAYS permutation, which is
+	//dispatched in this frame, and the first permutation leaves them out. 0: it lights them like any other.
+	int skip_rt_lights;
 }
 
 Texture2D<float4> positionTexture : register(t0);
@@ -96,7 +115,7 @@ Texture2D<float4> materialTexture : register(t2);
 StructuredBuffer<PackedLight> lightsBuffer : register(t3);
 ByteAddressBuffer tileMasks : register(t4);
 //The Hi-Z pyramid of the depth map (level 0 is depth_map), after the ray traced shadow scene's
-//t5-t9 (Common/ShadowRays.hlsli). Only the build that traces rays (DEFERRED_LIGHT_RAYS, see below) has any of it.
+//t5-t9 (Common/ShadowRays.hlsli). Only the permutation that traces rays (DEFERRED_LIGHT_RAYS) has any of it.
 #ifdef DEFERRED_LIGHT_RAYS
 #include "../RayTrace/RayScreenSolver.hlsli"
 Texture2D<float> ssHiZ[HIZ_TEXTURES] : register(t10);
@@ -110,6 +129,9 @@ RWByteAddressBuffer sr_counters : register(u3);
 #endif
 
 #ifdef DEFERRED_LIGHT_RAYS
+//This permutation lights only the lights that trace their shadow: Common/DeferredLighting.hlsli leaves out of it what only a light with
+//a shadow map uses (the cascades, the PCF, the cube maps).
+#define DL_RT_LIGHTS_ONLY 1
 //Whether the screen space march is on this frame.
 bool ScreenShadowActive()
 {
@@ -137,11 +159,8 @@ bool ScreenShadowOccluded(float3 from, float3 dir, float len)
 #define SR_SCREEN_SHADOWS 1
 #include "../Common/ShadowRays.hlsli"
 #else
-//No ray is traced in this build: the lights that ask for one are lit as if nothing stood in their way. A frame
-//that traces rays uses DeferredLightRaysCS, which is this file with DEFERRED_LIGHT_RAYS defined. The two are separate
-//shaders because the BVH walk and the Hi-Z march, though a frame without ray traced lights never runs them, make
-//this shader register-hungry and cost it its occupancy on the GPU: 1.2 ms against 5.4 ms (fxc) / 13 ms (DXC) for
-//the lighting pass of a night scene with no ray traced light.
+//No ray is traced in the other permutations: a light that asks for one is lit as if nothing stood in its way (the first
+//permutation does that only when no permutation traces: see skip_rt_lights).
 #define SR_SURFACE_BIAS 0.04f
 static uint2 sr_pixel = uint2(0, 0);
 bool ShadowRayOccluded(float3 from, float3 to, uint scene) { return false; }
@@ -149,6 +168,36 @@ bool ShadowRayOccludedDirectional(float3 from, float3 to_light) { return false; 
 #endif
 
 #include "../Common/DeferredLighting.hlsli"
+
+//Whether a directional light traces its shadow (it has no shadow map of its own).
+bool DirLightIsRayTraced(DirLight light)
+{
+	return !light.cast_shadow && (light.flags & DIR_LIGHT_FLAG_RAYTRACED) != 0;
+}
+
+//Whether this permutation lights a light, given whether the light traces its shadow: the one with the ray tracer lights only the
+//lights that do, the other lights the rest - and those too when no permutation traces (skip_rt_lights is 0).
+#ifdef DEFERRED_LIGHT_RAYS
+#define THIS_PERMUTATION_LIGHTS(rt) (rt)
+#else
+#define THIS_PERMUTATION_LIGHTS(rt) (!(rt) || skip_rt_lights == 0)
+#endif
+
+//What a permutation owes a pixel goes on top of what the light map and the bloom map hold.
+void AddToMaps(uint2 px, float3 lum, float3 bloom, float weight, uint model)
+{
+	if (any(lum != 0.0f)) {
+		const float4 l = light_out[px];
+		light_out[px] = float4(l.rgb + lum * weight, l.a);
+	}
+	if (any(bloom != 0.0f)) {
+		const float4 bl = bloom_out[px];
+		//A cloud's own bloom was never clamped; everything else always was.
+		const float3 nb = (model == SHADING_SPLAT) ? (bl.rgb + bloom * weight)
+		                                           : saturate(bl.rgb + bloom);
+		bloom_out[px] = float4(nb, 1.0f);
+	}
+}
 
 [numthreads(TILE_SIZE, TILE_SIZE, 1)]
 void main(uint3 gid : SV_GroupID, uint3 dtid : SV_DispatchThreadID)
@@ -158,11 +207,7 @@ void main(uint3 gid : SV_GroupID, uint3 dtid : SV_DispatchThreadID)
 	}
 	const uint2 px = dtid.xy;
 	sr_pixel = px;
-	const float4 wp = positionTexture[px];
-	//Nothing was drawn here: the G-buffer is cleared to FLT_MAX.
-	if (wp.x >= 1.0e30f) {
-		return;
-	}
+	//The material first: a pixel of another kind of surface is turned away before anything else is read.
 	const float4 mat = materialTexture[px];
 	const uint code = (uint)(mat.w + 0.5f);
 	const uint model = code & GBUFFER_MODEL_MASK;
@@ -172,85 +217,108 @@ void main(uint3 gid : SV_GroupID, uint3 dtid : SV_DispatchThreadID)
 	if (pass_filter == 2 && model != SHADING_SPLAT) {
 		return;
 	}
+#if defined(DEFERRED_LIGHT_WATER)
+	if (model != SHADING_WATER) {
+		return;
+	}
+#elif defined(DEFERRED_LIGHT_LAVA)
+	if (model != SHADING_LAVA) {
+		return;
+	}
+#else
+	if (model == SHADING_WATER || model == SHADING_LAVA) {
+		return;
+	}
+#endif
+	const float4 wp = positionTexture[px];
+	//Nothing was drawn here: the G-buffer is cleared to FLT_MAX.
+	if (wp.x >= 1.0e30f) {
+		return;
+	}
 
 	const float3 P = wp.xyz;
-	float3 N = normalTexture[px].xyz;
-	float3 lum = float3(0.0f, 0.0f, 0.0f);
-	float3 lum_rt = float3(0.0f, 0.0f, 0.0f);
-	float3 bloom = float3(0.0f, 0.0f, 0.0f);
-	float weight = 1.0f;
-
 	const uint tile = gid.y * (uint)tiles_x + gid.x;
 	const uint mask_base = tile * TILE_MASK_WORDS * 4;
+	float3 lum = float3(0.0f, 0.0f, 0.0f);
+	float3 bloom = float3(0.0f, 0.0f, 0.0f);
+	float weight = 1.0f;
 	int i;
 
-	if (model == SHADING_WATER) {
-		//The ray source normal is deliberately flattened (it is what reflections follow);
-		//the shading normal, wave bumps and all, travels in the material map.
-		const float ny = sqrt(max(0.0f, 1.0f - mat.y * mat.y - mat.z * mat.z));
-		N = float3(mat.y, ny, mat.z);
-		lum = ShadeAmbient(N);
-		for (i = 0; i < dirLightsCount; ++i) {
-			lum += ShadeWaterDirectional(N, P, dirLights[i], bloom);
-		}
-		for (uint w = 0; w < TILE_MASK_WORDS; ++w) {
-			uint bits = tileMasks.Load(mask_base + w * 4);
-			while (bits != 0u) {
-				const uint b = firstbitlow(bits);
-				bits &= bits - 1u;
-				const PackedLight L = lightsBuffer[w * 32u + b];
-				if (length(P - L.position) < L.range) {
-					lum += ShadeWaterPoint(N, P, L, bloom);
-				}
+#if defined(DEFERRED_LIGHT_WATER)
+	//The ray source normal is deliberately flattened (it is what reflections follow);
+	//the shading normal, wave bumps and all, travels in the material map.
+	const float ny = sqrt(max(0.0f, 1.0f - mat.y * mat.y - mat.z * mat.z));
+	const float3 N = float3(mat.y, ny, mat.z);
+	lum = ShadeAmbient(N);
+	for (i = 0; i < dirLightsCount; ++i) {
+		lum += ShadeWaterDirectional(N, P, dirLights[i], bloom);
+	}
+	for (uint w = 0; w < TILE_MASK_WORDS; ++w) {
+		uint bits = tileMasks.Load(mask_base + w * 4);
+		while (bits != 0u) {
+			const uint b = firstbitlow(bits);
+			bits &= bits - 1u;
+			const PackedLight L = lightsBuffer[w * 32u + b];
+			if (length(P - L.position) < L.range) {
+				lum += ShadeWaterPoint(N, P, L, bloom);
 			}
 		}
-		//Only the share of the column the surface itself scatters back; WaterPS already
-		//put the light of the bottom, weighted by what is transmitted, in the light map.
-		weight = 1.0f;
-		lum *= (1.0f - exp(-mat.x * WATER_EXTINCTION));
 	}
-	else if (model == SHADING_LAVA) {
-		N = float3(0.0f, 1.0f, 0.0f);
-		for (i = 0; i < dirLightsCount; ++i) {
-			lum += ShadeLavaDirectional(N, float4(P, 1.0f), dirLights[i], i);
-		}
-		for (uint w = 0; w < TILE_MASK_WORDS; ++w) {
-			uint bits = tileMasks.Load(mask_base + w * 4);
-			while (bits != 0u) {
-				const uint b = firstbitlow(bits);
-				bits &= bits - 1u;
-				lum += ShadeLavaPoint(N, P, lightsBuffer[w * 32u + b]);
-			}
-		}
-		weight = mat.x;
+	//Only the share of the column the surface itself scatters back; WaterPS already
+	//put the light of the bottom, weighted by what is transmitted, in the light map.
+	lum *= (1.0f - exp(-mat.x * WATER_EXTINCTION));
+#elif defined(DEFERRED_LIGHT_LAVA)
+	const float3 N = float3(0.0f, 1.0f, 0.0f);
+	for (i = 0; i < dirLightsCount; ++i) {
+		lum += ShadeLavaDirectional(N, float4(P, 1.0f), dirLights[i], i);
 	}
-	else {
-		//STANDARD and SPLAT share the model; they differ in what `z` weights.
-		const float spec = mat.x;
-		const float bloom_scale = mat.y;
-		const float sun = (model == SHADING_STANDARD) ? mat.z : 1.0f;
-		if (model == SHADING_SPLAT) {
-			weight = mat.z;
+	for (uint w = 0; w < TILE_MASK_WORDS; ++w) {
+		uint bits = tileMasks.Load(mask_base + w * 4);
+		while (bits != 0u) {
+			const uint b = firstbitlow(bits);
+			bits &= bits - 1u;
+			lum += ShadeLavaPoint(N, P, lightsBuffer[w * 32u + b]);
 		}
-		lum = ShadeAmbient(N);
-		for (i = 0; i < dirLightsCount; ++i) {
+	}
+	weight = mat.x;
+#else
+	//STANDARD and SPLAT share the model; they differ in what `z` weights.
+	const float3 N = normalTexture[px].xyz;
+	const float spec = mat.x;
+	const float bloom_scale = mat.y;
+	const float sun = (model == SHADING_STANDARD) ? mat.z : 1.0f;
+	if (model == SHADING_SPLAT) {
+		weight = mat.z;
+	}
+	float3 lum_rt = float3(0.0f, 0.0f, 0.0f);
+#ifndef DEFERRED_LIGHT_RAYS
+	lum = ShadeAmbient(N);
+#endif
+	//(No `continue` in these loops: fxc has to unroll the directional one - the shadow maps are indexed by the loop's counter - and
+	//cannot unroll a loop that has one.)
+	for (i = 0; i < dirLightsCount; ++i) {
+		const bool rt = DirLightIsRayTraced(dirLights[i]);
+		if (THIS_PERMUTATION_LIGHTS(rt)) {
 			const float3 dir_light = ShadeDirectional(N, float4(P, 1.0f), spec, bloom_scale, dirLights[i],
 			                        cloud_density, i, bloom) * ((i == 0) ? sun : 1.0f);
-			if (shadow_ray_accumulate != 0 && (dirLights[i].flags & DIR_LIGHT_FLAG_RAYTRACED) != 0 && !dirLights[i].cast_shadow) {
+			if (shadow_ray_accumulate != 0 && rt) {
 				lum_rt += dir_light;
 			}
 			else {
 				lum += dir_light;
 			}
 		}
-		for (uint w = 0; w < TILE_MASK_WORDS; ++w) {
-			uint bits = tileMasks.Load(mask_base + w * 4);
-			while (bits != 0u) {
-				const uint b = firstbitlow(bits);
-				bits &= bits - 1u;
-				const PackedLight L = lightsBuffer[w * 32u + b];
+	}
+	for (uint w = 0; w < TILE_MASK_WORDS; ++w) {
+		uint bits = tileMasks.Load(mask_base + w * 4);
+		while (bits != 0u) {
+			const uint b = firstbitlow(bits);
+			bits &= bits - 1u;
+			const PackedLight L = lightsBuffer[w * 32u + b];
+			const bool rt = LightIsRayTraced(L);
+			if (THIS_PERMUTATION_LIGHTS(rt)) {
 				const float3 point_light = ShadePoint(N, P, spec, bloom_scale, L, bloom);
-				if (shadow_ray_accumulate != 0 && LightIsRayTraced(L)) {
+				if (shadow_ray_accumulate != 0 && rt) {
 					lum_rt += point_light;
 				}
 				else {
@@ -259,10 +327,12 @@ void main(uint3 gid : SV_GroupID, uint3 dtid : SV_DispatchThreadID)
 			}
 		}
 	}
-
-	if (shadow_ray_accumulate != 0) {
+	if (shadow_ray_accumulate != 0 && any(lum_rt != 0.0f)) {
+		//Everything else of the map is zero: it was cleared before the dispatch.
 		rt_shadow_out[px] = float4(lum_rt * weight, 0.0f);
 	}
+#endif
+
 #ifdef SR_STATS
 	if (sr_stat[0] + sr_stat[1] > 0u) {
 		sr_stat[7] = 1u;
@@ -275,14 +345,5 @@ void main(uint3 gid : SV_GroupID, uint3 dtid : SV_DispatchThreadID)
 		}
 	}
 #endif
-	const float4 l = light_out[px];
-	light_out[px] = float4(l.rgb + lum * weight, l.a);
-
-	if (any(bloom != 0.0f)) {
-		const float4 bl = bloom_out[px];
-		//A cloud's own bloom was never clamped; everything else always was.
-		const float3 nb = (model == SHADING_SPLAT) ? (bl.rgb + bloom * weight)
-		                                           : saturate(bl.rgb + bloom);
-		bloom_out[px] = float4(nb, 1.0f);
-	}
+	AddToMaps(px, lum, bloom, weight, model);
 }

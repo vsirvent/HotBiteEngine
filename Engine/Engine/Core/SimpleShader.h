@@ -341,8 +341,8 @@ namespace HotBite {
 				GfxShader* GetDirectXShader() { return shader; }
 				const char* GetShaderProfile() const override { return "cs_" HOTBITE_SHADER_MODEL; }
 
-				void DispatchByGroups(unsigned int groupsX, unsigned int groupsY, unsigned int groupsZ);
-				void DispatchByThreads(unsigned int threadsX, unsigned int threadsY, unsigned int threadsZ);
+				void DispatchByGroups(unsigned int groupsX, unsigned int groupsY, unsigned int groupsZ, bool async = false);
+				void DispatchByThreads(unsigned int threadsX, unsigned int threadsY, unsigned int threadsZ, bool async = false);
 
 				bool SetShaderResourceView(const std::string& name, GfxSRV* srv);
 				bool SetShaderResourceViewArray(const std::string& name, GfxSRV** srv, int nviews);

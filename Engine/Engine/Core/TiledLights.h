@@ -143,9 +143,10 @@ namespace HotBite {
 				//are the camera's, uploaded like every other matrix. Counts are collected
 				//only when `collect_stats` is set, which costs a few atomics per tile.
 				//`culling` false puts every light in every tile that shows a surface - the
-				//reference the culling is measured against, not a mode for a game.
+				//reference the culling is measured against, not a mode for a game. `async` puts the
+				//dispatch on the compute queue (GfxContext::Dispatch).
 				void Cull(const float4x4& view, const float4x4& projection_inverse,
-					GfxSRV* positions, bool collect_stats, bool culling = true);
+					GfxSRV* positions, bool collect_stats, bool culling = true, bool async = false);
 
 				//Brute-force check that Cull's masks hold every light that reaches a visible
 				//pixel. Stalls the GPU to read the answer: tests only.

@@ -183,7 +183,8 @@ namespace HotBite {
 				// Performance). A reload has to make what the build made, or editing the shader would change what it costs.
 				bool UsesFxc(const std::string& source_path)
 				{
-					static const char* const FXC_SHADERS[] = { "deferredlightcs", "deferredlightrayscs" };
+					static const char* const FXC_SHADERS[] = { "deferredlightfxccs", "deferredlightraysfxccs", "deferredlightwaterfxccs",
+						"deferredlightlavafxccs", "deferredlightallfxccs", "deferredlightallraysfxccs" };
 					const std::string stem = ToLower(fs::path(source_path).stem().string());
 					for (const char* name : FXC_SHADERS) {
 						if (stem == name) {
