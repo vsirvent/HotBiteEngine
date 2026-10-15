@@ -6,8 +6,8 @@ tools are allowed to be broken while it is in progress; the Scene Editor is the 
 Shaders move from fxc `*_5_0` to DXC `*_6_x`.
 
 Started 2026-10-15 on branch `no_SSE`. Committed once the Scene Editor and Survival suites passed on D3D12
-(see "State at the commit"). Performance work (M7) is deliberately left for later: the port is
-correct first, and the default-view GPU time still has a regression to chase (see "Performance").
+(see "State at the commit"). Performance work (M7) is deliberately left for later; one known problem (DXC
+against fxc on the lighting shader) is described under "Performance".
 
 ## Design in one paragraph
 
@@ -152,14 +152,27 @@ uploads (an immediate command list per upload, a ring of 16 in `GfxDevice`) that
 
 ## Performance (user's settings, `Measure-Baseline.ps1`, fps cap lifted)
 
+**Known problem, left open for later: DXC compiles the ray traced lighting shader 2-2.5x slower than fxc.** The same
+HLSL of `DeferredLightRaysCS` costs 22.0 ms built by DXC (`cs_6_0`) and 8.7 ms built by fxc (`cs_5_0 /O3`) in the
+stress scene below; the rest of the frame is not affected. **For now `DeferredLightCS` and `DeferredLightRaysCS` are
+built by fxc**: `HotBiteFxc` metadata on their `FxCompile` items in `Engine.vcxproj` (read by `Dxc.targets`, which
+runs `fxc.exe /O3` on them), and `UsesFxc` in `ShaderCompiler.cpp` for the editor's hot reload (a reload of the rays
+shader takes ~90 s at /O3, on a worker thread). They are compute shaders, so each is a pipeline of its own and mixing
+SM5 and SM6 is fine (a single pipeline cannot mix them). To go back to DXC once it is fixed: remove the metadata and
+the list. Where to start: PIX on the DXC build of suite `67-rt-shadow-stress` (the symbols are in the `.cso`), compare
+the machine code and occupancy against the fxc build, look at how DXC lays out the BVH walk and the screen march
+(loops, `[branch]`, local arrays and structs, the `PackedLight` loads), and try other options on a copy (shader model
+6_6, `-Gis`, `-enable-16bit-types`, `-Vd`).
+
 | build | default view fps | deferred stamp | forest fps | deferred stamp |
 |---|---|---|---|---|
 | D3D11 (before the port) | 75.7 | 5.082 ms | 103.4 | 1.599 ms |
 | D3D12, 1:1, fxc DXBC | 78.3 | 4.889 ms | 106.0 | 1.487 ms |
-| D3D12, DXC DXIL (as committed) | 49.3 | 11.786 ms | 95.3 | 1.945 ms |
+| D3D12, DXC DXIL everywhere | 49.3 | 11.786 ms | 95.3 | 1.945 ms |
+| **D3D12, DXIL except the two lighting shaders on fxc (as committed)** | **80.7** | **3.996 ms** | **102.9** | **1.272 ms** |
 
-The 1:1 DXBC port is as fast as D3D11 (slightly faster); **moving to DXIL costs 37% in the default view**,
-all of it in `DeferredLightCS`: Survival suite 57 reads the deferred pass at 13 ms (DXIL) against 5.4 ms
+The 1:1 DXBC port is as fast as D3D11 (slightly faster); **moving everything to DXIL cost 37% in the default view**,
+all of it in `DeferredLightCS` (with the pair back on fxc the port is faster than D3D11: 80.7 against 75.7 fps): Survival suite 57 reads the deferred pass at 13 ms (DXIL) against 5.4 ms
 (DXBC), and with the ray traced shadow code stubbed out the same shader takes 1.2 ms. So it is the
 ray-tracing branch (RayScreenSolver / ssHiZ / ScreenShadow / ShadowRays) that DXC compiles worse
 (occupancy; the register / live-range cost of the BVH walk plus the screen march). Tried without effect:
@@ -171,34 +184,51 @@ That does not recover the default view, which traces. **Tried and dropped:** a s
 the ray traced lights with the rays build (and the rest with the cheap one): no faster, and the lamps came
 out 31% brighter with traced shadows than without (Survival suite 63), so the traced lights stay in one dispatch.
 
-Survival suite 57 (`57-tiled-lights`) has cost limits (3 / 5 ms, and culling must beat brute force 3x) that
-the DXIL deferred pass exceeds (14.5 ms). Its two cost tests already failed on D3D11 HEAD (5.5-5.9 ms); the
-culling-ratio test is the one the port adds (43 ms brute force against 14.8 culled), and it goes with the
-optimization.
+Survival suite 57 (`57-tiled-lights`) has cost limits (3 / 5 ms, and culling must beat brute force 3x). Its two
+cost tests failed on D3D11 HEAD (5.5-5.9 ms) and still do (5.9 ms) with the lighting shaders on fxc; with DXC the
+pass cost 14.5 ms and the culling-ratio test failed too (43 ms brute force against 14.8 culled).
 
-**Next (M7), by expected payoff:** (1) get the deferred lighting pass back to ~5 ms: compile the compute
-shaders that regress with fxc (`cs_5_0`; separate PSOs, so mixing is allowed) as a stopgap, or restructure the
-ray code (tile classification, packed ray lists as `feedback_pack_rays_for_warps`), compare other big
-shaders (`GIRayTraceCS`, `RayTraceCS`, `DenoiserCS`) DXBC vs DXIL the same way; (2) explicit barriers / UAV
+**Same source, two compilers (2026-10-15, RTX 4050 Laptop, driver 32.0.15.8142).** Survival suite `67-rt-shadow-stress`
+(ten houses and ten street lamps at midnight, 25 traced lights, the busiest tile holds 15, ~2 M (pixel, traced light)
+pairs on screen) run against one executable, changing only how the two lighting compute shaders are compiled
+(GPU ms per frame, `perf` stamps, 4 s after a 2 s settle):
+
+| lighting shaders built by | deferred, traced shadows on | scene | fps | deferred, traced shadows off |
+|---|---|---|---|---|
+| DXC `cs_6_0` (as shipped; run twice: 22.01 / 22.02) | **22.0 ms** | 26.0 ms | 32 | 0.72 ms |
+| fxc `cs_5_0 /O1` (run twice: 10.84 / 10.86) | 10.8 ms | 14.9 ms | 50 | 0.70 ms |
+| fxc `cs_5_0 /O3` | **8.7 ms** | 12.7 ms | 56 | 0.70 ms |
+| fxc `/O1`, only `DeferredLightRaysCS` swapped | 10.9 ms | 15.0 ms | 50 | 0.72 ms |
+
+(The shipped state is the third row.) So it is the shader, not the engine: the same HLSL runs 2.0-2.5x slower once DXC compiles it, the whole gap is in
+`DeferredLightRaysCS` (swapping only it gives the same time as swapping both), and the build without ray tracing
+is fine in every case (0.7 ms). The run to repeat it: `Run-Tests.ps1 -Exe <exe> -Suite '67-*'` prints the
+`rt stress cost` line; to compile the pair with fxc use `fxc /T cs_5_0 /E main /O3 /Fo <exe folder>\<name>.cso
+Engine\Engine\Core\Shaders\ComputeShaders\<name>.hlsl` for `DeferredLightCS` and `DeferredLightRaysCS`. The
+`DXIL` part is the same size with or without `-Zi`, so PIX shows the same code the run above timed.
+
+**Next (M7), by expected payoff:** (1) find why DXC is slow on the lighting shader and put it back on DXC (see the
+known problem above), and compare the other big shaders (`GIRayTraceCS`, `RayTraceCS`, `DenoiserCS`) DXBC against
+DXIL the same way - the lighting pair on fxc is the stopgap, restructuring the ray code (tile classification,
+packed ray lists as `feedback_pack_rays_for_warps`) the other road; (2) explicit barriers / UAV
 overlap instead of the full serialisation between the compute passes; (3) async compute for the
 independent ones; (4) fewer full-screen post passes.
 
 ## State at the commit (2026-10-15)
 
-Scene Editor suite on D3D12/DXIL: **732 passed, 1 failed, 3 skipped**. The one failure is
+Scene Editor suite on D3D12: **733 passed, 1 failed, 3 skipped**. The one failure is
 `48-screenspacert` "the screen finds the reflection of the boxes the world finds" (the world solver's
 reflection reads black), which fails the same way on D3D11 HEAD and with every graphics/compute shader in
 fxc DXBC, so it is not the port. (HEAD had 713 passed / 20 failed: the gicache, tessellation and tiledlights
 failures it carried pass now. `35-tessellation` has three "the view is not settled" screenshot checks that failed
-once inside the full sweep and pass alone, 36/36.)
+once inside one full sweep and pass alone, 36/36.)
 
-Survival suite: **301 passed, 17 failed** (HEAD: 302 / 16). Sixteen are HEAD's: 02 (a string literal in
-`FpsHud.cpp`), 27 (`fan01` has no NightLight), 39 (`street_lamp` is free), 48 and 49 (`--cook` exits 1, a building
-material names a texture under Marbles), 57 (two cost tests), 65 and 66 (lamp emission removed). The one the
-port adds is in 57: "culling on or off ... off costs many times more" (43 ms brute force against 14.8 ms
-culled, limit 3x) - the DXIL lighting regression described under Performance. Suite 08's two-process
-determinism test now runs the two processes one after the other (a second New Game while the first held its
-textures ran out of memory on a loaded machine; same code on HEAD).
+Survival suite: **306 passed, 16 failed**. The sixteen are HEAD's (302 passed / 16 failed there), none new:
+02 (a string literal in `FpsHud.cpp`), 27 (`fan01` has no NightLight), 39 (`street_lamp` is free), 48 and 49
+(`--cook` exits 1, a building material names a texture under Marbles), 57 (two cost tests, 5.9 ms against limits
+of 3 and 5), 65 and 66 (lamp emission removed). The four tests of the new stress suite 67 pass. Suite 08's
+two-process determinism test now runs the two processes one after the other (a second New Game while the first
+held its textures ran out of memory on a loaded machine; same code on HEAD).
 
 Builds: Engine, SceneEditor, Survival, DemoGame, UiDesigner, MaterialDesigner, HotBiteTool and Marbles build;
 Marbles / DemoGame start and run. Not run: Marbles' suite (this checkout has none that applies), the DemoGame and

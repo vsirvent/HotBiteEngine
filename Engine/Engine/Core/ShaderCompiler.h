@@ -126,6 +126,9 @@ namespace HotBite {
 
 				void Reindex();
 				int IndexFolder(const std::string& folder);
+				// The compile of a shader that is built by fxc and not DXC (see UsesFxc in the .cpp).
+				bool CompileFxc(const std::string& source_path, const std::string& entry,
+					const std::vector<std::string>& search_dirs, Result& out);
 
 				static ShaderCompiler* sInstance;
 

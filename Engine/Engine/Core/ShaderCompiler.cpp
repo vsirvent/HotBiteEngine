@@ -107,6 +107,100 @@ namespace HotBite {
 					std::vector<uint64_t>* dependency_times;
 				};
 
+				// The same for fxc (ID3D12 shaders that stay on it, see UsesFxc): relative to the file that contains the #include first,
+				// then against the registered source folders, and every file opened is recorded.
+				class FxcIncludeHandler : public ID3DInclude {
+				public:
+					FxcIncludeHandler(const std::string& source_dir, const std::vector<std::string>& search_dirs,
+						std::vector<std::string>& deps, std::vector<uint64_t>* times)
+						: root(source_dir), search(search_dirs), dependencies(deps), dependency_times(times) {
+					}
+
+					HRESULT __stdcall Open(D3D_INCLUDE_TYPE, LPCSTR file_name, LPCVOID parent_data, LPCVOID* out_data, UINT* out_bytes) override
+					{
+						//The compiler identifies the includer only by the data pointer it was handed, so the directory of every open file
+						//is kept under that pointer. A null parent is the top-level source.
+						std::string base = root;
+						if (parent_data != nullptr) {
+							auto it = dir_of_data.find(parent_data);
+							if (it != dir_of_data.end()) {
+								base = it->second;
+							}
+						}
+						std::string resolved;
+						std::error_code ec;
+						fs::path direct = fs::path(base) / file_name;
+						if (fs::exists(direct, ec)) {
+							resolved = direct.string();
+						}
+						else {
+							for (const std::string& dir : search) {
+								fs::path candidate = fs::path(dir) / file_name;
+								if (fs::exists(candidate, ec)) {
+									resolved = candidate.string();
+									break;
+								}
+							}
+						}
+						if (resolved.empty()) {
+							return E_FAIL;
+						}
+						std::ifstream in(resolved, std::ios::binary);
+						if (!in) {
+							return E_FAIL;
+						}
+						std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+						char* buffer = new char[text.size() + 1];
+						memcpy(buffer, text.data(), text.size());
+						buffer[text.size()] = '\0';
+						dir_of_data[buffer] = fs::path(resolved).parent_path().string();
+						dependencies.push_back(Normalize(resolved));
+						if (dependency_times != nullptr) {
+							dependency_times->push_back(ShaderCompiler::FileTime(resolved));
+						}
+						*out_data = buffer;
+						*out_bytes = (UINT)text.size();
+						return S_OK;
+					}
+
+					HRESULT __stdcall Close(LPCVOID data) override
+					{
+						dir_of_data.erase(data);
+						delete[](char*)data;
+						return S_OK;
+					}
+
+				private:
+					std::string root;
+					const std::vector<std::string>& search;
+					std::vector<std::string>& dependencies;
+					std::vector<uint64_t>* dependency_times;
+					std::unordered_map<const void*, std::string> dir_of_data;
+				};
+
+				// Shaders that are built by fxc (SM 5.0, /O3) and not by DXC, because DXC makes them 2-2.5x slower from the same
+				// HLSL: keep equal to the FxCompile items with HotBiteFxc metadata in Engine.vcxproj (Docs/D3D12_MIGRATION.md,
+				// Performance). A reload has to make what the build made, or editing the shader would change what it costs.
+				bool UsesFxc(const std::string& source_path)
+				{
+					static const char* const FXC_SHADERS[] = { "deferredlightcs", "deferredlightrayscs" };
+					const std::string stem = ToLower(fs::path(source_path).stem().string());
+					for (const char* name : FXC_SHADERS) {
+						if (stem == name) {
+							return true;
+						}
+					}
+					return false;
+				}
+
+				std::string BlobText(ID3DBlob* blob)
+				{
+					if (blob == nullptr || blob->GetBufferSize() == 0) {
+						return {};
+					}
+					return std::string((const char*)blob->GetBufferPointer(), blob->GetBufferSize());
+				}
+
 				std::string BlobText(IDxcBlobUtf8* blob)
 				{
 					if (blob == nullptr || blob->GetStringLength() == 0) {
@@ -331,6 +425,9 @@ namespace HotBite {
 				out.dependencies.push_back(Normalize(source_path));
 				out.dependency_times.push_back(FileTime(source_path));
 
+				if (UsesFxc(source_path)) {
+					return CompileFxc(source_path, entry, search_dirs, out);
+				}
 				if (!DxcSupport::Available()) {
 					out.error = "dxcompiler.dll is not available";
 					return false;
@@ -399,6 +496,42 @@ namespace HotBite {
 					return false;
 				}
 				memcpy(code->GetBufferPointer(), object->GetBufferPointer(), object->GetBufferSize());
+				out.blob = code;
+				return true;
+			}
+
+			//fxc, for the shaders UsesFxc names: the profile is 5.0 of the stage the caller asked for, whatever model it named.
+			bool ShaderCompiler::CompileFxc(const std::string& source_path, const std::string& entry,
+				const std::vector<std::string>& search_dirs, Result& out)
+			{
+				std::ifstream in(source_path, std::ios::binary);
+				std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+				FxcIncludeHandler includes(fs::path(source_path).parent_path().string(), search_dirs, out.dependencies, &out.dependency_times);
+#ifdef _DEBUG
+				const UINT flags = D3DCOMPILE_ENABLE_STRICTNESS | D3DCOMPILE_SKIP_OPTIMIZATION | D3DCOMPILE_DEBUG;
+#else
+				const UINT flags = D3DCOMPILE_ENABLE_STRICTNESS | D3DCOMPILE_OPTIMIZATION_LEVEL3 | (DebugSymbolsWanted() ? D3DCOMPILE_DEBUG : 0u);
+#endif
+				ID3DBlob* code = nullptr;
+				ID3DBlob* errors = nullptr;
+				//Every shader that is built by fxc is a compute shader at the moment (UsesFxc), whose profile it is.
+				const HRESULT hr = D3DCompile(text.data(), text.size(), source_path.c_str(), nullptr, &includes, entry.c_str(), "cs_5_0",
+					flags, 0, &code, &errors);
+				out.error = BlobText(errors);
+				if (errors != nullptr) {
+					errors->Release();
+				}
+				if (FAILED(hr) || code == nullptr) {
+					if (code != nullptr) {
+						code->Release();
+					}
+					if (out.error.empty()) {
+						char hr_text[64] = {};
+						sprintf_s(hr_text, "compilation failed (hr=0x%08lX)", (unsigned long)hr);
+						out.error = hr_text;
+					}
+					return false;
+				}
 				out.blob = code;
 				return true;
 			}

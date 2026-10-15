@@ -22,6 +22,12 @@
     none   no symbols (a Debug configuration still gets -Zi: it is built with -Od to be stepped through).
   Changing the mode (or any flag) rebuilds every shader of the project: the flags are kept in $(OutDir)hotbite-dxc.flags.
 
+  Shaders that stay on fxc (SM 5.0 DXBC): an FxCompile item with HotBiteFxc metadata (the profile, e.g. cs_5_0) is built by
+  fxc.exe from the same SDK folder, at /O3. Today that is the two deferred lighting shaders, which DXC compiles 2-2.5x
+  slower than fxc from the same HLSL (Docs/D3D12_MIGRATION.md, Performance). ShaderCompiler keeps the same list for hot
+  reload. A pipeline cannot mix SM5 and SM6 stages, so this is only for stages that are a pipeline of their own (compute).
+  Symbols for them are /Zi inside the .cso in every mode but none.
+
   The two DLLs the engine loads at run time (dxcompiler.dll for reflection and hot reload, dxil.dll next to it, which
   signs what it compiles) are copied beside every executable.
 -->
@@ -37,30 +43,37 @@
     <!-- The trailing backslash before the closing quote is doubled: the C runtime reads \" as an escaped quote. -->
     <HotBiteDxcDebugFlags Condition="'$(HotBiteShaderDebug)' == 'pdb'">-Zi -Fd "$(HotBiteShaderPdbDir)\"</HotBiteDxcDebugFlags>
     <HotBiteDxcDebugFlags Condition="'$(HotBiteShaderDebug)' == 'none' And '$(Configuration)' == 'Debug'">-Zi</HotBiteDxcDebugFlags>
+    <HotBiteFxcFlags Condition="'$(Configuration)' == 'Debug'">/Od</HotBiteFxcFlags>
+    <HotBiteFxcFlags Condition="'$(HotBiteFxcFlags)' == ''">/O3</HotBiteFxcFlags>
+    <HotBiteFxcDebugFlags Condition="'$(HotBiteShaderDebug)' != 'none' Or '$(Configuration)' == 'Debug'">/Zi</HotBiteFxcDebugFlags>
     <HotBiteDxcStamp>$(OutDir)hotbite-dxc.flags</HotBiteDxcStamp>
   </PropertyGroup>
 
   <Target Name="HotBiteDxcCompile" BeforeTargets="FxCompile" DependsOnTargets="$(HotBiteDxcDependsOn)">
     <Error Condition="!Exists('$(HotBiteDxcBin)dxc.exe')" Text="dxc.exe not found in $(HotBiteDxcBin). Install the Windows SDK, or set HotBiteDxcBin to the folder holding dxc.exe, dxcompiler.dll and dxil.dll." />
     <ItemGroup>
-      <HotBiteDxcVertex Include="@(FxCompile)" Condition="'%(FxCompile.ShaderType)' == 'Vertex' And '%(FxCompile.ExcludedFromBuild)' != 'true'" />
-      <HotBiteDxcHull Include="@(FxCompile)" Condition="'%(FxCompile.ShaderType)' == 'Hull' And '%(FxCompile.ExcludedFromBuild)' != 'true'" />
-      <HotBiteDxcDomain Include="@(FxCompile)" Condition="'%(FxCompile.ShaderType)' == 'Domain' And '%(FxCompile.ExcludedFromBuild)' != 'true'" />
-      <HotBiteDxcGeometry Include="@(FxCompile)" Condition="'%(FxCompile.ShaderType)' == 'Geometry' And '%(FxCompile.ExcludedFromBuild)' != 'true'" />
-      <HotBiteDxcPixel Include="@(FxCompile)" Condition="'%(FxCompile.ShaderType)' == 'Pixel' And '%(FxCompile.ExcludedFromBuild)' != 'true'" />
-      <HotBiteDxcCompute Include="@(FxCompile)" Condition="'%(FxCompile.ShaderType)' == 'Compute' And '%(FxCompile.ExcludedFromBuild)' != 'true'" />
+      <HotBiteFxcItem Include="@(FxCompile)" Condition="'%(FxCompile.HotBiteFxc)' != '' And '%(FxCompile.ExcludedFromBuild)' != 'true'" />
+    </ItemGroup>
+    <Error Condition="'@(HotBiteFxcItem)' != '' And !Exists('$(HotBiteDxcBin)fxc.exe')" Text="fxc.exe not found in $(HotBiteDxcBin). Install the Windows SDK, or set HotBiteDxcBin." />
+    <ItemGroup>
+      <HotBiteDxcVertex Include="@(FxCompile)" Condition="'%(FxCompile.ShaderType)' == 'Vertex' And '%(FxCompile.HotBiteFxc)' == '' And '%(FxCompile.ExcludedFromBuild)' != 'true'" />
+      <HotBiteDxcHull Include="@(FxCompile)" Condition="'%(FxCompile.ShaderType)' == 'Hull' And '%(FxCompile.HotBiteFxc)' == '' And '%(FxCompile.ExcludedFromBuild)' != 'true'" />
+      <HotBiteDxcDomain Include="@(FxCompile)" Condition="'%(FxCompile.ShaderType)' == 'Domain' And '%(FxCompile.HotBiteFxc)' == '' And '%(FxCompile.ExcludedFromBuild)' != 'true'" />
+      <HotBiteDxcGeometry Include="@(FxCompile)" Condition="'%(FxCompile.ShaderType)' == 'Geometry' And '%(FxCompile.HotBiteFxc)' == '' And '%(FxCompile.ExcludedFromBuild)' != 'true'" />
+      <HotBiteDxcPixel Include="@(FxCompile)" Condition="'%(FxCompile.ShaderType)' == 'Pixel' And '%(FxCompile.HotBiteFxc)' == '' And '%(FxCompile.ExcludedFromBuild)' != 'true'" />
+      <HotBiteDxcCompute Include="@(FxCompile)" Condition="'%(FxCompile.ShaderType)' == 'Compute' And '%(FxCompile.HotBiteFxc)' == '' And '%(FxCompile.ExcludedFromBuild)' != 'true'" />
       <FxCompile Remove="@(FxCompile)" />
     </ItemGroup>
     <!-- The flags decide what a .cso is: when they changed since the last build, every shader of this project is made again. -->
     <PropertyGroup>
-      <HotBiteDxcStampNow>$(HotBiteDxcModel) $(HotBiteDxcFlags) $(HotBiteDxcDebugFlags)</HotBiteDxcStampNow>
+      <HotBiteDxcStampNow>$(HotBiteDxcModel) $(HotBiteDxcFlags) $(HotBiteDxcDebugFlags) fxc $(HotBiteFxcFlags) $(HotBiteFxcDebugFlags)</HotBiteDxcStampNow>
       <HotBiteDxcStampThen></HotBiteDxcStampThen>
     </PropertyGroup>
     <ReadLinesFromFile File="$(HotBiteDxcStamp)" Condition="Exists('$(HotBiteDxcStamp)')">
       <Output TaskParameter="Lines" PropertyName="HotBiteDxcStampThen" />
     </ReadLinesFromFile>
     <ItemGroup Condition="'$(HotBiteDxcStampThen)' != '$(HotBiteDxcStampNow)'">
-      <HotBiteDxcStale Include="@(HotBiteDxcVertex->'$(OutDir)%(Filename).cso');@(HotBiteDxcHull->'$(OutDir)%(Filename).cso');@(HotBiteDxcDomain->'$(OutDir)%(Filename).cso');@(HotBiteDxcGeometry->'$(OutDir)%(Filename).cso');@(HotBiteDxcPixel->'$(OutDir)%(Filename).cso');@(HotBiteDxcCompute->'$(OutDir)%(Filename).cso')" />
+      <HotBiteDxcStale Include="@(HotBiteDxcVertex->'$(OutDir)%(Filename).cso');@(HotBiteDxcHull->'$(OutDir)%(Filename).cso');@(HotBiteDxcDomain->'$(OutDir)%(Filename).cso');@(HotBiteDxcGeometry->'$(OutDir)%(Filename).cso');@(HotBiteDxcPixel->'$(OutDir)%(Filename).cso');@(HotBiteDxcCompute->'$(OutDir)%(Filename).cso');@(HotBiteFxcItem->'$(OutDir)%(Filename).cso')" />
     </ItemGroup>
     <Delete Files="@(HotBiteDxcStale)" Condition="'$(HotBiteDxcStampThen)' != '$(HotBiteDxcStampNow)'" />
     <WriteLinesToFile File="$(HotBiteDxcStamp)" Lines="$(HotBiteDxcStampNow)" Overwrite="true" Condition="'$(HotBiteDxcStampThen)' != '$(HotBiteDxcStampNow)'" />
@@ -77,6 +90,8 @@
           Command="&quot;$(HotBiteDxcBin)dxc.exe&quot; -nologo -T ps_$(HotBiteDxcModel) -E main $(HotBiteDxcFlags) $(HotBiteDxcDebugFlags) -I &quot;$([System.String]::Copy('$(MSBuildProjectDirectory);%(HotBiteDxcPixel.AdditionalIncludeDirectories)').Trim(';').Replace(';', '&quot; -I &quot;'))&quot; -Fo &quot;$(OutDir)%(HotBiteDxcPixel.Filename).cso&quot; &quot;%(HotBiteDxcPixel.FullPath)&quot;" />
     <Exec Condition="'%(HotBiteDxcCompute.Identity)' != '' And (!Exists('$(OutDir)%(HotBiteDxcCompute.Filename).cso') Or $([System.IO.File]::GetLastWriteTime('%(HotBiteDxcCompute.FullPath)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('$(OutDir)%(HotBiteDxcCompute.Filename).cso').Ticks))"
           Command="&quot;$(HotBiteDxcBin)dxc.exe&quot; -nologo -T cs_$(HotBiteDxcModel) -E main $(HotBiteDxcFlags) $(HotBiteDxcDebugFlags) -I &quot;$([System.String]::Copy('$(MSBuildProjectDirectory);%(HotBiteDxcCompute.AdditionalIncludeDirectories)').Trim(';').Replace(';', '&quot; -I &quot;'))&quot; -Fo &quot;$(OutDir)%(HotBiteDxcCompute.Filename).cso&quot; &quot;%(HotBiteDxcCompute.FullPath)&quot;" />
+    <Exec Condition="'%(HotBiteFxcItem.Identity)' != '' And (!Exists('$(OutDir)%(HotBiteFxcItem.Filename).cso') Or $([System.IO.File]::GetLastWriteTime('%(HotBiteFxcItem.FullPath)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('$(OutDir)%(HotBiteFxcItem.Filename).cso').Ticks))"
+          Command="&quot;$(HotBiteDxcBin)fxc.exe&quot; /nologo /T %(HotBiteFxcItem.HotBiteFxc) /E main $(HotBiteFxcFlags) $(HotBiteFxcDebugFlags) /I &quot;$([System.String]::Copy('$(MSBuildProjectDirectory);%(HotBiteFxcItem.AdditionalIncludeDirectories)').Trim(';').Replace(';', '&quot; /I &quot;'))&quot; /Fo &quot;$(OutDir)%(HotBiteFxcItem.Filename).cso&quot; &quot;%(HotBiteFxcItem.FullPath)&quot;" />
   </Target>
 
   <!-- dxcompiler.dll + dxil.dll beside every executable (and in the engine's output folder, where the games copy from). -->

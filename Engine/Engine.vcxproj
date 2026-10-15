@@ -357,12 +357,16 @@
       <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Compute</ShaderType>
       <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|x64'">5.0</ShaderModel>
+      <!-- Built by fxc (SM 5.0, /O3), not DXC: DXC makes this shader 2-2.5x slower from the same HLSL. See Docs/D3D12_MIGRATION.md, Performance. -->
+      <HotBiteFxc>cs_5_0</HotBiteFxc>
     </FxCompile>
     <FxCompile Include="Engine\Core\Shaders\ComputeShaders\DeferredLightRaysCS.hlsl">
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Compute</ShaderType>
       <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Compute</ShaderType>
       <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|x64'">5.0</ShaderModel>
+      <!-- Built by fxc (SM 5.0, /O3), not DXC: DXC makes this shader 2-2.5x slower from the same HLSL. See Docs/D3D12_MIGRATION.md, Performance. -->
+      <HotBiteFxc>cs_5_0</HotBiteFxc>
     </FxCompile>
     <FxCompile Include="Engine\Core\Shaders\ComputeShaders\ShadowAccumulateCS.hlsl">
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Compute</ShaderType>
