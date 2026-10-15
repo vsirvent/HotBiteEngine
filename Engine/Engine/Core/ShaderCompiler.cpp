@@ -116,14 +116,32 @@ namespace HotBite {
 				}
 
 				//Compilation flags, the same as the build's (Engine/Dxc.targets): HLSL 2018 (what fxc compiled), strictness, and
-				//no warnings - the sources carry a few that DXC alone reports and that nothing acts on. Release adds nothing
-				//else, so a shader reloaded here is generated the way the .cso beside it was and a measurement taken after a
-				//reload stays comparable to one taken before. Debug matches the Debug configuration's -Zi -Od.
+				//no warnings - the sources carry a few that DXC alone reports and that nothing acts on. Nothing else in Release, so a
+				//shader reloaded here is generated the way the .cso beside it was and a measurement taken after a reload stays
+				//comparable to one taken before. Debug matches the Debug configuration's -Od.
 #ifdef _DEBUG
-				const wchar_t* const COMPILE_ARGS[] = { L"-HV", L"2018", L"-Ges", L"-no-warnings", L"-Zi", L"-Od" };
+				const wchar_t* const COMPILE_ARGS[] = { L"-HV", L"2018", L"-Ges", L"-no-warnings", L"-Od" };
 #else
 				const wchar_t* const COMPILE_ARGS[] = { L"-HV", L"2018", L"-Ges", L"-no-warnings" };
 #endif
+
+				//Debug symbols (-Zi) go into the bytecode, as the build's default does (HotBiteShaderDebug=embed): the variable names,
+				//the line table and the source text, which is what PIX needs to show a shader's source and to attribute its cost to
+				//lines. They are a separate part of the container: the code itself is the same with or without them. A Debug build
+				//always has them; HOTBITE_SHADER_DEBUG=0 leaves them out of the shaders compiled here.
+				bool DebugSymbolsWanted()
+				{
+#ifdef _DEBUG
+					return true;
+#else
+					static const bool wanted = []() {
+						char value[8] = {};
+						size_t len = 0;
+						return !(getenv_s(&len, value, sizeof(value), "HOTBITE_SHADER_DEBUG") == 0 && len > 1 && value[0] == '0');
+					}();
+					return wanted;
+#endif
+				}
 			}
 
 			ShaderCompiler* ShaderCompiler::Get()
@@ -338,6 +356,9 @@ namespace HotBite {
 				std::vector<LPCWSTR> arguments = { wide_source.c_str(), L"-E", wide_entry.c_str(), L"-T", wide_profile.c_str() };
 				for (const wchar_t* argument : COMPILE_ARGS) {
 					arguments.push_back(argument);
+				}
+				if (DebugSymbolsWanted()) {
+					arguments.push_back(L"-Zi");
 				}
 				for (const std::wstring& dir : wide_dirs) {
 					arguments.push_back(L"-I");

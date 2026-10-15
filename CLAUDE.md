@@ -117,6 +117,10 @@ ran the same `.cso` and read as "the feature does nothing":
   skinning VS turned whole frames into garbage), a global `float` needs `static const`, `[unroll]` needs
   a compile-time bound, and a PSO cannot mix SM5 and SM6 stages. See memory `hotbite_dxc_vs_fxc_traps`
   and the migration doc. Where this file below says "fxc", the same applies to DXC.
+- **Shader symbols for PIX are on by default** (`-Zi`, `HotBiteShaderDebug=embed`: each `.cso` carries its debug
+  module and source; `pdb` writes `<hash>.pdb` to `ShaderPdb\` instead, `none` turns it off). The generated code is
+  identical with or without them. Changing the mode rebuilds the project's shaders (`hotbite-dxc.flags` stamp).
+  Details: migration doc, *Shader symbols and PIX*.
 - **FxCompile does not track `.hlsli` includes here.** Edit a shared header, rebuild,
   and every `.cso` that includes it is stale. `AdditionalInputs` metadata on the
   FxCompile item does *not* fix it (tried). The `InvalidateShadersOnSharedHeaderChange`

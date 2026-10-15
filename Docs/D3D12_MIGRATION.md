@@ -114,12 +114,35 @@ CPU laps grow once the port is in.
   crashed DXC (an internal compiler error on a `memcpy` bitcast), so `MultiTexture.hlsli` unpacks with an
   explicit `MULTI_UNPACK8(p)` macro; `21-shaders.tests.ps1` matches `error`, not fxc's `error X`.
 
+## Shader symbols and PIX
+
+Every shader is built with debug symbols (`-Zi`), so PIX shows a shader's HLSL source (the file and its includes), its
+line table and variable names, and can attribute a draw's or dispatch's cost to source lines. The symbols are a part
+of the container beside the code, not in it: the `DXIL` part is byte for byte what a build without symbols makes
+(checked on `DeferredLightRaysCS`: 37,040 bytes either way), so what PIX profiles is the shader that ships.
+
+`HotBiteShaderDebug` (MSBuild property, set it on the command line or in the project; default `embed`):
+
+| value | what it does |
+|---|---|
+| `embed` | the symbols (and the source text) are inside each `.cso` (`ILDB` part). PIX needs no setup. The `.cso` grows (`DeferredLightRaysCS`: 44 KB to 381 KB; the 74 engine shaders together are 7 MB) |
+| `pdb` | the `.cso` keeps its size and `<hash>.pdb` files go to `$(HotBiteShaderPdbDir)` (default `<OutDir>ShaderPdb\`, must end in a backslash). Add that folder to PIX's *Tools > Options > Shader PDB search paths* |
+| `none` | no symbols (a Debug configuration still gets `-Zi`, it is built with `-Od`) |
+
+Changing the mode, or any DXC flag, rebuilds every shader of that project: `Dxc.targets` keeps the flags in
+`<OutDir>hotbite-dxc.flags` and deletes the project's `.cso` when they differ. The editor's hot reload and a new
+shader made from the material panel compile with `-Zi` as well (`ShaderCompiler`); `HOTBITE_SHADER_DEBUG=0`
+leaves it off there. To profile: start `Survival.exe` (or the editor) from PIX, take a GPU capture, open an event
+and its shader; the GPU timings and counters are per draw / dispatch, and with the symbols they are per source line
+where the GPU exposes it.
+
 ## Debug and diagnostics (env vars)
 
 | variable | effect |
 |---|---|
 | `HOTBITE_D3D12_DEBUG=1` | D3D12 debug layer (always on in Debug builds); `HOTBITE_D3D12_GBV=1` adds GPU-based validation |
 | `HOTBITE_LOG=<file>` | engine log written to that file from `DXCore::InitDirectX` (device, adapter, frame cost every 240 frames, PSO compiles >= 5 ms) |
+| `HOTBITE_SHADER_DEBUG=0` | the shaders the editor compiles at run time (reload, new shader) leave the debug symbols out |
 | `HOTBITE_GFX_TRACE=<serial>` | in the log, every draw and dispatch of 3 frames from that frame serial, with what each had bound |
 | `HOTBITE_GFX_TRACE_CREATE=1` | traces resource / view creation |
 | `HOTBITE_DUMP_DIR=<dir>` (+ `HOTBITE_DUMP_FRAME`) | once, at frame 200: the frame's main targets, the post chain and the back buffer as PNGs in that folder |
