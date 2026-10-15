@@ -27,18 +27,20 @@ SOFTWARE.
 //each adding to the light map and the bloom map what its own pixels and lights are owed):
 //
 //  (nothing defined)         the surfaces that are neither water nor lava: ambient, every directional light
-//                            and every point light whose shadow is a shadow map or none.
+//                            and every point light whose shadow is a shadow map or none (no ray code in it).
 //  DEFERRED_LIGHT_RAYS       the same surfaces, only the lights that trace their shadow (flagged ray traced),
-//                            with the ray tracer compiled in. Dispatched when the frame has such lights and a
-//                            place to trace them; until then the first permutation lights them too (no ray).
+//                            with the ray tracer compiled in and no shadow map code. Dispatched when the frame has
+//                            such lights; with nothing to trace against it lights them unshadowed.
 //  DEFERRED_LIGHT_WATER      the water: its own ambient, directional and point light, no shadows.
 //  DEFERRED_LIGHT_LAVA       the lava: directional and point light with shadow maps, no rays.
 //
 //DeferredLightRaysCS.hlsl, DeferredLightWaterCS.hlsl and DeferredLightLavaCS.hlsl are this file with the
-//define; the *FxcCS.hlsl twins of the four are the same again, only built by fxc instead of DXC. They are
-//separate shaders because one shader holding all of it (DeferredLightAllCS.hlsl, the reference) keeps the
-//registers of its most demanding branch - the BVH walk and the screen march of the shadow rays - for every
-//pixel, whatever it is: the GPU then holds fewer pixels in flight (occupancy) and the whole pass slows down.
+//define; the *FxcCS.hlsl twins of the four are the same again, only built by fxc instead of DXC. It is one HLSL
+//for both compilers: nothing in it is conditional on the compiler (what fxc needs - no `continue` in the lights'
+//loops, see THIS_PERMUTATION_LIGHTS - DXC takes as well). They are separate shaders because one shader holding all
+//of it keeps the registers of its most demanding branch - the BVH walk and the screen march of the shadow rays -
+//for every pixel, whatever it is: the GPU then holds fewer pixels in flight (occupancy) and the whole pass slows
+//down.
 //
 //One thread group per 16x16 screen tile - the same tile TileLightCullCS filled a mask
 //for - and one thread per pixel. The group reads its tile's mask once (the address is the
@@ -103,9 +105,6 @@ cbuffer externalData : register(b0)
 	float ss_bias;
 	float ss_thickness;
 	float ss_thickness_rel;
-	//1: the lights flagged ray traced are the business of the DEFERRED_LIGHT_RAYS permutation, which is
-	//dispatched in this frame, and the first permutation leaves them out. 0: it lights them like any other.
-	int skip_rt_lights;
 }
 
 Texture2D<float4> positionTexture : register(t0);
@@ -158,13 +157,6 @@ bool ScreenShadowOccluded(float3 from, float3 dir, float len)
 
 #define SR_SCREEN_SHADOWS 1
 #include "../Common/ShadowRays.hlsli"
-#else
-//No ray is traced in the other permutations: a light that asks for one is lit as if nothing stood in its way (the first
-//permutation does that only when no permutation traces: see skip_rt_lights).
-#define SR_SURFACE_BIAS 0.04f
-static uint2 sr_pixel = uint2(0, 0);
-bool ShadowRayOccluded(float3 from, float3 to, uint scene) { return false; }
-bool ShadowRayOccludedDirectional(float3 from, float3 to_light) { return false; }
 #endif
 
 #include "../Common/DeferredLighting.hlsli"
@@ -175,12 +167,14 @@ bool DirLightIsRayTraced(DirLight light)
 	return !light.cast_shadow && (light.flags & DIR_LIGHT_FLAG_RAYTRACED) != 0;
 }
 
-//Whether this permutation lights a light, given whether the light traces its shadow: the one with the ray tracer lights only the
-//lights that do, the other lights the rest - and those too when no permutation traces (skip_rt_lights is 0).
+//Whether a light is this permutation's, given whether it traces its shadow (its own flags say so, in the buffer of the point lights
+//and in the directional light's data: nothing is passed in to tell a permutation which lights to take). The one with the ray tracer
+//takes the lights that trace, the first one the rest; each walks the tile's bits and leaves the other kind alone, so a light is
+//lit by exactly one of them. (A condition rather than a `continue`: see the note in main.)
 #ifdef DEFERRED_LIGHT_RAYS
 #define THIS_PERMUTATION_LIGHTS(rt) (rt)
 #else
-#define THIS_PERMUTATION_LIGHTS(rt) (!(rt) || skip_rt_lights == 0)
+#define THIS_PERMUTATION_LIGHTS(rt) (!(rt))
 #endif
 
 //What a permutation owes a pixel goes on top of what the light map and the bloom map hold.
@@ -206,7 +200,9 @@ void main(uint3 gid : SV_GroupID, uint3 dtid : SV_DispatchThreadID)
 		return;
 	}
 	const uint2 px = dtid.xy;
+#ifdef DEFERRED_LIGHT_RAYS
 	sr_pixel = px;
+#endif
 	//The material first: a pixel of another kind of surface is turned away before anything else is read.
 	const float4 mat = materialTexture[px];
 	const uint code = (uint)(mat.w + 0.5f);
@@ -290,23 +286,28 @@ void main(uint3 gid : SV_GroupID, uint3 dtid : SV_DispatchThreadID)
 	if (model == SHADING_SPLAT) {
 		weight = mat.z;
 	}
+#ifdef DEFERRED_LIGHT_RAYS
+	//The light of the lights that trace goes to its own map while ShadowAccumulateCS averages it over the frames (shadow_ray_accumulate).
 	float3 lum_rt = float3(0.0f, 0.0f, 0.0f);
-#ifndef DEFERRED_LIGHT_RAYS
+#else
 	lum = ShadeAmbient(N);
 #endif
 	//(No `continue` in these loops: fxc has to unroll the directional one - the shadow maps are indexed by the loop's counter - and
 	//cannot unroll a loop that has one.)
 	for (i = 0; i < dirLightsCount; ++i) {
-		const bool rt = DirLightIsRayTraced(dirLights[i]);
-		if (THIS_PERMUTATION_LIGHTS(rt)) {
+		if (THIS_PERMUTATION_LIGHTS(DirLightIsRayTraced(dirLights[i]))) {
 			const float3 dir_light = ShadeDirectional(N, float4(P, 1.0f), spec, bloom_scale, dirLights[i],
 			                        cloud_density, i, bloom) * ((i == 0) ? sun : 1.0f);
-			if (shadow_ray_accumulate != 0 && rt) {
+#ifdef DEFERRED_LIGHT_RAYS
+			if (shadow_ray_accumulate != 0) {
 				lum_rt += dir_light;
 			}
 			else {
 				lum += dir_light;
 			}
+#else
+			lum += dir_light;
+#endif
 		}
 	}
 	for (uint w = 0; w < TILE_MASK_WORDS; ++w) {
@@ -315,22 +316,27 @@ void main(uint3 gid : SV_GroupID, uint3 dtid : SV_DispatchThreadID)
 			const uint b = firstbitlow(bits);
 			bits &= bits - 1u;
 			const PackedLight L = lightsBuffer[w * 32u + b];
-			const bool rt = LightIsRayTraced(L);
-			if (THIS_PERMUTATION_LIGHTS(rt)) {
+			if (THIS_PERMUTATION_LIGHTS(LightIsRayTraced(L))) {
 				const float3 point_light = ShadePoint(N, P, spec, bloom_scale, L, bloom);
-				if (shadow_ray_accumulate != 0 && rt) {
+#ifdef DEFERRED_LIGHT_RAYS
+				if (shadow_ray_accumulate != 0) {
 					lum_rt += point_light;
 				}
 				else {
 					lum += point_light;
 				}
+#else
+				lum += point_light;
+#endif
 			}
 		}
 	}
+#ifdef DEFERRED_LIGHT_RAYS
 	if (shadow_ray_accumulate != 0 && any(lum_rt != 0.0f)) {
 		//Everything else of the map is zero: it was cleared before the dispatch.
 		rt_shadow_out[px] = float4(lum_rt * weight, 0.0f);
 	}
+#endif
 #endif
 
 #ifdef SR_STATS

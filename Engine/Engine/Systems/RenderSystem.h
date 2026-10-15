@@ -663,12 +663,12 @@ namespace HotBite {
 					uint32_t entities = 0;
 				};
 				//The permutations of the lighting shader (DeferredLightCS.hlsl): the ordinary surfaces with the lights that
-					//need no ray, the same surfaces with the lights that trace their shadows, the water, the lava.
-					enum LightPerm { LIGHT_STANDARD = 0, LIGHT_RT = 1, LIGHT_WATER = 2, LIGHT_LAVA = 3, LIGHT_PERMS = 4 };
-					//Who builds the lighting shaders a frame runs: DXC (SM 6.0 DXIL) or fxc (SM 5.0 DXBC, /O3), both from the same HLSL; AUTO is the
-					//one that is faster for each shader (fxc for the ones that trace rays, until DXC's build of the ray tracer catches up).
-					enum class LightingCompiler { DXC = 0, FXC = 1, AUTO = 2 };
-					struct GpuTimings {
+				//need no ray, the same surfaces with the lights that trace their shadows, the water, the lava.
+				enum LightPerm { LIGHT_STANDARD = 0, LIGHT_RT = 1, LIGHT_WATER = 2, LIGHT_LAVA = 3, LIGHT_PERMS = 4 };
+				//Who builds the lighting shaders a frame runs: DXC (SM 6.0 DXIL) or fxc (SM 5.0 DXBC, /O3), both from the same HLSL; AUTO is the
+				//one that is faster for each shader (fxc for the ones that trace rays, until DXC's build of the ray tracer catches up).
+				enum class LightingCompiler { DXC = 0, FXC = 1, AUTO = 2 };
+				struct GpuTimings {
 					double shadows = 0.0;
 					double depth = 0.0;
 					double scene = 0.0;
@@ -1031,16 +1031,11 @@ namespace HotBite {
 				//G-buffer with only those (DeferredLightCS). The geometry passes evaluate no
 				//light at all.
 				Core::TiledLights tiled_lights;
-				//The lighting shaders, by compiler: slots 0-3 are the permutations (LightPerm), 4 and 5 the reference that does it all
-				//in one (without and with the ray tracer). Loaded when a compiler is first asked for (LightingShader).
-				static constexpr int LIGHT_SLOT_ALL = LIGHT_PERMS;
-				static constexpr int LIGHT_SLOT_ALL_RAYS = LIGHT_PERMS + 1;
-				static constexpr int LIGHT_SLOTS = LIGHT_PERMS + 2;
-				Core::SimpleComputeShader* lighting_shaders[2][LIGHT_SLOTS] = {};
-				Core::SimpleComputeShader* LightingShader(int slot);
-				//Whether the frame dispatches the permutations (true) or the one shader that does it all (false, the default: measured, the
-				//permutations are not faster with the compilers there are - Docs/D3D12_MIGRATION.md, "Lighting permutations").
-				bool lighting_split = false;
+				//The lighting shaders, one for each permutation (LightPerm), by the compiler that built them: the same HLSL built by DXC
+				//(index 0) and by fxc (index 1). Loaded when a compiler is first asked for (LightingShader).
+				Core::SimpleComputeShader* lighting_shaders[2][LIGHT_PERMS] = {};
+				Core::SimpleComputeShader* LightingShader(int perm);
+				//Who builds the ones a frame runs.
 				LightingCompiler lighting_compiler = LightingCompiler::AUTO;
 				//Dispatches of each permutation in the frame being recorded and in the last one that was.
 				uint32_t lighting_dispatches[LIGHT_PERMS] = {};
@@ -1528,12 +1523,9 @@ namespace HotBite {
 				};
 				AsyncComputeStats GetAsyncComputeStats() const;
 
-				//The lighting shader's permutations (DeferredLightCS.hlsl) against the one shader that does it all (the default), and the
-				//compiler that built them (HOTBITE_LIGHT_SPLIT=0|1, HOTBITE_LIGHT_COMPILER=dxc|fxc|auto start a process with
-				//either). Both compilers' builds are always in the build; the picture is the same whichever is chosen (that is
-				//what is tested).
-				void SetLightingSplit(bool split) { lighting_split = split; }
-				bool GetLightingSplit() const { return lighting_split; }
+				//The compiler that built the lighting shaders (DeferredLightCS.hlsl's permutations, always the ones that run;
+				//HOTBITE_LIGHT_COMPILER=dxc|fxc|auto starts a process with either). Both compilers' builds of the same HLSL are always in
+				//the build; the picture is the same whichever is chosen (that is what is tested).
 				void SetLightingCompiler(LightingCompiler compiler) { lighting_compiler = compiler; }
 				LightingCompiler GetLightingCompiler() const { return lighting_compiler; }
 				static const char* LightingCompilerName(LightingCompiler compiler) {

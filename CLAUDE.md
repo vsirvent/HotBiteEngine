@@ -125,15 +125,17 @@ ran the same `.cso` and read as "the feature does nothing":
   skinning VS turned whole frames into garbage), a global `float` needs `static const`, `[unroll]` needs
   a compile-time bound, and a PSO cannot mix SM5 and SM6 stages. See memory `hotbite_dxc_vs_fxc_traps`
   and the migration doc. Where this file below says "fxc", the same applies to DXC.
-- **Exception, known problem: the lighting shader that runs (`DeferredLightAllCS` / `AllRaysCS`) is built by fxc (SM 5.0, /O3), not DXC.** DXC
+- **Exception, known problem: the lighting permutation that traces rays (`DeferredLightRaysCS`, `auto`'s choice) is built by fxc (SM 5.0, /O3), not DXC.** DXC
   makes the ray traced lighting shader 2-2.5x slower from the same HLSL (22.0 ms against 8.7 ms in Survival's
   `67-rt-shadow-stress`). The `*FxcCS.hlsl` twins carry `HotBiteFxc` metadata in `Engine.vcxproj` (`Dxc.targets` runs fxc on them) and
   are listed in `UsesFxc` in `ShaderCompiler.cpp` (hot reload; a reload of a rays shader takes ~90 s). Fix DXC's
   output and switch `RenderSystem::lighting_compiler` back: migration doc, *Performance*. A pipeline cannot mix SM5 and SM6, so only compute stages.
 - **Lighting permutations** (`DeferredLightCS.hlsl` + `DeferredLightRaysCS` / `WaterCS` / `LavaCS`, each also as an `*FxcCS` twin): the lighting cut
   into ordinary surfaces with the lights that need no ray, the lights that trace, water, lava (those two only when the geometry pass drew some).
-  Same picture (suites 67 and 50), **not faster** (fxc: +3.6% on the lighting pass in the stress scene; DXC: -3 to -18% and still 2x behind fxc),
-  so off by default: `lighting_shaders split|single [dxc|fxc|auto]`, `HOTBITE_LIGHT_SPLIT`, `HOTBITE_LIGHT_COMPILER`. Numbers and next steps: migration doc.
+  They are the only lighting shader, always (2026-10-16: one HLSL for both compilers, no second all-in-one copy to keep in step); the picture is the
+  same from DXC and fxc (suites 67 and 50). Measured against the all-in-one shader they replaced: fxc +3.6% on the lighting pass in the stress scene,
+  DXC -3 to -18% and still 2x behind fxc. `lighting_shaders [dxc|fxc|auto]`, `HOTBITE_LIGHT_COMPILER`. Numbers and next steps: migration doc.
+  Write the lighting HLSL once for both: what fxc needs (no `continue` in the lights' loops, `THIS_PERMUTATION_LIGHTS`) DXC takes as well.
 - **Shader symbols for PIX are on by default** (`-Zi`, `HotBiteShaderDebug=embed`: each `.cso` carries its debug
   module and source; `pdb` writes `<hash>.pdb` to `ShaderPdb\` instead, `none` turns it off). The generated code is
   identical with or without them. Changing the mode rebuilds the project's shaders (`hotbite-dxc.flags` stamp).

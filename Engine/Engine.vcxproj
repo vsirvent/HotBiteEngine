@@ -352,9 +352,9 @@
       <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Compute</ShaderType>
     </FxCompile>
-    <!-- The lighting shader: the permutations (DeferredLightCS.hlsl; Rays, Water and Lava are the same file with a define) and the
-         reference that does it all (DeferredLightAllCS.hlsl, AllRays), each built by DXC and, as the *Fxc twin that includes it, by
-         fxc (SM 5.0, /O3). RenderSystem picks the set (HOTBITE_LIGHT_COMPILER). See Docs/D3D12_MIGRATION.md, Performance. -->
+    <!-- The lighting shader: the permutations (DeferredLightCS.hlsl; Rays, Water and Lava are the same file with a define), each built by
+         DXC and, as the *Fxc twin that includes it, by fxc (SM 5.0, /O3): one HLSL, two compilers. RenderSystem picks the set
+         (HOTBITE_LIGHT_COMPILER). See Docs/D3D12_MIGRATION.md, Performance. -->
     <FxCompile Include="Engine\Core\Shaders\ComputeShaders\DeferredLightCS.hlsl">
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Compute</ShaderType>
       <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
@@ -374,18 +374,6 @@
       <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|x64'">5.0</ShaderModel>
     </FxCompile>
     <FxCompile Include="Engine\Core\Shaders\ComputeShaders\DeferredLightLavaCS.hlsl">
-      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Compute</ShaderType>
-      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
-      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Compute</ShaderType>
-      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|x64'">5.0</ShaderModel>
-    </FxCompile>
-    <FxCompile Include="Engine\Core\Shaders\ComputeShaders\DeferredLightAllCS.hlsl">
-      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Compute</ShaderType>
-      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
-      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Compute</ShaderType>
-      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|x64'">5.0</ShaderModel>
-    </FxCompile>
-    <FxCompile Include="Engine\Core\Shaders\ComputeShaders\DeferredLightAllRaysCS.hlsl">
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Compute</ShaderType>
       <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Compute</ShaderType>
@@ -413,20 +401,6 @@
       <HotBiteFxc>cs_5_0</HotBiteFxc>
     </FxCompile>
     <FxCompile Include="Engine\Core\Shaders\ComputeShaders\DeferredLightLavaFxcCS.hlsl">
-      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Compute</ShaderType>
-      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
-      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Compute</ShaderType>
-      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|x64'">5.0</ShaderModel>
-      <HotBiteFxc>cs_5_0</HotBiteFxc>
-    </FxCompile>
-    <FxCompile Include="Engine\Core\Shaders\ComputeShaders\DeferredLightAllFxcCS.hlsl">
-      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Compute</ShaderType>
-      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
-      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Compute</ShaderType>
-      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|x64'">5.0</ShaderModel>
-      <HotBiteFxc>cs_5_0</HotBiteFxc>
-    </FxCompile>
-    <FxCompile Include="Engine\Core\Shaders\ComputeShaders\DeferredLightAllRaysFxcCS.hlsl">
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Compute</ShaderType>
       <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Compute</ShaderType>
@@ -1004,14 +978,10 @@
       <LightingDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightRaysCS.hlsl" />
       <LightingDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightWaterCS.hlsl" />
       <LightingDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightLavaCS.hlsl" />
-      <LightingDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightAllCS.hlsl" />
-      <LightingDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightAllRaysCS.hlsl" />
       <LightingDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightFxcCS.hlsl" />
       <LightingDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightRaysFxcCS.hlsl" />
       <LightingDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightWaterFxcCS.hlsl" />
       <LightingDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightLavaFxcCS.hlsl" />
-      <LightingDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightAllFxcCS.hlsl" />
-      <LightingDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightAllRaysFxcCS.hlsl" />
       <LightingDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\TileLightCullCS.hlsl" />
       <LightingDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\TileLightValidateCS.hlsl" />
       <LightingDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\VolumetricLightCS.hlsl" />
@@ -1088,12 +1058,8 @@
       <RayScreenSolverDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\RayTrace\RayReflexScreenSolverCS.hlsl" />
       <RayScreenSolverDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightCS.hlsl" />
       <RayScreenSolverDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightRaysCS.hlsl" />
-      <RayScreenSolverDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightAllCS.hlsl" />
-      <RayScreenSolverDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightAllRaysCS.hlsl" />
       <RayScreenSolverDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightFxcCS.hlsl" />
       <RayScreenSolverDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightRaysFxcCS.hlsl" />
-      <RayScreenSolverDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightAllFxcCS.hlsl" />
-      <RayScreenSolverDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightAllRaysFxcCS.hlsl" />
     </ItemGroup>
     <Touch Files="@(RayScreenSolverDependent)" Condition="Exists('$(RayScreenSolverHeader)') And $([System.IO.File]::GetLastWriteTime('$(RayScreenSolverHeader)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('%(RayScreenSolverDependent.FullPath)').Ticks)" />
     <!-- Most of the lighting shaders are one file with a define, or the same file built by the other compiler: each one includes another, so it is
@@ -1102,7 +1068,6 @@
       <LightWrapper Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightRaysCS.hlsl"><Includes>$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightCS.hlsl</Includes></LightWrapper>
       <LightWrapper Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightWaterCS.hlsl"><Includes>$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightCS.hlsl</Includes></LightWrapper>
       <LightWrapper Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightLavaCS.hlsl"><Includes>$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightCS.hlsl</Includes></LightWrapper>
-      <LightWrapper Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightAllRaysCS.hlsl"><Includes>$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightAllCS.hlsl</Includes></LightWrapper>
     </ItemGroup>
     <Touch Files="@(LightWrapper)" Condition="Exists('%(LightWrapper.Includes)') And $([System.IO.File]::GetLastWriteTime('%(LightWrapper.Includes)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('%(LightWrapper.FullPath)').Ticks)" />
     <ItemGroup>
@@ -1110,8 +1075,6 @@
       <LightTwin Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightRaysFxcCS.hlsl"><Includes>$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightRaysCS.hlsl</Includes></LightTwin>
       <LightTwin Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightWaterFxcCS.hlsl"><Includes>$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightWaterCS.hlsl</Includes></LightTwin>
       <LightTwin Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightLavaFxcCS.hlsl"><Includes>$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightLavaCS.hlsl</Includes></LightTwin>
-      <LightTwin Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightAllFxcCS.hlsl"><Includes>$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightAllCS.hlsl</Includes></LightTwin>
-      <LightTwin Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightAllRaysFxcCS.hlsl"><Includes>$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightAllRaysCS.hlsl</Includes></LightTwin>
     </ItemGroup>
     <Touch Files="@(LightTwin)" Condition="Exists('%(LightTwin.Includes)') And $([System.IO.File]::GetLastWriteTime('%(LightTwin.Includes)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('%(LightTwin.FullPath)').Ticks)" />
   </Target>

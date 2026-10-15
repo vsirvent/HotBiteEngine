@@ -411,15 +411,11 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 				async_passes = mask;
 			}
 		}
-		//HOTBITE_LIGHT_SPLIT=0|1 (the lighting permutations or the one shader that does it all) and HOTBITE_LIGHT_COMPILER=dxc|fxc
-		//(who built the lighting shaders the frame runs), for comparing the two in a process of their own.
+		//HOTBITE_LIGHT_COMPILER=dxc|fxc|auto (who built the lighting shaders the frame runs), for comparing them in a process of
+		//their own.
 		{
 			char value[16] = {};
 			size_t len = 0;
-			if (getenv_s(&len, value, sizeof(value), "HOTBITE_LIGHT_SPLIT") == 0 && len > 0) {
-				lighting_split = value[0] != '0';
-			}
-			len = 0;
 			LightingCompiler chosen;
 			if (getenv_s(&len, value, sizeof(value), "HOTBITE_LIGHT_COMPILER") == 0 && len > 0 && ParseLightingCompiler(value, chosen)) {
 				lighting_compiler = chosen;
@@ -4795,7 +4791,7 @@ void RenderSystem::ProcessShadowBvhDebug() {
 	dxcore->context->CSSetShader(nullptr);
 }
 void RenderSystem::ProcessDeferredLighting(int pass_filter) {
-	if (LightingShader(lighting_split ? LIGHT_STANDARD : LIGHT_SLOT_ALL) == nullptr || cameras.GetData().empty()) {
+	if (LightingShader(LIGHT_STANDARD) == nullptr || cameras.GetData().empty()) {
 		return;
 	}
 	CameraEntity& cam_entity = cameras.GetData()[0];
@@ -4836,14 +4832,19 @@ void RenderSystem::ProcessDeferredLighting(int pass_filter) {
 	}
 
 	//The lighting shader is a set of permutations (DeferredLightCS.hlsl), each dispatched over the same tiles and adding what its own
-	//surfaces and lights are owed to the maps: the ordinary surfaces with the lights that need no ray, the same surfaces with the
-	//lights that trace their shadows (when the frame has any and somewhere to trace them), the water, the lava. One that holds only
-	//what its pixels need keeps few registers, so the GPU keeps more of them in flight; the ray tracer's registers are paid by the
-	//pixels of the lights that trace and by nobody else. Water and lava are dispatched only when the geometry pass drew some. With
-	//the split off, the one shader that does it all (the reference, DeferredLightAllCS.hlsl) is dispatched instead.
-	const bool rays_active = world_shadows || screen_shadows;
-	const bool rt_lights = (raytraced_light_count + raytraced_directional_count) > 0;
-	const bool rt_pass = lighting_split && rays_active && rt_lights;
+	//surfaces and lights are owed to the maps: the ordinary surfaces with the lights that have a shadow map or none, the same
+	//surfaces with the lights that trace their shadows (when the frame has any), the water, the lava. Each walks the lights of the
+	//tile and takes the ones of its kind by the light's own flags, so none is told which; one that holds only what its pixels
+	//need keeps few registers, so the GPU keeps more of them in flight, and the ray tracer's registers are paid by the pixels
+	//of the lights that trace and by nobody else. Water and lava are dispatched only when the geometry pass drew some.
+	//A light that traces is the ray tracing permutation's even when there is nothing to trace against (no casters, no pyramid):
+	//it is then lit as if nothing stood in its way. The sun is not counted by the frame's ray traced count unless the ray scene is
+	//ready, so its flags in the data the shader reads are what is looked at.
+	bool rt_directional_lights = false;
+	for (const DirectionalLight::Data& d : scene_lighting.dir_lights) {
+		rt_directional_lights = rt_directional_lights || (d.cast_shadow == 0 && (d.flags & DIR_LIGHT_FLAG_RAYTRACED) != 0);
+	}
+	const bool rt_pass = raytraced_light_count > 0 || rt_directional_lights;
 	const int geometry_pass = (pass_filter == 1) ? 1 : 0;
 	const bool has_water = pass_filter != 2 && scene_has_water[geometry_pass];
 	const bool has_lava = pass_filter != 2 && scene_has_lava[geometry_pass];
@@ -4851,7 +4852,7 @@ void RenderSystem::ProcessDeferredLighting(int pass_filter) {
 		frame_count - shadow_ray_counters_frame < TILED_STATS_KEEPALIVE;
 
 	//Binds what every permutation reads and writes (the ray tracer's inputs only when `rays`), dispatches over the tiles and lets go.
-	const auto dispatch = [&](int perm, SimpleComputeShader* dl, bool rays, bool skip_rt, bool accumulate) {
+	const auto dispatch = [&](int perm, SimpleComputeShader* dl, bool rays, bool accumulate) {
 		if (dl == nullptr) {
 			return;
 		}
@@ -4862,7 +4863,6 @@ void RenderSystem::ProcessDeferredLighting(int pass_filter) {
 		dl->SetInt(SCREEN_H, h);
 		dl->SetInt("tiles_x", (int)tiled_lights.TilesX());
 		dl->SetInt("pass_filter", pass_filter);
-		dl->SetInt("skip_rt_lights", skip_rt ? 1 : 0);
 		dl->SetInt("shadow_ray_objects", (rays && world_shadows) ? (int)shadow_rays.Count() : 0);
 		dl->SetInt("shadow_ray_sun_scene", (int)shadow_ray_sun_scene);
 		const bool screen_bound = rays && screen_shadows;
@@ -4948,24 +4948,15 @@ void RenderSystem::ProcessDeferredLighting(int pass_filter) {
 		++lighting_dispatches[perm];
 	};
 
-	if (!lighting_split) {
-		SimpleComputeShader* all = LightingShader(rays_active ? LIGHT_SLOT_ALL_RAYS : LIGHT_SLOT_ALL);
-		if (all != nullptr) {
-			dispatch(rays_active ? LIGHT_RT : LIGHT_STANDARD, all, rays_active, false, accumulate_shadows);
-		}
+	dispatch(LIGHT_STANDARD, LightingShader(LIGHT_STANDARD), false, false);
+	if (rt_pass) {
+		dispatch(LIGHT_RT, LightingShader(LIGHT_RT), true, accumulate_shadows);
 	}
-	else {
-		//The lights that trace are the ray tracing permutation's: the first one leaves them out when that one runs.
-		dispatch(LIGHT_STANDARD, LightingShader(LIGHT_STANDARD), false, rt_pass, false);
-		if (rt_pass) {
-			dispatch(LIGHT_RT, LightingShader(LIGHT_RT), true, false, accumulate_shadows);
-		}
-		if (has_water) {
-			dispatch(LIGHT_WATER, LightingShader(LIGHT_WATER), false, false, false);
-		}
-		if (has_lava) {
-			dispatch(LIGHT_LAVA, LightingShader(LIGHT_LAVA), false, false, false);
-		}
+	if (has_water) {
+		dispatch(LIGHT_WATER, LightingShader(LIGHT_WATER), false, false);
+	}
+	if (has_lava) {
+		dispatch(LIGHT_LAVA, LightingShader(LIGHT_LAVA), false, false);
 	}
 
 	if (accumulate_shadows) {
@@ -5496,31 +5487,29 @@ RenderSystem::AsyncComputeStats RenderSystem::GetAsyncComputeStats() const {
 	return stats;
 }
 
-SimpleComputeShader* RenderSystem::LightingShader(int slot) {
-	//The permutations (DeferredLightCS.hlsl) and the reference, each built by DXC and by fxc: the *Fxc ones are the same HLSL (an
-	//include of the DXC one) that the build hands to fxc, see Engine.vcxproj.
-	static const char* const NAMES[2][LIGHT_SLOTS] = {
-		{ "DeferredLightCS.cso", "DeferredLightRaysCS.cso", "DeferredLightWaterCS.cso", "DeferredLightLavaCS.cso",
-		  "DeferredLightAllCS.cso", "DeferredLightAllRaysCS.cso" },
-		{ "DeferredLightFxcCS.cso", "DeferredLightRaysFxcCS.cso", "DeferredLightWaterFxcCS.cso", "DeferredLightLavaFxcCS.cso",
-		  "DeferredLightAllFxcCS.cso", "DeferredLightAllRaysFxcCS.cso" } };
-	//AUTO: DXC where it is as fast as fxc or faster (the permutations without ray tracing), fxc where it is not (the ones that
-	//trace rays, which DXC builds at half the speed - Docs/D3D12_MIGRATION.md, Performance - and the reference shaders).
+SimpleComputeShader* RenderSystem::LightingShader(int perm) {
+	//The permutations (DeferredLightCS.hlsl), each built by DXC and by fxc: the *Fxc ones are the same HLSL (an include of the
+	//DXC one) that the build hands to fxc, see Engine.vcxproj.
+	static const char* const NAMES[2][LIGHT_PERMS] = {
+		{ "DeferredLightCS.cso", "DeferredLightRaysCS.cso", "DeferredLightWaterCS.cso", "DeferredLightLavaCS.cso" },
+		{ "DeferredLightFxcCS.cso", "DeferredLightRaysFxcCS.cso", "DeferredLightWaterFxcCS.cso", "DeferredLightLavaFxcCS.cso" } };
+	//AUTO: DXC where it is as fast as fxc or faster (the permutations without ray tracing), fxc where it is not (the one that
+	//traces rays, which DXC builds at half the speed - Docs/D3D12_MIGRATION.md, Performance).
 	int preferred = (lighting_compiler == LightingCompiler::FXC) ? 1 : 0;
 	if (lighting_compiler == LightingCompiler::AUTO) {
-		preferred = (slot == LIGHT_RT || slot == LIGHT_SLOT_ALL || slot == LIGHT_SLOT_ALL_RAYS) ? 1 : 0;
+		preferred = (perm == LIGHT_RT) ? 1 : 0;
 	}
 	for (int attempt = 0; attempt < 2; ++attempt) {
 		//The compiler asked for, and the other one when its shader is not there.
 		const int c = preferred ^ attempt;
-		if (lighting_shaders[c][slot] == nullptr) {
-			lighting_shaders[c][slot] = ShaderFactory::Get()->GetShader<SimpleComputeShader>(NAMES[c][slot]);
-			if (lighting_shaders[c][slot] == nullptr) {
-				LOG_WARN("RenderSystem: lighting shader %s could not be loaded", NAMES[c][slot]);
+		if (lighting_shaders[c][perm] == nullptr) {
+			lighting_shaders[c][perm] = ShaderFactory::Get()->GetShader<SimpleComputeShader>(NAMES[c][perm]);
+			if (lighting_shaders[c][perm] == nullptr) {
+				LOG_WARN("RenderSystem: lighting shader %s could not be loaded", NAMES[c][perm]);
 			}
 		}
-		if (lighting_shaders[c][slot] != nullptr) {
-			return lighting_shaders[c][slot];
+		if (lighting_shaders[c][perm] != nullptr) {
+			return lighting_shaders[c][perm];
 		}
 	}
 	return nullptr;

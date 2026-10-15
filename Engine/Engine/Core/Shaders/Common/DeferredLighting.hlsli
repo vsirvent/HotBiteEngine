@@ -31,8 +31,13 @@ SOFTWARE.
 //material shader.
 //
 //The includer supplies as constants: cameraPosition, ambientLight, `time`, and what
-//LightShadows.hlsli asks for - and what ShadowRays.hlsli asks for, which it includes
-//before this file: ShadePoint traces a ray for the lights flagged PACKED_LIGHT_RAYTRACED.
+//LightShadows.hlsli asks for.
+//
+//A light has one of two kinds of shadow, and a permutation of DeferredLightCS.hlsl holds the code of one:
+//  (nothing defined)   the lights with a shadow map, or none: the shadow is looked up (LightShadows.hlsli). No ray code is in it.
+//  DL_RT_LIGHTS_ONLY   the lights flagged ray traced (PACKED_LIGHT_RAYTRACED, DIR_LIGHT_FLAG_RAYTRACED): the shadow is a ray
+//                      (ShadowRays.hlsli, which the includer includes before this file). No shadow map code is in it.
+//The includer calls ShadeDirectional / ShadePoint only for the lights of its kind: it tells them apart by the light's own flags.
 
 #ifndef __DEFERRED_LIGHTING_HLSLI__
 #define __DEFERRED_LIGHTING_HLSLI__
@@ -73,15 +78,11 @@ float3 ShadeDirectional(float3 normal, float4 position, float spec_intensity, fl
 	bloomColor += spec_color;
 
 	float shadow = 1.0f;
+#ifdef DL_RT_LIGHTS_ONLY
 	//A ray traced sun traces only where its caster scene reaches (shadow_ray_sun_distance round
 	//the camera, the cascades' own reach); beyond it the ground is lit, as it is past the last
 	//cascade.
-	const bool ray_traced = !light.cast_shadow && (light.flags & DIR_LIGHT_FLAG_RAYTRACED) != 0 &&
-		length(position.xyz - cameraPosition) < shadow_ray_sun_distance;
-#ifdef DL_RT_LIGHTS_ONLY
-	//The permutation that lights only the lights that trace (DeferredLightCS.hlsl) never meets one with a shadow map: no cascades,
-	//no PCF, no debug tint of them in its registers.
-	if (ray_traced) {
+	if (length(position.xyz - cameraPosition) < shadow_ray_sun_distance) {
 		const float side = (NDotL >= 0.0f) ? 1.0f : -1.0f;
 		shadow = ShadowRayOccludedDirectional(position.xyz + normal * (side * SR_SURFACE_BIAS), light.DirToLight) ? 0.0f : 1.0f;
 		if (cloud_density > 0.0f) {
@@ -91,14 +92,8 @@ float3 ShadeDirectional(float3 normal, float4 position, float spec_intensity, fl
 	}
 	float3 final = finalColor * shadow;
 #else
-	if (light.cast_shadow || ray_traced) {
-		if (ray_traced) {
-			const float side = (NDotL >= 0.0f) ? 1.0f : -1.0f;
-			shadow = ShadowRayOccludedDirectional(position.xyz + normal * (side * SR_SURFACE_BIAS), light.DirToLight) ? 0.0f : 1.0f;
-		}
-		else {
-			shadow = (DirShadowPCFAll(position, light, index));
-		}
+	if (light.cast_shadow) {
+		shadow = DirShadowPCFAll(position, light, index);
 		if (cloud_density > 0.0f) {
 			shadow -= CloudPCF(position, light, cloud_density);
 		}
@@ -157,23 +152,15 @@ float3 ShadePoint(float3 normal, float3 position, float spec_intensity, float bl
 
 	float shadow = 1.0f;
 #ifdef DL_RT_LIGHTS_ONLY
-	//The permutation that lights only the lights that trace (DeferredLightCS.hlsl): such a light holds no shadow slot (the two are
-	//exclusive, see GatherLights), so there is no shadow map lookup in its registers.
-	if (LightIsRayTraced(light)) {
-		const float side = (dot(ToLight, normal) >= 0.0f) ? 1.0f : -1.0f;
-		shadow = ShadowRayOccluded(position + normal * (side * SR_SURFACE_BIAS), light.position, LightRayScene(light)) ? 0.0f : 1.0f;
-	}
+	//No shadow map: one ray from the surface to the light (such a light holds no shadow slot, the two are exclusive, see
+	//GatherLights). It starts on the side of the surface the light is on, so a face turned away from it is blocked by its
+	//own object rather than lit through it.
+	const float side = (dot(ToLight, normal) >= 0.0f) ? 1.0f : -1.0f;
+	shadow = ShadowRayOccluded(position + normal * (side * SR_SURFACE_BIAS), light.position, LightRayScene(light)) ? 0.0f : 1.0f;
 #else
-	int slot = LightShadowSlot(light);
+	const int slot = LightShadowSlot(light);
 	if (slot >= 0) {
 		shadow = PointShadowPCF(position - light.position, slot);
-	}
-	else if (LightIsRayTraced(light)) {
-		//No shadow map: one ray from the surface to the light. It starts on the side of the
-		//surface the light is on, so a face turned away from it is blocked by its own
-		//object rather than lit through it.
-		const float side = (dot(ToLight, normal) >= 0.0f) ? 1.0f : -1.0f;
-		shadow = ShadowRayOccluded(position + normal * (side * SR_SURFACE_BIAS), light.position, LightRayScene(light)) ? 0.0f : 1.0f;
 	}
 #endif
 	finalColor *= Attn * shadow;

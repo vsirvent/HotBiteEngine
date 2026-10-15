@@ -142,7 +142,7 @@ where the GPU exposes it.
 |---|---|
 | `HOTBITE_D3D12_DEBUG=1` | D3D12 debug layer (always on in Debug builds); `HOTBITE_D3D12_GBV=1` adds GPU-based validation |
 | `HOTBITE_PIX=1` | loads PIX's GPU capturer (`WinPixGpuCapturer.dll` of the newest PIX under `Program Files\Microsoft PIX`) before the device is created, so **PIX can attach to the running process** (Attach tab) and take a GPU capture; the log says which file. The two queues are named ("HotBite direct queue", "HotBite compute queue") and the frame's passes are markers (the `GpuStamp` sites: shadows, depth pre-pass, scene, motion, reflections, GI, lighting, mix, AA, blur, tile culling, deferred lighting). `GfxDevice::PixCaptureNextFrames(file, frames)` (`RenderSystem::PixCapture`) asks the capturer for a GPU capture of the next frames and it writes the `.wpix` itself, with no PIX window (Survival's `pix_capture` channel command). Nothing is loaded or recorded without it. Leave the debug layer off for timings (and GPU based validation off for a capture); `pixtool attach` is for timing captures, a GPU capture of a process PIX did not launch needs this |
-| `HOTBITE_LIGHT_SPLIT=0\|1`, `HOTBITE_LIGHT_COMPILER=dxc\|fxc\|auto` | the lighting shader as permutations or as the one shader (default 0), and who built the ones that run (default `auto`); see "Lighting permutations" |
+| `HOTBITE_LIGHT_COMPILER=dxc\|fxc\|auto` | who built the lighting permutations that run, DXC or fxc from the same HLSL (default `auto`); see "Lighting permutations" |
 | `HOTBITE_LOG=<file>` | engine log written to that file from `DXCore::InitDirectX` (device, adapter, frame cost every 240 frames, PSO compiles >= 5 ms) |
 | `HOTBITE_SHADER_DEBUG=0` | the shaders the editor compiles at run time (reload, new shader) leave the debug symbols out |
 | `HOTBITE_GFX_TRACE=<serial>` | in the log, every draw and dispatch of 3 frames from that frame serial, with what each had bound |
@@ -156,13 +156,13 @@ uploads (an immediate command list per upload, a ring of 16 in `GfxDevice`) that
 
 **Known problem, left open for later: DXC compiles the ray traced lighting shader 2-2.5x slower than fxc.** The same
 HLSL of the ray traced lighting costs 22.0 ms built by DXC (`cs_6_0`) and 8.7 ms built by fxc (`cs_5_0 /O3`) in the
-stress scene below; the rest of the frame is not affected. **For now the lighting shader that runs (`DeferredLightAllCS` and
-`AllRaysCS`, the shader as it was) is built by fxc** (the `*FxcCS.hlsl` twins): `HotBiteFxc` metadata on their `FxCompile` items in
+stress scene below; the rest of the frame is not affected. **For now the lighting permutation that traces rays
+(`DeferredLightRaysCS`, `auto`'s choice) is built by fxc** (the `*FxcCS.hlsl` twins of the same HLSL): `HotBiteFxc` metadata on their `FxCompile` items in
 `Engine.vcxproj` (read by `Dxc.targets`, which runs `fxc.exe /O3` on them), and `UsesFxc` in `ShaderCompiler.cpp` for the
 editor's hot reload (a reload of a rays shader takes ~90 s at /O3, on a worker thread). They are compute shaders, so each is a
 pipeline of its own and mixing SM5 and SM6 is fine (a single pipeline cannot mix them). Cutting the shader into permutations (next
-section but one, "Lighting permutations") did not close the gap. To go back to DXC once it is fixed: set `HOTBITE_LIGHT_COMPILER=dxc`
-as the default (`RenderSystem::lighting_compiler`) and drop the twins and the list. Where to start: PIX on the DXC build of suite `67-rt-shadow-stress` (the symbols are in the `.cso`), compare
+section but one, "Lighting permutations", which is what runs now) did not close the gap. To go back to DXC once it is fixed: set
+`LightingCompiler::DXC` as the default (`RenderSystem::lighting_compiler`) and drop the twins and the list. Where to start: PIX on the DXC build of suite `67-rt-shadow-stress` (the symbols are in the `.cso`), compare
 the machine code and occupancy against the fxc build, look at how DXC lays out the BVH walk and the screen march
 (loops, `[branch]`, local arrays and structs, the `PackedLight` loads), and try other options on a copy (shader model
 6_6, `-Gis`, `-enable-16bit-types`, `-Vd`).
@@ -214,40 +214,48 @@ Engine\Engine\Core\Shaders\ComputeShaders\<name>.hlsl` for `DeferredLightCS` and
 
 The idea (2026-10-15): the lighting shader holds the BVH walk and the screen march of the shadow rays, whose registers every
 pixel pays for whatever it is, and DXC builds that code at half the speed of fxc. So cut the shader into passes that each hold only
-what their pixels need, and see what DXC and fxc make of the pieces. **Built, tested, measured; not faster, so off by default.**
+what their pixels need, and see what DXC and fxc make of the pieces. **Built, tested, measured: not faster than the one shader with the
+compilers there are** (the numbers below, taken against it) **but the only lighting path since 2026-10-16**, on both compilers: one HLSL built
+twice is wanted over keeping a second, all-in-one copy of the lighting (`DeferredLightAllCS.hlsl`, deleted; it is in git at `7703e43`) that
+every change to the lighting had to be made in twice, and a build that is `if (fxc) one thing else another`.
 
 **What it is.** One HLSL file, four permutations, each dispatched over the same tiles and adding what it owes to the light and bloom maps
 (`RenderSystem::ProcessDeferredLighting`):
 
 | permutation (`.cso`) | pixels | lights |
 |---|---|---|
-| `DeferredLightCS` (nothing defined) | ordinary surfaces (standard, splats) | ambient, every directional light and every point light whose shadow is a map or none |
-| `DeferredLightRaysCS` (`DEFERRED_LIGHT_RAYS`) | the same | only the lights flagged ray traced, with the ray tracer compiled in; `DL_RT_LIGHTS_ONLY` leaves out of it the cascades, the PCF, the cube maps and the cascade debug tint, which a light that traces never uses |
+| `DeferredLightCS` (nothing defined) | ordinary surfaces (standard, splats) | ambient, every directional light and every point light whose shadow is a map or none; no ray code (no `srTlas`, `ssHiZ`, `rt_shadow_out` in its bindings) |
+| `DeferredLightRaysCS` (`DEFERRED_LIGHT_RAYS`) | the same | only the lights flagged ray traced, with the ray tracer compiled in; `DL_RT_LIGHTS_ONLY` (set by the file before it includes `Common/DeferredLighting.hlsli`) leaves out of it the cascades, the PCF, the cube maps and the cascade debug tint, which a light that traces never uses: its bindings have no `DirShadowMapTexture`, `PointShadowMapTexture` or `PCFSampler` |
 | `DeferredLightWaterCS` (`DEFERRED_LIGHT_WATER`) | water | its own ambient, directional and point light |
 | `DeferredLightLavaCS` (`DEFERRED_LIGHT_LAVA`) | lava | directional and point light with shadow maps |
 
-A light is lit by exactly one pass: `skip_rt_lights` makes the first permutation leave the ray traced lights to the second, which is
-dispatched only when the frame has such lights and a place to trace them (`world_shadows || screen_shadows`); until then the first lights
-them unshadowed, as the shader without rays always did. (The earlier try at splitting the lights, which came out 31% brighter, double counted
-them; Survival's suite 63 is the check.) Water and lava are dispatched only when the geometry pass drew some: `DrawScene` notes a visible
+A light is lit by exactly one pass, and no permutation is told which: each walks the tile's light bits and takes the lights of its kind by the
+light's own flags (`LightIsRayTraced` of the packed point light, `DirLightIsRayTraced` of the directional light; the first takes the ones that do not
+trace, the second the ones that do), so there is no constant for it (an earlier version had `skip_rt_lights` in the cbuffer, and a bit mask of the
+traced lights besides; both are gone). The ray tracing permutation is dispatched whenever the frame has a light that traces (a point light flagged
+by `GatherLights`, or a sun with `DIR_LIGHT_FLAG_RAYTRACED` and no cascades), whether or not there is anything to trace against: with no casters and
+no pyramid (`shadow_ray_objects` 0, `ss_steps` 0) its rays answer "not occluded" and the light is lit as the shader without rays always lit it. (The
+earlier try at splitting the lights, which came out 31% brighter, double counted them; Survival's suite 63 is the check.) What each permutation does
+not do is left out of its code, not only skipped at run time. Water and lava are dispatched only when the geometry pass drew some: `DrawScene` notes a visible
 entity whose pixel shader is `WaterPS.cso` / `LavaPS.cso` (the engine's two shaders that write those shading models; a game's own shader that
-wrote them would not be lit). The reference, `DeferredLightAllCS.hlsl` (+ `AllRays`), is the shader as it was and what runs by default.
-Every one of the six is built twice: by DXC, and by fxc as the `*FxcCS.hlsl` twin that includes it (`HotBiteFxc` metadata in `Engine.vcxproj`,
+wrote them would not be lit). Every one of the four is built twice: by DXC, and by fxc as the `*FxcCS.hlsl` twin that includes it (`HotBiteFxc` metadata in `Engine.vcxproj`,
 `UsesFxc` in `ShaderCompiler.cpp`; `Engine.vcxproj` touches wrappers and twins when the file they include is newer).
 
-**Switches.** `lighting_shaders [split|single] [dxc|fxc|auto]` (Survival's channel and the Scene Editor's; answers the dispatches of each permutation in
-the last frame), `HOTBITE_LIGHT_SPLIT=0|1`, `HOTBITE_LIGHT_COMPILER=dxc|fxc|auto`. `auto`, the default, is DXC where it is as fast as fxc
-(the permutations that trace no ray) and fxc where it is not (the one that does, and the reference). `gpu_timings` / `perf` report each
+**Switches.** `lighting_shaders [dxc|fxc|auto]` (Survival's channel and the Scene Editor's; answers the dispatches of each permutation in
+the last frame), `HOTBITE_LIGHT_COMPILER=dxc|fxc|auto`. `auto`, the default, is DXC where it is as fast as fxc
+(the permutations that trace no ray) and fxc where it is not (the one that does). `gpu_timings` / `perf` report each
 permutation (`light_standard`, `light_rt`, `light_water`, `light_lava`).
 
-**Same picture** (the checks): Survival suite 67 shoots the stress scene with the reference and the permutations, each built by either compiler, and with
-the reference twice for the noise (0.4-0.6 levels of 255 against 0.4-0.5 for every pair); the Scene Editor's new suite `50-lightingpermutations` does it for
+**Same picture** (the checks): Survival suite 67 shoots the stress scene with the DXC and the fxc build of the permutations, and DXC twice for the noise
+(0.4-0.6 levels of 255 against 0.4-0.5 for every pair); the Scene Editor's suite `50-lightingpermutations` does it for
 the ordinary surfaces, the water and the lava (the floor's material given `WaterPS` / `LavaPS`, over a floor, with a check that the scene is not black) and the
-ray traced point lights and sun, and that a permutation that has nothing to light is not dispatched. Suites 44, 46, 47, 49 (and 63) cover the lighting under
+ray traced point lights and sun, and that a permutation that has nothing to light is not dispatched. (That the permutations light what the all-in-one shader lit
+was checked the same way, against it, when it was still there: the same pictures within the noise, and Survival suite 63, which would show a light lit twice, passing.) Suites 44, 46, 47, 49 (and 63) cover the lighting under
 the permutations too. (`mouse_move 0.99 0.99` before a shot: a real mouse over a house lights it up in the picture and made the noise 6.9 levels.)
 
 **What it costs** (Survival suite 67 `lighting ...` lines; RTX 4050 Laptop, GPU ms per frame of the first lighting pass, `deferred` stamp, between
-runs of the other sets; 25 ray traced lamps, the busiest tile holds 15; the pass is `rt` where the permutations are split):
+runs of the other sets; 25 ray traced lamps, the busiest tile holds 15; the pass is `rt` where the permutations are split). "One shader" is the
+all-in-one `DeferredLightAllCS` this section started from, measured while it was still there:
 
 | built by | one shader | permutations: standard + rays + water | permutations, no traced shadows |
 |---|---|---|---|
@@ -268,11 +276,26 @@ What it says:
 * **The water pass costs 0.13 ms when a water surface is in view even if no pixel is water**: Survival's water is one mesh under the whole map, visible
   wherever the terrain is, and the dispatch cannot know that no pixel shows it (the check is by entity, on the CPU). A frame with no ray traced lights
   is 0.745 ms with the permutations and 0.70 with the one shader.
-So the **default stays the one shader, built by fxc** (`lighting_shaders single auto`), which is what shipped before, and the permutations are for the day the
-ray code is better in DXC. Where to go from here: the BVH walk is two nested loops with two stacks (`SrTrace` over the top level, `SrObjectOccluded` in each
+**Measured again once they were the only path (2026-10-16**: nothing in the cbuffer tells a permutation which lights are its own, each takes them from the
+tile's bits by the light's flags; the standard permutation has no ray code at all; the rays permutation has no shadow map code). Same scene, suite 67, GPU ms
+summed over the frame's two lighting passes, three runs of each build interleaved, the first thrown away:
+
+| built by | whole lighting pass | standard | rays | water | fps |
+|---|---|---|---|---|---|
+| DXC | 22.9 (22.8-22.9) | 0.79 | 21.7 | 0.12 | 31.0 |
+| fxc | 10.1 (10.07-10.13) | 1.03 | 8.9 | 0.13 | 50.3 |
+| auto (rays on fxc, the rest on DXC) | 10.1 (10.08-10.10) | 0.81 | 8.9 | 0.12 | 51.0 |
+
+With no traced shadows: 0.72 (DXC), 0.70 (fxc), 0.72 ms (auto). **DXC is 2.3x slower than fxc on the rays permutation and the same everywhere else**; the
+picture is the same (fxc against DXC 0.54 levels of 255, auto 0.43, the noise of DXC against itself 0.32). Nothing was won or lost by taking the parameter
+out (fxc 9.6-9.9 before, 10.1 now: the drift of the laptop GPU); the point of that change is one code path. (The fxc build of the rays permutation
+took 14 s here; a reload of the rays shader was noted at ~90 s before.)
+
+So the permutations cost what the table says against the all-in-one shader under fxc (3.6% on the traced pass, 0.05 ms with no traced shadows) and gain
+what it says under DXC (3-18%); they are the lighting shader anyway (see the top of this section) and **`auto` is the default**. Where to go from here: the BVH walk is two nested loops with two stacks (`SrTrace` over the top level, `SrObjectOccluded` in each
 object) and DXC inlines the second into the first; one loop over one stack of (node, object) entries is the usual way to cut the registers and the live
 ranges of a traversal, and is the place to try first; after it the screen march (`RayScreenSolver.hlsli`) and the world walk can be permutations of their own
-(`shadow_space` is world, screen or both). `HOTBITE_LIGHT_COMPILER` and the twins stay so that the next change is measured the same way.
+(`shadow_space` is world, screen or both). `HOTBITE_LIGHT_COMPILER` and the twins stay so that the next change is measured the same way (one HLSL, both builds).
 
 **Next (M7), by expected payoff:** (1) find why DXC is slow on the lighting shader and put it back on DXC (see the
 known problem above and "Lighting permutations": the traversal is where to start), and compare the other big shaders (`GIRayTraceCS`, `RayTraceCS`, `DenoiserCS`) DXBC against

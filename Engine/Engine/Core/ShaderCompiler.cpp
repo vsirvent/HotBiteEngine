@@ -178,13 +178,14 @@ namespace HotBite {
 					std::unordered_map<const void*, std::string> dir_of_data;
 				};
 
-				// Shaders that are built by fxc (SM 5.0, /O3) and not by DXC, because DXC makes them 2-2.5x slower from the same
-				// HLSL: keep equal to the FxCompile items with HotBiteFxc metadata in Engine.vcxproj (Docs/D3D12_MIGRATION.md,
-				// Performance). A reload has to make what the build made, or editing the shader would change what it costs.
+				// The *FxcCS twins of the lighting permutations: the same HLSL as the shader they include, built by fxc (SM 5.0, /O3)
+				// instead of DXC (DXC makes the one that traces rays 2x slower). Keep equal to the FxCompile items with HotBiteFxc
+				// metadata in Engine.vcxproj (Docs/D3D12_MIGRATION.md, Performance). A reload has to make what the build made, or
+				// editing the shader would change what it costs.
 				bool UsesFxc(const std::string& source_path)
 				{
 					static const char* const FXC_SHADERS[] = { "deferredlightfxccs", "deferredlightraysfxccs", "deferredlightwaterfxccs",
-						"deferredlightlavafxccs", "deferredlightallfxccs", "deferredlightallraysfxccs" };
+						"deferredlightlavafxccs" };
 					const std::string stem = ToLower(fs::path(source_path).stem().string());
 					for (const char* name : FXC_SHADERS) {
 						if (stem == name) {

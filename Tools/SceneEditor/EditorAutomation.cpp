@@ -440,26 +440,23 @@ namespace HotBiteEditor {
 				response_lines.push_back(std::string("OK ") + (rs->GetTileCulling() ? "on" : "off"));
 			}
 			else if (cmd == "lighting_shaders") {
-				//lighting_shaders [split|single] [dxc|fxc]: the lighting shader's permutations (DeferredLightCS.hlsl) or the one shader that
-				//does it all, and the compiler of the build that runs. The picture is the same whichever (that is what is tested).
-				//-> OK split=<yes|no> compiler=<dxc|fxc> standard= rt= water= lava= (dispatches of each in the last frame)
+				//lighting_shaders [dxc|fxc|auto]: the compiler of the build of the lighting shader's permutations (DeferredLightCS.hlsl,
+				//always the ones that run) that runs. The picture is the same whichever (that is what is tested).
+				//-> OK compiler=<dxc|fxc|auto> standard= rt= water= lava= (dispatches of each permutation in the last frame)
 				for (size_t i = 1; i < args.size(); ++i) {
 					Systems::RenderSystem::LightingCompiler compiler;
-					if (args[i] == "split" || args[i] == "single") {
-						rs->SetLightingSplit(args[i] == "split");
-					}
-					else if (Systems::RenderSystem::ParseLightingCompiler(args[i], compiler)) {
+					if (Systems::RenderSystem::ParseLightingCompiler(args[i], compiler)) {
 						rs->SetLightingCompiler(compiler);
 					}
 					else {
-						response_lines.push_back("ERR usage: lighting_shaders [split|single] [dxc|fxc|auto]");
+						response_lines.push_back("ERR usage: lighting_shaders [dxc|fxc|auto]");
 						return true;
 					}
 				}
 				uint32_t dispatches[Systems::RenderSystem::LIGHT_PERMS] = {};
 				rs->GetLightingDispatches(dispatches);
 				char text[160];
-				snprintf(text, sizeof(text), "OK split=%s compiler=%s standard=%u rt=%u water=%u lava=%u", rs->GetLightingSplit() ? "yes" : "no",
+				snprintf(text, sizeof(text), "OK compiler=%s standard=%u rt=%u water=%u lava=%u",
 					Systems::RenderSystem::LightingCompilerName(rs->GetLightingCompiler()), dispatches[Systems::RenderSystem::LIGHT_STANDARD],
 					dispatches[Systems::RenderSystem::LIGHT_RT], dispatches[Systems::RenderSystem::LIGHT_WATER],
 					dispatches[Systems::RenderSystem::LIGHT_LAVA]);
