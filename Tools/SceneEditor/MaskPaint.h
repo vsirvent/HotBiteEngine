@@ -3,7 +3,7 @@
 #include "SceneEditor.h"
 #include "imgui.h"
 
-#include <d3d11.h>
+#include <Core/DXCore.h>
 #include <string>
 #include <vector>
 

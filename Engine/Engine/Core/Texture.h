@@ -31,11 +31,46 @@ SOFTWARE.
 namespace HotBite {
 	namespace Engine {
 		namespace Core {
+			//What D3D11 called GFX_BIND_UNORDERED_ACCESS, for the `bind_flags` of RenderTexture2D::Init.
+			constexpr uint32_t GFX_BIND_UNORDERED_ACCESS = 0x80;
+
+			//The pixel layouts game code can ask for without naming a graphics API.
+			enum class TextureFormat {
+				R8,		//one 8-bit channel, read as 0..1
+				RGBA8,	//four 8-bit channels, byte order R, G, B, A
+			};
+
+			//A texture the CPU rewrites whenever it likes (a minimap, a fog mask, a procedural image) and shaders sample.
+			//This is the way for game code to make a texture: it names no graphics API, so it keeps working when the
+			//backend changes. `SRV()` goes to `SetShaderResourceView` / `Widget::SetTexture`.
+			class DynamicTexture2D {
+			private:
+				GfxTexture* texture = nullptr;
+				GfxSRV* shader_resource_view = nullptr;
+				int width = 0;
+				int height = 0;
+				TextureFormat format = TextureFormat::RGBA8;
+			public:
+				DynamicTexture2D() = default;
+				DynamicTexture2D(const DynamicTexture2D&) = delete;
+				DynamicTexture2D& operator=(const DynamicTexture2D&) = delete;
+				~DynamicTexture2D();
+				//Creates the texture (replacing a previous one); the contents are undefined until the first Update.
+				HRESULT Init(int w, int h, TextureFormat texture_format);
+				//Replaces the whole image. `row_pitch` is the bytes between rows in `pixels`; 0 means tightly packed.
+				void Update(const void* pixels, uint32_t row_pitch = 0);
+				void Release();
+				bool Valid() const { return texture != nullptr; }
+				int Width() const { return width; }
+				int Height() const { return height; }
+				GfxSRV* SRV() const { return shader_resource_view; }
+			};
+
 			class DepthTextureCube {
 			private:
-				ID3D11Texture2D* cube_texture = nullptr;
-				ID3D11ShaderResourceView* shader_resource_view = nullptr;
-				ID3D11DepthStencilView* depth_stencil_view = nullptr;
+				GfxTexture* cube_texture = nullptr;
+				GfxSRV* shader_resource_view = nullptr;
+				GfxDSV* depth_stencil_view = nullptr;
 				bool init = false;
 			public:
 				DepthTextureCube();
@@ -44,15 +79,15 @@ namespace HotBite {
 				HRESULT Init(int w, int h);
 				void Release();
 				void Clear();
-				ID3D11ShaderResourceView* SRV() const;
-				ID3D11DepthStencilView* Depth() const;
+				GfxSRV* SRV() const;
+				GfxDSV* Depth() const;
 			};
 
 			class DepthTexture2D {
 			private:
-				ID3D11Texture2D* texture = nullptr;
-				ID3D11ShaderResourceView* shader_resource_view = nullptr;
-				ID3D11DepthStencilView* depth_stencil_view = nullptr;
+				GfxTexture* texture = nullptr;
+				GfxSRV* shader_resource_view = nullptr;
+				GfxDSV* depth_stencil_view = nullptr;
 				bool init = false;
 				int width = 0;
 				int height = 0;
@@ -65,8 +100,8 @@ namespace HotBite {
 				void Clear();
 				int Width() const;
 				int Height() const;
-				ID3D11ShaderResourceView* SRV() const;
-				ID3D11DepthStencilView* Depth() const;
+				GfxSRV* SRV() const;
+				GfxDSV* Depth() const;
 			};
 
 			//A depth texture with several slices, read in shaders as one Texture2DArray.
@@ -81,10 +116,10 @@ namespace HotBite {
 			//for anything that needs to render one cascade on its own.
 			class DepthTexture2DArray {
 			private:
-				ID3D11Texture2D* texture = nullptr;
-				ID3D11ShaderResourceView* shader_resource_view = nullptr;
-				ID3D11DepthStencilView* depth_stencil_view = nullptr;
-				std::vector<ID3D11DepthStencilView*> slice_views;
+				GfxTexture* texture = nullptr;
+				GfxSRV* shader_resource_view = nullptr;
+				GfxDSV* depth_stencil_view = nullptr;
+				std::vector<GfxDSV*> slice_views;
 				bool init = false;
 				int width = 0;
 				int height = 0;
@@ -99,19 +134,18 @@ namespace HotBite {
 				int Width() const;
 				int Height() const;
 				int Slices() const;
-				ID3D11ShaderResourceView* SRV() const;
-				ID3D11DepthStencilView* Depth() const;
-				ID3D11DepthStencilView* Depth(int slice) const;
+				GfxSRV* SRV() const;
+				GfxDSV* Depth() const;
+				GfxDSV* Depth(int slice) const;
 			};
 
 			class RenderTexture2D: public IRenderTarget {
 			private:
-				D3D11_TEXTURE2D_DESC tex_desc;
-				ID3D11Resource* resource = nullptr;
-				ID3D11Texture2D* texture = nullptr;
-				ID3D11ShaderResourceView* shader_resource_view = nullptr;
-				ID3D11RenderTargetView* render_view = nullptr;
-				ID3D11UnorderedAccessView* uav = nullptr;
+				D3D12_RESOURCE_DESC tex_desc = {};
+				GfxTexture* texture = nullptr;
+				GfxSRV* shader_resource_view = nullptr;
+				GfxRTV* render_view = nullptr;
+				GfxUAV* uav = nullptr;
 
 				int width = 0;
 				int height = 0;
@@ -123,15 +157,16 @@ namespace HotBite {
 				virtual ~RenderTexture2D();
 				int Width() const;
 				int Height() const;
+				//`bind_flags` is GFX_BIND_UNORDERED_ACCESS or 0: every render texture can be sampled and drawn to.
 				HRESULT Init(int w, int h, DXGI_FORMAT format = DXGI_FORMAT_R8G8B8A8_UNORM, const uint8_t* data = nullptr, uint32_t len = 0, uint32_t bind_flags = 0);
 				void Release();
 				void Clear(const float color[4]);
-				ID3D11Resource* Resource() const;
-				const D3D11_TEXTURE2D_DESC& Descriptor() const;
-				ID3D11Texture2D* Texture() const;
-				ID3D11ShaderResourceView* SRV() const;
-				ID3D11UnorderedAccessView* UAV() const;
-				ID3D11RenderTargetView* RenderTarget() const override;
+				GfxResource* Resource() const;
+				const D3D12_RESOURCE_DESC& Descriptor() const;
+				GfxTexture* Texture() const;
+				GfxSRV* SRV() const;
+				GfxUAV* UAV() const;
+				GfxRTV* RenderTarget() const override;
 			};
 		}
 	}

@@ -42,8 +42,8 @@ namespace HotBiteEditor {
 			};
 
 			struct State {
-				ID3D11Buffer* vertex_buffer = nullptr;
-				ID3D11Buffer* index_buffer = nullptr;
+				GfxBuffer* vertex_buffer = nullptr;
+				GfxBuffer* index_buffer = nullptr;
 				UINT index_count = 0;
 				Core::SimpleVertexShader* vs = nullptr;
 				Core::SimplePixelShader* ps = nullptr;
@@ -65,7 +65,7 @@ namespace HotBiteEditor {
 			//A UV sphere in Core::Vertex form, so the preview vertex shader can declare
 			//the engine's standard VertexShaderInput and let SimpleShader reflect the
 			//input layout exactly as it does for every other shader.
-			bool EnsureSphere(ID3D11Device* device) {
+			bool EnsureSphere(GfxDevice* device) {
 				State& s = Get_();
 				if (s.vertex_buffer != nullptr) {
 					return true;
@@ -107,23 +107,13 @@ namespace HotBiteEditor {
 					}
 				}
 
-				D3D11_BUFFER_DESC vb_desc{};
-				vb_desc.Usage = D3D11_USAGE_IMMUTABLE;
-				vb_desc.ByteWidth = (UINT)(sizeof(Core::Vertex) * vertices.size());
-				vb_desc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
-				D3D11_SUBRESOURCE_DATA vb_data{};
-				vb_data.pSysMem = vertices.data();
-				if (FAILED(device->CreateBuffer(&vb_desc, &vb_data, &s.vertex_buffer))) {
-					return false;
-				}
+				if (FAILED(device->CreateBuffer(GfxBufferKind::Static, sizeof(Core::Vertex) * vertices.size(), sizeof(Core::Vertex),
+						D3D12_RESOURCE_FLAG_NONE, vertices.data(), GFX_STATE_BUFFER_READ, &s.vertex_buffer))) {
+						return false;
+					}
 
-				D3D11_BUFFER_DESC ib_desc{};
-				ib_desc.Usage = D3D11_USAGE_IMMUTABLE;
-				ib_desc.ByteWidth = (UINT)(sizeof(uint32_t) * indices.size());
-				ib_desc.BindFlags = D3D11_BIND_INDEX_BUFFER;
-				D3D11_SUBRESOURCE_DATA ib_data{};
-				ib_data.pSysMem = indices.data();
-				if (FAILED(device->CreateBuffer(&ib_desc, &ib_data, &s.index_buffer))) {
+					if (FAILED(device->CreateBuffer(GfxBufferKind::Static, sizeof(uint32_t) * indices.size(), sizeof(uint32_t),
+						D3D12_RESOURCE_FLAG_NONE, indices.data(), GFX_STATE_BUFFER_READ, &s.index_buffer))) {
 					RELEASE_PTR(s.vertex_buffer);
 					return false;
 				}
@@ -154,7 +144,7 @@ namespace HotBiteEditor {
 			void RenderThumbnail(Core::MaterialData* material, Thumbnail& t) {
 				State& s = Get_();
 				Core::DXCore* dx = Core::DXCore::Get();
-				ID3D11DeviceContext* context = dx->context;
+				GfxContext* context = dx->context;
 
 				//This runs while a panel is building its UI, in the middle of the editor's
 				//own frame - every pipeline binding it touches is saved and put back, so a
@@ -218,7 +208,7 @@ namespace HotBiteEditor {
 				UINT offset = 0;
 				context->IASetVertexBuffers(0, 1, &s.vertex_buffer, &stride, &offset);
 				context->IASetIndexBuffer(s.index_buffer, DXGI_FORMAT_R32_UINT, 0);
-				context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+				context->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 				context->DrawIndexed(s.index_count, 0, 0);
 
 				t.dirty = false;

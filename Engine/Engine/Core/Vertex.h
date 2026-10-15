@@ -25,7 +25,7 @@ SOFTWARE.
 #pragma once
 
 #include <Defines.h>
-#include <d3d11.h>
+#include "GfxDevice.h"
 #include <algorithm>
 #include <vector>
 #include "DXCore.h"
@@ -68,10 +68,10 @@ namespace HotBite {
 				std::vector<uint32_t> vindex;
 				std::vector<T> vvertex;
 				
-				ID3D11Buffer* vertex_buffer = nullptr;
-				ID3D11Buffer* index_buffer = nullptr;
-				ID3D11ShaderResourceView* vertex_srv = nullptr;
-				ID3D11ShaderResourceView* index_srv = nullptr;
+				GfxBuffer* vertex_buffer = nullptr;
+				GfxBuffer* index_buffer = nullptr;
+				GfxSRV* vertex_srv = nullptr;
+				GfxSRV* index_srv = nullptr;
 
 			public:
 				VertexBuffer() {
@@ -110,16 +110,11 @@ namespace HotBite {
 				}
 
 				void FlushMesh(const std::vector<T>& vertices, const std::vector<uint32_t>& indices) {
-					ID3D11DeviceContext* context = Core::DXCore::Get()->context;
-					D3D11_MAPPED_SUBRESOURCE resource;
+					GfxContext* context = Core::DXCore::Get()->context;
 					//Update vertex buffer
-					context->Map(vertex_buffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &resource);
-					memcpy(resource.pData, vertices.data(), (UINT)(sizeof(T) * vertices.size()));
-					context->Unmap(vertex_buffer, 0);
+					context->UpdateBuffer(vertex_buffer, vertices.data(), (UINT64)sizeof(T) * vertices.size());
 					//Update index buffer
-					context->Map(index_buffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &resource);
-					memcpy(resource.pData, indices.data(), (UINT)(sizeof(uint32_t) * indices.size()));
-					context->Unmap(index_buffer, 0);
+					context->UpdateBuffer(index_buffer, indices.data(), (UINT64)sizeof(uint32_t) * indices.size());
 				}
 
 				HRESULT Reserve(int size) {
@@ -132,44 +127,29 @@ namespace HotBite {
 					HRESULT hr = S_OK;
 					if (!vvertex.empty())
 					{
-						ID3D11Device* device = Core::DXCore::Get()->device;
-						D3D11_BUFFER_DESC vbd;
-
-						vbd.Usage = read_only ? D3D11_USAGE_IMMUTABLE : D3D11_USAGE_DYNAMIC;
-						vbd.ByteWidth = (UINT)(sizeof(T) * GetVertexCount());
-						vbd.BindFlags = D3D11_BIND_VERTEX_BUFFER | D3D11_BIND_SHADER_RESOURCE;
-						vbd.CPUAccessFlags = read_only ? 0 : D3D11_CPU_ACCESS_WRITE;
-						vbd.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS;
-						vbd.StructureByteStride = sizeof(T);
-						D3D11_SUBRESOURCE_DATA initialVertexData;
-						initialVertexData.pSysMem = vvertex.data();
-
-						hr = device->CreateBuffer(&vbd, &initialVertexData, &vertex_buffer);
+						GfxDevice* device = Core::DXCore::Get()->device;
+						//Vertex and index data live in GPU memory in the one state that serves as vertex buffer, index buffer
+						//and SRV (the ray tracers read them as raw buffers), so nothing ever has to move them between uses.
+						(void)read_only; // an update is a copy (Refresh/FlushMesh), whichever it was called with
+						hr = device->CreateBuffer(GfxBufferKind::Static, (UINT64)sizeof(T) * GetVertexCount(), sizeof(T),
+							D3D12_RESOURCE_FLAG_NONE, vvertex.data(), GFX_STATE_BUFFER_READ, &vertex_buffer);
 						if (FAILED(hr)) { goto end; }
 
-						D3D11_BUFFER_DESC ibd;
-						ibd.Usage = read_only ? D3D11_USAGE_IMMUTABLE : D3D11_USAGE_DYNAMIC;
-						ibd.ByteWidth = (UINT)(sizeof(uint32_t) * GetIndicesCount());
-						ibd.BindFlags = D3D11_BIND_INDEX_BUFFER | D3D11_BIND_SHADER_RESOURCE;
-						ibd.CPUAccessFlags = read_only ? 0 : D3D11_CPU_ACCESS_WRITE;
-						ibd.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS;
-						ibd.StructureByteStride = sizeof(uint32_t);
-						D3D11_SUBRESOURCE_DATA initialIndexData;
-						initialIndexData.pSysMem = vindex.data();
-
-						hr = device->CreateBuffer(&ibd, &initialIndexData, &index_buffer);
+						hr = device->CreateBuffer(GfxBufferKind::Static, (UINT64)sizeof(uint32_t) * GetIndicesCount(), sizeof(uint32_t),
+							D3D12_RESOURCE_FLAG_NONE, vindex.data(), GFX_STATE_BUFFER_READ, &index_buffer);
 						if (FAILED(hr)) { goto end; }
 
-						D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+						D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
 						srvDesc.Format = DXGI_FORMAT_R32_TYPELESS;
-						srvDesc.ViewDimension = D3D11_SRV_DIMENSION_BUFFEREX;
-						srvDesc.BufferEx.FirstElement = 0;
-						srvDesc.BufferEx.Flags = D3D11_BUFFEREX_SRV_FLAG_RAW;
-						srvDesc.BufferEx.NumElements = (uint32_t)GetVertexCount() * sizeof(T) / 4; //sizeof(DXGI_FORMAT_R32_TYPELESS)
-						hr = device->CreateShaderResourceView(vertex_buffer, &srvDesc, &vertex_srv);
+						srvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+						srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+						srvDesc.Buffer.FirstElement = 0;
+						srvDesc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_RAW;
+						srvDesc.Buffer.NumElements = (uint32_t)GetVertexCount() * sizeof(T) / 4; //sizeof(DXGI_FORMAT_R32_TYPELESS)
+						hr = device->CreateSRV(vertex_buffer, &srvDesc, &vertex_srv);
 						if (FAILED(hr)) { goto end; }
-						srvDesc.BufferEx.NumElements = (uint32_t)GetIndicesCount();
-						hr = device->CreateShaderResourceView(index_buffer, &srvDesc, &index_srv);
+						srvDesc.Buffer.NumElements = (uint32_t)GetIndicesCount();
+						hr = device->CreateSRV(index_buffer, &srvDesc, &index_srv);
 						if (FAILED(hr)) { goto end; }
 					}
 				end:
@@ -182,20 +162,15 @@ namespace HotBite {
 				}
 
 				void Refresh() {
-					ID3D11DeviceContext* context = Core::DXCore::Get()->context;
-					D3D11_MAPPED_SUBRESOURCE resource;
+					GfxContext* context = Core::DXCore::Get()->context;
 					//Update vertex buffer
-					context->Map(vertex_buffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &resource);
-					memcpy(resource.pData, vvertex.data(), (UINT)(sizeof(T) * GetVertexCount()));
-					context->Unmap(vertex_buffer, 0);
+					context->UpdateBuffer(vertex_buffer, vvertex.data(), (UINT64)sizeof(T) * GetVertexCount());
 					//Update index buffer
-					context->Map(index_buffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &resource);
-					memcpy(resource.pData, vindex.data(), (UINT)(sizeof(uint32_t) * GetIndicesCount()));
-					context->Unmap(index_buffer, 0);
+					context->UpdateBuffer(index_buffer, vindex.data(), (UINT64)sizeof(uint32_t) * GetIndicesCount());
 				}
 
 				void SetBuffers() {
-					ID3D11DeviceContext* context = Core::DXCore::Get()->context;
+					GfxContext* context = Core::DXCore::Get()->context;
 					uint32_t stride = sizeof(T);
 					uint32_t offset = 0;
 
@@ -204,12 +179,12 @@ namespace HotBite {
 				}
 
 				HRESULT Unprepare() {
-					ID3D11DeviceContext* context = Core::DXCore::Get()->context;
+					GfxContext* context = Core::DXCore::Get()->context;
 					HRESULT hr = S_OK;
 					if (vertex_buffer != nullptr) {
 						uint32_t stride[1] = {};
 						uint32_t offset[1] = {};
-						ID3D11Buffer* empty[1] = { nullptr };
+						GfxBuffer* empty[1] = { nullptr };
 						context->IASetVertexBuffers(0, 1, empty, stride, offset);
 						int count = vertex_buffer->Release();
 						hr |= (count == 0) ? S_OK : E_FAIL;
@@ -238,11 +213,11 @@ namespace HotBite {
 					return hr;
 				}
 
-				ID3D11ShaderResourceView* const* VertexSRV() const {
+				GfxSRV* const* VertexSRV() const {
 					return &vertex_srv;
 				}
 
-				ID3D11ShaderResourceView* const* IndexSRV() const {
+				GfxSRV* const* IndexSRV() const {
 					return &index_srv;
 				}
 			};

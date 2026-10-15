@@ -26,8 +26,9 @@ SOFTWARE.
 #include "DXCore.h"
 #include "Log.h"
 
+#include <d3d11.h>
 #include <DirectXTex.h>
-#include <DDSTextureLoader.h>
+#pragma comment(lib, "d3d11.lib")
 
 #include <algorithm>
 #include <atomic>
@@ -132,7 +133,8 @@ namespace {
 	// texture takes tenths of a second instead of tens. It is not the renderer's device - the
 	// compressor drives that device's immediate context, which the render thread owns - so it
 	// has its own, used by one thread at a time. Null when no hardware device can be made
-	// (a machine with no D3D11 GPU), and the CPU encoder does the work.
+	// (a machine with no D3D11 GPU), and the CPU encoder does the work. This is the one use of Direct3D 11
+	// left in the engine: DirectXTex has no D3D12 compressor, and the renderer never touches this device.
 	std::mutex gpu_mutex;
 	ID3D11Device* gpu_device = nullptr;
 	bool gpu_tried = false;
@@ -375,11 +377,131 @@ std::vector<std::string> Core::PlainTextureLoads() {
 	return plain_names;
 }
 
-ID3D11ShaderResourceView* Core::LoadCookedTexture(const std::string& filename) {
+GfxSRV* Core::CreateTextureFromImage(const DirectX::ScratchImage& image) {
+	const DirectX::TexMetadata& meta = image.GetMetadata();
+	if (meta.dimension != DirectX::TEX_DIMENSION_TEXTURE2D || meta.width == 0 || meta.height == 0) {
+		return nullptr;
+	}
+	GfxDevice* device = DXCore::Get()->device;
+
+	D3D12_RESOURCE_DESC desc = {};
+	desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+	desc.Width = meta.width;
+	desc.Height = (UINT)meta.height;
+	desc.DepthOrArraySize = (UINT16)meta.arraySize;
+	desc.MipLevels = (UINT16)meta.mipLevels;
+	desc.Format = meta.format;
+	desc.SampleDesc.Count = 1;
+	desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+	desc.Flags = D3D12_RESOURCE_FLAG_NONE;
+
+	// One entry per subresource: array slice major, then mip, which is D3D12's subresource order.
+	std::vector<GfxSubresourceData> data;
+	data.reserve(meta.arraySize * meta.mipLevels);
+	for (size_t item = 0; item < meta.arraySize; ++item) {
+		for (size_t mip = 0; mip < meta.mipLevels; ++mip) {
+			const DirectX::Image* im = image.GetImage(mip, item, 0);
+			if (im == nullptr) {
+				return nullptr;
+			}
+			GfxSubresourceData d;
+			d.data = im->pixels;
+			d.row_pitch = (UINT)im->rowPitch;
+			d.slice_pitch = (UINT)im->slicePitch;
+			data.push_back(d);
+		}
+	}
+	GfxTexture* texture = nullptr;
+	if (FAILED(device->CreateTexture2D(desc, D3D12_RESOURCE_STATE_COMMON, nullptr, data.data(), (UINT)data.size(), &texture))) {
+		return nullptr;
+	}
+	D3D12_SHADER_RESOURCE_VIEW_DESC sd = {};
+	sd.Format = meta.format;
+	sd.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+	if (meta.IsCubemap()) {
+		sd.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBE;
+		sd.TextureCube.MipLevels = (UINT)meta.mipLevels;
+	}
+	else if (meta.arraySize > 1) {
+		sd.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2DARRAY;
+		sd.Texture2DArray.MipLevels = (UINT)meta.mipLevels;
+		sd.Texture2DArray.ArraySize = (UINT)meta.arraySize;
+	}
+	else {
+		sd.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+		sd.Texture2D.MipLevels = (UINT)meta.mipLevels;
+	}
+	GfxSRV* srv = nullptr;
+	const HRESULT hr = device->CreateSRV(texture, &sd, &srv);
+	// The view holds the texture now.
+	texture->Release();
+	return SUCCEEDED(hr) ? srv : nullptr;
+}
+
+bool Core::DumpTexture(GfxTexture* texture, const std::string& png_path, float gain) {
+	if (texture == nullptr) {
+		return false;
+	}
+	DXCore* dx = DXCore::Get();
+	D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint = {};
+	UINT rows = 0;
+	UINT64 row_size = 0;
+	UINT64 total = 0;
+	dx->device->Device()->GetCopyableFootprints(&texture->desc, 0, 1, 0, &footprint, &rows, &row_size, &total);
+	GfxBuffer* readback = nullptr;
+	if (FAILED(dx->device->CreateBuffer(GfxBufferKind::Readback, total, 0, D3D12_RESOURCE_FLAG_NONE, nullptr,
+		D3D12_RESOURCE_STATE_COPY_DEST, &readback))) {
+		return false;
+	}
+	dx->context->CopyTextureToBuffer(texture, readback, footprint);
+	dx->context->Flush();
+
+	DXGI_FORMAT format = texture->format;
+	if (format == DXGI_FORMAT_R32_TYPELESS) { format = DXGI_FORMAT_R32_FLOAT; }
+	DirectX::Image image = {};
+	image.width = texture->width;
+	image.height = texture->height;
+	image.format = format;
+	image.rowPitch = footprint.Footprint.RowPitch;
+	image.slicePitch = image.rowPitch * texture->height;
+	image.pixels = (uint8_t*)readback->mapped;
+
+	DirectX::ScratchImage converted;
+	HRESULT hr = (format == DXGI_FORMAT_R8G8B8A8_UNORM)
+		? converted.InitializeFromImage(image)
+		: DirectX::Convert(image, DXGI_FORMAT_R8G8B8A8_UNORM, DirectX::TEX_FILTER_DEFAULT, DirectX::TEX_THRESHOLD_DEFAULT, converted);
+	if (SUCCEEDED(hr) && gain != 1.0f) {
+		uint8_t* p = converted.GetPixels();
+		for (size_t i = 0; i < converted.GetPixelsSize(); ++i) {
+			if ((i & 3) != 3) { p[i] = (uint8_t)(std::min)(255.0f, p[i] * gain); }
+		}
+	}
+	bool ok = false;
+	if (SUCCEEDED(hr)) {
+		// Not zero: any of the colour channels above 0.
+		size_t lit = 0;
+		const uint8_t* p = converted.GetPixels();
+		const size_t pixels = converted.GetPixelsSize() / 4;
+		for (size_t i = 0; i < pixels; ++i) {
+			if (p[i * 4] | p[i * 4 + 1] | p[i * 4 + 2]) { ++lit; }
+		}
+		LOG_INFO("DumpTexture %s: %ux%u format %u, %zu of %zu pixels not black", png_path.c_str(),
+			(unsigned)texture->width, (unsigned)texture->height, (unsigned)texture->format, lit, pixels);
+		ComScope com;
+		ok = SUCCEEDED(DirectX::SaveToWICFile(*converted.GetImage(0, 0, 0), DirectX::WIC_FLAGS_NONE,
+			DirectX::GetWICCodec(DirectX::WIC_CODEC_PNG), Wide(png_path).c_str()));
+	}
+	else {
+		LOG_WARN("DumpTexture %s: cannot convert format %u (0x%08X)", png_path.c_str(), (unsigned)texture->format, (unsigned)hr);
+	}
+	readback->Release();
+	return ok;
+}
+
+GfxSRV* Core::LoadCookedTexture(const std::string& filename) {
 	if (filename.empty() || !TextureCacheEnabled() || IsUncookable(filename)) {
 		return nullptr;
 	}
-	ID3D11Device* device = DXCore::Get()->device;
 	std::error_code ec;
 	const std::string cooked_file = filename + EXTENSION;
 	const bool has_source = std::filesystem::exists(filename, ec);
@@ -400,8 +522,10 @@ ID3D11ShaderResourceView* Core::LoadCookedTexture(const std::string& filename) {
 		CookInBackground(filename);
 		return nullptr;
 	}
-	ID3D11ShaderResourceView* srv = nullptr;
-	if (FAILED(DirectX::CreateDDSTextureFromMemory(device, dds, dds_size, nullptr, &srv))) {
+	DirectX::ScratchImage image;
+	GfxSRV* srv = nullptr;
+	if (FAILED(DirectX::LoadFromDDSMemory(dds, dds_size, DirectX::DDS_FLAGS_NONE, nullptr, image)) ||
+		(srv = CreateTextureFromImage(image)) == nullptr) {
 		++failures;
 		return nullptr;
 	}

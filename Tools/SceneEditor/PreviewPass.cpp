@@ -79,29 +79,30 @@ namespace HotBiteEditor {
 			if (dx == nullptr || dx->device == nullptr) {
 				return false;
 			}
-			ID3D11Device* device = dx->device;
+			GfxDevice* device = dx->device;
 
-			D3D11_TEXTURE2D_DESC desc{};
-			desc.Width = (UINT)w;
-			desc.Height = (UINT)h;
-			desc.MipLevels = 1;
-			desc.ArraySize = 1;
-			desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-			desc.SampleDesc.Count = 1;
-			desc.Usage = D3D11_USAGE_DEFAULT;
-			desc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
-			if (FAILED(device->CreateTexture2D(&desc, nullptr, &texture)) ||
-				FAILED(device->CreateRenderTargetView(texture, nullptr, &rtv)) ||
-				FAILED(device->CreateShaderResourceView(texture, nullptr, &srv))) {
-				Release();
-				return false;
-			}
+			D3D12_RESOURCE_DESC desc{};
+				desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+				desc.Width = (UINT)w;
+				desc.Height = (UINT)h;
+				desc.MipLevels = 1;
+				desc.DepthOrArraySize = 1;
+				desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+				desc.SampleDesc.Count = 1;
+				desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+				desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+				if (FAILED(device->CreateTexture2D(desc, D3D12_RESOURCE_STATE_COMMON, nullptr, nullptr, 0, &texture)) ||
+					FAILED(device->CreateRTV(texture, nullptr, &rtv)) ||
+					FAILED(device->CreateSRV(texture, nullptr, &srv))) {
+					Release();
+					return false;
+				}
 
-			D3D11_TEXTURE2D_DESC depth_desc = desc;
-			depth_desc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
-			depth_desc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
-			if (FAILED(device->CreateTexture2D(&depth_desc, nullptr, &depth_texture)) ||
-				FAILED(device->CreateDepthStencilView(depth_texture, nullptr, &dsv))) {
+				D3D12_RESOURCE_DESC depth_desc = desc;
+				depth_desc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+				depth_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+				if (FAILED(device->CreateTexture2D(depth_desc, D3D12_RESOURCE_STATE_DEPTH_WRITE, nullptr, nullptr, 0, &depth_texture)) ||
+					FAILED(device->CreateDSV(depth_texture, nullptr, &dsv))) {
 				Release();
 				return false;
 			}
@@ -115,19 +116,19 @@ namespace HotBiteEditor {
 			if (!Valid()) {
 				return;
 			}
-			ID3D11DeviceContext* context = Core::DXCore::Get()->context;
+			GfxContext* context = Core::DXCore::Get()->context;
 
-			D3D11_VIEWPORT viewport{};
+			D3D12_VIEWPORT viewport{};
 			viewport.Width = (float)width;
 			viewport.Height = (float)height;
 			viewport.MaxDepth = 1.0f;
 			context->RSSetViewports(1, &viewport);
 
 			//OMSetRenderTargets takes an array, so the view has to be addressable.
-			ID3D11RenderTargetView* targets[1] = { rtv };
+			GfxRTV* targets[1] = { rtv };
 			context->OMSetRenderTargets(1, targets, dsv);
 			context->ClearRenderTargetView(rtv, clear_color);
-			context->ClearDepthStencilView(dsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+			context->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0);
 		}
 
 		void Target::Release() {
@@ -141,24 +142,24 @@ namespace HotBiteEditor {
 		}
 
 		ScopedState::ScopedState() {
-			ID3D11DeviceContext* context = Core::DXCore::Get()->context;
+			GfxContext* context = Core::DXCore::Get()->context;
 			context->OMGetRenderTargets(1, &prev_rtv, &prev_dsv);
 			context->RSGetViewports(&prev_viewport_count, &prev_viewport);
 
 			//See the header: a preview mesh is never tessellated, so the scene's
 			//hull/domain/geometry stages must not run over it.
-			context->HSSetShader(nullptr, nullptr, 0);
-			context->DSSetShader(nullptr, nullptr, 0);
-			context->GSSetShader(nullptr, nullptr, 0);
+			context->HSSetShader(nullptr);
+			context->DSSetShader(nullptr);
+			context->GSSetShader(nullptr);
 		}
 
 		ScopedState::~ScopedState() {
-			ID3D11DeviceContext* context = Core::DXCore::Get()->context;
+			GfxContext* context = Core::DXCore::Get()->context;
 
 			//Material textures off the pixel stage before the target goes back - see
 			//the header for the read/write hazard this avoids. MaterialPreviewPS binds
 			//seven, and a mesh normal map makes eight.
-			ID3D11ShaderResourceView* null_srvs[8] = {};
+			GfxSRV* null_srvs[8] = {};
 			context->PSSetShaderResources(0, 8, null_srvs);
 
 			context->OMSetRenderTargets(1, &prev_rtv, prev_dsv);

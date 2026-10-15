@@ -34,7 +34,7 @@ SOFTWARE.
 #include <Core/SpinLock.h>
 #include <Core/Scheduler.h>
 #include <DirectXMath.h>
-#include <d3d11.h>
+#include <Core/GfxDevice.h>
 #include <map>
 #include <string>
 

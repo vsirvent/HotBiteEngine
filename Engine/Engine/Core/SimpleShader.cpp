@@ -3,6 +3,7 @@
 /// </summary>
 /// 
 #include "SimpleShader.h"
+#include "DxcSupport.h"
 #include "ShaderCompiler.h"
 #include "Log.h"
 
@@ -83,7 +84,7 @@ namespace HotBite {
 			// --------------------------------------------------------
 			// Constructor accepts DirectX device & context
 			// --------------------------------------------------------
-			ISimpleShader::ISimpleShader(ID3D11Device* device, ID3D11DeviceContext* context)
+			ISimpleShader::ISimpleShader(GfxDevice* device, GfxContext* context)
 			{
 				// Save the device
 				this->device = device;
@@ -346,15 +347,14 @@ namespace HotBite {
 
 				// Set up shader reflection to get information about
 				// this shader and its variables,  buffers, etc.
-				ID3D11ShaderReflection* refl;
-				D3DReflect(
-					shaderBlob->GetBufferPointer(),
-					shaderBlob->GetBufferSize(),
-					IID_ID3D11ShaderReflection,
-					(void**)&refl);
+				ID3D12ShaderReflection* refl = nullptr;
+				DxcSupport::Reflect(shaderBlob->GetBufferPointer(), shaderBlob->GetBufferSize(), &refl);
+				if (refl == nullptr) {
+					return false;
+				}
 
 				// Get the description of the shader
-				D3D11_SHADER_DESC shaderDesc;
+				D3D12_SHADER_DESC shaderDesc;
 				refl->GetDesc(&shaderDesc);
 
 				// Create resource arrays
@@ -366,7 +366,7 @@ namespace HotBite {
 				for (unsigned int r = 0; r < resourceCount; r++)
 				{
 					// Get this resource's description
-					D3D11_SHADER_INPUT_BIND_DESC resourceDesc;
+					D3D12_SHADER_INPUT_BIND_DESC resourceDesc;
 					refl->GetResourceBindingDesc(r, &resourceDesc);
 
 					// Check the type
@@ -392,6 +392,17 @@ namespace HotBite {
 						srv->Index = (unsigned int)shaderResourceViews.size();	// Raw index
 
 						textureTable.insert(std::pair<std::string, SimpleSRV*>(resourceDesc.Name, srv));
+						//An array is "name[0]" to fxc and "name" to DXC; the code that binds it has always said "name[0]".
+						//Either spelling finds it, whichever compiler made the shader.
+						{
+							const std::string array_name(resourceDesc.Name);
+							if (array_name.size() > 3 && array_name.compare(array_name.size() - 3, 3, "[0]") == 0) {
+								textureTable.insert(std::pair<std::string, SimpleSRV*>(array_name.substr(0, array_name.size() - 3), srv));
+							}
+							else if (resourceDesc.BindCount > 1) {
+								textureTable.insert(std::pair<std::string, SimpleSRV*>(array_name + "[0]", srv));
+							}
+						}
 						shaderResourceViews.push_back(srv);
 					}
 					break;
@@ -431,11 +442,11 @@ namespace HotBite {
 				for (unsigned int b = 0; b < constantBufferCount; b++)
 				{
 					// Get this buffer
-					ID3D11ShaderReflectionConstantBuffer* cb =
+					ID3D12ShaderReflectionConstantBuffer* cb =
 						refl->GetConstantBufferByIndex(b);
 
 					// Get the description of this buffer
-					D3D11_SHADER_BUFFER_DESC bufferDesc;
+					D3D12_SHADER_BUFFER_DESC bufferDesc;
 					cb->GetDesc(&bufferDesc);
 
 					if (bufferDesc.Type != D3D_CT_CBUFFER && bufferDesc.Type != D3D_CT_TBUFFER)
@@ -446,7 +457,7 @@ namespace HotBite {
 
 					// Get the description of the resource binding, so
 					// we know exactly how it's bound in the shader
-					D3D11_SHADER_INPUT_BIND_DESC bindDesc;
+					D3D12_SHADER_INPUT_BIND_DESC bindDesc;
 					refl->GetResourceBindingDescByName(bufferDesc.Name, &bindDesc);
 
 					// Set up the buffer and put its pointer in the table
@@ -454,15 +465,11 @@ namespace HotBite {
 					constantBuffers[slot].Name = bufferDesc.Name;
 					cbTable.insert(std::pair<std::string, SimpleConstantBuffer*>(bufferDesc.Name, &constantBuffers[slot]));
 
-					// Create this constant buffer
-					D3D11_BUFFER_DESC newBuffDesc;
-					newBuffDesc.Usage = D3D11_USAGE_DEFAULT;
-					newBuffDesc.ByteWidth = bufferDesc.Size;
-					newBuffDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-					newBuffDesc.CPUAccessFlags = 0;
-					newBuffDesc.MiscFlags = 0;
-					newBuffDesc.StructureByteStride = 0;
-					device->CreateBuffer(&newBuffDesc, 0, &constantBuffers[slot].ConstantBuffer);
+					// Create this constant buffer. It has no memory of its own: CopyBufferData publishes the local data
+					// into the frame's upload ring when something draws with it (see GfxContext::UpdateBuffer).
+					constantBuffers[slot].ConstantBuffer = nullptr;
+					device->CreateBuffer(GfxBufferKind::Constant, bufferDesc.Size, 0, D3D12_RESOURCE_FLAG_NONE, nullptr,
+						D3D12_RESOURCE_STATE_COMMON, &constantBuffers[slot].ConstantBuffer);
 
 					// Set up the data buffer for this constant buffer
 					constantBuffers[slot].Size = bufferDesc.Size;
@@ -473,11 +480,11 @@ namespace HotBite {
 					for (unsigned int v = 0; v < bufferDesc.Variables; v++)
 					{
 						// Get this variable
-						ID3D11ShaderReflectionVariable* var =
+						ID3D12ShaderReflectionVariable* var =
 							cb->GetVariableByIndex(v);
 
 						// Get the description of the variable and its type
-						D3D11_SHADER_VARIABLE_DESC varDesc;
+						D3D12_SHADER_VARIABLE_DESC varDesc;
 						var->GetDesc(&varDesc);
 
 						// Create the variable struct
@@ -589,9 +596,9 @@ namespace HotBite {
 				for (unsigned int i = 0; i < constantBufferCount; i++)
 				{
 					// Copy the entire local data buffer
-					deviceContext->UpdateSubresource(
-						constantBuffers[i].ConstantBuffer, 0, 0,
-						constantBuffers[i].LocalDataBuffer, 0, 0);
+					deviceContext->UpdateBuffer(
+						constantBuffers[i].ConstantBuffer,
+						constantBuffers[i].LocalDataBuffer, constantBuffers[i].Size);
 				}
 			}
 
@@ -620,9 +627,9 @@ namespace HotBite {
 				if (!cb) return;
 
 				// Copy the data and get out
-				deviceContext->UpdateSubresource(
-					cb->ConstantBuffer, 0, 0,
-					cb->LocalDataBuffer, 0, 0);
+				deviceContext->UpdateBuffer(
+					cb->ConstantBuffer,
+					cb->LocalDataBuffer, cb->Size);
 			}
 
 			// --------------------------------------------------------
@@ -642,9 +649,9 @@ namespace HotBite {
 				if (!cb) return;
 
 				// Copy the data and get out
-				deviceContext->UpdateSubresource(
-					cb->ConstantBuffer, 0, 0,
-					cb->LocalDataBuffer, 0, 0);
+				deviceContext->UpdateBuffer(
+					cb->ConstantBuffer,
+					cb->LocalDataBuffer, cb->Size);
 			}
 
 
@@ -887,7 +894,7 @@ namespace HotBite {
 			// --------------------------------------------------------
 			// Constructor just calls the base
 			// --------------------------------------------------------
-			SimpleVertexShader::SimpleVertexShader(ID3D11Device* device, ID3D11DeviceContext* context)
+			SimpleVertexShader::SimpleVertexShader(GfxDevice* device, GfxContext* context)
 				: ISimpleShader(device, context)
 			{
 				// Ensure we set to zero to successfully trigger
@@ -903,7 +910,7 @@ namespace HotBite {
 			// Passing in a valid input layout will stop LoadShader()
 			// from creating an input layout from shader reflection
 			// --------------------------------------------------------
-			SimpleVertexShader::SimpleVertexShader(ID3D11Device* device, ID3D11DeviceContext* context, ID3D11InputLayout* inputLayout, bool perInstanceCompatible)
+			SimpleVertexShader::SimpleVertexShader(GfxDevice* device, GfxContext* context, GfxInputLayout* inputLayout, bool perInstanceCompatible)
 				: ISimpleShader(device, context)
 			{
 				// Save the custom input layout
@@ -946,14 +953,7 @@ namespace HotBite {
 				this->CleanUp();
 
 				// Create the shader from the blob
-				HRESULT result = device->CreateVertexShader(
-					shaderBlob->GetBufferPointer(),
-					shaderBlob->GetBufferSize(),
-					0,
-					&shader);
-
-				// Did the creation work?
-				if (result != S_OK)
+				if (!device->CreateShader(GfxShader::VS, shaderBlob->GetBufferPointer(), shaderBlob->GetBufferSize(), &shader))
 					return false;
 
 				// Do we already have an input layout?
@@ -967,23 +967,26 @@ namespace HotBite {
 				// https://takinginitiative.wordpress.com/2011/12/11/directx-1011-basic-shader-reflection-automatic-input-layout-creation/
 
 				// Reflect shader info
-				ID3D11ShaderReflection* refl;
-				D3DReflect(
-					shaderBlob->GetBufferPointer(),
-					shaderBlob->GetBufferSize(),
-					IID_ID3D11ShaderReflection,
-					(void**)&refl);
+				ID3D12ShaderReflection* refl = nullptr;
+				DxcSupport::Reflect(shaderBlob->GetBufferPointer(), shaderBlob->GetBufferSize(), &refl);
+				if (refl == nullptr) {
+					return false;
+				}
 
 				// Get shader info
-				D3D11_SHADER_DESC shaderDesc;
+				D3D12_SHADER_DESC shaderDesc;
 				refl->GetDesc(&shaderDesc);
 
 				// Read input layout description from shader info
-				std::vector<D3D11_INPUT_ELEMENT_DESC> inputLayoutDesc;
+				std::vector<D3D12_INPUT_ELEMENT_DESC> inputLayoutDesc;
 				for (unsigned int i = 0; i < shaderDesc.InputParameters; i++)
 				{
-					D3D11_SIGNATURE_PARAMETER_DESC paramDesc;
+					D3D12_SIGNATURE_PARAMETER_DESC paramDesc;
 					refl->GetInputParameterDesc(i, &paramDesc);
+
+					// System values (SV_VertexID, SV_InstanceID, ...) come from the hardware, not from a buffer.
+					if (paramDesc.SystemValueType != D3D_NAME_UNDEFINED)
+						continue;
 
 					// Check the semantic name for "_PER_INSTANCE"
 					std::string perInstanceStr = "_PER_INSTANCE";
@@ -994,19 +997,19 @@ namespace HotBite {
 						sem.compare(lenDiff, perInstanceStr.size(), perInstanceStr) == 0;
 
 					// Fill out input element desc
-					D3D11_INPUT_ELEMENT_DESC elementDesc;
+					D3D12_INPUT_ELEMENT_DESC elementDesc = {};
 					elementDesc.SemanticName = paramDesc.SemanticName;
 					elementDesc.SemanticIndex = paramDesc.SemanticIndex;
 					elementDesc.InputSlot = 0;
-					elementDesc.AlignedByteOffset = D3D11_APPEND_ALIGNED_ELEMENT;
-					elementDesc.InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA;
+					elementDesc.AlignedByteOffset = D3D12_APPEND_ALIGNED_ELEMENT;
+					elementDesc.InputSlotClass = D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA;
 					elementDesc.InstanceDataStepRate = 0;
 
 					// Replace anything affected by "per instance" data
 					if (isPerInstance)
 					{
 						elementDesc.InputSlot = 1; // Assume per instance data comes from another input slot!
-						elementDesc.InputSlotClass = D3D11_INPUT_PER_INSTANCE_DATA;
+						elementDesc.InputSlotClass = D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA;
 						elementDesc.InstanceDataStepRate = 1;
 
 						perInstanceCompatible = true;
@@ -1044,11 +1047,10 @@ namespace HotBite {
 
 				// Try to create Input Layout
 				HRESULT hr = device->CreateInputLayout(
-					&inputLayoutDesc[0],
+					inputLayoutDesc.data(),
 					(unsigned int)inputLayoutDesc.size(),
-					shaderBlob->GetBufferPointer(),
-					shaderBlob->GetBufferSize(),
 					&inputLayout);
+				(void)hr;
 
 				// All done, clean up
 				refl->Release();
@@ -1066,7 +1068,7 @@ namespace HotBite {
 
 				// Set the shader and input layout
 				deviceContext->IASetInputLayout(inputLayout);
-				deviceContext->VSSetShader(shader, 0, 0);
+				deviceContext->VSSetShader(shader);
 
 				// Set the constant buffers
 				for (unsigned int i = 0; i < constantBufferCount; i++)
@@ -1086,7 +1088,7 @@ namespace HotBite {
 			//
 			// Returns true if a texture of the given name was found, false otherwise
 			// --------------------------------------------------------
-			bool SimpleVertexShader::SetShaderResourceView(const std::string& name, ID3D11ShaderResourceView* srv)
+			bool SimpleVertexShader::SetShaderResourceView(const std::string& name, GfxSRV* srv)
 			{
 				// Look for the variable and verify
 				const SimpleSRV* srvInfo = GetShaderResourceViewInfo(name);
@@ -1100,7 +1102,7 @@ namespace HotBite {
 				return true;
 			}
 
-			bool SimpleVertexShader::SetShaderResourceViewArray(const std::string& name, ID3D11ShaderResourceView** srv, int nviews)
+			bool SimpleVertexShader::SetShaderResourceViewArray(const std::string& name, GfxSRV** srv, int nviews)
 			{
 				// Look for the variable and verify
 				const SimpleSRV* srvInfo = GetShaderResourceViewInfo(name);
@@ -1123,7 +1125,7 @@ namespace HotBite {
 			//
 			// Returns true if a sampler of the given name was found, false otherwise
 			// --------------------------------------------------------
-			bool SimpleVertexShader::SetSamplerState(const std::string& name, ID3D11SamplerState* samplerState)
+			bool SimpleVertexShader::SetSamplerState(const std::string& name, GfxSampler* samplerState)
 			{
 				// Look for the variable and verify
 				const SimpleSampler* sampInfo = GetSamplerInfo(name);
@@ -1145,7 +1147,7 @@ namespace HotBite {
 			// --------------------------------------------------------
 			// Constructor just calls the base
 			// --------------------------------------------------------
-			SimplePixelShader::SimplePixelShader(ID3D11Device* device, ID3D11DeviceContext* context)
+			SimplePixelShader::SimplePixelShader(GfxDevice* device, GfxContext* context)
 				: ISimpleShader(device, context)
 			{
 				this->shader = 0;
@@ -1182,14 +1184,7 @@ namespace HotBite {
 				this->CleanUp();
 
 				// Create the shader from the blob
-				HRESULT result = device->CreatePixelShader(
-					shaderBlob->GetBufferPointer(),
-					shaderBlob->GetBufferSize(),
-					0,
-					&shader);
-
-				// Check the result
-				return (result == S_OK);
+				return device->CreateShader(GfxShader::PS, shaderBlob->GetBufferPointer(), shaderBlob->GetBufferSize(), &shader);
 			}
 
 			// --------------------------------------------------------
@@ -1202,7 +1197,7 @@ namespace HotBite {
 				if (!shaderValid) return;
 
 				// Set the shader
-				deviceContext->PSSetShader(shader, 0, 0);
+				deviceContext->PSSetShader(shader);
 
 				// Set the constant buffers
 				for (unsigned int i = 0; i < constantBufferCount; i++)
@@ -1222,7 +1217,7 @@ namespace HotBite {
 			//
 			// Returns true if a texture of the given name was found, false otherwise
 			// --------------------------------------------------------
-			bool SimplePixelShader::SetShaderResourceView(const std::string& name, ID3D11ShaderResourceView* srv)
+			bool SimplePixelShader::SetShaderResourceView(const std::string& name, GfxSRV* srv)
 			{
 				// Look for the variable and verify
 				const SimpleSRV* srvInfo = GetShaderResourceViewInfo(name);
@@ -1236,7 +1231,7 @@ namespace HotBite {
 				return true;
 			}
 
-			bool SimplePixelShader::SetShaderResourceViewArray(const std::string& name, ID3D11ShaderResourceView** srv, int nviews)
+			bool SimplePixelShader::SetShaderResourceViewArray(const std::string& name, GfxSRV** srv, int nviews)
 			{
 				// Look for the variable and verify
 				const SimpleSRV* srvInfo = GetShaderResourceViewInfo(name);
@@ -1257,7 +1252,7 @@ namespace HotBite {
 			//
 			// Returns true if a sampler of the given name was found, false otherwise
 			// --------------------------------------------------------
-			bool SimplePixelShader::SetSamplerState(const std::string& name, ID3D11SamplerState* samplerState)
+			bool SimplePixelShader::SetSamplerState(const std::string& name, GfxSampler* samplerState)
 			{
 				// Look for the variable and verify
 				const SimpleSampler* sampInfo = GetSamplerInfo(name);
@@ -1281,7 +1276,7 @@ namespace HotBite {
 			// --------------------------------------------------------
 			// Constructor just calls the base
 			// --------------------------------------------------------
-			SimpleDomainShader::SimpleDomainShader(ID3D11Device* device, ID3D11DeviceContext* context)
+			SimpleDomainShader::SimpleDomainShader(GfxDevice* device, GfxContext* context)
 				: ISimpleShader(device, context)
 			{
 				this->shader = 0;
@@ -1318,14 +1313,7 @@ namespace HotBite {
 				this->CleanUp();
 
 				// Create the shader from the blob
-				HRESULT result = device->CreateDomainShader(
-					shaderBlob->GetBufferPointer(),
-					shaderBlob->GetBufferSize(),
-					0,
-					&shader);
-
-				// Check the result
-				return (result == S_OK);
+				return device->CreateShader(GfxShader::DS, shaderBlob->GetBufferPointer(), shaderBlob->GetBufferSize(), &shader);
 			}
 
 			// --------------------------------------------------------
@@ -1338,7 +1326,7 @@ namespace HotBite {
 				if (!shaderValid) return;
 
 				// Set the shader
-				deviceContext->DSSetShader(shader, 0, 0);
+				deviceContext->DSSetShader(shader);
 
 				// Set the constant buffers
 				for (unsigned int i = 0; i < constantBufferCount; i++)
@@ -1358,7 +1346,7 @@ namespace HotBite {
 			//
 			// Returns true if a texture of the given name was found, false otherwise
 			// --------------------------------------------------------
-			bool SimpleDomainShader::SetShaderResourceView(const std::string& name, ID3D11ShaderResourceView* srv)
+			bool SimpleDomainShader::SetShaderResourceView(const std::string& name, GfxSRV* srv)
 			{
 				// Look for the variable and verify
 				const SimpleSRV* srvInfo = GetShaderResourceViewInfo(name);
@@ -1372,7 +1360,7 @@ namespace HotBite {
 				return true;
 			}
 
-			bool SimpleDomainShader::SetShaderResourceViewArray(const std::string& name, ID3D11ShaderResourceView** srv, int nviews)
+			bool SimpleDomainShader::SetShaderResourceViewArray(const std::string& name, GfxSRV** srv, int nviews)
 			{
 				// Look for the variable and verify
 				const SimpleSRV* srvInfo = GetShaderResourceViewInfo(name);
@@ -1394,7 +1382,7 @@ namespace HotBite {
 			//
 			// Returns true if a sampler of the given name was found, false otherwise
 			// --------------------------------------------------------
-			bool SimpleDomainShader::SetSamplerState(const std::string& name, ID3D11SamplerState* samplerState)
+			bool SimpleDomainShader::SetSamplerState(const std::string& name, GfxSampler* samplerState)
 			{
 				// Look for the variable and verify
 				const SimpleSampler* sampInfo = GetSamplerInfo(name);
@@ -1417,7 +1405,7 @@ namespace HotBite {
 			// --------------------------------------------------------
 			// Constructor just calls the base
 			// --------------------------------------------------------
-			SimpleHullShader::SimpleHullShader(ID3D11Device* device, ID3D11DeviceContext* context)
+			SimpleHullShader::SimpleHullShader(GfxDevice* device, GfxContext* context)
 				: ISimpleShader(device, context)
 			{
 				this->shader = 0;
@@ -1454,14 +1442,7 @@ namespace HotBite {
 				this->CleanUp();
 
 				// Create the shader from the blob
-				HRESULT result = device->CreateHullShader(
-					shaderBlob->GetBufferPointer(),
-					shaderBlob->GetBufferSize(),
-					0,
-					&shader);
-
-				// Check the result
-				return (result == S_OK);
+				return device->CreateShader(GfxShader::HS, shaderBlob->GetBufferPointer(), shaderBlob->GetBufferSize(), &shader);
 			}
 
 			// --------------------------------------------------------
@@ -1474,7 +1455,7 @@ namespace HotBite {
 				if (!shaderValid) return;
 
 				// Set the shader
-				deviceContext->HSSetShader(shader, 0, 0);
+				deviceContext->HSSetShader(shader);
 
 				// Set the constant buffers?
 				for (unsigned int i = 0; i < constantBufferCount; i++)
@@ -1494,7 +1475,7 @@ namespace HotBite {
 			//
 			// Returns true if a texture of the given name was found, false otherwise
 			// --------------------------------------------------------
-			bool SimpleHullShader::SetShaderResourceView(const std::string& name, ID3D11ShaderResourceView* srv)
+			bool SimpleHullShader::SetShaderResourceView(const std::string& name, GfxSRV* srv)
 			{
 				// Look for the variable and verify
 				const SimpleSRV* srvInfo = GetShaderResourceViewInfo(name);
@@ -1508,7 +1489,7 @@ namespace HotBite {
 				return true;
 			}
 
-			bool SimpleHullShader::SetShaderResourceViewArray(const std::string& name, ID3D11ShaderResourceView** srv, int nviews)
+			bool SimpleHullShader::SetShaderResourceViewArray(const std::string& name, GfxSRV** srv, int nviews)
 			{
 				// Look for the variable and verify
 				const SimpleSRV* srvInfo = GetShaderResourceViewInfo(name);
@@ -1530,7 +1511,7 @@ namespace HotBite {
 			//
 			// Returns true if a sampler of the given name was found, false otherwise
 			// --------------------------------------------------------
-			bool SimpleHullShader::SetSamplerState(const std::string& name, ID3D11SamplerState* samplerState)
+			bool SimpleHullShader::SetSamplerState(const std::string& name, GfxSampler* samplerState)
 			{
 				// Look for the variable and verify
 				const SimpleSampler* sampInfo = GetSamplerInfo(name);
@@ -1552,14 +1533,12 @@ namespace HotBite {
 			///////////////////////////////////////////////////////////////////////////////
 
 			// --------------------------------------------------------
-			// Constructor calls the base and sets up potential stream-out options
+			// Constructor just calls the base
 			// --------------------------------------------------------
-			SimpleGeometryShader::SimpleGeometryShader(ID3D11Device* device, ID3D11DeviceContext* context, bool useStreamOut, bool allowStreamOutRasterization)
+			SimpleGeometryShader::SimpleGeometryShader(GfxDevice* device, GfxContext* context)
 				: ISimpleShader(device, context)
 			{
 				this->shader = 0;
-				this->useStreamOut = useStreamOut;
-				this->allowStreamOutRasterization = allowStreamOutRasterization;
 			}
 
 			// --------------------------------------------------------
@@ -1592,134 +1571,7 @@ namespace HotBite {
 				// called more than once on the same object
 				this->CleanUp();
 
-				// Using stream out?
-				if (useStreamOut)
-					return this->CreateShaderWithStreamOut(shaderBlob);
-
-				// Create the shader from the blob
-				HRESULT result = device->CreateGeometryShader(
-					shaderBlob->GetBufferPointer(),
-					shaderBlob->GetBufferSize(),
-					0,
-					&shader);
-
-				// Check the result
-				return (result == S_OK);
-			}
-
-			// --------------------------------------------------------
-			// Creates the DirectX Geometry shader and sets it up for
-			// stream output, if possible.
-			//
-			// shaderBlob - The shader's compiled code
-			//
-			// Returns true if shader is created correctly, false otherwise
-			// --------------------------------------------------------
-			bool SimpleGeometryShader::CreateShaderWithStreamOut(ID3DBlob* shaderBlob)
-			{
-				// Clean up first, in the event this method is
-				// called more than once on the same object
-				this->CleanUp();
-
-				// Reflect shader info
-				ID3D11ShaderReflection* refl;
-				D3DReflect(
-					shaderBlob->GetBufferPointer(),
-					shaderBlob->GetBufferSize(),
-					IID_ID3D11ShaderReflection,
-					(void**)&refl);
-
-				// Get shader info
-				D3D11_SHADER_DESC shaderDesc;
-				refl->GetDesc(&shaderDesc);
-
-				// Set up the output signature
-				streamOutVertexSize = 0;
-				std::vector<D3D11_SO_DECLARATION_ENTRY> soDecl;
-				for (unsigned int i = 0; i < shaderDesc.OutputParameters; i++)
-				{
-					// Get the info about this entry
-					D3D11_SIGNATURE_PARAMETER_DESC paramDesc;
-					refl->GetOutputParameterDesc(i, &paramDesc);
-
-					// Create the SO Declaration
-					D3D11_SO_DECLARATION_ENTRY entry;
-					entry.SemanticIndex = paramDesc.SemanticIndex;
-					entry.SemanticName = paramDesc.SemanticName;
-					entry.Stream = paramDesc.Stream;
-					entry.StartComponent = 0; // Assume starting at 0
-					entry.OutputSlot = 0; // Assume the first output slot
-
-					// Check the mask to determine how many components are used
-					entry.ComponentCount = CalcComponentCount(paramDesc.Mask);
-
-					// Increment the size
-					streamOutVertexSize += entry.ComponentCount * sizeof(float);
-
-					// Add to the declaration
-					soDecl.push_back(entry);
-				}
-
-				// Rasterization allowed?
-				unsigned int rast = allowStreamOutRasterization ? 0 : D3D11_SO_NO_RASTERIZED_STREAM;
-
-				// Create the shader
-				HRESULT result = device->CreateGeometryShaderWithStreamOutput(
-					shaderBlob->GetBufferPointer(), // Shader blob pointer
-					shaderBlob->GetBufferSize(),    // Shader blob size
-					&soDecl[0],                     // Stream out declaration
-					(unsigned int)soDecl.size(),    // Number of declaration entries
-					NULL,                           // Buffer strides (not used - assume tightly packed?)
-					0,                              // No buffer strides
-					rast,                           // Index of the stream to rasterize (if any)
-					NULL,                           // Not using class linkage
-					&shader);
-
-				return (result == S_OK);
-			}
-
-			// --------------------------------------------------------
-			// Creates a vertex buffer that is compatible with the stream output
-			// delcaration that was used to create the shader.  This buffer will
-			// not be cleaned up (Released) by the simple shader - you must clean
-			// it up yourself when you're done with it.  Immediately returns
-			// false if the shader was not created with stream output, the shader
-			// isn't valid or the determined stream out vertex size is zero.
-			//
-			// buffer - Pointer to an ID3D11Buffer pointer to hold the buffer ref
-			// vertexCount - Amount of vertices the buffer should hold
-			//
-			// Returns true if buffer is created successfully AND stream output
-			// was used to create the shader.  False otherwise.
-			// --------------------------------------------------------
-			bool SimpleGeometryShader::CreateCompatibleStreamOutBuffer(ID3D11Buffer** buffer, int vertexCount)
-			{
-				// Was stream output actually used?
-				if (!this->useStreamOut || !shaderValid || streamOutVertexSize == 0)
-					return false;
-
-				// Set up the buffer description
-				D3D11_BUFFER_DESC desc;
-				desc.BindFlags = D3D11_BIND_STREAM_OUTPUT | D3D11_BIND_VERTEX_BUFFER;
-				desc.ByteWidth = streamOutVertexSize * vertexCount;
-				desc.CPUAccessFlags = 0;
-				desc.MiscFlags = 0;
-				desc.StructureByteStride = 0;
-				desc.Usage = D3D11_USAGE_DEFAULT;
-
-				// Attempt to create the buffer and return the result
-				HRESULT result = device->CreateBuffer(&desc, 0, buffer);
-				return (result == S_OK);
-			}
-
-			// --------------------------------------------------------
-			// Helper method to unbind all stream out buffers from the SO stage
-			// --------------------------------------------------------
-			void SimpleGeometryShader::UnbindStreamOutStage(ID3D11DeviceContext* deviceContext)
-			{
-				unsigned int offset = 0;
-				ID3D11Buffer* unset[1] = { 0 };
-				deviceContext->SOSetTargets(1, unset, &offset);
+				return device->CreateShader(GfxShader::GS, shaderBlob->GetBufferPointer(), shaderBlob->GetBufferSize(), &shader);
 			}
 
 			// --------------------------------------------------------
@@ -1732,7 +1584,7 @@ namespace HotBite {
 				if (!shaderValid) return;
 
 				// Set the shader
-				deviceContext->GSSetShader(shader, 0, 0);
+				deviceContext->GSSetShader(shader);
 
 				// Set the constant buffers?
 				for (unsigned int i = 0; i < constantBufferCount; i++)
@@ -1752,7 +1604,7 @@ namespace HotBite {
 			//
 			// Returns true if a texture of the given name was found, false otherwise
 			// --------------------------------------------------------
-			bool SimpleGeometryShader::SetShaderResourceView(const std::string& name, ID3D11ShaderResourceView* srv)
+			bool SimpleGeometryShader::SetShaderResourceView(const std::string& name, GfxSRV* srv)
 			{
 				// Look for the variable and verify
 				const SimpleSRV* srvInfo = GetShaderResourceViewInfo(name);
@@ -1766,7 +1618,7 @@ namespace HotBite {
 				return true;
 			}
 
-			bool SimpleGeometryShader::SetShaderResourceViewArray(const std::string& name, ID3D11ShaderResourceView** srv, int nviews)
+			bool SimpleGeometryShader::SetShaderResourceViewArray(const std::string& name, GfxSRV** srv, int nviews)
 			{
 				// Look for the variable and verify
 				const SimpleSRV* srvInfo = GetShaderResourceViewInfo(name);
@@ -1788,7 +1640,7 @@ namespace HotBite {
 			//
 			// Returns true if a sampler of the given name was found, false otherwise
 			// --------------------------------------------------------
-			bool SimpleGeometryShader::SetSamplerState(const std::string& name, ID3D11SamplerState* samplerState)
+			bool SimpleGeometryShader::SetSamplerState(const std::string& name, GfxSampler* samplerState)
 			{
 				// Look for the variable and verify
 				const SimpleSampler* sampInfo = GetSamplerInfo(name);
@@ -1802,24 +1654,6 @@ namespace HotBite {
 				return true;
 			}
 
-			// --------------------------------------------------------
-			// Calculates the number of components specified by a parameter description mask
-			//
-			// mask - The mask to check (only values 0 - 15 are considered)
-			//
-			// Returns an integer between 0 - 4 inclusive
-			// --------------------------------------------------------
-			unsigned int SimpleGeometryShader::CalcComponentCount(unsigned int mask)
-			{
-				unsigned int result = 0;
-				result += (unsigned int)((mask & 1) == 1);
-				result += (unsigned int)((mask & 2) == 2);
-				result += (unsigned int)((mask & 4) == 4);
-				result += (unsigned int)((mask & 8) == 8);
-				return result;
-			}
-
-
 
 			///////////////////////////////////////////////////////////////////////////////
 			// ------ SIMPLE COMPUTE SHADER -----------------------------------------------
@@ -1828,7 +1662,7 @@ namespace HotBite {
 			// --------------------------------------------------------
 			// Constructor just calls the base
 			// --------------------------------------------------------
-			SimpleComputeShader::SimpleComputeShader(ID3D11Device* device, ID3D11DeviceContext* context)
+			SimpleComputeShader::SimpleComputeShader(GfxDevice* device, GfxContext* context)
 				: ISimpleShader(device, context)
 			{
 				this->shader = 0;
@@ -1867,26 +1701,19 @@ namespace HotBite {
 				this->CleanUp();
 
 				// Create the shader from the blob
-				HRESULT result = device->CreateComputeShader(
-					shaderBlob->GetBufferPointer(),
-					shaderBlob->GetBufferSize(),
-					0,
-					&shader);
-
-				// Was the shader created correctly?
-				if (result != S_OK)
+				if (!device->CreateShader(GfxShader::CS, shaderBlob->GetBufferPointer(), shaderBlob->GetBufferSize(), &shader))
 					return false;
+				HRESULT result = S_OK;
 
 				// Set up shader reflection to get information about UAV's
-				ID3D11ShaderReflection* refl;
-				D3DReflect(
-					shaderBlob->GetBufferPointer(),
-					shaderBlob->GetBufferSize(),
-					IID_ID3D11ShaderReflection,
-					(void**)&refl);
+				ID3D12ShaderReflection* refl = nullptr;
+				DxcSupport::Reflect(shaderBlob->GetBufferPointer(), shaderBlob->GetBufferSize(), &refl);
+				if (refl == nullptr) {
+					return false;
+				}
 
 				// Get the description of the shader
-				D3D11_SHADER_DESC shaderDesc;
+				D3D12_SHADER_DESC shaderDesc;
 				result = refl->GetDesc(&shaderDesc);
 
 				// Grab the thread info
@@ -1900,7 +1727,7 @@ namespace HotBite {
 				for (unsigned int r = 0; r < resourceCount; r++)
 				{
 					// Get this resource's description
-					D3D11_SHADER_INPUT_BIND_DESC resourceDesc;
+					D3D12_SHADER_INPUT_BIND_DESC resourceDesc;
 					refl->GetResourceBindingDesc(r, &resourceDesc);
 
 					// Check the type, looking for any kind of UAV
@@ -1931,7 +1758,7 @@ namespace HotBite {
 				if (!shaderValid) return;
 
 				// Set the shader
-				deviceContext->CSSetShader(shader, 0, 0);
+				deviceContext->CSSetShader(shader);
 
 				// Set the constant buffers?
 				for (unsigned int i = 0; i < constantBufferCount; i++)
@@ -2004,7 +1831,7 @@ namespace HotBite {
 			//
 			// Returns true if a texture of the given name was found, false otherwise
 			// --------------------------------------------------------
-			bool SimpleComputeShader::SetShaderResourceView(const std::string& name, ID3D11ShaderResourceView* srv)
+			bool SimpleComputeShader::SetShaderResourceView(const std::string& name, GfxSRV* srv)
 			{
 				// Look for the variable and verify
 				const SimpleSRV* srvInfo = GetShaderResourceViewInfo(name);
@@ -2018,7 +1845,7 @@ namespace HotBite {
 				return true;
 			}
 
-			bool SimpleComputeShader::SetShaderResourceViewArray(const std::string& name, ID3D11ShaderResourceView** srv, int nviews)
+			bool SimpleComputeShader::SetShaderResourceViewArray(const std::string& name, GfxSRV** srv, int nviews)
 			{
 				// Look for the variable and verify
 				const SimpleSRV* srvInfo = GetShaderResourceViewInfo(name);
@@ -2040,7 +1867,7 @@ namespace HotBite {
 			//
 			// Returns true if a sampler of the given name was found, false otherwise
 			// --------------------------------------------------------
-			bool SimpleComputeShader::SetSamplerState(const std::string& name, ID3D11SamplerState* samplerState)
+			bool SimpleComputeShader::SetSamplerState(const std::string& name, GfxSampler* samplerState)
 			{
 				// Look for the variable and verify
 				const SimpleSampler* sampInfo = GetSamplerInfo(name);
@@ -2063,7 +1890,7 @@ namespace HotBite {
 			//
 			// Returns true if a UAV of the given name was found, false otherwise
 			// --------------------------------------------------------
-			bool SimpleComputeShader::SetUnorderedAccessView(const std::string& name, ID3D11UnorderedAccessView* uav, unsigned int appendConsumeOffset)
+			bool SimpleComputeShader::SetUnorderedAccessView(const std::string& name, GfxUAV* uav, unsigned int appendConsumeOffset)
 			{
 				// Look for the variable and verify
 				unsigned int bindIndex = GetUnorderedAccessViewIndex(name);
@@ -2071,7 +1898,8 @@ namespace HotBite {
 					return false;
 
 				// Set the shader resource view
-				deviceContext->CSSetUnorderedAccessViews(bindIndex, 1, &uav, &appendConsumeOffset);
+				(void)appendConsumeOffset; // append/consume counters are not used
+				deviceContext->CSSetUnorderedAccessViews(bindIndex, 1, &uav);
 
 				// Success
 				return true;

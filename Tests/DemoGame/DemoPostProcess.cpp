@@ -28,7 +28,7 @@ using namespace HotBite::Engine;
 using namespace HotBite::Engine::ECS;
 using namespace HotBite::Engine::Core;
 
-PostGame::PostGame(ID3D11DeviceContext* dxcontext,
+PostGame::PostGame(GfxContext* dxcontext,
 	int width, int height, ECS::Coordinator* c) :
 	PostProcess(dxcontext,
 		ShaderFactory::Get()->GetShader<SimpleVertexShader>("PostMainVS.cso"), //This is the default engine post-process vertex shader
@@ -46,11 +46,11 @@ void PostGame::ClearData(const float color[4]) {
 	context->ClearRenderTargetView(text.RenderTarget(), color);
 }
 
-ID3D11ShaderResourceView* PostGame::RenderResource() {
+GfxSRV* PostGame::RenderResource() {
 	return text.SRV();
 }
 
-ID3D11RenderTargetView* PostGame::RenderTarget() const {
+GfxRTV* PostGame::RenderTarget() const {
 	return text.RenderTarget();
 }
 

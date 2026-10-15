@@ -535,7 +535,7 @@ namespace HotBite {
 				// source, or `skl` itself when it was attached as it was. What a level
 				// writes back by name, since the copy has none.
 				std::shared_ptr<Skeleton> RequestedSkeleton(const std::shared_ptr<Skeleton>& skl) const;
-				ID3D11ShaderResourceView* normal_map = nullptr;
+				GfxSRV* normal_map = nullptr;
 				bool init = false;
 				std::string mesh_normal_texture;
 				int tessellation_type = 0;

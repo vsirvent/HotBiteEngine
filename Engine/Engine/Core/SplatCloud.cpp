@@ -1143,33 +1143,26 @@ HRESULT SplatCloudData::Prepare() {
 	if (prepared || splats.empty()) {
 		return S_OK;
 	}
-	ID3D11Device* device = Core::DXCore::Get()->device;
+	GfxDevice* device = Core::DXCore::Get()->device;
 
-	D3D11_BUFFER_DESC bd{};
-	bd.Usage = D3D11_USAGE_IMMUTABLE;
-	bd.ByteWidth = (UINT)(sizeof(SplatVertex) * splats.size());
-	bd.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-	bd.CPUAccessFlags = 0;
-	bd.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
-	bd.StructureByteStride = sizeof(SplatVertex);
-
-	D3D11_SUBRESOURCE_DATA init{};
-	init.pSysMem = splats.data();
-
-	HRESULT hr = device->CreateBuffer(&bd, &init, &buffer);
+	const UINT byte_width = (UINT)(sizeof(SplatVertex) * splats.size());
+	HRESULT hr = device->CreateBuffer(GfxBufferKind::Static, byte_width, sizeof(SplatVertex), D3D12_RESOURCE_FLAG_NONE,
+		splats.data(), GFX_STATE_BUFFER_READ, &buffer);
 	if (FAILED(hr)) {
 		LOG_ERROR("SplatCloudData::Prepare: CreateBuffer failed for '%s' (%llu splats, %.1f MB, 0x%08x)",
 			name.c_str(), (unsigned long long)splats.size(),
-			(double)bd.ByteWidth / (1024.0 * 1024.0), hr);
+			(double)byte_width / (1024.0 * 1024.0), hr);
 		return hr;
 	}
 
-	D3D11_SHADER_RESOURCE_VIEW_DESC srv_desc{};
+	D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc{};
 	srv_desc.Format = DXGI_FORMAT_UNKNOWN;
-	srv_desc.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
-	srv_desc.Buffer.FirstElement = 0;
-	srv_desc.Buffer.NumElements = (uint32_t)splats.size();
-	hr = device->CreateShaderResourceView(buffer, &srv_desc, &srv);
+	srv_desc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+		srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+		srv_desc.Buffer.FirstElement = 0;
+		srv_desc.Buffer.NumElements = (uint32_t)splats.size();
+		srv_desc.Buffer.StructureByteStride = sizeof(SplatVertex);
+		hr = device->CreateSRV(buffer, &srv_desc, &srv);
 	if (FAILED(hr)) {
 		LOG_ERROR("SplatCloudData::Prepare: CreateShaderResourceView failed for '%s' (0x%08x)",
 			name.c_str(), hr);
@@ -1181,7 +1174,7 @@ HRESULT SplatCloudData::Prepare() {
 	prepared = true;
 	LOG_INFO("SplatCloudData::Prepare: '%s' uploaded, %llu splats, %.1f MB",
 		name.c_str(), (unsigned long long)splats.size(),
-		(double)bd.ByteWidth / (1024.0 * 1024.0));
+		(double)byte_width / (1024.0 * 1024.0));
 	return S_OK;
 }
 

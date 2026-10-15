@@ -80,6 +80,12 @@
     <ClCompile Include="Engine\Core\DXCore.cpp">
       <Filter>Engine\Core</Filter>
     </ClCompile>
+    <ClCompile Include="Engine\Core\GfxContext.cpp">
+      <Filter>Engine\Core</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\Core\GfxDevice.cpp">
+      <Filter>Engine\Core</Filter>
+    </ClCompile>
     <ClCompile Include="Engine\Core\Scheduler.cpp">
       <Filter>Engine\Core</Filter>
     </ClCompile>
@@ -90,6 +96,9 @@
       <Filter>Engine\Core</Filter>
     </ClCompile>
     <ClCompile Include="Engine\Core\SimpleShader.cpp">
+      <Filter>Engine\Core</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\Core\DxcSupport.cpp">
       <Filter>Engine\Core</Filter>
     </ClCompile>
     <ClCompile Include="Engine\Core\ShaderCompiler.cpp">
@@ -277,6 +286,15 @@
     <ClInclude Include="Engine\Core\DXCore.h">
       <Filter>Engine\Core</Filter>
     </ClInclude>
+    <ClInclude Include="Engine\Core\GfxContext.h">
+      <Filter>Engine\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\Core\GfxDevice.h">
+      <Filter>Engine\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\Core\QuadBatch.h">
+      <Filter>Engine\Core</Filter>
+    </ClInclude>
     <ClInclude Include="Engine\Core\Scheduler.h">
       <Filter>Engine\Core</Filter>
     </ClInclude>
@@ -290,6 +308,9 @@
       <Filter>Engine\Core</Filter>
     </ClInclude>
     <ClInclude Include="Engine\Core\SimpleShader.h">
+      <Filter>Engine\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\Core\DxcSupport.h">
       <Filter>Engine\Core</Filter>
     </ClInclude>
     <ClInclude Include="Engine\Core\ShaderCompiler.h">

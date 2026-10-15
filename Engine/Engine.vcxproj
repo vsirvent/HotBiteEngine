@@ -170,6 +170,8 @@
     <ClCompile Include="Engine\Core\Audio.cpp" />
     <ClCompile Include="Engine\Core\BVH.cpp" />
     <ClCompile Include="Engine\Core\DXCore.cpp" />
+    <ClCompile Include="Engine\Core\GfxContext.cpp" />
+    <ClCompile Include="Engine\Core\GfxDevice.cpp" />
     <ClCompile Include="Engine\Core\Material.cpp" />
     <ClCompile Include="Engine\Core\Mesh.cpp" />
     <ClCompile Include="Engine\Core\MeshRaycast.cpp" />
@@ -178,6 +180,7 @@
     <ClCompile Include="Engine\Core\PostProcess.cpp" />
     <ClCompile Include="Engine\Core\RGBANoise.cpp" />
     <ClCompile Include="Engine\Core\Scheduler.cpp" />
+    <ClCompile Include="Engine\Core\DxcSupport.cpp" />
     <ClCompile Include="Engine\Core\ShaderCompiler.cpp" />
     <ClCompile Include="Engine\Core\SimpleShader.cpp" />
     <ClCompile Include="Engine\Core\SplatCloud.cpp" />
@@ -230,6 +233,9 @@
     <ClInclude Include="Engine\Core\BVH.h" />
     <ClInclude Include="Engine\Core\LockingQueue.h" />
     <ClInclude Include="Engine\Core\DXCore.h" />
+    <ClInclude Include="Engine\Core\GfxContext.h" />
+    <ClInclude Include="Engine\Core\GfxDevice.h" />
+    <ClInclude Include="Engine\Core\QuadBatch.h" />
     <ClInclude Include="Engine\Core\Interfaces.h" />
     <ClInclude Include="Engine\Core\Json.h" />
     <ClInclude Include="Engine\Core\Material.h" />
@@ -240,6 +246,7 @@
     <ClInclude Include="Engine\Core\PhysicsCommon.h" />
     <ClInclude Include="Engine\Core\PostProcess.h" />
     <ClInclude Include="Engine\Core\Scheduler.h" />
+    <ClInclude Include="Engine\Core\DxcSupport.h" />
     <ClInclude Include="Engine\Core\ShaderCompiler.h" />
     <ClInclude Include="Engine\Core\SimpleShader.h" />
     <ClInclude Include="Engine\Core\SpinLock.h" />
@@ -346,6 +353,12 @@
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Compute</ShaderType>
     </FxCompile>
     <FxCompile Include="Engine\Core\Shaders\ComputeShaders\DeferredLightCS.hlsl">
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Compute</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Compute</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|x64'">5.0</ShaderModel>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\ComputeShaders\DeferredLightRaysCS.hlsl">
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Compute</ShaderType>
       <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Compute</ShaderType>
@@ -812,6 +825,10 @@
     </FxCompile>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <PropertyGroup>
+    <HotBiteDxcDependsOn>InvalidateShadersOnSharedHeaderChange</HotBiteDxcDependsOn>
+  </PropertyGroup>
+  <Import Project="Dxc.targets" />
   <ImportGroup Label="ExtensionTargets">
     <Import Project="..\Solution\packages\directxtex_desktop_2019.2022.10.18.1\build\native\directxtex_desktop_2019.targets" Condition="Exists('..\Solution\packages\directxtex_desktop_2019.2022.10.18.1\build\native\directxtex_desktop_2019.targets')" />
     <Import Project="..\Solution\packages\Microsoft.XAudio2.Redist.1.2.10\build\native\Microsoft.XAudio2.Redist.targets" Condition="Exists('..\Solution\packages\Microsoft.XAudio2.Redist.1.2.10\build\native\Microsoft.XAudio2.Redist.targets')" />
@@ -915,6 +932,7 @@
       <LightingDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\SkyRender\SkyPS.hlsl" />
       <LightingDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\MaterialPreview\MaterialPreviewPS.hlsl" />
       <LightingDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightCS.hlsl" />
+      <LightingDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightRaysCS.hlsl" />
       <LightingDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\TileLightCullCS.hlsl" />
       <LightingDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\TileLightValidateCS.hlsl" />
       <LightingDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\VolumetricLightCS.hlsl" />
@@ -990,7 +1008,14 @@
     <ItemGroup>
       <RayScreenSolverDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\RayTrace\RayReflexScreenSolverCS.hlsl" />
       <RayScreenSolverDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightCS.hlsl" />
+      <RayScreenSolverDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightRaysCS.hlsl" />
     </ItemGroup>
     <Touch Files="@(RayScreenSolverDependent)" Condition="Exists('$(RayScreenSolverHeader)') And $([System.IO.File]::GetLastWriteTime('$(RayScreenSolverHeader)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('%(RayScreenSolverDependent.FullPath)').Ticks)" />
+    <!-- DeferredLightRaysCS.hlsl is DeferredLightCS.hlsl with the rays compiled in: it includes it. -->
+    <PropertyGroup>
+      <DeferredLightSource>$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightCS.hlsl</DeferredLightSource>
+      <DeferredLightRaysSource>$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightRaysCS.hlsl</DeferredLightRaysSource>
+    </PropertyGroup>
+    <Touch Files="$(DeferredLightRaysSource)" Condition="Exists('$(DeferredLightSource)') And $([System.IO.File]::GetLastWriteTime('$(DeferredLightSource)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('$(DeferredLightRaysSource)').Ticks)" />
   </Target>
 </Project>

@@ -77,11 +77,11 @@ namespace HotBiteEditor {
 			//Compile profile for each pipeline stage suffix - mirrors
 			//ISimpleShader::GetShaderProfile() for the five stages a material picks.
 			std::string ProfileForStage(const std::string& stage) {
-				if (stage == "VS") return "vs_5_0";
-				if (stage == "HS") return "hs_5_0";
-				if (stage == "DS") return "ds_5_0";
-				if (stage == "GS") return "gs_5_0";
-				if (stage == "PS") return "ps_5_0";
+				if (stage == "VS") return "vs_" HOTBITE_SHADER_MODEL;
+				if (stage == "HS") return "hs_" HOTBITE_SHADER_MODEL;
+				if (stage == "DS") return "ds_" HOTBITE_SHADER_MODEL;
+				if (stage == "GS") return "gs_" HOTBITE_SHADER_MODEL;
+				if (stage == "PS") return "ps_" HOTBITE_SHADER_MODEL;
 				return {};
 			}
 

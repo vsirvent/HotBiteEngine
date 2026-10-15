@@ -157,7 +157,7 @@ namespace HotBite {
 
 				//--- derived by Rebuild(), uploaded by RenderSystem::PrepareMultiMaterial
 				std::vector<MaterialData*> multi_texture_data;
-				std::vector<ID3D11ShaderResourceView*> multi_texture_mask;
+				std::vector<GfxSRV*> multi_texture_mask;
 				std::vector<uint32_t> multi_texture_operation;
 				std::vector<float> multi_texture_value;
 				std::vector<float> multi_texture_uv_scales;
@@ -189,8 +189,8 @@ namespace HotBite {
 				//up in the viewport as the brush moves: the alternative is writing a PNG and
 				//reloading it per stroke. Survives Rebuild, and takes precedence over the
 				//file, so an editing session is not undone by an unrelated layer edit.
-				void SetLiveMask(uint32_t layer, ID3D11ShaderResourceView* srv);
-				ID3D11ShaderResourceView* GetLiveMask(uint32_t layer) const;
+				void SetLiveMask(uint32_t layer, GfxSRV* srv);
+				GfxSRV* GetLiveMask(uint32_t layer) const;
 
 				//The layer stack as a .mat "multi_materials" entry, and its inverse. The
 				//file format predates this class (Tools/MaterialDesigner writes it), so
@@ -211,7 +211,7 @@ namespace HotBite {
 				std::vector<std::string> resolved_masks;
 				//Per layer, an editing tool's own mask texture (see SetLiveMask). Not
 				//owned: the tool creates and destroys it, and clears the entry first.
-				std::vector<ID3D11ShaderResourceView*> live_masks;
+				std::vector<GfxSRV*> live_masks;
 			};
 			//Mirrored field for field by MaterialColor in Shaders/Common/PixelCommon.hlsli
 			//and uploaded raw (RenderSystem binds it as the "material" cbuffer and as the
@@ -315,18 +315,18 @@ namespace HotBite {
 			class MaterialData {
 			private:
 				void _MaterialData();
-				void SetTexture(ID3D11ShaderResourceView*& texture, std::string& current_texture, const std::string& root, const std::string& file);
+				void SetTexture(GfxSRV*& texture, std::string& current_texture, const std::string& root, const std::string& file);
 				void UpdateFlags();
 			public:
 				std::string name;
-				ID3D11ShaderResourceView* diffuse = nullptr;
-				ID3D11ShaderResourceView* normal = nullptr;
-				ID3D11ShaderResourceView* high = nullptr;
-				ID3D11ShaderResourceView* spec = nullptr;
-				ID3D11ShaderResourceView* ao = nullptr;
-				ID3D11ShaderResourceView* arm = nullptr;
-				ID3D11ShaderResourceView* emission = nullptr;
-				ID3D11ShaderResourceView* opacity = nullptr;
+				GfxSRV* diffuse = nullptr;
+				GfxSRV* normal = nullptr;
+				GfxSRV* high = nullptr;
+				GfxSRV* spec = nullptr;
+				GfxSRV* ao = nullptr;
+				GfxSRV* arm = nullptr;
+				GfxSRV* emission = nullptr;
+				GfxSRV* opacity = nullptr;
 
 				MaterialProps props;
 				//Absolute paths (root + file), not the bare file names the .mat carries.
@@ -398,8 +398,8 @@ namespace HotBite {
 				void Release();
 			};
 
-			void ReleaseTexture(ID3D11ShaderResourceView* srv);
-			ID3D11ShaderResourceView* LoadTexture(const std::string& filename);
+			void ReleaseTexture(GfxSRV* srv);
+			GfxSRV* LoadTexture(const std::string& filename);
 			//Puts the cooked textures of `filenames` in LoadTexture's cache, loading them on every
 			//core at once (Core/TextureCache.h), so the LoadTexture calls a material load then
 			//makes find them. Anything not cookable is left for LoadTexture to load as ever.

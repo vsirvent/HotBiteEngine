@@ -29,15 +29,22 @@ using namespace HotBite::Engine::Core;
 
 ScreenDraw* ScreenDraw::instance;
 
-ScreenDraw::ScreenDraw(ID3D11DeviceContext* context) {
-	batch = new DirectX::PrimitiveBatch<VertexType>(context);
+ScreenDraw::ScreenDraw(GfxContext* context) {
+	(void)context;
+	GfxDevice* device = DXCore::Get()->device;
+	const uint16_t indices[6] = { 0, 1, 2, 0, 2, 3 };
+	device->CreateBuffer(GfxBufferKind::Static, sizeof(indices), sizeof(uint16_t), D3D12_RESOURCE_FLAG_NONE,
+		indices, GFX_STATE_BUFFER_READ, &index_buffer);
+	device->CreateBuffer(GfxBufferKind::Dynamic, sizeof(VertexType) * 4, sizeof(VertexType), D3D12_RESOURCE_FLAG_NONE,
+		nullptr, D3D12_RESOURCE_STATE_GENERIC_READ, &vertex_buffer);
 };
 
 ScreenDraw::~ScreenDraw() {
-	delete batch;
+	if (vertex_buffer) { vertex_buffer->Release(); }
+	if (index_buffer) { index_buffer->Release(); }
 }
 
-void ScreenDraw::Init(ID3D11DeviceContext* context) {
+void ScreenDraw::Init(GfxContext* context) {
 	if (instance == nullptr) {
 		instance = new ScreenDraw(context);
 	}
@@ -55,21 +62,27 @@ ScreenDraw* ScreenDraw::Get() {
 }
 
 void ScreenDraw::Draw() {
-	batch->Begin();
-	batch->DrawQuad(v1, v2, v3, v4);
-	batch->End();
+	GfxContext* context = DXCore::Get()->context;
+	const VertexType quad[4] = { v1, v2, v3, v4 };
+	context->UpdateBuffer(vertex_buffer, quad, sizeof(quad));
+	const UINT stride = sizeof(VertexType);
+	const UINT offset = 0;
+	context->IASetVertexBuffers(0, 1, &vertex_buffer, &stride, &offset);
+	context->IASetIndexBuffer(index_buffer, DXGI_FORMAT_R16_UINT, 0);
+	context->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	context->DrawIndexed(6, 0, 0);
 }
 
-ID3D11RenderTargetView* PostProcess::TargetRenderView() {
-	ID3D11RenderTargetView* ret = nullptr;
+GfxRTV* PostProcess::TargetRenderView() {
+	GfxRTV* ret = nullptr;
 	if (target_render != nullptr) {
 		ret = target_render->RenderTarget();
 	}
 	return ret;
 }
 
-ID3D11DepthStencilView* PostProcess::TargetDepthView() {
-	ID3D11DepthStencilView* ret = nullptr;
+GfxDSV* PostProcess::TargetDepthView() {
+	GfxDSV* ret = nullptr;
 	if (target_depth != nullptr) {
 		ret = target_depth->DepthView();
 	}
@@ -77,7 +90,7 @@ ID3D11DepthStencilView* PostProcess::TargetDepthView() {
 }
 
 void PostProcess::Prepare() {
-	ID3D11RenderTargetView* rv[1] = { TargetRenderView() };
+	GfxRTV* rv[1] = { TargetRenderView() };
 	context->OMSetRenderTargets(1, rv, TargetDepthView());
 	vs->SetShader();
 	ps->SetShader();
@@ -98,7 +111,7 @@ void PostProcess::Prepare() {
 }
 
 void PostProcess::UnPrepare() {
-	ID3D11RenderTargetView* rv[1] = { nullptr };
+	GfxRTV* rv[1] = { nullptr };
 	context->OMSetRenderTargets(1, rv, nullptr);
 	ps->SetShaderResourceView("renderTexture", nullptr);
 	for (auto srv : srvs) {
@@ -110,27 +123,27 @@ void PostProcess::Render() {
 	ScreenDraw::Get()->Draw();
 }
 
-ID3D11ShaderResourceView* PostProcess::RenderResource() {
+GfxSRV* PostProcess::RenderResource() {
 	return nullptr;
 }
 
-ID3D11UnorderedAccessView* PostProcess::RenderUAV() {
+GfxUAV* PostProcess::RenderUAV() {
 	return nullptr;
 }
 
-ID3D11RenderTargetView* PostProcess::RenderTarget() const {
+GfxRTV* PostProcess::RenderTarget() const {
 	return nullptr;
 }
 
-ID3D11ShaderResourceView* PostProcess::DepthResource() {
+GfxSRV* PostProcess::DepthResource() {
 	return nullptr;
 }
 
-ID3D11DepthStencilView* PostProcess::DepthView() {
+GfxDSV* PostProcess::DepthView() {
 	return nullptr;
 }
 
-PostProcess::PostProcess(ID3D11DeviceContext* dxcontext,
+PostProcess::PostProcess(GfxContext* dxcontext,
 	SimpleVertexShader* vertex_shader,
 	SimplePixelShader* pixel_shader) :
 	context(dxcontext), vs(vertex_shader), ps(pixel_shader) {
@@ -170,7 +183,7 @@ void PostProcess::SetTarget(IRenderTarget* t, IDepthResource* d) {
 	}
 }
 
-void PostProcess::SetShaderResourceView(const std::string& name, ID3D11ShaderResourceView* srv) {
+void PostProcess::SetShaderResourceView(const std::string& name, GfxSRV* srv) {
 	srvs[name] = srv;
 	if (next != nullptr) {
 		next->SetShaderResourceView(name, srv);
@@ -201,14 +214,14 @@ PostProcess* PostProcess::GetNext() const {
 	return next;
 }
 
-GenericPostProcess::GenericPostProcess(ID3D11DeviceContext* dxcontext,
+GenericPostProcess::GenericPostProcess(GfxContext* dxcontext,
 	int width, int height, ECS::Coordinator* c, const std::string& vs, const std::string& ps) :
 	PostProcess(dxcontext,
 		ShaderFactory::Get()->GetShader<SimpleVertexShader>(vs), //This is the default engine post-process vertex shader
 		ShaderFactory::Get()->GetShader<SimplePixelShader>(ps)), //This is the custom post-process pixel shader of the demo
 	coordinator(c)
 {
-	text.Init(width, height, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS);
+	text.Init(width, height, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS);
 }
 
 GenericPostProcess::~GenericPostProcess() {
@@ -219,15 +232,15 @@ void GenericPostProcess::ClearData(const float color[4]) {
 	context->ClearRenderTargetView(text.RenderTarget(), color);
 }
 
-ID3D11ShaderResourceView* GenericPostProcess::RenderResource() {
+GfxSRV* GenericPostProcess::RenderResource() {
 	return text.SRV();
 }
 
-ID3D11RenderTargetView* GenericPostProcess::RenderTarget() const {
+GfxRTV* GenericPostProcess::RenderTarget() const {
 	return text.RenderTarget();
 }
 
-ID3D11UnorderedAccessView* GenericPostProcess::RenderUAV() {
+GfxUAV* GenericPostProcess::RenderUAV() {
 	return text.UAV();
 }
 
@@ -236,19 +249,19 @@ void MainEffect::ClearData(const float color[4]) {
 	context->ClearRenderTargetView(text.RenderTarget(), color);
 	context->ClearDepthStencilView(
 		depth.Depth(),
-		D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL,
+		D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL,
 		1.0f,
 		0);
 }
 
-MainEffect::MainEffect(ID3D11DeviceContext* dxcontext,
+MainEffect::MainEffect(GfxContext* dxcontext,
 	int width, int height) :
 	PostProcess(dxcontext,
 		ShaderFactory::Get()->GetShader<SimpleVertexShader>("PostMainVS.cso"),
 		ShaderFactory::Get()->GetShader<SimplePixelShader>("PostMainPS.cso"))
 {
 	//x2 scale to avoid resolution artifacts in motion blur
-	text.Init(width, height, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS);
+	text.Init(width, height, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS);
 	depth.Init(width, height);
 }
 
@@ -257,23 +270,23 @@ MainEffect::~MainEffect() {
 	depth.Release();
 }
 
-ID3D11ShaderResourceView* MainEffect::RenderResource() {
+GfxSRV* MainEffect::RenderResource() {
 	return text.SRV();
 }
 
-ID3D11UnorderedAccessView* MainEffect::RenderUAV() {
+GfxUAV* MainEffect::RenderUAV() {
 	return text.UAV();
 }
 
-ID3D11RenderTargetView* MainEffect::RenderTarget() const {
+GfxRTV* MainEffect::RenderTarget() const {
 	return text.RenderTarget();
 }
 
-ID3D11ShaderResourceView* MainEffect::DepthResource() {
+GfxSRV* MainEffect::DepthResource() {
 	return depth.SRV();
 }
 
-ID3D11DepthStencilView* MainEffect::DepthView() {
+GfxDSV* MainEffect::DepthView() {
 	return depth.Depth();
 }
 
@@ -281,15 +294,15 @@ void MotionBlurEffect::ClearData(const float color[4]) {
 	context->ClearRenderTargetView(RenderTarget(), color);
 }
 
-ID3D11ShaderResourceView* MotionBlurEffect::RenderResource() {
+GfxSRV* MotionBlurEffect::RenderResource() {
 	return text.SRV();
 }
 
-ID3D11RenderTargetView* MotionBlurEffect::RenderTarget() const {
+GfxRTV* MotionBlurEffect::RenderTarget() const {
 	return text.RenderTarget();
 }
 
-MotionBlurEffect::MotionBlurEffect(ID3D11DeviceContext* dxcontext,
+MotionBlurEffect::MotionBlurEffect(GfxContext* dxcontext,
 	int width, int height) :
 	PostProcess(dxcontext,
 		ShaderFactory::Get()->GetShader<SimpleVertexShader>("PostMainVS.cso"),

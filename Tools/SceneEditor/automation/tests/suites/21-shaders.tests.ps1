@@ -142,7 +142,7 @@ float4 main(float4 pos: SV_POSITION) : SV_TARGET
     SendOk 'reload_shaders PostMainPS.cso' | Out-Null
     $status = Wait-ShaderReload
     Assert-Match -Pattern '0 reloaded, 1 failed' -Actual $status.Text
-    Assert-True -Condition (($status.Payload -join ' ') -match 'error X') `
+    Assert-True -Condition (($status.Payload -join ' ') -match 'error') `
         -Message "the compiler's message came back: $($status.Payload -join ' ')"
 
     # The point of compiling before swapping: the frame is untouched.

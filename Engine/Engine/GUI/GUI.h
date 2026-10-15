@@ -29,10 +29,8 @@ SOFTWARE.
 #include <Core/PostProcess.h>
 #include <Core/Texture.h>
 #include <Core\Utils.h>
-#include <SpriteBatch.h>
-#include <SpriteFont.h>
-#include <CommonStates.h>
-#include <Effects.h>
+#include <SimpleMath.h>
+#include <VertexTypes.h>
 #include <variant>
 #include "Widget.h"
 #include "Label.h"
@@ -57,12 +55,12 @@ namespace HotBite {
 				std::map<ECS::Entity, std::shared_ptr<Widget>> widgets;
 
 			public:
-				GUI(ID3D11DeviceContext* dxcontext,
+				GUI(GfxContext* dxcontext,
 					int width, int height, HotBite::Engine::ECS::Coordinator* c);
 				virtual ~GUI();
 
-				virtual ID3D11ShaderResourceView* RenderResource() override;
-				virtual ID3D11RenderTargetView* RenderTarget() const override;
+				virtual GfxSRV* RenderResource() override;
+				virtual GfxRTV* RenderTarget() const override;
 				virtual void Prepare() override;
 				virtual void UnPrepare() override;
 

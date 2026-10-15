@@ -27,6 +27,7 @@ SOFTWARE.
 #include <Core/Vertex.h>
 #include <Core/SimpleShader.h>
 #include <Core/Utils.h>
+#include <Core/TextureCache.h>
 #include <chrono>
 #include "RenderSystem.h"
 
@@ -407,34 +408,34 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		
 		for (int i = 0; i < 2; ++i)
 		{
-			if (FAILED(light_map[i].Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+			if (FAILED(light_map[i].Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
 				throw std::exception("light_map.Init failed");
 			}
 		}
-		if (FAILED(vol_light_map.Init(w / 2, h / 2, DXGI_FORMAT::DXGI_FORMAT_R11G11B10_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+		if (FAILED(vol_light_map.Init(w / 2, h / 2, DXGI_FORMAT::DXGI_FORMAT_R11G11B10_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("vol_light_map.Init failed");
 		}
-		if (FAILED(lens_flare_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R11G11B10_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+		if (FAILED(lens_flare_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R11G11B10_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("lens_flare_map.Init failed");
 		}
-		if (FAILED(dust_render_map.Init(w / 2, h / 2, DXGI_FORMAT::DXGI_FORMAT_R11G11B10_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+		if (FAILED(dust_render_map.Init(w / 2, h / 2, DXGI_FORMAT::DXGI_FORMAT_R11G11B10_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("dust_render_map.Init failed");
 		}
-		if (FAILED(vol_light_map2.Init(w / 2, h / 2, DXGI_FORMAT::DXGI_FORMAT_R11G11B10_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+		if (FAILED(vol_light_map2.Init(w / 2, h / 2, DXGI_FORMAT::DXGI_FORMAT_R11G11B10_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("vol_light_map2.Init failed");
 		}
 		//UNORDERED_ACCESS because the Gaussian splat rasterizer (SplatRasterCS) writes
 		//this from compute. It stays an RTV in DrawScene's seven-target set - the flag
 		//only adds a second way to bind it, and the two are never bound at once.
 		if (FAILED(position_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT,
-			nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+			nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("position_map.Init failed");
 		}
 		//UNORDERED_ACCESS for the same reason position_map has it: SplatRasterCS fills the
 		//whole G-buffer from compute, and a cloud with no previous position would report
 		//zero motion however fast it moved.
 		if (FAILED(prev_position_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT,
-			nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+			nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("prev_position_map.Init failed");
 		}
 		//The eighth G-buffer target (see material_map in the header). Half precision is
@@ -442,15 +443,15 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		//normal's xz, and halves what the eighth target costs; the shading model in w is a
 		//small integer, exact in a half up to 2048.
 		if (FAILED(material_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT,
-			nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+			nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("material_map.Init failed");
 		}
 		if (!tiled_lights.Init(w, h)) {
 			throw std::exception("tiled_lights.Init failed");
 		}
-		if (FAILED(shadow_rt_light.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS)) ||
-			FAILED(shadow_rt_history[0].Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS)) ||
-			FAILED(shadow_rt_history[1].Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+		if (FAILED(shadow_rt_light.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS)) ||
+			FAILED(shadow_rt_history[0].Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS)) ||
+			FAILED(shadow_rt_history[1].Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("shadow ray accumulation textures Init failed");
 		}
 		shadow_accumulate = ShaderFactory::Get()->GetShader<SimpleComputeShader>("ShadowAccumulateCS.cso");
@@ -459,7 +460,7 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		}
 		//A debug view only: not fatal, the buffer then shows black.
 		shadow_bvh_debug = ShaderFactory::Get()->GetShader<SimpleComputeShader>("ShadowBvhDebugCS.cso");
-		if (shadow_bvh_debug == nullptr || FAILED(shadow_bvh_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+		if (shadow_bvh_debug == nullptr || FAILED(shadow_bvh_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
 			printf("RenderSystem::Init: the shadow_bvh debug view is not available\n");
 			shadow_bvh_debug = nullptr;
 		}
@@ -470,18 +471,18 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		if (!shadow_rays.Init()) {
 			printf("RenderSystem::Init: shadow ray buffers could not be created, ray traced shadows disabled\n");
 		}
-		if (FAILED(bloom_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R11G11B10_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+		if (FAILED(bloom_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R11G11B10_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("bloom_map.Init failed");
 		}
-		if (FAILED(temp_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+		if (FAILED(temp_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("temp_map.Init failed");
 		}
-		if (FAILED(taa_history[0].Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS)) ||
-			FAILED(taa_history[1].Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+		if (FAILED(taa_history[0].Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS)) ||
+			FAILED(taa_history[1].Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("taa_history.Init failed");
 		}
 		taa_history_valid = false;
-		if (FAILED(depth_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+		if (FAILED(depth_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("depth_map.Init failed");
 		}
 		//The pyramid the screen space ray solvers march through: level 0 is depth_map itself,
@@ -493,7 +494,7 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 			for (uint32_t i = 0; i < HIZ_DOWNSAMPLED_NTEXTURES; ++i) {
 				hiz_w = (hiz_w + HIZ_RATIO - 1) / HIZ_RATIO;
 				hiz_h = (hiz_h + HIZ_RATIO - 1) / HIZ_RATIO;
-				if (FAILED(high_z_downsampled_map[i].Init(hiz_w, hiz_h, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+				if (FAILED(high_z_downsampled_map[i].Init(hiz_w, hiz_h, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
 					throw std::exception("high_z_downsampled_map.Init failed");
 				}
 				high_z_maps[i + 1] = high_z_downsampled_map[i].SRV();
@@ -505,30 +506,30 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		if (FAILED(first_pass_texture.Init(w, h))) {
 			throw std::exception("first_pass_texture.Init failed");
 		}
-		if (FAILED(motion_texture.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+		if (FAILED(motion_texture.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("motion_texture.Init failed");
 		}
 		if (FAILED(rgba_noise_texture.Init(RGA_NOISE_W, RGBA_NOISE_H, DXGI_FORMAT::DXGI_FORMAT_R8G8B8A8_UNORM, (const uint8_t*)rgba_noise_map, RGBA_NOISE_LEN))) {
 			throw std::exception("rgba_noise_texture.Init failed");
 		}
 
-		if (FAILED(motion_blur_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R11G11B10_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+		if (FAILED(motion_blur_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R11G11B10_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("texture_tmp.Init failed");
 		}
 
-		if (FAILED(rt_ray_sources0.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+		if (FAILED(rt_ray_sources0.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("rt_ray_sources0.Init failed");
 		}
-		if (FAILED(rt_ray_sources1.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+		if (FAILED(rt_ray_sources1.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("rt_ray_sources1.Init failed");
 		}
-		if (FAILED(vol_data.Init(16, 16, DXGI_FORMAT::DXGI_FORMAT_R32_UINT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+		if (FAILED(vol_data.Init(16, 16, DXGI_FORMAT::DXGI_FORMAT_R32_UINT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("vol_data.Init failed");
 		}
 		//A single texel holding the autofocus distance. R32_FLOAT because the
 		//shader reads the previous frame's value back out of the UAV to smooth
 		//against it, and typed UAV loads are only guaranteed for the 32 bit formats.
-		if (FAILED(autofocus_map.Init(1, 1, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+		if (FAILED(autofocus_map.Init(1, 1, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("autofocus_map.Init failed");
 		}
 		autofocus_shader = ShaderFactory::Get()->GetShader<SimpleComputeShader>("AutoFocusCS.cso");
@@ -619,6 +620,10 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		if (deferred_light == nullptr) {
 			throw std::exception("deferred light shader.Init failed");
 		}
+		deferred_light_rays = ShaderFactory::Get()->GetShader<SimpleComputeShader>("DeferredLightRaysCS.cso");
+		if (deferred_light_rays == nullptr) {
+			throw std::exception("deferred light (rays) shader.Init failed");
+		}
 		aa_shader = ShaderFactory::Get()->GetShader<SimpleComputeShader>("AntiAliasCS.cso");
 		if (aa_shader == nullptr) {
 			throw std::exception("AA shader.Init failed");
@@ -673,7 +678,7 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 	return ret;
 }
 
-ID3D11Query* RenderSystem::BeginTessStats() {
+GfxQueryHeap* RenderSystem::BeginTessStats() {
 	//The next free slot of the ring; none free (the GPU is several frames behind) skips
 	//this frame's measurement rather than waiting for one.
 	for (int n = 0; n < TESS_QUERY_RING; ++n) {
@@ -682,9 +687,7 @@ ID3D11Query* RenderSystem::BeginTessStats() {
 			continue;
 		}
 		if (tess_query[i] == nullptr) {
-			D3D11_QUERY_DESC desc = {};
-			desc.Query = D3D11_QUERY_PIPELINE_STATISTICS;
-			if (FAILED(dxcore->device->CreateQuery(&desc, &tess_query[i]))) {
+			if (FAILED(dxcore->device->CreateQueryHeap(D3D12_QUERY_TYPE_PIPELINE_STATISTICS, 1, &tess_query[i]))) {
 				tess_query[i] = nullptr;
 				return nullptr;
 			}
@@ -692,15 +695,16 @@ ID3D11Query* RenderSystem::BeginTessStats() {
 		tess_query_next = (i + 1) % TESS_QUERY_RING;
 		tess_query_pending[i] = true;
 		tess_query_frame[i] = frame_count;
-		dxcore->context->Begin(tess_query[i]);
+		dxcore->context->BeginQuery(tess_query[i], 0);
 		return tess_query[i];
 	}
 	return nullptr;
 }
 
-void RenderSystem::EndTessStats(ID3D11Query* query) {
+void RenderSystem::EndTessStats(GfxQueryHeap* query) {
 	if (query != nullptr) {
-		dxcore->context->End(query);
+		dxcore->context->EndQuery(query, 0);
+		dxcore->context->ResolveQueryData(query, 0, 1);
 	}
 }
 
@@ -716,13 +720,13 @@ void RenderSystem::ResolveTessStats() {
 		if (oldest < 0) {
 			return;
 		}
-		D3D11_QUERY_DATA_PIPELINE_STATISTICS data = {};
-		if (dxcore->context->GetData(tess_query[oldest], &data, sizeof(data), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK) {
-			return;
-		}
-		tess_query_pending[oldest] = false;
-		tess_stats_cpu.hs_invocations = data.HSInvocations;
-		tess_stats_cpu.ds_invocations = data.DSInvocations;
+		if (!tess_query[oldest]->Ready()) {
+					return;
+				}
+				const D3D12_QUERY_DATA_PIPELINE_STATISTICS& data = *(const D3D12_QUERY_DATA_PIPELINE_STATISTICS*)tess_query[oldest]->Data();
+				tess_query_pending[oldest] = false;
+				tess_stats_cpu.hs_invocations = data.HSInvocations;
+				tess_stats_cpu.ds_invocations = data.DSInvocations;
 		tess_stats_cpu.frame = tess_query_frame[oldest];
 		tess_stats_cpu.valid = true;
 	}
@@ -810,7 +814,7 @@ void RenderSystem::LoadRTResources() {
 		int div = RT_TEXTURE_RESOLUTION_DIVIDER;
 		for (int n = 0; n < 2; ++n) {
 			rt_textures_di[n][x].Release();
-			if (FAILED(rt_textures_di[n][x].Init(w / div, h / div, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+			if (FAILED(rt_textures_di[n][x].Init(w / div, h / div, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
 				throw std::exception("rt_texture.Init failed");
 			}
 		}
@@ -820,30 +824,30 @@ void RenderSystem::LoadRTResources() {
 
 	for (int n = 0; n < RT_GI_NTEXTURES; ++n) {
 		rt_textures_gi[n].Release();
-		if (FAILED(rt_textures_gi[n].Init(w / restir_div, h / restir_div, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+		if (FAILED(rt_textures_gi[n].Init(w / restir_div, h / restir_div, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("rt_texture.Init failed");
 		}
 	}
 		
 	uint32_t tile_div = min(restir_div, RT_TEXTURE_RESOLUTION_DIVIDER) * RESTIR_KERNEL;
 	rt_textures_gi_tiles.Release();
-	if (FAILED(rt_textures_gi_tiles.Init(w / tile_div + 1, h/ tile_div + 1, DXGI_FORMAT::DXGI_FORMAT_R8_UINT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+	if (FAILED(rt_textures_gi_tiles.Init(w / tile_div + 1, h/ tile_div + 1, DXGI_FORMAT::DXGI_FORMAT_R8_UINT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
 		throw std::exception("rt_texture.Init failed");
 	}
 
 	for (int n = 0; n < 2; ++n) {
 		restir_pdf[n].Release();
-		if (FAILED(restir_pdf[n].Init(w / restir_div, h / restir_div, DXGI_FORMAT_R32G32B32A32_UINT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+		if (FAILED(restir_pdf[n].Init(w / restir_div, h / restir_div, DXGI_FORMAT_R32G32B32A32_UINT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("restir_pdf.Init failed");
 		}
 	}
 	restir_w.Release();
-	if (FAILED(restir_w.Init(w / restir_div, h / restir_div, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+	if (FAILED(restir_w.Init(w / restir_div, h / restir_div, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
 		throw std::exception("restir_w.Init failed");
 	}
 
 	texture_tmp.Release();
-	if (FAILED(texture_tmp.Init(w / RT_TEXTURE_RESOLUTION_DIVIDER, h / RT_TEXTURE_RESOLUTION_DIVIDER, DXGI_FORMAT::DXGI_FORMAT_R11G11B10_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+	if (FAILED(texture_tmp.Init(w / RT_TEXTURE_RESOLUTION_DIVIDER, h / RT_TEXTURE_RESOLUTION_DIVIDER, DXGI_FORMAT::DXGI_FORMAT_R11G11B10_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
 		throw std::exception("texture_tmp.Init failed");
 	}
 
@@ -946,35 +950,27 @@ void RenderSystem::GpuBegin() {
 		//The GPU is still several frames behind: this frame goes unmeasured rather than waiting for the ring.
 		return;
 	}
-	if (f.disjoint == nullptr) {
-		D3D11_QUERY_DESC desc = {};
-		desc.Query = D3D11_QUERY_TIMESTAMP_DISJOINT;
-		bool ok = SUCCEEDED(dxcore->device->CreateQuery(&desc, &f.disjoint));
-		desc.Query = D3D11_QUERY_TIMESTAMP;
-		for (int i = 0; i < GPU_STAMPS && ok; ++i) {
-			ok = SUCCEEDED(dxcore->device->CreateQuery(&desc, &f.stamp[i]));
+	if (f.stamps == nullptr) {
+			if (FAILED(dxcore->device->CreateQueryHeap(D3D12_QUERY_TYPE_TIMESTAMP, GPU_STAMPS, &f.stamps))) {
+				GpuRelease();
+				gpu_requested = false;
+				return;
+			}
 		}
-		if (!ok) {
-			GpuRelease();
-			gpu_requested = false;
-			return;
-		}
-	}
-	dxcore->context->Begin(f.disjoint);
-	gpu_open = &f;
+		gpu_open = &f;
 	gpu_next = (gpu_next + 1) % GPU_RING;
 }
 
 void RenderSystem::GpuStamp(int index) {
 	if (gpu_open != nullptr) {
-		dxcore->context->End(gpu_open->stamp[index]);
+		dxcore->context->EndQuery(gpu_open->stamps, (UINT)index);
 	}
 }
 
 void RenderSystem::GpuEnd() {
 	if (gpu_open != nullptr) {
-		dxcore->context->End(gpu_open->disjoint);
-		gpu_open->pending = true;
+		dxcore->context->ResolveQueryData(gpu_open->stamps, 0, GPU_STAMPS);
+				gpu_open->pending = true;
 		gpu_open = nullptr;
 	}
 }
@@ -984,23 +980,12 @@ void RenderSystem::GpuResolve() {
 		if (!f.pending) {
 			continue;
 		}
-		D3D11_QUERY_DATA_TIMESTAMP_DISJOINT disjoint = {};
-		if (dxcore->context->GetData(f.disjoint, &disjoint, sizeof(disjoint), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK) {
-			continue;
-		}
-		UINT64 t[GPU_STAMPS] = {};
-		bool ready = true;
-		for (int i = 0; i < GPU_STAMPS && ready; ++i) {
-			ready = dxcore->context->GetData(f.stamp[i], &t[i], sizeof(UINT64), D3D11_ASYNC_GETDATA_DONOTFLUSH) == S_OK;
-		}
-		if (!ready) {
-			continue;
-		}
-		f.pending = false;
-		if (disjoint.Disjoint) {
-			continue;
-		}
-		const double to_ms = 1000.0 / (double)disjoint.Frequency;
+		if (!f.stamps->Ready()) {
+					continue;
+				}
+				const UINT64* t = (const UINT64*)f.stamps->Data();
+				f.pending = false;
+				const double to_ms = 1000.0 / (double)dxcore->device->TimestampFrequency();
 		gpu_timings.shadows += (double)(t[1] - t[0]) * to_ms;
 		gpu_timings.depth += (double)(t[2] - t[1]) * to_ms;
 		gpu_timings.scene += (double)(t[3] - t[2]) * to_ms;
@@ -1020,11 +1005,8 @@ void RenderSystem::GpuResolve() {
 
 void RenderSystem::GpuRelease() {
 	for (GpuFrame& f : gpu_ring) {
-		if (f.disjoint != nullptr) { f.disjoint->Release(); f.disjoint = nullptr; }
-		for (int i = 0; i < GPU_STAMPS; ++i) {
-			if (f.stamp[i] != nullptr) { f.stamp[i]->Release(); f.stamp[i] = nullptr; }
-		}
-		f.pending = false;
+		if (f.stamps != nullptr) { f.stamps->Release(); f.stamps = nullptr; }
+				f.pending = false;
 	}
 	gpu_open = nullptr;
 }
@@ -1037,23 +1019,21 @@ bool RenderSystem::EnsureInstanceBuffer(uint32_t count) {	if (instance_buffer !=
 	while (capacity < count) {
 		capacity *= 2;
 	}
-	D3D11_BUFFER_DESC desc = {};
-	desc.ByteWidth = capacity * (UINT)sizeof(InstanceData);
-	desc.Usage = D3D11_USAGE_DYNAMIC;
-	desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-	desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-	desc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
-	desc.StructureByteStride = (UINT)sizeof(InstanceData);
-	if (FAILED(dxcore->device->CreateBuffer(&desc, nullptr, &instance_buffer))) {
-		instance_buffer = nullptr;
-		return false;
-	}
-	D3D11_SHADER_RESOURCE_VIEW_DESC view = {};
-	view.Format = DXGI_FORMAT_UNKNOWN;
-	view.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
-	view.Buffer.FirstElement = 0;
-	view.Buffer.NumElements = capacity;
-	if (FAILED(dxcore->device->CreateShaderResourceView(instance_buffer, &view, &instance_view))) {
+	//GPU memory the frame fills by a copy before each group of draws (GfxContext::UpdateBuffer): the barrier
+		//pair around the copy is what keeps the draws recorded before it reading what they read.
+		if (FAILED(dxcore->device->CreateBuffer(GfxBufferKind::Static, (UINT64)capacity * sizeof(InstanceData),
+			(UINT)sizeof(InstanceData), D3D12_RESOURCE_FLAG_NONE, nullptr, GFX_STATE_BUFFER_READ, &instance_buffer))) {
+			instance_buffer = nullptr;
+			return false;
+		}
+		D3D12_SHADER_RESOURCE_VIEW_DESC view = {};
+		view.Format = DXGI_FORMAT_UNKNOWN;
+		view.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+		view.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+		view.Buffer.FirstElement = 0;
+		view.Buffer.NumElements = capacity;
+		view.Buffer.StructureByteStride = (UINT)sizeof(InstanceData);
+		if (FAILED(dxcore->device->CreateSRV(instance_buffer, &view, &instance_view))) {
 		ReleaseInstanceBuffer();
 		return false;
 	}
@@ -1150,7 +1130,7 @@ void RenderSystem::DrawBucket(ECS::EntityVector<DrawableEntity>& bucket, Instanc
 
 void RenderSystem::DrawInstanceGroup(InstancePass pass, const InstanceRef* first, size_t count, Core::SimpleVertexShader* vs, Core::SimpleHullShader* hs,
 	Core::SimpleDomainShader* ds, Core::SimpleGeometryShader* gs, Core::SimplePixelShader* ps) {
-	ID3D11DeviceContext* context = dxcore->context;
+	GfxContext* context = dxcore->context;
 	const auto draw_one_by_one = [&]() {
 		for (size_t i = 0; i < count; ++i) {
 			DrawableEntity& de = *first[i].drawable;
@@ -1159,18 +1139,17 @@ void RenderSystem::DrawInstanceGroup(InstancePass pass, const InstanceRef* first
 			UnprepareEntity(de, vs, hs, ds, gs, ps);
 		}
 	};
-	D3D11_MAPPED_SUBRESOURCE mapped = {};
-	if (!EnsureInstanceBuffer((uint32_t)count) || FAILED(context->Map(instance_buffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
-		draw_one_by_one();
-		return;
-	}
-	InstanceData* out = (InstanceData*)mapped.pData;
-	for (size_t i = 0; i < count; ++i) {
-		const DrawableEntity& de = *first[i].drawable;
-		out[i].world = de.transform->world_matrix;
-		out[i].prev_world = de.transform->prev_world_matrix;
-	}
-	context->Unmap(instance_buffer, 0);
+	if (!EnsureInstanceBuffer((uint32_t)count)) {
+			draw_one_by_one();
+			return;
+		}
+		instance_data.resize(count);
+		for (size_t i = 0; i < count; ++i) {
+			const DrawableEntity& de = *first[i].drawable;
+			instance_data[i].world = de.transform->world_matrix;
+			instance_data[i].prev_world = de.transform->prev_world_matrix;
+		}
+		context->UpdateBuffer(instance_buffer, instance_data.data(), (UINT64)count * sizeof(InstanceData));
 
 	static const std::string INSTANCED = "instanced";
 	static const std::string INSTANCE_BASE = "instance_base";
@@ -1178,7 +1157,7 @@ void RenderSystem::DrawInstanceGroup(InstancePass pass, const InstanceRef* first
 	static const float4x4 identity = []() { float4x4 m; XMStoreFloat4x4(&m, XMMatrixIdentity()); return m; }();
 	DrawableEntity& lead = *first[0].drawable;
 	Mesh* mesh = lead.mesh;
-	ID3D11ShaderResourceView* mesh_normal_map = mesh->GetData()->normal_map;
+	GfxSRV* mesh_normal_map = mesh->GetData()->normal_map;
 	//What PrepareEntity would set, but once for the whole group, and with the world matrices taken out of the
 	//stages that cannot be given the instance: they get the identity, and the vertex shader hands them positions and
 	//normals that are already in the world (Core/Shaders/Common/Instancing.hlsli).
@@ -1222,7 +1201,7 @@ void RenderSystem::DrawInstanceGroup(InstancePass pass, const InstanceRef* first
 }
 void RenderSystem::DrawDepth(int w, int h, const float3& camera_position, const matrix& view, const matrix& projection) {
 
-	ID3D11DeviceContext* context = dxcore->context;
+	GfxContext* context = dxcore->context;
 	assert(!cameras.GetData().empty() && "No cameras found");
 	CameraEntity& cam_entity = cameras.GetData()[0];
 	
@@ -1232,8 +1211,8 @@ void RenderSystem::DrawDepth(int w, int h, const float3& camera_position, const 
 	SimpleGeometryShader* gs = nullptr;
 	SimplePixelShader* ps = nullptr;
 
-	context->GSSetShader(nullptr, nullptr, 0);
-	ID3D11RenderTargetView* rv[1] = { depth_map.RenderTarget() };
+	context->GSSetShader(nullptr);
+	GfxRTV* rv[1] = { depth_map.RenderTarget() };
 	context->OMSetRenderTargets(1, rv, depth_view.Depth());
 	context->RSSetViewports(1, &dxcore->viewport);
 	//Biased so the depth this pass leaves in depth_view is a conservative occluder for
@@ -1260,7 +1239,7 @@ void RenderSystem::DrawDepth(int w, int h, const float3& camera_position, const 
 				vs->SetShader();
 			}
 			else {
-				context->VSSetShader(nullptr, nullptr, 0);
+				context->VSSetShader(nullptr);
 			}
 		}
 		SimpleHullShader* new_hs = std::get<SHADER_KEY_HS>(shaders.first);
@@ -1271,7 +1250,7 @@ void RenderSystem::DrawDepth(int w, int h, const float3& camera_position, const 
 				hs->SetFloat(TIME, time);
 			}
 			else {
-				context->HSSetShader(nullptr, nullptr, 0);
+				context->HSSetShader(nullptr);
 			}
 		}
 		SimpleDomainShader* new_ds = std::get<SHADER_KEY_DS>(shaders.first);
@@ -1282,7 +1261,7 @@ void RenderSystem::DrawDepth(int w, int h, const float3& camera_position, const 
 				ds->SetFloat(TIME, time);
 			}
 			else {
-				context->DSSetShader(nullptr, nullptr, 0);
+				context->DSSetShader(nullptr);
 			}
 		}
 		SimpleGeometryShader* new_gs = std::get<SHADER_KEY_GS>(shaders.first);
@@ -1296,7 +1275,7 @@ void RenderSystem::DrawDepth(int w, int h, const float3& camera_position, const 
 				gs->SetShader();
 			}
 			else {
-				context->GSSetShader(nullptr, nullptr, 0);
+				context->GSSetShader(nullptr);
 			}
 		}
 		SimplePixelShader* new_ps = std::get<SHADER_KEY_PS>(shaders.first);
@@ -1308,7 +1287,7 @@ void RenderSystem::DrawDepth(int w, int h, const float3& camera_position, const 
 				ps->SetShader();
 			}
 			else {
-				context->PSSetShader(nullptr, nullptr, 0);
+				context->PSSetShader(nullptr);
 			}
 		}
 		ShaderKey sk{ vs, hs, ds, gs, ps };
@@ -1355,8 +1334,8 @@ uint64_t RenderSystem::StaticShadowSignature() {
 
 void RenderSystem::CastShadows(int w, int h, const float3& camera_position, const matrix& view, const matrix& projection, bool static_shadows) {
 
-	ID3D11DeviceContext* context = dxcore->context;
-	context->PSSetShader(nullptr, 0, 0);
+	GfxContext* context = dxcore->context;
+	context->PSSetShader(nullptr);
 	CameraEntity& cam_entity = cameras.GetData()[0];
 
 	SimpleVertexShader* vs = nullptr;
@@ -1375,11 +1354,11 @@ void RenderSystem::CastShadows(int w, int h, const float3& camera_position, cons
 			//sample is pure waste.
 			if (l.base->visible && l.light->CastShadow() && l.light->render_shadow_slot >= 0) {
 				//Render to depth texture					
-				ID3D11RenderTargetView* rtv[1] = { nullptr };
+				GfxRTV* rtv[1] = { nullptr };
 				context->OMSetRenderTargets(1, rtv, l.light->DepthView());
 				context->ClearDepthStencilView(
 					l.light->DepthView(),
-					D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL,
+					D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL,
 					1.0f, 0);
 				context->RSSetViewports(1, &l.light->GetShadowViewPort());
 				context->RSSetState(dxcore->shadow_rasterizer);
@@ -1395,7 +1374,7 @@ void RenderSystem::CastShadows(int w, int h, const float3& camera_position, cons
 							vs->SetShader();
 						}
 						else {
-							context->VSSetShader(nullptr, nullptr, 0);
+							context->VSSetShader(nullptr);
 						}
 					}
 					SimpleHullShader* new_hs = std::get<SHADER_KEY_HS>(shaders.first);
@@ -1406,7 +1385,7 @@ void RenderSystem::CastShadows(int w, int h, const float3& camera_position, cons
 							hs->SetShader();
 						}
 						else {
-							context->HSSetShader(nullptr, nullptr, 0);
+							context->HSSetShader(nullptr);
 						}
 					}
 					SimpleDomainShader* new_ds = std::get<SHADER_KEY_DS>(shaders.first);
@@ -1417,7 +1396,7 @@ void RenderSystem::CastShadows(int w, int h, const float3& camera_position, cons
 							ds->SetShader();
 						}
 						else {
-							context->DSSetShader(nullptr, nullptr, 0);
+							context->DSSetShader(nullptr);
 						}
 					}
 					SimpleGeometryShader* new_gs = std::get<SHADER_KEY_GS>(shaders.first);
@@ -1427,7 +1406,7 @@ void RenderSystem::CastShadows(int w, int h, const float3& camera_position, cons
 							gs->SetShader();
 						}
 						else {
-							context->GSSetShader(nullptr, nullptr, 0);
+							context->GSSetShader(nullptr);
 						}
 					}
 
@@ -1451,7 +1430,7 @@ void RenderSystem::CastShadows(int w, int h, const float3& camera_position, cons
 							ps->SetShader();
 						}
 						else {
-							context->PSSetShader(nullptr, nullptr, 0);
+							context->PSSetShader(nullptr);
 						}
 					}
 					ShaderKey sk{ vs, hs, ds, gs, ps };
@@ -1478,8 +1457,8 @@ void RenderSystem::CastShadows(int w, int h, const float3& camera_position, cons
 	for (DirectionalLightEntity& l : directional_lights.GetData()) {
 		if (l.base->visible && l.light->CastShadow()) {
 			//Render to depth texture
-			ID3D11RenderTargetView* rtv[1] = { nullptr };
-			ID3D11DepthStencilView* dv = nullptr;
+			GfxRTV* rtv[1] = { nullptr };
+			GfxDSV* dv = nullptr;
 			if (static_shadows) {
 				l.light->RefreshStaticViewMatrix();
 				dv = l.light->StaticDepthView();
@@ -1489,7 +1468,7 @@ void RenderSystem::CastShadows(int w, int h, const float3& camera_position, cons
 			}
 			context->ClearDepthStencilView(
 				dv,
-				D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL,
+				D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL,
 				1.0f, 0);
 			context->OMSetRenderTargets(1, rtv, dv);
 			context->RSSetViewports(1, &l.light->GetShadowViewPort());
@@ -1516,7 +1495,7 @@ void RenderSystem::CastShadows(int w, int h, const float3& camera_position, cons
 						vs->SetShader();
 					}
 					else {
-						context->VSSetShader(nullptr, nullptr, 0);
+						context->VSSetShader(nullptr);
 					}
 				}
 				SimpleHullShader* new_hs = std::get<SHADER_KEY_HS>(shaders.first);
@@ -1527,7 +1506,7 @@ void RenderSystem::CastShadows(int w, int h, const float3& camera_position, cons
 						hs->SetShader();
 					}
 					else {
-						context->HSSetShader(nullptr, nullptr, 0);
+						context->HSSetShader(nullptr);
 					}
 				}
 				SimpleDomainShader* new_ds = std::get<SHADER_KEY_DS>(shaders.first);
@@ -1538,7 +1517,7 @@ void RenderSystem::CastShadows(int w, int h, const float3& camera_position, cons
 						ds->SetShader();
 					}
 					else {
-						context->DSSetShader(nullptr, nullptr, 0);
+						context->DSSetShader(nullptr);
 					}
 				}
 				SimpleGeometryShader* new_gs = std::get<SHADER_KEY_GS>(shaders.first);
@@ -1548,7 +1527,7 @@ void RenderSystem::CastShadows(int w, int h, const float3& camera_position, cons
 						gs->SetShader();
 					}
 					else {
-						context->GSSetShader(nullptr, nullptr, 0);
+						context->GSSetShader(nullptr);
 					}
 				}
 
@@ -1592,7 +1571,7 @@ void RenderSystem::CastShadows(int w, int h, const float3& camera_position, cons
 						ps->SetShader();
 					}
 					else {
-						context->PSSetShader(nullptr, nullptr, 0);
+						context->PSSetShader(nullptr);
 					}
 				}
 				ShaderKey sk{ vs, hs, ds, gs, ps };
@@ -1617,7 +1596,7 @@ void RenderSystem::CastShadows(int w, int h, const float3& camera_position, cons
 			}
 		}		
 	}
-	context->GSSetShader(nullptr, 0, 0);
+	context->GSSetShader(nullptr);
 }
 
 void RenderSystem::DrawSky(int w, int h, const float3& camera_position, const matrix& view, const matrix& projection) {
@@ -1636,7 +1615,7 @@ void RenderSystem::DrawSky(int w, int h, const float3& camera_position, const ma
 	}
 	assert(!cameras.GetData().empty() && "No cameras found");
 	CameraEntity& cam_entity = cameras.GetData()[0];
-	ID3D11DeviceContext* context = dxcore->context;
+	GfxContext* context = dxcore->context;
 
 	float time = ((float)Scheduler::Get()->GetElapsedNanoSeconds() * sky.sky->CloudSpeed()) / 1000000000.0f;
 	//Render sky background
@@ -1648,7 +1627,7 @@ void RenderSystem::DrawSky(int w, int h, const float3& camera_position, const ma
 		//buffer belongs to the pre-pass. The dome sits beyond the far plane and the
 		//sky rasterizer has depth clip off, so where nothing occludes it its depth
 		//clamps to the cleared 1.0 and LESS_EQUAL lets it through.
-		ID3D11RenderTargetView* rv[2] = { first_pass_target->RenderTarget(), current_light_map->RenderTarget() };
+		GfxRTV* rv[2] = { first_pass_target->RenderTarget(), current_light_map->RenderTarget() };
 		context->OMSetRenderTargets(2, rv, depth_view.Depth());
 		context->OMSetBlendState(dxcore->blend, NULL, ~0U);
 		context->OMSetDepthStencilState(dxcore->depth_prepass_read, 1);
@@ -1661,9 +1640,9 @@ void RenderSystem::DrawSky(int w, int h, const float3& camera_position, const ma
 		assert(ps != nullptr && "Sky with no pixel shader.");
 		vs->SetShader();
 		ps->SetShader();
-		context->GSSetShader(nullptr, nullptr, 0);
-		context->HSSetShader(nullptr, nullptr, 0);
-		context->DSSetShader(nullptr, nullptr, 0);
+		context->GSSetShader(nullptr);
+		context->HSSetShader(nullptr);
+		context->DSSetShader(nullptr);
 
 		vs->SetMatrix4x4(VIEW, cam_entity.camera->view);
 		vs->SetMatrix4x4(PROJECTION, geometry_projection);
@@ -1711,7 +1690,7 @@ void RenderSystem::DrawSky(int w, int h, const float3& camera_position, const ma
 		UnprepareLights(vs, nullptr, nullptr, nullptr, ps);
 		ps->SetShaderResourceView(DEPTH_TEXTURE, nullptr);
 		context->OMSetBlendState(dxcore->no_blend, NULL, ~0U);
-		ID3D11RenderTargetView* rv_zero[2] = { nullptr, nullptr };
+		GfxRTV* rv_zero[2] = { nullptr, nullptr };
 		context->OMSetRenderTargets(2, rv_zero, nullptr);
 	}
 }
@@ -1822,13 +1801,13 @@ void RenderSystem::LatchPreviousFrame(const Components::Camera& camera) {
 
 void RenderSystem::DrawParticles(int w, int h, const float3& camera_position, const matrix& view, const matrix& projection, RenderParticleTree& tree) {
 
-	ID3D11DeviceContext* context = dxcore->context;
+	GfxContext* context = dxcore->context;
 	
-	context->GSSetShader(nullptr, nullptr, 0);
-	context->HSSetShader(nullptr, nullptr, 0);
-	context->DSSetShader(nullptr, nullptr, 0);
-	context->VSSetShader(nullptr, nullptr, 0);
-	context->PSSetShader(nullptr, nullptr, 0);
+	context->GSSetShader(nullptr);
+	context->HSSetShader(nullptr);
+	context->DSSetShader(nullptr);
+	context->VSSetShader(nullptr);
+	context->PSSetShader(nullptr);
 
 	SimpleVertexShader* vs = nullptr;
 	SimpleHullShader* hs = nullptr;
@@ -1863,7 +1842,7 @@ void RenderSystem::DrawParticles(int w, int h, const float3& camera_position, co
 				vs->SetShader();
 			}
 			else {
-				context->VSSetShader(nullptr, nullptr, 0);
+				context->VSSetShader(nullptr);
 			}
 		}
 		SimpleHullShader* new_hs = std::get<SHADER_KEY_HS>(shaders.first);
@@ -1874,7 +1853,7 @@ void RenderSystem::DrawParticles(int w, int h, const float3& camera_position, co
 				hs->SetShader();
 			}
 			else {
-				context->HSSetShader(nullptr, nullptr, 0);
+				context->HSSetShader(nullptr);
 			}
 		}
 		SimpleDomainShader* new_ds = std::get<SHADER_KEY_DS>(shaders.first);
@@ -1888,7 +1867,7 @@ void RenderSystem::DrawParticles(int w, int h, const float3& camera_position, co
 				ds->SetShader();
 			}
 			else {
-				context->DSSetShader(nullptr, nullptr, 0);
+				context->DSSetShader(nullptr);
 			}
 		}
 		SimpleGeometryShader* new_gs = std::get<SHADER_KEY_GS>(shaders.first);
@@ -1912,7 +1891,7 @@ void RenderSystem::DrawParticles(int w, int h, const float3& camera_position, co
 				gs->CopyAllBufferData();
 			}
 			else {
-				context->GSSetShader(nullptr, nullptr, 0);
+				context->GSSetShader(nullptr);
 			}
 		}
 
@@ -1935,7 +1914,7 @@ void RenderSystem::DrawParticles(int w, int h, const float3& camera_position, co
 				ps->SetShader();
 			}
 			else {
-				context->PSSetShader(nullptr, nullptr, 0);
+				context->PSSetShader(nullptr);
 			}
 		}
 		ShaderKey sk{ vs, hs, ds, gs, ps };
@@ -1975,9 +1954,9 @@ void RenderSystem::DrawParticles(int w, int h, const float3& camera_position, co
 		gs->SetShaderResourceView(DEPTH_TEXTURE, nullptr);
 	}
 	context->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-	context->GSSetShader(nullptr, nullptr, 0);
-	context->HSSetShader(nullptr, nullptr, 0);
-	context->DSSetShader(nullptr, nullptr, 0);
+	context->GSSetShader(nullptr);
+	context->HSSetShader(nullptr);
+	context->DSSetShader(nullptr);
 	context->RSSetState(dxcore->drawing_rasterizer);
 	context->OMSetDepthStencilState(dxcore->normal_depth, 1);
 	DXCore::Get()->context->OMSetBlendState(dxcore->no_blend, NULL, ~0U);
@@ -1986,12 +1965,12 @@ void RenderSystem::DrawParticles(int w, int h, const float3& camera_position, co
 
 
 void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const matrix& view, const matrix& projection,
-	                         ID3D11ShaderResourceView* prev_pass_texture, Core::IRenderTarget* target, RenderTree& tree) {
-	ID3D11DeviceContext* context = dxcore->context;
+	                         GfxSRV* prev_pass_texture, Core::IRenderTarget* target, RenderTree& tree) {
+	GfxContext* context = dxcore->context;
 	//Render scene to target texture, can be the final backbuffer render
 	//or a post process texture pipeline
-	ID3D11RenderTargetView* light_target = current_light_map->RenderTarget();
-	ID3D11RenderTargetView* bloom_target = bloom_map.RenderTarget();
+	GfxRTV* light_target = current_light_map->RenderTarget();
+	GfxRTV* bloom_target = bloom_map.RenderTarget();
 	//Render on top of the depth pre-pass buffer rather than into an empty one. Every
 	//opaque surface in the frame is already in it, so the hardware rejects occluded
 	//fragments before the pixel shader runs instead of after - this pass shades one of
@@ -1999,18 +1978,18 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 	//is drawn in material order, not front to back, so without it a pixel can be
 	//fully shaded several times over. The rasterizer culls nothing (CULL_NONE), which
 	//alone means every closed mesh shades its far side too.
-	ID3D11DepthStencilView* depth_target_view = depth_view.Depth();
-	context->GSSetShader(nullptr, nullptr, 0);
-	context->HSSetShader(nullptr, nullptr, 0);
-	context->DSSetShader(nullptr, nullptr, 0);
-	context->VSSetShader(nullptr, nullptr, 0);
-	context->PSSetShader(nullptr, nullptr, 0);
+	GfxDSV* depth_target_view = depth_view.Depth();
+	context->GSSetShader(nullptr);
+	context->HSSetShader(nullptr);
+	context->DSSetShader(nullptr);
+	context->VSSetShader(nullptr);
+	context->PSSetShader(nullptr);
 	if (prev_pass_texture != nullptr) {
 		//Render the previous texture in the new target
 		//after copying, we render the entities that belongs
 		//to the second pass over that texture
 
-		ID3D11RenderTargetView* rv[1] = { target->RenderTarget() };
+		GfxRTV* rv[1] = { target->RenderTarget() };
 		context->OMSetRenderTargets(1, rv, nullptr);
 		context->RSSetViewports(1, &dxcore->viewport);
 		context->RSSetState(dxcore->drawing_rasterizer);
@@ -2033,7 +2012,7 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 	//light that falls on it is added by the deferred pass), the two ray sources (world
 	//position and normal with the material scalars packed), where the point was last
 	//frame and now, and how it takes light. Eight is the most D3D11 binds at once.
-	ID3D11RenderTargetView* rv[8] = { target->RenderTarget(),
+	GfxRTV* rv[8] = { target->RenderTarget(),
 		                              light_target,
 		                              bloom_target,
 		                              rt_ray_sources0.RenderTarget(),
@@ -2089,7 +2068,7 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 	//lighting can tell what the second pass drew over the first (GBUFFER_PASS2).
 	const int render_pass = (prev_pass_texture != nullptr) ? 2 : 1;
 
-	context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST);
+	context->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST);
 	for (auto &shaders : tree) {
 
 		SimpleVertexShader* new_vs = std::get<SHADER_KEY_VS>(shaders.first);
@@ -2109,7 +2088,7 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 				vs->SetShader();
 			}
 			else {
-				context->VSSetShader(nullptr, nullptr, 0);
+				context->VSSetShader(nullptr);
 			}
 		}
 		SimpleHullShader* new_hs = std::get<SHADER_KEY_HS>(shaders.first);
@@ -2120,7 +2099,7 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 				hs->SetShader();
 			}
 			else {
-				context->HSSetShader(nullptr, nullptr, 0);
+				context->HSSetShader(nullptr);
 			}
 		}
 		SimpleDomainShader* new_ds = std::get<SHADER_KEY_DS>(shaders.first);
@@ -2135,7 +2114,7 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 				ds->SetShader();
 			}
 			else {
-				context->DSSetShader(nullptr, nullptr, 0);
+				context->DSSetShader(nullptr);
 			}
 		}
 		SimpleGeometryShader* new_gs = std::get<SHADER_KEY_GS>(shaders.first);
@@ -2158,7 +2137,7 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 				gs->SetShader();
 			}
 			else {
-				context->GSSetShader(nullptr, nullptr, 0);
+				context->GSSetShader(nullptr);
 			}
 		}
 
@@ -2206,7 +2185,7 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 				ps->SetShader();
 			}
 			else {
-				context->PSSetShader(nullptr, nullptr, 0);
+				context->PSSetShader(nullptr);
 			}
 		}
 		ShaderKey sk{ vs, hs, ds, gs, ps };
@@ -2256,14 +2235,14 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 	}
 
 	context->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-	context->GSSetShader(nullptr, nullptr, 0);
-	context->HSSetShader(nullptr, nullptr, 0);
-	context->DSSetShader(nullptr, nullptr, 0);
-	context->VSSetShader(nullptr, nullptr, 0);
-	context->PSSetShader(nullptr, nullptr, 0);
+	context->GSSetShader(nullptr);
+	context->HSSetShader(nullptr);
+	context->DSSetShader(nullptr);
+	context->VSSetShader(nullptr);
+	context->PSSetShader(nullptr);
 	context->RSSetState(dxcore->drawing_rasterizer);
 
-	ID3D11RenderTargetView* rv_zero[1] = { nullptr };
+	GfxRTV* rv_zero[1] = { nullptr };
 	context->OMSetRenderTargets(1, rv_zero, nullptr);
 }
 
@@ -2367,7 +2346,7 @@ void RenderSystem::DrawSplats(int w, int h, const float3& camera_position, const
 	if (post_process_pipeline == nullptr || current_light_map == nullptr) {
 		return;
 	}
-	ID3D11UnorderedAccessView* scene_uav = post_process_pipeline->RenderUAV();
+	GfxUAV* scene_uav = post_process_pipeline->RenderUAV();
 	if (scene_uav == nullptr) {
 		return;
 	}
@@ -2401,7 +2380,7 @@ void RenderSystem::DrawSplats(int w, int h, const float3& camera_position, const
 
 	SkyEntity* sky = skies.GetData().empty() ? nullptr : &(skies.GetData()[0]);
 	const float frame_time = (float)Scheduler::Get()->GetElapsedNanoSeconds() / 1000000000.0f;
-	ID3D11DeviceContext* context = dxcore->context;
+	GfxContext* context = dxcore->context;
 
 	//The rasterizer writes the G-buffer, including the material map (the ninth-and-tenth
 	//UAVs of a compute shader exist only at feature level 11_1: see
@@ -2787,7 +2766,7 @@ void RenderSystem::DrawSplats(int w, int h, const float3& camera_position, const
 			splat_stats_cpu.pixels_written = raw[7];
 		}
 	}
-	context->CSSetShader(nullptr, nullptr, 0);
+	context->CSSetShader(nullptr);
 	//The clouds wrote their G-buffer and the light they emit; the light that falls on them
 	//is added here, for their pixels only, weighted by their coverage.
 	if (drew_cloud) {
@@ -2871,7 +2850,7 @@ void RenderSystem::ProcessAntiAlias() {
 		return;
 	}
 
-	ID3D11UnorderedAccessView* image = motion_blur_map.UAV();
+	GfxUAV* image = motion_blur_map.UAV();
 
 	int32_t  groupsX = (int32_t)(ceil((float)motion_blur_map.Width() / 8.0f));
 	int32_t  groupsY = (int32_t)(ceil((float)motion_blur_map.Height() / 8.0f));
@@ -2896,7 +2875,7 @@ void RenderSystem::ProcessMix() {
 		return;
 	}
 
-	ID3D11UnorderedAccessView* image = temp_map.UAV();
+	GfxUAV* image = temp_map.UAV();
 
 	int32_t  groupsX = (int32_t)(ceil((float)temp_map.Width() / 8.0f));
 	int32_t  groupsY = (int32_t)(ceil((float)temp_map.Height() / 8.0f));
@@ -3217,7 +3196,7 @@ void RenderSystem::ProcessHighZ() {
 	high_z_valid = true;
 	//depth_map is also a render target of the passes before this one, and a texture still
 	//bound as one reads as black here.
-	ID3D11RenderTargetView* nullRenderTargetViews[1] = { nullptr };
+	GfxRTV* nullRenderTargetViews[1] = { nullptr };
 	dxcore->context->OMSetRenderTargets(1, nullRenderTargetViews, nullptr);
 
 	high_z_shader->SetInt("ratio", HIZ_RATIO);
@@ -3678,10 +3657,10 @@ void RenderSystem::ProcessRT() {
 			//Only counted while somebody is reading the counters, and only the screen solver has
 			//any: the world alone traces every reflective pixel and has nothing to split.
 			const bool collect_stats = use_screen && rt_stats_requested && frame_count - rt_stats_request_frame < RT_STATS_KEEPALIVE;
-			ID3D11ShaderResourceView* nullsrc = nullptr;
-			ID3D11ShaderResourceView* no_data[MAX_OBJECTS] = {};
+			GfxSRV* nullsrc = nullptr;
+			GfxSRV* no_data[MAX_OBJECTS] = {};
 
-			ID3D11RenderTargetView* nullRenderTargetViews[1] = { nullptr };
+			GfxRTV* nullRenderTargetViews[1] = { nullptr };
 			dxcore->context->OMSetRenderTargets(1, nullRenderTargetViews, nullptr);
 
 			int32_t groupsX = (int32_t)(ceil((float)rt_texture_di_curr[RT_TEXTURE_REFLEX].Width() / (8.0f)));
@@ -4146,7 +4125,7 @@ void RenderSystem::UnprepareMultiMaterial(Core::MaterialData* material, Core::Si
 		return;
 	}
 	const uint32_t count = mm->multi_texture_count;
-	static ID3D11ShaderResourceView* zero_text[MAX_MULTI_TEXTURE] = {};
+	static GfxSRV* zero_text[MAX_MULTI_TEXTURE] = {};
 
 	if (ps) {
 		ps->SetInt(SimpleShaderKeys::MULTI_TEXTURE_COUNT, 0);
@@ -4204,7 +4183,7 @@ void RenderSystem::PrepareLights(Core::ISimpleShader* s, bool volumetric) {
 }
 
 void RenderSystem::UnprepareLights(Core::ISimpleShader* s) {
-	ID3D11ShaderResourceView* no_data[MAX_LIGHTS] = {};
+	GfxSRV* no_data[MAX_LIGHTS] = {};
 	if (!scene_lighting.shadows.empty()) {
 		s->SetShaderResourceViewArray(POINT_SHADOW_MAP_TEXTURE, no_data, MAX_LIGHTS);
 	}
@@ -4310,7 +4289,7 @@ void RenderSystem::PrepareEntity(DrawableEntity& entity, SimpleVertexShader* vs,
 	if (ps != nullptr) {
 		ps->SetMatrix4x4(WORLD, world);
 		ps->SetMatrix4x4(PREV_WORLD, prev_world);
-		ID3D11ShaderResourceView* mesh_normal_map = entity.mesh->GetData()->normal_map;
+		GfxSRV* mesh_normal_map = entity.mesh->GetData()->normal_map;
 		ps->SetShaderResourceView(MESH_NORMAL_MAP, mesh_normal_map);
 		ps->SetInt(MESH_NORMAL_MAP_ENABLE, mesh_normal_map != nullptr);
 		ps->CopyAllBufferData();
@@ -4706,14 +4685,14 @@ void RenderSystem::ProcessShadowBvhDebug() {
 	shadow_bvh_debug->SetShaderResourceView("srVertices", nullptr);
 	shadow_bvh_debug->SetShaderResourceView("srIndices", nullptr);
 	shadow_bvh_debug->SetUnorderedAccessView("picture", nullptr);
-	dxcore->context->CSSetShader(nullptr, nullptr, 0);
+	dxcore->context->CSSetShader(nullptr);
 }
 void RenderSystem::ProcessDeferredLighting(int pass_filter) {
-	if (deferred_light == nullptr || cameras.GetData().empty()) {
+	if (deferred_light == nullptr || deferred_light_rays == nullptr || cameras.GetData().empty()) {
 		return;
 	}
 	CameraEntity& cam_entity = cameras.GetData()[0];
-	ID3D11DeviceContext* context = dxcore->context;
+	GfxContext* context = dxcore->context;
 	const int w = dxcore->GetWidth();
 	const int h = dxcore->GetHeight();
 	const bool first = (lighting_passes_this_frame++ == 0);
@@ -4737,102 +4716,109 @@ void RenderSystem::ProcessDeferredLighting(int pass_filter) {
 	//Ambient, the directional lights and their shadow maps, and the point light shadow
 	//maps by slot. The point lights themselves are in the buffer the masks index.
 	SetEntityLights(&scene_lighting, directional_lights, point_lights);
-	PrepareLights(deferred_light);
-	deferred_light->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
-	deferred_light->SetInt(SCREEN_W, w);
-	deferred_light->SetInt(SCREEN_H, h);
-	deferred_light->SetInt("tiles_x", (int)tiled_lights.TilesX());
-	deferred_light->SetInt("pass_filter", pass_filter);
 	//Where a shadow ray is solved. The world's casters are only worth handing over when the BVH
 	//is to be walked, and the screen's march only when the pyramid it needs was built.
 	const bool world_shadows = (shadow_space == eRtSpace::WORLD || shadow_space == eRtSpace::BOTH) && shadow_rays.Count() > 0;
 	const bool screen_shadows = ShadowScreenWanted() && high_z_valid;
-	deferred_light->SetInt("shadow_ray_objects", world_shadows ? (int)shadow_rays.Count() : 0);
-	deferred_light->SetInt("shadow_ray_sun_scene", (int)shadow_ray_sun_scene);
-	deferred_light->SetInt("ss_steps", screen_shadows ? SHADOW_SCREEN_STEPS : 0);
-	if (screen_shadows) {
-		deferred_light->SetMatrix4x4("ss_view_proj", cam_entity.camera->view_projection);
-		deferred_light->SetFloat("ss_hiz_ratio", (float)HIZ_RATIO);
-		deferred_light->SetFloat("ss_max_distance", SHADOW_SCREEN_DISTANCE);
-		deferred_light->SetFloat("ss_bias", SHADOW_SCREEN_BIAS);
-		deferred_light->SetFloat("ss_thickness", SHADOW_SCREEN_THICKNESS);
-		deferred_light->SetFloat("ss_thickness_rel", SHADOW_SCREEN_THICKNESS_REL);
-		deferred_light->SetShaderResourceViewArray("ssHiZ[0]", high_z_maps, HIZ_NTEXTURES);
-	}
 	//Only the first lighting dispatch accumulates: the later ones (water, splats) light a few pixels each
 	//and add their ray traced light straight to the map.
 	const bool accumulate_shadows = (pass_filter == 0) && (raytraced_light_count + raytraced_directional_count) > 0 &&
 		(world_shadows || screen_shadows);
 	if (accumulate_shadows) {
 		shadow_rt_light.Clear(zero);
-		deferred_light->SetUnorderedAccessView("rt_shadow_out", shadow_rt_light.UAV());
 	}
-	deferred_light->SetInt("shadow_ray_accumulate", accumulate_shadows ? 1 : 0);
-	deferred_light->SetFloat("shadow_ray_radius", shadow_ray_radius);
-	deferred_light->SetFloat("shadow_ray_sun_spread", shadow_ray_sun_spread);
-	deferred_light->SetFloat("shadow_ray_sun_distance", shadow_ray_sun_distance);
-	deferred_light->SetInt("shadow_ray_frame", (int)frame_count);
-	deferred_light->SetFloat(TIME, light_time);
+
+	//Two builds of the lighting shader (DeferredLightCS.hlsl): the one that traces rays is a much slower shader (the GPU
+	//keeps fewer pixels in flight when it holds the BVH walk and the screen march), so a dispatch with nothing to trace
+	//uses the one without.
+	SimpleComputeShader* dl = (world_shadows || screen_shadows) ? deferred_light_rays : deferred_light;
+	PrepareLights(dl);
+	dl->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
+	dl->SetInt(SCREEN_W, w);
+	dl->SetInt(SCREEN_H, h);
+	dl->SetInt("tiles_x", (int)tiled_lights.TilesX());
+	dl->SetInt("pass_filter", pass_filter);
+	dl->SetInt("shadow_ray_objects", world_shadows ? (int)shadow_rays.Count() : 0);
+	dl->SetInt("shadow_ray_sun_scene", (int)shadow_ray_sun_scene);
+	dl->SetInt("ss_steps", screen_shadows ? SHADOW_SCREEN_STEPS : 0);
+	if (screen_shadows) {
+		dl->SetMatrix4x4("ss_view_proj", cam_entity.camera->view_projection);
+		dl->SetFloat("ss_hiz_ratio", (float)HIZ_RATIO);
+		dl->SetFloat("ss_max_distance", SHADOW_SCREEN_DISTANCE);
+		dl->SetFloat("ss_bias", SHADOW_SCREEN_BIAS);
+		dl->SetFloat("ss_thickness", SHADOW_SCREEN_THICKNESS);
+		dl->SetFloat("ss_thickness_rel", SHADOW_SCREEN_THICKNESS_REL);
+		dl->SetShaderResourceViewArray("ssHiZ[0]", high_z_maps, HIZ_NTEXTURES);
+	}
+	if (accumulate_shadows) {
+		dl->SetUnorderedAccessView("rt_shadow_out", shadow_rt_light.UAV());
+	}
+	dl->SetInt("shadow_ray_accumulate", accumulate_shadows ? 1 : 0);
+	dl->SetFloat("shadow_ray_radius", shadow_ray_radius);
+	dl->SetFloat("shadow_ray_sun_spread", shadow_ray_sun_spread);
+	dl->SetFloat("shadow_ray_sun_distance", shadow_ray_sun_distance);
+	dl->SetInt("shadow_ray_frame", (int)frame_count);
+	dl->SetFloat(TIME, light_time);
 	if (sky != nullptr) {
-		deferred_light->SetFloat("cloud_density", sky->sky->cloud_density);
+		dl->SetFloat("cloud_density", sky->sky->cloud_density);
 	}
-	deferred_light->SetSamplerState(BASIC_SAMPLER, dxcore->basic_sampler);
-	deferred_light->SetSamplerState(PCF_SAMPLER, dxcore->shadow_sampler);
-	deferred_light->SetShaderResourceView("rgbaNoise", rgba_noise_texture.SRV());
-	deferred_light->SetShaderResourceView("positionTexture", position_map.SRV());
-	deferred_light->SetShaderResourceView("normalTexture", rt_ray_sources1.SRV());
-	deferred_light->SetShaderResourceView("materialTexture", material_map.SRV());
-	deferred_light->SetShaderResourceView("lightsBuffer", tiled_lights.LightsSRV());
-	deferred_light->SetShaderResourceView("tileMasks", tiled_lights.MasksSRV());
+	dl->SetSamplerState(BASIC_SAMPLER, dxcore->basic_sampler);
+	dl->SetSamplerState(PCF_SAMPLER, dxcore->shadow_sampler);
+	dl->SetShaderResourceView("rgbaNoise", rgba_noise_texture.SRV());
+	dl->SetShaderResourceView("positionTexture", position_map.SRV());
+	dl->SetShaderResourceView("normalTexture", rt_ray_sources1.SRV());
+	dl->SetShaderResourceView("materialTexture", material_map.SRV());
+	dl->SetShaderResourceView("lightsBuffer", tiled_lights.LightsSRV());
+	dl->SetShaderResourceView("tileMasks", tiled_lights.MasksSRV());
 	//The ray traced shadow scene. Only bound when there is one: the geometry buffers are the
 	//ones the reflection tracer reads, and a frame with no ray traced light never touches them.
 	const bool shadow_rays_bound = world_shadows && bvh_buffer != nullptr;
 	if (shadow_rays_bound) {
-		deferred_light->SetShaderResourceView("srMeshNodes", *bvh_buffer->SRV());
-		deferred_light->SetShaderResourceView("srTlas", *shadow_rays.TlasSRV());
-		deferred_light->SetShaderResourceView("srObjects", *shadow_rays.ObjectsSRV());
-		deferred_light->SetShaderResourceView("srScenes", *shadow_rays.ScenesSRV());
-		deferred_light->SetShaderResourceView("srVertices", *vertex_buffer->VertexSRV());
-		deferred_light->SetShaderResourceView("srIndices", *vertex_buffer->IndexSRV());
+		dl->SetShaderResourceView("srMeshNodes", *bvh_buffer->SRV());
+		dl->SetShaderResourceView("srTlas", *shadow_rays.TlasSRV());
+		dl->SetShaderResourceView("srObjects", *shadow_rays.ObjectsSRV());
+		dl->SetShaderResourceView("srScenes", *shadow_rays.ScenesSRV());
+		dl->SetShaderResourceView("srVertices", *vertex_buffer->VertexSRV());
+		dl->SetShaderResourceView("srIndices", *vertex_buffer->IndexSRV());
 	}
-	deferred_light->SetUnorderedAccessView("light_out", current_light_map->UAV());
-	deferred_light->SetUnorderedAccessView("bloom_out", bloom_map.UAV());
+	dl->SetUnorderedAccessView("light_out", current_light_map->UAV());
+	dl->SetUnorderedAccessView("bloom_out", bloom_map.UAV());
 	const bool count_rays = pass_filter == 0 && shadow_ray_counters_requested && shadow_ray_counters.IsValid() &&
 		frame_count - shadow_ray_counters_frame < TILED_STATS_KEEPALIVE && (world_shadows || screen_shadows);
 	if (count_rays) {
 		shadow_ray_counters.Clear(0);
-		deferred_light->SetUnorderedAccessView("sr_counters", shadow_ray_counters.UAV());
+		dl->SetUnorderedAccessView("sr_counters", shadow_ray_counters.UAV());
 	}
-	deferred_light->CopyAllBufferData();
-	deferred_light->SetShader();
+	dl->CopyAllBufferData();
+	dl->SetShader();
 	context->Dispatch(tiled_lights.TilesX(), tiled_lights.TilesY(), 1);
 	if (count_rays) {
-		deferred_light->SetUnorderedAccessView("sr_counters", nullptr);
+		dl->SetUnorderedAccessView("sr_counters", nullptr);
 		shadow_ray_counters.Readback(shadow_ray_counters_cpu, sizeof(shadow_ray_counters_cpu));
 	}
-	deferred_light->SetShaderResourceView("rgbaNoise", nullptr);
-	deferred_light->SetShaderResourceView("positionTexture", nullptr);
-	deferred_light->SetShaderResourceView("normalTexture", nullptr);
-	deferred_light->SetShaderResourceView("materialTexture", nullptr);
-	deferred_light->SetShaderResourceView("lightsBuffer", nullptr);
-	deferred_light->SetShaderResourceView("tileMasks", nullptr);
+	dl->SetShaderResourceView("rgbaNoise", nullptr);
+	dl->SetShaderResourceView("positionTexture", nullptr);
+	dl->SetShaderResourceView("normalTexture", nullptr);
+	dl->SetShaderResourceView("materialTexture", nullptr);
+	dl->SetShaderResourceView("lightsBuffer", nullptr);
+	dl->SetShaderResourceView("tileMasks", nullptr);
 	if (screen_shadows) {
-		ID3D11ShaderResourceView* no_hiz[HIZ_NTEXTURES] = {};
-		deferred_light->SetShaderResourceViewArray("ssHiZ[0]", no_hiz, HIZ_NTEXTURES);
+		GfxSRV* no_hiz[HIZ_NTEXTURES] = {};
+		dl->SetShaderResourceViewArray("ssHiZ[0]", no_hiz, HIZ_NTEXTURES);
 	}
 	if (shadow_rays_bound) {
-		deferred_light->SetShaderResourceView("srMeshNodes", nullptr);
-		deferred_light->SetShaderResourceView("srTlas", nullptr);
-		deferred_light->SetShaderResourceView("srObjects", nullptr);
-		deferred_light->SetShaderResourceView("srScenes", nullptr);
-		deferred_light->SetShaderResourceView("srVertices", nullptr);
-		deferred_light->SetShaderResourceView("srIndices", nullptr);
+		dl->SetShaderResourceView("srMeshNodes", nullptr);
+		dl->SetShaderResourceView("srTlas", nullptr);
+		dl->SetShaderResourceView("srObjects", nullptr);
+		dl->SetShaderResourceView("srScenes", nullptr);
+		dl->SetShaderResourceView("srVertices", nullptr);
+		dl->SetShaderResourceView("srIndices", nullptr);
 	}
-	deferred_light->SetUnorderedAccessView("light_out", nullptr);
-	deferred_light->SetUnorderedAccessView("bloom_out", nullptr);
-	deferred_light->SetUnorderedAccessView("rt_shadow_out", nullptr);
-	UnprepareLights(deferred_light);
-	context->CSSetShader(nullptr, nullptr, 0);
+	dl->SetUnorderedAccessView("light_out", nullptr);
+	dl->SetUnorderedAccessView("bloom_out", nullptr);
+	dl->SetUnorderedAccessView("rt_shadow_out", nullptr);
+	UnprepareLights(dl);
+	context->CSSetShader(nullptr);
 
 	if (accumulate_shadows) {
 		//Average the ray traced lights' jittered light over the frames and add it to the map.
@@ -4860,7 +4846,7 @@ void RenderSystem::ProcessDeferredLighting(int pass_filter) {
 		shadow_accumulate->SetShaderResourceView("history", nullptr);
 		shadow_accumulate->SetUnorderedAccessView("history_out", nullptr);
 		shadow_accumulate->SetUnorderedAccessView("light_out", nullptr);
-		context->CSSetShader(nullptr, nullptr, 0);
+		context->CSSetShader(nullptr);
 		shadow_rt_history_read = write;
 		shadow_rt_history_valid = true;
 	}
@@ -5003,8 +4989,8 @@ void RenderSystem::PostProcessLight() {
 		blur_shader->SetShaderResourceView("vol_data", nullptr);
 	}
 #if 1
-	ID3D11DeviceContext* context = DXCore::Get()->context;
-	ID3D11RenderTargetView* rv[1] = { temp_map.RenderTarget() };
+	GfxContext* context = DXCore::Get()->context;
+	GfxRTV* rv[1] = { temp_map.RenderTarget() };
 	context->OMSetRenderTargets(1, rv, nullptr);
 	context->RSSetViewports(1, &dxcore->viewport);
 	context->RSSetState(dxcore->drawing_rasterizer);
@@ -5037,6 +5023,49 @@ void RenderSystem::PostProcessLight() {
 	ProcessDust();
 	ProcessLensFlare();
 }
+
+//HOTBITE_DUMP_DIR=<folder>: once, a couple of seconds into a run, the frame's main targets are written to PNGs there.
+static void DumpFrameTargets(uint32_t frame, const std::vector<std::pair<const char*, Core::RenderTexture2D*>>& targets) {
+	static bool done = false;
+	char dir[512] = {};
+	size_t len = 0;
+	if (done || frame < 200 || getenv_s(&len, dir, sizeof(dir), "HOTBITE_DUMP_DIR") != 0 || len == 0) {
+		return;
+	}
+	done = true;
+	for (const auto& t : targets) {
+		Core::DumpTexture(t.second->Texture(), std::string(dir) + "\\" + t.first + ".png");
+	}
+		Core::DumpTexture(DXCore::Get()->BackBufferTexture(), std::string(dir) + "\\backbuffer.png");
+	}
+
+	//One texture, right now, on the frame HOTBITE_DUMP_FRAME (default 200) - for looking between two passes of a frame.
+	static void DumpNow(uint32_t frame, const char* name, Core::RenderTexture2D& texture) {
+		char dir[512] = {};
+		size_t len = 0;
+		if (frame != 200 || getenv_s(&len, dir, sizeof(dir), "HOTBITE_DUMP_DIR") != 0 || len == 0) {
+			return;
+		}
+		Core::DumpTexture(texture.Texture(), std::string(dir) + "\\step_" + name + ".png");
+	}
+
+	//The textures the post-process chain passes along, in order.
+	static void DumpPostChain(Core::PostProcess* first, uint32_t frame) {
+		static bool done = false;
+		char dir[512] = {};
+		size_t len = 0;
+		if (done || frame < 200 || getenv_s(&len, dir, sizeof(dir), "HOTBITE_DUMP_DIR") != 0 || len == 0) {
+			return;
+		}
+		done = true;
+		int n = 0;
+		for (Core::PostProcess* p = first; p != nullptr; p = p->GetNext(), ++n) {
+			GfxSRV* srv = p->RenderResource();
+			if (srv != nullptr && srv->Resource() != nullptr) {
+				Core::DumpTexture(static_cast<GfxTexture*>(srv->Resource()), std::string(dir) + "\\post" + std::to_string(n) + ".png");
+			}
+		}
+	}
 
 void RenderSystem::Draw() {
 	DXCore* dxcore = DXCore::Get();
@@ -5147,7 +5176,7 @@ void RenderSystem::Draw() {
 		DrawSky(w, h, camera_position, view, projection);
 		//The main pass is the one that draws every tessellated surface, so it is what the
 		//tessellation counters wrap. Only while something is reading them.
-		ID3D11Query* tess_query_open = nullptr;
+		GfxQueryHeap* tess_query_open = nullptr;
 		if (tess_stats_requested && frame_count - tess_stats_request_frame < TESS_STATS_KEEPALIVE) {
 			tess_query_open = BeginTessStats();
 		}
@@ -5191,10 +5220,12 @@ void RenderSystem::Draw() {
 		PostProcessLight();
 		GpuStamp(7);
 		ProcessMix();
-		GpuStamp(8);
-		ProcessAntiAlias();
-		GpuStamp(9);
-		ProcessMotionBlur();
+				DumpNow(frame_count, "1_mix_temp", temp_map);
+				GpuStamp(8);
+				ProcessAntiAlias();
+				DumpNow(frame_count, "2_aa_motion_blur_map", motion_blur_map);
+				GpuStamp(9);
+				ProcessMotionBlur();
 
 		if (post_process_pipeline != nullptr) {
 			post_process_pipeline->SetShaderResourceView(DEPTH_TEXTURE, depth_map.SRV());
@@ -5205,6 +5236,9 @@ void RenderSystem::Draw() {
 		GpuStamp(10);
 		GpuEnd();
 		LatchPreviousFrame(*(cam_entity.camera));
+				DumpFrameTargets(frame_count, { { "first_pass", &first_pass_texture }, { "depth_map", &depth_map }, { "light0", &light_map[0] },
+					{ "position", &position_map }, { "material", &material_map }, { "temp", &temp_map }, { "motion_blur", &motion_blur_map } });
+							DumpPostChain(post_process_pipeline, frame_count);
 		cpu_lap(cpu_timings.latch);
 		++cpu_timings.frames;
 		instancing_stats_last = instancing_stats_frame;
@@ -5367,7 +5401,7 @@ void RenderSystem::SetDustEffectArea(int32_t num_particles, const float3& area, 
 	if (dust_map.Width() != particles_texture_size) {
 		is_dust_init = false;
 		dust_map.Release();
-		if (FAILED(dust_map.Init(particles_texture_size, particles_texture_size, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS))) {
+		if (FAILED(dust_map.Init(particles_texture_size, particles_texture_size, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("dust_map.Init failed");
 		}
 	}

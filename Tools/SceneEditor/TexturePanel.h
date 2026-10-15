@@ -2,7 +2,7 @@
 
 #include "SceneEditor.h"
 
-#include <d3d11.h>
+#include <Core/DXCore.h>
 #include <string>
 #include <vector>
 
@@ -58,7 +58,7 @@ namespace HotBiteEditor {
 		// The texture as a shader resource, loaded on first ask and cached (null if the
 		// file will not load). Shares the engine's texture cache, so it is the same SRV a
 		// material using the file holds.
-		ID3D11ShaderResourceView* Thumbnail(const EditorState& state, const std::string& texture);
+		GfxSRV* Thumbnail(const EditorState& state, const std::string& texture);
 	}
 
 	namespace TexturePanel {

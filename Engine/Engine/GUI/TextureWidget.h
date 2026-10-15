@@ -29,10 +29,8 @@ SOFTWARE.
 #include <Core/PostProcess.h>
 #include <Core/Texture.h>
 #include <Core\Utils.h>
-#include <SpriteBatch.h>
-#include <SpriteFont.h>
-#include <CommonStates.h>
-#include <Effects.h>
+#include <SimpleMath.h>
+#include <VertexTypes.h>
 #include <variant>
 #include "Widget.h"
 
@@ -50,7 +48,7 @@ namespace HotBite {
 				static inline uint64_t TEXTURE_WIDGET_ID = GetTypeId<TextureWidget>();
 
 			private:
-				ID3D11ShaderResourceView* texture = nullptr;
+				GfxSRV* texture = nullptr;
 				bool invert_uv_x = false;
 				bool invert_uv_y = false;
 			public:
@@ -86,7 +84,7 @@ namespace HotBite {
 					}
 				}
 
-				void SetTexture(ID3D11ShaderResourceView* t) {
+				void SetTexture(GfxSRV* t) {
 					texture = t;
 				}
 			};

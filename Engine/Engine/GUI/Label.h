@@ -29,10 +29,8 @@ SOFTWARE.
 #include <Core/PostProcess.h>
 #include <Core/Texture.h>
 #include <Core\Utils.h>
-#include <SpriteBatch.h>
-#include <SpriteFont.h>
-#include <CommonStates.h>
-#include <Effects.h>
+#include <SimpleMath.h>
+#include <VertexTypes.h>
 #include <variant>
 #include "Widget.h"
 
@@ -62,7 +60,12 @@ namespace HotBite {
 
 				std::string text;
 
-				ID2D1RenderTarget* d2d_render_target = nullptr;
+				//The text as a texture the size of its layout box, rebuilt when the text, its font or its colour changes
+				//(Direct2D rasterizes it on the CPU, see Direct2D::RenderText) and drawn as a quad after the widget's
+				//own, in widget order. One texture per label, kept while its size stays the same: text that changes every
+				//frame (a clock, an fps counter) is only a new upload, not a new GPU resource.
+				DynamicTexture2D text_texture;
+				bool text_dirty = true;
 				IDWriteTextFormat* text_format = nullptr;
 				IDWriteTextLayout* text_layout = nullptr;
 				std::string font_name;
@@ -70,7 +73,6 @@ namespace HotBite {
 				float font_size = 0.0f;
 				D2D1_COLOR_F text_color = D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f);
 				D2D1_POINT_2F origin = D2D1::Point2F(0.0f, 0.0f);
-				ID2D1SolidColorBrush* brush = nullptr;
 				float rotation = 0.0f;
 				std::vector<text_param> parameters;
 				std::vector<uint32_t> last_parameters;
@@ -91,10 +93,29 @@ namespace HotBite {
 						text_layout->Release();
 						text_layout = nullptr;
 					}
-					if (brush != nullptr) {
-						brush->Release();
-						brush = nullptr;
+				}
+
+				//Rasterizes the current layout into the label's texture. Called from Render, so on the render thread.
+				void RebuildTextTexture() {
+					text_dirty = false;
+					if (text_layout == nullptr) {
+						text_texture.Release();
+						return;
 					}
+					const float scale = (float)DXCore::Get()->GetDpi() / 96.0f;
+					const uint32_t w = (uint32_t)std::ceil(text_layout->GetMaxWidth() * scale);
+					const uint32_t h = (uint32_t)std::ceil(text_layout->GetMaxHeight() * scale);
+					std::vector<uint8_t> rgba;
+					if (w == 0 || h == 0 || w > 8192 || h > 8192 ||
+						!Direct2D::Get()->RenderText(text_layout, text_color, w, h, (float)DXCore::Get()->GetDpi(), rgba)) {
+						return;
+					}
+					if (text_texture.Width() != (int)w || text_texture.Height() != (int)h) {
+						if (FAILED(text_texture.Init((int)w, (int)h, TextureFormat::RGBA8))) {
+							return;
+						}
+					}
+					text_texture.Update(rgba.data());
 				}
 
 				void RefreshTextLayout() {
@@ -106,7 +127,8 @@ namespace HotBite {
 					last_parameters.clear();
 					for (int i = 0; i < parameters.size(); ++i) {
 						last_parameters.push_back(get_value(parameters[i]));
-					}
+											}
+											text_dirty = true;
 					text_layout = d2d->GetText(final_text, text_format, (width - 2.0f* margin) * 0.5f * DXCore::Get()->GetScreenWidth(), height * 0.5f * DXCore::Get()->GetScreenHeight());
 				}
 
@@ -167,7 +189,7 @@ namespace HotBite {
 				virtual void Render(SimplePixelShader* ps) override {
 					if (visible) {
 						Widget::Render(ps);
-						if (d3d_render_target != nullptr && text_layout != nullptr && brush != nullptr) {
+						if (d3d_render_target != nullptr && text_layout != nullptr) {
 							if (frame++ % 10 == 0) {
 								for (int i = 0; i < parameters.size(); ++i) {
 									if (get_value(parameters[i]) != last_parameters[i]) {
@@ -176,10 +198,32 @@ namespace HotBite {
 									}
 								}
 							}
-							if (show_text) {
-								d2d_render_target->BeginDraw();
-								d2d_render_target->DrawTextLayout(origin, text_layout, brush, D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
-								d2d_render_target->EndDraw();
+							if (text_dirty) {
+								RebuildTextTexture();
+							}
+							if (show_text && text_texture.Valid()) {
+								//The layout box is the widget's rectangle without its horizontal margins, so the text
+								//quad is that rectangle: its bottom edge is the widget's, as the layout used to be placed.
+								const float left = position.x + margin;
+								const float right = position.x + width - margin;
+								const float bottom = position.y;
+								const float top = position.y + height;
+								const float4 white = { 1.0f, 1.0f, 1.0f, 1.0f };
+								const VertexType q[4] = {
+									{ float3(left, top, flayer), white, float2(0.f, 0.f) },
+									{ float3(right, top, flayer), white, float2(1.f, 0.f) },
+									{ float3(right, bottom, flayer), white, float2(1.f, 1.f) },
+									{ float3(left, bottom, flayer), white, float2(0.f, 1.f) } };
+								ps->SetShaderResourceView("background_texture", text_texture.SRV());
+								ps->SetFloat("alpha", 1.0f);
+								ps->SetInt(SimpleShaderKeys::UI_FLAGS, WIDGET_FLAG | BACKGROUND_IMAGE_FLAG);
+								ps->CopyAllBufferData();
+								sprite->Begin();
+								sprite->DrawQuad(q[0], q[1], q[2], q[3]);
+								sprite->End();
+								ps->SetInt(SimpleShaderKeys::UI_FLAGS, 0);
+								ps->SetShaderResourceView("background_texture", nullptr);
+								ps->CopyAllBufferData();
 							}
 						}
 					}
@@ -192,12 +236,12 @@ namespace HotBite {
 				virtual void Refresh() override {
 					Widget::Refresh();
 					Release();
-					if (d2d_render_target != nullptr &&
+					text_dirty = true;
+					if (d3d_render_target != nullptr &&
 						width > 0.0f && height > 0.0f &&
 						font_size > 0.0f && !font_name.empty() && !text.empty()) {
 						Direct2D* d2d = Direct2D::Get();
 						text_format = d2d->GetFont(font_name, font_size, weight, style, align, valign);
-						d2d_render_target->CreateSolidColorBrush(text_color, &brush);
 						RefreshTextLayout();
 						if (text_layout != nullptr) {
 							origin.x = ((1.0f + position.x + margin) * 0.5f) * DXCore::Get()->GetScreenWidth();
@@ -260,20 +304,12 @@ namespace HotBite {
 					return float4{ text_color.r,  text_color.g,  text_color.b, text_color.a };
 				}
 
-				virtual void SetRenderTarget(ID3D11RenderTargetView* target) override {
-					if (target != d3d_render_target) {
-						Widget::SetRenderTarget(target);
-						if (d2d_render_target) {
-							d2d_render_target->Release();
-							d2d_render_target = nullptr;
-						}
-						if (target != nullptr) {
-							Direct2D* d2d = Direct2D::Get();
-							d2d_render_target = d2d->GetD2DRenderTargetView(target);
-						}
-						Refresh();
-					}
-				}
+				virtual void SetRenderTarget(GfxRTV* target) override {
+									if (target != d3d_render_target) {
+										Widget::SetRenderTarget(target);
+										Refresh();
+									}
+								}
 			};
 		}
 	}

@@ -27,7 +27,9 @@ SOFTWARE.
 #ifndef __UTILS_HLSLI__
 #define __UTILS_HLSLI__
 
-float Epsilon = 1e-4;
+//static const: a plain global with an initializer is a uniform in $Globals that nobody sets (DXC ignores the initializer, fxc
+//used to bake it in as the uniform's default), so every shader would read 0.
+static const float Epsilon = 1e-4;
 
 float3 climit3(float3 color) {
 	float m = max(color.r, max(color.g, color.b));

@@ -25,6 +25,7 @@ SOFTWARE.
 #pragma once
 
 #include <Defines.h>
+#include <Core/GfxDevice.h>
 #include <Core/Texture.h>
 #include <Core/Update.h>
 #include <ECS/Coordinator.h>
@@ -260,7 +261,7 @@ namespace HotBite {
 				float3 last_cam_pos = {};
 				float3 last_cam_dir = {};
 				bool dirty = true;
-				D3D11_VIEWPORT shadow_vp = {};
+				D3D12_VIEWPORT shadow_vp = {};
 
 			public:
 				static constexpr const char* NAME = "DirectionalLight";
@@ -302,10 +303,10 @@ namespace HotBite {
 					const CascadeSettings& cascades = CascadeSettings{});
 				HRESULT Release();
 				void RefreshStaticViewMatrix();
-				ID3D11ShaderResourceView* StaticDepthResource();
-				ID3D11DepthStencilView* StaticDepthView();
-				ID3D11ShaderResourceView* DepthResource();
-				ID3D11DepthStencilView* DepthView();
+				GfxSRV* StaticDepthResource();
+				GfxDSV* StaticDepthView();
+				GfxSRV* DepthResource();
+				GfxDSV* DepthView();
 				bool CastShadow() const;
 				//Turns shadows on or off after Init. Off just stops the cascade fit
 				//(CastShadow() gates it); on allocates the depth maps if this light has
@@ -319,7 +320,7 @@ namespace HotBite {
 				bool RayTracedShadow() const { return (data.flags & DIR_LIGHT_FLAG_RAYTRACED) != 0; }
 				void SetRayTracedShadow(bool enable);
 				struct Data& GetData();
-				const D3D11_VIEWPORT& GetShadowViewPort() const;
+				const D3D12_VIEWPORT& GetShadowViewPort() const;
 
 				//Cascades. The count is what the light was *initialized* with, since it
 				//sizes the depth array; changing it needs the textures rebuilt, which is
@@ -451,7 +452,7 @@ namespace HotBite {
 				float4x4 worldMatrix = {};
 				float4x4 viewMatrix[6] = {};
 				float4x4 projectionMatrix = {};
-				D3D11_VIEWPORT shadow_vp;
+				D3D12_VIEWPORT shadow_vp;
 				bool init = false;
 				//See DirectionalLight::shadow_resolution_divisor.
 				int shadow_resolution_divisor = 1;
@@ -499,10 +500,10 @@ namespace HotBite {
 				//is the ray, per lit pixel.
 				bool RayTracedShadow() const { return raytraced_shadow; }
 				void SetRayTracedShadow(bool enable);
-				const D3D11_VIEWPORT& GetShadowViewPort() const;
+				const D3D12_VIEWPORT& GetShadowViewPort() const;
 
-				virtual ID3D11ShaderResourceView* DepthResource() override;
-				virtual ID3D11DepthStencilView* DepthView() override;
+				virtual GfxSRV* DepthResource() override;
+				virtual GfxDSV* DepthView() override;
 
 				struct Data& GetData();
 
@@ -531,11 +532,11 @@ namespace HotBite {
 
 				std::vector<PointLight::Data> point_lights;
 				std::vector<DirectionalLight::Data> dir_lights;
-				std::vector<ID3D11ShaderResourceView*> dir_shadows;
-				std::vector<ID3D11ShaderResourceView*> dir_static_shadows;
+				std::vector<GfxSRV*> dir_shadows;
+				std::vector<GfxSRV*> dir_static_shadows;
 				std::vector<float4x4> dir_shadows_perspectives;
 				std::vector<float4x4> dir_static_shadows_perspectives;
-				std::vector<ID3D11ShaderResourceView*> shadows;
+				std::vector<GfxSRV*> shadows;
 				std::vector<float2> shadows_perspectives;
 			};
 		}

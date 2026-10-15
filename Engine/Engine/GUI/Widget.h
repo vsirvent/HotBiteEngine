@@ -31,10 +31,9 @@ SOFTWARE.
 #include <Core\Utils.h>
 #include <Core\Json.h>
 #include <Components\Base.h>
-#include <SpriteBatch.h>
-#include <SpriteFont.h>
-#include <CommonStates.h>
-#include <Effects.h>
+#include <SimpleMath.h>
+#include <Core/QuadBatch.h>
+#include <VertexTypes.h>
 #include <variant>
 
 using namespace nlohmann;
@@ -64,8 +63,8 @@ namespace HotBite {
 
 				using VertexType = VertexPositionColorTexture;
 				float4 background_color;
-				ID3D11ShaderResourceView* background_image = nullptr;
-				ID3D11RenderTargetView* d3d_render_target = nullptr;
+				GfxSRV* background_image = nullptr;
+				GfxRTV* d3d_render_target = nullptr;
 				float3 background_alpha_color;
 				bool background_alpha_color_enabled = false;
 				float background_alpha = 1.0f;
@@ -74,7 +73,7 @@ namespace HotBite {
 				float  height = 0.0f;
 				bool init = false;
 				std::string name;
-				std::unique_ptr<PrimitiveBatch<VertexType>> sprite;
+				std::unique_ptr<Core::QuadBatch<VertexType>> sprite;
 				std::map<ECS::Entity, std::shared_ptr<Widget>> background_widgets;
 				std::map<ECS::Entity, std::shared_ptr<Widget>> foreground_widgets;
 				bool visible = true;
@@ -88,7 +87,7 @@ namespace HotBite {
 				Widget(ECS::Coordinator* c, const json& config, const std::string& _root): coordinator(c) {
 					root = _root;
 					name = config["name"];
-					sprite = std::make_unique<PrimitiveBatch<VertexType>>(DXCore::Get()->context);
+					sprite = std::make_unique<Core::QuadBatch<VertexType>>();
 					id = coordinator->CreateEntity(name);
 					SetLayer(config["layer"]);
 					SetVisible(config["visible"]);
@@ -106,7 +105,7 @@ namespace HotBite {
 				}
 
 				Widget(ECS::Coordinator* c, const std::string& widget_name) : name(widget_name), coordinator(c) {
-					sprite = std::make_unique<PrimitiveBatch<VertexType>>(DXCore::Get()->context);
+					sprite = std::make_unique<Core::QuadBatch<VertexType>>();
 					id = coordinator->CreateEntity(name);
 				}
 
@@ -190,7 +189,7 @@ namespace HotBite {
 					return visible;
 				}
 
-				virtual void SetRenderTarget(ID3D11RenderTargetView* target) {
+				virtual void SetRenderTarget(GfxRTV* target) {
 					d3d_render_target = target;
 					for (const auto& w : background_widgets) {
 						w.second->SetRenderTarget(target);
@@ -212,7 +211,7 @@ namespace HotBite {
 					name = new_name; 					
 				}
 
-				virtual void SetBackGroundImage(ID3D11ShaderResourceView* image) {
+				virtual void SetBackGroundImage(GfxSRV* image) {
 					if (background_image != nullptr) {
 						ReleaseTexture(background_image);
 					}

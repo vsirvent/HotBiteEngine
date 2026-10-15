@@ -2,7 +2,7 @@
 
 #include "SceneEditor.h"
 
-#include <d3d11.h>
+#include <Core/DXCore.h>
 #include <string>
 #include <utility>
 #include <vector>
@@ -69,7 +69,7 @@ namespace HotBiteEditor {
 		enum class ThumbState { None, Loading, Ready, Failed };
 		// The asset's preview, downloaded in the background on first ask and cached on
 		// disk (%TEMP%\HotBitePolyHaven\thumbs) across sessions. Null until it arrives.
-		ID3D11ShaderResourceView* Thumbnail(const std::string& id, ThumbState* state = nullptr);
+		GfxSRV* Thumbnail(const std::string& id, ThumbState* state = nullptr);
 		// Releases the preview textures (called when a level opens, like the Textures
 		// panel's thumbnails). The downloaded files stay cached.
 		void ReleaseThumbnails();

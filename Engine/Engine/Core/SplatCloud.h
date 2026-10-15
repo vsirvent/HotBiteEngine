@@ -25,7 +25,7 @@ SOFTWARE.
 #pragma once
 
 #include <Defines.h>
-#include <d3d11.h>
+#include <Core/GfxDevice.h>
 #include <string>
 #include <vector>
 #include "BVH.h"
@@ -119,8 +119,8 @@ namespace HotBite {
 				//copies into it, which for a real capture is a second 150 MB allocation
 				//live at the same time as the first, for no gain - nothing here ever
 				//appends, and the data is already contiguous.
-				ID3D11Buffer* buffer = nullptr;
-				ID3D11ShaderResourceView* srv = nullptr;
+				GfxBuffer* buffer = nullptr;
+				GfxSRV* srv = nullptr;
 				std::vector<SplatVertex> splats;
 				uint32_t splat_count = 0;
 				bool prepared = false;
@@ -144,7 +144,7 @@ namespace HotBite {
 				uint32_t Count() const { return splat_count; }
 				const std::vector<SplatVertex>& Splats() const { return splats; }
 				//Pointer-to-SRV so it can be handed straight to CSSetShaderResources.
-				ID3D11ShaderResourceView* const* SRV() const { return &srv; }
+				GfxSRV* const* SRV() const { return &srv; }
 				bool Prepared() const { return prepared; }
 
 				//Frees the CPU copy once the GPU has it. A capture is hundreds of

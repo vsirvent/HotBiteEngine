@@ -27,7 +27,11 @@ SOFTWARE.
 #include <cstdint>
 #include <string>
 #include <vector>
-#include <d3d11.h>
+#include <Core/GfxDevice.h>
+
+namespace DirectX {
+	class ScratchImage;
+}
 
 namespace HotBite {
 	namespace Engine {
@@ -60,7 +64,17 @@ namespace HotBite {
 			// owns. Null when the file cannot be cooked (unreadable, a format the cooker
 			// does not keep, the cache off): load it the plain way. Thread-safe, and uses
 			// no device context.
-			ID3D11ShaderResourceView* LoadCookedTexture(const std::string& filename);
+						GfxSRV* LoadCookedTexture(const std::string& filename);
+
+						// A texture (with all its mips, array slices or cube faces) from a decoded image, as an SRV of a
+						// new GPU texture left in the shader-read state. One reference, the caller's. Null for an image
+						// that is not 2D. Thread-safe: the upload runs on a private command list (GfxDevice::ExecuteImmediate).
+						GfxSRV* CreateTextureFromImage(const DirectX::ScratchImage& image);
+
+									// Debugging: writes subresource 0 of a texture to a PNG (floats are clamped to 0..1, depth shows as red),
+									// waiting for the GPU, and logs how many of its pixels are not zero. For finding which stage of a frame
+									// produced nothing. Returns false if the format cannot be read back.
+									bool DumpTexture(GfxTexture* texture, const std::string& png_path, float gain = 1.0f);
 
 			// Writes `filename`'s cooked file, with no device: what a build step runs.
 			// `force` rebuilds a current one. False (and `error`) when it cannot be cooked.

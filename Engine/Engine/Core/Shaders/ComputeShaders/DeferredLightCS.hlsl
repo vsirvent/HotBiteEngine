@@ -96,9 +96,11 @@ Texture2D<float4> materialTexture : register(t2);
 StructuredBuffer<PackedLight> lightsBuffer : register(t3);
 ByteAddressBuffer tileMasks : register(t4);
 //The Hi-Z pyramid of the depth map (level 0 is depth_map), after the ray traced shadow scene's
-//t5-t9 (Common/ShadowRays.hlsli).
+//t5-t9 (Common/ShadowRays.hlsli). Only the build that traces rays (DEFERRED_LIGHT_RAYS, see below) has any of it.
+#ifdef DEFERRED_LIGHT_RAYS
 #include "../RayTrace/RayScreenSolver.hlsli"
 Texture2D<float> ssHiZ[HIZ_TEXTURES] : register(t10);
+#endif
 
 RWTexture2D<float4> light_out : register(u0);
 RWTexture2D<float4> bloom_out : register(u1);
@@ -107,6 +109,7 @@ RWTexture2D<float4> rt_shadow_out : register(u2);
 RWByteAddressBuffer sr_counters : register(u3);
 #endif
 
+#ifdef DEFERRED_LIGHT_RAYS
 //Whether the screen space march is on this frame.
 bool ScreenShadowActive()
 {
@@ -133,6 +136,18 @@ bool ScreenShadowOccluded(float3 from, float3 dir, float len)
 
 #define SR_SCREEN_SHADOWS 1
 #include "../Common/ShadowRays.hlsli"
+#else
+//No ray is traced in this build: the lights that ask for one are lit as if nothing stood in their way. A frame
+//that traces rays uses DeferredLightRaysCS, which is this file with DEFERRED_LIGHT_RAYS defined. The two are separate
+//shaders because the BVH walk and the Hi-Z march, though a frame without ray traced lights never runs them, make
+//this shader register-hungry and cost it its occupancy on the GPU: 1.2 ms against 5.4 ms (fxc) / 13 ms (DXC) for
+//the lighting pass of a night scene with no ray traced light.
+#define SR_SURFACE_BIAS 0.04f
+static uint2 sr_pixel = uint2(0, 0);
+bool ShadowRayOccluded(float3 from, float3 to, uint scene) { return false; }
+bool ShadowRayOccludedDirectional(float3 from, float3 to_light) { return false; }
+#endif
+
 #include "../Common/DeferredLighting.hlsli"
 
 [numthreads(TILE_SIZE, TILE_SIZE, 1)]

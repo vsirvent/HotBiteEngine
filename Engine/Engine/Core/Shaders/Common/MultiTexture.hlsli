@@ -75,10 +75,18 @@ Texture2D multi_highTexture[MAX_MULTI_TEXTURE];
 //says which of its channels a given layer reads.
 Texture2D multi_maskTexture[MAX_MULTI_TEXTURE];
 
-//Packed array
-static const uint multi_texture_operations[MAX_MULTI_TEXTURE] = (const uint[MAX_MULTI_TEXTURE])packed_multi_texture_operations;
-static const float multi_texture_values[MAX_MULTI_TEXTURE] = (const float[MAX_MULTI_TEXTURE])packed_multi_texture_values;
-static const float multi_texture_uv_scales[MAX_MULTI_TEXTURE] = (const float[MAX_MULTI_TEXTURE])packed_multi_texture_uv_scales;
+//Packed array: the constant buffer holds them four to a register (uint4[2], float4[2]) and the layer code wants
+//one flat array. Spelled out element by element rather than as an array cast, `(const uint[8])packed`: fxc
+//flattened that, but DXC lowers it to a memcpy through a bitcast that its aggregate pass cannot always follow -
+//one more read of the array in a shader made it abort with "Unexpected users of memcpy bitcast", and the shaders
+//that did compile drew every multi-material surface black.
+#if MAX_MULTI_TEXTURE != 8
+#error the packed multi texture arrays below are written out for 8 layers
+#endif
+#define MULTI_UNPACK8(p) { p[0].x, p[0].y, p[0].z, p[0].w, p[1].x, p[1].y, p[1].z, p[1].w }
+static const uint multi_texture_operations[MAX_MULTI_TEXTURE] = MULTI_UNPACK8(packed_multi_texture_operations);
+static const float multi_texture_values[MAX_MULTI_TEXTURE] = MULTI_UNPACK8(packed_multi_texture_values);
+static const float multi_texture_uv_scales[MAX_MULTI_TEXTURE] = MULTI_UNPACK8(packed_multi_texture_uv_scales);
 
 //How much of a range rule a value falls inside. `range` is (min, max, fade, enabled)
 //as MultiMaterialData::Rebuild packs it: [min, max] is fully included (weight 1),

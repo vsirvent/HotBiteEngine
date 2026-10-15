@@ -29,7 +29,7 @@ SOFTWARE.
 #include <unordered_map>
 #include <vector>
 #include "Defines.h"
-#include <d3d11.h>
+#include <Core/GfxDevice.h>
 #include <atomic>
 #include <string>
 #include <DirectXMath.h>

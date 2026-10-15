@@ -40,7 +40,7 @@
 #include <fstream>
 #include "imgui.h"
 #include "backends/imgui_impl_win32.h"
-#include "backends/imgui_impl_dx11.h"
+#include "ImGuiDx12.h"
 
 #include <DirectXTex.h>
 #include <shellapi.h>
@@ -92,7 +92,7 @@ namespace HotBiteEditor {
 		io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 		ImGui::StyleColorsDark();
 		ImGui_ImplWin32_Init(wnd);
-		ImGui_ImplDX11_Init(device, context);
+		ImGuiDx12::Init(this);
 
 		//Find the .hlsl sources so shaders can be recompiled in place (Shaders menu,
 		//F5, the reload_shaders command). Only a folder scan - nothing is compiled
@@ -644,7 +644,7 @@ namespace HotBiteEditor {
 		//textures ImGui is still holding texture ids for.
 		MaterialPreview::Shutdown();
 		ModelPreview::Shutdown();
-		ImGui_ImplDX11_Shutdown();
+		ImGuiDx12::Shutdown();
 		ImGui_ImplWin32_Shutdown();
 		ImGui::DestroyContext();
 
@@ -692,7 +692,7 @@ namespace HotBiteEditor {
 	void SceneEditorApp::ClearScreen(const float color[4])
 	{
 		DXCore::ClearScreen(color);
-		ImGui_ImplDX11_NewFrame();
+		ImGuiDx12::NewFrame();
 		ImGui_ImplWin32_NewFrame();
 		//ImGui must think in backbuffer pixels, not client pixels: the engine
 		//renders at the swapchain size and the whole backbuffer is stretched to
@@ -822,9 +822,7 @@ namespace HotBiteEditor {
 		state.apply_default_layout = false;
 
 		ImGui::Render();
-		ID3D11RenderTargetView* rtv = RenderTarget();
-		context->OMSetRenderTargets(1, &rtv, nullptr);
-		ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+		ImGuiDx12::Render(ImGui::GetDrawData());
 
 		//The backbuffer now holds the complete frame (scene + UI): let automation
 		//capture pending screenshots and flush its responses before presenting.
@@ -1098,23 +1096,22 @@ namespace HotBiteEditor {
 		}
 
 		char hr_text[32];
-		ID3D11Texture2D* back_buffer = nullptr;
-		HRESULT hr = swapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&back_buffer);
-		if (FAILED(hr)) {
-			snprintf(hr_text, sizeof(hr_text), "0x%08X", (unsigned)hr);
-			error = std::string("GetBuffer failed: ") + hr_text;
-			return false;
-		}
-		DirectX::ScratchImage image;
-		hr = DirectX::CaptureTexture(device, context, back_buffer, image);
-		back_buffer->Release();
-		if (FAILED(hr)) {
-			snprintf(hr_text, sizeof(hr_text), "0x%08X", (unsigned)hr);
-			error = std::string("CaptureTexture failed: ") + hr_text;
-			return false;
-		}
-		std::wstring wpath(png_path.begin(), png_path.end());
-		hr = DirectX::SaveToWICFile(*image.GetImage(0, 0, 0), DirectX::WIC_FLAGS_NONE,
+			std::vector<uint8_t> pixels;
+			uint32_t shot_w = 0;
+			uint32_t shot_h = 0;
+			if (!ReadBackBuffer(pixels, shot_w, shot_h)) {
+				error = "reading the back buffer failed";
+				return false;
+			}
+			DirectX::Image image = {};
+			image.width = shot_w;
+			image.height = shot_h;
+			image.format = DXGI_FORMAT_R8G8B8A8_UNORM;
+			image.rowPitch = (size_t)shot_w * 4;
+			image.slicePitch = image.rowPitch * shot_h;
+			image.pixels = pixels.data();
+			std::wstring wpath(png_path.begin(), png_path.end());
+			HRESULT hr = DirectX::SaveToWICFile(image, DirectX::WIC_FLAGS_NONE,
 			DirectX::GetWICCodec(DirectX::WIC_CODEC_PNG), wpath.c_str());
 		if (FAILED(hr)) {
 			snprintf(hr_text, sizeof(hr_text), "0x%08X", (unsigned)hr);
@@ -1171,9 +1168,7 @@ namespace HotBiteEditor {
 		ImGui::End();
 
 		ImGui::Render();
-		ID3D11RenderTargetView* rtv = RenderTarget();
-		context->OMSetRenderTargets(1, &rtv, nullptr);
-		ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+		ImGuiDx12::Render(ImGui::GetDrawData());
 		DXCore::Present();
 	}
 

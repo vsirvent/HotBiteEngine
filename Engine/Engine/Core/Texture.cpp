@@ -157,6 +157,32 @@ static size_t BitsPerPixel(_In_ DXGI_FORMAT fmt)
 namespace HotBite {
 	namespace Engine {
 		namespace Core {
+			namespace {
+				D3D12_RESOURCE_DESC Texture2DDesc(int w, int h, int slices, int mips, DXGI_FORMAT format, D3D12_RESOURCE_FLAGS flags) {
+					D3D12_RESOURCE_DESC d = {};
+					d.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+					d.Alignment = 0;
+					d.Width = (UINT64)w;
+					d.Height = (UINT)h;
+					d.DepthOrArraySize = (UINT16)slices;
+					d.MipLevels = (UINT16)mips;
+					d.Format = format;
+					d.SampleDesc.Count = 1;
+					d.SampleDesc.Quality = 0;
+					d.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+					d.Flags = flags;
+					return d;
+				}
+
+				D3D12_CLEAR_VALUE DepthClear() {
+					D3D12_CLEAR_VALUE cv = {};
+					cv.Format = DXGI_FORMAT_D32_FLOAT;
+					cv.DepthStencil.Depth = 1.0f;
+					cv.DepthStencil.Stencil = 0;
+					return cv;
+				}
+			}
+
 			DepthTextureCube::DepthTextureCube() {
 
 			}
@@ -172,52 +198,42 @@ namespace HotBite {
 
 			HRESULT DepthTextureCube::Init(int w, int h) {
 				Release();
-				ID3D11Device* device = DXCore::Get()->device;
+				GfxDevice* device = DXCore::Get()->device;
 				HRESULT hr = S_OK;
 				init = true;
-				//Description of each face
-				D3D11_TEXTURE2D_DESC texDesc;
-				texDesc.Width = w;
-				texDesc.Height = h;
-				texDesc.MipLevels = 1;
-				texDesc.ArraySize = 6;
-				texDesc.Format = DXGI_FORMAT_R32_TYPELESS;
-				texDesc.CPUAccessFlags = 0;
-				texDesc.SampleDesc.Count = 1;
-				texDesc.SampleDesc.Quality = 0;
-				texDesc.Usage = D3D11_USAGE_DEFAULT;
-				texDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE;
-				texDesc.CPUAccessFlags = 0;
-				texDesc.MiscFlags = D3D11_RESOURCE_MISC_TEXTURECUBE;
-				//Create the Texture Resource
-				hr = device->CreateTexture2D(&texDesc, nullptr, &cube_texture);
+				//Six faces; typeless so the same memory is a depth target and a float texture.
+				const D3D12_RESOURCE_DESC texDesc = Texture2DDesc(w, h, 6, 1, DXGI_FORMAT_R32_TYPELESS,
+					D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL);
+				const D3D12_CLEAR_VALUE clear = DepthClear();
+				hr = device->CreateTexture2D(texDesc, D3D12_RESOURCE_STATE_DEPTH_WRITE, &clear, nullptr, 0, &cube_texture);
 				if (hr != S_OK)
 				{
 					return hr;
 				}
 				//The Shader Resource view description
-				D3D11_SHADER_RESOURCE_VIEW_DESC SMViewDesc;
+				D3D12_SHADER_RESOURCE_VIEW_DESC SMViewDesc = {};
 				SMViewDesc.Format = DXGI_FORMAT_R32_FLOAT;
-				SMViewDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURECUBE;
-				SMViewDesc.TextureCube.MipLevels = texDesc.MipLevels;
+				SMViewDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBE;
+				SMViewDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+				SMViewDesc.TextureCube.MipLevels = 1;
 				SMViewDesc.TextureCube.MostDetailedMip = 0;
 
-				//If we have created the texture resource for the six faces 
+				//If we have created the texture resource for the six faces
 				//we create the Shader Resource View to use in our shaders.
-				hr = device->CreateShaderResourceView(cube_texture, &SMViewDesc, &shader_resource_view);
+				hr = device->CreateSRV(cube_texture, &SMViewDesc, &shader_resource_view);
 				if (hr != S_OK)
 				{
 					return hr;
 				}
 
-				D3D11_DEPTH_STENCIL_VIEW_DESC dsvDesc = { };
+				D3D12_DEPTH_STENCIL_VIEW_DESC dsvDesc = { };
 				dsvDesc.Format = DXGI_FORMAT_D32_FLOAT;
-				dsvDesc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2DARRAY;
+				dsvDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2DARRAY;
 				dsvDesc.Texture2DArray.ArraySize = 6;
 				dsvDesc.Texture2DArray.FirstArraySlice = 0;
 				dsvDesc.Texture2DArray.MipSlice = 0;
-				dsvDesc.Flags = 0;
-				hr = device->CreateDepthStencilView(cube_texture, &dsvDesc, &depth_stencil_view);
+				dsvDesc.Flags = D3D12_DSV_FLAG_NONE;
+				hr = device->CreateDSV(cube_texture, &dsvDesc, &depth_stencil_view);
 				return hr;
 			}
 
@@ -239,16 +255,16 @@ namespace HotBite {
 
 			void DepthTextureCube::Clear() {
 				if (cube_texture) {
-					ID3D11DeviceContext* context = DXCore::Get()->context;
-					context->ClearDepthStencilView(depth_stencil_view, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+					GfxContext* context = DXCore::Get()->context;
+					context->ClearDepthStencilView(depth_stencil_view, D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0);
 				}
 			}
 
-			ID3D11ShaderResourceView* DepthTextureCube::SRV() const {
+			GfxSRV* DepthTextureCube::SRV() const {
 				return shader_resource_view;
 			}
 
-			ID3D11DepthStencilView* DepthTextureCube::Depth() const {
+			GfxDSV* DepthTextureCube::Depth() const {
 				return depth_stencil_view;
 			}
 
@@ -273,7 +289,7 @@ namespace HotBite {
 			}
 
 			HRESULT DepthTexture2D::Init(int w, int h) {
-				ID3D11Device* device = DXCore::Get()->device;
+				GfxDevice* device = DXCore::Get()->device;
 				HRESULT hr = S_OK;
 				init = true;
 				width = w;
@@ -282,53 +298,43 @@ namespace HotBite {
 				if (w > MAX_TEXTURE_SIZE || h > MAX_TEXTURE_SIZE) {
 					return E_FAIL;
 				}
-				D3D11_TEXTURE2D_DESC texDesc = {};
-				texDesc.Width = w;
-				texDesc.Height = h;
-				texDesc.MipLevels = 1;
-				texDesc.ArraySize = 1;
-				texDesc.Format = DXGI_FORMAT_R32_TYPELESS;
-				texDesc.SampleDesc.Count = 1;
-				texDesc.Usage = D3D11_USAGE_DEFAULT;
-				texDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE;
-				//Create the Texture Resource
-				hr = device->CreateTexture2D(&texDesc, nullptr, &texture);
+				const D3D12_RESOURCE_DESC texDesc = Texture2DDesc(w, h, 1, 1, DXGI_FORMAT_R32_TYPELESS,
+					D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL);
+				const D3D12_CLEAR_VALUE clear = DepthClear();
+				hr = device->CreateTexture2D(texDesc, D3D12_RESOURCE_STATE_DEPTH_WRITE, &clear, nullptr, 0, &texture);
 				if (hr != S_OK)
 				{
 					return hr;
 				}
 				//The Shader Resource view description
-				D3D11_SHADER_RESOURCE_VIEW_DESC SMViewDesc;
+				D3D12_SHADER_RESOURCE_VIEW_DESC SMViewDesc = {};
 				SMViewDesc.Format = DXGI_FORMAT_R32_FLOAT;
-				SMViewDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
-				SMViewDesc.TextureCube.MipLevels = texDesc.MipLevels;
-				SMViewDesc.TextureCube.MostDetailedMip = 0;
+				SMViewDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+				SMViewDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+				SMViewDesc.Texture2D.MipLevels = 1;
+				SMViewDesc.Texture2D.MostDetailedMip = 0;
 
-				//If we have created the texture resource for the six faces 
-				//we create the Shader Resource View to use in our shaders.
-				hr = device->CreateShaderResourceView(texture, &SMViewDesc, &shader_resource_view);
+				hr = device->CreateSRV(texture, &SMViewDesc, &shader_resource_view);
 				if (hr != S_OK)
 				{
 					return hr;
 				}
 
-				D3D11_DEPTH_STENCIL_VIEW_DESC dsvDesc = { };
+				D3D12_DEPTH_STENCIL_VIEW_DESC dsvDesc = { };
 				dsvDesc.Format = DXGI_FORMAT_D32_FLOAT;
-				dsvDesc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
-				dsvDesc.Texture2DArray.ArraySize = 1;
-				dsvDesc.Texture2DArray.FirstArraySlice = 0;
-				dsvDesc.Texture2DArray.MipSlice = 0;
-				dsvDesc.Flags = 0;
-				hr = device->CreateDepthStencilView(texture, &dsvDesc, &depth_stencil_view);
+				dsvDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+				dsvDesc.Texture2D.MipSlice = 0;
+				dsvDesc.Flags = D3D12_DSV_FLAG_NONE;
+				hr = device->CreateDSV(texture, &dsvDesc, &depth_stencil_view);
 				return hr;
 			}
 
 			void DepthTexture2D::Release() {
 				if (texture) {
-					depth_stencil_view->Release();
-					shader_resource_view->Release();
+					if (depth_stencil_view) { depth_stencil_view->Release(); }
+					if (shader_resource_view) { shader_resource_view->Release(); }
 					texture->Release();
-					
+
 					depth_stencil_view = nullptr;
 					shader_resource_view = nullptr;
 					texture = nullptr;
@@ -338,16 +344,16 @@ namespace HotBite {
 
 			void DepthTexture2D::Clear() {
 				if (texture) {
-					ID3D11DeviceContext* context = DXCore::Get()->context;
-					context->ClearDepthStencilView(depth_stencil_view, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+					GfxContext* context = DXCore::Get()->context;
+					context->ClearDepthStencilView(depth_stencil_view, D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0);
 				}
 			}
 
-			ID3D11ShaderResourceView* DepthTexture2D::SRV() const {
+			GfxSRV* DepthTexture2D::SRV() const {
 				return shader_resource_view;
 			}
 
-			ID3D11DepthStencilView* DepthTexture2D::Depth() const {
+			GfxDSV* DepthTexture2D::Depth() const {
 				return depth_stencil_view;
 			}
 
@@ -377,10 +383,10 @@ namespace HotBite {
 
 			HRESULT DepthTexture2DArray::Init(int w, int h, int n) {
 				Release();
-				ID3D11Device* device = DXCore::Get()->device;
+				GfxDevice* device = DXCore::Get()->device;
 				HRESULT hr = S_OK;
 				if (w > MAX_TEXTURE_SIZE || h > MAX_TEXTURE_SIZE || n < 1 ||
-					n > D3D11_REQ_TEXTURE2D_ARRAY_AXIS_DIMENSION) {
+					n > D3D12_REQ_TEXTURE2D_ARRAY_AXIS_DIMENSION) {
 					return E_FAIL;
 				}
 				init = true;
@@ -388,29 +394,24 @@ namespace HotBite {
 				height = h;
 				slices = n;
 
-				D3D11_TEXTURE2D_DESC texDesc = {};
-				texDesc.Width = w;
-				texDesc.Height = h;
-				texDesc.MipLevels = 1;
-				texDesc.ArraySize = (UINT)n;
-				texDesc.Format = DXGI_FORMAT_R32_TYPELESS;
-				texDesc.SampleDesc.Count = 1;
-				texDesc.Usage = D3D11_USAGE_DEFAULT;
-				texDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE;
-				hr = device->CreateTexture2D(&texDesc, nullptr, &texture);
+				const D3D12_RESOURCE_DESC texDesc = Texture2DDesc(w, h, n, 1, DXGI_FORMAT_R32_TYPELESS,
+					D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL);
+				const D3D12_CLEAR_VALUE clear = DepthClear();
+				hr = device->CreateTexture2D(texDesc, D3D12_RESOURCE_STATE_DEPTH_WRITE, &clear, nullptr, 0, &texture);
 				if (FAILED(hr)) {
 					Release();
 					return hr;
 				}
 
-				D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+				D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
 				srvDesc.Format = DXGI_FORMAT_R32_FLOAT;
-				srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DARRAY;
+				srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2DARRAY;
+				srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
 				srvDesc.Texture2DArray.MostDetailedMip = 0;
-				srvDesc.Texture2DArray.MipLevels = texDesc.MipLevels;
+				srvDesc.Texture2DArray.MipLevels = 1;
 				srvDesc.Texture2DArray.FirstArraySlice = 0;
 				srvDesc.Texture2DArray.ArraySize = (UINT)n;
-				hr = device->CreateShaderResourceView(texture, &srvDesc, &shader_resource_view);
+				hr = device->CreateSRV(texture, &srvDesc, &shader_resource_view);
 				if (FAILED(hr)) {
 					Release();
 					return hr;
@@ -418,13 +419,13 @@ namespace HotBite {
 
 				//The whole-array view: the shadow geometry shader picks the slice per
 				//triangle, so every cascade is filled through this one binding.
-				D3D11_DEPTH_STENCIL_VIEW_DESC dsvDesc = {};
+				D3D12_DEPTH_STENCIL_VIEW_DESC dsvDesc = {};
 				dsvDesc.Format = DXGI_FORMAT_D32_FLOAT;
-				dsvDesc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2DARRAY;
+				dsvDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2DARRAY;
 				dsvDesc.Texture2DArray.MipSlice = 0;
 				dsvDesc.Texture2DArray.FirstArraySlice = 0;
 				dsvDesc.Texture2DArray.ArraySize = (UINT)n;
-				hr = device->CreateDepthStencilView(texture, &dsvDesc, &depth_stencil_view);
+				hr = device->CreateDSV(texture, &dsvDesc, &depth_stencil_view);
 				if (FAILED(hr)) {
 					Release();
 					return hr;
@@ -434,7 +435,7 @@ namespace HotBite {
 				for (int i = 0; i < n; ++i) {
 					dsvDesc.Texture2DArray.FirstArraySlice = (UINT)i;
 					dsvDesc.Texture2DArray.ArraySize = 1;
-					hr = device->CreateDepthStencilView(texture, &dsvDesc, &slice_views[i]);
+					hr = device->CreateDSV(texture, &dsvDesc, &slice_views[i]);
 					if (FAILED(hr)) {
 						Release();
 						return hr;
@@ -444,7 +445,7 @@ namespace HotBite {
 			}
 
 			void DepthTexture2DArray::Release() {
-				for (ID3D11DepthStencilView* v : slice_views) {
+				for (GfxDSV* v : slice_views) {
 					if (v != nullptr) {
 						v->Release();
 					}
@@ -470,21 +471,21 @@ namespace HotBite {
 
 			void DepthTexture2DArray::Clear() {
 				if (texture) {
-					ID3D11DeviceContext* context = DXCore::Get()->context;
+					GfxContext* context = DXCore::Get()->context;
 					context->ClearDepthStencilView(depth_stencil_view,
-						D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+						D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0);
 				}
 			}
 
-			ID3D11ShaderResourceView* DepthTexture2DArray::SRV() const {
+			GfxSRV* DepthTexture2DArray::SRV() const {
 				return shader_resource_view;
 			}
 
-			ID3D11DepthStencilView* DepthTexture2DArray::Depth() const {
+			GfxDSV* DepthTexture2DArray::Depth() const {
 				return depth_stencil_view;
 			}
 
-			ID3D11DepthStencilView* DepthTexture2DArray::Depth(int slice) const {
+			GfxDSV* DepthTexture2DArray::Depth(int slice) const {
 				if (slice < 0 || slice >= (int)slice_views.size()) {
 					return nullptr;
 				}
@@ -513,7 +514,7 @@ namespace HotBite {
 			}
 
 			HRESULT RenderTexture2D::Init(int w, int h, DXGI_FORMAT format, const uint8_t* data, uint32_t len, uint32_t bind_flags) {
-				ID3D11Device* device = DXCore::Get()->device;
+				GfxDevice* device = DXCore::Get()->device;
 				HRESULT hr = S_OK;
 				init = true;
 
@@ -523,78 +524,116 @@ namespace HotBite {
 				if (w > MAX_TEXTURE_SIZE || h > MAX_TEXTURE_SIZE) {
 					return E_FAIL;
 				}
-				//Description of each face
-				D3D11_TEXTURE2D_DESC texDesc = {};
-				texDesc.Width = w;
-				texDesc.Height = h;
-				texDesc.MipLevels = mip_levels;
-				texDesc.ArraySize = 1;
-				texDesc.Format = format;
-				texDesc.MipLevels = 1;
-				texDesc.SampleDesc.Count = 1;
-				texDesc.Usage = D3D11_USAGE_DEFAULT;
-				texDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET | bind_flags;
-				if (mip_levels > 1) {
-					texDesc.MiscFlags = D3D11_RESOURCE_MISC_GENERATE_MIPS;
+				//One mip, as it always was (the mip count asked for was overwritten, so the chain was never made).
+				D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+				if (bind_flags & GFX_BIND_UNORDERED_ACCESS) {
+					flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
 				}
+				tex_desc = Texture2DDesc(w, h, 1, 1, format, flags);
 				if (data != nullptr && len > 0) {
-					D3D11_SUBRESOURCE_DATA src_data;
-					src_data.pSysMem = data;
-					src_data.SysMemPitch = (UINT)((size_t)w * BitsPerPixel(format)/8);
-					src_data.SysMemSlicePitch = 0;
-					//Create the Texture Resource
-					hr = device->CreateTexture2D(&texDesc, &src_data, &texture);
+					GfxSubresourceData src_data;
+					src_data.data = data;
+					src_data.row_pitch = (UINT)((size_t)w * BitsPerPixel(format) / 8);
+					src_data.slice_pitch = 0;
+					hr = device->CreateTexture2D(tex_desc, D3D12_RESOURCE_STATE_COMMON, nullptr, &src_data, 1, &texture);
 				}
 				else {
-					//Create the Texture Resource
-					hr = device->CreateTexture2D(&texDesc, nullptr, &texture);
+					//Never drawn into or read yet: the first use moves it where it has to be.
+					hr = device->CreateTexture2D(tex_desc, D3D12_RESOURCE_STATE_COMMON, nullptr, nullptr, 0, &texture);
 				}
 				if (hr != S_OK)
 				{
 					return hr;
 				}
 
-				texture->GetDesc(&tex_desc);
 				//The Shader Resource view description
-				D3D11_SHADER_RESOURCE_VIEW_DESC SMViewDesc;
-				SMViewDesc.Format = texDesc.Format;
-				SMViewDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
-				SMViewDesc.Texture2D.MipLevels = texDesc.MipLevels;
+				D3D12_SHADER_RESOURCE_VIEW_DESC SMViewDesc = {};
+				SMViewDesc.Format = format;
+				SMViewDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+				SMViewDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+				SMViewDesc.Texture2D.MipLevels = 1;
 				SMViewDesc.Texture2D.MostDetailedMip = 0;
 
-				//If we have created the texture resource for the six faces 
-				//we create the Shader Resource View to use in our shaders.
-				hr = device->CreateShaderResourceView(texture, &SMViewDesc, &shader_resource_view);
+				hr = device->CreateSRV(texture, &SMViewDesc, &shader_resource_view);
 				if (hr != S_OK)
 				{
 					return hr;
 				}
-				shader_resource_view->GetResource(&resource);
-				if (texDesc.BindFlags & D3D11_BIND_UNORDERED_ACCESS) {
-					device->CreateUnorderedAccessView(resource, nullptr, &uav);
+				if (bind_flags & GFX_BIND_UNORDERED_ACCESS) {
+					device->CreateUAV(texture, nullptr, &uav);
 				}
-				D3D11_RENDER_TARGET_VIEW_DESC renderTargetViewDesc;
+				D3D12_RENDER_TARGET_VIEW_DESC renderTargetViewDesc = {};
 				// Setup the description of the render target view.
-				renderTargetViewDesc.Format = texDesc.Format;
-				renderTargetViewDesc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
+				renderTargetViewDesc.Format = format;
+				renderTargetViewDesc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
 				renderTargetViewDesc.Texture2D.MipSlice = 0;
 				// Create the render target view.
-				hr = device->CreateRenderTargetView(texture, &renderTargetViewDesc, &render_view);
-				
+				hr = device->CreateRTV(texture, &renderTargetViewDesc, &render_view);
+
 				return hr;
+			}
+
+			DynamicTexture2D::~DynamicTexture2D() {
+				Release();
+			}
+
+			HRESULT DynamicTexture2D::Init(int w, int h, TextureFormat texture_format) {
+				Release();
+				if (w <= 0 || h <= 0 || w > MAX_TEXTURE_SIZE || h > MAX_TEXTURE_SIZE) {
+					return E_INVALIDARG;
+				}
+				const DXGI_FORMAT dxgi = texture_format == TextureFormat::R8 ? DXGI_FORMAT_R8_UNORM : DXGI_FORMAT_R8G8B8A8_UNORM;
+				GfxDevice* device = DXCore::Get()->device;
+				const D3D12_RESOURCE_DESC desc = Texture2DDesc(w, h, 1, 1, dxgi, D3D12_RESOURCE_FLAG_NONE);
+				HRESULT hr = device->CreateTexture2D(desc, D3D12_RESOURCE_STATE_COMMON, nullptr, nullptr, 0, &texture);
+				if (FAILED(hr)) {
+					texture = nullptr;
+					return hr;
+				}
+				hr = device->CreateSRV(texture, nullptr, &shader_resource_view);
+				if (FAILED(hr)) {
+					shader_resource_view = nullptr;
+					Release();
+					return hr;
+				}
+				width = w;
+				height = h;
+				format = texture_format;
+				return S_OK;
+			}
+
+			void DynamicTexture2D::Update(const void* pixels, uint32_t row_pitch) {
+				if (texture == nullptr || pixels == nullptr) {
+					return;
+				}
+				if (row_pitch == 0) {
+					row_pitch = (uint32_t)width * (format == TextureFormat::R8 ? 1u : 4u);
+				}
+				DXCore::Get()->context->UpdateTexture(texture, 0, pixels, row_pitch);
+			}
+
+			void DynamicTexture2D::Release() {
+				if (shader_resource_view != nullptr) {
+					shader_resource_view->Release();
+					shader_resource_view = nullptr;
+				}
+				if (texture != nullptr) {
+					texture->Release();
+					texture = nullptr;
+				}
+				width = 0;
+				height = 0;
 			}
 
 			void RenderTexture2D::Release() {
 				if (texture) {
 					texture->Release();
-					shader_resource_view->Release();
-					render_view->Release();
-					resource->Release();
+					if (shader_resource_view) { shader_resource_view->Release(); }
+					if (render_view) { render_view->Release(); }
 					if (uav != nullptr) {
 						uav->Release();
 						uav = nullptr;
 					}
-					resource = nullptr;
 					texture = nullptr;
 					shader_resource_view = nullptr;
 					render_view = nullptr;
@@ -604,32 +643,32 @@ namespace HotBite {
 
 			void RenderTexture2D::Clear(const float color[4]) {
 				if (texture) {
-					ID3D11DeviceContext* context = DXCore::Get()->context;
+					GfxContext* context = DXCore::Get()->context;
 					context->ClearRenderTargetView(RenderTarget(), color);
 				}
 			}
 
-			const D3D11_TEXTURE2D_DESC& RenderTexture2D::Descriptor() const {
+			const D3D12_RESOURCE_DESC& RenderTexture2D::Descriptor() const {
 				return tex_desc;
 			}
 
-			ID3D11Texture2D* RenderTexture2D::Texture() const {
+			GfxTexture* RenderTexture2D::Texture() const {
 				return texture;
 			}
 
-			ID3D11Resource* RenderTexture2D::Resource() const {
-				return resource;
+			GfxResource* RenderTexture2D::Resource() const {
+				return texture;
 			}
 
-			ID3D11ShaderResourceView* RenderTexture2D::SRV() const {
+			GfxSRV* RenderTexture2D::SRV() const {
 				return shader_resource_view;
 			}
 
-			ID3D11UnorderedAccessView* RenderTexture2D::UAV() const {
+			GfxUAV* RenderTexture2D::UAV() const {
 				return uav;
 			}
 
-			ID3D11RenderTargetView* RenderTexture2D::RenderTarget() const {
+			GfxRTV* RenderTexture2D::RenderTarget() const {
 				return render_view;
 			}
 		}

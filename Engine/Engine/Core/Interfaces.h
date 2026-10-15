@@ -26,26 +26,26 @@ SOFTWARE.
 
 #include "../Defines.h"
 
-#include <d3d11.h>
+#include "GfxDevice.h"
 
 namespace HotBite {
     namespace Engine {
         namespace Core {
             class IDepthResource {
             public:
-                virtual ID3D11ShaderResourceView* DepthResource() = 0;
-                virtual ID3D11DepthStencilView* DepthView() = 0;
+                virtual GfxSRV* DepthResource() = 0;
+                virtual GfxDSV* DepthView() = 0;
             };
 
             class IRenderSource {
             public:
-                virtual ID3D11ShaderResourceView* RenderResource() = 0;
-                virtual ID3D11UnorderedAccessView* RenderUAV() = 0;
+                virtual GfxSRV* RenderResource() = 0;
+                virtual GfxUAV* RenderUAV() = 0;
             };
 
             class IRenderTarget {
             public:
-                virtual ID3D11RenderTargetView* RenderTarget() const = 0;
+                virtual GfxRTV* RenderTarget() const = 0;
             };
         }
     }

@@ -2,6 +2,10 @@
 
 #include <d3dcommon.h>
 
+// The shader model every shader is compiled for, in the build (Engine/Dxc.targets, HotBiteDxcModel) and at run time:
+// the two must agree, or a reloaded shader differs from the one it replaces.
+#define HOTBITE_SHADER_MODEL "6_0"
+
 #include <cstdint>
 #include <string>
 #include <unordered_map>
@@ -13,8 +17,8 @@ namespace HotBite {
 
 			// Compiles .hlsl sources at runtime so a shader can be edited and reloaded
 			// without restarting the host (see ShaderFactory::ReloadShader). The engine
-			// normally loads pre-built .cso files produced by FxCompile; this is the
-			// same fxc (d3dcompiler) invoked in process, against the .hlsl files still
+			// normally loads pre-built .cso files produced by the build (dxc); this is the
+			// same DXC (dxcompiler) invoked in process, against the .hlsl files still
 			// sitting in the source tree.
 			//
 			// Two things it owns that the build does not:
@@ -75,7 +79,7 @@ namespace HotBite {
 				// a bare stem) to the .hlsl that produces it. Empty if unknown.
 				std::string FindSource(const std::string& shader_name) const;
 
-				// Compiles `source_path` for `profile` ("ps_5_0", ...) with entry point
+				// Compiles `source_path` for `profile` ("ps_" HOTBITE_SHADER_MODEL, ...) with entry point
 				// `entry`. Every shader in this engine enters at main. Failure fills
 				// out.error with the compiler's own message, including file and line.
 				bool Compile(const std::string& source_path, const std::string& profile,

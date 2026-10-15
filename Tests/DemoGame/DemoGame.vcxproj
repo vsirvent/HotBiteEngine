@@ -297,6 +297,7 @@
     </Link>
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <Import Project="$(MSBuildThisFileDirectory)..\..\Engine\Dxc.targets" />
   <ImportGroup Label="ExtensionTargets">
     <Import Project="..\..\Solution\packages\directxtex_desktop_2019.2022.10.18.1\build\native\directxtex_desktop_2019.targets" Condition="Exists('..\..\Solution\packages\directxtex_desktop_2019.2022.10.18.1\build\native\directxtex_desktop_2019.targets')" />
     <Import Project="..\..\Solution\packages\Microsoft.XAudio2.Redist.1.2.10\build\native\Microsoft.XAudio2.Redist.targets" Condition="Exists('..\..\Solution\packages\Microsoft.XAudio2.Redist.1.2.10\build\native\Microsoft.XAudio2.Redist.targets')" />

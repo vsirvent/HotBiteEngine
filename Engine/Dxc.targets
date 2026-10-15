@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Shaders are SM6 DXIL compiled by the DirectX Shader Compiler (dxc.exe from the Windows SDK), not by fxc.
+
+  Every project that has shaders imports this file after Microsoft.Cpp.targets and keeps listing them as FxCompile
+  items, with the same ShaderType metadata as before (Vertex, Pixel, Geometry, Hull, Domain, Compute) and, where a
+  game keeps its shaders next to the engine's includes, AdditionalIncludeDirectories. Before the stock FxCompile
+  target would run, this one takes those items over (so fxc, which cannot compile SM6, has nothing to do) and builds
+  each into $(OutDir)<name>.cso when it is missing or older than its source. Headers are not tracked here either:
+  a project that shares one lists its dependents the way Engine.vcxproj's InvalidateShadersOnSharedHeaderChange does
+  (set HotBiteDxcDependsOn to that target).
+
+  The shader model is HotBiteDxcModel (6_0). The flags are the ones ShaderCompiler uses at run time: keep them equal,
+  so a shader reloaded in an editor is the shader the build made.
+
+  The two DLLs the engine loads at run time (dxcompiler.dll for reflection and hot reload, dxil.dll next to it, which
+  signs what it compiles) are copied beside every executable.
+-->
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <HotBiteDxcModel Condition="'$(HotBiteDxcModel)' == ''">6_0</HotBiteDxcModel>
+    <HotBiteDxcBin Condition="'$(HotBiteDxcBin)' == ''">$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\</HotBiteDxcBin>
+    <HotBiteDxcFlags Condition="'$(Configuration)' == 'Debug'">-HV 2018 -Ges -no-warnings -Zi -Od</HotBiteDxcFlags>
+    <HotBiteDxcFlags Condition="'$(HotBiteDxcFlags)' == ''">-HV 2018 -Ges -no-warnings</HotBiteDxcFlags>
+  </PropertyGroup>
+
+  <Target Name="HotBiteDxcCompile" BeforeTargets="FxCompile" DependsOnTargets="$(HotBiteDxcDependsOn)">
+    <Error Condition="!Exists('$(HotBiteDxcBin)dxc.exe')" Text="dxc.exe not found in $(HotBiteDxcBin). Install the Windows SDK, or set HotBiteDxcBin to the folder holding dxc.exe, dxcompiler.dll and dxil.dll." />
+    <ItemGroup>
+      <HotBiteDxcVertex Include="@(FxCompile)" Condition="'%(FxCompile.ShaderType)' == 'Vertex' And '%(FxCompile.ExcludedFromBuild)' != 'true'" />
+      <HotBiteDxcHull Include="@(FxCompile)" Condition="'%(FxCompile.ShaderType)' == 'Hull' And '%(FxCompile.ExcludedFromBuild)' != 'true'" />
+      <HotBiteDxcDomain Include="@(FxCompile)" Condition="'%(FxCompile.ShaderType)' == 'Domain' And '%(FxCompile.ExcludedFromBuild)' != 'true'" />
+      <HotBiteDxcGeometry Include="@(FxCompile)" Condition="'%(FxCompile.ShaderType)' == 'Geometry' And '%(FxCompile.ExcludedFromBuild)' != 'true'" />
+      <HotBiteDxcPixel Include="@(FxCompile)" Condition="'%(FxCompile.ShaderType)' == 'Pixel' And '%(FxCompile.ExcludedFromBuild)' != 'true'" />
+      <HotBiteDxcCompute Include="@(FxCompile)" Condition="'%(FxCompile.ShaderType)' == 'Compute' And '%(FxCompile.ExcludedFromBuild)' != 'true'" />
+      <FxCompile Remove="@(FxCompile)" />
+    </ItemGroup>
+    <Exec Condition="'%(HotBiteDxcVertex.Identity)' != '' And (!Exists('$(OutDir)%(HotBiteDxcVertex.Filename).cso') Or $([System.IO.File]::GetLastWriteTime('%(HotBiteDxcVertex.FullPath)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('$(OutDir)%(HotBiteDxcVertex.Filename).cso').Ticks))"
+          Command="&quot;$(HotBiteDxcBin)dxc.exe&quot; -nologo -T vs_$(HotBiteDxcModel) -E main $(HotBiteDxcFlags) -I &quot;$([System.String]::Copy('$(MSBuildProjectDirectory);%(HotBiteDxcVertex.AdditionalIncludeDirectories)').Trim(';').Replace(';', '&quot; -I &quot;'))&quot; -Fo &quot;$(OutDir)%(HotBiteDxcVertex.Filename).cso&quot; &quot;%(HotBiteDxcVertex.FullPath)&quot;" />
+    <Exec Condition="'%(HotBiteDxcHull.Identity)' != '' And (!Exists('$(OutDir)%(HotBiteDxcHull.Filename).cso') Or $([System.IO.File]::GetLastWriteTime('%(HotBiteDxcHull.FullPath)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('$(OutDir)%(HotBiteDxcHull.Filename).cso').Ticks))"
+          Command="&quot;$(HotBiteDxcBin)dxc.exe&quot; -nologo -T hs_$(HotBiteDxcModel) -E main $(HotBiteDxcFlags) -I &quot;$([System.String]::Copy('$(MSBuildProjectDirectory);%(HotBiteDxcHull.AdditionalIncludeDirectories)').Trim(';').Replace(';', '&quot; -I &quot;'))&quot; -Fo &quot;$(OutDir)%(HotBiteDxcHull.Filename).cso&quot; &quot;%(HotBiteDxcHull.FullPath)&quot;" />
+    <Exec Condition="'%(HotBiteDxcDomain.Identity)' != '' And (!Exists('$(OutDir)%(HotBiteDxcDomain.Filename).cso') Or $([System.IO.File]::GetLastWriteTime('%(HotBiteDxcDomain.FullPath)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('$(OutDir)%(HotBiteDxcDomain.Filename).cso').Ticks))"
+          Command="&quot;$(HotBiteDxcBin)dxc.exe&quot; -nologo -T ds_$(HotBiteDxcModel) -E main $(HotBiteDxcFlags) -I &quot;$([System.String]::Copy('$(MSBuildProjectDirectory);%(HotBiteDxcDomain.AdditionalIncludeDirectories)').Trim(';').Replace(';', '&quot; -I &quot;'))&quot; -Fo &quot;$(OutDir)%(HotBiteDxcDomain.Filename).cso&quot; &quot;%(HotBiteDxcDomain.FullPath)&quot;" />
+    <Exec Condition="'%(HotBiteDxcGeometry.Identity)' != '' And (!Exists('$(OutDir)%(HotBiteDxcGeometry.Filename).cso') Or $([System.IO.File]::GetLastWriteTime('%(HotBiteDxcGeometry.FullPath)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('$(OutDir)%(HotBiteDxcGeometry.Filename).cso').Ticks))"
+          Command="&quot;$(HotBiteDxcBin)dxc.exe&quot; -nologo -T gs_$(HotBiteDxcModel) -E main $(HotBiteDxcFlags) -I &quot;$([System.String]::Copy('$(MSBuildProjectDirectory);%(HotBiteDxcGeometry.AdditionalIncludeDirectories)').Trim(';').Replace(';', '&quot; -I &quot;'))&quot; -Fo &quot;$(OutDir)%(HotBiteDxcGeometry.Filename).cso&quot; &quot;%(HotBiteDxcGeometry.FullPath)&quot;" />
+    <Exec Condition="'%(HotBiteDxcPixel.Identity)' != '' And (!Exists('$(OutDir)%(HotBiteDxcPixel.Filename).cso') Or $([System.IO.File]::GetLastWriteTime('%(HotBiteDxcPixel.FullPath)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('$(OutDir)%(HotBiteDxcPixel.Filename).cso').Ticks))"
+          Command="&quot;$(HotBiteDxcBin)dxc.exe&quot; -nologo -T ps_$(HotBiteDxcModel) -E main $(HotBiteDxcFlags) -I &quot;$([System.String]::Copy('$(MSBuildProjectDirectory);%(HotBiteDxcPixel.AdditionalIncludeDirectories)').Trim(';').Replace(';', '&quot; -I &quot;'))&quot; -Fo &quot;$(OutDir)%(HotBiteDxcPixel.Filename).cso&quot; &quot;%(HotBiteDxcPixel.FullPath)&quot;" />
+    <Exec Condition="'%(HotBiteDxcCompute.Identity)' != '' And (!Exists('$(OutDir)%(HotBiteDxcCompute.Filename).cso') Or $([System.IO.File]::GetLastWriteTime('%(HotBiteDxcCompute.FullPath)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('$(OutDir)%(HotBiteDxcCompute.Filename).cso').Ticks))"
+          Command="&quot;$(HotBiteDxcBin)dxc.exe&quot; -nologo -T cs_$(HotBiteDxcModel) -E main $(HotBiteDxcFlags) -I &quot;$([System.String]::Copy('$(MSBuildProjectDirectory);%(HotBiteDxcCompute.AdditionalIncludeDirectories)').Trim(';').Replace(';', '&quot; -I &quot;'))&quot; -Fo &quot;$(OutDir)%(HotBiteDxcCompute.Filename).cso&quot; &quot;%(HotBiteDxcCompute.FullPath)&quot;" />
+  </Target>
+
+  <!-- dxcompiler.dll + dxil.dll beside every executable (and in the engine's output folder, where the games copy from). -->
+  <Target Name="HotBiteCopyDxc" AfterTargets="Build" Condition="'$(ConfigurationType)' == 'Application' Or '$(ProjectName)' == 'Engine'">
+    <ItemGroup>
+      <HotBiteDxcRuntime Include="$(HotBiteDxcBin)dxcompiler.dll;$(HotBiteDxcBin)dxil.dll" />
+    </ItemGroup>
+    <Copy SourceFiles="@(HotBiteDxcRuntime)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
+</Project>

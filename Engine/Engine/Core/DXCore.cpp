@@ -31,7 +31,9 @@ SOFTWARE.
 
 #include <WindowsX.h>
 #include <sstream>
+#include <DirectXTex.h>
 #include <algorithm>
+#include <chrono>
 
 using namespace HotBite::Engine::Core;
 using namespace HotBite::Engine::ECS;
@@ -89,14 +91,18 @@ DXCore::~DXCore()
 	ShaderFactory::Release();
 	ScreenDraw::Release();
 
-	ID3D11RenderTargetView* none[] = { nullptr };
-	context->OMSetRenderTargets(_countof(none), none, nullptr);
-	context->RSSetViewports(0, nullptr);
-	context->RSSetState(nullptr);
+	if (context != nullptr) {
+		//Let the GPU finish before anything it may still be reading goes away.
+		context->OMSetRenderTargets(0, nullptr, nullptr);
+		context->Flush();
+	}
+	if (device != nullptr) {
+		device->WaitIdle();
+	}
 
 	if (depthTexture) { delete depthTexture; }
 
-	// Release all DirectX resources
+	// Release all GPU objects
 	if (basic_sampler) { basic_sampler->Release(); }
 	if (shadow_sampler) { shadow_sampler->Release(); }
 	if (blend) { blend->Release(); }
@@ -112,20 +118,24 @@ DXCore::~DXCore()
 	if (depth_prepass) { depth_prepass->Release(); }
 	if (depth_prepass_read) { depth_prepass_read->Release(); }
 	if (backBufferRTV) { backBufferRTV->Release(); }
-	if (swapChain) { swapChain->Release(); }
-	if (context) { context->Flush();  context->Release(); }
-	
-#if 1
-	//Check if all d3d instances are correctly released
-	ID3D11Debug* debug;
-	device->QueryInterface(IID_ID3D11Debug, (void**)(&debug));
-	if (debug)
-	{
-		debug->ReportLiveDeviceObjects(D3D11_RLDO_DETAIL);
-		debug->Release();
+	if (backBufferTexture) { backBufferTexture->Release(); }
+	for (GfxTexture*& t : swapBuffers) {
+		if (t) { t->Release(); t = nullptr; }
 	}
-#endif
-	if (device) { device->Release(); }
+	swapChain.Reset();
+
+	if (context) {
+		context->Shutdown();
+		delete context;
+		context = nullptr;
+	}
+	if (device) {
+		//Whatever the debug layer still has to say about leaks and invalid use.
+		device->DrainDebugMessages();
+		device->Shutdown();
+		delete device;
+		device = nullptr;
+	}
 }
 
 HRESULT DXCore::InitWindow(HWND parent)
@@ -272,7 +282,12 @@ DXCore::EnumerateAdapters()
 
 HRESULT DXCore::InitDirectX()
 {
-	unsigned int deviceFlags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
+	//HOTBITE_LOG=<file>: an engine log (debug level) for a host that does not open one itself, e.g. the gfx frame stats.
+	char log_path[MAX_PATH] = {};
+	size_t log_len = 0;
+	if (getenv_s(&log_len, log_path, sizeof(log_path), "HOTBITE_LOG") == 0 && log_len > 1 && !Log::Enabled(LogLevel::Fatal)) {
+		Log::Init(log_path, LogLevel::Debug);
+	}
 	int w = width;
 	int h = height;
 	if (!windowed) {
@@ -296,108 +311,83 @@ HRESULT DXCore::InitDirectX()
 	//and camera aspect ratios agree with what is presented.
 	width = w;
 	height = h;
-#if defined(DEBUG) || defined(_DEBUG)
-	deviceFlags |= D3D11_CREATE_DEVICE_DEBUG;
-#endif
-	DXGI_SWAP_CHAIN_DESC swapDesc = {};
-	swapDesc.BufferCount = 1;
-	swapDesc.BufferDesc.Width = w;
-	swapDesc.BufferDesc.Height = h;
-	swapDesc.BufferDesc.RefreshRate.Numerator = 60;
-	swapDesc.BufferDesc.RefreshRate.Denominator = 1;
-	swapDesc.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-	swapDesc.BufferDesc.ScanlineOrdering = DXGI_MODE_SCANLINE_ORDER_UNSPECIFIED;
-	swapDesc.BufferDesc.Scaling = DXGI_MODE_SCALING_UNSPECIFIED;
-	swapDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-	swapDesc.Flags = 0;
-	swapDesc.OutputWindow = wnd;
-	swapDesc.SampleDesc.Count = 1;
-	swapDesc.SampleDesc.Quality = 0;
-	swapDesc.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
-	swapDesc.Windowed = true;
 
 	HRESULT hr = S_OK;
 
-	IDXGIAdapter* adapter = nullptr;
+	//The D3D12 device on the adapter with the most dedicated memory. A machine without feature level
+	//12_0 and resource binding tier 2 ends here: there is no fallback (see Docs/D3D12_MIGRATION.md).
+	device = new GfxDevice();
+	hr = device->Init();
+	if (FAILED(hr)) {
+		LOG_ERROR("DXCore: no usable Direct3D 12 device (0x%08X)", (unsigned)hr);
+		return hr;
+	}
+	context = new GfxContext();
+	if (!context->Init(device)) {
+		LOG_ERROR("DXCore: could not create the graphics context");
+		return E_FAIL;
+	}
+	dxFeatureLevel = device->FeatureLevel();
+	LOG_INFO("DXCore: D3D feature level %u.%u on %s, 64 compute UAV slots",
+		(unsigned)(dxFeatureLevel >> 12), (unsigned)((dxFeatureLevel >> 8) & 0xF), device->AdapterName().c_str());
 
-	std::vector<IDXGIAdapter*> adapters = EnumerateAdapters();
-	SIZE_T video_mem = 0;
-	for (IDXGIAdapter* a : adapters) {
-		DXGI_ADAPTER_DESC desc;
-		a->GetDesc(&desc);
-		if (desc.DedicatedVideoMemory > video_mem) {
-			adapter = a;
-			video_mem = desc.DedicatedVideoMemory;
+	//The swap chain: flip model, several buffers, tearing allowed when the system can (the frame rate is
+	//capped by the game, not by the display).
+	{
+		DXGI_SWAP_CHAIN_DESC1 sd = {};
+		sd.Width = w;
+		sd.Height = h;
+		sd.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+		sd.Stereo = FALSE;
+		sd.SampleDesc.Count = 1;
+		sd.SampleDesc.Quality = 0;
+		sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+		sd.BufferCount = SWAP_BUFFERS;
+		sd.Scaling = DXGI_SCALING_STRETCH;
+		sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+		sd.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
+		sd.Flags = device->AllowTearing() ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0;
+		Microsoft::WRL::ComPtr<IDXGISwapChain1> sc1;
+		hr = device->Factory()->CreateSwapChainForHwnd(device->Queue(), wnd, &sd, nullptr, nullptr, &sc1);
+		if (FAILED(hr)) {
+			LOG_ERROR("DXCore: CreateSwapChainForHwnd failed (0x%08X)", (unsigned)hr);
+			return hr;
+		}
+		hr = sc1.As(&swapChain);
+		if (FAILED(hr)) return hr;
+		//Alt+Enter is not a fullscreen switch here: the "fullscreen" game is a borderless window.
+		device->Factory()->MakeWindowAssociation(wnd, DXGI_MWA_NO_ALT_ENTER);
+		for (UINT i = 0; i < SWAP_BUFFERS; ++i) {
+			Microsoft::WRL::ComPtr<ID3D12Resource> buffer;
+			hr = swapChain->GetBuffer(i, IID_PPV_ARGS(&buffer));
+			if (FAILED(hr)) return hr;
+			hr = device->WrapTexture(buffer.Get(), D3D12_RESOURCE_STATE_PRESENT, &swapBuffers[i]);
+			if (FAILED(hr)) return hr;
 		}
 	}
 
-	//Asked for explicitly, 11.1 first, rather than left as the null array this used to
-	//pass. The null array is documented to try 11_1 too, but only when the D3D11.1
-	//runtime is present, and what it actually produced here was a **11_0** device on
-	//hardware that supports 11_1 - which is not a cosmetic difference:
-	//
-	//  D3D11_PS_CS_UAV_REGISTER_COUNT (feature level 11_0) = 8 UAVs
-	//  D3D11_1_UAV_SLOT_COUNT         (feature level 11_1) = 64
-	//
-	//and SplatRasterCS needs nine. It fills the whole G-buffer - scene, light, depth,
-	//the two ray sources, position and previous position - plus its own stat counters,
-	//which is exactly eight, so bloom (the one target it skipped, leaving emission
-	//behind a cloud glowing through it) had nowhere to bind.
-	//
-	//11_1 is not required. A device that comes back 11_0 keeps working, and RenderSystem
-	//checks the level before binding that ninth UAV; see SupportsExtendedUAVSlots.
-	const D3D_FEATURE_LEVEL wanted[] = {
-		D3D_FEATURE_LEVEL_11_1,
-		D3D_FEATURE_LEVEL_11_0,
-		D3D_FEATURE_LEVEL_10_1,
-		D3D_FEATURE_LEVEL_10_0,
-	};
-
-	hr = D3D11CreateDeviceAndSwapChain(
-		adapter,					// Video adapter (physical GPU) to use, or null for default
-		D3D_DRIVER_TYPE_UNKNOWN,	// We want to use the hardware (GPU)
-		0,							// Used when doing software rendering
-		deviceFlags,				// Any special options
-		wanted,						// Versions we accept, best first
-		ARRAYSIZE(wanted),			// The number of entries in the above param
-		D3D11_SDK_VERSION,			// Current version of the SDK
-		&swapDesc,					// Address of swap chain options
-		&swapChain,					// Pointer to our Swap Chain pointer
-		&device,					// Pointer to our Device pointer
-		&dxFeatureLevel,			// This will hold the actual feature level the app will use
-		&context);					// Pointer to our Device Context pointer
-
-	//A machine without the D3D11.1 runtime rejects the whole call for naming 11_1 at
-	//all - E_INVALIDARG, rather than quietly falling through to the next entry - so the
-	//retry drops it and asks for the rest.
-	if (hr == E_INVALIDARG) {
-		hr = D3D11CreateDeviceAndSwapChain(
-			adapter, D3D_DRIVER_TYPE_UNKNOWN, 0, deviceFlags,
-			&wanted[1], ARRAYSIZE(wanted) - 1, D3D11_SDK_VERSION,
-			&swapDesc, &swapChain, &device, &dxFeatureLevel, &context);
+	{
+		D3D12_RESOURCE_DESC bb = {};
+		bb.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+		bb.Width = w;
+		bb.Height = h;
+		bb.DepthOrArraySize = 1;
+		bb.MipLevels = 1;
+		bb.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+		bb.SampleDesc.Count = 1;
+		bb.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+		bb.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+		D3D12_CLEAR_VALUE cv = {};
+		cv.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+		hr = device->CreateTexture2D(bb, D3D12_RESOURCE_STATE_RENDER_TARGET, &cv, nullptr, 0, &backBufferTexture);
+		if (FAILED(hr)) return hr;
+		hr = device->CreateRTV(backBufferTexture, nullptr, &backBufferRTV);
+		if (FAILED(hr)) return hr;
 	}
-	if (FAILED(hr)) return hr;
-
-	//Worth a line of its own: a device that lands on 11_0 is not broken, but it silently
-	//loses the ninth UAV slot, and the only symptom is emission glowing through a splat
-	//cloud - which looks like a bloom bug rather than like a device capability.
-	//The enum packs the version as nibbles - D3D_FEATURE_LEVEL_11_1 is 0xb100 - so these
-	//are shifted out and printed as decimal rather than letting %x render 11 as 'b'.
-	LOG_INFO("DXCore: D3D feature level %u.%u, %s (%u compute UAV slots)",
-		(unsigned)(dxFeatureLevel >> 12), (unsigned)((dxFeatureLevel >> 8) & 0xF),
-		SupportsExtendedUAVSlots() ? "extended UAV slots" : "8-UAV limit",
-		SupportsExtendedUAVSlots() ? (unsigned)D3D11_1_UAV_SLOT_COUNT
-								   : (unsigned)D3D11_PS_CS_UAV_REGISTER_COUNT);
 
 	context->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 	ScreenDraw::Init(context);
 
-	ID3D11Texture2D* backBufferTexture = nullptr;
-	swapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&backBufferTexture);
-	if (FAILED(hr)) return hr;
-	hr = device->CreateRenderTargetView(backBufferTexture, nullptr, &backBufferRTV);
-	backBufferTexture->Release();
-	if (FAILED(hr)) return hr;
 	hr = depthTexture->Init(w, h);
 	if (FAILED(hr)) return hr;
 
@@ -423,13 +413,12 @@ HRESULT DXCore::InitDirectX()
 	screenport.MaxDepth = 1.0f;
 	context->RSSetViewports(1, &screenport);
 
-	D3D11_RASTERIZER_DESC drawingRenderStateDesc;
-	ZeroMemory(&drawingRenderStateDesc, sizeof(D3D11_RASTERIZER_DESC));
-	drawingRenderStateDesc.CullMode = D3D11_CULL_NONE;
-	drawingRenderStateDesc.FillMode = D3D11_FILL_SOLID;
-	drawingRenderStateDesc.AntialiasedLineEnable = true;
-	drawingRenderStateDesc.DepthClipEnable = true;
-	if (FAILED(hr = device->CreateRasterizerState(&drawingRenderStateDesc, &drawing_rasterizer))) {
+	D3D12_RASTERIZER_DESC drawingRenderStateDesc = {};
+	drawingRenderStateDesc.CullMode = D3D12_CULL_MODE_NONE;
+	drawingRenderStateDesc.FillMode = D3D12_FILL_MODE_SOLID;
+	drawingRenderStateDesc.AntialiasedLineEnable = TRUE;
+	drawingRenderStateDesc.DepthClipEnable = TRUE;
+	if (FAILED(hr = device->CreateRasterizerState(drawingRenderStateDesc, false, &drawing_rasterizer))) {
 		return hr;
 	}
 
@@ -444,121 +433,122 @@ HRESULT DXCore::InitDirectX()
 	//millimetre up close, about a metre out near the far plane.
 	//This replaces the flat 1.0f world-unit slack the old in-shader test used, which
 	//was far too generous near the camera and could not reject anything early.
-	D3D11_RASTERIZER_DESC depthRenderStateDesc = drawingRenderStateDesc;
+	D3D12_RASTERIZER_DESC depthRenderStateDesc = drawingRenderStateDesc;
 	depthRenderStateDesc.DepthBias = 100;
 	depthRenderStateDesc.SlopeScaledDepthBias = 1.0f;
-	if (FAILED(hr = device->CreateRasterizerState(&depthRenderStateDesc, &depth_rasterizer))) {
+	if (FAILED(hr = device->CreateRasterizerState(depthRenderStateDesc, false, &depth_rasterizer))) {
 		return hr;
 	}
 
-	D3D11_RASTERIZER_DESC skyRenderStateDesc;
-	ZeroMemory(&skyRenderStateDesc, sizeof(D3D11_RASTERIZER_DESC));
-	skyRenderStateDesc.CullMode = D3D11_CULL_NONE;
-	skyRenderStateDesc.FillMode = D3D11_FILL_SOLID;
-	skyRenderStateDesc.AntialiasedLineEnable = false;
-	skyRenderStateDesc.DepthClipEnable = false;
-	if (FAILED(hr = device->CreateRasterizerState(&skyRenderStateDesc, &sky_rasterizer))) {
+	D3D12_RASTERIZER_DESC skyRenderStateDesc = {};
+	skyRenderStateDesc.CullMode = D3D12_CULL_MODE_NONE;
+	skyRenderStateDesc.FillMode = D3D12_FILL_MODE_SOLID;
+	skyRenderStateDesc.AntialiasedLineEnable = FALSE;
+	skyRenderStateDesc.DepthClipEnable = FALSE;
+	if (FAILED(hr = device->CreateRasterizerState(skyRenderStateDesc, false, &sky_rasterizer))) {
 		return hr;
 	}
 
-
-	D3D11_RASTERIZER_DESC wireFrameRenderStateDesc;
-	ZeroMemory(&wireFrameRenderStateDesc, sizeof(D3D11_RASTERIZER_DESC));
-	wireFrameRenderStateDesc.CullMode = D3D11_CULL_BACK;
-	wireFrameRenderStateDesc.FillMode = D3D11_FILL_WIREFRAME;
-	wireFrameRenderStateDesc.AntialiasedLineEnable = true;
-	wireFrameRenderStateDesc.DepthClipEnable = true;
-	if (FAILED(hr = device->CreateRasterizerState(&wireFrameRenderStateDesc, &wireframe_rasterizer))) {
+	D3D12_RASTERIZER_DESC wireFrameRenderStateDesc = {};
+	wireFrameRenderStateDesc.CullMode = D3D12_CULL_MODE_BACK;
+	wireFrameRenderStateDesc.FillMode = D3D12_FILL_MODE_WIREFRAME;
+	wireFrameRenderStateDesc.AntialiasedLineEnable = TRUE;
+	wireFrameRenderStateDesc.DepthClipEnable = TRUE;
+	if (FAILED(hr = device->CreateRasterizerState(wireFrameRenderStateDesc, false, &wireframe_rasterizer))) {
 		return hr;
 	}
 
-	D3D11_RASTERIZER_DESC shadowRenderStateDesc;
-	ZeroMemory(&shadowRenderStateDesc, sizeof(D3D11_RASTERIZER_DESC));
-	shadowRenderStateDesc.CullMode = D3D11_CULL_BACK;
-	shadowRenderStateDesc.FillMode = D3D11_FILL_SOLID;
+	D3D12_RASTERIZER_DESC shadowRenderStateDesc = {};
+	shadowRenderStateDesc.CullMode = D3D12_CULL_MODE_BACK;
+	shadowRenderStateDesc.FillMode = D3D12_FILL_MODE_SOLID;
 	//shadowRenderStateDesc.DepthBias = 100;
-	shadowRenderStateDesc.DepthClipEnable = false;
+	shadowRenderStateDesc.DepthClipEnable = FALSE;
 	shadowRenderStateDesc.SlopeScaledDepthBias = 2.0f;
-	if (FAILED(hr = device->CreateRasterizerState(&shadowRenderStateDesc, &shadow_rasterizer))) {
+	if (FAILED(hr = device->CreateRasterizerState(shadowRenderStateDesc, false, &shadow_rasterizer))) {
 		return hr;
 	}
-	shadowRenderStateDesc.CullMode = D3D11_CULL_BACK;
+	shadowRenderStateDesc.CullMode = D3D12_CULL_MODE_BACK;
 	shadowRenderStateDesc.SlopeScaledDepthBias = 2.0f;
 	shadowRenderStateDesc.DepthBias = 1000;
-	if (FAILED(hr = device->CreateRasterizerState(&shadowRenderStateDesc, &dir_shadow_rasterizer))) {
+	if (FAILED(hr = device->CreateRasterizerState(shadowRenderStateDesc, false, &dir_shadow_rasterizer))) {
 		return hr;
 	}
 
-	D3D11_SAMPLER_DESC samplerDesc = {};
-	samplerDesc.AddressU = D3D11_TEXTURE_ADDRESS_WRAP;
-	samplerDesc.AddressV = D3D11_TEXTURE_ADDRESS_WRAP;
-	samplerDesc.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
-	samplerDesc.Filter = D3D11_FILTER_ANISOTROPIC;
+	D3D12_SAMPLER_DESC samplerDesc = {};
+	samplerDesc.AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+	samplerDesc.AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+	samplerDesc.AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+	samplerDesc.Filter = D3D12_FILTER_ANISOTROPIC;
 	samplerDesc.MaxAnisotropy = 16;
-	samplerDesc.MaxLOD = D3D11_FLOAT32_MAX;
-	device->CreateSamplerState(&samplerDesc, &basic_sampler);
+	samplerDesc.MaxLOD = D3D12_FLOAT32_MAX;
+	samplerDesc.ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
+	device->CreateSampler(samplerDesc, &basic_sampler);
 
-	D3D11_SAMPLER_DESC comparisonSamplerDesc;
-	ZeroMemory(&comparisonSamplerDesc, sizeof(D3D11_SAMPLER_DESC));
-	comparisonSamplerDesc.AddressU = D3D11_TEXTURE_ADDRESS_BORDER;
-	comparisonSamplerDesc.AddressV = D3D11_TEXTURE_ADDRESS_BORDER;
-	comparisonSamplerDesc.AddressW = D3D11_TEXTURE_ADDRESS_BORDER;
+	D3D12_SAMPLER_DESC comparisonSamplerDesc = {};
+	comparisonSamplerDesc.AddressU = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+	comparisonSamplerDesc.AddressV = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+	comparisonSamplerDesc.AddressW = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
 	comparisonSamplerDesc.MinLOD = 0.f;
-	comparisonSamplerDesc.MaxLOD = D3D11_FLOAT32_MAX;
+	comparisonSamplerDesc.MaxLOD = D3D12_FLOAT32_MAX;
 	comparisonSamplerDesc.MipLODBias = 0.f;
 	comparisonSamplerDesc.MaxAnisotropy = 0;
-	comparisonSamplerDesc.ComparisonFunc = D3D11_COMPARISON_LESS;
-	comparisonSamplerDesc.Filter = D3D11_FILTER_COMPARISON_MIN_MAG_MIP_LINEAR;
-	if (FAILED(hr = device->CreateSamplerState(&comparisonSamplerDesc, &shadow_sampler))) {
+	comparisonSamplerDesc.ComparisonFunc = D3D12_COMPARISON_FUNC_LESS;
+	comparisonSamplerDesc.Filter = D3D12_FILTER_COMPARISON_MIN_MAG_MIP_LINEAR;
+	if (FAILED(hr = device->CreateSampler(comparisonSamplerDesc, &shadow_sampler))) {
 		return hr;
 	}
 
-	D3D11_BLEND_DESC BlendState;
-	ZeroMemory(&BlendState, sizeof(D3D11_BLEND_DESC));
+	D3D12_BLEND_DESC BlendState = {};
+	for (int i = 0; i < 8; ++i) {
+		BlendState.RenderTarget[i].SrcBlend = D3D12_BLEND_ONE;
+		BlendState.RenderTarget[i].DestBlend = D3D12_BLEND_ZERO;
+		BlendState.RenderTarget[i].BlendOp = D3D12_BLEND_OP_ADD;
+		BlendState.RenderTarget[i].SrcBlendAlpha = D3D12_BLEND_ONE;
+		BlendState.RenderTarget[i].DestBlendAlpha = D3D12_BLEND_ZERO;
+		BlendState.RenderTarget[i].BlendOpAlpha = D3D12_BLEND_OP_ADD;
+		BlendState.RenderTarget[i].LogicOp = D3D12_LOGIC_OP_NOOP;
+		BlendState.RenderTarget[i].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+	}
 	BlendState.RenderTarget[0].BlendEnable = FALSE;
-	BlendState.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
-	device->CreateBlendState(&BlendState, &no_blend);
+	device->CreateBlendState(BlendState, &no_blend);
 
 	BlendState.AlphaToCoverageEnable = FALSE;
 	BlendState.IndependentBlendEnable = FALSE;
 	BlendState.RenderTarget[0].BlendEnable = TRUE;
-	BlendState.RenderTarget[0].SrcBlend = D3D11_BLEND_SRC_ALPHA;
-	BlendState.RenderTarget[0].DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
-	BlendState.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
-	BlendState.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_SRC_ALPHA;
-	BlendState.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_INV_SRC_ALPHA;
-	BlendState.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
-	BlendState.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
-	device->CreateBlendState(&BlendState, &blend);
+	BlendState.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_ALPHA;
+	BlendState.RenderTarget[0].DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+	BlendState.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
+	BlendState.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_SRC_ALPHA;
+	BlendState.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_INV_SRC_ALPHA;
+	BlendState.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
+	BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+	device->CreateBlendState(BlendState, &blend);
 
-
-#if 1
-	ID3D11DepthStencilState* pDepthStencilState = nullptr;
-	D3D11_DEPTH_STENCIL_DESC  DepthState;
+	D3D12_DEPTH_STENCIL_DESC DepthState = {};
 	DepthState.DepthEnable = TRUE;
-	DepthState.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
-	DepthState.DepthFunc = D3D11_COMPARISON_LESS;
+	DepthState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
+	DepthState.DepthFunc = D3D12_COMPARISON_FUNC_LESS;
 	DepthState.StencilEnable = FALSE;
-	DepthState.StencilReadMask = D3D11_DEFAULT_STENCIL_READ_MASK;
-	DepthState.StencilWriteMask = D3D11_DEFAULT_STENCIL_WRITE_MASK;
+	DepthState.StencilReadMask = D3D12_DEFAULT_STENCIL_READ_MASK;
+	DepthState.StencilWriteMask = D3D12_DEFAULT_STENCIL_WRITE_MASK;
 
-	const D3D11_DEPTH_STENCILOP_DESC defaultStencilOp =
-	{ D3D11_STENCIL_OP_KEEP,
-	  D3D11_STENCIL_OP_KEEP,
-	  D3D11_STENCIL_OP_KEEP,
-	  D3D11_COMPARISON_ALWAYS };
+	const D3D12_DEPTH_STENCILOP_DESC defaultStencilOp =
+	{ D3D12_STENCIL_OP_KEEP,
+	  D3D12_STENCIL_OP_KEEP,
+	  D3D12_STENCIL_OP_KEEP,
+	  D3D12_COMPARISON_FUNC_ALWAYS };
 
 	DepthState.FrontFace = defaultStencilOp;
 	DepthState.BackFace = defaultStencilOp;
-	device->CreateDepthStencilState(&DepthState, &normal_depth);
-	DepthState.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
-	device->CreateDepthStencilState(&DepthState, &transparent_depth);
+	device->CreateDepthStencilState(DepthState, &normal_depth);
+	DepthState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+	device->CreateDepthStencilState(DepthState, &transparent_depth);
 
-	DepthState.DepthFunc = D3D11_COMPARISON_LESS_EQUAL;
-	device->CreateDepthStencilState(&DepthState, &depth_prepass_read);
-	DepthState.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
-	device->CreateDepthStencilState(&DepthState, &depth_prepass);
-#endif
+	DepthState.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+	device->CreateDepthStencilState(DepthState, &depth_prepass_read);
+	DepthState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
+	device->CreateDepthStencilState(DepthState, &depth_prepass);
+
 	// Return the "everything is ok" HRESULT value
 	Direct2D::Init();
 	return S_OK;
@@ -571,24 +561,105 @@ DXCore* DXCore::Get() {
 void DXCore::ClearScreen(const float color[4])
 {
 	context->ClearRenderTargetView(backBufferRTV, color);
-	context->ClearDepthStencilView(depthTexture->Depth(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+	context->ClearDepthStencilView(depthTexture->Depth(), D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0);
 }
 
-ID3D11RenderTargetView* DXCore::RenderTarget() const {
+bool DXCore::ReadBackBuffer(std::vector<uint8_t>& rgba, uint32_t& w, uint32_t& h) {
+	D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint = {};
+	UINT rows = 0;
+	UINT64 row_size = 0;
+	UINT64 total = 0;
+	device->Device()->GetCopyableFootprints(&backBufferTexture->desc, 0, 1, 0, &footprint, &rows, &row_size, &total);
+	GfxBuffer* readback = nullptr;
+	if (FAILED(device->CreateBuffer(GfxBufferKind::Readback, total, 0, D3D12_RESOURCE_FLAG_NONE, nullptr,
+		D3D12_RESOURCE_STATE_COPY_DEST, &readback))) {
+		return false;
+	}
+	context->CopyTextureToBuffer(backBufferTexture, readback, footprint);
+	context->Flush();
+	w = backBufferTexture->width;
+	h = backBufferTexture->height;
+	rgba.resize((size_t)w * h * 4);
+	const uint8_t* src = (const uint8_t*)readback->mapped;
+	for (uint32_t y = 0; y < h; ++y) {
+		memcpy(rgba.data() + (size_t)y * w * 4, src + (size_t)y * footprint.Footprint.RowPitch, (size_t)w * 4);
+	}
+	readback->Release();
+	return true;
+}
+
+bool DXCore::SaveBackBuffer(const std::filesystem::path& png, std::string& error) {
+	//WIC needs COM on this thread; RPC_E_CHANGED_MODE just means it already was.
+	static bool com_initialized = false;
+	if (!com_initialized) {
+		CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+		com_initialized = true;
+	}
+	std::vector<uint8_t> pixels;
+	uint32_t w = 0;
+	uint32_t h = 0;
+	if (!ReadBackBuffer(pixels, w, h)) {
+		error = "reading the back buffer failed";
+		return false;
+	}
+	DirectX::Image image = {};
+	image.width = w;
+	image.height = h;
+	image.format = DXGI_FORMAT_R8G8B8A8_UNORM;
+	image.rowPitch = (size_t)w * 4;
+	image.slicePitch = image.rowPitch * h;
+	image.pixels = pixels.data();
+	const HRESULT hr = DirectX::SaveToWICFile(image, DirectX::WIC_FLAGS_NONE,
+		DirectX::GetWICCodec(DirectX::WIC_CODEC_PNG), png.wstring().c_str());
+	if (FAILED(hr)) {
+		error = "SaveToWICFile failed: " + png.string();
+		return false;
+	}
+	return true;
+}
+
+GfxRTV* DXCore::RenderTarget() const {
 	return backBufferRTV;
 }
 
-ID3D11ShaderResourceView* DXCore::DepthResource() {
+GfxSRV* DXCore::DepthResource() {
 	return depthTexture->SRV();
 }
 
-ID3D11DepthStencilView* DXCore::DepthView() {
+GfxDSV* DXCore::DepthView() {
 	return depthTexture->Depth();
 }
 
 void DXCore::Present()
 {
-	swapChain->Present(0, 0);
+	//What was drawn this frame goes to the swap chain's current buffer, which is then presented.
+	const UINT index = swapChain->GetCurrentBackBufferIndex();
+	GfxTexture* target = swapBuffers[index];
+	context->CopyResource(target, backBufferTexture);
+	context->Transition(target, D3D12_RESOURCE_STATE_PRESENT);
+		//A line about the frame that is going out, now and then: how much was recorded and how much was refused.
+		static uint32_t frames_presented = 0;
+		static uint64_t submit_ns = 0;
+		static uint64_t present_ns = 0;
+		if ((frames_presented++ % 240) == 0) {
+			const GfxContext::Stats& s = context->stats;
+			LOG_DEBUG("gfx frame %u: %u draws, %u dispatches, %u skipped, %u barriers, %u pipelines made, %zu cached, %u descriptors copied",
+				frames_presented, s.draws, s.dispatches, s.skipped, s.barriers, s.pipelines_created, context->PipelineCount(), s.descriptors_copied);
+			const GfxDevice::WaitStats w = device->TakeWaitStats();
+			const double frames = 240.0;
+			LOG_DEBUG("gfx cpu per frame (ms, last 240): submit %.3f, present %.3f, waiting for the GPU %.3f (%u waits), immediate uploads waited %.3f (%u of %u calls)",
+				submit_ns / 1e6 / frames, present_ns / 1e6 / frames, w.frame_ns / 1e6 / frames, w.frame_waits,
+				w.immediate_ns / 1e6 / frames, w.immediate_waits, w.immediate_calls);
+			submit_ns = 0;
+			present_ns = 0;
+		}
+		const auto submit_begin = std::chrono::steady_clock::now();
+			context->Submit();
+			const auto present_begin = std::chrono::steady_clock::now();
+			swapChain->Present(0, device->AllowTearing() ? DXGI_PRESENT_ALLOW_TEARING : 0);
+			const auto present_end = std::chrono::steady_clock::now();
+			submit_ns += (uint64_t)std::chrono::duration_cast<std::chrono::nanoseconds>(present_begin - submit_begin).count();
+			present_ns += (uint64_t)std::chrono::duration_cast<std::chrono::nanoseconds>(present_end - present_begin).count();
 	OnFrame();
 }
 
@@ -666,17 +737,7 @@ void DXCore::UpdateTitleBarStats()
 		"    Frame Time: " << mspf << "ms";
 	current_fps = fpsFrameCount;
 	// Append the version of DirectX the app is using
-	switch (dxFeatureLevel)
-	{
-	case D3D_FEATURE_LEVEL_11_1: output << "    DX 11.1"; break;
-	case D3D_FEATURE_LEVEL_11_0: output << "    DX 11.0"; break;
-	case D3D_FEATURE_LEVEL_10_1: output << "    DX 10.1"; break;
-	case D3D_FEATURE_LEVEL_10_0: output << "    DX 10.0"; break;
-	case D3D_FEATURE_LEVEL_9_3:  output << "    DX 9.3";  break;
-	case D3D_FEATURE_LEVEL_9_2:  output << "    DX 9.2";  break;
-	case D3D_FEATURE_LEVEL_9_1:  output << "    DX 9.1";  break;
-	default:                     output << "    DX ???";  break;
-	}
+	output << "    D3D12 FL " << (unsigned)(dxFeatureLevel >> 12) << "_" << (unsigned)((dxFeatureLevel >> 8) & 0xF);
 
 	// Actually update the title bar and reset fps data
 	SetWindowText(wnd, output.str().c_str());
@@ -904,6 +965,9 @@ Direct2D::Direct2D() {
 Direct2D::~Direct2D() {
 	d2d_factory->Release();
 	write_factory->Release();
+	if (wic_factory != nullptr) {
+		wic_factory->Release();
+	}
 }
 
 
@@ -971,37 +1035,68 @@ IDWriteTextFormat* Direct2D::GetFont(const std::string& font_name, float font_si
 	return ret;
 }
 
-ID2D1RenderTarget* Direct2D::GetD2DRenderTargetView(ID3D11RenderTargetView* d3dRenderTargetView) {
-	ID2D1RenderTarget* d2dRenderTarget = nullptr;
-	ID3D11Resource* d3dResource = nullptr;
-	IDXGISurface* dxgiSurface = nullptr;
-
-	// Get the underlying resource from the render target view
-	d3dRenderTargetView->GetResource(&d3dResource);
-
-	// Query the resource for the DXGI surface interface
-	HRESULT hr = d3dResource->QueryInterface(__uuidof(IDXGISurface), (void**)&dxgiSurface);
-	d3dResource->Release();
-	if (dxgiSurface != nullptr)
-	{
-		float dpi = (float)DXCore::Get()->GetDpi();
-
-		D2D1_RENDER_TARGET_PROPERTIES renderTargetProperties = D2D1::RenderTargetProperties(
-			D2D1_RENDER_TARGET_TYPE_HARDWARE,
-			D2D1::PixelFormat(DXGI_FORMAT_UNKNOWN, D2D1_ALPHA_MODE_IGNORE),
-			dpi,
-			dpi);
-		d2d_factory->CreateDxgiSurfaceRenderTarget(dxgiSurface, renderTargetProperties, &d2dRenderTarget);
-		dxgiSurface->Release();
-		if (d2dRenderTarget != nullptr) {
-			// Set the antialiasing mode for text rendering
-			d2dRenderTarget->SetAntialiasMode(D2D1_ANTIALIAS_MODE_ALIASED);
-			// Create the text rendering parameters
-			IDWriteRenderingParams* renderingParams;
-			write_factory->CreateRenderingParams(&renderingParams);
-			d2dRenderTarget->SetTextRenderingParams(renderingParams);
-			renderingParams->Release();
+bool Direct2D::RenderText(IDWriteTextLayout* layout, const D2D1_COLOR_F& color, uint32_t w, uint32_t h, float dpi,
+	std::vector<uint8_t>& rgba) {
+	if (layout == nullptr || w == 0 || h == 0) {
+		return false;
+	}
+	if (wic_factory == nullptr &&
+		FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wic_factory)))) {
+		return false;
+	}
+	IWICBitmap* bitmap = nullptr;
+	if (FAILED(wic_factory->CreateBitmap(w, h, GUID_WICPixelFormat32bppPBGRA, WICBitmapCacheOnDemand, &bitmap))) {
+		return false;
+	}
+	bool ok = false;
+	ID2D1RenderTarget* target = nullptr;
+	const D2D1_RENDER_TARGET_PROPERTIES props = D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_SOFTWARE,
+		D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED), dpi, dpi);
+	if (SUCCEEDED(d2d_factory->CreateWicBitmapRenderTarget(bitmap, props, &target))) {
+		ID2D1SolidColorBrush* brush = nullptr;
+		if (SUCCEEDED(target->CreateSolidColorBrush(color, &brush))) {
+			//Grayscale: ClearType needs to know what is behind the text, and what is behind it here is transparency.
+			target->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
+			target->BeginDraw();
+			target->Clear(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f));
+			target->DrawTextLayout(D2D1::Point2F(0.0f, 0.0f), layout, brush, D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
+			ok = SUCCEEDED(target->EndDraw());
+			brush->Release();
+		}
+		target->Release();
+	}
+	if (ok) {
+		ok = false;
+		IWICBitmapLock* lock = nullptr;
+		const WICRect rect = { 0, 0, (INT)w, (INT)h };
+		if (SUCCEEDED(bitmap->Lock(&rect, WICBitmapLockRead, &lock))) {
+			UINT stride = 0;
+			UINT size = 0;
+			BYTE* data = nullptr;
+			if (SUCCEEDED(lock->GetStride(&stride)) && SUCCEEDED(lock->GetDataPointer(&size, &data))) {
+				rgba.resize((size_t)w * h * 4);
+				for (uint32_t y = 0; y < h; ++y) {
+					const uint8_t* src = data + (size_t)y * stride;
+					uint8_t* dst = rgba.data() + (size_t)y * w * 4;
+					for (uint32_t x = 0; x < w; ++x, src += 4, dst += 4) {
+						//Premultiplied BGRA to straight RGBA, which is what the UI shader and its blend state expect.
+						const uint32_t a = src[3];
+						if (a == 0) {
+							dst[0] = dst[1] = dst[2] = dst[3] = 0;
+						}
+						else {
+							dst[0] = (uint8_t)(std::min)(255u, (src[2] * 255u + a / 2) / a);
+							dst[1] = (uint8_t)(std::min)(255u, (src[1] * 255u + a / 2) / a);
+							dst[2] = (uint8_t)(std::min)(255u, (src[0] * 255u + a / 2) / a);
+							dst[3] = (uint8_t)a;
+						}
+					}
+				}
+				ok = true;
+			}
+			lock->Release();
 		}
 	}
-	return d2dRenderTarget;
+	bitmap->Release();
+	return ok;
 }

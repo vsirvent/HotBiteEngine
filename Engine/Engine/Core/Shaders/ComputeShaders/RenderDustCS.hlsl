@@ -137,13 +137,13 @@ void main(uint3 DTid : SV_DispatchThreadID)
                     float3 color = float3(0.0f, 0.0f, 0.0f);
 
                     // Calculate the directional lights
-                    [unroll]
+                    [loop]
                     for (i = 0; i < dirLightsCount; ++i) {
                         color += HitDirectional(normal, wpos.xyz, dirLights[i], i);
                     }
 
                     // Calculate the point lights
-                    [unroll]
+                    [loop]
                     for (i = 0; i < auxLightCount; ++i) {
                         if (length(wpos.xyz - auxLights[i].light.position) < auxLights[i].light.range) {
                             color += HitPoint(normal, wpos.xyz, auxLights[i].light);

@@ -27,8 +27,7 @@ SOFTWARE.
 #include <algorithm>
 #include <filesystem>
 
-#include <DDSTextureLoader.h>
-#include <WICTextureLoader.h>
+#include <DirectXTex.h>
 
 #include <Core/Json.h>
 
@@ -45,18 +44,18 @@ namespace HotBite {
 		namespace Core {
 
 			std::mutex texture_mutex;
-			std::unordered_map<std::string, ID3D11ShaderResourceView*> textures;
-			std::unordered_map<ID3D11ShaderResourceView*, std::string> textures_names;
+			std::unordered_map<std::string, GfxSRV*> textures;
+			std::unordered_map<GfxSRV*, std::string> textures_names;
 
 			//Textures PreloadTextures put in the cache that nothing has taken a reference to
 			//yet. The cache's own reference is what they carry, and the first LoadTexture of
 			//one takes it over (no AddRef) so the count stays "one per user", which is what
 			//ReleaseTexture's erase-at-zero relies on. Whatever is still here when the load
 			//that preloaded them is over is let go (ReleaseUnclaimedTextures).
-			std::unordered_set<ID3D11ShaderResourceView*> unclaimed_textures;
+			std::unordered_set<GfxSRV*> unclaimed_textures;
 
 			//texture_mutex held.
-			static void ReleaseTextureLocked(ID3D11ShaderResourceView* srv) {
+			static void ReleaseTextureLocked(GfxSRV* srv) {
 				if (srv != nullptr && srv->Release() == 0) {
 					auto it0 = textures_names.find(srv);
 					if (it0 != textures_names.end()) {
@@ -66,14 +65,14 @@ namespace HotBite {
 				}
 			}
 
-			void ReleaseTexture(ID3D11ShaderResourceView* srv) {
+			void ReleaseTexture(GfxSRV* srv) {
 				std::lock_guard<std::mutex> l(texture_mutex);
 				ReleaseTextureLocked(srv);
 			}
 
 			void ReleaseUnclaimedTextures() {
 				std::lock_guard<std::mutex> l(texture_mutex);
-				for (ID3D11ShaderResourceView* srv : unclaimed_textures) {
+				for (GfxSRV* srv : unclaimed_textures) {
 					ReleaseTextureLocked(srv);
 				}
 				unclaimed_textures.clear();
@@ -98,7 +97,7 @@ namespace HotBite {
 				if (wanted.empty() || !TextureCacheEnabled()) {
 					return;
 				}
-				std::vector<ID3D11ShaderResourceView*> loaded(wanted.size(), nullptr);
+				std::vector<GfxSRV*> loaded(wanted.size(), nullptr);
 				std::atomic<size_t> next{ 0 };
 				const size_t workers = (std::min)((size_t)(std::max)(2u, std::thread::hardware_concurrency()), wanted.size());
 				std::vector<std::thread> threads;
@@ -143,10 +142,10 @@ namespace HotBite {
 				return files;
 			}
 
-			ID3D11ShaderResourceView* LoadTexture(const std::string& filename)
+			GfxSRV* LoadTexture(const std::string& filename)
 			{
 				std::lock_guard<std::mutex> l(texture_mutex);
-				ID3D11ShaderResourceView* srv = nullptr;
+				GfxSRV* srv = nullptr;
 				HRESULT ret = S_OK;
 				if (!filename.empty()) {
 					auto it = textures.find(filename);
@@ -161,17 +160,35 @@ namespace HotBite {
 								ret = S_OK;
 							}
 							else if (IsDdsName(filename)) {
-								ret = DirectX::CreateDDSTextureFromFile(DXCore::Get()->device, DXCore::Get()->context, ws.c_str(), nullptr, &srv);
-								if (!SUCCEEDED(ret)) {
-									throw std::exception("CreateDDSTextureFromFile failed");
-								}
+								DirectX::ScratchImage image;
+									ret = DirectX::LoadFromDDSFile(ws.c_str(), DirectX::DDS_FLAGS_NONE, nullptr, image);
+									if (SUCCEEDED(ret)) {
+										srv = CreateTextureFromImage(image);
+									}
+									if (srv == nullptr) {
+										throw std::exception("CreateDDSTextureFromFile failed");
+									}
 								printf("Loaded DDS texture %s\n", filename.c_str());
 							}
 							else {
-								ret = DirectX::CreateWICTextureFromFile(DXCore::Get()->device, DXCore::Get()->context, ws.c_str(), nullptr, &srv);
-								if (!SUCCEEDED(ret)) {
-									throw std::exception("CreateWICTextureFromMemory failed");
-								}
+								DirectX::ScratchImage image;
+									ret = DirectX::LoadFromWICFile(ws.c_str(), DirectX::WIC_FLAGS_NONE, nullptr, image);
+									if (SUCCEEDED(ret)) {
+										//The device used to build the mip chain of a plain image (CreateWICTextureFromFile with a context did);
+										//now it is built here, once.
+										DirectX::ScratchImage chain;
+										if (image.GetMetadata().mipLevels == 1 &&
+											SUCCEEDED(DirectX::GenerateMipMaps(image.GetImages(), image.GetImageCount(), image.GetMetadata(),
+												DirectX::TEX_FILTER_DEFAULT, 0, chain))) {
+											srv = CreateTextureFromImage(chain);
+										}
+										else {
+											srv = CreateTextureFromImage(image);
+										}
+									}
+									if (srv == nullptr) {
+										throw std::exception("CreateWICTextureFromMemory failed");
+									}
 								CountPlainTextureLoad(filename);
 							}
 
@@ -237,7 +254,7 @@ namespace HotBite {
 						resolved_masks[i] = mask_path;
 						multi_texture_mask[i] = mask_path.empty() ? nullptr : LoadTexture(mask_path);
 					}
-					ID3D11ShaderResourceView* live = GetLiveMask(i);
+					GfxSRV* live = GetLiveMask(i);
 					if (live != nullptr) {
 						multi_texture_mask[i] = live;
 					}
@@ -271,7 +288,7 @@ namespace HotBite {
 				}
 			}
 
-			void MultiMaterialData::SetLiveMask(uint32_t layer, ID3D11ShaderResourceView* srv) {
+			void MultiMaterialData::SetLiveMask(uint32_t layer, GfxSRV* srv) {
 				if (live_masks.size() <= layer) {
 					live_masks.resize(layer + 1, nullptr);
 				}
@@ -303,7 +320,7 @@ namespace HotBite {
 				}
 			}
 
-			ID3D11ShaderResourceView* MultiMaterialData::GetLiveMask(uint32_t layer) const {
+			GfxSRV* MultiMaterialData::GetLiveMask(uint32_t layer) const {
 				return (layer < live_masks.size()) ? live_masks[layer] : nullptr;
 			}
 
@@ -500,7 +517,7 @@ namespace HotBite {
 				Release();
 			}
 
-			void MaterialData::SetTexture(ID3D11ShaderResourceView*& texture, std::string& current_texture, const std::string& root, const std::string& file) {
+			void MaterialData::SetTexture(GfxSRV*& texture, std::string& current_texture, const std::string& root, const std::string& file) {
 				std::string new_texure = root + std::string("\\") + file;
 				if (!file.empty() && current_texture != new_texure) {
 					current_texture = new_texure;

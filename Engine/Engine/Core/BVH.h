@@ -123,10 +123,10 @@ namespace HotBite {
 			class DataBuffer {
 			private:
 				int size = 0;
-				ID3D11Buffer* buffer = nullptr;
-				ID3D11ShaderResourceView* srv = nullptr;
-				ID3D11UnorderedAccessView* uav = nullptr;
-				ID3D11Resource* resource = nullptr;
+				GfxBuffer* buffer = nullptr;
+				GfxSRV* srv = nullptr;
+				GfxUAV* uav = nullptr;
+				GfxResource* resource = nullptr;
 
 			public:
 				DataBuffer() {
@@ -142,42 +142,33 @@ namespace HotBite {
 
 				HRESULT Prepare(int size, DXGI_FORMAT format) {
 					HRESULT hr = S_OK;
-					ID3D11Device* device = Core::DXCore::Get()->device;
+					GfxDevice* device = Core::DXCore::Get()->device;
 
 					int32_t data_size = size * sizeof(T);
 
-					D3D11_BUFFER_DESC bd{};
-					D3D11_SUBRESOURCE_DATA initialData{};
-					D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc{};
-					D3D11_UNORDERED_ACCESS_VIEW_DESC uav_desc{};
+					D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc{};
+					D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc{};
 
-					bd.Usage = D3D11_USAGE_DEFAULT;
-					bd.ByteWidth = data_size;
-					bd.CPUAccessFlags = 0;
-					bd.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS;
-					bd.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS;
-					bd.StructureByteStride = sizeof(T);
-					
 					uint8_t* nullData = new uint8_t[data_size];
 					memset(nullData, 0, data_size);
-					initialData.pSysMem = nullData;
-					hr = device->CreateBuffer(&bd, &initialData, &buffer);
+					hr = device->CreateBuffer(GfxBufferKind::Static, data_size, 0, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
+						nullData, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, &buffer);
 					delete[] nullData;
 					if (FAILED(hr)) { goto end; }
 
 					srvDesc.Format = format;
-					srvDesc.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
+					srvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+					srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
 					srvDesc.Buffer.FirstElement = 0;
 					srvDesc.Buffer.NumElements = size;
-					hr = device->CreateShaderResourceView(buffer, &srvDesc, &srv);
-					
-					srv->GetResource(&resource);
+					hr = device->CreateSRV(buffer, &srvDesc, &srv);
+					if (FAILED(hr)) { goto end; }
 
-					uav_desc.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
+					uav_desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
 					uav_desc.Format = format;
 					uav_desc.Buffer.FirstElement = 0;
 					uav_desc.Buffer.NumElements = size;
-					hr = device->CreateUnorderedAccessView(resource, &uav_desc, &uav);
+					hr = device->CreateUAV(buffer, &uav_desc, &uav);
 					this->size = size;
 
 				end:
@@ -190,20 +181,14 @@ namespace HotBite {
 						len = (uint32_t)size;
 					}
 					if (len > 0 && start < (uint32_t)size) {
-						ID3D11DeviceContext* context = Core::DXCore::Get()->context;
-						D3D11_MAPPED_SUBRESOURCE resource;
-						context->Map(buffer, 0, D3D11_MAP_WRITE, 0, &resource);
-						T* data = (T*)resource.pData;
-						for (uint32_t i = start; i < len; ++i) {
-							data[i] = val;
-						}
-						context->Unmap(buffer, 0);
+						//(Disabled above, as it always was: nothing clears this buffer from the CPU.)
+					(void)val;
 					}
 				}
 
 
 				HRESULT Unprepare() {
-					ID3D11DeviceContext* context = Core::DXCore::Get()->context;
+					GfxContext* context = Core::DXCore::Get()->context;
 					HRESULT hr = S_OK;
 					if (buffer != nullptr) {
 						int count = buffer->Release();
@@ -221,11 +206,11 @@ namespace HotBite {
 					return hr;
 				}
 
-				ID3D11ShaderResourceView* SRV() const {
+				GfxSRV* SRV() const {
 					return srv;
 				}
 
-				ID3D11UnorderedAccessView*const* UAV() const {
+				GfxUAV*const* UAV() const {
 					return &uav;
 				}
 			};
@@ -235,8 +220,8 @@ namespace HotBite {
 			class Buffer {
 			private:
 				std::vector<T> nodes;
-				ID3D11Buffer* buffer = nullptr;
-				ID3D11ShaderResourceView* srv = nullptr;
+				GfxBuffer* buffer = nullptr;
+				GfxSRV* srv = nullptr;
 
 			public:
 				Buffer() {
@@ -266,27 +251,20 @@ namespace HotBite {
 					HRESULT hr = S_OK;
 					if (!nodes.empty())
 					{
-						ID3D11Device* device = Core::DXCore::Get()->device;
-						D3D11_BUFFER_DESC vbd;
-
-						vbd.Usage = read_only ? D3D11_USAGE_IMMUTABLE : D3D11_USAGE_DYNAMIC;
-						vbd.ByteWidth = (UINT)(sizeof(T) * nodes.size());
-						vbd.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-						vbd.CPUAccessFlags = read_only ? 0 : D3D11_CPU_ACCESS_WRITE;
-						vbd.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
-						vbd.StructureByteStride = sizeof(T);
-						D3D11_SUBRESOURCE_DATA initialVertexData;
-						initialVertexData.pSysMem = nodes.data();
-
-						hr = device->CreateBuffer(&vbd, &initialVertexData, &buffer);
+						GfxDevice* device = Core::DXCore::Get()->device;
+						(void)read_only; // both kinds are GPU memory now; a writer goes through Refresh (a copy)
+						hr = device->CreateBuffer(GfxBufferKind::Static, (UINT64)sizeof(T) * nodes.size(), sizeof(T),
+							D3D12_RESOURCE_FLAG_NONE, nodes.data(), GFX_STATE_BUFFER_READ, &buffer);
 						if (FAILED(hr)) { goto end; }
 
-						D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+						D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
 						srvDesc.Format = DXGI_FORMAT_UNKNOWN;
-						srvDesc.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
+						srvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+						srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
 						srvDesc.Buffer.FirstElement = 0;
 						srvDesc.Buffer.NumElements = (uint32_t)nodes.size();
-						hr = device->CreateShaderResourceView(buffer, &srvDesc, &srv);
+						srvDesc.Buffer.StructureByteStride = sizeof(T);
+						hr = device->CreateSRV(buffer, &srvDesc, &srv);
 						if (FAILED(hr)) { goto end; }
 					}
 				end:
@@ -301,16 +279,12 @@ namespace HotBite {
 					if (len == 0) {
 						len = (uint32_t)nodes.size() - start;
 					}
-					ID3D11DeviceContext* context = Core::DXCore::Get()->context;
-					D3D11_MAPPED_SUBRESOURCE resource;
-					//Update vertex buffer
-					context->Map(buffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &resource);
-					memcpy(resource.pData, nodes.data(), (UINT)(sizeof(BVHNode) * len));
-					context->Unmap(buffer, 0);
+					GfxContext* context = Core::DXCore::Get()->context;
+					context->UpdateBuffer(buffer, nodes.data(), (UINT64)sizeof(BVHNode) * len);
 				}
 
 				HRESULT Unprepare() {
-					ID3D11DeviceContext* context = Core::DXCore::Get()->context;
+					GfxContext* context = Core::DXCore::Get()->context;
 					HRESULT hr = S_OK;
 					if (buffer != nullptr) {
 						int count = buffer->Release();
@@ -324,7 +298,7 @@ namespace HotBite {
 					return hr;
 				}
 
-				ID3D11ShaderResourceView* const* SRV() const {
+				GfxSRV* const* SRV() const {
 					return &srv;
 				}
 			};
@@ -332,8 +306,8 @@ namespace HotBite {
 			template<typename T>
 			class ExtBuffer {
 			private:
-				ID3D11Buffer* buffer = nullptr;
-				ID3D11ShaderResourceView* srv = nullptr;
+				GfxBuffer* buffer = nullptr;
+				GfxSRV* srv = nullptr;
 
 			public:
 				ExtBuffer() {
@@ -345,25 +319,20 @@ namespace HotBite {
 
 				HRESULT Prepare(uint32_t size) {
 					HRESULT hr = S_OK;
-					ID3D11Device* device = Core::DXCore::Get()->device;
-					D3D11_BUFFER_DESC vbd;
-					D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+					GfxDevice* device = Core::DXCore::Get()->device;
+					D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
 
-					vbd.Usage = D3D11_USAGE_DYNAMIC;
-					vbd.ByteWidth = (UINT)(sizeof(T) * size);
-					vbd.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-					vbd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-					vbd.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
-					vbd.StructureByteStride = sizeof(T);
-					
-					hr = device->CreateBuffer(&vbd, nullptr, &buffer);
+					hr = device->CreateBuffer(GfxBufferKind::Static, (UINT64)sizeof(T) * size, sizeof(T), D3D12_RESOURCE_FLAG_NONE,
+						nullptr, GFX_STATE_BUFFER_READ, &buffer);
 					if (FAILED(hr)) { goto end; }
 
 					srvDesc.Format = DXGI_FORMAT_UNKNOWN;
-					srvDesc.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
+					srvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+					srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
 					srvDesc.Buffer.FirstElement = 0;
 					srvDesc.Buffer.NumElements = size;
-					hr = device->CreateShaderResourceView(buffer, &srvDesc, &srv);
+					srvDesc.Buffer.StructureByteStride = sizeof(T);
+					hr = device->CreateSRV(buffer, &srvDesc, &srv);
 					if (FAILED(hr)) { goto end; }
 				end:
 					return hr;
@@ -371,17 +340,13 @@ namespace HotBite {
 
 				void Refresh(const T* data, uint32_t start, uint32_t len) {
 					if (len > 0) {
-						ID3D11DeviceContext* context = Core::DXCore::Get()->context;
-						D3D11_MAPPED_SUBRESOURCE resource;
-						//Update vertex buffer
-						context->Map(buffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &resource);
-						memcpy(resource.pData, data, (UINT)(sizeof(T) * len));
-						context->Unmap(buffer, 0);
+						GfxContext* context = Core::DXCore::Get()->context;
+						context->UpdateBuffer(buffer, data, (UINT64)sizeof(T) * len);
 					}
 				}
 
 				HRESULT Unprepare() {
-					ID3D11DeviceContext* context = Core::DXCore::Get()->context;
+					GfxContext* context = Core::DXCore::Get()->context;
 					HRESULT hr = S_OK;
 					if (buffer != nullptr) {
 						int count = buffer->Release();
@@ -397,7 +362,7 @@ namespace HotBite {
 					return hr;
 				}
 
-				ID3D11ShaderResourceView* const* SRV() const {
+				GfxSRV* const* SRV() const {
 					return &srv;
 				}
 			};

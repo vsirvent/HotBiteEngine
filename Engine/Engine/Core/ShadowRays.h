@@ -25,7 +25,7 @@ SOFTWARE.
 #pragma once
 
 #include <Defines.h>
-#include <d3d11.h>
+#include <Core/GfxDevice.h>
 #include <vector>
 #include "BVH.h"
 
@@ -90,9 +90,9 @@ namespace HotBite {
 				uint32_t SceneCount() const { return (uint32_t)scenes.size(); }
 				uint32_t Dropped() const { return dropped; }
 				bool Ready() const { return ready; }
-				ID3D11ShaderResourceView* const* TlasSRV() const { return tlas_buffer.SRV(); }
-				ID3D11ShaderResourceView* const* ObjectsSRV() const { return object_buffer.SRV(); }
-				ID3D11ShaderResourceView* const* ScenesSRV() const { return scene_buffer.SRV(); }
+				GfxSRV* const* TlasSRV() const { return tlas_buffer.SRV(); }
+				GfxSRV* const* ObjectsSRV() const { return object_buffer.SRV(); }
+				GfxSRV* const* ScenesSRV() const { return scene_buffer.SRV(); }
 
 			private:
 				TBVH tbvh;

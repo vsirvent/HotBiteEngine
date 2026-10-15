@@ -436,13 +436,13 @@ namespace HotBite {
 				ECS::Coordinator* coordinator = nullptr;
 
 				//Temporal buffers for storing multi-texture maps
-				std::array<ID3D11ShaderResourceView*, MAX_MULTI_TEXTURE> multitext_diff = {};
-				std::array<ID3D11ShaderResourceView*, MAX_MULTI_TEXTURE> multitext_norm = {};
-				std::array<ID3D11ShaderResourceView*, MAX_MULTI_TEXTURE> multitext_spec = {};
-				std::array<ID3D11ShaderResourceView*, MAX_MULTI_TEXTURE> multitext_ao = {};
-				std::array<ID3D11ShaderResourceView*, MAX_MULTI_TEXTURE> multitext_arm = {};
-				std::array<ID3D11ShaderResourceView*, MAX_MULTI_TEXTURE> multitext_disp = {};
-				std::array<ID3D11ShaderResourceView*, MAX_MULTI_TEXTURE> multitext_mask = {};
+				std::array<GfxSRV*, MAX_MULTI_TEXTURE> multitext_diff = {};
+				std::array<GfxSRV*, MAX_MULTI_TEXTURE> multitext_norm = {};
+				std::array<GfxSRV*, MAX_MULTI_TEXTURE> multitext_spec = {};
+				std::array<GfxSRV*, MAX_MULTI_TEXTURE> multitext_ao = {};
+				std::array<GfxSRV*, MAX_MULTI_TEXTURE> multitext_arm = {};
+				std::array<GfxSRV*, MAX_MULTI_TEXTURE> multitext_disp = {};
+				std::array<GfxSRV*, MAX_MULTI_TEXTURE> multitext_mask = {};
 
 				
 
@@ -538,7 +538,7 @@ namespace HotBite {
 				static constexpr uint32_t HIZ_DOWNSAMPLED_NTEXTURES = 3;
 				static constexpr uint32_t HIZ_NTEXTURES = HIZ_DOWNSAMPLED_NTEXTURES + 1;
 				Core::RenderTexture2D high_z_downsampled_map[HIZ_DOWNSAMPLED_NTEXTURES];
-				ID3D11ShaderResourceView* high_z_maps[HIZ_NTEXTURES]{};
+				GfxSRV* high_z_maps[HIZ_NTEXTURES]{};
 				//How far along a ray, in world units, the screen march looks.
 				static constexpr float RT_SCREEN_MAX_DISTANCE = 100.0f;
 				//Its budget of steps per ray, by who is going to answer the rays it gives up on.
@@ -728,8 +728,8 @@ namespace HotBite {
 				static constexpr size_t MIN_INSTANCES = 4;
 				bool instancing_enabled = true;
 				uint32_t instancing_passes = 7;
-				ID3D11Buffer* instance_buffer = nullptr;
-				ID3D11ShaderResourceView* instance_view = nullptr;
+				GfxBuffer* instance_buffer = nullptr;
+				GfxSRV* instance_view = nullptr;
 				uint32_t instance_capacity = 0;
 				std::vector<InstanceRef> instance_pending;
 				std::vector<InstanceData> instance_data;
@@ -749,9 +749,8 @@ namespace HotBite {
 				static constexpr int GPU_RING = 4;
 				static constexpr int GPU_STAMPS = 14;
 				struct GpuFrame {
-					ID3D11Query* disjoint = nullptr;
-					ID3D11Query* stamp[GPU_STAMPS] = {};
-					bool pending = false;
+					GfxQueryHeap* stamps = nullptr;
+						bool pending = false;
 				};
 				GpuFrame gpu_ring[GPU_RING];
 				int gpu_next = 0;
@@ -773,17 +772,17 @@ namespace HotBite {
 				//a query and its readback are not free and nothing in the frame depends on them.
 				static constexpr int TESS_QUERY_RING = 6;
 				static constexpr uint32_t TESS_STATS_KEEPALIVE = 120;
-				ID3D11Query* tess_query[TESS_QUERY_RING] = {};
+				GfxQueryHeap* tess_query[TESS_QUERY_RING] = {};
 				uint32_t tess_query_frame[TESS_QUERY_RING] = {};
 				bool tess_query_pending[TESS_QUERY_RING] = {};
 				int tess_query_next = 0;
 				TessStats tess_stats_cpu;
 				mutable uint32_t tess_stats_request_frame = 0;
 				mutable bool tess_stats_requested = false;
-				ID3D11Query* BeginTessStats();
-				void EndTessStats(ID3D11Query* query);
+				GfxQueryHeap* BeginTessStats();
+				void EndTessStats(GfxQueryHeap* query);
 				void ResolveTessStats();
-				ID3D11ShaderResourceView* diffuseTextures[MAX_OBJECTS]{};
+				GfxSRV* diffuseTextures[MAX_OBJECTS]{};
 				std::mutex rt_mutex;
 				std::condition_variable rt_signal;
 				bool rt_end = false;
@@ -1009,6 +1008,8 @@ namespace HotBite {
 				//light at all.
 				Core::TiledLights tiled_lights;
 				Core::SimpleComputeShader* deferred_light = nullptr;
+				//The same shader with the ray traced shadows compiled in; used by the frames that trace any.
+				Core::SimpleComputeShader* deferred_light_rays = nullptr;
 				//What GatherLights chose this frame. `packed_lights` is the uploaded buffer;
 				//the two aux lists are the nearest lights (all of them, and those with a
 				//volumetric density) for the shaders that have no tile.
@@ -1219,7 +1220,7 @@ namespace HotBite {
 				uint64_t last_static_shadow_signature = 0;
 				void DrawDepth(int w, int h, const float3& camera_position, const matrix& view, const matrix& projection);
 				void DrawScene(int w, int h, const float3& camera_position, const matrix& view, const matrix& projection,
-					ID3D11ShaderResourceView* prev_pass_texture,
+					GfxSRV* prev_pass_texture,
 					Core::IRenderTarget* target, RenderTree& tree);
 
 				//Draws every visible Gaussian splat cloud, after DrawScene and before

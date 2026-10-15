@@ -27,8 +27,8 @@ SOFTWARE.
 #include "Defines.h"
 #include "SimpleShader.h"
 #include "Texture.h"
-#include <d3d11.h>
-#include <PrimitiveBatch.h>
+#include <Core/GfxDevice.h>
+
 #include <VertexTypes.h>
 #include <DirectXColors.h>
 #include <SimpleMath.h>
@@ -47,19 +47,22 @@ namespace HotBite {
 			private:
 				using VertexType = DirectX::VertexPositionColor;
 
-				DirectX::PrimitiveBatch<VertexType>* batch;
+				//The two triangles of the quad. The vertices change per draw (callers move v1..v4), so they go through
+				//the frame's upload ring; the indices never change.
+				GfxBuffer* vertex_buffer = nullptr;
+				GfxBuffer* index_buffer = nullptr;
 				VertexType v1{ DirectX::SimpleMath::Vector3(-1.f, -1.f, 0.2f), DirectX::Colors::Transparent };
 				VertexType v2{ DirectX::SimpleMath::Vector3(-1.f, 1.f, 0.2f), DirectX::Colors::Transparent };
 				VertexType v3{ DirectX::SimpleMath::Vector3(1.f, 1.f, 0.2f), DirectX::Colors::Transparent };
 				VertexType v4{ DirectX::SimpleMath::Vector3(1.f, -1.f, 0.2f), DirectX::Colors::Transparent };
 
 				static ScreenDraw* instance;
-				ScreenDraw(ID3D11DeviceContext* context);
+				ScreenDraw(GfxContext* context);
 				virtual ~ScreenDraw();
 
 			public:
 				//Singleton pattern
-				static void Init(ID3D11DeviceContext* context);
+				static void Init(GfxContext* context);
 				static void Release();
 				static ScreenDraw* Get();
 
@@ -75,7 +78,7 @@ namespace HotBite {
 			class PostProcess : public IRenderTarget, public IRenderSource, public IDepthResource
 			{
 			protected:
-				ID3D11DeviceContext* context = nullptr;
+				GfxContext* context = nullptr;
 				SimpleVertexShader* vs = nullptr;
 				SimplePixelShader* ps = nullptr;
 
@@ -84,11 +87,11 @@ namespace HotBite {
 				int w = 0;
 				int h = 0;
 				PostProcess* next = nullptr;
-				std::map<std::string, ID3D11ShaderResourceView*> srvs;
+				std::map<std::string, GfxSRV*> srvs;
 				std::map<std::string, std::vector<uint8_t>> vars;
 
-				virtual ID3D11RenderTargetView* TargetRenderView();
-				virtual ID3D11DepthStencilView* TargetDepthView();
+				virtual GfxRTV* TargetRenderView();
+				virtual GfxDSV* TargetDepthView();
 								
 				virtual void Prepare();
 				virtual void UnPrepare();
@@ -97,7 +100,7 @@ namespace HotBite {
 
 			public:
 
-				PostProcess(ID3D11DeviceContext* dxcontext,
+				PostProcess(GfxContext* dxcontext,
 					SimpleVertexShader* vertex_shader,
 					SimplePixelShader* pixel_shader);
 
@@ -116,7 +119,7 @@ namespace HotBite {
 				PostProcess* GetNext() const;
 
 				//Shader resources set to pixel shader during rendering
-				void SetShaderResourceView(const std::string& name, ID3D11ShaderResourceView* rsv);
+				void SetShaderResourceView(const std::string& name, GfxSRV* rsv);
 
 				//Set a variable to post-chain shaders
 				void SetVariable(const std::string& name, const void* value, size_t size);
@@ -127,11 +130,11 @@ namespace HotBite {
 				//Useful data that is set to shaders in the post-chain
 				virtual void SetView(const Components::Camera& camera);
 
-				virtual ID3D11ShaderResourceView* RenderResource() override;
-				virtual ID3D11UnorderedAccessView* RenderUAV() override;
-				virtual ID3D11RenderTargetView* RenderTarget() const override;
-				virtual ID3D11ShaderResourceView* DepthResource() override;
-				virtual ID3D11DepthStencilView* DepthView() override;
+				virtual GfxSRV* RenderResource() override;
+				virtual GfxUAV* RenderUAV() override;
+				virtual GfxRTV* RenderTarget() const override;
+				virtual GfxSRV* DepthResource() override;
+				virtual GfxDSV* DepthView() override;
 
 				SimpleVertexShader* GetVS() { return vs; }
 				SimplePixelShader* GetPS() { return ps; }
@@ -147,14 +150,14 @@ namespace HotBite {
 				virtual void ClearData(const float color[4]);
 
 			public:
-				GenericPostProcess(ID3D11DeviceContext* dxcontext,
+				GenericPostProcess(GfxContext* dxcontext,
 					int width, int height, HotBite::Engine::ECS::Coordinator* c,
 					const std::string& vs = "PostMainVS.cso", const std::string& ps = "PostMainPS.cso");
 				virtual ~GenericPostProcess();
 
-				virtual ID3D11ShaderResourceView* RenderResource() override;
-				virtual ID3D11RenderTargetView* RenderTarget() const override;
-				virtual ID3D11UnorderedAccessView* RenderUAV() override;
+				virtual GfxSRV* RenderResource() override;
+				virtual GfxRTV* RenderTarget() const override;
+				virtual GfxUAV* RenderUAV() override;
 			};
 			
 			class MainEffect : public PostProcess
@@ -165,14 +168,14 @@ namespace HotBite {
 				virtual void ClearData(const float color[4]);
 
 			public:
-				MainEffect(ID3D11DeviceContext* dxcontext, int width, int height);
+				MainEffect(GfxContext* dxcontext, int width, int height);
 				virtual ~MainEffect();
 
-				virtual ID3D11ShaderResourceView* RenderResource() override;
-				virtual ID3D11UnorderedAccessView* RenderUAV() override;
-				virtual ID3D11RenderTargetView* RenderTarget() const override;
-				virtual ID3D11ShaderResourceView* DepthResource() override;
-				virtual ID3D11DepthStencilView* DepthView() override;
+				virtual GfxSRV* RenderResource() override;
+				virtual GfxUAV* RenderUAV() override;
+				virtual GfxRTV* RenderTarget() const override;
+				virtual GfxSRV* DepthResource() override;
+				virtual GfxDSV* DepthView() override;
 			};
 
 			class MotionBlurEffect : public PostProcess
@@ -187,11 +190,11 @@ namespace HotBite {
 
 			public:
 
-				MotionBlurEffect(ID3D11DeviceContext* dxcontext,
+				MotionBlurEffect(GfxContext* dxcontext,
 					int width, int height);
 				virtual ~MotionBlurEffect();
-				virtual ID3D11ShaderResourceView* RenderResource() override;
-				virtual ID3D11RenderTargetView* RenderTarget() const override;
+				virtual GfxSRV* RenderResource() override;
+				virtual GfxRTV* RenderTarget() const override;
 
 				virtual void Prepare() override;
 
@@ -227,7 +230,7 @@ namespace HotBite {
 
 			public:
 
-				LensEffect(ID3D11DeviceContext* dxcontext,
+				LensEffect(GfxContext* dxcontext,
 					int width, int height, HotBite::Engine::ECS::Coordinator* c) :
 					GenericPostProcess(dxcontext, width, height, c, "PostMainVS.cso", "PostLensPS.cso")
 				{}
@@ -268,7 +271,7 @@ namespace HotBite {
 				float amplitude = 0.0f;
 			public:
 
-				BaseDOFProcess(ID3D11DeviceContext* dxcontext,
+				BaseDOFProcess(GfxContext* dxcontext,
 					int width, int height, HotBite::Engine::ECS::Coordinator* c,
 					const std::string& vs, const std::string& ps) : GenericPostProcess(dxcontext, width, height, c, vs, ps) {}
 
@@ -320,7 +323,7 @@ namespace HotBite {
 
 			public:
 
-				DOFProcess(ID3D11DeviceContext* dxcontext,
+				DOFProcess(GfxContext* dxcontext,
 					int width, int height, HotBite::Engine::ECS::Coordinator* c) : 
 					BaseDOFProcess(dxcontext, width, height, c, "PostMainVS.cso", "PostDOP.cso")
 				{
@@ -334,7 +337,7 @@ namespace HotBite {
 				
 		
 				void Render() override {
-					ID3D11RenderTargetView* rv[1] = { temp.RenderTarget() };
+					GfxRTV* rv[1] = { temp.RenderTarget() };
 					context->OMSetRenderTargets(1, rv, TargetDepthView());
 					ps->SetInt("dopActive", enabled);
 					ps->SetInt("autofocusActive", autofocus);
@@ -362,8 +365,8 @@ namespace HotBite {
 				HotBite::Engine::Core::RenderTexture2D kernel;
 
 				void InitKernels() {
-					auto init_kernel = [](ID3D11DeviceContext* dxcontext, SimpleComputeShader* shader, uint32_t kernel_size, uint32_t num_kernels,
-						uint32_t num_components, ID3D11UnorderedAccessView* uav) {
+					auto init_kernel = [](GfxContext* dxcontext, SimpleComputeShader* shader, uint32_t kernel_size, uint32_t num_kernels,
+						uint32_t num_components, GfxUAV* uav) {
 							shader->SetInt("kernel_size", kernel_size);
 							shader->SetInt("ncomponents", num_components);
 							shader->SetUnorderedAccessView("kernels", uav);
@@ -379,7 +382,7 @@ namespace HotBite {
 				}
 			public:
 
-				DOFBokeProcess(ID3D11DeviceContext* dxcontext,
+				DOFBokeProcess(GfxContext* dxcontext,
 					int width, int height, HotBite::Engine::ECS::Coordinator* c) :
 					BaseDOFProcess(dxcontext, width, height, c, "PostMainVS.cso", "PostDOFBoke.cso")
 				{
@@ -392,7 +395,7 @@ namespace HotBite {
 					int32_t num_kernels = (int32_t)(max_variance * 100 - 10) + 1;
 					num_kernels = (num_kernels + 15) & ~15;
 
-					kernel.Init(size, num_kernels, DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, D3D11_BIND_UNORDERED_ACCESS);
+					kernel.Init(size, num_kernels, DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS);
 					InitKernels();
 				}
 
@@ -405,7 +408,7 @@ namespace HotBite {
 #if 0 //Uncomment to allow shader test and reload
 					InitKernels();
 #endif
-					ID3D11RenderTargetView* rv[1] = { temp.RenderTarget() };
+					GfxRTV* rv[1] = { temp.RenderTarget() };
 					context->OMSetRenderTargets(1, rv, TargetDepthView());
 					ps->SetInt("kernel_size", KERNEL_SIZE);
 					ps->SetInt("dopActive", enabled);

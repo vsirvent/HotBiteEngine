@@ -30,7 +30,7 @@ SOFTWARE.
 #include <Core/Material.h>
 #include <Core/Particles.h>
 #include <Core/Utils.h>
-#include <d3d11.h>
+#include <Core/GfxDevice.h>
 
 namespace HotBite {
 	namespace Engine {

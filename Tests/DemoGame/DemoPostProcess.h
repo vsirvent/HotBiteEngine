@@ -37,10 +37,10 @@ private:
 	virtual void ClearData(const float color[4]);
 
 public:
-	PostGame(ID3D11DeviceContext* dxcontext,
+	PostGame(GfxContext* dxcontext,
 		int width, int height, HotBite::Engine::ECS::Coordinator* c);
 	virtual ~PostGame();
 
-	virtual ID3D11ShaderResourceView* RenderResource() override;
-	virtual ID3D11RenderTargetView* RenderTarget() const override;
+	virtual GfxSRV* RenderResource() override;
+	virtual GfxRTV* RenderTarget() const override;
 };

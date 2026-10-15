@@ -25,7 +25,7 @@ SOFTWARE.
 #pragma once
 
 #include <Defines.h>
-#include <d3d11.h>
+#include <Core/GfxDevice.h>
 #include <cstdint>
 #include "RWBuffer.h"
 #include "SimpleShader.h"
@@ -132,8 +132,8 @@ namespace HotBite {
 				uint32_t TilesX() const { return tiles_x; }
 				uint32_t TilesY() const { return tiles_y; }
 				uint32_t LightCount() const { return light_count; }
-				ID3D11ShaderResourceView* LightsSRV() const { return lights_srv; }
-				ID3D11ShaderResourceView* MasksSRV() const { return masks.SRV(); }
+				GfxSRV* LightsSRV() const { return lights_srv; }
+				GfxSRV* MasksSRV() const { return masks.SRV(); }
 
 				//Replaces the frame's lights. At most CAPACITY are taken.
 				void Upload(const PackedLight* lights, uint32_t count);
@@ -145,11 +145,11 @@ namespace HotBite {
 				//`culling` false puts every light in every tile that shows a surface - the
 				//reference the culling is measured against, not a mode for a game.
 				void Cull(const float4x4& view, const float4x4& projection_inverse,
-					ID3D11ShaderResourceView* positions, bool collect_stats, bool culling = true);
+					GfxSRV* positions, bool collect_stats, bool culling = true);
 
 				//Brute-force check that Cull's masks hold every light that reaches a visible
 				//pixel. Stalls the GPU to read the answer: tests only.
-				TiledLightValidation Validate(ID3D11ShaderResourceView* positions);
+				TiledLightValidation Validate(GfxSRV* positions);
 
 				//The counters of the last Cull with collect_stats, a few frames stale.
 				//`lights`/`shadowed`/`frame` are filled in by the caller.
@@ -165,8 +165,8 @@ namespace HotBite {
 				//the next such frame does not.
 				bool masks_cleared = false;
 
-				ID3D11Buffer* lights_buffer = nullptr;
-				ID3D11ShaderResourceView* lights_srv = nullptr;
+				GfxBuffer* lights_buffer = nullptr;
+				GfxSRV* lights_srv = nullptr;
 				RWByteBuffer masks;
 				RWByteBuffer stats_buffer;
 

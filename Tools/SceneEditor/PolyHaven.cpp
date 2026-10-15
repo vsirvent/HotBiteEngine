@@ -1,4 +1,5 @@
 #include "PolyHaven.h"
+#include "ImGuiDx12.h"
 #include "MaterialPanel.h"
 #include "Selection.h"
 
@@ -119,7 +120,7 @@ namespace HotBiteEditor {
 
 			//Main thread only: previews as shader resources. A null entry means the file
 			//would not load, so it is not retried every frame.
-			std::map<std::string, ID3D11ShaderResourceView*> thumb_srvs;
+			std::map<std::string, GfxSRV*> thumb_srvs;
 
 			std::string Lower(std::string s) {
 				std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return (char)std::tolower(c); });
@@ -676,7 +677,7 @@ namespace HotBiteEditor {
 			return false;
 		}
 
-		ID3D11ShaderResourceView* Thumbnail(const std::string& id, ThumbState* state_out) {
+		GfxSRV* Thumbnail(const std::string& id, ThumbState* state_out) {
 			auto srv_it = thumb_srvs.find(id);
 			if (srv_it != thumb_srvs.end()) {
 				if (state_out != nullptr) {
@@ -717,7 +718,7 @@ namespace HotBiteEditor {
 			if (st != ThumbState::Ready) {
 				return nullptr;
 			}
-			ID3D11ShaderResourceView* srv = Core::LoadTexture(file);
+			GfxSRV* srv = Core::LoadTexture(file);
 			thumb_srvs[id] = srv;
 			if (state_out != nullptr && srv == nullptr) {
 				*state_out = ThumbState::Failed;
@@ -959,10 +960,10 @@ namespace HotBiteEditor {
 						if (is_selected) {
 							ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.26f, 0.59f, 0.98f, 0.85f));
 						}
-						ID3D11ShaderResourceView* srv = Thumbnail(a.id);
+						GfxSRV* srv = Thumbnail(a.id);
 						bool clicked;
 						if (srv != nullptr) {
-							clicked = ImGui::ImageButton("##t", (ImTextureID)srv, ImVec2(THUMB, THUMB));
+							clicked = ImGui::ImageButton("##t", ImGuiDx12::TextureId(srv), ImVec2(THUMB, THUMB));
 						}
 						else {
 							clicked = ImGui::Button("##t", ImVec2(THUMB + style.FramePadding.x * 2.0f,
@@ -1001,8 +1002,8 @@ namespace HotBiteEditor {
 				ImGui::TextDisabled("Select a material to import it. Poly Haven assets are CC0 - free for any use.");
 			}
 			else {
-				if (ID3D11ShaderResourceView* srv = Thumbnail(a.id)) {
-					ImGui::Image((ImTextureID)srv, ImVec2(96.0f, 96.0f));
+				if (GfxSRV* srv = Thumbnail(a.id)) {
+					ImGui::Image(ImGuiDx12::TextureId(srv), ImVec2(96.0f, 96.0f));
 					ImGui::SameLine();
 				}
 				ImGui::BeginGroup();

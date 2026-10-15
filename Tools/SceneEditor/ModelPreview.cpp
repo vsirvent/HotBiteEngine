@@ -343,7 +343,7 @@ namespace HotBiteEditor {
 				const View& view, EditorState& state) {
 				State& s = Get_();
 				Core::DXCore* dx = Core::DXCore::Get();
-				ID3D11DeviceContext* context = dx->context;
+				GfxContext* context = dx->context;
 
 				XMVECTOR center;
 				float radius = 1.0f;
@@ -390,7 +390,7 @@ namespace HotBiteEditor {
 					return;
 				}
 				vb->SetBuffers();
-				context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+				context->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 				context->OMSetBlendState(dx->no_blend, nullptr, 0xFFFFFFFF);
 				context->OMSetDepthStencilState(dx->normal_depth, 0);
 				context->RSSetState(dx->drawing_rasterizer);

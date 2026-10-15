@@ -26,8 +26,9 @@ SOFTWARE.
 
 #include <winsock2.h>
 #include <Windows.h>
-#include <d3d11.h>
+#include "GfxContext.h"
 #include <string>
+#include <filesystem>
 
 #include "../Defines.h"
 #include "Scheduler.h"
@@ -35,11 +36,12 @@ SOFTWARE.
 
 #include <ECS/Coordinator.h>
 #include <d2d1.h>
+#include <wincodec.h>
 #include <dwrite_2.h>
 
-#pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "d2d1.lib")
 #pragma comment(lib, "dwrite.lib")
+#pragma comment(lib, "windowscodecs.lib")
 
 namespace HotBite {
 	namespace Engine {
@@ -144,11 +146,16 @@ namespace HotBite {
 				int GetHeight() const { return height; }
 				uint32_t GetDpi() const { return dpi; }
 				virtual void ClearScreen(const float color[4]);
+								//The finished frame (what Present would show) as 8-bit RGBA, top row first. Waits for the GPU.
+								bool ReadBackBuffer(std::vector<uint8_t>& rgba, uint32_t& w, uint32_t& h);
+								//The finished frame written as a PNG (the automation `screenshot`). Returns false and sets `error` on failure.
+								bool SaveBackBuffer(const std::filesystem::path& png, std::string& error);
+								GfxTexture* BackBufferTexture() const { return backBufferTexture; }
 				virtual void Present();
 
-				virtual ID3D11RenderTargetView* RenderTarget() const override;
-				virtual ID3D11ShaderResourceView* DepthResource() override;
-				virtual ID3D11DepthStencilView* DepthView() override;
+				virtual GfxRTV* RenderTarget() const override;
+				virtual GfxSRV* DepthResource() override;
+				virtual GfxDSV* DepthView() override;
 				
 				virtual ECS::Coordinator* GetCoordinator() = 0;
 
@@ -158,37 +165,37 @@ namespace HotBite {
 
 			public:
 
-				//Whether a compute shader may bind more than 8 UAVs at once.
-				//
-				//Feature level 11_0 caps a CS at D3D11_PS_CS_UAV_REGISTER_COUNT = 8;
-				//11_1 raises it to D3D11_1_UAV_SLOT_COUNT = 64. SplatRasterCS wants nine -
-				//the whole G-buffer, bloom included, plus its stat counters - so this is
-				//what decides whether the bloom of something behind a splat cloud is
-				//occluded by it or glows through it. Everything else in the engine fits
-				//inside eight and never consults this.
+				//Whether a compute shader may bind more than 8 UAVs at once. D3D12 has 64 UAV slots, so this is
+				//always true; kept so the code that asked before D3D11_1 could be assumed needs no change.
 				bool SupportsExtendedUAVSlots() const {
-					return dxFeatureLevel >= D3D_FEATURE_LEVEL_11_1;
+					return true;
 				}
 
-				ID3D11Device* device = nullptr;
-				ID3D11DeviceContext* context = nullptr;
-				ID3D11SamplerState* basic_sampler = nullptr;
-				ID3D11SamplerState* shadow_sampler = nullptr;
-				ID3D11RasterizerState* shadow_rasterizer = nullptr;
-				ID3D11RasterizerState* dir_shadow_rasterizer = nullptr;				
-				ID3D11RasterizerState* drawing_rasterizer = nullptr;
+				//The D3D12 device and the immediate-context-shaped recorder over its command list. `context` is
+				//what `GfxContext* context` was: every draw, dispatch, clear and state change goes
+				//through it. See GfxContext.h and Docs/D3D12_MIGRATION.md.
+				GfxDevice* device = nullptr;
+				GfxContext* context = nullptr;
+
+				//State objects. They were D3D11 state objects; they are descriptions now, turned into pipeline
+				//state objects by the context when something draws with them.
+				GfxSampler* basic_sampler = nullptr;
+				GfxSampler* shadow_sampler = nullptr;
+				GfxRasterizerState* shadow_rasterizer = nullptr;
+				GfxRasterizerState* dir_shadow_rasterizer = nullptr;
+				GfxRasterizerState* drawing_rasterizer = nullptr;
 				//Same as drawing_rasterizer plus a small depth bias, used by the depth
 				//pre-pass. The bias pushes the pre-pass depth slightly away from the
 				//camera so the main pass, which reaches the same surface through a
 				//different chain of matrix products (and through tessellation), never
 				//loses to it in the LESS_EQUAL test. See depth_prepass below.
-				ID3D11RasterizerState* depth_rasterizer = nullptr;
-				ID3D11RasterizerState* sky_rasterizer = nullptr;
-				ID3D11RasterizerState* wireframe_rasterizer = nullptr;
-				ID3D11BlendState* no_blend = NULL;
-				ID3D11BlendState* blend = NULL;
-				ID3D11DepthStencilState* normal_depth = NULL;
-				ID3D11DepthStencilState* transparent_depth = NULL;
+				GfxRasterizerState* depth_rasterizer = nullptr;
+				GfxRasterizerState* sky_rasterizer = nullptr;
+				GfxRasterizerState* wireframe_rasterizer = nullptr;
+				GfxBlendState* no_blend = nullptr;
+				GfxBlendState* blend = nullptr;
+				GfxDepthStencilState* normal_depth = nullptr;
+				GfxDepthStencilState* transparent_depth = nullptr;
 				//Depth states for passes that render on top of the depth pre-pass buffer.
 				//LESS_EQUAL, not LESS: the pre-pass already wrote the depth of every
 				//opaque surface, so the main pass draws that same surface again and must
@@ -199,12 +206,12 @@ namespace HotBite {
 				//materials, second-pass entities - still has to occlude itself),
 				//_prepass_read only tests (the sky, which is blended in behind
 				//everything and must not disturb the buffer).
-				ID3D11DepthStencilState* depth_prepass = NULL;
-				ID3D11DepthStencilState* depth_prepass_read = NULL;
+				GfxDepthStencilState* depth_prepass = nullptr;
+				GfxDepthStencilState* depth_prepass_read = nullptr;
 
-				D3D11_VIEWPORT viewport = {};
-				D3D11_VIEWPORT half_viewport = {};
-				D3D11_VIEWPORT screenport = {};
+				D3D12_VIEWPORT viewport = {};
+				D3D12_VIEWPORT half_viewport = {};
+				D3D12_VIEWPORT screenport = {};
 				HWND		wnd;			// The handle to the window itself
 
 				static DXCore* Get();
@@ -223,9 +230,16 @@ namespace HotBite {
 				bool start_maximized = false;
 				float2 screen_dimensions = {};
 				// DirectX related objects and variables
-				D3D_FEATURE_LEVEL dxFeatureLevel;
-				IDXGISwapChain* swapChain;
-				ID3D11RenderTargetView* backBufferRTV;
+				D3D_FEATURE_LEVEL dxFeatureLevel = D3D_FEATURE_LEVEL_12_0;
+				//Everything is drawn into backBufferTexture, a texture of the window's size at a fixed address, and
+				//Present() copies it into the swap chain's current buffer. The swap chain flips between several
+				//buffers, but code all over the engine keeps the RenderTarget() view it was given (the GUI, the
+				//post-process chain), so what they hold has to stay the same one.
+				Microsoft::WRL::ComPtr<IDXGISwapChain3> swapChain;
+				static constexpr UINT SWAP_BUFFERS = 3;
+				GfxTexture* swapBuffers[SWAP_BUFFERS] = {};
+				GfxTexture* backBufferTexture = nullptr;
+				GfxRTV* backBufferRTV;
 				DepthTexture2D* depthTexture;
 				bool end = false;
 				// FPS calculation
@@ -243,6 +257,7 @@ namespace HotBite {
 			private:
 				ID2D1Factory* d2d_factory = nullptr;
 				IDWriteFactory* write_factory = nullptr;
+								IWICImagingFactory* wic_factory = nullptr;
 
 				Direct2D();
 				~Direct2D();
@@ -276,7 +291,13 @@ namespace HotBite {
 					DWRITE_PARAGRAPH_ALIGNMENT valign = DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
 					DWRITE_FONT_STRETCH stretch = DWRITE_FONT_STRETCH_NORMAL);
 
-				ID2D1RenderTarget* GetD2DRenderTargetView(ID3D11RenderTargetView* d3dRenderTargetView);
+				//Draws a text layout into a w x h bitmap of its own and hands back the pixels as 8-bit RGBA with straight
+								//(not premultiplied) alpha, rows top to bottom, transparent where there is no text. Direct2D draws it on
+								//the CPU (a WIC bitmap), which is what lets a D3D12 renderer have text at all: Direct2D cannot target a
+								//D3D12 resource, and the label that wants the text keeps it as a texture and draws it as a quad like any
+								//other widget (Label.h). `dpi` is the scale the layout was made for.
+								bool RenderText(IDWriteTextLayout* layout, const D2D1_COLOR_F& color, uint32_t w, uint32_t h, float dpi,
+									std::vector<uint8_t>& rgba);
 			};
 		}
 	}

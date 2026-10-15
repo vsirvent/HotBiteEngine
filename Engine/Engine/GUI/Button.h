@@ -44,9 +44,9 @@ namespace HotBite {
 
 			public:
 				static inline uint64_t BUTTON_WIDGET_ID = GetTypeId<Button>();
-				ID3D11ShaderResourceView* click_image = nullptr;
-				ID3D11ShaderResourceView* idle_image = nullptr;
-				ID3D11ShaderResourceView* hover_image = nullptr;
+				GfxSRV* click_image = nullptr;
+				GfxSRV* idle_image = nullptr;
+				GfxSRV* hover_image = nullptr;
 				
 				Systems::AudioSystem::SoundId click_sound_id = Systems::AudioSystem::INVALID_SOUND_ID;
 				Systems::AudioSystem::SoundId hover_sound_id = Systems::AudioSystem::INVALID_SOUND_ID;;

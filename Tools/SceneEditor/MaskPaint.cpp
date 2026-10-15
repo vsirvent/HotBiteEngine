@@ -34,8 +34,8 @@ namespace HotBiteEditor {
 				//RGBA8, row-major, top-left origin - the same layout SaveToWICFile and
 				//LoadFromWICFile use, so committing never has to flip or swizzle.
 				std::vector<uint8_t> pixels;
-				ID3D11Texture2D* texture = nullptr;
-				ID3D11ShaderResourceView* srv = nullptr;
+				GfxTexture* texture = nullptr;
+				GfxSRV* srv = nullptr;
 				//Absolute path the canvas will be written to on Commit. Decided at Begin
 				//(either the layer's existing mask or a generated name), not at Commit, so
 				//the panel can show the user where a new mask is about to land.
@@ -84,32 +84,32 @@ namespace HotBiteEditor {
 				if (session.texture == nullptr) {
 					return;
 				}
-				DXCore::Get()->context->UpdateSubresource(session.texture, 0, nullptr,
-					session.pixels.data(), session.width * 4, 0);
+				DXCore::Get()->context->UpdateTexture(session.texture, 0, session.pixels.data(), (UINT)session.width * 4);
 			}
 
 			bool CreateGpuTexture(std::string& error) {
-				D3D11_TEXTURE2D_DESC desc = {};
-				desc.Width = (UINT)session.width;
-				desc.Height = (UINT)session.height;
-				desc.MipLevels = 1;
-				desc.ArraySize = 1;
-				desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-				desc.SampleDesc.Count = 1;
-				desc.Usage = D3D11_USAGE_DEFAULT;
-				desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+				D3D12_RESOURCE_DESC desc = {};
+					desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+					desc.Width = (UINT)session.width;
+					desc.Height = (UINT)session.height;
+					desc.MipLevels = 1;
+					desc.DepthOrArraySize = 1;
+					desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+					desc.SampleDesc.Count = 1;
+					desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+					desc.Flags = D3D12_RESOURCE_FLAG_NONE;
 
-				D3D11_SUBRESOURCE_DATA init = {};
-				init.pSysMem = session.pixels.data();
-				init.SysMemPitch = (UINT)(session.width * 4);
+					GfxSubresourceData init;
+					init.data = session.pixels.data();
+					init.row_pitch = (UINT)(session.width * 4);
 
-				ID3D11Device* device = DXCore::Get()->device;
-				HRESULT hr = device->CreateTexture2D(&desc, &init, &session.texture);
-				if (FAILED(hr)) {
-					error = "could not create the paint canvas texture";
-					return false;
-				}
-				hr = device->CreateShaderResourceView(session.texture, nullptr, &session.srv);
+					GfxDevice* device = DXCore::Get()->device;
+					HRESULT hr = device->CreateTexture2D(desc, D3D12_RESOURCE_STATE_COMMON, nullptr, &init, 1, &session.texture);
+					if (FAILED(hr)) {
+						error = "could not create the paint canvas texture";
+						return false;
+					}
+					hr = device->CreateSRV(session.texture, nullptr, &session.srv);
 				if (FAILED(hr)) {
 					error = "could not create the paint canvas view";
 					ReleaseGpu();

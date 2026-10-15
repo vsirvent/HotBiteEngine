@@ -1,8 +1,22 @@
 # HotBiteEngine — agent notes
 
-C++20 / DirectX 11 game engine (ECS architecture). Tools (SceneEditor, MaterialDesigner,
-UiDesigner) live under `Tools/`, the engine under `Engine/Engine/`, the VS solution in
-`Solution/HotBiteEngine.sln`.
+C++20 / **DirectX 12** game engine (ECS architecture; ported from DirectX 11 on 2026-10-15,
+log and numbers in [Docs/D3D12_MIGRATION.md](Docs/D3D12_MIGRATION.md)). Tools (SceneEditor,
+MaterialDesigner, UiDesigner) live under `Tools/`, the engine under `Engine/Engine/`, the VS
+solution in `Solution/HotBiteEngine.sln`.
+
+**Graphics layer.** There is no RHI and no D3D11 fallback. `DXCore::context` is a concrete
+`Core::GfxContext` (`Core/GfxContext.*`): it keeps the immediate-context method names the engine
+calls (`OMSetRenderTargets`, `DrawIndexed`, `Dispatch`, ...), holds the "current state", and resolves it
+at `Draw`/`Dispatch` into a cached PSO, descriptor tables and barriers. `Core/GfxDevice.*` owns the device,
+the objects (each tracks its own `D3D12_RESOURCE_STATES`), deferred release and immediate uploads.
+Binding keeps HLSL register numbers (per-stage CBV/SRV/sampler tables + a compute set with UAVs), and
+shaders are still bound by name through reflection. **Game code never calls D3D/Gfx directly**: use the
+engine's classes (`Texture`s, `DynamicTexture2D`, `DXCore::SaveBackBuffer`, widgets). Minimum: feature
+level 12_0, SM6.0, resource binding tier 2. Direct2D cannot target D3D12, so `Label` text is drawn
+by Direct2D on a WIC bitmap on the CPU and uploaded (`Direct2D::RenderText` + `DynamicTexture2D`).
+Diagnostics: `HOTBITE_D3D12_DEBUG=1` (debug layer), `HOTBITE_LOG=<file>`, `HOTBITE_GFX_TRACE=<serial>`,
+`HOTBITE_DUMP_DIR=<dir>` (see the migration doc).
 
 ## Secrets — none belong in this repository
 
@@ -95,6 +109,14 @@ stop making sense, rebuild both steps clean before debugging anything else.
 Two separate traps, and together they cost three rounds of an A/B that all secretly
 ran the same `.cso` and read as "the feature does nothing":
 
+- **Shaders are SM6.0 DXIL built by `dxc.exe`, not fxc.** `Engine/Dxc.targets` (imported by
+  `Engine.vcxproj`, `DemoGame.vcxproj`, Survival's `Survival.vcxproj`) takes the `FxCompile` items over
+  and compiles them into `$(OutDir)`; `dxcompiler.dll` + `dxil.dll` ship beside every executable and the
+  engine loads them for hot reload and reflection (`Core/DxcSupport.*`, `Core/ShaderCompiler.*`). DXC
+  is stricter than fxc: **an uninitialised local is garbage, not 0** (a `matrix m;` accumulator in the
+  skinning VS turned whole frames into garbage), a global `float` needs `static const`, `[unroll]` needs
+  a compile-time bound, and a PSO cannot mix SM5 and SM6 stages. See memory `hotbite_dxc_vs_fxc_traps`
+  and the migration doc. Where this file below says "fxc", the same applies to DXC.
 - **FxCompile does not track `.hlsli` includes here.** Edit a shared header, rebuild,
   and every `.cso` that includes it is stale. `AdditionalInputs` metadata on the
   FxCompile item does *not* fix it (tried). The `InvalidateShadersOnSharedHeaderChange`

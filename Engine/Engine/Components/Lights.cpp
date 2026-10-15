@@ -207,19 +207,19 @@ int DirectionalLight::GetStaticResolution() const {
 	return static_texture.Width();
 }
 
-ID3D11ShaderResourceView* DirectionalLight::StaticDepthResource() {
+GfxSRV* DirectionalLight::StaticDepthResource() {
 	return static_texture.SRV();
 }
 
-ID3D11DepthStencilView* DirectionalLight::StaticDepthView() {
+GfxDSV* DirectionalLight::StaticDepthView() {
 	return static_texture.Depth();
 }
 
-ID3D11ShaderResourceView* DirectionalLight::DepthResource() {
+GfxSRV* DirectionalLight::DepthResource() {
 	return texture.SRV();
 }
 
-ID3D11DepthStencilView* DirectionalLight::DepthView() {
+GfxDSV* DirectionalLight::DepthView() {
 	return texture.Depth();
 };
 
@@ -282,7 +282,7 @@ DirectionalLight::Data& DirectionalLight::GetData() {
 	return data;
 }
 
-const D3D11_VIEWPORT& DirectionalLight::GetShadowViewPort() const {
+const D3D12_VIEWPORT& DirectionalLight::GetShadowViewPort() const {
 	return shadow_vp;
 }
 
@@ -447,15 +447,15 @@ bool PointLight::SetCastShadow(bool enable) {
 	return true;
 }
 
-ID3D11ShaderResourceView* PointLight::DepthResource() {
+GfxSRV* PointLight::DepthResource() {
 	return texture.SRV();
 }
 
-ID3D11DepthStencilView* PointLight::DepthView() {
+GfxDSV* PointLight::DepthView() {
 	return texture.Depth();
 };
 
-const D3D11_VIEWPORT& PointLight::GetShadowViewPort() const {
+const D3D12_VIEWPORT& PointLight::GetShadowViewPort() const {
 	return shadow_vp;
 }
 

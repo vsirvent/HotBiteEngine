@@ -1,8 +1,10 @@
 #include "ShaderCompiler.h"
 #include "Log.h"
+#include "DxcSupport.h"
 
 #include <Windows.h>
 #include <d3dcompiler.h>
+#include <wrl/client.h>
 
 #include <algorithm>
 #include <cctype>
@@ -36,42 +38,31 @@ namespace HotBite {
 					return ec ? fs::path(path).string() : p.string();
 				}
 
-				// Resolves #include directives the way fxc does: relative to the file
-				// that contains them first, then against the registered source folders.
-				// Every file it opens is recorded, which is how a reload knows that an
-				// edit to a shared .hlsli reaches this shader.
-				class IncludeHandler : public ID3DInclude {
+				// Answers DXC's #include requests. DXC resolves a quoted include against the including file's folder and
+				// every -I folder itself and asks for each candidate path in turn; the first one that exists is the file.
+				// Every file it opens is recorded, which is how a reload knows that an edit to a shared .hlsli reaches this
+				// shader.
+				class IncludeHandler : public IDxcIncludeHandler {
 				public:
-					IncludeHandler(const std::string& source_dir, const std::vector<std::string>& search_dirs,
-						std::vector<std::string>& deps, std::vector<uint64_t>* times = nullptr)
-						: root(source_dir), search(search_dirs), dependencies(deps), dependency_times(times) {
+					IncludeHandler(const std::vector<std::string>& search_dirs, std::vector<std::string>& deps,
+						std::vector<uint64_t>* times = nullptr)
+						: search(search_dirs), dependencies(deps), dependency_times(times) {
 					}
 
-					HRESULT __stdcall Open(D3D_INCLUDE_TYPE, LPCSTR file_name, LPCVOID parent_data,
-						LPCVOID* out_data, UINT* out_bytes) override
+					HRESULT STDMETHODCALLTYPE LoadSource(LPCWSTR file_name, IDxcBlob** out_blob) override
 					{
-						//The compiler identifies the includer only by the data pointer it
-						//was handed, so the directory of every open file is kept under
-						//that pointer. A null parent is the top-level source.
-						std::string base = root;
-						if (parent_data != nullptr) {
-							auto it = dir_of_data.find(parent_data);
-							if (it != dir_of_data.end()) {
-								base = it->second;
-							}
-						}
-
-						std::string resolved;
+						*out_blob = nullptr;
 						std::error_code ec;
-						fs::path direct = fs::path(base) / file_name;
-						if (fs::exists(direct, ec)) {
-							resolved = direct.string();
+						fs::path candidate(file_name);
+						std::string resolved;
+						if (fs::is_regular_file(candidate, ec)) {
+							resolved = candidate.string();
 						}
-						else {
+						else if (candidate.is_relative()) {
 							for (const std::string& dir : search) {
-								fs::path candidate = fs::path(dir) / file_name;
-								if (fs::exists(candidate, ec)) {
-									resolved = candidate.string();
+								fs::path in_dir = fs::path(dir) / candidate;
+								if (fs::is_regular_file(in_dir, ec)) {
+									resolved = in_dir.string();
 									break;
 								}
 							}
@@ -79,59 +70,59 @@ namespace HotBite {
 						if (resolved.empty()) {
 							return E_FAIL;
 						}
-
 						std::ifstream in(resolved, std::ios::binary);
 						if (!in) {
 							return E_FAIL;
 						}
 						std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-						char* buffer = new char[text.size() + 1];
-						memcpy(buffer, text.data(), text.size());
-						buffer[text.size()] = '\0';
-
-						dir_of_data[buffer] = fs::path(resolved).parent_path().string();
+						Microsoft::WRL::ComPtr<IDxcBlobEncoding> blob;
+						if (FAILED(DxcSupport::Utils()->CreateBlob(text.data(), (UINT32)text.size(), DXC_CP_UTF8, &blob))) {
+							return E_FAIL;
+						}
 						dependencies.push_back(Normalize(resolved));
 						if (dependency_times != nullptr) {
 							dependency_times->push_back(ShaderCompiler::FileTime(resolved));
 						}
-
-						*out_data = buffer;
-						*out_bytes = (UINT)text.size();
+						*out_blob = blob.Detach();
 						return S_OK;
 					}
 
-					HRESULT __stdcall Close(LPCVOID data) override
+					HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** object) override
 					{
-						dir_of_data.erase(data);
-						delete[](char*)data;
-						return S_OK;
+						if (riid == __uuidof(IDxcIncludeHandler) || riid == __uuidof(IUnknown)) {
+							*object = static_cast<IDxcIncludeHandler*>(this);
+							return S_OK;
+						}
+						*object = nullptr;
+						return E_NOINTERFACE;
 					}
+
+					//Lives on the stack of the compile that uses it.
+					ULONG STDMETHODCALLTYPE AddRef() override { return 1; }
+					ULONG STDMETHODCALLTYPE Release() override { return 1; }
 
 				private:
-					std::string root;
 					const std::vector<std::string>& search;
 					std::vector<std::string>& dependencies;
 					std::vector<uint64_t>* dependency_times;
-					std::unordered_map<const void*, std::string> dir_of_data;
 				};
 
-				std::string BlobText(ID3DBlob* blob)
+				std::string BlobText(IDxcBlobUtf8* blob)
 				{
-					if (blob == nullptr || blob->GetBufferSize() == 0) {
+					if (blob == nullptr || blob->GetStringLength() == 0) {
 						return {};
 					}
-					return std::string((const char*)blob->GetBufferPointer(), blob->GetBufferSize());
+					return std::string(blob->GetStringPointer(), blob->GetStringLength());
 				}
 
-				//Compilation flags. Release deliberately passes none beyond the strictness
-				//flag: FxCompile in this tree sets no optimization properties either, so
-				//a shader reloaded here is generated the same way the .cso beside it was,
-				//and a measurement taken after a reload stays comparable to one taken
-				//before. Debug matches the Debug configuration's /Od /Zi.
+				//Compilation flags, the same as the build's (Engine/Dxc.targets): HLSL 2018 (what fxc compiled), strictness, and
+				//no warnings - the sources carry a few that DXC alone reports and that nothing acts on. Release adds nothing
+				//else, so a shader reloaded here is generated the way the .cso beside it was and a measurement taken after a
+				//reload stays comparable to one taken before. Debug matches the Debug configuration's -Zi -Od.
 #ifdef _DEBUG
-				constexpr UINT COMPILE_FLAGS = D3DCOMPILE_ENABLE_STRICTNESS | D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
+				const wchar_t* const COMPILE_ARGS[] = { L"-HV", L"2018", L"-Ges", L"-no-warnings", L"-Zi", L"-Od" };
 #else
-				constexpr UINT COMPILE_FLAGS = D3DCOMPILE_ENABLE_STRICTNESS;
+				const wchar_t* const COMPILE_ARGS[] = { L"-HV", L"2018", L"-Ges", L"-no-warnings" };
 #endif
 			}
 
@@ -322,28 +313,71 @@ namespace HotBite {
 				out.dependencies.push_back(Normalize(source_path));
 				out.dependency_times.push_back(FileTime(source_path));
 
-				IncludeHandler includes(fs::path(source_path).parent_path().string(), search_dirs,
-					out.dependencies, &out.dependency_times);
-				ID3DBlob* code = nullptr;
-				ID3DBlob* errors = nullptr;
-				const std::wstring wide = fs::path(source_path).wstring();
-				HRESULT hr = D3DCompileFromFile(wide.c_str(), nullptr, &includes, entry.c_str(),
-					profile.c_str(), COMPILE_FLAGS, 0, &code, &errors);
-				out.error = BlobText(errors);
-				if (errors != nullptr) {
-					errors->Release();
+				if (!DxcSupport::Available()) {
+					out.error = "dxcompiler.dll is not available";
+					return false;
 				}
-				if (FAILED(hr) || code == nullptr) {
+				IncludeHandler includes(search_dirs, out.dependencies, &out.dependency_times);
+
+				std::ifstream in(source_path, std::ios::binary);
+				std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+				DxcBuffer source = {};
+				source.Ptr = text.data();
+				source.Size = text.size();
+				source.Encoding = DXC_CP_UTF8;
+
+				//The file's own folder is searched first (DXC does that for quoted includes), then the registered folders.
+				const std::wstring wide_source = fs::path(source_path).wstring();
+				const std::wstring wide_entry = fs::path(entry).wstring();
+				const std::wstring wide_profile = fs::path(profile).wstring();
+				std::vector<std::wstring> wide_dirs;
+				wide_dirs.reserve(search_dirs.size());
+				for (const std::string& dir : search_dirs) {
+					wide_dirs.push_back(fs::path(dir).wstring());
+				}
+				std::vector<LPCWSTR> arguments = { wide_source.c_str(), L"-E", wide_entry.c_str(), L"-T", wide_profile.c_str() };
+				for (const wchar_t* argument : COMPILE_ARGS) {
+					arguments.push_back(argument);
+				}
+				for (const std::wstring& dir : wide_dirs) {
+					arguments.push_back(L"-I");
+					arguments.push_back(dir.c_str());
+				}
+
+				Microsoft::WRL::ComPtr<IDxcCompiler3> compiler;
+				Microsoft::WRL::ComPtr<IDxcResult> result;
+				HRESULT hr = DxcSupport::CreateCompiler(&compiler);
+				if (SUCCEEDED(hr)) {
+					hr = compiler->Compile(&source, arguments.data(), (UINT32)arguments.size(), &includes, IID_PPV_ARGS(&result));
+				}
+				if (FAILED(hr) || result == nullptr) {
+					char hr_text[64] = {};
+					sprintf_s(hr_text, "compilation failed (hr=0x%08lX)", (unsigned long)hr);
+					out.error = hr_text;
+					return false;
+				}
+				Microsoft::WRL::ComPtr<IDxcBlobUtf8> messages;
+				result->GetOutput(DXC_OUT_ERRORS, IID_PPV_ARGS(&messages), nullptr);
+				out.error = BlobText(messages.Get());
+				HRESULT status = E_FAIL;
+				result->GetStatus(&status);
+				Microsoft::WRL::ComPtr<IDxcBlob> object;
+				result->GetOutput(DXC_OUT_OBJECT, IID_PPV_ARGS(&object), nullptr);
+				if (FAILED(status) || object == nullptr || object->GetBufferSize() == 0) {
 					if (out.error.empty()) {
 						char hr_text[64] = {};
-						sprintf_s(hr_text, "compilation failed (hr=0x%08lX)", (unsigned long)hr);
+						sprintf_s(hr_text, "compilation failed (hr=0x%08lX)", (unsigned long)status);
 						out.error = hr_text;
-					}
-					if (code != nullptr) {
-						code->Release();
 					}
 					return false;
 				}
+				//Callers hold the bytecode as an ID3DBlob.
+				ID3DBlob* code = nullptr;
+				if (FAILED(D3DCreateBlob(object->GetBufferSize(), &code))) {
+					out.error = "out of memory";
+					return false;
+				}
+				memcpy(code->GetBufferPointer(), object->GetBufferPointer(), object->GetBufferSize());
 				out.blob = code;
 				return true;
 			}
@@ -382,30 +416,63 @@ namespace HotBite {
 					error = "shader source not found: " + source_path;
 					return false;
 				}
-				std::ifstream in(source_path, std::ios::binary);
-				if (!in) {
-					error = "cannot read " + source_path;
-					return false;
+				//Follows every #include line, wherever it sits (a conditional section is followed too: the set is a superset of
+				//what a compile opens, so an edit is never missed, at worst a reload is asked for that changed nothing).
+				std::vector<std::string> pending = { Normalize(source_path) };
+				std::unordered_map<std::string, bool> seen;
+				while (!pending.empty()) {
+					const std::string current = pending.back();
+					pending.pop_back();
+					if (seen.emplace(ToLower(current), true).second == false) {
+						continue;
+					}
+					dependencies.push_back(current);
+					std::ifstream in(current, std::ios::binary);
+					if (!in) {
+						if (dependencies.size() == 1) {
+							error = "cannot read " + source_path;
+							return false;
+						}
+						continue;
+					}
+					const fs::path folder = fs::path(current).parent_path();
+					std::string line;
+					while (std::getline(in, line)) {
+						size_t i = line.find_first_not_of(" \t");
+						if (i == std::string::npos || line[i] != '#') {
+							continue;
+						}
+						i = line.find_first_not_of(" \t", i + 1);
+						if (i == std::string::npos || line.compare(i, 7, "include") != 0) {
+							continue;
+						}
+						const size_t open = line.find_first_of("\"<", i + 7);
+						if (open == std::string::npos) {
+							continue;
+						}
+						const size_t close = line.find_first_of(line[open] == '<' ? ">" : "\"", open + 1);
+						if (close == std::string::npos) {
+							continue;
+						}
+						const std::string name = line.substr(open + 1, close - open - 1);
+						std::string resolved;
+						if (fs::is_regular_file(folder / name, ec)) {
+							resolved = (folder / name).string();
+						}
+						else {
+							for (const std::string& dir : folders) {
+								if (fs::is_regular_file(fs::path(dir) / name, ec)) {
+									resolved = (fs::path(dir) / name).string();
+									break;
+								}
+							}
+						}
+						if (!resolved.empty()) {
+							pending.push_back(Normalize(resolved));
+						}
+					}
 				}
-				std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-				dependencies.push_back(Normalize(source_path));
-
-				IncludeHandler includes(fs::path(source_path).parent_path().string(), folders, dependencies);
-				ID3DBlob* processed = nullptr;
-				ID3DBlob* errors = nullptr;
-				HRESULT hr = D3DPreprocess(text.data(), text.size(), source_path.c_str(), nullptr,
-					&includes, &processed, &errors);
-				error = BlobText(errors);
-				if (errors != nullptr) {
-					errors->Release();
-				}
-				if (processed != nullptr) {
-					processed->Release();
-				}
-				//A preprocessor failure still leaves the includes it did open in the
-				//list, which is all this is for - the caller wants the dependency set,
-				//not the text.
-				return SUCCEEDED(hr);
+				return true;
 			}
 		}
 	}

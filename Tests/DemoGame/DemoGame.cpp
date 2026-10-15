@@ -79,7 +79,7 @@ private:
 	std::string root;
 	bool game_over = false;
 	bool retry_enable = false;
-	ID3D11ShaderResourceView* grass[NGRASS] = {};
+	GfxSRV* grass[NGRASS] = {};
 	float3 fireball_spawn_position = {};
 	float progress = 0.0f;
 

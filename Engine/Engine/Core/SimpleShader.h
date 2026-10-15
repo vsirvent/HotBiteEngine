@@ -9,7 +9,6 @@
 #include "DXCore.h"
 #include "ShaderCompiler.h"
 
-#include <d3d11.h>
 #include <d3dcompiler.h>
 #include <DirectXMath.h>
 
@@ -51,7 +50,7 @@ namespace HotBite {
 				std::string Name;
 				unsigned int Size;
 				unsigned int BindIndex;
-				ID3D11Buffer* ConstantBuffer;
+				GfxBuffer* ConstantBuffer;
 				unsigned char* LocalDataBuffer;
 				std::vector<SimpleShaderVariable> Variables;
 			};
@@ -71,7 +70,7 @@ namespace HotBite {
 			class ISimpleShader
 			{
 			public:
-				ISimpleShader(ID3D11Device* device, ID3D11DeviceContext* context);
+				ISimpleShader(GfxDevice* device, GfxContext* context);
 				virtual ~ISimpleShader();
 
 				// Initialization method (since we can't invoke derived class
@@ -125,7 +124,7 @@ namespace HotBite {
 				const std::string& GetName() const { return shaderName; }
 				void SetName(const std::string& name) { shaderName = name; }
 
-				// The profile this stage compiles as ("vs_5_0", "ps_5_0", ...).
+				// The profile this stage compiles as ("vs_6_0", "ps_6_0", ...).
 				virtual const char* GetShaderProfile() const = 0;
 
 				// Simple helpers
@@ -152,16 +151,16 @@ namespace HotBite {
 				bool SetMatrix4x4(const std::string& name, const float4x4& data);
 
 				// Setting shader resources
-				virtual bool SetShaderResourceView(const std::string& name, ID3D11ShaderResourceView* srv) = 0;
-				virtual bool SetShaderResourceViewArray(const std::string& name, ID3D11ShaderResourceView** srv, int nviews) = 0;
-				virtual bool SetSamplerState(const std::string& name, ID3D11SamplerState* samplerState) = 0;
+				virtual bool SetShaderResourceView(const std::string& name, GfxSRV* srv) = 0;
+				virtual bool SetShaderResourceViewArray(const std::string& name, GfxSRV** srv, int nviews) = 0;
+				virtual bool SetSamplerState(const std::string& name, GfxSampler* samplerState) = 0;
 
 				// Getting data about variables and resources
 				const SimpleShaderVariable* GetVariableInfo(const std::string& name);
 
 				const SimpleSRV* GetShaderResourceViewInfo(const std::string& name);
 				const SimpleSRV* GetShaderResourceViewInfo(unsigned int index);
-				size_t GetShaderResourceViewCount() { return textureTable.size(); }
+				size_t GetShaderResourceViewCount() { return shaderResourceViews.size(); }
 
 				const SimpleSampler* GetSamplerInfo(const std::string& name);
 				const SimpleSampler* GetSamplerInfo(unsigned int index);
@@ -206,8 +205,8 @@ namespace HotBite {
 				// when this shader last loaded.
 				std::vector<std::pair<std::string, uint64_t>> dependencies;
 				ID3DBlob* shaderBlob;
-				ID3D11Device* device;
-				ID3D11DeviceContext* deviceContext;
+				GfxDevice* device;
+				GfxContext* deviceContext;
 
 				// Resource counts
 				unsigned int constantBufferCount;
@@ -235,22 +234,22 @@ namespace HotBite {
 			class SimpleVertexShader : public ISimpleShader
 			{
 			public:
-				SimpleVertexShader(ID3D11Device* device, ID3D11DeviceContext* context);
-				SimpleVertexShader(ID3D11Device* device, ID3D11DeviceContext* context, ID3D11InputLayout* inputLayout, bool perInstanceCompatible);
+				SimpleVertexShader(GfxDevice* device, GfxContext* context);
+				SimpleVertexShader(GfxDevice* device, GfxContext* context, GfxInputLayout* inputLayout, bool perInstanceCompatible);
 				~SimpleVertexShader();
-				ID3D11VertexShader* GetDirectXShader() { return shader; }
-				ID3D11InputLayout* GetInputLayout() { return inputLayout; }
+				GfxShader* GetDirectXShader() { return shader; }
+				GfxInputLayout* GetInputLayout() { return inputLayout; }
 				bool GetPerInstanceCompatible() { return perInstanceCompatible; }
-				const char* GetShaderProfile() const override { return "vs_5_0"; }
+				const char* GetShaderProfile() const override { return "vs_" HOTBITE_SHADER_MODEL; }
 
-				bool SetShaderResourceView(const std::string& name, ID3D11ShaderResourceView* srv);
-				bool SetShaderResourceViewArray(const std::string& name, ID3D11ShaderResourceView** srv, int nviews);
-				bool SetSamplerState(const std::string& name, ID3D11SamplerState* samplerState);
+				bool SetShaderResourceView(const std::string& name, GfxSRV* srv);
+				bool SetShaderResourceViewArray(const std::string& name, GfxSRV** srv, int nviews);
+				bool SetSamplerState(const std::string& name, GfxSampler* samplerState);
 
 			protected:
 				bool perInstanceCompatible;
-				ID3D11InputLayout* inputLayout;
-				ID3D11VertexShader* shader;
+				GfxInputLayout* inputLayout;
+				GfxShader* shader;
 				bool CreateShader(ID3DBlob* shaderBlob);
 				void SetShaderAndCBs();
 				void CleanUp();
@@ -259,17 +258,17 @@ namespace HotBite {
 			class SimplePixelShader : public ISimpleShader
 			{
 			public:
-				SimplePixelShader(ID3D11Device* device, ID3D11DeviceContext* context);
+				SimplePixelShader(GfxDevice* device, GfxContext* context);
 				~SimplePixelShader();
-				ID3D11PixelShader* GetDirectXShader() { return shader; }
-				const char* GetShaderProfile() const override { return "ps_5_0"; }
+				GfxShader* GetDirectXShader() { return shader; }
+				const char* GetShaderProfile() const override { return "ps_" HOTBITE_SHADER_MODEL; }
 
-				bool SetShaderResourceView(const std::string& name, ID3D11ShaderResourceView* srv);
-				bool SetShaderResourceViewArray(const std::string& name, ID3D11ShaderResourceView** srv, int nviews);
-				bool SetSamplerState(const std::string& name, ID3D11SamplerState* samplerState);
+				bool SetShaderResourceView(const std::string& name, GfxSRV* srv);
+				bool SetShaderResourceViewArray(const std::string& name, GfxSRV** srv, int nviews);
+				bool SetSamplerState(const std::string& name, GfxSampler* samplerState);
 
 			protected:
-				ID3D11PixelShader* shader;
+				GfxShader* shader;
 				bool CreateShader(ID3DBlob* shaderBlob);
 				void SetShaderAndCBs();
 				void CleanUp();
@@ -278,17 +277,17 @@ namespace HotBite {
 			class SimpleDomainShader : public ISimpleShader
 			{
 			public:
-				SimpleDomainShader(ID3D11Device* device, ID3D11DeviceContext* context);
+				SimpleDomainShader(GfxDevice* device, GfxContext* context);
 				~SimpleDomainShader();
-				ID3D11DomainShader* GetDirectXShader() { return shader; }
-				const char* GetShaderProfile() const override { return "ds_5_0"; }
+				GfxShader* GetDirectXShader() { return shader; }
+				const char* GetShaderProfile() const override { return "ds_" HOTBITE_SHADER_MODEL; }
 
-				bool SetShaderResourceView(const std::string& name, ID3D11ShaderResourceView* srv);
-				bool SetShaderResourceViewArray(const std::string& name, ID3D11ShaderResourceView** srv, int nviews);
-				bool SetSamplerState(const std::string& name, ID3D11SamplerState* samplerState);
+				bool SetShaderResourceView(const std::string& name, GfxSRV* srv);
+				bool SetShaderResourceViewArray(const std::string& name, GfxSRV** srv, int nviews);
+				bool SetSamplerState(const std::string& name, GfxSampler* samplerState);
 
 			protected:
-				ID3D11DomainShader* shader;
+				GfxShader* shader;
 				bool CreateShader(ID3DBlob* shaderBlob);
 				void SetShaderAndCBs();
 				void CleanUp();
@@ -297,17 +296,17 @@ namespace HotBite {
 			class SimpleHullShader : public ISimpleShader
 			{
 			public:
-				SimpleHullShader(ID3D11Device* device, ID3D11DeviceContext* context);
+				SimpleHullShader(GfxDevice* device, GfxContext* context);
 				~SimpleHullShader();
-				ID3D11HullShader* GetDirectXShader() { return shader; }
-				const char* GetShaderProfile() const override { return "hs_5_0"; }
+				GfxShader* GetDirectXShader() { return shader; }
+				const char* GetShaderProfile() const override { return "hs_" HOTBITE_SHADER_MODEL; }
 
-				bool SetShaderResourceView(const std::string& name, ID3D11ShaderResourceView* srv);
-				bool SetShaderResourceViewArray(const std::string& name, ID3D11ShaderResourceView** srv, int nviews);
-				bool SetSamplerState(const std::string& name, ID3D11SamplerState* samplerState);
+				bool SetShaderResourceView(const std::string& name, GfxSRV* srv);
+				bool SetShaderResourceViewArray(const std::string& name, GfxSRV** srv, int nviews);
+				bool SetSamplerState(const std::string& name, GfxSampler* samplerState);
 
 			protected:
-				ID3D11HullShader* shader;
+				GfxShader* shader;
 				bool CreateShader(ID3DBlob* shaderBlob);
 				void SetShaderAndCBs();
 				void CleanUp();
@@ -316,58 +315,44 @@ namespace HotBite {
 			class SimpleGeometryShader : public ISimpleShader
 			{
 			public:
-				SimpleGeometryShader(ID3D11Device* device, ID3D11DeviceContext* context, bool useStreamOut = 0, bool allowStreamOutRasterization = 0);
+				SimpleGeometryShader(GfxDevice* device, GfxContext* context);
 				~SimpleGeometryShader();
-				ID3D11GeometryShader* GetDirectXShader() { return shader; }
-				const char* GetShaderProfile() const override { return "gs_5_0"; }
+				GfxShader* GetDirectXShader() { return shader; }
+				const char* GetShaderProfile() const override { return "gs_" HOTBITE_SHADER_MODEL; }
 
-				bool SetShaderResourceView(const std::string& name, ID3D11ShaderResourceView* srv);
-				bool SetShaderResourceViewArray(const std::string& name, ID3D11ShaderResourceView** srv, int nviews);
-				bool SetSamplerState(const std::string& name, ID3D11SamplerState* samplerState);
-
-				bool CreateCompatibleStreamOutBuffer(ID3D11Buffer** buffer, int vertexCount);
-
-				static void UnbindStreamOutStage(ID3D11DeviceContext* deviceContext);
+				bool SetShaderResourceView(const std::string& name, GfxSRV* srv);
+				bool SetShaderResourceViewArray(const std::string& name, GfxSRV** srv, int nviews);
+				bool SetSamplerState(const std::string& name, GfxSampler* samplerState);
 
 			protected:
 				// Shader itself
-				ID3D11GeometryShader* shader;
-
-				// Stream out related
-				bool useStreamOut;
-				bool allowStreamOutRasterization;
-				unsigned int streamOutVertexSize;
+				GfxShader* shader;
 
 				bool CreateShader(ID3DBlob* shaderBlob);
-				bool CreateShaderWithStreamOut(ID3DBlob* shaderBlob);
 				void SetShaderAndCBs();
 				void CleanUp();
-
-				// Helpers
-				unsigned int CalcComponentCount(unsigned int mask);
 			};
 
 			class SimpleComputeShader : public ISimpleShader
 			{
 			public:
-				SimpleComputeShader(ID3D11Device* device, ID3D11DeviceContext* context);
+				SimpleComputeShader(GfxDevice* device, GfxContext* context);
 				~SimpleComputeShader();
-				ID3D11ComputeShader* GetDirectXShader() { return shader; }
-				const char* GetShaderProfile() const override { return "cs_5_0"; }
+				GfxShader* GetDirectXShader() { return shader; }
+				const char* GetShaderProfile() const override { return "cs_" HOTBITE_SHADER_MODEL; }
 
 				void DispatchByGroups(unsigned int groupsX, unsigned int groupsY, unsigned int groupsZ);
 				void DispatchByThreads(unsigned int threadsX, unsigned int threadsY, unsigned int threadsZ);
 
-				bool SetShaderResourceBuffer(const std::string& name, ID3D11Buffer* buffer);
-				bool SetShaderResourceView(const std::string& name, ID3D11ShaderResourceView* srv);
-				bool SetShaderResourceViewArray(const std::string& name, ID3D11ShaderResourceView** srv, int nviews);
-				bool SetSamplerState(const std::string& name, ID3D11SamplerState* samplerState);
-				bool SetUnorderedAccessView(const std::string& name, ID3D11UnorderedAccessView* uav, unsigned int appendConsumeOffset = -1);
+				bool SetShaderResourceView(const std::string& name, GfxSRV* srv);
+				bool SetShaderResourceViewArray(const std::string& name, GfxSRV** srv, int nviews);
+				bool SetSamplerState(const std::string& name, GfxSampler* samplerState);
+				bool SetUnorderedAccessView(const std::string& name, GfxUAV* uav, unsigned int appendConsumeOffset = -1);
 
 				int GetUnorderedAccessViewIndex(const std::string& name);
 
 			protected:
-				ID3D11ComputeShader* shader;
+				GfxShader* shader;
 				std::unordered_map<std::string, unsigned int> uavTable;
 
 				unsigned int threadsX;

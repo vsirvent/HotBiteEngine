@@ -1,4 +1,5 @@
 #include "TexturePanel.h"
+#include "ImGuiDx12.h"
 #include "MaterialPanel.h"
 #include "EditorLayout.h"
 
@@ -31,7 +32,7 @@ namespace HotBiteEditor {
 			//Thumbnails hold a reference on the engine's texture cache entry, so a texture
 			//the panel is showing is the very SRV a material using it would share. A null
 			//entry means "tried and failed", so a broken file is not retried every frame.
-			std::map<std::string, ID3D11ShaderResourceView*> thumbnails;
+			std::map<std::string, GfxSRV*> thumbnails;
 
 			std::string Lower(std::string s) {
 				std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return (char)std::tolower(c); });
@@ -327,7 +328,7 @@ namespace HotBiteEditor {
 			thumbnails.clear();
 		}
 
-		ID3D11ShaderResourceView* Thumbnail(const EditorState& state, const std::string& texture) {
+		GfxSRV* Thumbnail(const EditorState& state, const std::string& texture) {
 			auto it = thumbnails.find(texture);
 			if (it == thumbnails.end()) {
 				it = thumbnails.emplace(texture,
@@ -399,27 +400,18 @@ namespace HotBiteEditor {
 			}
 
 			//Dimensions and format for the details pane, read off the loaded resource.
-			bool Describe(ID3D11ShaderResourceView* srv, UINT& w, UINT& h, UINT& mips) {
+			bool Describe(GfxSRV* srv, UINT& w, UINT& h, UINT& mips) {
 				if (srv == nullptr) {
 					return false;
 				}
-				ID3D11Resource* res = nullptr;
-				srv->GetResource(&res);
-				bool ok = false;
-				if (res != nullptr) {
-					ID3D11Texture2D* tex = nullptr;
-					if (SUCCEEDED(res->QueryInterface(__uuidof(ID3D11Texture2D), (void**)&tex)) && tex != nullptr) {
-						D3D11_TEXTURE2D_DESC d;
-						tex->GetDesc(&d);
-						w = d.Width;
-						h = d.Height;
-						mips = d.MipLevels;
-						ok = true;
-						tex->Release();
+				GfxResource* res = srv->Resource();
+					if (res == nullptr || res->desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D) {
+						return false;
 					}
-					res->Release();
-				}
-				return ok;
+					w = (UINT)res->desc.Width;
+					h = res->desc.Height;
+					mips = res->desc.MipLevels;
+					return true;
 			}
 		}
 
@@ -606,14 +598,14 @@ namespace HotBiteEditor {
 				const bool selected = (state.selected_texture == rel);
 				//Only what is on screen is loaded: a library of hundreds must not upload
 				//every image the moment the panel opens.
-				ID3D11ShaderResourceView* srv = ImGui::IsRectVisible(ImVec2(THUMB, THUMB + 20.0f))
+				GfxSRV* srv = ImGui::IsRectVisible(ImVec2(THUMB, THUMB + 20.0f))
 					? TextureOps::Thumbnail(state, rel) : nullptr;
 				if (selected) {
 					ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.26f, 0.59f, 0.98f, 0.85f));
 				}
 				bool clicked = false;
 				if (srv != nullptr) {
-					clicked = ImGui::ImageButton("##t", (ImTextureID)srv, ImVec2(THUMB, THUMB));
+					clicked = ImGui::ImageButton("##t", ImGuiDx12::TextureId(srv), ImVec2(THUMB, THUMB));
 				}
 				else {
 					clicked = ImGui::Button("##t", ImVec2(THUMB + ImGui::GetStyle().FramePadding.x * 2.0f,
@@ -644,9 +636,9 @@ namespace HotBiteEditor {
 			}
 			else {
 				const std::string& rel = state.selected_texture;
-				ID3D11ShaderResourceView* srv = TextureOps::Thumbnail(state, rel);
+				GfxSRV* srv = TextureOps::Thumbnail(state, rel);
 				if (srv != nullptr) {
-					ImGui::Image((ImTextureID)srv, ImVec2(96.0f, 96.0f));
+					ImGui::Image(ImGuiDx12::TextureId(srv), ImVec2(96.0f, 96.0f));
 					ImGui::SameLine();
 				}
 				ImGui::BeginGroup();

@@ -121,28 +121,25 @@ void Core::UnpackLightDirection(const PackedLight& l, float out[3]) {
 
 bool TiledLights::Init(int w, int h) {
 	Release();
-	ID3D11Device* device = DXCore::Get()->device;
+	GfxDevice* device = DXCore::Get()->device;
 	width = (uint32_t)w;
 	height = (uint32_t)h;
 	tiles_x = (width + TILE_SIZE - 1) / TILE_SIZE;
 	tiles_y = (height + TILE_SIZE - 1) / TILE_SIZE;
 
-	D3D11_BUFFER_DESC bd = {};
-	bd.Usage = D3D11_USAGE_DEFAULT;
-	bd.ByteWidth = CAPACITY * sizeof(PackedLight);
-	bd.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-	bd.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
-	bd.StructureByteStride = sizeof(PackedLight);
-	if (FAILED(device->CreateBuffer(&bd, nullptr, &lights_buffer))) {
-		Release();
-		return false;
-	}
-	D3D11_SHADER_RESOURCE_VIEW_DESC sd = {};
-	sd.Format = DXGI_FORMAT_UNKNOWN;
-	sd.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
-	sd.Buffer.FirstElement = 0;
-	sd.Buffer.NumElements = CAPACITY;
-	if (FAILED(device->CreateShaderResourceView(lights_buffer, &sd, &lights_srv))) {
+	if (FAILED(device->CreateBuffer(GfxBufferKind::Static, CAPACITY * sizeof(PackedLight), sizeof(PackedLight),
+			D3D12_RESOURCE_FLAG_NONE, nullptr, GFX_STATE_BUFFER_READ, &lights_buffer))) {
+			Release();
+			return false;
+		}
+		D3D12_SHADER_RESOURCE_VIEW_DESC sd = {};
+		sd.Format = DXGI_FORMAT_UNKNOWN;
+		sd.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+		sd.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+		sd.Buffer.FirstElement = 0;
+		sd.Buffer.NumElements = CAPACITY;
+		sd.Buffer.StructureByteStride = sizeof(PackedLight);
+		if (FAILED(device->CreateSRV(lights_buffer, &sd, &lights_srv))) {
 		Release();
 		return false;
 	}
@@ -177,23 +174,16 @@ void TiledLights::Upload(const PackedLight* lights, uint32_t count) {
 	if (light_count == 0 || lights_buffer == nullptr) {
 		return;
 	}
-	D3D11_BOX box = {};
-	box.left = 0;
-	box.right = light_count * (uint32_t)sizeof(PackedLight);
-	box.top = 0;
-	box.bottom = 1;
-	box.front = 0;
-	box.back = 1;
-	DXCore::Get()->context->UpdateSubresource(lights_buffer, 0, &box, lights, 0, 0);
+	DXCore::Get()->context->UpdateBuffer(lights_buffer, lights, (UINT64)light_count * sizeof(PackedLight));
 }
 
 void TiledLights::Cull(const float4x4& view, const float4x4& projection_inverse,
-	ID3D11ShaderResourceView* positions, bool collect_stats, bool culling)
+	GfxSRV* positions, bool collect_stats, bool culling)
 {
 	if (cull_shader == nullptr || positions == nullptr) {
 		return;
 	}
-	ID3D11DeviceContext* context = DXCore::Get()->context;
+	GfxContext* context = DXCore::Get()->context;
 	if (light_count == 0) {
 		//No lights: every mask is empty. Writing that once is all there is to do, and
 		//nothing is dispatched on the frames that follow - a scene with no point lights
@@ -246,14 +236,14 @@ void TiledLights::ReadStats(TiledLightStats& stats) {
 	}
 }
 
-TiledLightValidation TiledLights::Validate(ID3D11ShaderResourceView* positions) {
+TiledLightValidation TiledLights::Validate(GfxSRV* positions) {
 	TiledLightValidation result;
 	if (validate_shader == nullptr || positions == nullptr || light_count == 0) {
 		result.valid = light_count == 0;
 		return result;
 	}
 	DXCore* dx = DXCore::Get();
-	ID3D11DeviceContext* context = dx->context;
+	GfxContext* context = dx->context;
 	RWByteBuffer counters;
 	if (FAILED(counters.Init(32))) {
 		return result;
@@ -275,28 +265,19 @@ TiledLightValidation TiledLights::Validate(ID3D11ShaderResourceView* positions) 
 	validate_shader->SetShaderResourceView("tileMasks", nullptr);
 	validate_shader->SetUnorderedAccessView("validateStats", nullptr);
 
-	D3D11_BUFFER_DESC sbd = {};
-	sbd.Usage = D3D11_USAGE_STAGING;
-	sbd.ByteWidth = 32;
-	sbd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-	ID3D11Buffer* staging = nullptr;
-	if (SUCCEEDED(dx->device->CreateBuffer(&sbd, nullptr, &staging))) {
-		ID3D11Buffer* source = nullptr;
-		counters.UAV()->GetResource(reinterpret_cast<ID3D11Resource**>(&source));
-		context->CopyResource(staging, source);
-		source->Release();
-		D3D11_MAPPED_SUBRESOURCE mapped = {};
-		//Blocks until the dispatch above has finished: a test asked for the answer now.
-		if (SUCCEEDED(context->Map(staging, 0, D3D11_MAP_READ, 0, &mapped))) {
-			const uint32_t* raw = (const uint32_t*)mapped.pData;
+	GfxBuffer* staging = nullptr;
+		if (SUCCEEDED(dx->device->CreateBuffer(GfxBufferKind::Readback, 32, 0, D3D12_RESOURCE_FLAG_NONE, nullptr,
+			D3D12_RESOURCE_STATE_COPY_DEST, &staging))) {
+			context->CopyResource(staging, counters.UAV()->Resource());
+			//Blocks until the dispatch above has finished: a test asked for the answer now.
+			context->Flush();
+			const uint32_t* raw = (const uint32_t*)staging->mapped;
 			result.reached = raw[4];
 			result.missed = raw[5];
 			result.pixels = raw[6];
 			result.reached_raytraced = raw[7];
 			result.valid = true;
-			context->Unmap(staging, 0);
+			staging->Release();
 		}
-		staging->Release();
-	}
 	return result;
 }

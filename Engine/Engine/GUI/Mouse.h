@@ -41,7 +41,7 @@ namespace HotBite {
 				static inline ECS::EventId EVENT_ID_MOUSE_CURSOR_SET = ECS::GetEventId<Mouse>(0x00);
 				static inline ECS::ParamId EVENT_PARAM_CURSOR_ID = 0x00;
 
-				std::unordered_map<uint32_t, ID3D11ShaderResourceView*> cursors;
+				std::unordered_map<uint32_t, GfxSRV*> cursors;
 				uint32_t current_cursor = 0;
 
 

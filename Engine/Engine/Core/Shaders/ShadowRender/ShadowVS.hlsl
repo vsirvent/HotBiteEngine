@@ -40,7 +40,8 @@ float4 main(VertexShaderInput input, uint instance_id : SV_InstanceID): SV_POSIT
 {
 	VertexOutput output;
 	int use_bones = 0;
-	matrix m;
+	//Zero, not left to the compiler: the weights accumulate into it, and DXC (unlike fxc) leaves it undefined.
+	matrix m = (matrix)0;
 	for (int i = 0; i < 4; ++i) {
 		if (input.bone_ids[i] >= 0 && input.weights[i] > 0.0f && (int)njoints > input.bone_ids[i]) {
 			m += joints[input.bone_ids[i]] * input.weights[i];

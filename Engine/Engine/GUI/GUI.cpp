@@ -37,7 +37,7 @@ namespace HotBite {
 				context->ClearRenderTargetView(text.RenderTarget(), color);
 			}
 
-			GUI::GUI(ID3D11DeviceContext* dxcontext,
+			GUI::GUI(GfxContext* dxcontext,
 				int width, int height, ECS::Coordinator* c) :
 				PostProcess(dxcontext,
 					ShaderFactory::Get()->GetShader<SimpleVertexShader>("GUIVS.cso"),
@@ -51,11 +51,11 @@ namespace HotBite {
 				text.Release();
 			}
 
-			ID3D11ShaderResourceView* GUI::RenderResource() {
+			GfxSRV* GUI::RenderResource() {
 				return text.SRV();
 			}
 
-			ID3D11RenderTargetView* GUI::RenderTarget() const {
+			GfxRTV* GUI::RenderTarget() const {
 				return text.RenderTarget();
 			}
 

@@ -8,6 +8,7 @@
 #include <Core/SimpleShader.h>
 
 #include "imgui.h"
+#include "ImGuiDx12.h"
 
 namespace HotBiteEditor {
 
@@ -69,11 +70,11 @@ namespace HotBiteEditor {
 		// end, so a Target must outlive the panel code that drew into it - which is
 		// why both previews keep theirs in a cache rather than on the stack.
 		struct Target {
-			ID3D11Texture2D* texture = nullptr;
-			ID3D11RenderTargetView* rtv = nullptr;
-			ID3D11ShaderResourceView* srv = nullptr;
-			ID3D11Texture2D* depth_texture = nullptr;
-			ID3D11DepthStencilView* dsv = nullptr;
+			GfxTexture* texture = nullptr;
+			GfxRTV* rtv = nullptr;
+			GfxSRV* srv = nullptr;
+			GfxTexture* depth_texture = nullptr;
+			GfxDSV* dsv = nullptr;
 			int width = 0;
 			int height = 0;
 
@@ -86,7 +87,7 @@ namespace HotBiteEditor {
 			void Bind(const float clear_color[4]) const;
 			void Release();
 
-			ImTextureID Handle() const { return (ImTextureID)srv; }
+			ImTextureID Handle() const { return ImGuiDx12::TextureId(srv); }
 			bool Valid() const { return srv != nullptr; }
 		};
 
@@ -111,9 +112,9 @@ namespace HotBiteEditor {
 			ScopedState& operator=(const ScopedState&) = delete;
 
 		private:
-			ID3D11RenderTargetView* prev_rtv = nullptr;
-			ID3D11DepthStencilView* prev_dsv = nullptr;
-			D3D11_VIEWPORT prev_viewport{};
+			GfxRTV* prev_rtv = nullptr;
+			GfxDSV* prev_dsv = nullptr;
+			D3D12_VIEWPORT prev_viewport{};
 			UINT prev_viewport_count = 1;
 		};
 	}
