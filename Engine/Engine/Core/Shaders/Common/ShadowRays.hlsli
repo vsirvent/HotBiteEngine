@@ -219,7 +219,7 @@ bool SrObjectOccluded(ObjectInfo o, float3 world_from, float3 world_dir, float w
 	return false;
 }
 #endif
-//The pixel being shaded and its place in the frame sequence: the seed of the per ray jitter.
+//The pixel being shaded: the seed of the per ray jitter.
 static uint2 sr_pixel = uint2(0, 0);
 
 uint SrHash(uint x)
@@ -228,20 +228,15 @@ uint SrHash(uint x)
 	return x;
 }
 
-//A point inside the unit ball, different for every pixel and every frame. One ray per pixel
-//per frame sees the light from a slightly different place each time, so the edge of a shadow
-//is a hard edge moving by a pixel or two: averaged over the frames (ShadowAccumulateCS) it is
-//a soft one, as wide as the ball the point is scaled to.
+//A point inside the unit ball, a function of the pixel alone: the same pixel aims at the same
+//point every frame, so a still picture does not move. The pixels of a 4x4 tile take 16 different
+//points of a low discrepancy sequence (R3, Roberts), the tiles repeat, and ShadowAccumulateCS
+//blurs over exactly one tile's worth of pixels, so the edge of a shadow becomes a soft one as
+//wide as the ball the point is scaled to without the frames having anything to do with it.
 float3 SrBallSample()
 {
-	//Each pixel starts at a random point and then steps along a low discrepancy sequence (R3,
-	//Roberts) one frame at a time: consecutive frames cover the ball evenly, so the running
-	//average converges in a handful of frames where independent random points would take
-	//several times as many to look as smooth.
-	const uint seed = SrHash(sr_pixel.x + SrHash(sr_pixel.y));
-	const float3 start = float3((float)(SrHash(seed) & 0xFFFFFFu), (float)(SrHash(seed + 1u) & 0xFFFFFFu),
-		(float)(SrHash(seed + 2u) & 0xFFFFFFu)) * (1.0f / 16777215.0f);
-	const float3 u = frac(start + (float)(shadow_ray_frame & 0xFFFFu) * float3(0.8191725134f, 0.6710436067f, 0.5497004779f));
+	const uint tile_index = (sr_pixel.x & 3u) + 4u * (sr_pixel.y & 3u);
+	const float3 u = frac(float3(0.5f, 0.5f, 0.5f) + (float)(tile_index + 1u) * float3(0.8191725134f, 0.6710436067f, 0.5497004779f));
 	//Uniform in the ball: a direction from two of the numbers, a radius from the cube root of the third.
 	const float z = u.x * 2.0f - 1.0f;
 	const float phi = u.y * 6.2831853f;

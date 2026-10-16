@@ -140,29 +140,20 @@ Test 'the shadow follows the box: move it out of the way and the light is back' 
         -Message ("and with the box back the shadow is too ({0:P2} differ from the first traced picture)" -f $d2.DifferingShare)
 }
 
-Test 'the jittered edge is averaged over the frames: two frames in a row are the same picture' {
+Test 'the jittered edge does not depend on the frame: two frames in a row are the same picture' {
     SendOk "set_component tl_0 PointLight ""{'raytraced_shadow':true}""" | Out-Null
     Wait-LightsInfo -Lights 1 -RayTraced 1 -Shadowed 0 | Out-Null
-    $settings = (SendOk 'shadow_rays')[0].Text
-    # No averaging at all (blend 1): what one frame's jittered rays look like, the noise.
-    SendOk 'shadow_rays 1 1' | Out-Null
-    Step-EditorFrames -Session $Session -Count 40
-    $a = Get-SceneShot 'raw-a'
-    $b = Get-SceneShot 'raw-b'
-    $raw = Get-SceneDifference $a $b
-    # The engine's own settings.
-    $m = [regex]::Match($settings, 'radius=([\d.,]+) blend=([\d.,]+)')
-    SendOk ("shadow_rays {0} {1}" -f $m.Groups[1].Value.Replace(',', '.'), $m.Groups[2].Value.Replace(',', '.')) | Out-Null
-    Step-EditorFrames -Session $Session -Count 60
-    $a = Get-SceneShot 'steady-a'
-    $b = Get-SceneShot 'steady-b'
-    $d = Get-SceneDifference $a $b
-    Write-Host ("    two frames apart: {0:P3} of the pixels differ without averaging, {1:P3} with it (mean delta {2:N3} against {3:N3})" -f `
-        $raw.DifferingShare, $d.DifferingShare, $raw.MeanDelta, $d.MeanDelta)
-    Assert-True -Condition ($raw.MeanDelta -gt 0.5) -Message ("the jitter is noise without the averaging (mean delta {0:N3})" -f $raw.MeanDelta)
-    # The mean delta, not the share of pixels over a threshold: the noise is many small steps.
-    Assert-True -Condition ($d.MeanDelta -lt $raw.MeanDelta * 0.8) `
-        -Message ("the averaging steadies the edge (mean delta {0:N3} between two frames, {1:N3} without it)" -f $d.MeanDelta, $raw.MeanDelta)
+    # The aim of a ray is a pattern over a 4x4 tile of pixels (ShadowRays.hlsli) and the blur of ShadowAccumulateCS spans the tile,
+    # so nothing moves from one frame to the next: a still scene is a still picture, however little the frames are averaged.
+    foreach ($blend in @('1', '0.08')) {
+        SendOk ("shadow_rays 1 {0}" -f $blend) | Out-Null
+        Step-EditorFrames -Session $Session -Count 60
+        $a = Get-SceneShot ("still-a-$blend")
+        $b = Get-SceneShot ("still-b-$blend")
+        $d = Get-SceneDifference $a $b
+        Write-Host ("    blend {0}: two frames apart {1:P3} of the pixels differ (mean delta {2:N3})" -f $blend, $d.DifferingShare, $d.MeanDelta)
+        Assert-True -Condition ($d.MeanDelta -lt 0.5) -Message ("the edge is steady with blend {0} (mean delta {1:N3})" -f $blend, $d.MeanDelta)
+    }
 }
 
 Test 'the ray traced flag is part of the serialized component' {

@@ -24,8 +24,12 @@ SOFTWARE.
 
 //Temporal accumulation of the light of the ray traced point lights.
 //
-//DeferredLightCS jitters every shadow ray's aim (Common/ShadowRays.hlsli), so one frame's
-//shadow edge is noise; the light those lights add goes to its own buffer instead of the
+//DeferredLightCS jitters every shadow ray's aim (Common/ShadowRays.hlsli) by a pattern that
+//depends on the pixel alone (a 4x4 tile of it), so one frame's shadow edge is broken up by that
+//pattern: this frame's value is first blurred over one tile's worth of pixels (BlurLight), which
+//makes the pattern a soft edge without any frame in it. What still needs the frames is the share
+//of the lights a pixel traces (DeferredLightCS, shadow_ray_max_lights), which takes turns;
+// the light those lights add goes to its own buffer instead of the
 //light map, and this pass averages it over the frames: last frame's accumulated light is
 //found where this surface point was (prevPositionTexture, the point's position at the
 //previous frame's transform, seen through the previous frame's camera), checked to be the
@@ -57,6 +61,39 @@ SamplerState basicSampler : register(s0);
 RWTexture2D<float4> history_out : register(u0);
 RWTexture2D<float4> light_out : register(u1);
 
+//The kernel is 5x5 with the weights 0.5 1 1 1 0.5 on each axis: they add up to 4, and every one of
+//the pattern's 4 columns (and rows) gets the same total, so every aim of the tile counts once. A tap
+//is weighted by how close its depth is to the centre's (a neighbour on another surface carries
+//another surface's light) and the centre has its full weight, so the total is never 0.
+float3 BlurLight(int2 px, float depth)
+{
+	const float axis_weight[5] = { 0.5f, 1.0f, 1.0f, 1.0f, 0.5f };
+	float3 sum = float3(0.0f, 0.0f, 0.0f);
+	float total = 0.0f;
+	[unroll]
+	for (int dy = -2; dy <= 2; ++dy) {
+		[unroll]
+		for (int dx = -2; dx <= 2; ++dx) {
+			const int2 q = px + int2(dx, dy);
+			if (any(q < 0) || q.x >= screenW || q.y >= screenH) {
+				continue;
+			}
+			float w = axis_weight[dx + 2] * axis_weight[dy + 2];
+			if (dx != 0 || dy != 0) {
+				const float4 qp = positionTexture[q];
+				if (qp.x >= 1.0e30f) {
+					continue;
+				}
+				const float qd = mul(float4(qp.xyz, 1.0f), view_proj).w;
+				w *= saturate(1.0f - abs(qd - depth) / (0.03f * depth + 0.05f));
+			}
+			sum += currentLight[q].rgb * w;
+			total += w;
+		}
+	}
+	return sum / total;
+}
+
 [numthreads(8, 8, 1)]
 void main(uint3 dtid : SV_DispatchThreadID)
 {
@@ -70,8 +107,8 @@ void main(uint3 dtid : SV_DispatchThreadID)
 		history_out[px] = float4(0.0f, 0.0f, 0.0f, 0.0f);
 		return;
 	}
-	const float3 cur = currentLight[px].rgb;
 	const float depth = mul(float4(wp.xyz, 1.0f), view_proj).w;
+	const float3 cur = BlurLight((int2)px, depth);
 
 	float3 result = cur;
 	if (history_valid != 0) {
