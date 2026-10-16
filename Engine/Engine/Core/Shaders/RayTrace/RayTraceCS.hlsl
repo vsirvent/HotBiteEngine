@@ -65,9 +65,16 @@ cbuffer externalData : register(b0)
 cbuffer objectData : register(b1)
 {
     uint nobjects;
+#ifndef RT_RAYQUERY
     ObjectInfo objectInfos[MAX_OBJECTS];
     MaterialColor objectMaterials[MAX_OBJECTS];
+#endif
 }
+#ifdef RT_RAYQUERY
+//Not in a constant buffer: there can be more than a hundred (MAX_RT_OBJECTS), and nothing here picks one by a switch.
+StructuredBuffer<ObjectInfo> objectInfos : register(t12);
+StructuredBuffer<MaterialColor> objectMaterials : register(t13);
+#endif
 
 RWTexture2D<float4> output0 : register(u0);
 RWTexture2D<float4> output1 : register(u1);
@@ -92,7 +99,9 @@ Texture2D<float4> position_map : register(t6);
 Texture2D<float4> motion_texture : register(t8);
 Texture2D<float4> prev_position_map : register(t9);
 
+#ifndef RT_RAYQUERY
 Texture2D<float4> DiffuseTextures[MAX_OBJECTS];
+#endif
 //No DirStaticShadowMapTexture here: DiffuseTextures[MAX_OBJECTS] leaves no room for
 //another MAX_LIGHTS array within the 128 texture registers (X4565). See SimpleLight.hlsli.
 Texture2DArray<float> DirShadowMapTexture[MAX_LIGHTS];
@@ -109,6 +118,9 @@ static float2 lps[MAX_LIGHTS] = (float2[MAX_LIGHTS])LightPerspectiveValues;
 
 #define max_distance 20.0f
 
+//The ray query version (RayTraceHwCS.hlsl): the hardware finds the triangle a ray hits, the shading below is the same.
+#include "../Common/RayQueryTrace.hlsli"
+
 struct RayTraceColor {
     float3 color[2];
     float dispersion[2];
@@ -116,7 +128,7 @@ struct RayTraceColor {
     bool hit;
 };
 
-#if !USE_OBH
+#if !USE_OBH && !defined(RT_RAYQUERY)
 //Objects within max_distance of the pixel origin are the same for every ray and
 //every refraction bounce of the pixel (the original code also culled against the
 //first origin): cull the object list once per pixel. A bitmask keeps the
@@ -177,6 +189,11 @@ bool GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
         result.distance = FLT_MAX;
         end = true;
         collide = false;
+#ifdef RT_RAYQUERY
+        collide = TraceNearest(ray, result);
+        collision_dist = result.distance;
+        ray.t = result.distance;
+#else
 #if USE_OBH
         uint volumeStackSize = 0;
         volumeStack[volumeStackSize++] = 0;
@@ -376,6 +393,7 @@ bool GetColor(Ray origRay, float rX, float level, uint max_bounces, out RayTrace
 #endif
             }
 
+#endif
     //At this point we have the ray collision distance and a collision result
     if (collide) {
         // Calculate space position

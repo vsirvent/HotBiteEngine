@@ -1362,6 +1362,13 @@ namespace HotBite {
 				for (UINT r = 0; r < sd.BoundResources; ++r) {
 					D3D12_SHADER_INPUT_BIND_DESC bd = {};
 					reflection->GetResourceBindingDesc(r, &bd);
+					//A register space of its own is the unbounded texture array: it has its own table, outside the 128 slots.
+					if (bd.Space != 0) {
+						if (bd.Type == D3D_SIT_TEXTURE) {
+							shader->bindless = true;
+						}
+						continue;
+					}
 					const UINT first = bd.BindPoint;
 					const UINT last = bd.BindPoint + (std::max<UINT>)(bd.BindCount, 1u);
 					//A dimension of the SRV kind that D3D12 has no value for (BUFFEREX = 11 collides with ray

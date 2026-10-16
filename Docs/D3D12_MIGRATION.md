@@ -353,6 +353,10 @@ The open problem above - DXC builds the rays permutation 1.7-2.5x slower than fx
 
 Survival suite 68 (the stress scene of suite 67, RTX 4050 laptop, GI off, rays permutation GPU ms, all frames measured round and round): 20 lamps, one light per pixel (`low`) software (fxc) 6.9 -> hardware 2.2 ms; 20 lamps, every light 9.1 -> 2.3; 50 lamps, one light 9.9 -> 3.1; 50 lamps, every light 15.2 -> 3.6 (the same walk built by DXC: 26.3). The picture is within the noise between two shots of the software walk. The whole lighting pass in the 50 lamp scene 16.4 -> 4.7 ms, 37 -> 50 fps. Open: the reflections and the indirect light still walk the software BVH (100 objects); the same top level could serve them.
 
+### Ray queries for the reflections and the indirect light too, and past a hundred objects (2026-10-16)
+
+`RayTraceCS` and `GIRayTraceCS` ask the same hardware which triangle a ray hits (`RayTraceHwCS` / `GIRayTraceHwCS`, SM 6.5, `RT_RAYQUERY` in `Common/RayQueryTrace.hlsli`; `SetRayTracer` / `rt_tracer hw|sw` / `HOTBITE_RAY_TRACER`; **the hardware is the default**). Two things D3D12 allowed came with it: the compute root signature has a **bindless table** (an unbounded SRV range in register space 1, `GfxContext::CSSetBindlessSRVs`), so the hit's texture is `DiffuseTextures[NonUniformResourceIndex(object)]` and not the switch over 100 cases a shader model 5 shader needed; and the objects' infos and materials are structured buffers, so the hardware path traces up to `MAX_RT_OBJECTS` = 1024 objects where the software walk (a cbuffer, a loop) keeps 100. Marbles' sponza (388 drawables): indirect light 8.13 -> 4.30 ms with 388 objects against the software's 100. The software walk's world reflection tracer draws black (suite 48's known failure); it is not a baseline. Design, measurements and traps: `CLAUDE.md`, *Reflections, refractions and indirect light answered by the hardware*.
+
 ## Async compute (the compute queue)
 
 Every compute dispatch has an `async` argument: `GfxContext::Dispatch(x, y, z, async)`, `DispatchIndirect(args, offset, async)`,

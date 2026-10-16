@@ -14,6 +14,7 @@
 
 #include <cstdint>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 #include <string>
@@ -218,6 +219,8 @@ namespace HotBite {
 				std::unordered_map<std::string, SimpleConstantBuffer*> cbTable;
 				std::unordered_map<std::string, SimpleShaderVariable> varTable;
 				std::unordered_map<std::string, SimpleSRV*> textureTable;
+				//The unbounded texture arrays (register space 1): bound as a whole, by name, to the context's bindless table.
+				std::unordered_set<std::string> bindlessTable;
 				std::unordered_map<std::string, SimpleSampler*> samplerTable;
 
 				// Pure virtual functions for dealing with shader types

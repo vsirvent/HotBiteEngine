@@ -641,6 +641,12 @@ namespace HotBite {
 				Core::RenderTexture2D rt_ray_sources0;
 				Core::RenderTexture2D rt_ray_sources1;
 				Core::ExtBVHBuffer tbvh_buffer;
+				//The same objects as the hardware tracers read them (RayQueryTrace.hlsli): infos and materials, up to MAX_RT_OBJECTS, refreshed once a
+				//frame by BuildWorldAccel.
+				Core::ExtBuffer<ObjectInfo> rt_object_buffer;
+				Core::ExtBuffer<MaterialProps> rt_material_buffer;
+				//How many objects PrepareRT keeps: MAX_RT_OBJECTS when the hardware is to trace them, else what the software walk holds.
+				size_t RtObjectCap() const;
 				Core::BVHBuffer* bvh_buffer = nullptr;
 				//The ray tracers' view of the scene, filled by PrepareRT: the nearest
 				//MAX_OBJECTS drawables, each pointing at the **coarsest level of detail
@@ -653,8 +659,8 @@ namespace HotBite {
 				//coarsest. That distinction bought a silhouette nobody can see through a
 				//half-resolution, denoised reflection, and cost a second 20 KB cbuffer
 				//upload per frame.
-				ObjectInfo objects[MAX_OBJECTS]{};
-				MaterialProps objectMaterials[MAX_OBJECTS]{};
+				ObjectInfo objects[MAX_RT_OBJECTS]{};
+				MaterialProps objectMaterials[MAX_RT_OBJECTS]{};
 				int nobjects = 0;
 				RtGeometryStats rt_geometry_stats;
 
@@ -807,7 +813,7 @@ namespace HotBite {
 				GfxQueryHeap* BeginTessStats();
 				void EndTessStats(GfxQueryHeap* query);
 				void ResolveTessStats();
-				GfxSRV* diffuseTextures[MAX_OBJECTS]{};
+				GfxSRV* diffuseTextures[MAX_RT_OBJECTS]{};
 				std::mutex rt_mutex;
 				std::condition_variable rt_signal;
 				bool rt_end = false;
@@ -1174,7 +1180,8 @@ namespace HotBite {
 				//software path runs whatever is asked. `HOTBITE_SHADOW_RAY_TRACER=hw|sw` starts a process with either.
 				//Not supported by the hardware path: `eShadowRayOwner::NONE` (the building is traced as FULL). The shadow_bvh debug
 				//views draw the software hierarchy, so the frames they are up in are traced by the software walk.
-				enum class eShadowRayTracer { SOFTWARE, HARDWARE };
+				enum class eRayTracer { SOFTWARE, HARDWARE };
+				using eShadowRayTracer = eRayTracer;
 				void SetShadowRayTracer(eShadowRayTracer tracer) { shadow_ray_tracer = tracer; }
 				eShadowRayTracer GetShadowRayTracer() const { return shadow_ray_tracer; }
 				bool ShadowRayHardwareSupported() const { return accel.Supported(); }
@@ -1183,6 +1190,21 @@ namespace HotBite {
 				const Core::AccelStructure::Stats& GetAccelStats() const { return accel.GetStats(); }
 				static const char* ShadowRayTracerName(eShadowRayTracer tracer) { return tracer == eShadowRayTracer::HARDWARE ? "hw" : "sw"; }
 				static bool ParseShadowRayTracer(const std::string& name, eShadowRayTracer& tracer);
+
+				//Who answers the other rays - "which triangle does this ray hit": the reflections and refractions (RayTraceCS) and the indirect
+				//light (GIRayTraceCS), which trace the nearest MAX_OBJECTS objects and shade what they hit. The hardware (the default) is an
+				//inline ray query against a top level the engine builds each frame from those objects (the WORLD set of Core::AccelStructure,
+				//sharing its bottom levels with the shadow rays'), and the objects' textures are read from an unbounded array; the software
+				//walk is the hierarchy of each object in a compute shader (and a switch to pick a texture). The same triangles (the coarsest level
+				//of each mesh) and the same shading after the hit: the picture is the same. Needs a device with ray queries (RayHardwareSupported);
+				//without one the software walk runs whatever is asked. `HOTBITE_RAY_TRACER=hw|sw` starts a process with either.
+				void SetRayTracer(eRayTracer tracer) { ray_tracer = tracer; }
+				eRayTracer GetRayTracer() const { return ray_tracer; }
+				bool RayHardwareSupported() const { return accel.Supported(); }
+				//Whether the last frame that traced reflections or indirect light used the hardware, and what its top level holds.
+				bool RayHardwareActive() const { return world_hw_frame; }
+				const Core::AccelStructure::Stats& GetWorldAccelStats() const { return accel.GetStats(Core::AccelStructure::WORLD); }
+				static const char* RayTracerName(eRayTracer tracer) { return tracer == eRayTracer::HARDWARE ? "hw" : "sw"; }
 			private:
 				eShadowRayTracer shadow_ray_tracer = eShadowRayTracer::HARDWARE;
 				Core::AccelStructure accel;
@@ -1194,6 +1216,23 @@ namespace HotBite {
 				Core::SimpleComputeShader* hw_rays_shader = nullptr;
 				bool hw_rays_shader_failed = false;
 				Core::SimpleComputeShader* HardwareRaysShader();
+				//The reflection / refraction and indirect light tracers (see SetRayTracer).
+				eRayTracer ray_tracer = eRayTracer::HARDWARE;
+				//The last frame that traced them used the hardware.
+				bool world_hw_frame = false;
+				//The frame the WORLD top level was last built for, and whether that left something to trace.
+				uint32_t world_accel_frame = 0xFFFFFFFFu;
+				bool world_accel_ok = false;
+				//The objects of `objects`, as the hardware's instances (the same order: an instance's ID is its object's index). Written by
+				//PrepareRT, read where rt_mutex is held.
+				std::vector<Core::AccelStructure::Instance> rt_accel_instances;
+				Core::SimpleComputeShader* hw_rt_di_shader = nullptr;
+				Core::SimpleComputeShader* hw_gi_shader = nullptr;
+				bool hw_rt_shaders_failed = false;
+				//Whether the reflections and the indirect light are to be traced by the hardware: asked for, the device can, the shaders loaded.
+				bool WorldHardwareWanted();
+				//Builds the WORLD top level over the objects PrepareRT chose (once a frame, whoever asks first); false when there is nothing to trace.
+				bool BuildWorldAccel();
 				//Gathers the casters in reach of the ray traced lights and builds their scene.
 				void BuildShadowRays();
 				//Read back only while something asks (the same keepalive as the other counters).

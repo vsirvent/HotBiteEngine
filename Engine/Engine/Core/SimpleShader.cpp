@@ -154,6 +154,7 @@ namespace HotBite {
 				cbTable.clear();
 				samplerTable.clear();
 				textureTable.clear();
+				bindlessTable.clear();
 			}
 
 			// --------------------------------------------------------
@@ -368,6 +369,14 @@ namespace HotBite {
 					// Get this resource's description
 					D3D12_SHADER_INPUT_BIND_DESC resourceDesc;
 					refl->GetResourceBindingDesc(r, &resourceDesc);
+
+					//An unbounded array has a register space of its own, and no slot among the others.
+					if (resourceDesc.Space != 0) {
+						if (resourceDesc.Type == D3D_SIT_TEXTURE) {
+							bindlessTable.insert(resourceDesc.Name);
+						}
+						continue;
+					}
 
 					// Check the type
 					switch (resourceDesc.Type)
@@ -1849,6 +1858,14 @@ namespace HotBite {
 
 			bool SimpleComputeShader::SetShaderResourceViewArray(const std::string& name, GfxSRV** srv, int nviews)
 			{
+				// An unbounded array takes the whole list ("name" or the "name[0]" fxc calls an array)
+				if (bindlessTable.count(name) != 0 || (name.size() > 3 && name.compare(name.size() - 3, 3, "[0]") == 0 &&
+					bindlessTable.count(name.substr(0, name.size() - 3)) != 0))
+				{
+					deviceContext->CSSetBindlessSRVs((UINT)(std::max)(nviews, 0), srv);
+					return true;
+				}
+
 				// Look for the variable and verify
 				const SimpleSRV* srvInfo = GetShaderResourceViewInfo(name);
 				if (srvInfo == 0)

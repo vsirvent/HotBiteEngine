@@ -424,6 +424,8 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 			}
 		}
 		tbvh_buffer.Prepare(MAX_OBJECTS * 2 - 1);
+		rt_object_buffer.Prepare(MAX_RT_OBJECTS);
+		rt_material_buffer.Prepare(MAX_RT_OBJECTS);
 		first_pass_target = dxcore;
 		int w = dxcore->GetWidth();
 		int h = dxcore->GetHeight();
@@ -502,6 +504,11 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 			eShadowRayTracer chosen;
 			if (getenv_s(&len, value, sizeof(value), "HOTBITE_SHADOW_RAY_TRACER") == 0 && len > 0 && ParseShadowRayTracer(value, chosen)) {
 				shadow_ray_tracer = chosen;
+			}
+			//The same for the reflections, the refractions and the indirect light.
+			len = 0;
+			if (getenv_s(&len, value, sizeof(value), "HOTBITE_RAY_TRACER") == 0 && len > 0 && ParseShadowRayTracer(value, chosen)) {
+				ray_tracer = chosen;
 			}
 		}
 		if (FAILED(bloom_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R11G11B10_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
@@ -3395,7 +3402,8 @@ void RenderSystem::PrepareRT() {
 		gather(render_pass2_tree);
 
 		//The emitters past the share the nearest ones leave are only in view.
-		const size_t emissive_cap = (size_t)MAX_OBJECTS * RT_EMISSIVE_SHARE_PERCENT / 100;
+		const size_t cap = RtObjectCap();
+		const size_t emissive_cap = cap * RT_EMISSIVE_SHARE_PERCENT / 100;
 		if (emissive.size() > emissive_cap) {
 			std::nth_element(emissive.begin(), emissive.begin() + emissive_cap, emissive.end(),
 				[](uint32_t a, uint32_t b) {
@@ -3416,7 +3424,7 @@ void RenderSystem::PrepareRT() {
 
 		//The best ones, in order: a tie goes to the one the trees hold first, as it did when the map kept the first
 		//of two equal keys.
-		const size_t keep = (std::min)(candidates.size(), (size_t)MAX_OBJECTS);
+		const size_t keep = (std::min)(candidates.size(), cap);
 		const auto nearer = [](const Candidate& a, const Candidate& b) {
 			if (a.priority != b.priority) {
 				return a.priority < b.priority;
@@ -3434,6 +3442,7 @@ void RenderSystem::PrepareRT() {
 		std::sort(candidates.begin(), candidates.begin() + keep, nearer);
 
 		nobjects = (int)keep;
+		rt_accel_instances.resize(keep);
 		//An empty object list has no hierarchy to build, and Subdivide does not
 		//survive being asked for one: the root gets a count of zero, neither
 		//termination case matches, and it recurses into two equally empty children
@@ -3486,6 +3495,14 @@ void RenderSystem::PrepareRT() {
 			o.index_offset = (uint32_t)geometry->indexOffset;
 			o.object_offset = (uint32_t)geometry->bvhOffset;
 
+			//The same triangles, for the hardware: its bottom level is this range of the shared buffers, and the instance's ID is the index here.
+			Core::AccelStructure::Instance& instance = rt_accel_instances[i];
+			instance.vertex_offset = (uint32_t)geometry->vertexOffset;
+			instance.vertex_count = (uint32_t)geometry->vertexCount;
+			instance.index_offset = (uint32_t)geometry->indexOffset;
+			instance.index_count = (uint32_t)geometry->indexCount;
+			instance.world = o.world;
+
 			objectMaterials[i] = de.mat->data->props;
 			diffuseTextures[i] = de.mat->data->diffuse;
 
@@ -3496,7 +3513,8 @@ void RenderSystem::PrepareRT() {
 		}
 		rt_geometry_stats = stats;
 		//From the AABBs, which are the entity bounds and so identical in both arrays.
-		tbvh.Load(objects, nobjects);
+		//(The software walk's top level holds MAX_OBJECTS: the best of them, the list being in order.)
+		tbvh.Load(objects, (std::min)(nobjects, MAX_OBJECTS));
 	}
 }
 void RenderSystem::ProcessGI() {
@@ -3523,79 +3541,103 @@ void RenderSystem::ProcessGI() {
 		//twice in a frame costs a copy of at most MAX_OBJECTS*2-1 nodes (6 KB).
 		tbvh_buffer.Refresh(tbvh.Root(), 0, tbvh.Size());
 
-		gi_shader->SetInt("kernel_size", RESTIR_KERNEL);
-		gi_shader->SetInt("ray_count", RESTIR_PIXEL_RAYS);
+		//Who traces: the hardware needs this frame's top level over the objects.
+		const bool hw = WorldHardwareWanted() && BuildWorldAccel();
+		world_hw_frame = hw;
+		Core::SimpleComputeShader* gi = hw ? hw_gi_shader : gi_shader;
+		//The software walk holds MAX_OBJECTS of them (the best); the hardware all it was given.
+		const int gi_objects = hw ? nobjects : (std::min)(nobjects, MAX_OBJECTS);
 
-		gi_shader->SetInt("nobjects", nobjects);
-		gi_shader->SetInt("enabled", rt_enabled & (rt_quality != eRtQuality::OFF ? 0xFF : 0x00));
-		gi_shader->SetMatrix4x4("view_proj", cam_entity.camera->view_projection);
-		gi_shader->SetMatrix4x4("prev_view_proj", prev_view_projection);
-		gi_shader->SetInt("frame_count", frame_count);
-		gi_shader->SetData("objectMaterials", objectMaterials, nobjects * sizeof(MaterialProps));
-		gi_shader->SetData("objectInfos", objects, nobjects * sizeof(ObjectInfo));
-		gi_shader->SetMatrix4x4(VIEW, cam_entity.camera->view);
-		gi_shader->SetMatrix4x4(PROJECTION, cam_entity.camera->projection);
-		gi_shader->SetShaderResourceView("position_map", position_map.SRV());
-		gi_shader->SetShaderResourceView("depth_map", depth_map.SRV());
-		gi_shader->SetShaderResourceView("motion_texture", motion_texture.SRV());
-		gi_shader->SetShaderResourceView("prev_position_map", prev_position_map.SRV());
-		gi_shader->SetShaderResourceView("ray0", rt_ray_sources0.SRV());
-		gi_shader->SetShaderResourceView("ray1", rt_ray_sources1.SRV());
+		gi->SetInt("kernel_size", RESTIR_KERNEL);
+		gi->SetInt("ray_count", RESTIR_PIXEL_RAYS);
+
+		gi->SetInt("nobjects", gi_objects);
+		gi->SetInt("enabled", rt_enabled & (rt_quality != eRtQuality::OFF ? 0xFF : 0x00));
+		gi->SetMatrix4x4("view_proj", cam_entity.camera->view_projection);
+		gi->SetMatrix4x4("prev_view_proj", prev_view_projection);
+		gi->SetInt("frame_count", frame_count);
+		if (!hw) {
+			gi->SetData("objectMaterials", objectMaterials, gi_objects * sizeof(MaterialProps));
+			gi->SetData("objectInfos", objects, gi_objects * sizeof(ObjectInfo));
+		}
+		gi->SetMatrix4x4(VIEW, cam_entity.camera->view);
+		gi->SetMatrix4x4(PROJECTION, cam_entity.camera->projection);
+		gi->SetShaderResourceView("position_map", position_map.SRV());
+		gi->SetShaderResourceView("depth_map", depth_map.SRV());
+		gi->SetShaderResourceView("motion_texture", motion_texture.SRV());
+		gi->SetShaderResourceView("prev_position_map", prev_position_map.SRV());
+		gi->SetShaderResourceView("ray0", rt_ray_sources0.SRV());
+		gi->SetShaderResourceView("ray1", rt_ray_sources1.SRV());
 
 		float3 dir;
 		XMStoreFloat3(&dir, cam_entity.camera->xm_direction);
-		gi_shader->SetFloat(TIME, time);
-		gi_shader->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
-		gi_shader->SetFloat3("cameraDirection", dir);
-		gi_shader->SetSamplerState(PCF_SAMPLER, dxcore->shadow_sampler);
-		gi_shader->SetSamplerState(BASIC_SAMPLER, dxcore->basic_sampler);
-		gi_shader->SetShaderResourceViewArray("DiffuseTextures[0]", diffuseTextures, nobjects);
+		gi->SetFloat(TIME, time);
+		gi->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
+		gi->SetFloat3("cameraDirection", dir);
+		gi->SetSamplerState(PCF_SAMPLER, dxcore->shadow_sampler);
+		gi->SetSamplerState(BASIC_SAMPLER, dxcore->basic_sampler);
+		gi->SetShaderResourceViewArray("DiffuseTextures[0]", diffuseTextures, gi_objects);
 
-		PrepareLights(gi_shader);
+		PrepareLights(gi);
 
-		gi_shader->CopyAllBufferData();
-		gi_shader->SetShader();
+		gi->CopyAllBufferData();
+		gi->SetShader();
 
-		dxcore->context->CSSetShaderResources(2, 1, bvh_buffer->SRV());
-		dxcore->context->CSSetShaderResources(3, 1, tbvh_buffer.SRV());
+		if (hw) {
+			//The hardware has its own hierarchy: the top level of the objects, a register of its own.
+			dxcore->context->CSSetShaderResources(7, 1, accel.TlasSRV(Core::AccelStructure::WORLD));
+			dxcore->context->CSSetShaderResources(12, 1, rt_object_buffer.SRV());
+			dxcore->context->CSSetShaderResources(13, 1, rt_material_buffer.SRV());
+		}
+		else {
+			dxcore->context->CSSetShaderResources(2, 1, bvh_buffer->SRV());
+			dxcore->context->CSSetShaderResources(3, 1, tbvh_buffer.SRV());
+		}
 		dxcore->context->CSSetShaderResources(4, 1, vertex_buffer->VertexSRV());
 		dxcore->context->CSSetShaderResources(5, 1, vertex_buffer->IndexSRV());
 
-		gi_shader->SetShaderResourceView("restir_pdf_0", restir_pdf_prev->SRV());
-		gi_shader->SetShaderResourceView("restir_w_0", restir_w.SRV());
-		gi_shader->SetUnorderedAccessView("restir_pdf_1", restir_pdf_curr->UAV());
+		gi->SetShaderResourceView("restir_pdf_0", restir_pdf_prev->SRV());
+		gi->SetShaderResourceView("restir_w_0", restir_w.SRV());
+		gi->SetUnorderedAccessView("restir_pdf_1", restir_pdf_curr->UAV());
 
-		gi_shader->SetUnorderedAccessView("output", rt_texture_gi_trace->UAV());
-		gi_shader->SetUnorderedAccessView("tiles_output", rt_textures_gi_tiles.UAV());
+		gi->SetUnorderedAccessView("output", rt_texture_gi_trace->UAV());
+		gi->SetUnorderedAccessView("tiles_output", rt_textures_gi_tiles.UAV());
 
 		//The counters are per frame, so they are zeroed before the two passes that
 		//write them rather than accumulated across the run.
 		rcache_stats.Clear(0);
-		gi_shader->SetUnorderedAccessView("rcache", rcache.UAV());
-		gi_shader->SetUnorderedAccessView("rcache_value", rcache_value.UAV());
-		gi_shader->SetUnorderedAccessView("rcache_stats", rcache_stats.UAV());
+		gi->SetUnorderedAccessView("rcache", rcache.UAV());
+		gi->SetUnorderedAccessView("rcache_value", rcache_value.UAV());
+		gi->SetUnorderedAccessView("rcache_stats", rcache_stats.UAV());
 
 		int groupsX = (int32_t)(ceil((float)rt_texture_gi_curr->Width() / (8.0f)));
 		int groupsY = (int32_t)(ceil((float)rt_texture_gi_curr->Height() / (8.0f)));
-		dxcore->context->Dispatch((uint32_t)ceil((float)groupsX), (uint32_t)ceil((float)groupsY), 1, Async(ASYNC_GI));
+		//The top level was built on the direct queue and nothing orders it for the compute queue: the hardware's trace is on the direct one.
+		dxcore->context->Dispatch((uint32_t)ceil((float)groupsX), (uint32_t)ceil((float)groupsY), 1, Async(ASYNC_GI) && !hw);
+		if (hw) {
+			GfxSRV* none = nullptr;
+			dxcore->context->CSSetShaderResources(7, 1, &none);
+			dxcore->context->CSSetShaderResources(12, 1, &none);
+			dxcore->context->CSSetShaderResources(13, 1, &none);
+		}
 
-		gi_shader->SetShaderResourceView("restir_pdf_0", nullptr);
-		gi_shader->SetShaderResourceView("restir_w_0", nullptr);
-		gi_shader->SetUnorderedAccessView("restir_pdf_1", nullptr);
+		gi->SetShaderResourceView("restir_pdf_0", nullptr);
+		gi->SetShaderResourceView("restir_w_0", nullptr);
+		gi->SetUnorderedAccessView("restir_pdf_1", nullptr);
 
-		gi_shader->SetUnorderedAccessView("output", nullptr);
-		gi_shader->SetUnorderedAccessView("tiles_output", nullptr);
-		gi_shader->SetUnorderedAccessView("rcache", nullptr);
-		gi_shader->SetUnorderedAccessView("rcache_value", nullptr);
-		gi_shader->SetUnorderedAccessView("rcache_stats", nullptr);
-		gi_shader->SetShaderResourceView("position_map", nullptr);
-		gi_shader->SetShaderResourceView("motion_texture", nullptr);
-		gi_shader->SetShaderResourceView("ray0", nullptr);
-		gi_shader->SetShaderResourceView("ray1", nullptr);
-		gi_shader->SetShaderResourceView("prev_position_map", nullptr);
+		gi->SetUnorderedAccessView("output", nullptr);
+		gi->SetUnorderedAccessView("tiles_output", nullptr);
+		gi->SetUnorderedAccessView("rcache", nullptr);
+		gi->SetUnorderedAccessView("rcache_value", nullptr);
+		gi->SetUnorderedAccessView("rcache_stats", nullptr);
+		gi->SetShaderResourceView("position_map", nullptr);
+		gi->SetShaderResourceView("motion_texture", nullptr);
+		gi->SetShaderResourceView("ray0", nullptr);
+		gi->SetShaderResourceView("ray1", nullptr);
+		gi->SetShaderResourceView("prev_position_map", nullptr);
 
-		UnprepareLights(gi_shader);
-		gi_shader->CopyAllBufferData();
+		UnprepareLights(gi);
+		gi->CopyAllBufferData();
 
 		groupsX = (int32_t)(ceil((float)rt_texture_gi_curr->Width() / (8.0f)));
 		groupsY = (int32_t)(ceil((float)rt_texture_gi_curr->Height() / (8.0f)));
@@ -3775,7 +3817,7 @@ void RenderSystem::ProcessRT() {
 			//any: the world alone traces every reflective pixel and has nothing to split.
 			const bool collect_stats = use_screen && rt_stats_requested && frame_count - rt_stats_request_frame < RT_STATS_KEEPALIVE;
 			GfxSRV* nullsrc = nullptr;
-			GfxSRV* no_data[MAX_OBJECTS] = {};
+			GfxSRV* no_data[MAX_RT_OBJECTS] = {};
 
 			GfxRTV* nullRenderTargetViews[1] = { nullptr };
 			dxcore->context->OMSetRenderTargets(1, nullRenderTargetViews, nullptr);
@@ -3864,47 +3906,65 @@ void RenderSystem::ProcessRT() {
 			//nothing else; alone it walks the screen, a thread a pixel, the way it always did - the
 			//lists would only be an extra pass in front of it, with nothing taken off it.
 			if (use_world) {
-				tbvh_buffer.Refresh(tbvh.Root(), 0, tbvh.Size());
-
-				rt_di_shader->SetInt("kernel_size", RESTIR_KERNEL);
-				rt_di_shader->SetInt("list_mode", use_screen ? 1 : 0);
-				rt_di_shader->SetInt("list_capacity", (int)rt_ray_list_capacity);
-				rt_di_shader->SetInt("nobjects", nobjects);
-				rt_di_shader->SetInt("enabled", rt_enabled & (rt_quality != eRtQuality::OFF ? 0xFF : 0x00));
-				rt_di_shader->SetMatrix4x4("prev_view_proj", prev_view_projection);
-				rt_di_shader->SetInt("frame_count", frame_count);
-				rt_di_shader->SetData("objectMaterials", objectMaterials, nobjects * sizeof(MaterialProps));
-				rt_di_shader->SetData("objectInfos", objects, nobjects * sizeof(ObjectInfo));
-
-				rt_di_shader->SetUnorderedAccessView("output0", rt_texture_di_curr[RT_TEXTURE_REFLEX].UAV());
-				rt_di_shader->SetUnorderedAccessView("output1", rt_texture_di_curr[RT_TEXTURE_REFRACT].UAV());
-				rt_di_shader->SetUnorderedAccessView("tiles_output", rt_textures_di_tiles.UAV());
-				if (use_screen) {
-					rt_di_shader->SetUnorderedAccessView("ray_list", rt_ray_list.UAV());
-					rt_di_shader->SetUnorderedAccessView("ray_counts", rt_ray_counts.UAV());
+				//Who traces: the hardware needs this frame's top level over the objects.
+				const bool hw = WorldHardwareWanted() && BuildWorldAccel();
+				world_hw_frame = hw;
+				Core::SimpleComputeShader* di = hw ? hw_rt_di_shader : rt_di_shader;
+				//The software walk holds MAX_OBJECTS of them (the best); the hardware all it was given.
+				const int di_objects = hw ? nobjects : (std::min)(nobjects, MAX_OBJECTS);
+				if (!hw) {
+					tbvh_buffer.Refresh(tbvh.Root(), 0, tbvh.Size());
 				}
 
-				rt_di_shader->SetShaderResourceView("prev_position_map", prev_position_map.SRV());
-				rt_di_shader->SetShaderResourceView("position_map", position_map.SRV());
-				rt_di_shader->SetShaderResourceView("depth_map", depth_map.SRV());
-				rt_di_shader->SetShaderResourceView("motion_texture", motion_texture.SRV());
-				rt_di_shader->SetShaderResourceView("ray0", rt_ray_sources0.SRV());
-				rt_di_shader->SetShaderResourceView("ray1", rt_ray_sources1.SRV());
-				rt_di_shader->SetShaderResourceView("rgbaNoise", rgba_noise_texture.SRV());
+				di->SetInt("kernel_size", RESTIR_KERNEL);
+				di->SetInt("list_mode", use_screen ? 1 : 0);
+				di->SetInt("list_capacity", (int)rt_ray_list_capacity);
+				di->SetInt("nobjects", di_objects);
+				di->SetInt("enabled", rt_enabled & (rt_quality != eRtQuality::OFF ? 0xFF : 0x00));
+				di->SetMatrix4x4("prev_view_proj", prev_view_projection);
+				di->SetInt("frame_count", frame_count);
+				if (!hw) {
+					di->SetData("objectMaterials", objectMaterials, di_objects * sizeof(MaterialProps));
+					di->SetData("objectInfos", objects, di_objects * sizeof(ObjectInfo));
+				}
+
+				di->SetUnorderedAccessView("output0", rt_texture_di_curr[RT_TEXTURE_REFLEX].UAV());
+				di->SetUnorderedAccessView("output1", rt_texture_di_curr[RT_TEXTURE_REFRACT].UAV());
+				di->SetUnorderedAccessView("tiles_output", rt_textures_di_tiles.UAV());
+				if (use_screen) {
+					di->SetUnorderedAccessView("ray_list", rt_ray_list.UAV());
+					di->SetUnorderedAccessView("ray_counts", rt_ray_counts.UAV());
+				}
+
+				di->SetShaderResourceView("prev_position_map", prev_position_map.SRV());
+				di->SetShaderResourceView("position_map", position_map.SRV());
+				di->SetShaderResourceView("depth_map", depth_map.SRV());
+				di->SetShaderResourceView("motion_texture", motion_texture.SRV());
+				di->SetShaderResourceView("ray0", rt_ray_sources0.SRV());
+				di->SetShaderResourceView("ray1", rt_ray_sources1.SRV());
+				di->SetShaderResourceView("rgbaNoise", rgba_noise_texture.SRV());
 
 				float3 dir;
 				XMStoreFloat3(&dir, cam_entity.camera->xm_direction);
-				rt_di_shader->SetFloat(TIME, time);
-				rt_di_shader->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
-				rt_di_shader->SetFloat3("cameraDirection", dir);
-				rt_di_shader->SetSamplerState(PCF_SAMPLER, dxcore->shadow_sampler);
-				rt_di_shader->SetSamplerState(BASIC_SAMPLER, dxcore->basic_sampler);
-				rt_di_shader->SetShaderResourceViewArray("DiffuseTextures[0]", diffuseTextures, nobjects);
+				di->SetFloat(TIME, time);
+				di->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
+				di->SetFloat3("cameraDirection", dir);
+				di->SetSamplerState(PCF_SAMPLER, dxcore->shadow_sampler);
+				di->SetSamplerState(BASIC_SAMPLER, dxcore->basic_sampler);
+				di->SetShaderResourceViewArray("DiffuseTextures[0]", diffuseTextures, di_objects);
 
-				PrepareLights(rt_di_shader);
+				PrepareLights(di);
 
-				dxcore->context->CSSetShaderResources(2, 1, bvh_buffer->SRV());
-				dxcore->context->CSSetShaderResources(3, 1, tbvh_buffer.SRV());
+				if (hw) {
+					//The hardware has its own hierarchy: the top level of the objects, a register of its own.
+					dxcore->context->CSSetShaderResources(7, 1, accel.TlasSRV(Core::AccelStructure::WORLD));
+					dxcore->context->CSSetShaderResources(12, 1, rt_object_buffer.SRV());
+					dxcore->context->CSSetShaderResources(13, 1, rt_material_buffer.SRV());
+				}
+				else {
+					dxcore->context->CSSetShaderResources(2, 1, bvh_buffer->SRV());
+					dxcore->context->CSSetShaderResources(3, 1, tbvh_buffer.SRV());
+				}
 				dxcore->context->CSSetShaderResources(4, 1, vertex_buffer->VertexSRV());
 				dxcore->context->CSSetShaderResources(5, 1, vertex_buffer->IndexSRV());
 
@@ -3913,37 +3973,40 @@ void RenderSystem::ProcessRT() {
 					//the reflection rays, then the refraction rays. Three uints of arguments per list.
 					//An empty list is a dispatch of no groups.
 					for (uint32_t kind = 0; kind < 2; ++kind) {
-						rt_di_shader->SetInt("trace_kind", (int)kind);
-						rt_di_shader->CopyAllBufferData();
-						rt_di_shader->SetShader();
-						dxcore->context->DispatchIndirect(rt_ray_args.Buffer(), kind * 3 * sizeof(uint32_t), AsyncReflections());
+						di->SetInt("trace_kind", (int)kind);
+						di->CopyAllBufferData();
+						di->SetShader();
+						dxcore->context->DispatchIndirect(rt_ray_args.Buffer(), kind * 3 * sizeof(uint32_t), AsyncReflections() && !hw);
 					}
 				}
 				else {
-					rt_di_shader->CopyAllBufferData();
-					rt_di_shader->SetShader();
-					dxcore->context->Dispatch(groupsX, groupsY, 2, AsyncReflections());
+					di->CopyAllBufferData();
+					di->SetShader();
+					dxcore->context->Dispatch(groupsX, groupsY, 2, AsyncReflections() && !hw);
 				}
 
-				rt_di_shader->SetUnorderedAccessView("output0", nullptr);
-				rt_di_shader->SetUnorderedAccessView("output1", nullptr);
-				rt_di_shader->SetShaderResourceView("prev_position_map", nullptr);
-				rt_di_shader->SetShaderResourceView("position_map", nullptr);
-				rt_di_shader->SetShaderResourceView("motion_texture", nullptr);
-				rt_di_shader->SetShaderResourceView("ray0", nullptr);
-				rt_di_shader->SetShaderResourceView("ray1", nullptr);
-				rt_di_shader->SetShaderResourceView("rgbaNoise", nullptr);
-				rt_di_shader->SetUnorderedAccessView("tiles_output", nullptr);
-				rt_di_shader->SetUnorderedAccessView("ray_list", nullptr);
-				rt_di_shader->SetUnorderedAccessView("ray_counts", nullptr);
-				rt_di_shader->SetShaderResourceViewArray("DiffuseTextures[0]", no_data, nobjects);
+				di->SetUnorderedAccessView("output0", nullptr);
+				di->SetUnorderedAccessView("output1", nullptr);
+				di->SetShaderResourceView("prev_position_map", nullptr);
+				di->SetShaderResourceView("position_map", nullptr);
+				di->SetShaderResourceView("motion_texture", nullptr);
+				di->SetShaderResourceView("ray0", nullptr);
+				di->SetShaderResourceView("ray1", nullptr);
+				di->SetShaderResourceView("rgbaNoise", nullptr);
+				di->SetUnorderedAccessView("tiles_output", nullptr);
+				di->SetUnorderedAccessView("ray_list", nullptr);
+				di->SetUnorderedAccessView("ray_counts", nullptr);
+				di->SetShaderResourceViewArray("DiffuseTextures[0]", no_data, di_objects);
 				dxcore->context->CSSetShaderResources(2, 1, &nullsrc);
 				dxcore->context->CSSetShaderResources(3, 1, &nullsrc);
+				dxcore->context->CSSetShaderResources(7, 1, &nullsrc);
+				dxcore->context->CSSetShaderResources(12, 1, &nullsrc);
+				dxcore->context->CSSetShaderResources(13, 1, &nullsrc);
 				dxcore->context->CSSetShaderResources(4, 1, &nullsrc);
 				dxcore->context->CSSetShaderResources(5, 1, &nullsrc);
 
-				UnprepareLights(rt_di_shader);
-				rt_di_shader->CopyAllBufferData();
+				UnprepareLights(di);
+				di->CopyAllBufferData();
 			}
 
 			//Never blocks, and never earlier than a few frames after the pass it describes
@@ -5619,6 +5682,43 @@ SimpleComputeShader* RenderSystem::HardwareRaysShader() {
 		}
 	}
 	return hw_rays_shader;
+}
+
+size_t RenderSystem::RtObjectCap() const {
+	static_assert(MAX_RT_OBJECTS <= GFX_BINDLESS_SLOTS, "each object has a texture in the bindless table");
+	return (ray_tracer == eRayTracer::HARDWARE && accel.Supported() && !hw_rt_shaders_failed) ? (size_t)MAX_RT_OBJECTS : (size_t)MAX_OBJECTS;
+}
+
+bool RenderSystem::WorldHardwareWanted() {
+	if (ray_tracer != eRayTracer::HARDWARE || !accel.Supported() || hw_rt_shaders_failed || nobjects <= 0 ||
+		rt_accel_instances.size() != (size_t)nobjects) {
+		return false;
+	}
+	if (hw_rt_di_shader == nullptr || hw_gi_shader == nullptr) {
+		hw_rt_di_shader = ShaderFactory::Get()->GetShader<SimpleComputeShader>("RayTraceHwCS.cso");
+		hw_gi_shader = ShaderFactory::Get()->GetShader<SimpleComputeShader>("GIRayTraceHwCS.cso");
+		if (hw_rt_di_shader == nullptr || hw_gi_shader == nullptr) {
+			LOG_WARN("RenderSystem: RayTraceHwCS.cso or GIRayTraceHwCS.cso could not be loaded, the reflections and the indirect light stay in software");
+			hw_rt_shaders_failed = true;
+			return false;
+		}
+	}
+	return true;
+}
+
+bool RenderSystem::BuildWorldAccel() {
+	//Reflections and indirect light trace the same objects: whichever comes first builds the structure, the other uses it.
+	if (world_accel_frame != frame_count) {
+		world_accel_frame = frame_count;
+		world_accel_ok = accel.Build(vertex_buffer->VertexGfxBuffer(), vertex_buffer->IndexGfxBuffer(), rt_accel_instances.data(),
+			(uint32_t)nobjects, Core::AccelStructure::WORLD);
+		if (world_accel_ok) {
+			//What an instance's ID (its place in the list) points at: where it stands, what it is made of.
+			rt_object_buffer.Refresh(objects, 0, (uint32_t)nobjects);
+			rt_material_buffer.Refresh(objectMaterials, 0, (uint32_t)nobjects);
+		}
+	}
+	return world_accel_ok;
 }
 
 SimpleComputeShader* RenderSystem::LightingShader(int perm) {

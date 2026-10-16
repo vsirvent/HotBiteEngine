@@ -152,6 +152,7 @@ namespace HotBite {
 				constexpr UINT COMPUTE_SRV = 1;
 				constexpr UINT COMPUTE_UAV = 2;
 				constexpr UINT COMPUTE_SAMPLER = 3;
+				constexpr UINT COMPUTE_BINDLESS = 4;
 			}
 
 			GfxContext::~GfxContext() {
@@ -304,11 +305,16 @@ namespace HotBite {
 				}
 				graphics_root = SerializeRoot(device, gp, _countof(gp), D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
-				D3D12_ROOT_PARAMETER1 cp[4];
+				//An unbounded array of textures in register space 1, for the shaders that pick a texture by number (the ray tracers' hit
+				//shading): resource binding tier 2 allows it, and the device is asked for that tier.
+				D3D12_DESCRIPTOR_RANGE1 bindless = Range(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, UINT_MAX);
+				bindless.RegisterSpace = 1;
+				D3D12_ROOT_PARAMETER1 cp[5];
 				cp[COMPUTE_CBV] = TableParam(&cbv, D3D12_SHADER_VISIBILITY_ALL);
 				cp[COMPUTE_SRV] = TableParam(&srv, D3D12_SHADER_VISIBILITY_ALL);
 				cp[COMPUTE_UAV] = TableParam(&uav, D3D12_SHADER_VISIBILITY_ALL);
 				cp[COMPUTE_SAMPLER] = TableParam(&smp, D3D12_SHADER_VISIBILITY_ALL);
+				cp[COMPUTE_BINDLESS] = TableParam(&bindless, D3D12_SHADER_VISIBILITY_ALL);
 				compute_root = SerializeRoot(device, cp, _countof(cp), D3D12_ROOT_SIGNATURE_FLAG_NONE);
 
 				return graphics_root != nullptr && compute_root != nullptr;
@@ -384,6 +390,7 @@ namespace HotBite {
 					st.srv_dirty = st.cb_dirty = st.sampler_dirty = st.uav_dirty = true;
 					st.srv_table = st.cb_table = st.sampler_table = st.uav_table = {};
 					st.table_epoch = direct_epoch;
+					cs_bindless_dirty = true;
 					for (UINT i = 0; i < GFX_CBV_SLOTS; ++i) {
 						st.cb_bound[i] = 0;
 					}
@@ -875,6 +882,25 @@ namespace HotBite {
 						st.srv[slot_index] = view;
 						st.srv_dirty = true;
 					}
+				}
+			}
+
+			void GfxContext::CSSetBindlessSRVs(UINT count, GfxSRV* const* views) {
+				count = (std::min)(count, GFX_BINDLESS_SLOTS);
+				for (UINT i = 0; i < count; ++i) {
+					GfxSRV* view = views ? views[i] : nullptr;
+					if (cs_bindless[i].Get() != view) {
+						cs_bindless[i] = view;
+						cs_bindless_dirty = true;
+					}
+				}
+				//What the previous list held past the end of this one is gone.
+				for (UINT i = count; i < cs_bindless_count; ++i) {
+					cs_bindless[i] = nullptr;
+				}
+				if (count != cs_bindless_count) {
+					cs_bindless_count = count;
+					cs_bindless_dirty = true;
 				}
 			}
 
@@ -1729,6 +1755,29 @@ namespace HotBite {
 						st.uav_dirty = false;
 						target->SetComputeRootDescriptorTable(COMPUTE_UAV, gpu);
 					}
+					//---- the unbounded texture array (a shader that indexes one)
+					if (shader->bindless && cs_bindless_dirty) {
+						const UINT count = (std::max)(cs_bindless_count, 1u);
+						D3D12_CPU_DESCRIPTOR_HANDLE cpu;
+						D3D12_GPU_DESCRIPTOR_HANDLE gpu;
+						if (!AllocateDescriptors(ring_srv, count, cpu, gpu)) {
+							return false;
+						}
+						static D3D12_CPU_DESCRIPTOR_HANDLE sources[GFX_BINDLESS_SLOTS];
+						static UINT ones[GFX_BINDLESS_SLOTS];
+						static bool ones_set = false;
+						if (!ones_set) {
+							for (UINT& o : ones) { o = 1; }
+							ones_set = true;
+						}
+						for (UINT i = 0; i < count; ++i) {
+							sources[i] = cs_bindless[i] != nullptr ? cs_bindless[i]->Cpu() : gfx->NullSRV(D3D12_SRV_DIMENSION_TEXTURE2D);
+						}
+						device->CopyDescriptors(1, &cpu, &count, count, sources, ones, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+						stats.descriptors_copied += count;
+						cs_bindless_dirty = false;
+						target->SetComputeRootDescriptorTable(COMPUTE_BINDLESS, gpu);
+					}
 				}
 				return true;
 			}
@@ -1949,6 +1998,7 @@ namespace HotBite {
 					const uint64_t epoch = async ? async_epoch : direct_epoch;
 					if (cs.table_epoch != epoch) {
 						cs.srv_dirty = cs.cb_dirty = cs.sampler_dirty = cs.uav_dirty = true;
+						cs_bindless_dirty = true;
 						cs.srv_table = cs.cb_table = cs.sampler_table = cs.uav_table = {};
 						for (UINT i = 0; i < GFX_CBV_SLOTS; ++i) {
 							cs.cb_bound[i] = 0;
@@ -1995,6 +2045,14 @@ namespace HotBite {
 				for (UINT i = 0; i < shader->srv_count; ++i) {
 					if (shader->srv_used[i] && st.srv[i] != nullptr) {
 						UseView(st.srv[i], read);
+					}
+				}
+				//The textures of the unbounded array are read too.
+				if (stage == GfxShader::CS && shader->bindless) {
+					for (UINT i = 0; i < cs_bindless_count; ++i) {
+						if (cs_bindless[i] != nullptr) {
+							UseView(cs_bindless[i], read);
+						}
 					}
 				}
 			}

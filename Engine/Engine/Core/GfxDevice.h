@@ -77,6 +77,9 @@ namespace HotBite {
 			constexpr UINT GFX_SAMPLER_SLOTS = 16;
 			constexpr UINT GFX_UAV_SLOTS = 64;
 			constexpr UINT GFX_RTV_SLOTS = 8;
+			//Most textures a compute shader can index from its unbounded array (Texture2D t[] : register(t0, space1), see
+			//GfxContext::CSSetBindlessSRVs).
+			constexpr UINT GFX_BINDLESS_SLOTS = 1024;
 
 			//Every state a shader can read a resource in. A texture bound as an SRV is moved here whichever
 			//stage reads it, which costs nothing (one read state) and spares tracking the stage.
@@ -392,6 +395,8 @@ namespace HotBite {
 				UINT cbv_count = 0;
 				UINT sampler_count = 0;
 				UINT uav_count = 0;
+				//The shader indexes an unbounded array of textures (register space 1: the compute root signature's bindless table).
+				bool bindless = false;
 				//Compute only.
 				UINT thread_group[3] = { 1, 1, 1 };
 
@@ -732,5 +737,6 @@ using HotBite::Engine::Core::GFX_CBV_SLOTS;
 using HotBite::Engine::Core::GFX_SAMPLER_SLOTS;
 using HotBite::Engine::Core::GFX_UAV_SLOTS;
 using HotBite::Engine::Core::GFX_RTV_SLOTS;
+using HotBite::Engine::Core::GFX_BINDLESS_SLOTS;
 using HotBite::Engine::Core::GFX_STATE_SHADER_READ;
 using HotBite::Engine::Core::GFX_STATE_BUFFER_READ;

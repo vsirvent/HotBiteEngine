@@ -74,11 +74,15 @@ void AccelStructure::Reset() {
 		}
 	}
 	bottoms.clear();
-	ready = false;
-	stats = Stats{};
+	geometries = 0;
+	geometry_bytes = 0;
+	for (TopSet& set : sets) {
+		set.ready = false;
+		set.stats = Stats{};
+	}
 }
 
-void AccelStructure::ReleaseTop(Top& top) {
+void AccelStructure::ReleaseTop(TopLevel& top) {
 	if (top.srv != nullptr) {
 		top.srv->Release();
 		top.srv = nullptr;
@@ -92,11 +96,13 @@ void AccelStructure::ReleaseTop(Top& top) {
 
 void AccelStructure::Release() {
 	Reset();
-	for (Top& top : tops) {
-		ReleaseTop(top);
+	for (TopSet& set : sets) {
+		for (TopLevel& top : set.tops) {
+			ReleaseTop(top);
+		}
+		set.tops.clear();
+		set.current_srv = nullptr;
 	}
-	tops.clear();
-	current_srv = nullptr;
 	if (scratch != nullptr) {
 		scratch->Release();
 		scratch = nullptr;
@@ -142,16 +148,16 @@ bool AccelStructure::CreateBottom(const Key& key, GfxBuffer* vertex, GfxBuffer* 
 	}
 	bottom.address = bottom.buffer->GpuAddress();
 	bottom.scratch_size = AlignUp(info.ScratchDataSizeInBytes, SCRATCH_ALIGNMENT);
-	stats.geometry_bytes += bottom.buffer->size;
+	geometry_bytes += bottom.buffer->size;
 	return true;
 }
 
-AccelStructure::Top* AccelStructure::AcquireTop(uint32_t count) {
+AccelStructure::TopLevel* AccelStructure::AcquireTop(TopSet& set, uint32_t count) {
 	GfxDevice* gfx = DXCore::Get()->device;
 	const uint32_t capacity = NextPowerOfTwo((std::max)(count, MIN_TOP_CAPACITY));
 	//A top level the GPU has finished with, big enough; else one it has finished with that is made bigger; else one more.
-	Top* free_small = nullptr;
-	for (Top& top : tops) {
+	TopLevel* free_small = nullptr;
+	for (TopLevel& top : set.tops) {
 		if (!gfx->IsFrameComplete(top.serial)) {
 			continue;
 		}
@@ -161,10 +167,10 @@ AccelStructure::Top* AccelStructure::AcquireTop(uint32_t count) {
 		free_small = &top;
 	}
 	if (free_small == nullptr) {
-		tops.emplace_back();
-		free_small = &tops.back();
+		set.tops.emplace_back();
+		free_small = &set.tops.back();
 	}
-	Top& top = *free_small;
+	TopLevel& top = *free_small;
 	ReleaseTop(top);
 
 	D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS inputs = {};
@@ -215,9 +221,11 @@ bool AccelStructure::EnsureScratch(UINT64 bytes) {
 	return true;
 }
 
-bool AccelStructure::Build(GfxBuffer* vertex, GfxBuffer* index, const Instance* instances, uint32_t count) {
+bool AccelStructure::Build(GfxBuffer* vertex, GfxBuffer* index, const Instance* instances, uint32_t count, Top which) {
 	const auto started = std::chrono::steady_clock::now();
-	ready = false;
+	TopSet& set = sets[which];
+	Stats& stats = set.stats;
+	set.ready = false;
 	stats.instances = 0;
 	stats.skipped = 0;
 	stats.built = 0;
@@ -272,16 +280,18 @@ bool AccelStructure::Build(GfxBuffer* vertex, GfxBuffer* index, const Instance* 
 		resolved.push_back(&bottom);
 		resolved_instance.push_back(i);
 	}
-	stats.geometries = (uint32_t)bottoms.size();
+	geometries = (uint32_t)bottoms.size();
+	stats.geometries = geometries;
 	if (resolved.empty()) {
 		return false;
 	}
 
-	Top* top = AcquireTop((uint32_t)resolved.size());
+	TopLevel* top = AcquireTop(set, (uint32_t)resolved.size());
 	if (top == nullptr || !EnsureScratch(scratch_needed + top->scratch_size)) {
 		return false;
 	}
 	stats.scratch_bytes = scratch->size;
+	stats.geometry_bytes = geometry_bytes;
 	stats.top_bytes = top->buffer->size;
 
 	//The instances go into the frame's upload ring: the build reads them from there.
@@ -297,10 +307,13 @@ bool AccelStructure::Build(GfxBuffer* vertex, GfxBuffer* index, const Instance* 
 		//world_matrix has the translation in its last column: its first three rows are the 3x4 the structure takes.
 		static_assert(sizeof(float4x4) == 16 * sizeof(float), "a row of world_matrix is four floats");
 		memcpy(d.Transform, &instances[resolved_instance[k]].world, 12 * sizeof(float));
+		//The place in the list that was handed in: the shader finds what the instance is by it.
 		d.InstanceID = (UINT)resolved_instance[k];
 		d.InstanceMask = 0xFF;
 		d.InstanceContributionToHitGroupIndex = 0;
-		d.Flags = D3D12_RAYTRACING_INSTANCE_FLAG_FORCE_OPAQUE;
+		//The shadows only ask whether something is in the way. The world's triangles are not opaque, which hands each one the ray meets to
+		//the shader, and a shader that wants the nearest hit anyway says so with a ray flag (RAY_FLAG_FORCE_OPAQUE).
+		d.Flags = (which == SHADOWS) ? D3D12_RAYTRACING_INSTANCE_FLAG_FORCE_OPAQUE : D3D12_RAYTRACING_INSTANCE_FLAG_FORCE_NON_OPAQUE;
 		d.AccelerationStructure = resolved[k]->address;
 	}
 
@@ -363,9 +376,9 @@ bool AccelStructure::Build(GfxBuffer* vertex, GfxBuffer* index, const Instance* 
 	context->EndExternal();
 
 	top->serial = gfx->FrameSerial();
-	current_srv = top->srv;
+	set.current_srv = top->srv;
 	stats.instances = (uint32_t)resolved.size();
-	ready = true;
+	set.ready = true;
 	stats.cpu_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
 	return true;
 }

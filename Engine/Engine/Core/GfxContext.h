@@ -122,6 +122,10 @@ namespace HotBite {
 				void GSSetShaderResources(UINT start, UINT count, GfxSRV* const* views) { SetSRVs(GfxShader::GS, start, count, views); }
 				void PSSetShaderResources(UINT start, UINT count, GfxSRV* const* views) { SetSRVs(GfxShader::PS, start, count, views); }
 				void CSSetShaderResources(UINT start, UINT count, GfxSRV* const* views) { SetSRVs(GfxShader::CS, start, count, views); }
+				//The textures a compute shader indexes by number from an unbounded array (Texture2D t[] : register(t0, space1) with
+				//NonUniformResourceIndex): element i of `views` is t[i]. Replaces the previous list; a null is a texture that reads zero.
+				//Its own descriptor table, so it costs none of the 128 SRV slots - and no shader has to pick a texture with a switch.
+				void CSSetBindlessSRVs(UINT count, GfxSRV* const* views);
 
 				void VSSetConstantBuffers(UINT start, UINT count, GfxBuffer* const* buffers) { SetCBs(GfxShader::VS, start, count, buffers); }
 				void HSSetConstantBuffers(UINT start, UINT count, GfxBuffer* const* buffers) { SetCBs(GfxShader::HS, start, count, buffers); }
@@ -300,6 +304,11 @@ namespace HotBite {
 					D3D12_GPU_DESCRIPTOR_HANDLE sampler_table = {};
 					D3D12_GPU_DESCRIPTOR_HANDLE uav_table = {};
 				};
+
+				//The compute stage's bindless table (see CSSetBindlessSRVs).
+				GfxRef<GfxSRV> cs_bindless[GFX_BINDLESS_SLOTS];
+				UINT cs_bindless_count = 0;
+				bool cs_bindless_dirty = true;
 
 				//A shader-visible ring of descriptors, split into one region per frame in flight.
 				struct DescriptorRing {

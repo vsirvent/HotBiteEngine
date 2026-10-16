@@ -42,9 +42,10 @@ namespace HotBite {
 			//                 made the first time an instance needs it and kept: it is the triangles in the mesh's own space, which
 			//                 do not change while the mesh does not. The buffers are read where they are (position first, 96 bytes
 			//                 a vertex; the indices are relative to the mesh's first vertex), nothing is copied.
-			//  top level      one a frame, made of the instances the frame hands to Build (a mesh's range and where it stands). It
-			//                 is rebuilt, not updated: a few thousand instances cost the GPU a fraction of a millisecond. One is kept
-			//                 for each frame the GPU may still be reading.
+			//  top level      one a frame for each of the TOPS (the shadow rays', the reflections' and indirect light's), made of the
+			//                 instances the frame hands to Build (a mesh's range and where it stands). It is rebuilt, not updated: a
+			//                 few thousand instances cost the GPU a fraction of a millisecond. One is kept for each frame the GPU may
+			//                 still be reading. The tops share the bottom levels: a mesh is built once whoever traces it.
 			//
 			//The builds are recorded into the frame's command list when Build is called, before the shaders that read them. The
 			//shader sees the top level as `RaytracingAccelerationStructure` (an SRV: GfxSRV, bound by name like any other).
@@ -60,6 +61,12 @@ namespace HotBite {
 					float4x4 world = {};
 				};
 
+				//The top levels there are. SHADOWS: the casters of the ray traced lights, opaque (the first thing on the way is the answer).
+				//WORLD: what the reflections, refractions and indirect light hit - the instance's ID is its place in the list Build was
+				//given, and its triangles are not opaque, so a shader can say which instances count for a ray (the nearest hundred objects
+				//of a pixel) and ask again past the ones that do not.
+				enum Top : int { SHADOWS = 0, WORLD = 1, TOPS = 2 };
+
 				//Most instances in the top level; Build keeps the first ones past it.
 				static constexpr uint32_t MAX_INSTANCES = 16384;
 				//The scratch memory the bottom levels made in one frame may use: past it the rest wait for the next frame (their
@@ -67,7 +74,7 @@ namespace HotBite {
 				static constexpr UINT64 SCRATCH_BUDGET = 128ull * 1024 * 1024;
 
 				struct Stats {
-					uint32_t instances = 0;			//in the last top level
+					uint32_t instances = 0;			//in the last top level of the set
 					uint32_t skipped = 0;			//handed in and left out (bad ranges, a bottom level still to build)
 					uint32_t geometries = 0;		//bottom levels that exist
 					uint32_t built = 0;				//bottom levels the last Build made
@@ -87,16 +94,16 @@ namespace HotBite {
 				void Release();
 				bool Supported() const { return supported; }
 
-				//Makes the bottom levels the instances need (those that do not exist yet) and the top level over them, recorded
+				//Makes the bottom levels the instances need (those that do not exist yet) and the top level `top` over them, recorded
 				//into the open command list. `vertex` and `index` are the shared buffers the instances' ranges are in. False when
 				//nothing was built (no instance, or not supported).
-				bool Build(GfxBuffer* vertex, GfxBuffer* index, const Instance* instances, uint32_t count);
+				bool Build(GfxBuffer* vertex, GfxBuffer* index, const Instance* instances, uint32_t count, Top top = SHADOWS);
 
-				//Whether the last Build left a top level to trace.
-				bool Ready() const { return ready; }
-				GfxSRV* const* TlasSRV() const { return &current_srv; }
-				uint32_t InstanceCount() const { return stats.instances; }
-				const Stats& GetStats() const { return stats; }
+				//Whether the last Build of `top` left a top level to trace.
+				bool Ready(Top top = SHADOWS) const { return sets[top].ready; }
+				GfxSRV* const* TlasSRV(Top top = SHADOWS) const { return &sets[top].current_srv; }
+				uint32_t InstanceCount(Top top = SHADOWS) const { return sets[top].stats.instances; }
+				const Stats& GetStats(Top top = SHADOWS) const { return sets[top].stats; }
 				//Forgets every bottom level (the geometry they were made from is gone).
 				void Reset();
 
@@ -125,7 +132,7 @@ namespace HotBite {
 					bool queued = false;
 					bool failed = false;
 				};
-				struct Top {
+				struct TopLevel {
 					GfxBuffer* buffer = nullptr;
 					GfxSRV* srv = nullptr;
 					uint32_t capacity = 0;
@@ -138,13 +145,21 @@ namespace HotBite {
 					Bottom* bottom;
 				};
 
+				//The top levels of one set (a ring of them: see TopLevel::serial) and what its last Build left.
+				struct TopSet {
+					std::vector<TopLevel> tops;
+					GfxSRV* current_srv = nullptr;
+					bool ready = false;
+					Stats stats;
+				};
+
 				bool supported = false;
-				bool ready = false;
 				std::unordered_map<Key, Bottom, KeyHash> bottoms;
-				std::vector<Top> tops;
-				GfxSRV* current_srv = nullptr;
+				TopSet sets[TOPS];
 				GfxBuffer* scratch = nullptr;
-				Stats stats;
+				//What is the same for every set: the bottom levels and the scratch memory.
+				uint32_t geometries = 0;
+				uint64_t geometry_bytes = 0;
 				//Per call, kept to spare the allocations.
 				std::vector<Pending> pending;
 				std::vector<const Bottom*> resolved;
@@ -152,9 +167,9 @@ namespace HotBite {
 
 				void MakeGeometry(const Key& key, GfxBuffer* vertex, GfxBuffer* index, D3D12_RAYTRACING_GEOMETRY_DESC& out) const;
 				bool CreateBottom(const Key& key, GfxBuffer* vertex, GfxBuffer* index, Bottom& bottom);
-				Top* AcquireTop(uint32_t count);
+				TopLevel* AcquireTop(TopSet& set, uint32_t count);
 				bool EnsureScratch(UINT64 bytes);
-				void ReleaseTop(Top& top);
+				void ReleaseTop(TopLevel& top);
 			};
 		}
 	}

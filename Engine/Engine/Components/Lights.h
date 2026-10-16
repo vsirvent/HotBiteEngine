@@ -45,6 +45,10 @@ SOFTWARE.
 //Mirrored by MAX_AUX_LIGHTS in Defines.hlsli.
 #define MAX_AUX_LIGHTS 8
 #define MAX_OBJECTS 100
+//Objects the ray tracers hold when the hardware traces them: their infos and materials are structured buffers and their textures an
+//unbounded array (RayQueryTrace.hlsli), not the cbuffer and the switch the software walk reads, so nothing in the shaders limits them
+//but the bindless table (GFX_BINDLESS_SLOTS: one texture each). The software walk keeps MAX_OBJECTS, the best of the same list.
+#define MAX_RT_OBJECTS 1024
 #define MAX_INTENSITY 1000.0f
 
 //Shadow cascades per directional light. Two hard ceilings meet here and both are

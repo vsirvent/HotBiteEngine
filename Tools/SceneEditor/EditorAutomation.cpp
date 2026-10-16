@@ -287,7 +287,7 @@ namespace HotBiteEditor {
 			const std::vector<std::string>& args, std::string& error)
 		{
 			if (cmd != "spawn_lights" && cmd != "clear_lights" && cmd != "lights_info" && cmd != "lights_validate" &&
-				cmd != "lights_packed" && cmd != "tile_culling" && cmd != "gpu_timings" && cmd != "shadow_rays" && cmd != "rt_stats" &&
+				cmd != "lights_packed" && cmd != "tile_culling" && cmd != "gpu_timings" && cmd != "shadow_rays" && cmd != "rt_stats" && cmd != "rt_tracer" &&
 				cmd != "async_compute" && cmd != "lighting_shaders") {
 				return false;
 			}
@@ -416,6 +416,27 @@ namespace HotBiteEditor {
 					<< " world_reflect=" << stats.world_reflect
 					<< " world_refract=" << stats.world_refract;
 				response_lines.push_back(os.str());
+			}
+			else if (cmd == "rt_tracer") {
+				//rt_tracer [hw|sw]: who answers "which triangle does this ray hit" for the reflections, the refractions and the indirect
+				//light: the hardware (inline ray queries against the acceleration structure of the nearest hundred objects, the default) or
+				//the software walk of their hierarchies. The picture is the same whichever (that is what is tested); a device without ray
+				//queries keeps sw. -> OK tracer= hw_supported= hw_active= instances= skipped= geometries= built= geometry_mb= top_mb= cpu_ms=
+				//(hw_active and the structure are the last frame that traced).
+				if (args.size() > 1) {
+					Systems::RenderSystem::eRayTracer tracer;
+					if (!Systems::RenderSystem::ParseShadowRayTracer(args[1], tracer)) {
+						response_lines.push_back("ERR usage: rt_tracer [hw|sw]");
+						return true;
+					}
+					rs->SetRayTracer(tracer);
+				}
+				const Core::AccelStructure::Stats& as = rs->GetWorldAccelStats();
+				char text[256];
+				snprintf(text, sizeof(text), "OK tracer=%s hw_supported=%d hw_active=%d instances=%u skipped=%u geometries=%u built=%u geometry_mb=%.2f top_mb=%.2f cpu_ms=%.3f",
+					Systems::RenderSystem::RayTracerName(rs->GetRayTracer()), rs->RayHardwareSupported() ? 1 : 0, rs->RayHardwareActive() ? 1 : 0,
+					as.instances, as.skipped, as.geometries, as.built, (double)as.geometry_bytes / 1048576.0, (double)as.top_bytes / 1048576.0, as.cpu_ms);
+				response_lines.push_back(text);
 			}
 			else if (cmd == "shadow_rays") {
 				//shadow_rays [<radius> <blend> [<lights>]]: how soft the ray traced shadows are and how fast
@@ -2055,7 +2076,7 @@ namespace HotBiteEditor {
 				const bool generic = (cmd == "set_material_prop");
 				if (args.size() < (generic ? 4u : 3u)) {
 					response_lines.push_back(generic
-						? "ERR usage: set_material_prop <material name> <specular|rt_reflex|opacity|uv_scale> <value>"
+						? "ERR usage: set_material_prop <material name> <specular|rt_reflex|opacity|uv_scale|emission> <value>"
 						: "ERR usage: set_material_uv_scale <material name> <scale>");
 				}
 				else {
@@ -2069,7 +2090,7 @@ namespace HotBiteEditor {
 						if (!ParseFloats(args, generic ? 3 : 2, 1, &scale)) {
 							response_lines.push_back("ERR value must be a number");
 						}
-						else if (prop != "specular" && prop != "rt_reflex" && prop != "opacity" && prop != "uv_scale") {
+						else if (prop != "specular" && prop != "rt_reflex" && prop != "opacity" && prop != "uv_scale" && prop != "emission") {
 							response_lines.push_back("ERR unknown material property: " + prop);
 						}
 						else {
@@ -2077,6 +2098,14 @@ namespace HotBiteEditor {
 							if (prop == "specular") { after.props.specIntensity = scale; }
 							else if (prop == "rt_reflex") { after.props.rt_reflex = scale; }
 							else if (prop == "opacity") { after.props.opacity = scale; }
+							//A lamp: what it gives off is `emission` times its colour, white where none was set (what the indirect light of
+							//the ray tracers gathers from it).
+							else if (prop == "emission") {
+								after.props.emission = scale;
+								if (after.props.emission_color.x + after.props.emission_color.y + after.props.emission_color.z <= 0.0f) {
+									after.props.emission_color = { 1.0f, 1.0f, 1.0f };
+								}
+							}
 							else { after.props.uv_scale = scale; }
 							if (MaterialOps::ApplySnapshot(state, args[1], after, error)) {
 								MaterialOps::RecordEdit(state, args[1], before);

@@ -329,6 +329,7 @@
     <None Include="Engine\Core\Shaders\Common\QuickNoise.hlsli" />
     <None Include="Engine\Core\Shaders\Common\RadianceCache.hlsli" />
     <None Include="Engine\Core\Shaders\Common\RayFunctions.hlsli" />
+    <None Include="Engine\Core\Shaders\Common\RayQueryTrace.hlsli" />
     <None Include="Engine\Core\Shaders\Common\RayDefines.hlsli" />
     <None Include="Engine\Core\Shaders\RayTrace\RayScreenSolver.hlsli" />
     <None Include="Engine\Core\Shaders\RayTrace\ReflexRay.hlsli" />
@@ -371,6 +372,22 @@
     </FxCompile>
     <!-- The rays permutation with the shadow rays answered by inline ray queries (DeferredLightRaysHwCS.hlsl): shader model 6.5 (HotBiteModel, see Dxc.targets). -->
     <FxCompile Include="Engine\Core\Shaders\ComputeShaders\DeferredLightRaysHwCS.hlsl">
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Compute</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Compute</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|x64'">5.0</ShaderModel>
+      <HotBiteModel>6_5</HotBiteModel>
+    </FxCompile>
+    <!-- The reflection / refraction and the indirect light tracers with the hardware answering which triangle a ray hits (inline ray queries against
+         the WORLD top level of Core::AccelStructure) and the object textures read from an unbounded array: shader model 6.5 (HotBiteModel, see Dxc.targets). -->
+    <FxCompile Include="Engine\Core\Shaders\RayTrace\RayTraceHwCS.hlsl">
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Compute</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Compute</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|x64'">5.0</ShaderModel>
+      <HotBiteModel>6_5</HotBiteModel>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\RayTrace\GIRayTraceHwCS.hlsl">
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Compute</ShaderType>
       <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Compute</ShaderType>
@@ -1074,11 +1091,26 @@
       <RayScreenSolverDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightRaysFxcCS.hlsl" />
     </ItemGroup>
     <Touch Files="@(RayScreenSolverDependent)" Condition="Exists('$(RayScreenSolverHeader)') And $([System.IO.File]::GetLastWriteTime('$(RayScreenSolverHeader)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('%(RayScreenSolverDependent.FullPath)').Ticks)" />
+    <!-- The ray tracers (and their ray query twins) include these: a header newer than a shader touches it, so it is built again. -->
+    <PropertyGroup>
+      <RayQueryTraceHeader>$(MSBuildThisFileDirectory)Engine\Core\Shaders\Common\RayQueryTrace.hlsli</RayQueryTraceHeader>
+      <RayFunctionsHeader>$(MSBuildThisFileDirectory)Engine\Core\Shaders\Common\RayFunctions.hlsli</RayFunctionsHeader>
+      <RayDefinesHeader>$(MSBuildThisFileDirectory)Engine\Core\Shaders\Common\RayDefines.hlsli</RayDefinesHeader>
+    </PropertyGroup>
+    <ItemGroup>
+      <RayTracerDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\RayTrace\RayTraceCS.hlsl" />
+      <RayTracerDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\RayTrace\GIRayTraceCS.hlsl" />
+    </ItemGroup>
+    <Touch Files="@(RayTracerDependent)" Condition="Exists('$(RayQueryTraceHeader)') And $([System.IO.File]::GetLastWriteTime('$(RayQueryTraceHeader)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('%(RayTracerDependent.FullPath)').Ticks)" />
+    <Touch Files="@(RayTracerDependent)" Condition="Exists('$(RayFunctionsHeader)') And $([System.IO.File]::GetLastWriteTime('$(RayFunctionsHeader)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('%(RayTracerDependent.FullPath)').Ticks)" />
+    <Touch Files="@(RayTracerDependent)" Condition="Exists('$(RayDefinesHeader)') And $([System.IO.File]::GetLastWriteTime('$(RayDefinesHeader)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('%(RayTracerDependent.FullPath)').Ticks)" />
     <!-- Most of the lighting shaders are one file with a define, or the same file built by the other compiler: each one includes another, so it is
          touched when the one it includes is newer (in this order: the wrappers first, the fxc twins after them). -->
     <ItemGroup>
       <LightWrapper Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightRaysCS.hlsl"><Includes>$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightCS.hlsl</Includes></LightWrapper>
       <LightWrapper Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightRaysHwCS.hlsl"><Includes>$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightRaysCS.hlsl</Includes></LightWrapper>
+      <LightWrapper Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\RayTrace\RayTraceHwCS.hlsl"><Includes>$(MSBuildThisFileDirectory)Engine\Core\Shaders\RayTrace\RayTraceCS.hlsl</Includes></LightWrapper>
+      <LightWrapper Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\RayTrace\GIRayTraceHwCS.hlsl"><Includes>$(MSBuildThisFileDirectory)Engine\Core\Shaders\RayTrace\GIRayTraceCS.hlsl</Includes></LightWrapper>
       <LightWrapper Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightWaterCS.hlsl"><Includes>$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightCS.hlsl</Includes></LightWrapper>
       <LightWrapper Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightLavaCS.hlsl"><Includes>$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightCS.hlsl</Includes></LightWrapper>
     </ItemGroup>

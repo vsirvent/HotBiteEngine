@@ -226,6 +226,9 @@ bool IntersectAABB(RayObject ray, BVHNode node)
     return IntersectAABB(ray, bmin, bmax);
 }
 
+//The software tracers' texture pick: a shader model 5 shader cannot index a texture array by a number it only knows at run time, so
+//the object's texture is found by a switch over every case. (The ray query versions index an unbounded array: RayQueryTrace.hlsli.)
+#ifndef RT_RAYQUERY
 float3 GetDiffuseColor(uint object, float2 uv)
 {
     switch (object)
@@ -334,6 +337,7 @@ float3 GetDiffuseColor(uint object, float2 uv)
         return float3(0.0f, 0.0f, 0.0f);
     }
 }
+#endif
 
 Ray GetReflectedRayFromSource(RaySource source)
 {

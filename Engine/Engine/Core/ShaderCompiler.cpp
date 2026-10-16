@@ -200,7 +200,7 @@ namespace HotBite {
 				// caller names.
 				std::string ProfileFor(const std::string& source_path, const std::string& profile)
 				{
-					static const char* const SM65_SHADERS[] = { "deferredlightrayshwcs" };
+					static const char* const SM65_SHADERS[] = { "deferredlightrayshwcs", "raytracehwcs", "giraytracehwcs" };
 					if (profile.rfind("cs_6", 0) != 0) {
 						return profile;
 					}

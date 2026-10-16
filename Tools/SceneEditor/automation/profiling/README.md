@@ -25,6 +25,17 @@ Tools\SceneEditor\automation\profiling\capture-frames.ps1 -OutDir $dir -Count 4 
 Tools\SceneEditor\automation\profiling\analyze-captures.ps1 -Dir $dir
 ```
 
+**To compare two settings of one scene** (the hardware or the software ray tracer, a quality, a shader) reach for `measure-gpu.ps1` first: it needs no RenderDoc and takes minutes. It launches the editor on a level, places the camera, and goes round the variants you give it, interleaved (`-Rounds` turns of `-Frames` frames each, after `-Warmup`), reading the GPU's own pass timestamps (`gpu_timings`): the mean of each variant's turns and the spread of the turns are printed, so a difference smaller than the spread is not believed.
+
+```powershell
+# Marbles' sponza (solo level 3: ../Marbles is a sibling checkout; it is a Marbles level, which the editor opens with --level)
+Tools\SceneEditor\automation\profiling\measure-gpu.ps1 `
+    -Level ..\Marbles\Marbles\Assets\Levels\Solo\3\level.json -CameraPos '-20 3 0' -CameraTarget '10 4 0' `
+    -Variants ([ordered]@{ software = 'rt_tracer sw'; hardware = 'rt_tracer hw' })
+```
+
+(RTX 4050 laptop, 2026-10-16: `gi` 8.13 -> 4.30 ms with the hardware tracing 388 objects against the software's 100.) Opening that level writes `.cooked` caches beside its assets.
+
 `capture-frames.ps1` launches the editor with `--renderdoc`, waits for the scene to
 settle, places the camera, triggers `rdoc_capture` N times and quits.
 `analyze-captures.ps1` replays each `.rdc` into a `.json` of per-event GPU durations and
