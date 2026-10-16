@@ -75,6 +75,9 @@
     <Filter Include="Engine\Core\Shaders\Splat">
       <UniqueIdentifier>{38c40529-315d-4de7-93aa-07c84133d025}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Engine\Core\Shaders\Lights">
+      <UniqueIdentifier>{ced0185e-447f-4b48-8527-52c71c759633}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Engine\Core\DXCore.cpp">
@@ -244,6 +247,18 @@
     </ClCompile>
     <ClCompile Include="Engine\Core\MeshSimplify.cpp">
       <Filter>Engine\Core</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\Core\TextureCache.cpp">
+      <Filter>Engine</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\Core\AccelStructure.cpp">
+      <Filter>Engine</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\Core\ShadowRays.cpp">
+      <Filter>Engine</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\Core\TiledLights.cpp">
+      <Filter>Engine</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -480,6 +495,10 @@
     <ClInclude Include="Engine\ECS\Serialization.h" />
     <ClInclude Include="Engine\Core\SplatCloud.h" />
     <ClInclude Include="Engine\Core\SplatMeshReconstruction.h" />
+    <ClInclude Include="Engine\Core\TextureCache.h" />
+    <ClInclude Include="Engine\Core\AccelStructure.h" />
+    <ClInclude Include="Engine\Core\ShadowRays.h" />
+    <ClInclude Include="Engine\Core\TiledLights.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
@@ -545,6 +564,19 @@
     </None>
     <None Include="Engine\Core\Shaders\Splats\SplatCommon.hlsli">
       <Filter>Engine\Core\Shaders\Splat</Filter>
+    </None>
+    <None Include="Engine\Core\Shaders\Common\LightShadows.hlsli" />
+    <None Include="Engine\Core\Shaders\Common\TiledLights.hlsli" />
+    <None Include="Engine\Core\Shaders\Common\GBuffer.hlsli" />
+    <None Include="Engine\Core\Shaders\Common\LightGlow.hlsli" />
+    <None Include="Engine\Core\Shaders\Common\ParticleLight.hlsli" />
+    <None Include="Engine\Core\Shaders\Common\VolumetricLights.hlsli" />
+    <None Include="Engine\Core\Shaders\Common\ShadowRays.hlsli" />
+    <None Include="Engine\Core\Shaders\Common\DeferredLighting.hlsli">
+      <Filter>Engine\Core\Shaders\Lights</Filter>
+    </None>
+    <None Include="Engine\Core\Shaders\Common\RayQueryTrace.hlsli">
+      <Filter>Engine\Core\Shaders\Lights</Filter>
     </None>
   </ItemGroup>
   <ItemGroup>
@@ -753,5 +785,44 @@
       <Filter>Engine\Core\Shaders\Splat</Filter>
     </FxCompile>
     <FxCompile Include="Engine\Core\Shaders\Splats\SplatCompactCS.hlsl" />
+    <FxCompile Include="Engine\Core\Shaders\RayTrace\GIRayTraceHwCS.hlsl" />
+    <FxCompile Include="Engine\Core\Shaders\ComputeShaders\TileLightCullCS.hlsl" />
+    <FxCompile Include="Engine\Core\Shaders\ComputeShaders\TileLightValidateCS.hlsl" />
+    <FxCompile Include="Engine\Core\Shaders\ComputeShaders\DeferredLightCS.hlsl">
+      <Filter>Engine\Core\Shaders\Lights</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\ComputeShaders\DeferredLightFxcCS.hlsl">
+      <Filter>Engine\Core\Shaders\Lights</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\ComputeShaders\DeferredLightLavaCS.hlsl">
+      <Filter>Engine\Core\Shaders\Lights</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\ComputeShaders\DeferredLightLavaFxcCS.hlsl">
+      <Filter>Engine\Core\Shaders\Lights</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\ComputeShaders\DeferredLightRaysCS.hlsl">
+      <Filter>Engine\Core\Shaders\Lights</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\ComputeShaders\DeferredLightRaysFxcCS.hlsl">
+      <Filter>Engine\Core\Shaders\Lights</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\ComputeShaders\DeferredLightRaysHwCS.hlsl">
+      <Filter>Engine\Core\Shaders\Lights</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\ComputeShaders\DeferredLightWaterCS.hlsl">
+      <Filter>Engine\Core\Shaders\Lights</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\ComputeShaders\DeferredLightWaterFxcCS.hlsl">
+      <Filter>Engine\Core\Shaders\Lights</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\RayTrace\RayTraceHwCS.hlsl">
+      <Filter>Engine\Core\Shaders\Lights</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\ComputeShaders\ShadowAccumulateCS.hlsl">
+      <Filter>Engine\Core\Shaders\Lights</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\ComputeShaders\ShadowBvhDebugCS.hlsl">
+      <Filter>Engine\Core\Shaders\Lights</Filter>
+    </FxCompile>
   </ItemGroup>
 </Project>
