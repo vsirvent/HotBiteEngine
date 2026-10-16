@@ -347,6 +347,12 @@ overlap instead of the full serialisation between the compute passes; (3) ~~asyn
 independent ones~~ built and measured, a loss except for the reflections beside GI (see "Async compute"); what would pay is
 overlapping frames; (4) fewer full-screen post passes.
 
+### Ray queries: the shadow rays answered by the hardware (2026-10-16)
+
+The open problem above - DXC builds the rays permutation 1.7-2.5x slower than fxc - is about the *software walk* (two nested loops over stack arrays). D3D12 made the other answer possible: the rays can be asked of the ray tracing hardware with an inline `RayQuery` (SM 6.5, DXC only), against acceleration structures the engine builds (`Core::AccelStructure`); the shader then has no walk. Chosen with `SetShadowRayTracer` / `shadow_rays tracer hw|sw` / `HOTBITE_SHADOW_RAY_TRACER`; **the hardware is the default** (software where the device has no ray queries, and while a `shadow_bvh` debug view is up). Design and plumbing: `CLAUDE.md`, *Ray traced shadows answered by the hardware*.
+
+Survival suite 68 (the stress scene of suite 67, RTX 4050 laptop, GI off, rays permutation GPU ms, all frames measured round and round): 20 lamps, one light per pixel (`low`) software (fxc) 6.9 -> hardware 2.2 ms; 20 lamps, every light 9.1 -> 2.3; 50 lamps, one light 9.9 -> 3.1; 50 lamps, every light 15.2 -> 3.6 (the same walk built by DXC: 26.3). The picture is within the noise between two shots of the software walk. The whole lighting pass in the 50 lamp scene 16.4 -> 4.7 ms, 37 -> 50 fps. Open: the reflections and the indirect light still walk the software BVH (100 objects); the same top level could serve them.
+
 ## Async compute (the compute queue)
 
 Every compute dispatch has an `async` argument: `GfxContext::Dispatch(x, y, z, async)`, `DispatchIndirect(args, offset, async)`,

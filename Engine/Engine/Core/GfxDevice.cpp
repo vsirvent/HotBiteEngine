@@ -359,9 +359,21 @@ namespace HotBite {
 						return DXGI_ERROR_UNSUPPORTED;
 					}
 				}
-				LOG_INFO("GfxDevice: D3D12 feature level %u_%u on %s%s%s",
+				//Inline ray queries: DXR tier 1.1 and shader model 6.5 (RayQuery in DXIL 1.5).
+				{
+					D3D12_FEATURE_DATA_D3D12_OPTIONS5 options5 = {};
+					D3D12_FEATURE_DATA_SHADER_MODEL shader_model = { D3D_SHADER_MODEL_6_5 };
+					ray_query_supported =
+						SUCCEEDED(device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS5, &options5, sizeof(options5))) &&
+						options5.RaytracingTier >= D3D12_RAYTRACING_TIER_1_1 &&
+						SUCCEEDED(device->CheckFeatureSupport(D3D12_FEATURE_SHADER_MODEL, &shader_model, sizeof(shader_model))) &&
+						shader_model.HighestShaderModel >= D3D_SHADER_MODEL_6_5 &&
+						SUCCEEDED(device.As(&device5));
+				}
+				LOG_INFO("GfxDevice: D3D12 feature level %u_%u on %s%s%s%s",
 					(unsigned)(feature_level >> 12), (unsigned)((feature_level >> 8) & 0xF), adapter_name.c_str(),
-					allow_tearing ? ", tearing allowed" : "", debug_layer ? ", debug layer" : "");
+					allow_tearing ? ", tearing allowed" : "", debug_layer ? ", debug layer" : "",
+					ray_query_supported ? ", ray queries" : "");
 
 				if (debug_layer) {
 					ComPtr<ID3D12InfoQueue> info;
@@ -483,6 +495,15 @@ namespace HotBite {
 					D3D12_SRV_DIMENSION dim = (D3D12_SRV_DIMENSION)i;
 					if (i == 0 || i > D3D12_SRV_DIMENSION_TEXTURECUBEARRAY) {
 						dim = D3D12_SRV_DIMENSION_TEXTURE2D;
+					}
+					//A ray query against an acceleration structure nothing was bound to hits nothing (a null structure).
+					if (i == (UINT)D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE && ray_query_supported) {
+						D3D12_SHADER_RESOURCE_VIEW_DESC ad = {};
+						ad.ViewDimension = D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE;
+						ad.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+						ad.RaytracingAccelerationStructure.Location = 0;
+						device->CreateShaderResourceView(nullptr, &ad, null_srv[i]);
+						continue;
 					}
 					D3D12_SHADER_RESOURCE_VIEW_DESC sd = {};
 					sd.Format = DXGI_FORMAT_R32_UINT;
@@ -624,6 +645,7 @@ namespace HotBite {
 				zero_buffer.Reset();
 				null_heap.Reset();
 				null_sampler_heap.Reset();
+				device5.Reset();
 				device.Reset();
 				adapter.Reset();
 				factory.Reset();
@@ -884,6 +906,38 @@ namespace HotBite {
 				return S_OK;
 			}
 
+			HRESULT GfxDevice::CreateAccelerationBuffer(UINT64 size, bool scratch, GfxBuffer** out) {
+				*out = nullptr;
+				if (!ray_query_supported || size == 0) {
+					return E_NOTIMPL;
+				}
+				GfxBuffer* buffer = new GfxBuffer();
+				buffer->kind = GfxBufferKind::Static;
+				buffer->size = size;
+				buffer->stride = 0;
+				buffer->subresource_count = 1;
+				buffer->gpu_owned = true;
+				buffer->no_transitions = true;
+				buffer->heap_type = D3D12_HEAP_TYPE_DEFAULT;
+				buffer->desc = BufferDesc(size, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+				//An acceleration structure is created in its own state and stays there. A scratch buffer is only ever written by builds,
+				//and a buffer is created in COMMON whatever is asked: the first build promotes it to the UAV state it uses.
+				const D3D12_RESOURCE_STATES state = scratch ? D3D12_RESOURCE_STATE_COMMON
+					: D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE;
+				buffer->resting_state = state;
+				D3D12_HEAP_PROPERTIES hp = HeapProps(D3D12_HEAP_TYPE_DEFAULT);
+				const HRESULT hr = device->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &buffer->desc, state, nullptr,
+					IID_PPV_ARGS(&buffer->resource));
+				if (FAILED(hr)) {
+					LOG_ERROR("GfxDevice: CreateAccelerationBuffer(%llu bytes) failed (0x%08X)", (unsigned long long)size, (unsigned)hr);
+					buffer->Release();
+					return hr;
+				}
+				buffer->SetAllState(state);
+				*out = buffer;
+				return S_OK;
+			}
+
 			HRESULT GfxDevice::CreateTexture2D(const D3D12_RESOURCE_DESC& desc, D3D12_RESOURCE_STATES initial_state,
 				const D3D12_CLEAR_VALUE* clear_value, const GfxSubresourceData* data, UINT data_count, GfxTexture** out) {
 				*out = nullptr;
@@ -1024,7 +1078,9 @@ namespace HotBite {
 					return E_OUTOFMEMORY;
 				}
 				view->format = desc ? desc->Format : resource->desc.Format;
-				device->CreateShaderResourceView(resource->Get(), desc, view->cpu);
+				//A view of an acceleration structure names it by address, not by resource (the resource must be null).
+				const bool acceleration = desc != nullptr && desc->ViewDimension == D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE;
+				device->CreateShaderResourceView(acceleration ? nullptr : resource->Get(), desc, view->cpu);
 
 				UINT first_mip = 0, mip_count = (UINT)-1, first_slice = 0, slice_count = (UINT)-1;
 				view->dimension = desc ? desc->ViewDimension : D3D12_SRV_DIMENSION_TEXTURE2D;
@@ -1326,6 +1382,15 @@ namespace HotBite {
 						for (UINT i = first; i < last && i < GFX_SRV_SLOTS; ++i) {
 							shader->srv_used.set(i);
 							shader->srv_dimension[i] = srv_dim;
+							shader->srv_count = (std::max)(shader->srv_count, i + 1);
+						}
+						break;
+					//A RaytracingAccelerationStructure is an SRV of its own kind (the reflection's dimension for it collides with
+					//BUFFEREX, so it is set here, not taken from the reflection).
+					case D3D_SIT_RTACCELERATIONSTRUCTURE:
+						for (UINT i = first; i < last && i < GFX_SRV_SLOTS; ++i) {
+							shader->srv_used.set(i);
+							shader->srv_dimension[i] = D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE;
 							shader->srv_count = (std::max)(shader->srv_count, i + 1);
 						}
 						break;

@@ -747,14 +747,14 @@ namespace HotBite {
 			}
 
 			void GfxContext::UseSubresource(GfxResource* r, UINT subresource, D3D12_RESOURCE_STATES after) {
-				if (r->heap_type != D3D12_HEAP_TYPE_DEFAULT || r->resource == nullptr) {
+				if (r->heap_type != D3D12_HEAP_TYPE_DEFAULT || r->resource == nullptr || r->no_transitions) {
 					return;
 				}
 				UseImpl(r, subresource, r->State(subresource), after);
 			}
 
 			void GfxContext::UseResource(GfxResource* r, D3D12_RESOURCE_STATES after) {
-				if (r->heap_type != D3D12_HEAP_TYPE_DEFAULT || r->resource == nullptr) {
+				if (r->heap_type != D3D12_HEAP_TYPE_DEFAULT || r->resource == nullptr || r->no_transitions) {
 					return;
 				}
 				if (!r->IsSplit()) {

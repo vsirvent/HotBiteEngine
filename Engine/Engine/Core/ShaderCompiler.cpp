@@ -195,6 +195,24 @@ namespace HotBite {
 					return false;
 				}
 
+				// Compute shaders that need shader model 6.5 (they ask inline ray queries): the FxCompile items with HotBiteModel metadata
+				// in Engine.vcxproj. A reload has to make what the build made, so it compiles them for that model whatever profile the
+				// caller names.
+				std::string ProfileFor(const std::string& source_path, const std::string& profile)
+				{
+					static const char* const SM65_SHADERS[] = { "deferredlightrayshwcs" };
+					if (profile.rfind("cs_6", 0) != 0) {
+						return profile;
+					}
+					const std::string stem = ToLower(fs::path(source_path).stem().string());
+					for (const char* name : SM65_SHADERS) {
+						if (stem == name) {
+							return "cs_6_5";
+						}
+					}
+					return profile;
+				}
+
 				std::string BlobText(ID3DBlob* blob)
 				{
 					if (blob == nullptr || blob->GetBufferSize() == 0) {
@@ -446,7 +464,7 @@ namespace HotBite {
 				//The file's own folder is searched first (DXC does that for quoted includes), then the registered folders.
 				const std::wstring wide_source = fs::path(source_path).wstring();
 				const std::wstring wide_entry = fs::path(entry).wstring();
-				const std::wstring wide_profile = fs::path(profile).wstring();
+				const std::wstring wide_profile = fs::path(ProfileFor(source_path, profile)).wstring();
 				std::vector<std::wstring> wide_dirs;
 				wide_dirs.reserve(search_dirs.size());
 				for (const std::string& dir : search_dirs) {

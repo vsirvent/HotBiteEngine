@@ -167,6 +167,11 @@ namespace HotBite {
 				//barrier (or the transition that replaces it).
 				bool uav_dirty = false;
 
+				//Set on a resource that lives in one state for good and that GfxContext must never transition: the buffers
+				//of a ray tracing acceleration structure (state RAYTRACING_ACCELERATION_STRUCTURE, which no other state can
+				//be combined with) and the scratch memory of its builds. Bound as a view they are left alone.
+				bool no_transitions = false;
+
 				//Which queue touched the resource last (GfxContext, async compute): the queue that wrote it and the
 				//sync fence value of the command list segment that did, and the same for each queue's reads since that
 				//write. 0 = nothing recorded. A command on the other queue that conflicts waits for these values.
@@ -480,6 +485,18 @@ namespace HotBite {
 				HRESULT CreateBuffer(GfxBufferKind kind, UINT64 size, UINT stride, D3D12_RESOURCE_FLAGS flags,
 					const void* initial_data, D3D12_RESOURCE_STATES resting_state, GfxBuffer** out);
 
+				//---- ray tracing --------------------------------------------------------------------
+				//
+				//Inline ray queries (DXR 1.1 and shader model 6.5): a compute shader asks an acceleration structure
+				//(RaytracingAccelerationStructure, a descriptor in the SRV table like any other) whether a ray hits
+				//something. True when the device has them; everything below is only meaningful then.
+				bool RayQuerySupported() const { return ray_query_supported; }
+				ID3D12Device5* Device5() const { return device5.Get(); }
+				//A buffer for an acceleration structure (`scratch` false: created in the state those live in for good) or for the
+				//scratch memory of a build (`scratch` true: a UAV). Neither is ever transitioned by GfxContext (no_transitions).
+				//Released like any buffer: the GPU is done with it before it is destroyed.
+				HRESULT CreateAccelerationBuffer(UINT64 size, bool scratch, GfxBuffer** out);
+
 				//`data` is one entry per subresource (mip-major within each array slice), or null. A texture
 				//with data ends in GFX_STATE_SHADER_READ; one without starts in `initial_state`.
 				HRESULT CreateTexture2D(const D3D12_RESOURCE_DESC& desc, D3D12_RESOURCE_STATES initial_state,
@@ -613,6 +630,8 @@ namespace HotBite {
 				Microsoft::WRL::ComPtr<IDXGIFactory4> factory;
 				Microsoft::WRL::ComPtr<IDXGIAdapter1> adapter;
 				Microsoft::WRL::ComPtr<ID3D12Device> device;
+				Microsoft::WRL::ComPtr<ID3D12Device5> device5;
+				bool ray_query_supported = false;
 				Microsoft::WRL::ComPtr<ID3D12CommandQueue> queue;
 				Microsoft::WRL::ComPtr<ID3D12CommandQueue> compute_queue;
 				Microsoft::WRL::ComPtr<ID3D12Fence> fence;

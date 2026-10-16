@@ -384,6 +384,7 @@ namespace HotBite {
 					//applies.
 					case D3D_SIT_BYTEADDRESS:
 					case D3D_SIT_STRUCTURED:
+					case D3D_SIT_RTACCELERATIONSTRUCTURE: // An acceleration structure is an SRV by name as well
 					case D3D_SIT_TEXTURE: // A texture resource
 					{
 						// Create the SRV wrapper

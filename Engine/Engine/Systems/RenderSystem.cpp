@@ -29,6 +29,8 @@ SOFTWARE.
 #include <Core/Utils.h>
 #include <Core/TextureCache.h>
 #include <chrono>
+#include <unordered_map>
+#include <unordered_set>
 #include "RenderSystem.h"
 
 using namespace HotBite::Engine;
@@ -491,6 +493,17 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		if (!shadow_rays.Init()) {
 			printf("RenderSystem::Init: shadow ray buffers could not be created, ray traced shadows disabled\n");
 		}
+		//The hardware half of the shadow rays (inline ray queries); not there on a device without them, and then the software
+		//walk answers whatever is asked. HOTBITE_SHADOW_RAY_TRACER=hw|sw starts a process with either.
+		accel.Init();
+		{
+			char value[16] = {};
+			size_t len = 0;
+			eShadowRayTracer chosen;
+			if (getenv_s(&len, value, sizeof(value), "HOTBITE_SHADOW_RAY_TRACER") == 0 && len > 0 && ParseShadowRayTracer(value, chosen)) {
+				shadow_ray_tracer = chosen;
+			}
+		}
 		if (FAILED(bloom_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R11G11B10_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("bloom_map.Init failed");
 		}
@@ -778,6 +791,7 @@ RenderSystem::~RenderSystem() {
 	material_map.Release();
 	tiled_lights.Release();
 	shadow_rays.Release();
+	accel.Release();
 	shadow_rt_light.Release();
 	shadow_bvh_map.Release();
 	shadow_rt_history[0].Release();
@@ -4601,6 +4615,11 @@ void RenderSystem::BuildShadowRays() {
 	shadow_ray_sun_distance = 0.0f;
 	shadow_ray_sun_scene = Core::ShadowRays::NO_SCENE;
 	shadow_bvh_scene = Core::ShadowRays::NO_SCENE;
+	//The hardware answers the frame's rays when it was asked to, the device can and its shader loaded; else the software walk does. So
+	//does it while a shadow_bvh debug view is up: the views draw the software hierarchy, which the frame then has to build.
+	const eDebugBuffer shadow_view = GetDebugBuffer();
+	shadow_ray_hw_frame = shadow_ray_tracer == eShadowRayTracer::HARDWARE && accel.Supported() &&
+		shadow_view != eDebugBuffer::SHADOW_BVH && shadow_view != eDebugBuffer::SHADOW_BVH_COST && HardwareRaysShader() != nullptr;
 	shadow_rays.Begin();
 	if (shadow_rays.Ready() && bvh_buffer != nullptr) {
 		if (raytraced_light_count > 0) {
@@ -4643,6 +4662,10 @@ void RenderSystem::BuildShadowRays() {
 	tiled_stats.shadow_ray_dropped = 0;
 	tiled_stats.shadow_ray_owned_skipped = 0;
 	if (reach.empty()) {
+		if (shadow_ray_hw_frame) {
+			//No structure to trace (and none left over from an earlier frame).
+			accel.Build(nullptr, nullptr, nullptr, 0);
+		}
 		return;
 	}
 
@@ -4685,6 +4708,93 @@ void RenderSystem::BuildShadowRays() {
 	uint64_t indices = 0;
 	uint64_t full_indices = 0;
 	bool lights_changed = false;
+
+	if (shadow_ray_hw_frame) {
+		//The hardware has one structure for the frame, made of every caster any of the lights reaches, once each, where the software walk
+		//has a scene a light: a ray is as long as the distance it asks about, so what is out of its light's reach is never met. The
+		//building a lamp is part of is traced as the model is (its windows let the light out), every other caster as its stand-in -
+		//one geometry a caster, so a building that has a lamp is at full detail for the rays of the other lights too (`NONE`, the
+		//building left out of its lamp's scene, cannot be done with one structure: it is traced as `FULL`).
+		thread_local std::unordered_set<ECS::Entity> owners;
+		thread_local std::unordered_map<const DrawableEntity*, float> nearest;
+		thread_local std::vector<ShadowRayCandidate> casters;
+		owners.clear();
+		nearest.clear();
+		casters.clear();
+		for (const Reach& lamp : reach) {
+			for (ECS::Entity owner : lamp.owners) {
+				if (owner != ECS::INVALID_ENTITY_ID) {
+					owners.insert(owner);
+				}
+			}
+		}
+		for (size_t r = 0; r < reach.size(); ++r) {
+			for (const ShadowRayCandidate& c : shadow_scene_candidates[r]) {
+				const auto it = nearest.find(c.drawable);
+				if (it == nearest.end()) {
+					nearest.emplace(c.drawable, c.distance);
+				}
+				else if (c.distance < it->second) {
+					it->second = c.distance;
+				}
+			}
+		}
+		casters.reserve(nearest.size());
+		for (const auto& entry : nearest) {
+			casters.push_back({ entry.second, entry.first });
+		}
+		//Past the cap the casters nearest to a light are the ones that matter.
+		const size_t keep = (std::min)(casters.size(), (size_t)Core::AccelStructure::MAX_INSTANCES);
+		if (casters.size() > keep) {
+			std::nth_element(casters.begin(), casters.begin() + keep, casters.end(),
+				[](const ShadowRayCandidate& a, const ShadowRayCandidate& b) { return a.distance < b.distance; });
+		}
+		accel_instances.clear();
+		accel_instances.reserve(keep);
+		for (size_t i = 0; i < keep; ++i) {
+			const DrawableEntity& de = *casters[i].drawable;
+			const Core::MeshData* data = de.mesh->GetData();
+			const int coarsest = data->lods.empty() ? 0 : (int)data->lods.size() - 1;
+			const bool owner = owners.count(de.base->id) != 0;
+			const Core::MeshData* geometry = (owner && shadow_ray_owner != eShadowRayOwner::PROXY) ? data
+				: (shadow_ray_lod < 0 ? data->TraceGeometry() : LodGeometry(de.mesh->GetData(), (std::min)(shadow_ray_lod, coarsest)));
+			indices += geometry->indexCount;
+			full_indices += data->indexCount;
+			Core::AccelStructure::Instance instance;
+			instance.vertex_offset = (uint32_t)geometry->vertexOffset;
+			instance.vertex_count = geometry->vertexCount;
+			instance.index_offset = (uint32_t)geometry->indexOffset;
+			instance.index_count = geometry->indexCount;
+			instance.world = de.transform->world_matrix;
+			accel_instances.push_back(instance);
+		}
+		const bool built = accel.Build(vertex_buffer->VertexGfxBuffer(), vertex_buffer->IndexGfxBuffer(), accel_instances.data(),
+			(uint32_t)accel_instances.size());
+		//A light's scene only says whether there is something to trace.
+		const uint32_t scene = built ? 0u : Core::ShadowRays::NO_SCENE;
+		for (const Reach& lamp : reach) {
+			if (lamp.light == SUN) {
+				shadow_ray_sun_scene = scene;
+			}
+			else if (lamp.light != VIEW) {
+				Core::PackedLight& light = packed_lights[lamp.light];
+				light.flags = (light.flags & ((1u << Core::PACKED_LIGHT_SCENE_SHIFT) - 1u)) | (scene << Core::PACKED_LIGHT_SCENE_SHIFT);
+				lights_changed = true;
+			}
+		}
+		if (lights_changed) {
+			//GatherLights sent them before their scenes were known.
+			tiled_lights.Upload(packed_lights.data(), (uint32_t)packed_lights.size());
+		}
+		tiled_stats.shadow_ray_objects = accel.InstanceCount();
+		tiled_stats.shadow_ray_indices = indices;
+		tiled_stats.shadow_ray_full_indices = full_indices;
+		tiled_stats.shadow_ray_scenes = (uint32_t)reach.size();
+		tiled_stats.shadow_ray_dropped = 0;
+		tiled_stats.shadow_ray_owned_skipped = owned_skipped;
+		return;
+	}
+
 	for (size_t r = 0; r < reach.size(); ++r) {
 		std::vector<ShadowRayCandidate>& candidates = shadow_scene_candidates[r];
 		//Past the cap the objects nearest the light are the ones that matter.
@@ -4821,7 +4931,9 @@ void RenderSystem::ProcessDeferredLighting(int pass_filter) {
 	SetEntityLights(&scene_lighting, directional_lights, point_lights);
 	//Where a shadow ray is solved. The world's casters are only worth handing over when the BVH
 	//is to be walked, and the screen's march only when the pyramid it needs was built.
-	const bool world_shadows = (shadow_space == eRtSpace::WORLD || shadow_space == eRtSpace::BOTH) && shadow_rays.Count() > 0;
+	//(What there is to trace: the instances of the hardware's structure, or the objects of the software scenes.)
+	const uint32_t world_casters = shadow_ray_hw_frame ? accel.InstanceCount() : shadow_rays.Count();
+	const bool world_shadows = (shadow_space == eRtSpace::WORLD || shadow_space == eRtSpace::BOTH) && world_casters > 0;
 	const bool screen_shadows = ShadowScreenWanted() && high_z_valid;
 	//Only the first lighting dispatch accumulates: the later ones (water, splats) light a few pixels each
 	//and add their ray traced light straight to the map.
@@ -4863,7 +4975,7 @@ void RenderSystem::ProcessDeferredLighting(int pass_filter) {
 		dl->SetInt(SCREEN_H, h);
 		dl->SetInt("tiles_x", (int)tiled_lights.TilesX());
 		dl->SetInt("pass_filter", pass_filter);
-		dl->SetInt("shadow_ray_objects", (rays && world_shadows) ? (int)shadow_rays.Count() : 0);
+		dl->SetInt("shadow_ray_objects", (rays && world_shadows) ? (int)world_casters : 0);
 		dl->SetInt("shadow_ray_sun_scene", (int)shadow_ray_sun_scene);
 		const bool screen_bound = rays && screen_shadows;
 		dl->SetInt("ss_steps", screen_bound ? SHADOW_SCREEN_STEPS : 0);
@@ -4899,7 +5011,14 @@ void RenderSystem::ProcessDeferredLighting(int pass_filter) {
 		dl->SetShaderResourceView("tileMasks", tiled_lights.MasksSRV());
 		//The ray traced shadow scene. Only bound when there is one: the geometry buffers are the
 		//ones the reflection tracer reads, and a frame with no ray traced light never touches them.
-		const bool shadow_rays_bound = rays && world_shadows && bvh_buffer != nullptr;
+		//The rays permutation built for ray queries asks the frame's acceleration structure (srAccel) and has none of the software
+		//scene's buffers.
+		const bool hardware_shader = rays && dl == hw_rays_shader;
+		const bool accel_bound = hardware_shader && world_shadows && accel.Ready();
+		if (accel_bound) {
+			dl->SetShaderResourceView("srAccel", *accel.TlasSRV());
+		}
+		const bool shadow_rays_bound = rays && !hardware_shader && world_shadows && bvh_buffer != nullptr;
 		if (shadow_rays_bound) {
 			dl->SetShaderResourceView("srMeshNodes", *bvh_buffer->SRV());
 			dl->SetShaderResourceView("srTlas", *shadow_rays.TlasSRV());
@@ -4931,6 +5050,9 @@ void RenderSystem::ProcessDeferredLighting(int pass_filter) {
 		if (screen_bound) {
 			GfxSRV* no_hiz[HIZ_NTEXTURES] = {};
 			dl->SetShaderResourceViewArray("ssHiZ[0]", no_hiz, HIZ_NTEXTURES);
+		}
+		if (accel_bound) {
+			dl->SetShaderResourceView("srAccel", nullptr);
 		}
 		if (shadow_rays_bound) {
 			dl->SetShaderResourceView("srMeshNodes", nullptr);
@@ -5488,7 +5610,22 @@ RenderSystem::AsyncComputeStats RenderSystem::GetAsyncComputeStats() const {
 	return stats;
 }
 
+SimpleComputeShader* RenderSystem::HardwareRaysShader() {
+	if (hw_rays_shader == nullptr && !hw_rays_shader_failed) {
+		hw_rays_shader = ShaderFactory::Get()->GetShader<SimpleComputeShader>("DeferredLightRaysHwCS.cso");
+		if (hw_rays_shader == nullptr) {
+			LOG_WARN("RenderSystem: lighting shader DeferredLightRaysHwCS.cso could not be loaded, the shadow rays stay in software");
+			hw_rays_shader_failed = true;
+		}
+	}
+	return hw_rays_shader;
+}
+
 SimpleComputeShader* RenderSystem::LightingShader(int perm) {
+	//The rays permutation built for ray queries, when BuildShadowRays made the frame's shadow rays the hardware's.
+	if (perm == LIGHT_RT && shadow_ray_hw_frame && HardwareRaysShader() != nullptr) {
+		return hw_rays_shader;
+	}
 	//The permutations (DeferredLightCS.hlsl), each built by DXC and by fxc: the *Fxc ones are the same HLSL (an include of the
 	//DXC one) that the build hands to fxc, see Engine.vcxproj.
 	static const char* const NAMES[2][LIGHT_PERMS] = {
@@ -5514,6 +5651,14 @@ SimpleComputeShader* RenderSystem::LightingShader(int perm) {
 		}
 	}
 	return nullptr;
+}
+
+bool RenderSystem::ParseShadowRayTracer(const std::string& name, eShadowRayTracer& tracer) {
+	std::string lower = name;
+	std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return (char)std::tolower(c); });
+	if (lower == "hw" || lower == "hardware") { tracer = eShadowRayTracer::HARDWARE; return true; }
+	if (lower == "sw" || lower == "software") { tracer = eShadowRayTracer::SOFTWARE; return true; }
+	return false;
 }
 
 bool RenderSystem::ParseLightingCompiler(const std::string& name, LightingCompiler& compiler) {

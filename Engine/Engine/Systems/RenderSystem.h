@@ -41,6 +41,7 @@ SOFTWARE.
 #include <Core\RWBuffer.h>
 #include <Core\TiledLights.h>
 #include <Core\ShadowRays.h>
+#include <Core\AccelStructure.h>
 
 namespace HotBite {
 	namespace Engine {
@@ -1163,7 +1164,36 @@ namespace HotBite {
 				float GetShadowRayBlend() const { return shadow_ray_blend; }
 				void SetShadowRayMaxLights(int count) { shadow_ray_max_lights = count < 0 ? 0 : (count > MAX_TILED_LIGHTS ? MAX_TILED_LIGHTS : count); }
 				int GetShadowRayMaxLights() const { return shadow_ray_max_lights; }
+
+				//Who answers a shadow ray - "is something in the way of this segment": the hardware (the default): an inline ray
+				//query (shader model 6.5) against acceleration structures the engine builds each frame (Core::AccelStructure), or
+				//the software walk of the hierarchy of Core::ShadowRays in a compute shader. The hardware path has one
+				//structure for the frame, made of every caster any ray traced light reaches, where the software one has a scene
+				//a light; it traces the same triangles (the stand-in of each mesh, the mesh itself for the building a lamp is part
+				//of), so the picture is the same. It needs a device with ray queries (ShadowRayHardwareSupported); without one the
+				//software path runs whatever is asked. `HOTBITE_SHADOW_RAY_TRACER=hw|sw` starts a process with either.
+				//Not supported by the hardware path: `eShadowRayOwner::NONE` (the building is traced as FULL). The shadow_bvh debug
+				//views draw the software hierarchy, so the frames they are up in are traced by the software walk.
+				enum class eShadowRayTracer { SOFTWARE, HARDWARE };
+				void SetShadowRayTracer(eShadowRayTracer tracer) { shadow_ray_tracer = tracer; }
+				eShadowRayTracer GetShadowRayTracer() const { return shadow_ray_tracer; }
+				bool ShadowRayHardwareSupported() const { return accel.Supported(); }
+				//Whether the last frame that built the shadow rays used the hardware, and what its structures hold.
+				bool ShadowRayHardwareActive() const { return shadow_ray_hw_frame; }
+				const Core::AccelStructure::Stats& GetAccelStats() const { return accel.GetStats(); }
+				static const char* ShadowRayTracerName(eShadowRayTracer tracer) { return tracer == eShadowRayTracer::HARDWARE ? "hw" : "sw"; }
+				static bool ParseShadowRayTracer(const std::string& name, eShadowRayTracer& tracer);
 			private:
+				eShadowRayTracer shadow_ray_tracer = eShadowRayTracer::HARDWARE;
+				Core::AccelStructure accel;
+				//The frame's shadow rays are the hardware's (BuildShadowRays decided: it asked, the device can, the shader loaded).
+				bool shadow_ray_hw_frame = false;
+				std::vector<Core::AccelStructure::Instance> accel_instances;
+				//The rays permutation built for ray queries; null until the first frame that wants it, and left null for good when it
+				//could not be loaded (then the software path runs).
+				Core::SimpleComputeShader* hw_rays_shader = nullptr;
+				bool hw_rays_shader_failed = false;
+				Core::SimpleComputeShader* HardwareRaysShader();
 				//Gathers the casters in reach of the ray traced lights and builds their scene.
 				void BuildShadowRays();
 				//Read back only while something asks (the same keepalive as the other counters).

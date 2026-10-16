@@ -187,6 +187,7 @@
     <ClCompile Include="Engine\Core\SplatMeshReconstruction.cpp" />
     <ClCompile Include="Engine\Core\Texture.cpp" />
     <ClCompile Include="Engine\Core\TextureCache.cpp" />
+    <ClCompile Include="Engine\Core\AccelStructure.cpp" />
     <ClCompile Include="Engine\Core\ShadowRays.cpp" />
     <ClCompile Include="Engine\Core\TiledLights.cpp" />
     <ClCompile Include="Engine\Core\Utils.cpp" />
@@ -254,6 +255,7 @@
     <ClInclude Include="Engine\Core\SplatMeshReconstruction.h" />
     <ClInclude Include="Engine\Core\Texture.h" />
     <ClInclude Include="Engine\Core\TextureCache.h" />
+    <ClInclude Include="Engine\Core\AccelStructure.h" />
     <ClInclude Include="Engine\Core\ShadowRays.h" />
     <ClInclude Include="Engine\Core\TiledLights.h" />
     <ClInclude Include="Engine\Core\Utils.h" />
@@ -366,6 +368,14 @@
       <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Compute</ShaderType>
       <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|x64'">5.0</ShaderModel>
+    </FxCompile>
+    <!-- The rays permutation with the shadow rays answered by inline ray queries (DeferredLightRaysHwCS.hlsl): shader model 6.5 (HotBiteModel, see Dxc.targets). -->
+    <FxCompile Include="Engine\Core\Shaders\ComputeShaders\DeferredLightRaysHwCS.hlsl">
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Compute</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Compute</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|x64'">5.0</ShaderModel>
+      <HotBiteModel>6_5</HotBiteModel>
     </FxCompile>
     <FxCompile Include="Engine\Core\Shaders\ComputeShaders\DeferredLightWaterCS.hlsl">
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Compute</ShaderType>
@@ -976,6 +986,7 @@
       <LightingDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\MaterialPreview\MaterialPreviewPS.hlsl" />
       <LightingDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightCS.hlsl" />
       <LightingDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightRaysCS.hlsl" />
+      <LightingDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightRaysHwCS.hlsl" />
       <LightingDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightWaterCS.hlsl" />
       <LightingDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightLavaCS.hlsl" />
       <LightingDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightFxcCS.hlsl" />
@@ -1058,6 +1069,7 @@
       <RayScreenSolverDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\RayTrace\RayReflexScreenSolverCS.hlsl" />
       <RayScreenSolverDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightCS.hlsl" />
       <RayScreenSolverDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightRaysCS.hlsl" />
+      <RayScreenSolverDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightRaysHwCS.hlsl" />
       <RayScreenSolverDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightFxcCS.hlsl" />
       <RayScreenSolverDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightRaysFxcCS.hlsl" />
     </ItemGroup>
@@ -1066,6 +1078,7 @@
          touched when the one it includes is newer (in this order: the wrappers first, the fxc twins after them). -->
     <ItemGroup>
       <LightWrapper Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightRaysCS.hlsl"><Includes>$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightCS.hlsl</Includes></LightWrapper>
+      <LightWrapper Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightRaysHwCS.hlsl"><Includes>$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightRaysCS.hlsl</Includes></LightWrapper>
       <LightWrapper Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightWaterCS.hlsl"><Includes>$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightCS.hlsl</Includes></LightWrapper>
       <LightWrapper Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightLavaCS.hlsl"><Includes>$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightCS.hlsl</Includes></LightWrapper>
     </ItemGroup>

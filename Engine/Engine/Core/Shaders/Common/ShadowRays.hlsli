@@ -51,6 +51,14 @@ SOFTWARE.
 
 #include "RayDefines.hlsli"
 
+//Two ways to answer "is something in the way": the software hierarchy above (the default), and, when the includer defines
+//SR_RAYQUERY (shader model 6.5), an inline ray query against the acceleration structure the engine builds each frame
+//(Core::AccelStructure) - the hardware walks it. The hardware path has no scenes of its own: one structure holds every caster
+//any of the frame's lights can reach, and a ray is as long as the distance it asks about. A light's scene index only says
+//whether there is something to trace (SR_NO_SCENE: nothing). Everything else below, the jitter and the margins, is shared.
+#ifdef SR_RAYQUERY
+RaytracingAccelerationStructure srAccel : register(t15);
+#else
 //Where the scenes of the frame start: x its first node in srTlas, y its first object in
 //srObjects, z how many objects it has.
 StructuredBuffer<uint4> srScenes : register(t14);
@@ -59,6 +67,7 @@ StructuredBuffer<BVHNode> srTlas : register(t6);
 StructuredBuffer<ObjectInfo> srObjects : register(t7);
 ByteAddressBuffer srVertices : register(t8);
 ByteAddressBuffer srIndices : register(t9);
+#endif
 
 //Deep enough for 2048 objects split on the mean (a lopsided split makes a deeper tree than
 //a balanced one); a ray that fills it drops the subtree it could not push, which can only
@@ -88,6 +97,7 @@ static uint sr_stat[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
 #define SR_COUNT(i)
 #endif
 
+#ifndef SR_RAYQUERY
 //Where along the ray it first lies inside the box, or FLT_MAX if it never does within
 //[0, max_t].
 float SrBoxEntry(float3 orig, float3 inv_dir, float3 bmin, float3 bmax, float max_t)
@@ -208,6 +218,7 @@ bool SrObjectOccluded(ObjectInfo o, float3 world_from, float3 world_dir, float w
 	}
 	return false;
 }
+#endif
 //The pixel being shaded and its place in the frame sequence: the seed of the per ray jitter.
 static uint2 sr_pixel = uint2(0, 0);
 
@@ -238,6 +249,27 @@ float3 SrBallSample()
 	return float3(r * cos(phi), r * sin(phi), z) * pow(u.z, 1.0f / 3.0f);
 }
 
+#ifdef SR_RAYQUERY
+//Anything solid on the segment of length `len` from `from` along the unit vector `dir`: the first triangle of the structure
+//that the ray meets ends the query, which is all that is asked (no nearest hit, no shading). Both faces count, as in the
+//software walk (no culling flag), and every triangle is opaque.
+bool SrTrace(float3 from, float3 dir, float len, uint scene_index)
+{
+	if (shadow_ray_objects == 0u || scene_index == SR_NO_SCENE || len <= 1e-4f) {
+		return false;
+	}
+	RayDesc ray;
+	ray.Origin = from;
+	ray.Direction = dir;
+	ray.TMin = 0.0f;
+	ray.TMax = len;
+	RayQuery<RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH> query;
+	query.TraceRayInline(srAccel, RAY_FLAG_NONE, 0xFF, ray);
+	while (query.Proceed()) {
+	}
+	return query.CommittedStatus() == COMMITTED_TRIANGLE_HIT;
+}
+#else
 //Anything solid on the segment of length `len` from `from` along the unit vector `dir`, among
 //the objects of scene `scene_index`.
 bool SrTrace(float3 from, float3 dir, float len, uint scene_index)
@@ -304,6 +336,7 @@ bool SrTrace(float3 from, float3 dir, float len, uint scene_index)
 	}
 	return false;
 }
+#endif
 //An includer that can also look for casters ON THE SCREEN defines SR_SCREEN_SHADOWS and
 //provides, before this point,
 //    bool ScreenShadowActive()                                   whether it is on this frame

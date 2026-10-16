@@ -213,6 +213,15 @@ namespace HotBite {
 					return hr;
 				}
 
+				//The buffers themselves, for what builds on them (the ray tracing acceleration structures read the positions).
+				GfxBuffer* VertexGfxBuffer() const {
+					return vertex_buffer;
+				}
+
+				GfxBuffer* IndexGfxBuffer() const {
+					return index_buffer;
+				}
+
 				GfxSRV* const* VertexSRV() const {
 					return &vertex_srv;
 				}
