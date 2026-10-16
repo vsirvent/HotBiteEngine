@@ -1128,6 +1128,10 @@ namespace HotBite {
 				int shadow_rt_history_read = 0;
 				bool shadow_rt_history_valid = false;
 				float shadow_ray_blend = 0.08f;
+				//Most point lights that trace their shadow that are traced for a pixel in a frame (1 by default; 1 to 4 are what the tests measure),
+				//0 for all of them: the frames take turns at the rest and ShadowAccumulateCS averages them (DeferredLightCS.hlsl,
+				//shadow_ray_max_lights). Can be changed at any frame (`shadow_rays lights <n>`).
+				int shadow_ray_max_lights = 1;
 			public:
 				//How soft ray traced shadows are (the radius of the ball the rays aim into, in world
 				//units; 0 = hard) and how fast the result settles (the weight of the newest frame,
@@ -1157,6 +1161,8 @@ namespace HotBite {
 					return { c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7] };
 				}
 				float GetShadowRayBlend() const { return shadow_ray_blend; }
+				void SetShadowRayMaxLights(int count) { shadow_ray_max_lights = count < 0 ? 0 : (count > MAX_TILED_LIGHTS ? MAX_TILED_LIGHTS : count); }
+				int GetShadowRayMaxLights() const { return shadow_ray_max_lights; }
 			private:
 				//Gathers the casters in reach of the ray traced lights and builds their scene.
 				void BuildShadowRays();

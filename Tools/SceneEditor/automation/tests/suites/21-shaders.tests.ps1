@@ -67,11 +67,15 @@ Test 'a shader recompiles into the running editor' {
 }
 
 Test 'a shader the build gives to fxc recompiles into the running editor too' {
-    # The deferred lighting shaders are built by fxc (Dxc.targets, HotBiteFxc) and reloaded by it (ShaderCompiler::UsesFxc).
-    SendOk 'reload_shaders DeferredLightRaysCS.cso' | Out-Null
+    # The deferred lighting permutations are also built by fxc (Dxc.targets, HotBiteFxc) and reloaded by it (ShaderCompiler::UsesFxc). The
+    # editor loads the fxc build of a permutation when it is asked to light with it, which is what `lighting_shaders fxc` does.
+    SendOk 'lighting_shaders fxc' | Out-Null
+    Step-EditorFrames -Session $Session -Count 10
+    SendOk 'reload_shaders DeferredLightFxcCS.cso' | Out-Null
     $status = Wait-ShaderReload
     Assert-Match -Pattern 'errors=0' -Actual $status.Text
     Assert-Match -Pattern '1 reloaded, 0 failed' -Actual $status.Text
+    SendOk 'lighting_shaders auto' | Out-Null
 }
 
 Test 'the bare stem names the same shader' {

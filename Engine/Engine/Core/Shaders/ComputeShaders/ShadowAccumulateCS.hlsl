@@ -93,17 +93,23 @@ void main(uint3 dtid : SV_DispatchThreadID)
 						//snaps to the new value instead of fading in over 1/blend frames.
 						float3 lo = cur;
 						float3 hi = cur;
+						//A pixel that traced only some of its lights this frame (DeferredLightCS, shadow_ray_max_lights; alpha 1) holds
+						//that share scaled up, a value that is right only on average over the frames: the range of such a neighbourhood
+						//says nothing about where the average is, and clamping to it takes energy away (a sparse, scaled up sample
+						//is mostly below the average, so the range's top is often under it). Around those pixels the history is not clamped.
+						float sampled = currentLight[px].a;
 						[unroll]
 						for (int dy = -1; dy <= 1; ++dy) {
 							[unroll]
 							for (int dx = -1; dx <= 1; ++dx) {
 								const int2 q = clamp((int2)px + int2(dx, dy), int2(0, 0), int2(screenW - 1, screenH - 1));
-								const float3 n = currentLight[q].rgb;
-								lo = min(lo, n);
-								hi = max(hi, n);
+								const float4 n4 = currentLight[q];
+								lo = min(lo, n4.rgb);
+								hi = max(hi, n4.rgb);
+								sampled = max(sampled, n4.a);
 							}
 						}
-						result = lerp(clamp(h.rgb, lo, hi), cur, blend);
+						result = lerp((sampled > 0.0f) ? h.rgb : clamp(h.rgb, lo, hi), cur, blend);
 					}
 				}
 			}

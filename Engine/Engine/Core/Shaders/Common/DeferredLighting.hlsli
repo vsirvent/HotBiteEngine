@@ -120,6 +120,14 @@ float PointAttenuation(PackedLight light, float3 position, out float3 ToLight, o
 	return Attn;
 }
 
+//Whether a point light's range (and cone) reaches a surface point: the first thing ShadePoint tests, before anything that costs.
+bool PointLightReaches(PackedLight light, float3 position)
+{
+	float3 to_light;
+	float dist;
+	return PointAttenuation(light, position, to_light, dist) > 0.0f;
+}
+
 float3 ShadePoint(float3 normal, float3 position, float spec_intensity, float bloom_scale,
                   PackedLight light, inout float3 bloom)
 {

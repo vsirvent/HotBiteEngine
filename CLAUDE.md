@@ -136,6 +136,10 @@ ran the same `.cso` and read as "the feature does nothing":
   same from DXC and fxc (suites 67 and 50). Measured against the all-in-one shader they replaced: fxc +3.6% on the lighting pass in the stress scene,
   DXC -3 to -18% and still 2x behind fxc. `lighting_shaders [dxc|fxc|auto]`, `HOTBITE_LIGHT_COMPILER`. Numbers and next steps: migration doc.
   Write the lighting HLSL once for both: what fxc needs (no `continue` in the lights' loops, `THIS_PERMUTATION_LIGHTS`) DXC takes as well.
+- **Traced lights per pixel** (`shadow_ray_max_lights`, `SetShadowRayMaxLights`, 1 by default, 0 = all, `shadow_rays <r> <b> <n>` / Survival's `shadow_rays lights <n>`):
+  the rays permutation traces at most n of the lights that reach a pixel in a frame (a window that moves with `shadow_ray_frame`), scales their light by
+  reach / n and ShadowAccumulateCS averages the frames: -18% to -32% of the lighting at 1 in Survival's stress scenes, energy within 0.4%, a little more
+  noise. The history clamp of ShadowAccumulateCS is off around sampled pixels (alpha of `rt_shadow_out`): with it on it took 2-6% of the light away.
 - **Shader symbols for PIX are on by default** (`-Zi`, `HotBiteShaderDebug=embed`: each `.cso` carries its debug
   module and source; `pdb` writes `<hash>.pdb` to `ShaderPdb\` instead, `none` turns it off). The generated code is
   identical with or without them. Changing the mode rebuilds the project's shaders (`hotbite-dxc.flags` stamp).

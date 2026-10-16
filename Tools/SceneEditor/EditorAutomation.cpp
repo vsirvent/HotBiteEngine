@@ -418,19 +418,24 @@ namespace HotBiteEditor {
 				response_lines.push_back(os.str());
 			}
 			else if (cmd == "shadow_rays") {
-				//shadow_rays [<radius> <blend>]: how soft the ray traced shadows are and how fast
-				//they settle (blend 1 = no averaging over frames). -> OK radius= blend=
+				//shadow_rays [<radius> <blend> [<lights>]]: how soft the ray traced shadows are and how fast
+				//they settle (blend 1 = no averaging over frames), and how many of the lights that trace their shadow a pixel traces in a
+				//frame (the frames take turns at the rest; 0 = all of them, 1 by default). -> OK radius= blend= lights=
 				if (args.size() >= 3) {
 					try {
 						rs->SetShadowRaySettings(std::stof(args[1]), std::stof(args[2]));
+						if (args.size() >= 4) {
+							rs->SetShadowRayMaxLights(std::stoi(args[3]));
+						}
 					}
 					catch (const std::exception&) {
-						response_lines.push_back("ERR usage: shadow_rays [<radius> <blend>]");
+						response_lines.push_back("ERR usage: shadow_rays [<radius> <blend> [<lights>]]");
 						return true;
 					}
 				}
-				char text[96];
-				snprintf(text, sizeof(text), "OK radius=%.3f blend=%.3f", rs->GetShadowRayRadius(), rs->GetShadowRayBlend());
+				char text[112];
+				snprintf(text, sizeof(text), "OK radius=%.3f blend=%.3f lights=%d", rs->GetShadowRayRadius(), rs->GetShadowRayBlend(),
+					rs->GetShadowRayMaxLights());
 				response_lines.push_back(text);
 			}
 			else if (cmd == "tile_culling") {

@@ -297,6 +297,48 @@ object) and DXC inlines the second into the first; one loop over one stack of (n
 ranges of a traversal, and is the place to try first; after it the screen march (`RayScreenSolver.hlsli`) and the world walk can be permutations of their own
 (`shadow_space` is world, screen or both). `HOTBITE_LIGHT_COMPILER` and the twins stay so that the next change is measured the same way (one HLSL, both builds).
 
+### Limiting the lights a pixel traces in a frame (2026-10-16)
+
+A pixel that more traced lights reach than it needs to look right sends a ray for each, and the rays are the cost. `shadow_ray_max_lights` (cbuffer of
+`DeferredLightCS.hlsl`, `RenderSystem::SetShadowRayMaxLights`, 1 by default, `shadow_rays <radius> <blend> <n>` in the editor and `shadow_rays lights <n>`
+in Survival's channel, changeable at any frame; 0 = all of them) makes the rays permutation trace at most that many of the lights that reach the pixel in
+a frame. The lights that reach it are counted first (a loop over the tile's bits with `PointLightReaches`, the test `ShadePoint` starts with); when there
+are more than the limit, a window of `limit` of them in the tile's bit order is traced, starting at `(hash(pixel) + frame * limit) % reach` (the frame
+counter is the one the ray jitter already used, `shadow_ray_frame`: each pixel starts elsewhere and the frames walk on by the window's size, so they take
+turns at all of them), and the light of the ones traced is multiplied by `reach / limit`, the share left out, so the sum over the frames is the one
+all of them add up to. ShadowAccumulateCS averages the frames, which is why it is done only for the light that goes to it (`shadow_ray_accumulate`): the
+passes that add their light straight to the map trace every light. The sun is not limited (one per frame); the bloom of a traced light is scaled the
+same way but nothing accumulates it.
+
+**The trap: the history clamp took the energy back.** ShadowAccumulateCS clamps the history to the min/max of the current frame's 3x3 neighbourhood
+(so that a shadow that has gone snaps instead of fading). A sparse, scaled-up sample is mostly *below* the average, so the top of that range is often
+under it and the clamp pulled the average down: -5.7% brightness at limit 1 in the dense scene (-2.5% at 2), 0.3% with the clamp left out. Now
+the rays permutation writes the alpha of `rt_shadow_out` as 1 for every pixel it sampled (also the ones the traced lights left dark, which write nothing
+else), and the accumulation does not clamp the history of a neighbourhood that holds one: elsewhere the clamp is as it was.
+
+Measured in Survival's suite 67 (`traced lights per pixel`, GPU ms summed over the frame's lighting passes, each limit twice in turn, mean brightness of
+the whole shot, "two shots" = a shot and one 3 s later, "from all" = against the unlimited picture, levels of 255). The base scene is the ten houses and
+ten lamps (25 traced lights, the busiest tile 15, 1.5 of them reach a pixel on average), the dense one has 30 more street lamps (55, 23, 2.6):
+
+| scene | limit | lighting | rays pass | fps | brightness | two shots | from all |
+|---|---|---|---|---|---|---|---|
+| base | all | 9.47 | 8.36 | 53.9 | 27.01 | 0.39 | - |
+| | 1 | 7.73 (-18%) | 6.63 | 59.7 | +0.1% | 0.51 | 0.58 |
+| | 2 | 8.75 (-8%) | 7.65 | 56.0 | +0.3% | 0.47 | 0.60 |
+| | 3 | 9.16 (-3%) | 8.05 | 54.7 | +0.3% | 0.45 | 0.50 |
+| | 4 | 9.39 (-1%) | 8.29 | 54.2 | +0.4% | 0.46 | 0.54 |
+| dense | all | 14.91 | 13.78 | 41.1 | 31.76 | 0.51 | - |
+| | 1 | 10.09 (-32%) | 8.99 | 51.9 | -0.3% | 0.83 | 0.85 |
+| | 2 | 11.93 (-20%) | 10.82 | 47.7 | 0.0% | 0.76 | 0.78 |
+| | 3 | 12.81 (-14%) | 11.70 | 45.3 | +0.1% | 0.66 | 0.78 |
+| | 4 | 13.38 (-10%) | 12.26 | 44.0 | -0.1% | 0.62 | 0.63 |
+
+What it says: the saving is the share of rays that are left out, so it grows with the overlap (a pixel with one or two lights has nothing to leave
+out: -18% at limit 1 where 1.5 lights reach a pixel on average, -32% at 2.6); the energy is kept within 0.4% at every limit; the price is noise, two shots
+of one setting differing by 0.8 levels at limit 1 in the dense scene against 0.5 with all of them (the accumulation is 1/blend = 12 frames deep, so a
+light is seen again every `reach / limit` frames). Survival's `ray_traced_shadows` setting is this limit: off, low, medium, high, ultra = none, 1, 2, 3, 4
+lights per pixel in a frame (low by default).
+
 **Next (M7), by expected payoff:** (1) find why DXC is slow on the lighting shader and put it back on DXC (see the
 known problem above and "Lighting permutations": the traversal is where to start), and compare the other big shaders (`GIRayTraceCS`, `RayTraceCS`, `DenoiserCS`) DXBC against
 DXIL the same way - the lighting pair on fxc is the stopgap, restructuring the ray code (tile classification,

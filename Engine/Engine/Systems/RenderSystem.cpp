@@ -4881,6 +4881,7 @@ void RenderSystem::ProcessDeferredLighting(int pass_filter) {
 		}
 		dl->SetInt("shadow_ray_accumulate", accumulate ? 1 : 0);
 		dl->SetFloat("shadow_ray_radius", shadow_ray_radius);
+		dl->SetInt("shadow_ray_max_lights", shadow_ray_max_lights);
 		dl->SetFloat("shadow_ray_sun_spread", shadow_ray_sun_spread);
 		dl->SetFloat("shadow_ray_sun_distance", shadow_ray_sun_distance);
 		dl->SetInt("shadow_ray_frame", (int)frame_count);

@@ -138,3 +138,34 @@ Test 'lights that trace their shadow: the ray tracing permutation runs, and the 
     Assert-Equal -Expected 0 -Actual (Get-Lighting).Rt -Message 'no light traces, no ray tracing permutation'
     Assert-True -Condition (-not $Session.Process.HasExited) -Message 'no crash'
 }
+
+Test 'a pixel traces at most the limit of the lights that trace in a frame, and the picture keeps its energy' {
+    # `shadow_rays <radius> <blend> <lights>`: of the lights that trace and reach a pixel, `lights` (1 to 4) are traced in a frame (0 = all), a window
+    # that moves on with the frame counter and starts elsewhere in every pixel; the light of those traced is scaled by reach / lights, and
+    # ShadowAccumulateCS averages the frames: the picture is the one all of them draw. All eight lamps trace, so a pixel has more than three.
+    SendOk (0..7 | ForEach-Object { "set_component tl_$_ PointLight ""{'raytraced_shadow':true}""" }) | Out-Null
+    $now = (SendOk 'shadow_rays')[0].Text
+    Assert-True -Condition ($now -match 'radius=([\d.]+) blend=([\d.]+) lights=(\d+)') -Message "shadow_rays answers its settings: $now"
+    $radius = $Matches[1]; $blend = $Matches[2]
+    Assert-Equal -Expected '1' -Actual $Matches[3] -Message 'one light per pixel is the default'
+    $area = @{ Left = 0.42; Top = 0.30; Right = 0.78; Bottom = 0.95; Step = 3 }
+    $mean = @{}
+    foreach ($c in @(@(0, 'all-a'), @(1, 'one-a'), @(3, 'three-a'), @(0, 'all-b'), @(1, 'one-b'), @(3, 'three-b'))) {
+        SendOk "shadow_rays $radius $blend $($c[0])" | Out-Null
+        # The history is a 1/blend frame average: let it settle, and the pipeline of the shader if this is the first.
+        Step-EditorFrames -Session $Session -Count 60
+        $mean[$c[1]] = (Get-ImageStats -Path (Get-SceneShot ("limit-" + $c[1])) @area).Mean
+        $again = (Get-ImageStats -Path (Get-SceneShot ("limit-" + $c[1] + '-later')) @area).Mean
+        $mean[$c[1] + '-later'] = $again
+    }
+    $all = ($mean['all-a'] + $mean['all-b']) / 2.0
+    Assert-True -Condition ($all -gt 10) -Message "the scene is lit: mean brightness $all"
+    foreach ($k in 'one', 'three') {
+        $limited = ($mean["$k-a"] + $mean["$k-b"]) / 2.0
+        Write-Host ("    traced lights per pixel: mean brightness {0:N2} with all, {1:N2} with {2} ({3:+0.0;-0.0}%)" -f $all, $limited, $k, (($limited / $all - 1) * 100))
+        Assert-True -Condition ([Math]::Abs($limited / $all - 1) -le 0.05) -Message ("limiting the lights to $k changed the energy of the picture: {0:N2} against {1:N2} with all" -f $limited, $all)
+    }
+    SendOk "shadow_rays $radius $blend 1" | Out-Null
+    SendOk (0..7 | ForEach-Object { "set_component tl_$_ PointLight ""{'raytraced_shadow':false}""" }) | Out-Null
+    Assert-True -Condition (-not $Session.Process.HasExited) -Message 'no crash'
+}

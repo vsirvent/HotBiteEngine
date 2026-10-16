@@ -105,6 +105,9 @@ cbuffer externalData : register(b0)
 	float ss_bias;
 	float ss_thickness;
 	float ss_thickness_rel;
+	//Most point lights that trace their shadow that are traced for a pixel in a frame (DEFERRED_LIGHT_RAYS), 0 for all of them. The
+	//others are left for the other frames, and the light of those that are traced is scaled up to make up for them: see main.
+	int shadow_ray_max_lights;
 }
 
 Texture2D<float4> positionTexture : register(t0);
@@ -310,6 +313,33 @@ void main(uint3 gid : SV_GroupID, uint3 dtid : SV_DispatchThreadID)
 #endif
 		}
 	}
+#ifdef DEFERRED_LIGHT_RAYS
+	//A pixel traces at most shadow_ray_max_lights of the lights that reach it in a frame. When more reach it, a window of that many of
+	//them is traced, its start different for every pixel and moving on by the window's size with every frame (shadow_ray_frame, as the
+	//ray jitter does), so that the frames take turns at all of them; the light of the traced ones is scaled by reach / max, the share
+	//of the lights each frame leaves out, so that what the frames add up to is the same as with all of them. ShadowAccumulateCS
+	//averages the frames, which is why this is done only for the light that goes to it (shadow_ray_accumulate): the passes that add
+	//their light straight to the map have no frames to average and trace every light.
+	uint reach = 0u;
+	if (shadow_ray_accumulate != 0 && shadow_ray_max_lights > 0) {
+		for (uint cw = 0; cw < TILE_MASK_WORDS; ++cw) {
+			uint cbits = tileMasks.Load(mask_base + cw * 4);
+			while (cbits != 0u) {
+				const uint cb = firstbitlow(cbits);
+				cbits &= cbits - 1u;
+				const PackedLight CL = lightsBuffer[cw * 32u + cb];
+				if (LightIsRayTraced(CL) && PointLightReaches(CL, P)) {
+					++reach;
+				}
+			}
+		}
+	}
+	const uint max_lights = (uint)max(shadow_ray_max_lights, 0);
+	const bool sampled = reach > max_lights;
+	const uint first = sampled ? (SrHash(px.x + SrHash(px.y)) + (uint)shadow_ray_frame * max_lights) % max(reach, 1u) : 0u;
+	const float light_scale = sampled ? (float)reach / (float)max(max_lights, 1u) : 1.0f;
+	uint ordinal = 0u;
+#endif
 	for (uint w = 0; w < TILE_MASK_WORDS; ++w) {
 		uint bits = tileMasks.Load(mask_base + w * 4);
 		while (bits != 0u) {
@@ -317,24 +347,40 @@ void main(uint3 gid : SV_GroupID, uint3 dtid : SV_DispatchThreadID)
 			bits &= bits - 1u;
 			const PackedLight L = lightsBuffer[w * 32u + b];
 			if (THIS_PERMUTATION_LIGHTS(LightIsRayTraced(L))) {
-				const float3 point_light = ShadePoint(N, P, spec, bloom_scale, L, bloom);
 #ifdef DEFERRED_LIGHT_RAYS
-				if (shadow_ray_accumulate != 0) {
-					lum_rt += point_light;
+				bool traced = true;
+				if (sampled) {
+					//The lights that reach the pixel, in the order of the tile's bits; the ones that do not are not in the window.
+					traced = false;
+					if (PointLightReaches(L, P)) {
+						traced = ((ordinal + reach - first) % reach) < max_lights;
+						++ordinal;
+					}
 				}
-				else {
-					lum += point_light;
+				if (traced) {
+					float3 light_bloom = float3(0.0f, 0.0f, 0.0f);
+					const float3 point_light = ShadePoint(N, P, spec, bloom_scale, L, light_bloom) * light_scale;
+					bloom += light_bloom * light_scale;
+					if (shadow_ray_accumulate != 0) {
+						lum_rt += point_light;
+					}
+					else {
+						lum += point_light;
+					}
 				}
 #else
-				lum += point_light;
+				lum += ShadePoint(N, P, spec, bloom_scale, L, bloom);
 #endif
 			}
 		}
 	}
 #ifdef DEFERRED_LIGHT_RAYS
-	if (shadow_ray_accumulate != 0 && any(lum_rt != 0.0f)) {
+	//A sampled pixel is written even when the lights it traced left it dark: the alpha is what keeps ShadowAccumulateCS from clamping
+	//the history of its neighbourhood to values that do not hold the lights that were left out (see `sampled`).
+	if (shadow_ray_accumulate != 0 && (sampled || any(lum_rt != 0.0f))) {
 		//Everything else of the map is zero: it was cleared before the dispatch.
-		rt_shadow_out[px] = float4(lum_rt * weight, 0.0f);
+		//The alpha tells ShadowAccumulateCS that this pixel's value is one frame's share of its lights, scaled up.
+		rt_shadow_out[px] = float4(lum_rt * weight, sampled ? 1.0f : 0.0f);
 	}
 #endif
 #endif
