@@ -142,6 +142,13 @@ namespace HotBite {
 						it2 = path.rbegin();
 					}
 				}
+				//The loop above restarts its walk one cell short of the end after every cell it keeps (the for's ++ runs
+				//after `it2 = rbegin()`), so the last cell of the path - the target - was only ever kept when it was in
+				//a straight line from the start: any path with a corner ended one or more cells short of its goal.
+				const Int2 final_position = { c->position.x - offset.x, c->position.y - offset.y };
+				if (ret.empty() || !(ret.back() == final_position)) {
+					ret.push_back(final_position);
+				}
 				return ret;
 			}
 
