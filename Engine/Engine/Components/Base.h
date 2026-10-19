@@ -117,6 +117,21 @@ namespace HotBite {
 				void FromJson(const nlohmann::json& j, const ECS::SerializeContext& ctx);
 			};
 
+			//True when every ancestor of `base` is visible. Walks the parent chain; a parent id
+			//that outlived its components ends the walk (it hides nothing), and the walk is
+			//bounded so a parent cycle cannot hang a frame.
+			bool AncestorsVisible(ECS::Coordinator* coordinator, const Base& base);
+
+			//Whether the entity is shown: its own `visible` AND the `visible` of every ancestor.
+			//A child is only visible if its parent is, so hiding an entity hides its whole
+			//subtree without touching the children's own flags (showing the parent again
+			//brings back exactly the children that were visible). `Base::visible` stays the
+			//entity's own authoring flag - everything that decides what is drawn, lit or
+			//animated asks this instead. Entities without a parent cost one extra compare.
+			inline bool IsShown(ECS::Coordinator* coordinator, const Base& base) {
+				return base.visible && (base.parent == ECS::INVALID_ENTITY_ID || AncestorsVisible(coordinator, base));
+			}
+
 			/**
 			 * The transform component: Includes all the position, roation, scale information of the entity.
 			 */

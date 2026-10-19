@@ -1398,7 +1398,7 @@ void RenderSystem::DrawDepth(int w, int h, const float3& camera_position, const 
 				//the depth of an entity outside the view is never read, and drawing it anyway meant a draw call
 				//and constant-buffer uploads for every entity of the world, every frame.
 				DrawBucket(mat.second.second, InstancePass::Depth, CanInstanceBucket(InstancePass::Depth, mat.first, vs, hs, ds, gs, ps), vs, hs, ds, gs, ps,
-					[](const DrawableEntity& de) { return de.base->visible && de.base->scene_visible && de.base->draw_depth; });
+					[this](const DrawableEntity& de) { return IsShown(coordinator, *de.base) && de.base->scene_visible && de.base->draw_depth; });
 			}
 		}
 		e.SetType(EVENT_ID_DEPTH_UNPREPARE_SHADER);
@@ -1414,7 +1414,7 @@ uint64_t RenderSystem::StaticShadowSignature() {
 	for (auto& shaders : shadow_tree) {
 		for (auto& mat : shaders.second) {
 			for (const DrawableEntity& de : mat.second.second.GetData()) {
-				if (!de.base->is_static || !de.base->cast_shadow || !de.base->visible) {
+				if (!de.base->is_static || !de.base->cast_shadow || !IsShown(coordinator, *de.base)) {
 					continue;
 				}
 				mix(de.base->id);
@@ -1450,7 +1450,7 @@ void RenderSystem::CastShadows(int w, int h, const float3& camera_position, cons
 			//lights GatherLights gave a shadow slot to (the nearest few) draw one: a
 			//cube map is six passes over the shadow casters, and a map nothing can
 			//sample is pure waste.
-			if (l.base->visible && l.light->CastShadow() && l.light->render_shadow_slot >= 0) {
+			if (IsShown(coordinator, *l.base) && l.light->CastShadow() && l.light->render_shadow_slot >= 0) {
 				//Render to depth texture					
 				GfxRTV* rtv[1] = { nullptr };
 				context->OMSetRenderTargets(1, rtv, l.light->DepthView());
@@ -1537,7 +1537,7 @@ void RenderSystem::CastShadows(int w, int h, const float3& camera_position, cons
 					coordinator->SendEvent(e);
 					for (auto& mat : shaders.second) {
 						for (DrawableEntity& de : mat.second.second.GetData()) {
-							if (de.base->visible && de.base->cast_shadow && DIST2((l.light->GetData().position - de.transform->position)) < range_p2) {
+							if (IsShown(coordinator, *de.base) && de.base->cast_shadow && DIST2((l.light->GetData().position - de.transform->position)) < range_p2) {
 								PrepareEntity(de, vs, hs, ds, gs, ps);
 								Mesh* mesh = de.mesh;
 								DrawMeshEntity(mesh);
@@ -1553,7 +1553,7 @@ void RenderSystem::CastShadows(int w, int h, const float3& camera_position, cons
 	}
 	
 	for (DirectionalLightEntity& l : directional_lights.GetData()) {
-		if (l.base->visible && l.light->CastShadow()) {
+		if (IsShown(coordinator, *l.base) && l.light->CastShadow()) {
 			//Render to depth texture
 			GfxRTV* rtv[1] = { nullptr };
 			GfxDSV* dv = nullptr;
@@ -1680,7 +1680,7 @@ void RenderSystem::CastShadows(int w, int h, const float3& camera_position, cons
 				for (auto &mat: shaders.second) {
 					DrawBucket(mat.second.second, InstancePass::Shadow, CanInstanceBucket(InstancePass::Shadow, mat.first, vs, hs, ds, gs, ps), vs, hs, ds, gs, ps,
 						[&](const DrawableEntity& de) {
-							return de.base->visible && de.base->cast_shadow &&
+							return IsShown(coordinator, *de.base) && de.base->cast_shadow &&
 								//we paint static objects if static_shadows = true || dynamic objects if static_shadows = false
 								((!static_shadows && !de.base->is_static) || (static_shadows && de.base->is_static)) &&
 								//...and only those the map can hold (an always-drawn entity is not placed by its box)
@@ -2026,7 +2026,7 @@ void RenderSystem::DrawParticles(int w, int h, const float3& camera_position, co
 				PrepareMaterial(mat.first, vs, hs, ds, gs, ps);
 				ps->CopyAllBufferData();
 				for (auto& de : mat.second.second.GetData()) {
-					if (de.base->scene_visible ||de.base->draw_method == DRAW_ALWAYS) {
+					if (IsShown(coordinator, *de.base) && (de.base->scene_visible || de.base->draw_method == DRAW_ALWAYS)) {
 						for (auto& p : de.particles->data.GetData()) {
 							auto vb = p->GetVertexBuffer();
 							if (p->visible && p->GetMaterial() == mat.first && vb->GetVertexCount() > 0) {
@@ -2159,7 +2159,7 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 	float3 sun_direction = { 0.0f, 1.0f, 0.0f };
 	int has_sun = 0;
 	for (const DirectionalLightEntity& l : directional_lights.GetData()) {
-		if (l.base->visible) {
+		if (IsShown(coordinator, *l.base)) {
 			sun_direction = l.light->GetData().direction;
 			has_sun = 1;
 			break;
@@ -2313,7 +2313,7 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 					bool& seen = (ps_light_model == 1) ? scene_has_water[render_pass - 1] : scene_has_lava[render_pass - 1];
 					if (!seen) {
 						for (const DrawableEntity& de : mat.second.second.GetData()) {
-							if (de.base->visible && de.base->scene_visible) {
+							if (IsShown(coordinator, *de.base) && de.base->scene_visible) {
 								seen = true;
 								break;
 							}
@@ -2332,7 +2332,7 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 				//costs far more than the test that skips the draw. With thousands of entities in the world
 				//and a few hundred in view, preparing them all was most of the frame.
 				DrawBucket(mat.second.second, InstancePass::Scene, CanInstanceBucket(InstancePass::Scene, mat.first, vs, hs, ds, gs, ps), vs, hs, ds, gs, ps,
-					[](const DrawableEntity& de) { return de.base->visible && de.base->scene_visible; });
+					[this](const DrawableEntity& de) { return IsShown(coordinator, *de.base) && de.base->scene_visible; });
 				if (mat.first->multi_material != nullptr) {
 					UnprepareMultiMaterial(mat.first, vs, hs, ds, gs, ps);
 				}
@@ -2486,7 +2486,7 @@ void RenderSystem::DrawSplats(int w, int h, const float3& camera_position, const
 	//dispatched: a mid-loop grow would throw away the bins of the cloud in flight.
 	uint32_t max_splats = 0;
 	for (SplatEntity& e : splat_clouds.GetData()) {
-		if (e.base->visible && e.cloud->data != nullptr && e.cloud->data->Prepared()) {
+		if (IsShown(coordinator, *e.base) && e.cloud->data != nullptr && e.cloud->data->Prepared()) {
 			max_splats = max(max_splats, e.cloud->data->Count());
 		}
 	}
@@ -2534,7 +2534,7 @@ void RenderSystem::DrawSplats(int w, int h, const float3& camera_position, const
 
 	bool drew_cloud = false;
 	for (SplatEntity& e : splat_clouds.GetData()) {
-		if (!e.base->visible || e.cloud->data == nullptr || !e.cloud->data->Prepared()) {
+		if (!IsShown(coordinator, *e.base) || e.cloud->data == nullptr || !e.cloud->data->Prepared()) {
 			continue;
 		}
 		const uint32_t count = e.cloud->data->Count();
@@ -3373,13 +3373,13 @@ void RenderSystem::PrepareRT() {
 		emissive.clear();
 
 		const ViewFrustum frustum(cam_entity.camera->xm_view_projection);
-		auto gather = [ca = &cam_entity, &frustum](const RenderTree& tree) {
+		auto gather = [this, ca = &cam_entity, &frustum](const RenderTree& tree) {
 			for (const auto& shaders : tree) {
 				for (const auto& mat : shaders.second) {
 					for (const auto& de : mat.second.second.GetConstData()) {
 						//A mesh with a buffer of its own (the terrain's chunks) is not in the shared geometry the
 						//rays read: its offsets are 0, which is some other model's triangles.
-						if (de.base->visible && de.mesh->GetData()->skeletons.empty() && de.mesh->GetData()->GetOwnedBuffer() == nullptr) {
+						if (IsShown(coordinator, *de.base) && de.mesh->GetData()->skeletons.empty() && de.mesh->GetData()->GetOwnedBuffer() == nullptr) {
 							// Get the center and extents of the oriented box
 							const float3& orientedBoxCenter = de.bounds->final_box.Center;
 							const float3& orientedBoxExtents = de.bounds->final_box.Extents;
@@ -4330,7 +4330,7 @@ void RenderSystem::PrepareLights(Core::ISimpleShader* s, bool volumetric) {
 	//rather than destroyed, so it stays in this list and must not be picked as
 	//index 0 the way it used to be.
 	for (auto& l : ambient_lights.GetData()) {
-		if (l.base->visible) {
+		if (IsShown(coordinator, *l.base)) {
 			s->SetData(AMBIENT_LIGHT, &l.light->GetData(), sizeof(AmbientLight::Data));
 			break;
 		}
@@ -4511,7 +4511,7 @@ void RenderSystem::SetEntityLights(Lighted* lighted, ECS::EntityVector<Direction
 		//A deleted/cut light is parked (Base::visible false), not destroyed, so it
 		//stays registered here and must be skipped or it keeps lighting the scene
 		//after being "removed".
-		if (!l.base->visible) {
+		if (!IsShown(coordinator, *l.base)) {
 			continue;
 		}
 		lighted->dir_lights.push_back(l.light->GetData());
@@ -4579,7 +4579,7 @@ void RenderSystem::GatherLights(const CameraEntity& camera) {
 		//A deleted/cut light is parked (Base::visible false), not destroyed, so it stays
 		//registered here and must be skipped or it keeps lighting the scene after being
 		//"removed".
-		if (!l.base->visible) {
+		if (!IsShown(coordinator, *l.base)) {
 			continue;
 		}
 		light_candidates.push_back({ dist2_to_eye(l.light->GetData()), &l });
@@ -4703,7 +4703,7 @@ void RenderSystem::BuildShadowRays() {
 		//within SHADOW_RAY_SUN_LENGTH of it, and the pixels it is traced for are within the cascades'
 		//shadow distance of the camera. One sphere round the camera covers both.
 		for (DirectionalLightEntity& l : directional_lights.GetData()) {
-			if (l.base->visible && l.light->RayTracedShadow() && !l.light->CastShadow() && !cameras.GetData().empty()) {
+			if (IsShown(coordinator, *l.base) && l.light->RayTracedShadow() && !l.light->CastShadow() && !cameras.GetData().empty()) {
 				++raytraced_directional_count;
 				shadow_ray_sun_distance = (std::max)(shadow_ray_sun_distance, l.light->GetCascadeSettings().distance);
 			}
@@ -4743,7 +4743,7 @@ void RenderSystem::BuildShadowRays() {
 		for (const auto& mat : shaders.second) {
 			for (const DrawableEntity& de : mat.second.second.GetConstData()) {
 				//Skinned meshes are posed on the GPU: their triangles in the BVH are the bind pose.
-				if (!de.base->visible || !de.base->cast_shadow || !de.mesh->GetData()->skeletons.empty()) {
+				if (!IsShown(coordinator, *de.base) || !de.base->cast_shadow || !de.mesh->GetData()->skeletons.empty()) {
 					continue;
 				}
 				//A mesh with a buffer of its own (the terrain's chunks) is not in the shared geometry
@@ -5459,7 +5459,7 @@ void RenderSystem::Draw() {
 		//many seconds of a scene with no shadows on any of the scenery.
 		bool static_stale = false;
 		for (DirectionalLightEntity& l : directional_lights.GetData()) {
-			if (l.base->visible && l.light->CastShadow() && l.light->StaticShadowStale()) {
+			if (IsShown(coordinator, *l.base) && l.light->CastShadow() && l.light->StaticShadowStale()) {
 				static_stale = true;
 				break;
 			}

@@ -58,7 +58,7 @@ void AnimationMeshSystem::OnEntitySignatureChanged(ECS::Entity entity, const Sig
 void AnimationMeshSystem::Update(int64_t elapsed_nsec, int64_t total_nsec) {
 	for (auto it = meshes.GetData().begin(); it != meshes.GetData().end(); ++it)
 	{
-		if (it->base->visible && it->base->scene_visible) {
+		if (IsShown(coordinator, *it->base) && it->base->scene_visible) {
 			it->mesh->Update(elapsed_nsec, total_nsec);
 		}
 	}

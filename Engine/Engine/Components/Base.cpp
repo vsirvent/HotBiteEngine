@@ -47,6 +47,25 @@ namespace HotBite {
 		namespace Components {
 						
 
+			bool AncestorsVisible(ECS::Coordinator* coordinator, const Base& base) {
+				//Parents are shallow (a lamp on a building, a weapon on a unit); the bound is
+				//only there so a cycle in the parent links ends instead of spinning.
+				constexpr int MAX_DEPTH = 64;
+				ECS::Entity up = base.parent;
+				for (int depth = 0; up != ECS::INVALID_ENTITY_ID && depth < MAX_DEPTH; ++depth) {
+					//A parent id can outlive the parent's components (destroying a composed
+					//object): a missing parent hides nothing.
+					if (coordinator == nullptr || !coordinator->ContainsComponent<Base>(up)) {
+						return true;
+					}
+					const Base& parent = coordinator->GetConstComponent<Base>(up);
+					if (!parent.visible) {
+						return false;
+					}
+					up = parent.parent;
+				}
+				return true;
+			}
 			Mesh::Mesh() {
 				end_animation_event.SetSender(this);
 				end_animation_event.SetType(EVENT_ID_ANIMATION_END);

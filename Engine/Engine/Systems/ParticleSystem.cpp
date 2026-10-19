@@ -59,7 +59,7 @@ void ParticleSystem::OnEntitySignatureChanged(ECS::Entity entity, const Signatur
 void ParticleSystem::Update(int64_t elapsed_nsec, int64_t total_nsec) {
 	for (auto it = particles.GetData().begin(); it != particles.GetData().end(); ++it)
 	{
-		if (it->base->scene_visible || it->base->draw_method == DRAW_ALWAYS) {
+		if (IsShown(coordinator, *it->base) && (it->base->scene_visible || it->base->draw_method == DRAW_ALWAYS)) {
 			for (auto& p : it->particles->data.GetData()) {
 				p->Update(elapsed_nsec, total_nsec);
 			}

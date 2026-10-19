@@ -408,6 +408,8 @@ second in a world of five thousand (Survival's resource nodes: ~100 ms a frame i
 `PrepareEntity`, with the GPU driver's own thread busy behind it). An always-drawn entity
 (`DRAW_ALWAYS`) is exempt from the shadow test, since its box does not place it.
 
+A child is only visible if its parent is. `Components::IsShown(coordinator, base)` (Base.h) is `Base::visible` AND the `visible` of every ancestor, and it is what the render, shadow, light, ray tracing, animation and particle code asks instead of reading `Base::visible`: hiding an entity hides its whole subtree without touching the children's own flags, so showing it again brings back exactly the children that were visible. New code that decides whether something is drawn, lit or updated must call it too (a bare `base->visible` ignores the parents). Covered by Scene Editor suite 52.
+
 **Culling is six planes, the ray tracing candidates are the nearest hundred, and similar
 entities are drawn together.** `CheckSceneVisibility` tests each drawable's box against the
 six planes of the view-projection matrix (`ViewFrustum`, a half-unit of slack) once a frame,
