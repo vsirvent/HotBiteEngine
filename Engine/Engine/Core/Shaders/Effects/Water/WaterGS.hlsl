@@ -38,6 +38,9 @@ cbuffer externalData : register(b0)
 	matrix projection;
 	float3 cameraPosition;
 	float time;
+	//How much the surface moves, from the material's wave_scale: 1 is the original swell. The rest height (0.5 above the
+	//mesh) does not scale, so a calmer sea stays at the same level.
+	float waveScale;
 }
 
 [maxvertexcount(3)]
@@ -58,7 +61,7 @@ void main(
 	
 	for (i = 0; i < 3; i++) {
 		wp[i] = input[i].worldPos;
-		float water_level = 0.4f*snoise(float2(time * 0.2f + wp[i].x * 0.2f, 
+		float water_level = waveScale * 0.4f*snoise(float2(time * 0.2f + wp[i].x * 0.2f, 
 			                                   time * 0.2f + wp[i].z * 0.2f)) + 0.5f;
 		wl1[i] = water_level;
 		wl0[i] = input[i].worldPos.y;

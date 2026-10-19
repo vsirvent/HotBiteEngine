@@ -348,6 +348,11 @@ namespace HotBite {
 				//displacement", so only a material that never set the value changes.
 				static constexpr float DEFAULT_DISPLACEMENT_SCALE = 0.1f;
 				float displacement_scale = DEFAULT_DISPLACEMENT_SCALE;
+				//How much the surface moves in a material whose geometry shader waves it (WaterGS.hlsl): 1 is the engine's
+				//original swell (about +-0.4 units), 0.3 a third of it. A game whose units are small beside the sea scales it
+				//down here instead of editing the shader. Only the movement scales: the rest height of the surface does not.
+				//Saved as "wave_scale", and only when it is not 1.
+				float wave_scale = 1.0f;
 
 				//The layer stack this material draws with, or empty/null for a plain
 				//material. The name is the authoring value, saved to and loaded from the

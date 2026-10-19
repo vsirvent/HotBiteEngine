@@ -497,6 +497,7 @@ namespace HotBite {
 				this->tessellation_type = other.tessellation_type;
 				this->tessellation_factor = other.tessellation_factor;
 				this->displacement_scale = other.displacement_scale;
+				this->wave_scale = other.wave_scale;
 
 				this->init = other.init;
 
@@ -561,6 +562,7 @@ namespace HotBite {
 				tessellation_type = j.value("tess_type", 0);
 				tessellation_factor = j.value("tess_factor", 0.0f);
 				displacement_scale = j.value("displacement_scale", DEFAULT_DISPLACEMENT_SCALE);
+				wave_scale = j.value("wave_scale", 1.0f);
 				//Only the name: the stack itself lives in the world's registry, which is
 				//filled from the same file's "multi_materials" array and may not have been
 				//read yet. World::ResolveMultiMaterials binds the pointer afterwards.
@@ -721,6 +723,9 @@ namespace HotBite {
 				j["tess_type"] = tessellation_type;
 				j["tess_factor"] = tessellation_factor;
 				j["displacement_scale"] = displacement_scale;
+				if (wave_scale != 1.0f) {
+					j["wave_scale"] = wave_scale;
+				}
 				//Written unconditionally, empty included: a material that *stopped* being
 				//a multi-material has to say so, or reloading the file would reattach the
 				//stack the key still named.

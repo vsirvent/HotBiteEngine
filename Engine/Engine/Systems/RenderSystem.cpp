@@ -4191,6 +4191,12 @@ void RenderSystem::PrepareMaterial(Core::MaterialData* material, Core::SimpleVer
 		ds->CopyAllBufferData();		
 	}
 
+	if (gs != nullptr) {
+		//The wave amount of a geometry shader that moves the surface (WaterGS.hlsl); the others have no such variable and
+		//SetFloat then does nothing.
+		gs->SetFloat("waveScale", material->wave_scale);
+	}
+
 	if (ps != nullptr) {
 		//Configure shader with material information
 		ps->SetData(MATERIAL, &material->props, sizeof(MaterialProps));
