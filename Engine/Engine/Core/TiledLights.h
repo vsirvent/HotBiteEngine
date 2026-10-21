@@ -127,6 +127,8 @@ namespace HotBite {
 				TiledLights& operator=(const TiledLights&) = delete;
 
 				bool Init(int width, int height);
+				//The screen got another size (dynamic resolution) no bigger than the one Init was given: the buffers stay, the tiles are counted again.
+				void Resize(int width, int height);
 				void Release();
 
 				uint32_t TilesX() const { return tiles_x; }

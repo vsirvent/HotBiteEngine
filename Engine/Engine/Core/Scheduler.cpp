@@ -229,9 +229,20 @@ void Scheduler::Update() {
 		_RegisterTimer(std::move(new_timers.front()));
 		new_timers.pop_front();
 	}
+	std::vector<std::pair<TimerId, int64_t>> changes;
+	changes.swap(period_changes);
 	new_timer_mutex.unlock();
 
 	timer_mutex.lock();
+	for (const auto& change : changes) {
+		for (auto& slot : timers) {
+			for (TimerData& td : slot.second) {
+				if (td.id == change.first) {
+					td.period = change.second;
+				}
+			}
+		}
+	}
 	int64_t t = GetElapsedNanoSeconds();
 	while (!timers.empty()) {
 		std::map<int64_t, std::list<TimerData>>::iterator timer = timers.begin();
@@ -270,6 +281,15 @@ void Scheduler::Update() {
 		}
 	}
 	timer_mutex.unlock();
+}
+
+void Scheduler::SetTimerPeriodAsync(TimerId id, int64_t period_nsec) {
+	if (period_nsec <= 0) {
+		return;
+	}
+	new_timer_mutex.lock();
+	period_changes.emplace_back(id, period_nsec);
+	new_timer_mutex.unlock();
 }
 
 void Scheduler::StartCount(Scheduler::CounterId count_id) {

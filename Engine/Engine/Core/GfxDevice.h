@@ -247,6 +247,9 @@ namespace HotBite {
 				UINT depth_or_array = 1;
 				UINT mip_levels = 1;
 				DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN;
+				//Set on a texture that is one of several placed over the same heap (CreateAliasedTextures2D): the heap
+				//lives as long as any of them does. Only one of the group may be used at a time.
+				Microsoft::WRL::ComPtr<ID3D12Heap> heap;
 			};
 
 			//One surface of an initial-data upload (a mip of an array slice).
@@ -507,6 +510,12 @@ namespace HotBite {
 				HRESULT CreateTexture2D(const D3D12_RESOURCE_DESC& desc, D3D12_RESOURCE_STATES initial_state,
 					const D3D12_CLEAR_VALUE* clear_value, const GfxSubresourceData* data, UINT data_count,
 					GfxTexture** out);
+
+				//`count` textures of different sizes (but one format and one set of flags) placed at the start of one heap
+				//as big as the largest, so they share its memory and cost no more than that one: dynamic resolution keeps
+				//a texture per size and switches between them. Their contents are undefined each time one is switched
+				//to (GfxContext::SwitchAliased, then clear or overwrite it before reading); they start in COMMON.
+				HRESULT CreateAliasedTextures2D(const D3D12_RESOURCE_DESC* descs, UINT count, GfxTexture** out);
 
 				//Wraps a texture somebody else made (a swap chain buffer) so it can be tracked and copied to.
 				HRESULT WrapTexture(ID3D12Resource* resource, D3D12_RESOURCE_STATES state, GfxTexture** out);

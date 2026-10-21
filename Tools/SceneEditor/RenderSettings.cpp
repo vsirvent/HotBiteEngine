@@ -58,6 +58,11 @@ namespace HotBiteEditor {
 			rs->SetLensGrain(0.0f);
 			rs->SetLensVignette(0.0f);
 			rs->SetWireframe(false);
+			//Dynamic resolution is a per-level option and off unless the level says so.
+			rs->SetDynamicResolution(false);
+			rs->SetDynamicResolutionTargetHz(60.0f);
+			rs->SetDynamicResolutionRange(0.5f, 1.0f);
+			rs->SetDynamicResolutionFixedScale(0.0f);
 			//Debug views are a tool, never a level's state: a buffer view or a
 			//bypassed denoiser carried into a freshly opened level would look like
 			//the level rendering wrong.
@@ -123,6 +128,45 @@ namespace HotBiteEditor {
 					"1: a still camera converges fully - least noise, but it looks\n"
 					"different from a moving one. 0: every pixel is treated as\n"
 					"moving, so still and moving look alike, with more noise.");
+			}
+
+			ImGui::Separator();
+
+			//Dynamic resolution: the scene is drawn smaller when the GPU would miss the refresh rate and DLSS makes the
+			//native picture from it. No DLSS (not an RTX card, an old driver, no nvngx_dlss.dll), no option.
+			const bool drs_available = rs->DynamicResolutionAvailable();
+			bool drs = rs->GetDynamicResolution();
+			ImGui::BeginDisabled(!drs_available);
+			if (ImGui::Checkbox("Dynamic resolution (DLSS)", &drs)) {
+				rs->SetDynamicResolution(drs);
+			}
+			ImGui::EndDisabled();
+			if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+				if (drs_available) {
+					ImGui::SetTooltip("Draws the scene at a size that follows the GPU load, so the frame holds the target\n"
+						"refresh rate, and upscales it with DLSS before the interface is drawn.");
+				}
+				else {
+					ImGui::SetTooltip("Not available: %s.", rs->DynamicResolutionReason().c_str());
+				}
+			}
+			if (drs_available && drs) {
+				float hz = rs->GetDynamicResolutionTargetHz();
+				ImGui::SetNextItemWidth(120.0f);
+				if (ImGui::SliderFloat("Target Hz", &hz, 30.0f, 240.0f, "%.0f")) {
+					rs->SetDynamicResolutionTargetHz(hz);
+				}
+				float min_scale = rs->GetDynamicResolutionMinScale();
+				float max_scale = rs->GetDynamicResolutionMaxScale();
+				ImGui::SetNextItemWidth(120.0f);
+				const bool min_changed = ImGui::SliderFloat("Min scale", &min_scale, 0.34f, 1.0f, "%.2f");
+				ImGui::SetNextItemWidth(120.0f);
+				const bool max_changed = ImGui::SliderFloat("Max scale", &max_scale, 0.34f, 1.0f, "%.2f");
+				if (min_changed || max_changed) {
+					rs->SetDynamicResolutionRange(min_scale, max_scale);
+				}
+				const RenderSystem::DynamicResolutionStats st = rs->GetDynamicResolutionStats();
+				ImGui::TextDisabled("%dx%d (%.0f%%)  GPU %.1f ms of %.1f", st.width, st.height, st.scale * 100.0f, st.gpu_ms, st.budget_ms);
 			}
 
 			ImGui::Separator();
@@ -449,6 +493,35 @@ namespace HotBiteEditor {
 				rs->SetRayTracing(reflections, refractions, indirect);
 				return true;
 			}
+			if (key == "drs") {
+				bool enabled;
+				if (!ParseBool(value, enabled)) { error = key + " must be 0|1"; return false; }
+				if (enabled && !rs->SetDynamicResolution(true)) {
+					error = "dynamic resolution is not available: " + rs->DynamicResolutionReason();
+					return false;
+				}
+				if (!enabled) { rs->SetDynamicResolution(false); }
+				return true;
+			}
+			if (key == "drs_hz" || key == "drs_min_scale" || key == "drs_max_scale" || key == "drs_fixed_scale") {
+				float v;
+				try { v = std::stof(value); }
+				catch (...) { error = key + " must be a float"; return false; }
+				if (key == "drs_hz") {
+					if (v < 24.0f || v > 360.0f) { error = key + " must be within 24..360"; return false; }
+					rs->SetDynamicResolutionTargetHz(v);
+				}
+				else if (key == "drs_fixed_scale") {
+					if (v < 0.0f || v > 1.0f) { error = key + " must be within 0..1 (0 = automatic)"; return false; }
+					rs->SetDynamicResolutionFixedScale(v);
+				}
+				else {
+					if (v < 0.34f || v > 1.0f) { error = key + " must be within 0.34..1"; return false; }
+					if (key == "drs_min_scale") { rs->SetDynamicResolutionRange(v, rs->GetDynamicResolutionMaxScale()); }
+					else { rs->SetDynamicResolutionRange(rs->GetDynamicResolutionMinScale(), v); }
+				}
+				return true;
+			}
 			if (key == "aa" || key == "motion_blur" || key == "dof" || key == "lens_flare" ||
 				key == "lens" || key == "wireframe") {
 				bool enabled;
@@ -555,6 +628,25 @@ namespace HotBiteEditor {
 				RenderSystem* rs = GetRenderSystem(app);
 				j["debug_buffer"] = RenderSystem::DebugBufferName(rs->GetDebugBuffer());
 				j["debug_gain"] = rs->GetDebugGain();
+				const bool drs_available = rs->DynamicResolutionAvailable();
+				j["drs_available"] = drs_available;
+				//Why it is not available, or the last thing that went wrong with it (it turns itself off when DLSS fails).
+				if (!rs->DynamicResolutionReason().empty()) {
+					j["drs_message"] = rs->DynamicResolutionReason();
+				}
+				const RenderSystem::DynamicResolutionStats st = rs->GetDynamicResolutionStats();
+				j["drs_active"] = st.active;
+				j["drs_step"] = st.step;
+				j["drs_scale"] = st.scale;
+				j["drs_width"] = st.width;
+				j["drs_height"] = st.height;
+				j["drs_native_width"] = st.native_width;
+				j["drs_native_height"] = st.native_height;
+				j["drs_gpu_ms"] = st.gpu_ms;
+				j["drs_budget_ms"] = st.budget_ms;
+				j["drs_changes"] = st.changes;
+				j["drs_upscaled_frames"] = st.upscaled_frames;
+				j["drs_fixed_scale"] = rs->GetDynamicResolutionFixedScale();
 				j["gi_denoise"] = !rs->GetDebugFlag(RenderSystem::RT_DEBUG_NO_GI_DENOISE);
 				j["rt_denoise"] = !rs->GetDebugFlag(RenderSystem::RT_DEBUG_NO_RT_DENOISE);
 			}
@@ -589,6 +681,10 @@ namespace HotBiteEditor {
 				j["lens_grain"] = rs->GetLensGrain();
 				j["lens_vignette"] = rs->GetLensVignette();
 				j["wireframe"] = rs->GetWireframe();
+				j["drs"] = rs->GetDynamicResolution();
+				j["drs_hz"] = rs->GetDynamicResolutionTargetHz();
+				j["drs_min_scale"] = rs->GetDynamicResolutionMinScale();
+				j["drs_max_scale"] = rs->GetDynamicResolutionMaxScale();
 				Core::BaseDOFProcess* dof_effect = app.GetDofEffect();
 				if (dof_effect != nullptr) {
 					j["dof_focus"] = dof_effect->GetFocus();
@@ -655,6 +751,14 @@ namespace HotBiteEditor {
 			if (j.contains("lens_grain")) { rs->SetLensGrain(j.value("lens_grain", rs->GetLensGrain())); }
 			if (j.contains("lens_vignette")) { rs->SetLensVignette(j.value("lens_vignette", rs->GetLensVignette())); }
 			if (j.contains("wireframe")) { rs->SetWireframe(j.value("wireframe", rs->GetWireframe())); }
+			//Dynamic resolution: the level asks for it, the machine says whether it can (DLSS). Where it cannot, the level
+			//simply renders at the native size, and keeps the request in its file for a machine that can.
+			if (j.contains("drs_hz")) { rs->SetDynamicResolutionTargetHz(j.value("drs_hz", rs->GetDynamicResolutionTargetHz())); }
+			if (j.contains("drs_min_scale") || j.contains("drs_max_scale")) {
+				rs->SetDynamicResolutionRange(j.value("drs_min_scale", rs->GetDynamicResolutionMinScale()),
+					j.value("drs_max_scale", rs->GetDynamicResolutionMaxScale()));
+			}
+			if (j.value("drs", false)) { rs->SetDynamicResolution(true); }
 
 			Core::BaseDOFProcess* dof_effect = app.GetDofEffect();
 			if (dof_effect != nullptr) {

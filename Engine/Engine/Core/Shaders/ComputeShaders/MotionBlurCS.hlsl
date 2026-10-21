@@ -12,10 +12,12 @@ cbuffer externalData : register(b0)
     matrix prev_view_proj;
     int enabled;
     float blur_scale;
+    //Motion texture size over input size: dynamic resolution draws the scene smaller than the picture this blurs.
+    float2 motion_ratio;
 }
 
 float2 GetPixelDir(float2 pixel) {
-    return motionTexture[pixel].xy;
+    return motionTexture[pixel * motion_ratio].xy;
 }
 
 #define MAX_STEPS 30

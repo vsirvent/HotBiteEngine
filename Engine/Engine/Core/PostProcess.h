@@ -89,6 +89,8 @@ namespace HotBite {
 				PostProcess* next = nullptr;
 				std::map<std::string, GfxSRV*> srvs;
 				std::map<std::string, std::vector<uint8_t>> vars;
+				//What the stage reads instead of its own texture (see SetInputOverride).
+				GfxSRV* input_override = nullptr;
 
 				virtual GfxRTV* TargetRenderView();
 				virtual GfxDSV* TargetDepthView();
@@ -114,6 +116,11 @@ namespace HotBite {
 				//of the full chain
 				void Process();
 			
+				//The stage draws this instead of its own texture, which stays what the scene is drawn into. Dynamic resolution
+				//uses it: the first stage's texture is the size of the internal image, and what the chain starts from is the
+				//native one DLSS made. Null (the default) = the stage's own texture.
+				void SetInputOverride(GfxSRV* srv) { input_override = srv; }
+
 				//Connection chain
 				void SetNext(PostProcess* next);
 				PostProcess* GetNext() const;

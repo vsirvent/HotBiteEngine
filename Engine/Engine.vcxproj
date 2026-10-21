@@ -186,6 +186,7 @@
     <ClCompile Include="Engine\Core\SplatCloud.cpp" />
     <ClCompile Include="Engine\Core\SplatMeshReconstruction.cpp" />
     <ClCompile Include="Engine\Core\Texture.cpp" />
+    <ClCompile Include="Engine\Core\Dlss.cpp" />
     <ClCompile Include="Engine\Core\TextureCache.cpp" />
     <ClCompile Include="Engine\Core\AccelStructure.cpp" />
     <ClCompile Include="Engine\Core\ShadowRays.cpp" />
@@ -254,6 +255,8 @@
     <ClInclude Include="Engine\Core\SplatCloud.h" />
     <ClInclude Include="Engine\Core\SplatMeshReconstruction.h" />
     <ClInclude Include="Engine\Core\Texture.h" />
+    <ClInclude Include="Engine\Core\Dlss.h" />
+    <ClInclude Include="Engine\Core\DynamicResolution.h" />
     <ClInclude Include="Engine\Core\TextureCache.h" />
     <ClInclude Include="Engine\Core\AccelStructure.h" />
     <ClInclude Include="Engine\Core\ShadowRays.h" />
@@ -898,6 +901,25 @@
   <PropertyGroup>
     <HotBiteDxcDependsOn>InvalidateShadersOnSharedHeaderChange</HotBiteDxcDependsOn>
   </PropertyGroup>
+  <!-- NVIDIA DLSS (dynamic resolution): the SDK is the ThirdParty/DLSS submodule. Without it the engine builds with
+       no DLSS and the option is unavailable (Core/Dlss.cpp). nvsdk_ngx_d.lib is the dynamic-CRT static library, merged
+       into Engine.lib so that nothing that links the engine has to know about it. -->
+  <PropertyGroup>
+    <DlssDir>$(MSBuildProjectDirectory)\..\ThirdParty\DLSS\</DlssDir>
+    <HasDlss Condition="Exists('$(DlssDir)include\nvsdk_ngx.h')">true</HasDlss>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(HasDlss)'=='true' And '$(Platform)'=='x64'">
+    <ClCompile>
+      <PreprocessorDefinitions>HOTBITE_DLSS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(DlssDir)include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <Lib Condition="'$(Configuration)'=='Release'">
+      <AdditionalDependencies>$(DlssDir)lib\Windows_x86_64\x64\nvsdk_ngx_d.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Lib>
+    <Lib Condition="'$(Configuration)'=='Debug'">
+      <AdditionalDependencies>$(DlssDir)lib\Windows_x86_64\x64\nvsdk_ngx_d_dbg.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Lib>
+  </ItemDefinitionGroup>
   <Import Project="Dxc.targets" />
   <ImportGroup Label="ExtensionTargets">
     <Import Project="..\Solution\packages\directxtex_desktop_2019.2022.10.18.1\build\native\directxtex_desktop_2019.targets" Condition="Exists('..\Solution\packages\directxtex_desktop_2019.2022.10.18.1\build\native\directxtex_desktop_2019.targets')" />

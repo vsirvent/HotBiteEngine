@@ -1,0 +1,4 @@
+[submodule "ThirdParty/DLSS"]
+	path = ThirdParty/DLSS
+	url = https://github.com/NVIDIA/DLSS.git
+	shallow = true

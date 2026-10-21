@@ -24,6 +24,9 @@ SOFTWARE.
 
 #include "Texture.h"
 
+#include <algorithm>
+#include <cmath>
+
 //--------------------------------------------------------------------------------------
 // Return the BPP for a particular format.
 //--------------------------------------------------------------------------------------
@@ -330,6 +333,9 @@ namespace HotBite {
 			}
 
 			void DepthTexture2D::Release() {
+				ReleaseVariants();
+				UnregisterScaled();
+				scaled = false;
 				if (texture) {
 					if (depth_stencil_view) { depth_stencil_view->Release(); }
 					if (shader_resource_view) { shader_resource_view->Release(); }
@@ -626,6 +632,9 @@ namespace HotBite {
 			}
 
 			void RenderTexture2D::Release() {
+				ReleaseVariants();
+				UnregisterScaled();
+				scaled = false;
 				if (texture) {
 					texture->Release();
 					if (shader_resource_view) { shader_resource_view->Release(); }
@@ -670,6 +679,427 @@ namespace HotBite {
 
 			GfxRTV* RenderTexture2D::RenderTarget() const {
 				return render_view;
+			}
+
+			//-------------------------------------------------------------------------------------------
+			// Dynamic resolution: the textures that follow the render scale
+			//-------------------------------------------------------------------------------------------
+
+			ScaledResource::~ScaledResource() {
+				UnregisterScaled();
+			}
+
+			void ScaledResource::RegisterScaled() {
+				if (!registered) {
+					RenderScale::Get().Add(this);
+					registered = true;
+				}
+			}
+
+			void ScaledResource::UnregisterScaled() {
+				if (registered) {
+					RenderScale::Get().Remove(this);
+					registered = false;
+				}
+			}
+
+			void ScaledResource::SetNative(bool native) {
+				pinned_native = native;
+				//Pinned after the sizes were made: back to the native one now, and it stays there.
+				if (native && RenderScale::Get().Built()) {
+					SelectStep(0);
+				}
+			}
+
+			RenderScale& RenderScale::Get() {
+				//Never destroyed: a texture that outlives the static destructors still unregisters from it.
+				static RenderScale* instance = new RenderScale();
+				return *instance;
+			}
+
+			void RenderScale::SetNativeSize(int w, int h) {
+				std::lock_guard<std::recursive_mutex> lock(mutex);
+				native_w = w;
+				native_h = h;
+				if (!built) {
+					width = w;
+					height = h;
+				}
+			}
+
+			float RenderScale::StepScale(int s) const {
+				return s <= 0 ? 1.0f : std::pow(STEP_RATIO, (float)s);
+			}
+
+			void RenderScale::StepSize(int s, int& w, int& h) const {
+				if (s <= 0) {
+					w = native_w;
+					h = native_h;
+					return;
+				}
+				const float f = StepScale(s);
+				w = (std::max)(16, (int)((float)native_w * f + 0.5f) & ~1);
+				h = (std::max)(16, (int)((float)native_h * f + 0.5f) & ~1);
+			}
+
+			int RenderScale::StepFor(float scale) const {
+				for (int s = STEPS - 1; s > 0; --s) {
+					if (StepScale(s) >= scale - 0.001f) {
+						return s;
+					}
+				}
+				return 0;
+			}
+
+			int RenderScale::StepAtMost(float scale) const {
+				for (int s = 0; s < STEPS - 1; ++s) {
+					if (StepScale(s) <= scale + 0.001f) {
+						return s;
+					}
+				}
+				return STEPS - 1;
+			}
+
+			void RenderScale::Add(ScaledResource* resource) {
+				std::lock_guard<std::recursive_mutex> lock(mutex);
+				resources.push_back(resource);
+			}
+
+			void RenderScale::Remove(ScaledResource* resource) {
+				std::lock_guard<std::recursive_mutex> lock(mutex);
+				resources.erase(std::remove(resources.begin(), resources.end(), resource), resources.end());
+			}
+
+			bool RenderScale::Build() {
+				std::lock_guard<std::recursive_mutex> lock(mutex);
+				if (built) {
+					return true;
+				}
+				if (native_w <= 0 || native_h <= 0) {
+					SetNativeSize(DXCore::Get()->GetWidth(), DXCore::Get()->GetHeight());
+				}
+				sizes.clear();
+				for (int s = 0; s < STEPS; ++s) {
+					int w = 0;
+					int h = 0;
+					StepSize(s, w, h);
+					sizes.emplace_back(w, h);
+				}
+				//Set before the textures are made: they ask for the step in use.
+				built = true;
+				step = 0;
+				width = native_w;
+				height = native_h;
+				bool ok = true;
+				for (ScaledResource* r : resources) {
+					if (FAILED(r->BuildSteps(sizes))) {
+						ok = false;
+					}
+				}
+				if (!ok) {
+					//What was made stays at step 0, the native size, which is how it was; nothing can switch.
+					LOG_ERROR("RenderScale: a texture could not be made in every size, dynamic resolution is not available");
+					for (ScaledResource* r : resources) {
+						r->SelectStep(0);
+					}
+					built = false;
+				}
+				++generation;
+				return ok;
+			}
+
+			void RenderScale::Select(int s) {
+				std::lock_guard<std::recursive_mutex> lock(mutex);
+				if (!built) {
+					return;
+				}
+				s = (std::min)((std::max)(s, 0), STEPS - 1);
+				for (ScaledResource* r : resources) {
+					if (!r->IsNative()) {
+						r->SelectStep(s);
+					}
+				}
+				step = s;
+				StepSize(s, width, height);
+				++generation;
+			}
+
+			//The size a texture takes when the frame is iw x ih.
+			void RenderTexture2D::SizeAt(int iw, int ih, int& w, int& h) const {
+				if (scaled_size) {
+					scaled_size(iw, ih, w, h);
+				}
+				else {
+					const RenderScale& rs = RenderScale::Get();
+					const float fx = (float)iw / (float)(std::max)(rs.NativeWidth(), 1);
+					const float fy = (float)ih / (float)(std::max)(rs.NativeHeight(), 1);
+					w = (int)((float)base_w * fx + 0.5f);
+					h = (int)((float)base_h * fy + 0.5f);
+				}
+				w = (std::max)(w, 1);
+				h = (std::max)(h, 1);
+			}
+
+			HRESULT RenderTexture2D::InitScaled(int w, int h, DXGI_FORMAT format, uint32_t bind_flags, ScaledSizeFn size) {
+				RenderScale& rs = RenderScale::Get();
+				if (rs.NativeWidth() <= 0) {
+					rs.SetNativeSize(DXCore::Get()->GetWidth(), DXCore::Get()->GetHeight());
+				}
+				HRESULT hr = Init(w, h, format, nullptr, 0, bind_flags);
+				if (FAILED(hr)) {
+					return hr;
+				}
+				scaled = true;
+				base_w = w;
+				base_h = h;
+				scaled_format = format;
+				scaled_bind_flags = bind_flags;
+				scaled_size = size;
+				RegisterScaled();
+				if (rs.Built() && !pinned_native) {
+					hr = BuildSteps(rs.Sizes());
+				}
+				return hr;
+			}
+
+			HRESULT RenderTexture2D::BuildSteps(const std::vector<std::pair<int, int>>& screen_sizes) {
+				if (!scaled || !init || pinned_native || !variants.empty() || screen_sizes.empty()) {
+					return S_OK;
+				}
+				GfxDevice* device = DXCore::Get()->device;
+				D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+				if (scaled_bind_flags & GFX_BIND_UNORDERED_ACCESS) {
+					flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+				}
+				const UINT count = (UINT)screen_sizes.size();
+				std::vector<D3D12_RESOURCE_DESC> descs(count);
+				std::vector<GfxTexture*> textures(count, nullptr);
+				std::vector<Variant> made(count);
+				for (UINT i = 0; i < count; ++i) {
+					SizeAt(screen_sizes[i].first, screen_sizes[i].second, made[i].w, made[i].h);
+					if (made[i].w > MAX_TEXTURE_SIZE || made[i].h > MAX_TEXTURE_SIZE) {
+						return E_FAIL;
+					}
+					descs[i] = Texture2DDesc(made[i].w, made[i].h, 1, 1, scaled_format, flags);
+				}
+				HRESULT hr = device->CreateAliasedTextures2D(descs.data(), count, textures.data());
+				if (FAILED(hr)) {
+					return hr;
+				}
+				for (UINT i = 0; i < count && SUCCEEDED(hr); ++i) {
+					made[i].texture = textures[i];
+					D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc = {};
+					srv_desc.Format = scaled_format;
+					srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+					srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+					srv_desc.Texture2D.MipLevels = 1;
+					srv_desc.Texture2D.MostDetailedMip = 0;
+					hr = device->CreateSRV(textures[i], &srv_desc, &made[i].srv);
+					if (SUCCEEDED(hr) && (scaled_bind_flags & GFX_BIND_UNORDERED_ACCESS)) {
+						hr = device->CreateUAV(textures[i], nullptr, &made[i].uav);
+					}
+					if (SUCCEEDED(hr)) {
+						D3D12_RENDER_TARGET_VIEW_DESC rtv_desc = {};
+						rtv_desc.Format = scaled_format;
+						rtv_desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
+						rtv_desc.Texture2D.MipSlice = 0;
+						hr = device->CreateRTV(textures[i], &rtv_desc, &made[i].rtv);
+					}
+				}
+				if (FAILED(hr)) {
+					for (Variant& v : made) {
+						if (v.srv) { v.srv->Release(); }
+						if (v.rtv) { v.rtv->Release(); }
+						if (v.uav) { v.uav->Release(); }
+						if (v.texture) { v.texture->Release(); }
+					}
+					return hr;
+				}
+				//The texture made by Init gives way to the ones that share their memory.
+				if (texture) {
+					if (shader_resource_view) { shader_resource_view->Release(); }
+					if (render_view) { render_view->Release(); }
+					if (uav) { uav->Release(); }
+					texture->Release();
+				}
+				texture = nullptr;
+				shader_resource_view = nullptr;
+				render_view = nullptr;
+				uav = nullptr;
+				variants = std::move(made);
+				active_step = -1;
+				SelectStep((std::min)((std::max)(RenderScale::Get().Step(), 0), (int)variants.size() - 1));
+				return S_OK;
+			}
+
+			void RenderTexture2D::SelectStep(int step) {
+				if (variants.empty()) {
+					return;
+				}
+				step = (std::min)((std::max)(step, 0), (int)variants.size() - 1);
+				GfxContext* context = DXCore::Get()->context;
+				GfxTexture* from = (active_step >= 0 && active_step < (int)variants.size()) ? variants[active_step].texture : nullptr;
+				const Variant& v = variants[step];
+				context->SwitchAliased(from, v.texture);
+				texture = v.texture;
+				shader_resource_view = v.srv;
+				render_view = v.rtv;
+				uav = v.uav;
+				width = v.w;
+				height = v.h;
+				tex_desc = v.texture->desc;
+				active_step = step;
+				//What the memory held belonged to the size before; zero is also what the temporal filters start from.
+				static const float zero[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+				context->ClearRenderTargetView(render_view, zero);
+			}
+
+			void RenderTexture2D::ReleaseVariants() {
+				if (variants.empty()) {
+					return;
+				}
+				for (Variant& v : variants) {
+					if (v.srv) { v.srv->Release(); }
+					if (v.rtv) { v.rtv->Release(); }
+					if (v.uav) { v.uav->Release(); }
+					if (v.texture) { v.texture->Release(); }
+				}
+				variants.clear();
+				active_step = 0;
+				texture = nullptr;
+				shader_resource_view = nullptr;
+				render_view = nullptr;
+				uav = nullptr;
+			}
+
+			void DepthTexture2D::SizeAt(int iw, int ih, int& w, int& h) const {
+				if (scaled_size) {
+					scaled_size(iw, ih, w, h);
+				}
+				else {
+					const RenderScale& rs = RenderScale::Get();
+					const float fx = (float)iw / (float)(std::max)(rs.NativeWidth(), 1);
+					const float fy = (float)ih / (float)(std::max)(rs.NativeHeight(), 1);
+					w = (int)((float)base_w * fx + 0.5f);
+					h = (int)((float)base_h * fy + 0.5f);
+				}
+				w = (std::max)(w, 1);
+				h = (std::max)(h, 1);
+			}
+
+			HRESULT DepthTexture2D::InitScaled(int w, int h, ScaledSizeFn size) {
+				RenderScale& rs = RenderScale::Get();
+				if (rs.NativeWidth() <= 0) {
+					rs.SetNativeSize(DXCore::Get()->GetWidth(), DXCore::Get()->GetHeight());
+				}
+				HRESULT hr = Init(w, h);
+				if (FAILED(hr)) {
+					return hr;
+				}
+				scaled = true;
+				base_w = w;
+				base_h = h;
+				scaled_size = size;
+				RegisterScaled();
+				if (rs.Built() && !pinned_native) {
+					hr = BuildSteps(rs.Sizes());
+				}
+				return hr;
+			}
+
+			HRESULT DepthTexture2D::BuildSteps(const std::vector<std::pair<int, int>>& screen_sizes) {
+				if (!scaled || !init || pinned_native || !variants.empty() || screen_sizes.empty()) {
+					return S_OK;
+				}
+				GfxDevice* device = DXCore::Get()->device;
+				const UINT count = (UINT)screen_sizes.size();
+				std::vector<D3D12_RESOURCE_DESC> descs(count);
+				std::vector<GfxTexture*> textures(count, nullptr);
+				std::vector<Variant> made(count);
+				for (UINT i = 0; i < count; ++i) {
+					SizeAt(screen_sizes[i].first, screen_sizes[i].second, made[i].w, made[i].h);
+					if (made[i].w > MAX_TEXTURE_SIZE || made[i].h > MAX_TEXTURE_SIZE) {
+						return E_FAIL;
+					}
+					descs[i] = Texture2DDesc(made[i].w, made[i].h, 1, 1, DXGI_FORMAT_R32_TYPELESS, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL);
+				}
+				HRESULT hr = device->CreateAliasedTextures2D(descs.data(), count, textures.data());
+				if (FAILED(hr)) {
+					return hr;
+				}
+				for (UINT i = 0; i < count && SUCCEEDED(hr); ++i) {
+					made[i].texture = textures[i];
+					D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc = {};
+					srv_desc.Format = DXGI_FORMAT_R32_FLOAT;
+					srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+					srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+					srv_desc.Texture2D.MipLevels = 1;
+					srv_desc.Texture2D.MostDetailedMip = 0;
+					hr = device->CreateSRV(textures[i], &srv_desc, &made[i].srv);
+					if (SUCCEEDED(hr)) {
+						D3D12_DEPTH_STENCIL_VIEW_DESC dsv_desc = {};
+						dsv_desc.Format = DXGI_FORMAT_D32_FLOAT;
+						dsv_desc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+						dsv_desc.Texture2D.MipSlice = 0;
+						dsv_desc.Flags = D3D12_DSV_FLAG_NONE;
+						hr = device->CreateDSV(textures[i], &dsv_desc, &made[i].dsv);
+					}
+				}
+				if (FAILED(hr)) {
+					for (Variant& v : made) {
+						if (v.srv) { v.srv->Release(); }
+						if (v.dsv) { v.dsv->Release(); }
+						if (v.texture) { v.texture->Release(); }
+					}
+					return hr;
+				}
+				if (texture) {
+					if (depth_stencil_view) { depth_stencil_view->Release(); }
+					if (shader_resource_view) { shader_resource_view->Release(); }
+					texture->Release();
+				}
+				texture = nullptr;
+				shader_resource_view = nullptr;
+				depth_stencil_view = nullptr;
+				variants = std::move(made);
+				active_step = -1;
+				SelectStep((std::min)((std::max)(RenderScale::Get().Step(), 0), (int)variants.size() - 1));
+				return S_OK;
+			}
+
+			void DepthTexture2D::SelectStep(int step) {
+				if (variants.empty()) {
+					return;
+				}
+				step = (std::min)((std::max)(step, 0), (int)variants.size() - 1);
+				GfxContext* context = DXCore::Get()->context;
+				GfxTexture* from = (active_step >= 0 && active_step < (int)variants.size()) ? variants[active_step].texture : nullptr;
+				const Variant& v = variants[step];
+				context->SwitchAliased(from, v.texture);
+				texture = v.texture;
+				shader_resource_view = v.srv;
+				depth_stencil_view = v.dsv;
+				width = v.w;
+				height = v.h;
+				active_step = step;
+				//A depth buffer must be cleared before it is used after its memory was somebody else's.
+				context->ClearDepthStencilView(depth_stencil_view, D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0);
+			}
+
+			void DepthTexture2D::ReleaseVariants() {
+				if (variants.empty()) {
+					return;
+				}
+				for (Variant& v : variants) {
+					if (v.srv) { v.srv->Release(); }
+					if (v.dsv) { v.dsv->Release(); }
+					if (v.texture) { v.texture->Release(); }
+				}
+				variants.clear();
+				active_step = 0;
+				texture = nullptr;
+				shader_resource_view = nullptr;
+				depth_stencil_view = nullptr;
 			}
 		}
 	}

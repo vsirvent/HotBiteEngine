@@ -95,6 +95,9 @@
     <ClCompile Include="Engine\Core\Texture.cpp">
       <Filter>Engine\Core</Filter>
     </ClCompile>
+    <ClCompile Include="Engine\Core\Dlss.cpp">
+      <Filter>Engine\Core</Filter>
+    </ClCompile>
     <ClCompile Include="Engine\Core\Vertex.cpp">
       <Filter>Engine\Core</Filter>
     </ClCompile>
@@ -317,6 +320,12 @@
       <Filter>Engine\Core</Filter>
     </ClInclude>
     <ClInclude Include="Engine\Core\Texture.h">
+      <Filter>Engine\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\Core\Dlss.h">
+      <Filter>Engine\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\Core\DynamicResolution.h">
       <Filter>Engine\Core</Filter>
     </ClInclude>
     <ClInclude Include="Engine\Core\Vertex.h">

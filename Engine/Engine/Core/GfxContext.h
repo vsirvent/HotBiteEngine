@@ -248,6 +248,12 @@ namespace HotBite {
 				//Moves a resource to a state now, outside of a bind (a texture going to PRESENT, a copy).
 				void Transition(GfxResource* resource, D3D12_RESOURCE_STATES state);
 
+				//Stops using `from` and starts using `to`, two textures of one CreateAliasedTextures2D group: both
+				//are left in COMMON, the barrier that hands the memory over is recorded, and `to` holds nothing
+				//until it is cleared or written. A texture that was never used can be passed as `from` (nullptr
+				//too: then any texture of the heap is the one switched away from).
+				void SwitchAliased(GfxTexture* from, GfxTexture* to);
+
 				//Makes `value` the contents of a (Static) buffer at `offset` after `bytes`, for upload from
 				//the ring: returns the ring chunk so the caller can fill it. Used by UpdateBuffer.
 				struct RingAllocation {

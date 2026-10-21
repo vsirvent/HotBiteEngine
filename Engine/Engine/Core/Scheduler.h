@@ -111,6 +111,8 @@ namespace HotBite {
 				std::unordered_map<CounterId, int64_t> counters;
 				std::list<TimerData> new_timers;
 				std::list<TimerId> removed_timers;
+				//Periods asked for from inside a callback (or another thread), applied at the top of the next Update.
+				std::vector<std::pair<TimerId, int64_t>> period_changes;
 				std::map<int64_t, std::list<TimerData>> timers;
 				std::queue<TimerId> timer_id_counters;
 				
@@ -154,6 +156,9 @@ namespace HotBite {
 				TimerId Exec(std::function<bool(const TimerData&)> cb);
 				bool RemoveTimer(TimerId id);
 				void RemoveTimerAsync(TimerId id);
+				//Changes how often a timer fires, from its next run on. Safe to call from any callback, including the timer's
+				//own (a callback runs with the scheduler locked): the change is applied at the start of the next Update.
+				void SetTimerPeriodAsync(TimerId id, int64_t period_nsec);
 
 
 				//Counters management

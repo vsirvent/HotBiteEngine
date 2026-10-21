@@ -28,6 +28,8 @@ SOFTWARE.
 #include <Core/SimpleShader.h>
 #include <Core/Utils.h>
 #include <Core/TextureCache.h>
+#include <Core/Dlss.h>
+#include <algorithm>
 #include <chrono>
 #include <unordered_map>
 #include <unordered_set>
@@ -429,53 +431,53 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		first_pass_target = dxcore;
 		int w = dxcore->GetWidth();
 		int h = dxcore->GetHeight();
+		//Every texture of the frame that follows the render scale is a fraction of this size (dynamic resolution).
+		Core::RenderScale::Get().SetNativeSize(w, h);
+		render_viewport = dxcore->viewport;
 		
 		for (int i = 0; i < 2; ++i)
 		{
-			if (FAILED(light_map[i].Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
+			if (FAILED(light_map[i].InitScaled(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, GFX_BIND_UNORDERED_ACCESS))) {
 				throw std::exception("light_map.Init failed");
 			}
 		}
-		if (FAILED(vol_light_map.Init(w / 2, h / 2, DXGI_FORMAT::DXGI_FORMAT_R11G11B10_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
+		if (FAILED(vol_light_map.InitScaled(w / 2, h / 2, DXGI_FORMAT::DXGI_FORMAT_R11G11B10_FLOAT, GFX_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("vol_light_map.Init failed");
 		}
-		if (FAILED(lens_flare_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R11G11B10_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
+		if (FAILED(lens_flare_map.InitScaled(w, h, DXGI_FORMAT::DXGI_FORMAT_R11G11B10_FLOAT, GFX_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("lens_flare_map.Init failed");
 		}
-		if (FAILED(dust_render_map.Init(w / 2, h / 2, DXGI_FORMAT::DXGI_FORMAT_R11G11B10_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
+		if (FAILED(dust_render_map.InitScaled(w / 2, h / 2, DXGI_FORMAT::DXGI_FORMAT_R11G11B10_FLOAT, GFX_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("dust_render_map.Init failed");
 		}
-		if (FAILED(vol_light_map2.Init(w / 2, h / 2, DXGI_FORMAT::DXGI_FORMAT_R11G11B10_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
+		if (FAILED(vol_light_map2.InitScaled(w / 2, h / 2, DXGI_FORMAT::DXGI_FORMAT_R11G11B10_FLOAT, GFX_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("vol_light_map2.Init failed");
 		}
 		//UNORDERED_ACCESS because the Gaussian splat rasterizer (SplatRasterCS) writes
 		//this from compute. It stays an RTV in DrawScene's seven-target set - the flag
 		//only adds a second way to bind it, and the two are never bound at once.
-		if (FAILED(position_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT,
-			nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
+		if (FAILED(position_map.InitScaled(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, GFX_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("position_map.Init failed");
 		}
 		//UNORDERED_ACCESS for the same reason position_map has it: SplatRasterCS fills the
 		//whole G-buffer from compute, and a cloud with no previous position would report
 		//zero motion however fast it moved.
-		if (FAILED(prev_position_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT,
-			nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
+		if (FAILED(prev_position_map.InitScaled(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, GFX_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("prev_position_map.Init failed");
 		}
 		//The eighth G-buffer target (see material_map in the header). Half precision is
 		//plenty for a spec intensity, a bloom scale, a transmission depth or a unit
 		//normal's xz, and halves what the eighth target costs; the shading model in w is a
 		//small integer, exact in a half up to 2048.
-		if (FAILED(material_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT,
-			nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
+		if (FAILED(material_map.InitScaled(w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, GFX_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("material_map.Init failed");
 		}
 		if (!tiled_lights.Init(w, h)) {
 			throw std::exception("tiled_lights.Init failed");
 		}
-		if (FAILED(shadow_rt_light.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS)) ||
-			FAILED(shadow_rt_history[0].Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS)) ||
-			FAILED(shadow_rt_history[1].Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
+		if (FAILED(shadow_rt_light.InitScaled(w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, GFX_BIND_UNORDERED_ACCESS)) ||
+			FAILED(shadow_rt_history[0].InitScaled(w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, GFX_BIND_UNORDERED_ACCESS)) ||
+			FAILED(shadow_rt_history[1].InitScaled(w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, GFX_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("shadow ray accumulation textures Init failed");
 		}
 		shadow_accumulate = ShaderFactory::Get()->GetShader<SimpleComputeShader>("ShadowAccumulateCS.cso");
@@ -484,7 +486,7 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		}
 		//A debug view only: not fatal, the buffer then shows black.
 		shadow_bvh_debug = ShaderFactory::Get()->GetShader<SimpleComputeShader>("ShadowBvhDebugCS.cso");
-		if (shadow_bvh_debug == nullptr || FAILED(shadow_bvh_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
+		if (shadow_bvh_debug == nullptr || FAILED(shadow_bvh_map.InitScaled(w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, GFX_BIND_UNORDERED_ACCESS))) {
 			printf("RenderSystem::Init: the shadow_bvh debug view is not available\n");
 			shadow_bvh_debug = nullptr;
 		}
@@ -511,18 +513,18 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 				ray_tracer = chosen;
 			}
 		}
-		if (FAILED(bloom_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R11G11B10_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
+		if (FAILED(bloom_map.InitScaled(w, h, DXGI_FORMAT::DXGI_FORMAT_R11G11B10_FLOAT, GFX_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("bloom_map.Init failed");
 		}
-		if (FAILED(temp_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
+		if (FAILED(temp_map.InitScaled(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, GFX_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("temp_map.Init failed");
 		}
-		if (FAILED(taa_history[0].Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS)) ||
-			FAILED(taa_history[1].Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
+		if (FAILED(taa_history[0].InitScaled(w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, GFX_BIND_UNORDERED_ACCESS)) ||
+			FAILED(taa_history[1].InitScaled(w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, GFX_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("taa_history.Init failed");
 		}
 		taa_history_valid = false;
-		if (FAILED(depth_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
+		if (FAILED(depth_map.InitScaled(w, h, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT, GFX_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("depth_map.Init failed");
 		}
 		//The pyramid the screen space ray solvers march through: level 0 is depth_map itself,
@@ -534,33 +536,43 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 			for (uint32_t i = 0; i < HIZ_DOWNSAMPLED_NTEXTURES; ++i) {
 				hiz_w = (hiz_w + HIZ_RATIO - 1) / HIZ_RATIO;
 				hiz_h = (hiz_h + HIZ_RATIO - 1) / HIZ_RATIO;
-				if (FAILED(high_z_downsampled_map[i].Init(hiz_w, hiz_h, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
+				//Each level is a fifth, rounded up, of the one under it, from whatever size the frame has.
+				const uint32_t level = i;
+				const Core::ScaledSizeFn pyramid = [level](int iw, int ih, int& tw, int& th) {
+					tw = iw;
+					th = ih;
+					for (uint32_t k = 0; k <= level; ++k) {
+						tw = (tw + (int)HIZ_RATIO - 1) / (int)HIZ_RATIO;
+						th = (th + (int)HIZ_RATIO - 1) / (int)HIZ_RATIO;
+					}
+				};
+				if (FAILED(high_z_downsampled_map[i].InitScaled(hiz_w, hiz_h, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT, GFX_BIND_UNORDERED_ACCESS, pyramid))) {
 					throw std::exception("high_z_downsampled_map.Init failed");
 				}
 				high_z_maps[i + 1] = high_z_downsampled_map[i].SRV();
 			}
 		}
-		if (FAILED(depth_view.Init(w, h))) {
+		if (FAILED(depth_view.InitScaled(w, h))) {
 			throw std::exception("depth_view.Init failed");
 		}
-		if (FAILED(first_pass_texture.Init(w, h))) {
+		if (FAILED(first_pass_texture.InitScaled(w, h))) {
 			throw std::exception("first_pass_texture.Init failed");
 		}
-		if (FAILED(motion_texture.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
+		if (FAILED(motion_texture.InitScaled(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32_FLOAT, GFX_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("motion_texture.Init failed");
 		}
 		if (FAILED(rgba_noise_texture.Init(RGA_NOISE_W, RGBA_NOISE_H, DXGI_FORMAT::DXGI_FORMAT_R8G8B8A8_UNORM, (const uint8_t*)rgba_noise_map, RGBA_NOISE_LEN))) {
 			throw std::exception("rgba_noise_texture.Init failed");
 		}
 
-		if (FAILED(motion_blur_map.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R11G11B10_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
+		if (FAILED(motion_blur_map.InitScaled(w, h, DXGI_FORMAT::DXGI_FORMAT_R11G11B10_FLOAT, GFX_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("texture_tmp.Init failed");
 		}
 
-		if (FAILED(rt_ray_sources0.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
+		if (FAILED(rt_ray_sources0.InitScaled(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, GFX_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("rt_ray_sources0.Init failed");
 		}
-		if (FAILED(rt_ray_sources1.Init(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
+		if (FAILED(rt_ray_sources1.InitScaled(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, GFX_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("rt_ray_sources1.Init failed");
 		}
 		if (FAILED(vol_data.Init(16, 16, DXGI_FORMAT::DXGI_FORMAT_R32_UINT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
@@ -773,6 +785,10 @@ void RenderSystem::ResolveTessStats() {
 RenderSystem::~RenderSystem() {
 	ReleaseInstanceBuffer();
 	GpuRelease();
+	DrsRelease();
+	drs_native_color.Release();
+	drs_native_post.Release();
+	drs_motion.Release();
 	rt_end = true;
 	rt_signal.notify_all();
 	rt_thread.join();
@@ -846,6 +862,16 @@ RenderSystem::~RenderSystem() {
 	vol_data.Release();
 }
 
+namespace {
+	//The size of a texture that is a fixed fraction of the frame, at whatever size the frame is drawn (dynamic resolution).
+	Core::ScaledSizeFn DivideBy(int d) {
+		return [d](int iw, int ih, int& w, int& h) { w = iw / d; h = ih / d; };
+	}
+	Core::ScaledSizeFn DivideByPlusOne(int d) {
+		return [d](int iw, int ih, int& w, int& h) { w = iw / d + 1; h = ih / d + 1; };
+	}
+}
+
 void RenderSystem::LoadRTResources() {
 	std::lock_guard<std::mutex> lock(rt_mutex);
 	int w = dxcore->GetWidth();
@@ -854,7 +880,7 @@ void RenderSystem::LoadRTResources() {
 		int div = RT_TEXTURE_RESOLUTION_DIVIDER;
 		for (int n = 0; n < 2; ++n) {
 			rt_textures_di[n][x].Release();
-			if (FAILED(rt_textures_di[n][x].Init(w / div, h / div, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
+			if (FAILED(rt_textures_di[n][x].InitScaled(w / div, h / div, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, GFX_BIND_UNORDERED_ACCESS, DivideBy((int)div)))) {
 				throw std::exception("rt_texture.Init failed");
 			}
 		}
@@ -864,7 +890,7 @@ void RenderSystem::LoadRTResources() {
 
 	for (int n = 0; n < RT_GI_NTEXTURES; ++n) {
 		rt_textures_gi[n].Release();
-		if (FAILED(rt_textures_gi[n].Init(w / restir_div, h / restir_div, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
+		if (FAILED(rt_textures_gi[n].InitScaled(w / restir_div, h / restir_div, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, GFX_BIND_UNORDERED_ACCESS, DivideBy((int)restir_div)))) {
 			throw std::exception("rt_texture.Init failed");
 		}
 	}
@@ -872,24 +898,24 @@ void RenderSystem::LoadRTResources() {
 	uint32_t tile_div = min(restir_div, RT_TEXTURE_RESOLUTION_DIVIDER) * RESTIR_KERNEL;
 	rt_textures_gi_tiles.Release();
 	rt_textures_di_tiles.Release();
-	if (FAILED(rt_textures_gi_tiles.Init(w / tile_div + 1, h/ tile_div + 1, DXGI_FORMAT::DXGI_FORMAT_R8_UINT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS)) ||
-		FAILED(rt_textures_di_tiles.Init(w / tile_div + 1, h / tile_div + 1, DXGI_FORMAT::DXGI_FORMAT_R8_UINT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
+	if (FAILED(rt_textures_gi_tiles.InitScaled(w / tile_div + 1, h / tile_div + 1, DXGI_FORMAT::DXGI_FORMAT_R8_UINT, GFX_BIND_UNORDERED_ACCESS, DivideByPlusOne((int)tile_div))) ||
+		FAILED(rt_textures_di_tiles.InitScaled(w / tile_div + 1, h / tile_div + 1, DXGI_FORMAT::DXGI_FORMAT_R8_UINT, GFX_BIND_UNORDERED_ACCESS, DivideByPlusOne((int)tile_div)))) {
 		throw std::exception("rt_texture.Init failed");
 	}
 
 	for (int n = 0; n < 2; ++n) {
 		restir_pdf[n].Release();
-		if (FAILED(restir_pdf[n].Init(w / restir_div, h / restir_div, DXGI_FORMAT_R32G32B32A32_UINT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
+		if (FAILED(restir_pdf[n].InitScaled(w / restir_div, h / restir_div, DXGI_FORMAT_R32G32B32A32_UINT, GFX_BIND_UNORDERED_ACCESS, DivideBy((int)restir_div)))) {
 			throw std::exception("restir_pdf.Init failed");
 		}
 	}
 	restir_w.Release();
-	if (FAILED(restir_w.Init(w / restir_div, h / restir_div, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
+	if (FAILED(restir_w.InitScaled(w / restir_div, h / restir_div, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT, GFX_BIND_UNORDERED_ACCESS, DivideBy((int)restir_div)))) {
 		throw std::exception("restir_w.Init failed");
 	}
 
 	texture_tmp.Release();
-	if (FAILED(texture_tmp.Init(w / RT_TEXTURE_RESOLUTION_DIVIDER, h / RT_TEXTURE_RESOLUTION_DIVIDER, DXGI_FORMAT::DXGI_FORMAT_R11G11B10_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
+	if (FAILED(texture_tmp.InitScaled(w / RT_TEXTURE_RESOLUTION_DIVIDER, h / RT_TEXTURE_RESOLUTION_DIVIDER, DXGI_FORMAT::DXGI_FORMAT_R11G11B10_FLOAT, GFX_BIND_UNORDERED_ACCESS, DivideBy((int)RT_TEXTURE_RESOLUTION_DIVIDER)))) {
 		throw std::exception("texture_tmp.Init failed");
 	}
 
@@ -1312,7 +1338,7 @@ void RenderSystem::DrawDepth(int w, int h, const float3& camera_position, const 
 	context->GSSetShader(nullptr);
 	GfxRTV* rv[1] = { depth_map.RenderTarget() };
 	context->OMSetRenderTargets(1, rv, depth_view.Depth());
-	context->RSSetViewports(1, &dxcore->viewport);
+	context->RSSetViewports(1, &render_viewport);
 	//Biased so the depth this pass leaves in depth_view is a conservative occluder for
 	//the passes that render on top of it (DrawSky, DrawScene). depth_map, the world
 	//distance the effect shaders read, is a pixel shader output and is not biased.
@@ -1553,7 +1579,7 @@ void RenderSystem::CastShadows(int w, int h, const float3& camera_position, cons
 	}
 	
 	for (DirectionalLightEntity& l : directional_lights.GetData()) {
-		if (IsShown(coordinator, *l.base) && l.light->CastShadow()) {
+		if (l.Active(coordinator) && l.light->CastShadow()) {
 			//Render to depth texture
 			GfxRTV* rtv[1] = { nullptr };
 			GfxDSV* dv = nullptr;
@@ -1729,7 +1755,7 @@ void RenderSystem::DrawSky(int w, int h, const float3& camera_position, const ma
 		context->OMSetRenderTargets(2, rv, depth_view.Depth());
 		context->OMSetBlendState(dxcore->blend, NULL, ~0U);
 		context->OMSetDepthStencilState(dxcore->depth_prepass_read, 1);
-		context->RSSetViewports(1, &dxcore->viewport);
+		context->RSSetViewports(1, &render_viewport);
 		context->RSSetState(dxcore->sky_rasterizer);
 
 		SimpleVertexShader* vs = sky.mat->data->shaders.vs;
@@ -1796,8 +1822,8 @@ void RenderSystem::DrawSky(int w, int h, const float3& camera_position, const ma
 void RenderSystem::CheckSceneVisibility(RenderTree& tree) {
 	CameraEntity& cam_entity = cameras.GetData()[0];
 	DXCore* dxcore = DXCore::Get();
-	int w = dxcore->GetWidth();
-	int h = dxcore->GetHeight();
+	int w = RenderWidth();
+	int h = RenderHeight();
 
 	(void)w;
 	(void)h;
@@ -2089,7 +2115,7 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 
 		GfxRTV* rv[1] = { target->RenderTarget() };
 		context->OMSetRenderTargets(1, rv, nullptr);
-		context->RSSetViewports(1, &dxcore->viewport);
+		context->RSSetViewports(1, &render_viewport);
 		context->RSSetState(dxcore->drawing_rasterizer);
 		SimpleVertexShader* vs = ShaderFactory::Get()->GetShader<SimpleVertexShader>("PostMainVS.cso");
 		SimplePixelShader* ps = ShaderFactory::Get()->GetShader<SimplePixelShader>("PostCopyPS.cso");
@@ -2127,7 +2153,7 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 	//difference in the frame rate, and the editor's shadow tests (18, 46, 47) stopped
 	//passing: the shadow map's picture lost its shadow. Not understood, so not kept.)
 	context->OMSetDepthStencilState(dxcore->depth_prepass, 1);
-	context->RSSetViewports(1, &dxcore->viewport);
+	context->RSSetViewports(1, &render_viewport);
 	if (wireframe_enabled) {
 		context->RSSetState(dxcore->wireframe_rasterizer);
 	}
@@ -2159,7 +2185,7 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 	float3 sun_direction = { 0.0f, 1.0f, 0.0f };
 	int has_sun = 0;
 	for (const DirectionalLightEntity& l : directional_lights.GetData()) {
-		if (IsShown(coordinator, *l.base)) {
+		if (l.Active(coordinator)) {
 			sun_direction = l.light->GetData().direction;
 			has_sun = 1;
 			break;
@@ -2917,17 +2943,26 @@ namespace {
 }
 
 void RenderSystem::UpdateTemporalJitter(const Components::Camera& camera, int w, int h) {
-	taa_active = aa_enabled && taa_enabled && post_process_pipeline != nullptr && !IsDebugBufferActive();
-	if (!taa_active) {
+	//Under dynamic resolution DLSS is the temporal filter: the geometry is jittered for it, and the TAA stays out.
+	taa_active = !drs_active && aa_enabled && taa_enabled && post_process_pipeline != nullptr && !IsDebugBufferActive();
+	if (!taa_active && !drs_active) {
 		//Everything that shows the picture on its own is unfiltered and unjittered, and what
 		//the history held is a frame that no longer leads to this one.
 		geometry_projection = camera.projection;
 		taa_history_valid = false;
 		return;
 	}
-	const uint32_t phase = taa_frame++ % TAA_JITTER_PHASES + 1;
+	//DLSS wants a longer sequence the smaller the picture is than the output: 8 * (output / render)^2 positions.
+	uint32_t phases = TAA_JITTER_PHASES;
+	if (drs_active) {
+		const float ratio = (float)dxcore->GetWidth() / (float)(std::max)(w, 1);
+		phases = (std::max)(TAA_JITTER_PHASES, (uint32_t)std::ceil(8.0f * ratio * ratio));
+	}
+	const uint32_t phase = taa_frame++ % phases + 1;
 	const float jitter_x = Halton(phase, 2) - 0.5f;
 	const float jitter_y = Halton(phase, 3) - 0.5f;
+	drs_jitter_x = jitter_x;
+	drs_jitter_y = jitter_y;
 	//The perspective matrix is applied to row vectors and its w is the view depth, so an
 	//offset in its third row is the same offset in NDC after the divide: 2/w is a pixel wide.
 	XMFLOAT4X4 p;
@@ -3080,14 +3115,24 @@ void RenderSystem::ProcessMotionBlur() {
 	}
 	
 	CameraEntity& cam_entity = cameras.GetData()[0];
-	int32_t  groupsX = (int32_t)(ceil((float)post_process_pipeline->GetW() / 8.0f));
-	int32_t  groupsY = (int32_t)(ceil((float)post_process_pipeline->GetH() / 8.0f));
+	//From DLSS's native picture to the second native one, which the chain starts from; otherwise from the anti-aliased
+	//picture to the chain's own first texture.
+	const Core::RenderTexture2D& source = drs_frame_upscaled ? drs_native_color : motion_blur_map;
+	GfxUAV* destination = drs_frame_upscaled ? drs_native_post.UAV() : post_process_pipeline->RenderUAV();
+	const int dest_w = drs_frame_upscaled ? drs_native_post.Width() : post_process_pipeline->GetW();
+	const int dest_h = drs_frame_upscaled ? drs_native_post.Height() : post_process_pipeline->GetH();
+	int32_t  groupsX = (int32_t)(ceil((float)dest_w / 8.0f));
+	int32_t  groupsY = (int32_t)(ceil((float)dest_h / 8.0f));
 	motion_blur->SetMatrix4x4("view_proj", cam_entity.camera->view_projection);
 	motion_blur->SetMatrix4x4("prev_view_proj", prev_view_projection);
-	motion_blur->SetShaderResourceView("input", motion_blur_map.SRV());
+	//The motion vectors are the size of the scene, which is smaller than the picture when it was upscaled.
+	const float motion_ratio[2] = { (float)motion_texture.Width() / (float)(std::max)(source.Width(), 1),
+		(float)motion_texture.Height() / (float)(std::max)(source.Height(), 1) };
+	motion_blur->SetFloat2("motion_ratio", motion_ratio);
+	motion_blur->SetShaderResourceView("input", source.SRV());
 	motion_blur->SetInt("enabled", motion_blur_enabled && !IsDebugBufferActive());
 	motion_blur->SetFloat("blur_scale", motion_blur_scale);
-	motion_blur->SetUnorderedAccessView("output", post_process_pipeline->RenderUAV());
+	motion_blur->SetUnorderedAccessView("output", destination);
 	motion_blur->SetShaderResourceView("motionTexture", motion_texture.SRV());
 	motion_blur->CopyAllBufferData();
 	motion_blur->SetShader();
@@ -3100,8 +3145,8 @@ void RenderSystem::ProcessMotionBlur() {
 
 void RenderSystem::ProcessDust() {
 	if (dust_enabled && dust_map.UAV() != nullptr) {
-		int w = dxcore->GetWidth();
-		int h = dxcore->GetHeight();
+		int w = RenderWidth();
+		int h = RenderHeight();
 		assert(!cameras.GetData().empty() && "No cameras found");
 		CameraEntity& cam_entity = cameras.GetData()[0];
 		time = ((float)Scheduler::Get()->GetElapsedNanoSeconds()) / 1000000000.0f;
@@ -3209,8 +3254,8 @@ void RenderSystem::ProcessLensFlare() {
 		int32_t  groupsX = (int32_t)(ceil((float)lens_flare_map.Width() / (8.0f)));
 		int32_t  groupsY = (int32_t)(ceil((float)lens_flare_map.Height() / (8.0f)));
 		
-		int w = dxcore->GetWidth();
-		int h = dxcore->GetHeight();
+		int w = RenderWidth();
+		int h = RenderHeight();
 		assert(!cameras.GetData().empty() && "No cameras found");
 		CameraEntity& cam_entity = cameras.GetData()[0];
 		time = ((float)Scheduler::Get()->GetElapsedNanoSeconds()) / 1000000000.0f;
@@ -3271,12 +3316,18 @@ void RenderSystem::ProcessMotion() {
 		motion_shader->SetMatrix4x4("view_proj", cam_entity.camera->view_projection);
 		motion_shader->SetMatrix4x4("prev_view_proj", prev_view_projection);
 		motion_shader->SetUnorderedAccessView("output", motion_texture.UAV());
+		//Under dynamic resolution the vector DLSS reads comes out of the same pass.
+		const float dlss_scale[2] = { -0.5f * (float)motion_texture.Width(), -0.5f * (float)motion_texture.Height() };
+		motion_shader->SetFloat2("dlss_scale", dlss_scale);
+		motion_shader->SetInt("write_dlss", drs_active ? 1 : 0);
+		motion_shader->SetUnorderedAccessView("output_dlss", drs_active ? drs_motion.UAV() : nullptr);
 		motion_shader->SetShaderResourceView("positionTexture", position_map.SRV());
 		motion_shader->SetShaderResourceView("prevPositionTexture", prev_position_map.SRV());
 		motion_shader->CopyAllBufferData();
 		motion_shader->SetShader();
 		dxcore->context->Dispatch(groupsX, groupsY, 1, Async(ASYNC_MOTION));
 		motion_shader->SetUnorderedAccessView("output", nullptr);
+		motion_shader->SetUnorderedAccessView("output_dlss", nullptr);
 		motion_shader->SetShaderResourceView("positionTexture", nullptr);
 		motion_shader->SetShaderResourceView("prevPositionTexture", nullptr);
 		motion_shader->CopyAllBufferData();
@@ -4396,8 +4447,8 @@ void RenderSystem::UnprepareLights(Core::SimpleVertexShader* vs, Core::SimpleHul
 
 void RenderSystem::PrepareVolumetricShader(Core::ISimpleShader* s) {
 	SkyEntity* sky = nullptr;
-	int w = dxcore->GetWidth();
-	int h = dxcore->GetHeight();
+	int w = RenderWidth();
+	int h = RenderHeight();
 	float speed = 1.0f;
 	if (!skies.GetData().empty()) {
 		sky = &(skies.GetData()[0]);
@@ -4517,7 +4568,7 @@ void RenderSystem::SetEntityLights(Lighted* lighted, ECS::EntityVector<Direction
 		//A deleted/cut light is parked (Base::visible false), not destroyed, so it
 		//stays registered here and must be skipped or it keeps lighting the scene
 		//after being "removed".
-		if (!IsShown(coordinator, *l.base)) {
+		if (!l.Active(coordinator)) {
 			continue;
 		}
 		lighted->dir_lights.push_back(l.light->GetData());
@@ -4709,7 +4760,7 @@ void RenderSystem::BuildShadowRays() {
 		//within SHADOW_RAY_SUN_LENGTH of it, and the pixels it is traced for are within the cascades'
 		//shadow distance of the camera. One sphere round the camera covers both.
 		for (DirectionalLightEntity& l : directional_lights.GetData()) {
-			if (IsShown(coordinator, *l.base) && l.light->RayTracedShadow() && !l.light->CastShadow() && !cameras.GetData().empty()) {
+			if (l.Active(coordinator) && l.light->RayTracedShadow() && !l.light->CastShadow() && !cameras.GetData().empty()) {
 				++raytraced_directional_count;
 				shadow_ray_sun_distance = (std::max)(shadow_ray_sun_distance, l.light->GetCascadeSettings().distance);
 			}
@@ -4937,8 +4988,8 @@ void RenderSystem::ProcessShadowBvhDebug() {
 		return;
 	}
 	CameraEntity& cam_entity = cameras.GetData()[0];
-	const int w = dxcore->GetWidth();
-	const int h = dxcore->GetHeight();
+	const int w = RenderWidth();
+	const int h = RenderHeight();
 	DirectX::XMMATRIX view_projection = DirectX::XMLoadFloat4x4(&cam_entity.camera->view_projection);
 	float4x4 inverse;
 	DirectX::XMStoreFloat4x4(&inverse, DirectX::XMMatrixInverse(nullptr, view_projection));
@@ -4975,8 +5026,8 @@ void RenderSystem::ProcessDeferredLighting(int pass_filter) {
 	}
 	CameraEntity& cam_entity = cameras.GetData()[0];
 	GfxContext* context = dxcore->context;
-	const int w = dxcore->GetWidth();
-	const int h = dxcore->GetHeight();
+	const int w = RenderWidth();
+	const int h = RenderHeight();
 	const bool first = (lighting_passes_this_frame++ == 0);
 	const bool want_stats = tiled_stats_requested && frame_count - tiled_stats_request_frame < TILED_STATS_KEEPALIVE;
 
@@ -5227,6 +5278,11 @@ void RenderSystem::Clear(const float color[4]) {
 }
 
 void RenderSystem::SetPostProcessPipeline(Core::PostProcess* pipeline) {
+	if (post_process_pipeline != nullptr && post_process_pipeline != pipeline) {
+		post_process_pipeline->SetInputOverride(nullptr);
+	}
+	//Dynamic resolution puts the override on the new chain at the start of the next frame.
+	drs_active = false;
 	if (pipeline != nullptr) {
 		if (render_pass2_tree.empty()) {
 			first_pass_target = pipeline;
@@ -5323,7 +5379,7 @@ void RenderSystem::PostProcessLight() {
 	GfxContext* context = DXCore::Get()->context;
 	GfxRTV* rv[1] = { temp_map.RenderTarget() };
 	context->OMSetRenderTargets(1, rv, nullptr);
-	context->RSSetViewports(1, &dxcore->viewport);
+	context->RSSetViewports(1, &render_viewport);
 	context->RSSetState(dxcore->drawing_rasterizer);
 	SimpleVertexShader* vs = ShaderFactory::Get()->GetShader<SimpleVertexShader>("PostMainVS.cso");
 	SimplePixelShader* ps = ShaderFactory::Get()->GetShader<SimplePixelShader>("PostBlur.cso");
@@ -5400,8 +5456,11 @@ static void DumpFrameTargets(uint32_t frame, const std::vector<std::pair<const c
 
 void RenderSystem::Draw() {
 	DXCore* dxcore = DXCore::Get();
-	int w = dxcore->GetWidth();
-	int h = dxcore->GetHeight();
+	//Which size this frame is drawn at, before anything is sized from it.
+	UpdateDynamicResolution();
+	DrsBegin();
+	int w = RenderWidth();
+	int h = RenderHeight();
 	
 	if (!cameras.GetData().empty() && scene_enabled) {
 		
@@ -5465,7 +5524,7 @@ void RenderSystem::Draw() {
 		//many seconds of a scene with no shadows on any of the scenery.
 		bool static_stale = false;
 		for (DirectionalLightEntity& l : directional_lights.GetData()) {
-			if (IsShown(coordinator, *l.base) && l.light->CastShadow() && l.light->StaticShadowStale()) {
+			if (l.Active(coordinator) && l.light->CastShadow() && l.light->StaticShadowStale()) {
 				static_stale = true;
 				break;
 			}
@@ -5596,7 +5655,11 @@ void RenderSystem::Draw() {
 		ProcessMix();
 				DumpNow(frame_count, "1_mix_temp", temp_map);
 				GpuStamp(8);
-				ProcessAntiAlias();
+				//With dynamic resolution DLSS is the anti-aliasing as well as the upscale: it makes the native picture.
+				drs_frame_upscaled = drs_active && ProcessDlss();
+				if (!drs_frame_upscaled) {
+					ProcessAntiAlias();
+				}
 				DumpNow(frame_count, "2_aa_motion_blur_map", motion_blur_map);
 				GpuStamp(9);
 				ProcessMotionBlur();
@@ -5618,11 +5681,13 @@ void RenderSystem::Draw() {
 		instancing_stats_last = instancing_stats_frame;
 	}
 	if (post_process_pipeline != nullptr) {
+		//The chain is native under dynamic resolution too: DLSS has already made the picture it starts from.
 		DXCore::Get()->context->RSSetViewports(1, &dxcore->viewport);
 		coordinator->SendEvent(this, EVENT_ID_PREPARE_POST);
 		post_process_pipeline->Process();
 		coordinator->SendEvent(this, EVENT_ID_UNPREPARE_POST);
 	}
+	DrsEnd();
 }
 
 namespace {
@@ -6135,7 +6200,292 @@ bool RenderSystem::GetSceneEnabled() const {
 	return scene_enabled;
 }
 
+//-------------------------------------------------------------------------------------------
+// Dynamic resolution (DLSS)
+//-------------------------------------------------------------------------------------------
 
+int RenderSystem::RenderWidth() const {
+	const int w = Core::RenderScale::Get().Width();
+	return w > 0 ? w : dxcore->GetWidth();
+}
 
+int RenderSystem::RenderHeight() const {
+	const int h = Core::RenderScale::Get().Height();
+	return h > 0 ? h : dxcore->GetHeight();
+}
 
+bool RenderSystem::DynamicResolutionAvailable() {
+	std::lock_guard<std::recursive_mutex> lock(mutex);
+	return Core::Dlss::Get().Init();
+}
 
+const std::string& RenderSystem::DynamicResolutionReason() {
+	std::lock_guard<std::recursive_mutex> lock(mutex);
+	Core::Dlss::Get().Init();
+	return Core::Dlss::Get().Reason();
+}
+
+bool RenderSystem::SetDynamicResolution(bool enabled) {
+	std::lock_guard<std::recursive_mutex> lock(mutex);
+	if (enabled && !Core::Dlss::Get().Init()) {
+		enabled = false;
+	}
+	drs_enabled = enabled;
+	return drs_enabled;
+}
+
+bool RenderSystem::GetDynamicResolution() const {
+	return drs_enabled;
+}
+
+void RenderSystem::SetDynamicResolutionTargetHz(float hz) {
+	std::lock_guard<std::recursive_mutex> lock(mutex);
+	drs_target_hz = (std::min)((std::max)(hz, 24.0f), 360.0f);
+}
+
+float RenderSystem::GetDynamicResolutionTargetHz() const {
+	return drs_target_hz;
+}
+
+void RenderSystem::SetDynamicResolutionRange(float min_scale, float max_scale) {
+	std::lock_guard<std::recursive_mutex> lock(mutex);
+	const float lowest = Core::Dlss::Get().MinScale();
+	drs_max_scale = (std::min)((std::max)(max_scale, lowest), 1.0f);
+	drs_min_scale = (std::min)((std::max)(min_scale, lowest), drs_max_scale);
+}
+
+float RenderSystem::GetDynamicResolutionMinScale() const {
+	return drs_min_scale;
+}
+
+float RenderSystem::GetDynamicResolutionMaxScale() const {
+	return drs_max_scale;
+}
+
+void RenderSystem::SetDynamicResolutionFixedScale(float scale) {
+	std::lock_guard<std::recursive_mutex> lock(mutex);
+	drs_fixed_scale = scale <= 0.0f ? 0.0f : (std::min)((std::max)(scale, Core::Dlss::Get().MinScale()), 1.0f);
+}
+
+float RenderSystem::GetDynamicResolutionFixedScale() const {
+	return drs_fixed_scale;
+}
+
+RenderSystem::DynamicResolutionStats RenderSystem::GetDynamicResolutionStats() const {
+	const Core::RenderScale& rs = Core::RenderScale::Get();
+	DynamicResolutionStats stats;
+	stats.enabled = drs_enabled;
+	stats.active = drs_active;
+	stats.step = rs.Step();
+	stats.scale = rs.StepScale(rs.Step());
+	stats.width = RenderWidth();
+	stats.height = RenderHeight();
+	stats.native_width = dxcore->GetWidth();
+	stats.native_height = dxcore->GetHeight();
+	stats.gpu_ms = drs_controller.SmoothedMs();
+	stats.budget_ms = 1000.0f / (std::max)(drs_target_hz, 1.0f) * Core::DynamicResolutionController::BUDGET_SAFETY;
+	stats.pixel_fraction = drs_controller.PixelCostFraction();
+	stats.changes = drs_controller.Changes();
+	stats.upscaled_frames = drs_upscaled_frames;
+	return stats;
+}
+
+//Two timestamps around the frame, read when the GPU gets to them.
+void RenderSystem::DrsBegin() {
+	drs_open = nullptr;
+	if (!drs_active) {
+		return;
+	}
+	DrsFrame& f = drs_ring[drs_next];
+	if (f.pending) {
+		//The GPU is several frames behind: this one goes unmeasured rather than waiting for the ring.
+		return;
+	}
+	if (f.stamps == nullptr && FAILED(dxcore->device->CreateQueryHeap(D3D12_QUERY_TYPE_TIMESTAMP, 2, &f.stamps))) {
+		f.stamps = nullptr;
+		return;
+	}
+	f.step = Core::RenderScale::Get().Step();
+	f.sequence = ++drs_sequence;
+	dxcore->context->EndQuery(f.stamps, 0);
+	drs_open = &f;
+	drs_next = (drs_next + 1) % DRS_RING;
+}
+
+void RenderSystem::DrsEnd() {
+	if (drs_open == nullptr) {
+		return;
+	}
+	dxcore->context->EndQuery(drs_open->stamps, 1);
+	dxcore->context->ResolveQueryData(drs_open->stamps, 0, 2);
+	drs_open->pending = true;
+	drs_open = nullptr;
+}
+
+//Feeds the controller the frames that have finished, oldest first, and keeps the step it asks for.
+void RenderSystem::DrsResolve(int first_step, int last_step) {
+	DrsFrame* ready[DRS_RING];
+	int count = 0;
+	for (DrsFrame& f : drs_ring) {
+		if (f.pending && f.stamps != nullptr && f.stamps->Ready()) {
+			ready[count++] = &f;
+		}
+	}
+	std::sort(ready, ready + count, [](const DrsFrame* a, const DrsFrame* b) { return a->sequence < b->sequence; });
+	const Core::RenderScale& rs = Core::RenderScale::Get();
+	Core::DynamicResolutionController::Settings settings;
+	settings.target_hz = drs_target_hz;
+	settings.min_scale = drs_min_scale;
+	settings.max_scale = drs_max_scale;
+	const double to_ms = 1000.0 / (double)dxcore->device->TimestampFrequency();
+	for (int i = 0; i < count; ++i) {
+		const UINT64* t = (const UINT64*)ready[i]->stamps->Data();
+		const float ms = (float)((double)(t[1] - t[0]) * to_ms);
+		ready[i]->pending = false;
+		drs_step = drs_controller.Update(ms, ready[i]->step, drs_step, first_step, last_step, settings,
+			[&rs](int step) { return rs.StepScale(step); });
+	}
+}
+
+void RenderSystem::DrsRelease() {
+	for (DrsFrame& f : drs_ring) {
+		if (f.stamps != nullptr) {
+			f.stamps->Release();
+			f.stamps = nullptr;
+		}
+		f.pending = false;
+	}
+	drs_open = nullptr;
+}
+
+//Makes every render target in every size, and the native pictures DLSS and the motion blur write.
+bool RenderSystem::BuildDynamicResolution() {
+	Core::RenderScale& rs = Core::RenderScale::Get();
+	const int native_w = dxcore->GetWidth();
+	const int native_h = dxcore->GetHeight();
+	if (drs_native_color.Texture() == nullptr) {
+		if (FAILED(drs_native_color.Init(native_w, native_h, DXGI_FORMAT_R16G16B16A16_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS)) ||
+			FAILED(drs_native_post.Init(native_w, native_h, DXGI_FORMAT_R16G16B16A16_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS))) {
+			LOG_ERROR("RenderSystem: the native pictures of dynamic resolution could not be made");
+			drs_native_color.Release();
+			drs_native_post.Release();
+			return false;
+		}
+	}
+	if (drs_motion.Texture() == nullptr &&
+		FAILED(drs_motion.InitScaled(native_w, native_h, DXGI_FORMAT_R16G16_FLOAT, GFX_BIND_UNORDERED_ACCESS))) {
+		LOG_ERROR("RenderSystem: the motion vectors of dynamic resolution could not be made");
+		return false;
+	}
+	if (!rs.Build()) {
+		return false;
+	}
+	RefreshScaledViews();
+	return true;
+}
+
+//The views some passes keep from one frame to the next: a scaled texture has another one at every size.
+void RenderSystem::RefreshScaledViews() {
+	high_z_maps[0] = depth_map.SRV();
+	for (uint32_t i = 0; i < HIZ_DOWNSAMPLED_NTEXTURES; ++i) {
+		high_z_maps[i + 1] = high_z_downsampled_map[i].SRV();
+	}
+	if (post_process_pipeline != nullptr) {
+		post_process_pipeline->SetShaderResourceView("volLightTexture", vol_light_map.SRV());
+		post_process_pipeline->SetShaderResourceView("bloomTexture", bloom_map.SRV());
+		post_process_pipeline->SetShaderResourceView("dustTexture", dust_render_map.SRV());
+		post_process_pipeline->SetShaderResourceView("lensFlareTexture", lens_flare_map.SRV());
+	}
+	drs_view_generation = Core::RenderScale::Get().Generation();
+}
+
+//Draws the next frames at `step`. Every scaled texture changes size (and is cleared: they share memory), so what the
+//temporal passes remember is gone and they start over.
+void RenderSystem::ApplyRenderScale(int step) {
+	Core::RenderScale& rs = Core::RenderScale::Get();
+	rs.Select(step);
+	const int w = rs.Width();
+	const int h = rs.Height();
+	render_viewport = dxcore->viewport;
+	render_viewport.Width = (float)w;
+	render_viewport.Height = (float)h;
+	tiled_lights.Resize(w, h);
+	RefreshScaledViews();
+	ResetRTBBuffers();
+	taa_history_valid = false;
+	drs_reset_history = true;
+}
+
+void RenderSystem::UpdateDynamicResolution() {
+	Core::RenderScale& rs = Core::RenderScale::Get();
+	bool want = drs_enabled && post_process_pipeline != nullptr && Core::Dlss::Get().Available();
+	if (want && !rs.Built() && !BuildDynamicResolution()) {
+		want = false;
+		drs_enabled = false;
+	}
+	if (!want) {
+		if (rs.Built() && rs.Step() != 0) {
+			ApplyRenderScale(0);
+		}
+		if (drs_active) {
+			if (post_process_pipeline != nullptr) {
+				post_process_pipeline->SetInputOverride(nullptr);
+			}
+			drs_active = false;
+			drs_frame_upscaled = false;
+			drs_step = 0;
+		}
+		return;
+	}
+	if (!drs_active) {
+		drs_active = true;
+		drs_controller.Reset();
+		drs_step = 0;
+		drs_reset_history = true;
+		post_process_pipeline->SetInputOverride(drs_native_post.SRV());
+	}
+	//The range asked for, held inside what DLSS accepts.
+	const Core::Dlss& dlss = Core::Dlss::Get();
+	const float high = (std::min)(drs_max_scale, dlss.MaxScale());
+	const float low = (std::max)((std::min)(drs_min_scale, high), dlss.MinScale());
+	const int first = rs.StepAtMost(high);
+	const int last = (std::max)(first, rs.StepFor(low));
+	if (drs_fixed_scale > 0.0f) {
+		drs_step = (std::min)((std::max)(rs.StepFor(drs_fixed_scale), first), last);
+	}
+	else {
+		DrsResolve(first, last);
+		drs_step = (std::min)((std::max)(drs_step, first), last);
+	}
+	if (drs_step != rs.Step()) {
+		ApplyRenderScale(drs_step);
+	}
+}
+
+//Mix -> DLSS: the lit picture at the render size becomes the native one in drs_native_color.
+bool RenderSystem::ProcessDlss() {
+	if (!drs_active || cameras.GetData().empty() || temp_map.Texture() == nullptr || depth_view.SRV() == nullptr) {
+		return false;
+	}
+	Core::Dlss::Frame frame;
+	frame.color = temp_map.Texture();
+	frame.depth = depth_view.SRV()->Resource();
+	frame.motion = drs_motion.Texture();
+	frame.output = drs_native_color.Texture();
+	frame.render_width = RenderWidth();
+	frame.render_height = RenderHeight();
+	frame.output_width = drs_native_color.Width();
+	frame.output_height = drs_native_color.Height();
+	frame.jitter_x = drs_jitter_x;
+	frame.jitter_y = drs_jitter_y;
+	frame.reset = drs_reset_history;
+	if (!Core::Dlss::Get().Evaluate(frame)) {
+		//No picture without it: the option goes off (the next frame is native again).
+		LOG_ERROR("RenderSystem: DLSS failed, dynamic resolution is turned off");
+		drs_enabled = false;
+		return false;
+	}
+	drs_reset_history = false;
+	++drs_upscaled_frames;
+	return true;
+}

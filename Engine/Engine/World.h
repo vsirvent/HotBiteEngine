@@ -239,6 +239,10 @@ namespace HotBite {
 			bool mesh_buffers_dirty = false;
 			std::unordered_map<std::string, std::shared_ptr<ECS::System>> systems_by_name;
 			std::list<int> run_timer_ids[Core::DXCore::NTHREADS];
+			//The render rate Run was given, and the one the render timer is set to now: dynamic resolution asks for its target
+			//(RenderSystem::RequestedRenderFps) and the timer follows it, going back to the first when it is off.
+			int render_fps_base = 0;
+			int render_fps_applied = 0;
 			std::set<std::string> loaded_files;
 
 			void OnLockStepTick(ECS::Event& ev);

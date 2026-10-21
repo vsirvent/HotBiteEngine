@@ -94,7 +94,7 @@ void PostProcess::Prepare() {
 	context->OMSetRenderTargets(1, rv, TargetDepthView());
 	vs->SetShader();
 	ps->SetShader();
-	ps->SetShaderResourceView("renderTexture", RenderResource());
+	ps->SetShaderResourceView("renderTexture", input_override != nullptr ? input_override : RenderResource());
 	ps->SetSamplerState("basicSampler", DXCore::Get()->basic_sampler);
 	ps->SetInt("screenW", w);
 	ps->SetInt("screenH", h);
@@ -261,8 +261,9 @@ MainEffect::MainEffect(GfxContext* dxcontext,
 		ShaderFactory::Get()->GetShader<SimplePixelShader>("PostMainPS.cso"))
 {
 	//x2 scale to avoid resolution artifacts in motion blur
-	text.Init(width, height, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS);
-	depth.Init(width, height);
+	//What the scene is drawn into: the size of the internal image when dynamic resolution is on.
+	text.InitScaled(width, height, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, GFX_BIND_UNORDERED_ACCESS);
+	depth.InitScaled(width, height);
 }
 
 MainEffect::~MainEffect() {

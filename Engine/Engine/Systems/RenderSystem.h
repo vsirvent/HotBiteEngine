@@ -42,6 +42,7 @@ SOFTWARE.
 #include <Core\TiledLights.h>
 #include <Core\ShadowRays.h>
 #include <Core\AccelStructure.h>
+#include <Core\DynamicResolution.h>
 
 namespace HotBite {
 	namespace Engine {
@@ -380,6 +381,12 @@ namespace HotBite {
 					DirectionalLightEntity(ECS::Coordinator* c, ECS::Entity entity) {
 						base = &(c->GetComponent<Components::Base>(entity));
 						light = &(c->GetComponent<Components::DirectionalLight>(entity));
+					}
+					//Lights the scene: shown, and bright enough to add anything. A sun that Sky faded to
+					//nothing (Sky::sun_fade_height) is skipped like a hidden one - no shadow passes, no
+					//ray traced sun - without hiding the entity, which also holds the ambient light.
+					bool Active(ECS::Coordinator* c) const {
+						return Components::IsShown(c, *base) && light->GetData().intensity > 0.0f;
 					}
 				};
 				ECS::Signature dirlight_signature;
@@ -1741,6 +1748,111 @@ namespace HotBite {
 				float GetDebugGain() const;
 				void SetSceneEnabled(bool enabled);
 				bool GetSceneEnabled() const;
+
+				// ---- Dynamic resolution (DRS) -----------------------------------------------------------------
+				//
+				// The scene (shadows, G-buffer, lighting, ray tracing, global illumination) is drawn at an internal size that a
+				// controller changes while the game runs, so the GPU finishes every frame inside the budget of the target refresh
+				// rate. NVIDIA DLSS (Core::Dlss) then reconstructs the native picture from it, right after the lighting is mixed and
+				// before anything that is not the scene - motion blur, depth of field, the lens, the interface - so all of that is
+				// native. It is a per-level option like the post-process, GI and ray tracing ones: the editor stores it in the
+				// level's render settings.
+				//
+				// There is no dynamic resolution without DLSS: where it is not available (not an RTX card, an old driver, no
+				// nvngx_dlss.dll, an engine built without the SDK) SetDynamicResolution(true) does nothing and returns false, and
+				// DynamicResolutionAvailable() is false with the reason in DynamicResolutionReason().
+				bool DynamicResolutionAvailable();
+				const std::string& DynamicResolutionReason();
+				// True when it is on (false when asked for and not available). Every render target is made in every size on the
+				// next frame; they share memory, so it costs no more than before.
+				bool SetDynamicResolution(bool enabled);
+				bool GetDynamicResolution() const;
+				// The refresh rate to hold: the GPU frame is kept under 1/hz (with a margin). 60 by default.
+				void SetDynamicResolutionTargetHz(float hz);
+				float GetDynamicResolutionTargetHz() const;
+				// The smallest and the biggest scale of the native size (0.34 .. 1) the controller may use.
+				void SetDynamicResolutionRange(float min_scale, float max_scale);
+				float GetDynamicResolutionMinScale() const;
+				float GetDynamicResolutionMaxScale() const;
+				// Pins the scale to the nearest step (0 = let the controller decide). For tests and for looking at one size.
+				void SetDynamicResolutionFixedScale(float scale);
+				float GetDynamicResolutionFixedScale() const;
+				struct DynamicResolutionStats {
+					bool enabled = false;
+					// False while the sizes are not made yet or could not be (then the frame is native).
+					bool active = false;
+					int step = 0;
+					float scale = 1.0f;
+					int width = 0;
+					int height = 0;
+					int native_width = 0;
+					int native_height = 0;
+					// The GPU time of the frame, smoothed, and the budget it is held under (ms).
+					float gpu_ms = 0.0f;
+					float budget_ms = 0.0f;
+					float pixel_fraction = 0.0f;
+					uint32_t changes = 0;
+					uint32_t upscaled_frames = 0;
+				};
+				DynamicResolutionStats GetDynamicResolutionStats() const;
+				// How often the level has to render for dynamic resolution to hold its target: the target itself while it is on, and
+				// 0 (the level's own rate) while it is not. World::Run's render timer follows it - a timer at a lower rate would cap
+				// the frame rate under the target however small the picture is drawn, and one at a higher rate renders frames
+				// that spend the GPU the picture could have used.
+				int RequestedRenderFps() const { return drs_active ? (int)(drs_target_hz + 0.5f) : 0; }
+				// The internal size the frame is being drawn at (the native one when the option is off).
+				int RenderWidth() const;
+				int RenderHeight() const;
+
+			private:
+				// What SetDynamicResolution asked for; the sizes are made at the start of the next frame, where the context is
+				// open and nothing is half drawn.
+				bool drs_enabled = false;
+				bool drs_active = false;
+				float drs_target_hz = 60.0f;
+				float drs_min_scale = 0.5f;
+				float drs_max_scale = 1.0f;
+				float drs_fixed_scale = 0.0f;
+				Core::DynamicResolutionController drs_controller;
+				int drs_step = 0;
+				uint32_t drs_view_generation = 0;
+				uint32_t drs_upscaled_frames = 0;
+				bool drs_reset_history = true;
+				// The sub-pixel offset the geometry of this frame is drawn with, in render pixels (what DLSS is told).
+				float drs_jitter_x = 0.0f;
+				float drs_jitter_y = 0.0f;
+				D3D12_VIEWPORT render_viewport = {};
+				// DLSS writes the native picture here; motion blur reads it and writes the second one, which is what the
+				// post-process chain starts from (PostProcess::SetInputOverride).
+				Core::RenderTexture2D drs_native_color;
+				Core::RenderTexture2D drs_native_post;
+				// The motion vectors in the pixels of the render size, the way DLSS reads them: MotionCS writes them beside the
+				// engine's own in the same pass (half precision, what DLSS is used to).
+				Core::RenderTexture2D drs_motion;
+				// Two timestamps around the frame, read some frames later (the step each frame was drawn at goes with it).
+				struct DrsFrame {
+					GfxQueryHeap* stamps = nullptr;
+					bool pending = false;
+					int step = 0;
+					// The order the frames were drawn in: the controller is fed the oldest first.
+					uint64_t sequence = 0;
+				};
+				uint64_t drs_sequence = 0;
+				// True when DLSS made this frame's native picture (the motion blur and the chain start from it).
+				bool drs_frame_upscaled = false;
+				static constexpr int DRS_RING = 6;
+				DrsFrame drs_ring[DRS_RING];
+				int drs_next = 0;
+				DrsFrame* drs_open = nullptr;
+				void UpdateDynamicResolution();
+				bool BuildDynamicResolution();
+				void ApplyRenderScale(int step);
+				void RefreshScaledViews();
+				bool ProcessDlss();
+				void DrsBegin();
+				void DrsEnd();
+				void DrsResolve(int first_step, int last_step);
+				void DrsRelease();
 			};
 		}
 	}

@@ -1027,6 +1027,67 @@ namespace HotBite {
 				return S_OK;
 			}
 
+			HRESULT GfxDevice::CreateAliasedTextures2D(const D3D12_RESOURCE_DESC* descs, UINT count, GfxTexture** out) {
+				for (UINT i = 0; i < count; ++i) {
+					out[i] = nullptr;
+				}
+				if (count == 0) {
+					return E_INVALIDARG;
+				}
+				//One heap for the lot, as big as the biggest. Tier 1 devices want render targets and the rest in separate
+				//heaps, and every texture of a group has the same flags, so the group's category is its first one's.
+				UINT64 size = 0;
+				UINT64 alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+				for (UINT i = 0; i < count; ++i) {
+					const D3D12_RESOURCE_ALLOCATION_INFO info = device->GetResourceAllocationInfo(0, 1, &descs[i]);
+					if (info.SizeInBytes == UINT64_MAX) {
+						return E_FAIL;
+					}
+					size = (std::max)(size, info.SizeInBytes);
+					alignment = (std::max)(alignment, info.Alignment);
+				}
+				const bool render = (descs[0].Flags & (D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL)) != 0;
+				D3D12_HEAP_DESC hd = {};
+				hd.SizeInBytes = (size + alignment - 1) / alignment * alignment;
+				hd.Alignment = alignment;
+				hd.Properties = HeapProps(D3D12_HEAP_TYPE_DEFAULT);
+				hd.Flags = render ? D3D12_HEAP_FLAG_ALLOW_ONLY_RT_DS_TEXTURES : D3D12_HEAP_FLAG_ALLOW_ONLY_NON_RT_DS_TEXTURES;
+				ComPtr<ID3D12Heap> heap;
+				HRESULT hr = device->CreateHeap(&hd, IID_PPV_ARGS(&heap));
+				if (FAILED(hr)) {
+					LOG_ERROR("GfxDevice: CreateAliasedTextures2D heap of %llu bytes failed (0x%08X)", (unsigned long long)hd.SizeInBytes, (unsigned)hr);
+					return hr;
+				}
+				for (UINT i = 0; i < count; ++i) {
+					GfxTexture* texture = new GfxTexture();
+					texture->gpu_owned = true;
+					texture->desc = descs[i];
+					texture->width = (UINT)descs[i].Width;
+					texture->height = descs[i].Height;
+					texture->depth_or_array = descs[i].DepthOrArraySize;
+					texture->mip_levels = descs[i].MipLevels;
+					texture->format = descs[i].Format;
+					texture->heap_type = D3D12_HEAP_TYPE_DEFAULT;
+					texture->subresource_count = (UINT)descs[i].MipLevels * (UINT)descs[i].DepthOrArraySize * PlaneCount(device.Get(), descs[i].Format);
+					texture->heap = heap;
+					hr = device->CreatePlacedResource(heap.Get(), 0, &texture->desc, D3D12_RESOURCE_STATE_COMMON, nullptr,
+						IID_PPV_ARGS(&texture->resource));
+					if (FAILED(hr)) {
+						LOG_ERROR("GfxDevice: CreateAliasedTextures2D(%ux%u, format %u) failed (0x%08X)",
+							(unsigned)descs[i].Width, (unsigned)descs[i].Height, (unsigned)descs[i].Format, (unsigned)hr);
+						texture->Release();
+						for (UINT j = 0; j < i; ++j) {
+							out[j]->Release();
+							out[j] = nullptr;
+						}
+						return hr;
+					}
+					texture->SetAllState(D3D12_RESOURCE_STATE_COMMON);
+					out[i] = texture;
+				}
+				return S_OK;
+			}
+
 			HRESULT GfxDevice::WrapTexture(ID3D12Resource* resource, D3D12_RESOURCE_STATES state, GfxTexture** out) {
 				GfxTexture* texture = new GfxTexture();
 				texture->gpu_owned = true;

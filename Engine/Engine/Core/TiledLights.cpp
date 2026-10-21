@@ -158,6 +158,18 @@ bool TiledLights::Init(int w, int h) {
 	return true;
 }
 
+void TiledLights::Resize(int w, int h) {
+	if (w <= 0 || h <= 0 || (uint32_t)w == width && (uint32_t)h == height) {
+		return;
+	}
+	width = (uint32_t)w;
+	height = (uint32_t)h;
+	tiles_x = (width + TILE_SIZE - 1) / TILE_SIZE;
+	tiles_y = (height + TILE_SIZE - 1) / TILE_SIZE;
+	//The masks were laid out for the old tile count.
+	masks_cleared = false;
+}
+
 void TiledLights::Release() {
 	if (lights_srv != nullptr) { lights_srv->Release(); lights_srv = nullptr; }
 	if (lights_buffer != nullptr) { lights_buffer->Release(); lights_buffer = nullptr; }

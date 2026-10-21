@@ -793,6 +793,44 @@ namespace HotBite {
 				FlushBarriers();
 			}
 
+			void GfxContext::SwitchAliased(GfxTexture* from, GfxTexture* to) {
+				if (to == nullptr || from == to) {
+					return;
+				}
+				EnsureOpen();
+				//Resting in COMMON on both sides of the handover: whichever way the runtime tracks the state of a texture that
+				//is aliased out and in again, they agree. A real transition even from a read state, which UseResource would
+				//take as already good enough for COMMON.
+				const auto rest = [&](GfxTexture* t) {
+					if (t == nullptr || t->IsSplit() || t->AllState() == D3D12_RESOURCE_STATE_COMMON) {
+						if (t != nullptr && t->IsSplit()) {
+							UseResource(t, D3D12_RESOURCE_STATE_COMMON);
+						}
+						return;
+					}
+					Touch(t, true, GfxDevice::QUEUE_DIRECT);
+					D3D12_RESOURCE_BARRIER tb = {};
+					tb.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+					tb.Transition.pResource = t->Get();
+					tb.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+					tb.Transition.StateBefore = t->AllState();
+					tb.Transition.StateAfter = D3D12_RESOURCE_STATE_COMMON;
+					barriers.push_back(tb);
+					t->SetAllState(D3D12_RESOURCE_STATE_COMMON);
+					t->uav_dirty = false;
+				};
+				rest(from);
+				rest(to);
+				FlushBarriers();
+				D3D12_RESOURCE_BARRIER b = {};
+				b.Type = D3D12_RESOURCE_BARRIER_TYPE_ALIASING;
+				b.Aliasing.pResourceBefore = from != nullptr ? from->Get() : nullptr;
+				b.Aliasing.pResourceAfter = to->Get();
+				barriers.push_back(b);
+				FlushBarriers();
+				to->uav_dirty = false;
+			}
+
 			bool GfxContext::ViewsOverlap(const GfxView* a, const GfxView* b) {
 				if (a->Resource() != b->Resource()) {
 					return false;

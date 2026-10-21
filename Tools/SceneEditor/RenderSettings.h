@@ -29,6 +29,8 @@ namespace HotBiteEditor {
 		// Keys: rt_quality (off|low|mid|high), rt_reflections, rt_refractions,
 		// rt_indirect, gi_confidence (float 0..1, ceiling on how much the GI
 		// trusts its history - see RenderSystem::SetGIMaxConfidence), aa, motion_blur, motion_blur_scale, dof, dof_autofocus, dof_focus, dof_amplitude,
+		// drs (dynamic resolution with DLSS: 0/1, refused where DLSS is not available), drs_hz (24..360), drs_min_scale / drs_max_scale (0.34..1),
+		// drs_fixed_scale (0..1, pins the scale; 0 = automatic; never saved),
 		// lens_flare, wireframe (booleans take 0/1, motion_blur_scale/dof_focus/dof_amplitude take
 		// floats; setting either of those switches dof_autofocus off, since
 		// autofocus drives both focus and amplitude).

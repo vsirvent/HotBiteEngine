@@ -25,6 +25,12 @@ the whole frame. **Off by default** (`HOTBITE_ASYNC_COMPUTE=1`, `RenderSystem::S
 measured, flagging every pass loses 3-5% and nothing gains reliably (the reflections beside GI: -0.1% to +3.9% over four noisy
 runs), see the migration doc, "Async compute". A new resource
 use must go through `UseSubresource`/`UseView`/`UseResource` (never a barrier by hand) or the queues cannot order it.
+**Dynamic resolution.** A per-level option (`drs`, `drs_hz`, `drs_min_scale`, `drs_max_scale` in the level's `editor.render`) that draws
+the scene at a size that follows the GPU load and reconstructs the native picture with NVIDIA DLSS before motion blur, DOF, the lens and the
+UI; **it exists only where DLSS does** (no RTX, old driver, or no `ThirdParty/DLSS` submodule: unavailable). Every screen-sized target is made in 12
+sizes over one heap (aliasing: no allocation, no stall, the memory of the biggest), the render timer follows the target Hz while it is on, and the
+SDK is a submodule of NVIDIA's repo because its licence forbids copying it into ours. Design, limits and numbers in
+[Docs/DYNAMIC_RESOLUTION.md](Docs/DYNAMIC_RESOLUTION.md). Editor suite `53-dynamicresolution`.
 
 ## Secrets — none belong in this repository
 
@@ -103,6 +109,10 @@ first finish:
 
 The same race makes `MaterialDesigner`/`HotBiteTool` fail with `LNK1104: HotBiteTool.lib`
 on a cold whole-solution build; re-running the build clears it.
+
+`SceneEditor` links `HotBiteTool.lib`, which is a project of its own and which nothing rebuilds when an engine *header* changes: build
+`/t:HotBiteTool` between the engine and `SceneEditor`, or the editor runs with a stale copy of the engine's classes (the editor suite then
+crashes in the render loop, which looks like a bug of whatever you changed).
 
 Do not trust *any* measurement taken from a partially rebuilt tree after an engine header
 changed. The failure is not a crash you can attribute: a mismatched `RenderSystem.h` shifts

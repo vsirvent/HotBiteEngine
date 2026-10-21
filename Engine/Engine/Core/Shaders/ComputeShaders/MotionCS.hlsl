@@ -1,6 +1,8 @@
 #include "../Common/ShaderStructs.hlsli"
 
 RWTexture2D<float2> output : register(u1);
+//The same vector the way DLSS reads it (see write_dlss); bound only while dynamic resolution is on.
+RWTexture2D<float2> output_dlss : register(u2);
 Texture2D<float4> positionTexture : register(t1);
 Texture2D<float4> prevPositionTexture : register(t2);
 
@@ -8,6 +10,9 @@ cbuffer externalData : register(b0)
 {
     matrix view_proj;
     matrix prev_view_proj;
+    //Pixels across the screen space, negated: half the render size with the sign that turns "now - before" into "before - now".
+    float2 dlss_scale;
+    int write_dlss;
 }
 
 float2 GetPixelDir(float2 pixel) {
@@ -36,5 +41,13 @@ float2 GetPixelDir(float2 pixel) {
 void main(uint3 DTid : SV_DispatchThreadID, uint3 Gid: SV_GroupID, uint3 Tid: SV_GroupThreadID)
 {
     float2 pixel = float2(DTid.x, DTid.y);
-    output[pixel] = GetPixelDir(pixel);
+    const float2 motion = GetPixelDir(pixel);
+    output[pixel] = motion;
+    if (write_dlss)
+    {
+        //DLSS wants where the pixel was minus where it is, in pixels of the render size, and a number it can use: a pixel
+        //with no history (MotionCS's -FLT_MAX) stays where it is.
+        const bool valid = motion.x > -1.0e30f && motion.y > -1.0e30f;
+        output_dlss[pixel] = valid ? motion * dlss_scale : float2(0.0f, 0.0f);
+    }
 }

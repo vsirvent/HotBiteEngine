@@ -4192,6 +4192,8 @@ void World::Init() {
 void World::Run(int render_fps, int background_fps, int physics_fps, bool auto_render) {
 	if (!running) {
 		running = true;
+		render_fps_base = render_fps;
+		render_fps_applied = render_fps;
 		if (background_fps != 0) {
 			background_thread_period = 1000000000 / background_fps;
 		}
@@ -4209,6 +4211,15 @@ void World::Run(int render_fps, int background_fps, int physics_fps, bool auto_r
 					//Update render system that don't need sync with lockstep
 					particle_system->Update(t.period, t.total);
 					render_system->Update();
+					//The rate of the level is the one dynamic resolution has to hold while it is on.
+					{
+						const int requested = render_system->RequestedRenderFps();
+						const int fps = requested > 0 ? requested : render_fps_base;
+						if (fps > 0 && fps != render_fps_applied) {
+							render_fps_applied = fps;
+							Scheduler::Get(DXCore::MAIN_THREAD)->SetTimerPeriodAsync(t.id, 1000000000 / fps);
+						}
+					}
 					render_system->mutex.lock();
 					coordinator->SendEvent(this, World::EVENT_ID_UPDATE_MAIN);
 					render_system->mutex.unlock();
