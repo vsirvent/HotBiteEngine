@@ -54,6 +54,49 @@ namespace HotBite {
 			//that preloaded them is over is let go (ReleaseUnclaimedTextures).
 			std::unordered_set<GfxSRV*> unclaimed_textures;
 
+				//texture_mutex, taken again by a thread that holds it. Dropping the last reference to a texture runs TextureDied,
+				//and that can happen under the lock (ReleaseTextureLocked, a failed load) as well as anywhere else.
+				thread_local bool texture_lock_held = false;
+				struct TextureLock {
+					bool owns = false;
+					TextureLock() {
+						if (!texture_lock_held) {
+							texture_mutex.lock();
+							texture_lock_held = true;
+							owns = true;
+						}
+					}
+					~TextureLock() {
+						if (owns) {
+							texture_lock_held = false;
+							texture_mutex.unlock();
+						}
+					}
+					TextureLock(const TextureLock&) = delete;
+					TextureLock& operator=(const TextureLock&) = delete;
+				};
+
+				//The last reference to a cached texture went - to ReleaseTexture, or to whoever else held one (the GfxContext keeps a
+				//reference to every view it has bound, and may outlive the material that loaded it): the cache must forget it then,
+				//or the next LoadTexture of the same file would be handed a view that is being destroyed.
+				static void TextureDied(GfxObject* object) {
+					TextureLock l;
+					GfxSRV* srv = static_cast<GfxSRV*>(object);
+					auto it = textures_names.find(srv);
+					if (it != textures_names.end()) {
+						textures.erase(it->second);
+						textures_names.erase(it);
+					}
+					unclaimed_textures.erase(srv);
+				}
+
+				//texture_mutex held.
+				static void CacheTexture(const std::string& filename, GfxSRV* srv) {
+					textures[filename] = srv;
+					textures_names[srv] = filename;
+					srv->on_last_release = &TextureDied;
+				}
+
 			//texture_mutex held.
 			static void ReleaseTextureLocked(GfxSRV* srv) {
 				if (srv != nullptr && srv->Release() == 0) {
@@ -66,12 +109,12 @@ namespace HotBite {
 			}
 
 			void ReleaseTexture(GfxSRV* srv) {
-				std::lock_guard<std::mutex> l(texture_mutex);
+				TextureLock l;
 				ReleaseTextureLocked(srv);
 			}
 
 			void ReleaseUnclaimedTextures() {
-				std::lock_guard<std::mutex> l(texture_mutex);
+				TextureLock l;
 				for (GfxSRV* srv : unclaimed_textures) {
 					ReleaseTextureLocked(srv);
 				}
@@ -86,7 +129,7 @@ namespace HotBite {
 				//Only what is not in the cache, once each, and not a .dds (read as it is).
 				std::vector<std::string> wanted;
 				{
-					std::lock_guard<std::mutex> l(texture_mutex);
+					TextureLock l;
 					std::unordered_set<std::string> seen;
 					for (const std::string& f : filenames) {
 						if (!f.empty() && !IsDdsName(f) && textures.find(f) == textures.end() && seen.insert(f).second) {
@@ -109,15 +152,14 @@ namespace HotBite {
 					});
 				}
 				for (std::thread& t : threads) { t.join(); }
-				std::lock_guard<std::mutex> l(texture_mutex);
+				TextureLock l;
 				for (size_t i = 0; i < wanted.size(); ++i) {
 					if (loaded[i] == nullptr) { continue; }
 					if (textures.find(wanted[i]) != textures.end()) {
 						loaded[i]->Release();
 						continue;
 					}
-					textures[wanted[i]] = loaded[i];
-					textures_names[loaded[i]] = wanted[i];
+					CacheTexture(wanted[i], loaded[i]);
 					unclaimed_textures.insert(loaded[i]);
 				}
 			}
@@ -144,12 +186,26 @@ namespace HotBite {
 
 			GfxSRV* LoadTexture(const std::string& filename)
 			{
-				std::lock_guard<std::mutex> l(texture_mutex);
+				TextureLock l;
 				GfxSRV* srv = nullptr;
 				HRESULT ret = S_OK;
 				if (!filename.empty()) {
+					bool cached = false;
 					auto it = textures.find(filename);
-					if (it == textures.end()) {
+					if (it != textures.end()) {
+						srv = it->second;
+						//A preloaded texture's reference passes to its first user; any other takes one, if the texture still has any.
+						if (unclaimed_textures.erase(srv) != 0 || srv->TryAddRef()) {
+							cached = true;
+						}
+						else {
+							//Its last reference was dropped and TextureDied has not run yet: load it again.
+							textures_names.erase(srv);
+							textures.erase(it);
+							srv = nullptr;
+						}
+					}
+					if (!cached) {
 						//A cooked texture first: no decode, no GPU mip build, a quarter of the memory.
 						if (!IsDdsName(filename)) {
 							srv = LoadCookedTexture(filename);
@@ -197,15 +253,7 @@ namespace HotBite {
 							printf("Error: %s, error %d loading texture %s\n", e.what(), ret, filename.c_str());
 						}
 						if (srv != nullptr) {
-							textures[filename] = srv;
-							textures_names[srv] = filename;
-						}
-					}
-					else {
-						srv = it->second;
-						//A preloaded texture's reference passes to its first user.
-						if (unclaimed_textures.erase(srv) == 0) {
-							srv->AddRef();
+							CacheTexture(filename, srv);
 						}
 					}
 				}

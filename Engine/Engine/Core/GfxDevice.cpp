@@ -164,6 +164,9 @@ namespace HotBite {
 			LONG GfxObject::Release() {
 				const LONG remaining = refs.fetch_sub(1, std::memory_order_acq_rel) - 1;
 				if (remaining == 0) {
+					if (on_last_release != nullptr) {
+						on_last_release(this);
+					}
 					GfxDevice* device = GfxDevice::Get();
 					if (gpu_owned && device != nullptr) {
 						device->Defer(this);
@@ -753,6 +756,7 @@ namespace HotBite {
 					std::lock_guard<std::mutex> lock(immediate_mutex);
 					const uint64_t done = immediate_fence->GetCompletedValue();
 					while (!pending_uploads.empty() && pending_uploads.front().value <= done) {
+						pending_upload_bytes -= pending_uploads.front().bytes;
 						pending_uploads.pop_front();
 					}
 				}
@@ -807,7 +811,20 @@ namespace HotBite {
 					queue->Signal(immediate_fence.Get(), ++immediate_value);
 				}
 				immediate_list_value[slot] = immediate_value;
-				pending_uploads.push_back({ immediate_value, std::move(keep_alive) });
+				uint64_t bytes = 0;
+				for (const ComPtr<ID3D12Resource>& r : keep_alive) {
+					if (r != nullptr) {
+						bytes += r->GetDesc().Width;
+					}
+				}
+				pending_uploads.push_back({ immediate_value, std::move(keep_alive), bytes });
+				pending_upload_bytes += bytes;
+				if (pending_upload_bytes > MAX_PENDING_UPLOAD_BYTES) {
+					immediate_fence->SetEventOnCompletion(immediate_value, fence_event);
+					WaitForSingleObject(fence_event, INFINITE);
+					pending_uploads.clear();
+					pending_upload_bytes = 0;
+				}
 			}
 
 			//-------------------------------------------------------------------------------------------

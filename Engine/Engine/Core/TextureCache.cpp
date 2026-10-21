@@ -27,6 +27,7 @@ SOFTWARE.
 #include "Log.h"
 
 #include <d3d11.h>
+#include <dxgi1_4.h>
 #include <DirectXTex.h>
 #pragma comment(lib, "d3d11.lib")
 
@@ -377,6 +378,32 @@ std::vector<std::string> Core::PlainTextureLoads() {
 	return plain_names;
 }
 
+namespace {
+	//The video memory this process may use and what it uses (false: the adapter cannot say).
+	bool VideoMemory(UINT64& usage, UINT64& budget) {
+		static Microsoft::WRL::ComPtr<IDXGIAdapter3> adapter = []() {
+			Microsoft::WRL::ComPtr<IDXGIAdapter3> a;
+			DXCore* dx = DXCore::Get();
+			if (dx != nullptr && dx->device != nullptr && dx->device->Adapter() != nullptr) {
+				dx->device->Adapter()->QueryInterface(IID_PPV_ARGS(&a));
+			}
+			return a;
+		}();
+		DXGI_QUERY_VIDEO_MEMORY_INFO info = {};
+		if (adapter == nullptr || FAILED(adapter->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &info))) {
+			return false;
+		}
+		usage = info.CurrentUsage;
+		budget = info.Budget;
+		return true;
+	}
+
+	//Past this share of the budget a texture is made without its largest mips, which is what keeps a level with more
+	//textures than the card holds loading (every one a little blurrier) instead of running the process out of memory:
+	//Windows moves what does not fit to system memory, and the commit limit ends that with std::bad_alloc.
+	constexpr double TEXTURE_BUDGET_SHARE = 0.80;
+}
+
 GfxSRV* Core::CreateTextureFromImage(const DirectX::ScratchImage& image) {
 	const DirectX::TexMetadata& meta = image.GetMetadata();
 	if (meta.dimension != DirectX::TEX_DIMENSION_TEXTURE2D || meta.width == 0 || meta.height == 0) {
@@ -384,12 +411,39 @@ GfxSRV* Core::CreateTextureFromImage(const DirectX::ScratchImage& image) {
 	}
 	GfxDevice* device = DXCore::Get()->device;
 
+	// The mips left out: the largest ones, while the texture would not fit the video memory budget. They are already
+	// in the chain, so this costs nothing but the resolution of the mips that are used.
+	size_t skip = 0;
+	UINT64 usage = 0;
+	UINT64 budget = 0;
+	if (!meta.IsCubemap() && meta.mipLevels > 1 && VideoMemory(usage, budget)) {
+		const UINT64 limit = (UINT64)(budget * TEXTURE_BUDGET_SHARE);
+		while (skip + 1 < meta.mipLevels && (meta.width >> (skip + 1)) >= 4 && (meta.height >> (skip + 1)) >= 4) {
+			UINT64 bytes = 0;
+			for (size_t item = 0; item < meta.arraySize; ++item) {
+				for (size_t mip = skip; mip < meta.mipLevels; ++mip) {
+					const DirectX::Image* im = image.GetImage(mip, item, 0);
+					bytes += im != nullptr ? im->slicePitch : 0;
+				}
+			}
+			if (usage + bytes <= limit) {
+				break;
+			}
+			++skip;
+		}
+		static std::atomic<int> reported{ 0 };
+		if (skip > 0 && reported.fetch_add(1) < 3) {
+			LOG_WARN("Texture cache: video memory is at %llu of %llu MB, so textures are made without their largest mips (%u x %u, %u dropped)",
+				(unsigned long long)(usage >> 20), (unsigned long long)(budget >> 20), (unsigned)meta.width, (unsigned)meta.height, (unsigned)skip);
+		}
+	}
+
 	D3D12_RESOURCE_DESC desc = {};
 	desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-	desc.Width = meta.width;
-	desc.Height = (UINT)meta.height;
+	desc.Width = (std::max<UINT64>)(1, meta.width >> skip);
+	desc.Height = (std::max<UINT>)(1, (UINT)(meta.height >> skip));
 	desc.DepthOrArraySize = (UINT16)meta.arraySize;
-	desc.MipLevels = (UINT16)meta.mipLevels;
+	desc.MipLevels = (UINT16)(meta.mipLevels - skip);
 	desc.Format = meta.format;
 	desc.SampleDesc.Count = 1;
 	desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
@@ -397,9 +451,9 @@ GfxSRV* Core::CreateTextureFromImage(const DirectX::ScratchImage& image) {
 
 	// One entry per subresource: array slice major, then mip, which is D3D12's subresource order.
 	std::vector<GfxSubresourceData> data;
-	data.reserve(meta.arraySize * meta.mipLevels);
+	data.reserve(meta.arraySize * (meta.mipLevels - skip));
 	for (size_t item = 0; item < meta.arraySize; ++item) {
-		for (size_t mip = 0; mip < meta.mipLevels; ++mip) {
+		for (size_t mip = skip; mip < meta.mipLevels; ++mip) {
 			const DirectX::Image* im = image.GetImage(mip, item, 0);
 			if (im == nullptr) {
 				return nullptr;
@@ -420,16 +474,16 @@ GfxSRV* Core::CreateTextureFromImage(const DirectX::ScratchImage& image) {
 	sd.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
 	if (meta.IsCubemap()) {
 		sd.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBE;
-		sd.TextureCube.MipLevels = (UINT)meta.mipLevels;
+		sd.TextureCube.MipLevels = (UINT)(meta.mipLevels - skip);
 	}
 	else if (meta.arraySize > 1) {
 		sd.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2DARRAY;
-		sd.Texture2DArray.MipLevels = (UINT)meta.mipLevels;
+		sd.Texture2DArray.MipLevels = (UINT)(meta.mipLevels - skip);
 		sd.Texture2DArray.ArraySize = (UINT)meta.arraySize;
 	}
 	else {
 		sd.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-		sd.Texture2D.MipLevels = (UINT)meta.mipLevels;
+		sd.Texture2D.MipLevels = (UINT)(meta.mipLevels - skip);
 	}
 	GfxSRV* srv = nullptr;
 	const HRESULT hr = device->CreateSRV(texture, &sd, &srv);

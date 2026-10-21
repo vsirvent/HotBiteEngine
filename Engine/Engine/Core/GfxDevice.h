@@ -106,7 +106,20 @@ namespace HotBite {
 				virtual ~GfxObject() = default;
 
 				void AddRef() { refs.fetch_add(1, std::memory_order_relaxed); }
+				//Takes a reference only if the object still has one (false: its last was just dropped and it is on its way out).
+				bool TryAddRef() {
+					LONG n = refs.load(std::memory_order_relaxed);
+					while (n > 0) {
+						if (refs.compare_exchange_weak(n, n + 1, std::memory_order_acq_rel)) {
+							return true;
+						}
+					}
+					return false;
+				}
 				LONG Release();
+				//Called when the last reference goes, by whoever drops it (Core::LoadTexture's cache uses it to forget the object:
+				//the GfxContext holds references to what is bound, so the last one is not always the cache user's).
+				void (*on_last_release)(GfxObject*) = nullptr;
 
 			protected:
 				//Set by what owns a GPU resource or a descriptor.
@@ -704,8 +717,14 @@ namespace HotBite {
 				struct PendingUpload {
 					uint64_t value;
 					std::vector<Microsoft::WRL::ComPtr<ID3D12Resource>> resources;
+					uint64_t bytes = 0;
 				};
 				std::deque<PendingUpload> pending_uploads;
+				//What the staging resources of pending_uploads add up to. They are released once the GPU has copied them, which
+				//CollectGarbage notices once a frame; a load that creates many textures between two frames would otherwise hold
+				//every staging buffer of all of them (as much memory again as the textures), so past this ExecuteImmediate waits.
+				uint64_t pending_upload_bytes = 0;
+				static constexpr uint64_t MAX_PENDING_UPLOAD_BYTES = 256ull * 1024 * 1024;
 
 				std::atomic<uint64_t> state_id{ 0 };
 

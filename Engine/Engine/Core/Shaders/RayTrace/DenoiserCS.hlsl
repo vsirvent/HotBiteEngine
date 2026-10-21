@@ -107,8 +107,11 @@ void main(uint3 DTid : SV_DispatchThreadID)
     }
     }
 
+    //A negative dispersion is "not set" (a light type this pass does not denoise). 0 is a value: the dispersion of
+    //a perfect mirror (specular 1: MainRenderPS writes 1 - specular, water and lava write 0), whose reflection is
+    //not blurred - the kernel below is clamped up to its smallest - but is certainly not nothing.
     [branch]
-    if (disp < Epsilon) {
+    if (disp < 0.0f) {
         output[pixel] = float4(0.0f, 0.0f, 0.0f, 0.0f);
         return;
     }
