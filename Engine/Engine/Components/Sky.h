@@ -73,6 +73,12 @@ namespace HotBite {
 					//on the same entity between the night pair and the day pair by how high the
 					//sun is; when off the AmbientLight is left exactly as authored.
 					bool ambient_cycle = false;
+
+					//How high the sun (sin of its elevation, 0 at the horizon, 1 at the zenith) must be for
+					//full intensity. Above 0 the sun fades linearly to nothing as it reaches the horizon and
+					//stays at 0 all night, which RenderSystem treats as an off light (no shadow passes, no
+					//lighting), instead of the default floor of 0.1 that never turns it off.
+					float sun_fade_height = 0.0f;
 					float3 ambient_day_up = { 0.35f, 0.35f, 0.38f };
 					float3 ambient_day_down = { 0.85f, 0.85f, 0.9f };
 					float3 ambient_night_up = { 0.03f, 0.03f, 0.06f };
@@ -111,6 +117,7 @@ namespace HotBite {
 						{"draw_background", draw_background},
 						{"cloud_speed", cloud_speed},
 						{"ambient_cycle", ambient_cycle},
+						{"sun_fade_height", sun_fade_height},
 						{"ambient_day_up", ECS::JsonUtil::FromFloat3(ambient_day_up)},
 						{"ambient_day_down", ECS::JsonUtil::FromFloat3(ambient_day_down)},
 						{"ambient_night_up", ECS::JsonUtil::FromFloat3(ambient_night_up)},
@@ -128,6 +135,7 @@ namespace HotBite {
 					draw_background = j.value("draw_background", draw_background);
 					cloud_speed = j.value("cloud_speed", cloud_speed);
 					ambient_cycle = j.value("ambient_cycle", ambient_cycle);
+					sun_fade_height = j.value("sun_fade_height", sun_fade_height);
 					ECS::JsonUtil::ToFloat3(j, "ambient_day_up", ambient_day_up);
 					ECS::JsonUtil::ToFloat3(j, "ambient_day_down", ambient_day_down);
 					ECS::JsonUtil::ToFloat3(j, "ambient_night_up", ambient_night_up);

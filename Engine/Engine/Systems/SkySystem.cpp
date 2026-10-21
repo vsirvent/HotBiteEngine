@@ -88,7 +88,9 @@ void SkySystem::Update(SkyEntity& entity, int64_t elapsed_nsec, int64_t total_ns
 	float y = -cos(t);
 	float z = y / 2.0f;
 	entity.dl->data.direction = { x, y, z };
-	entity.dl->data.intensity = min(max(y + 0.5f, 0.1f), 1.0f);
+	entity.dl->data.intensity = sky.sun_fade_height > 0.0f
+		? min(max(y / sky.sun_fade_height, 0.0f), 1.0f)
+		: min(max(y + 0.5f, 0.1f), 1.0f);
 	entity.dl->dirty = true;
 
 	float wfull = min(max(y*5.0f, 0.0f), 1.0f);
