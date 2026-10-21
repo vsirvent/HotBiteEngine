@@ -45,6 +45,8 @@ namespace HotBiteEditor {
 			rs->SetRayTracingSpace(RenderSystem::eRtSpace::WORLD);
 			rs->SetRayTracingScreenSteps(0);
 			rs->SetShadowRaySpace(RenderSystem::eRtSpace::WORLD);
+			//How much of a frame's ray traced shadow joins the running average is the level's: back to the default for the next one.
+			rs->SetShadowRayBlend(RenderSystem::DEFAULT_SHADOW_RAY_BLEND);
 			rs->SetAA(true);
 			rs->SetMotionBlur(true);
 			rs->SetMotionBlurScale(1.0f);
@@ -118,6 +120,16 @@ namespace HotBiteEditor {
 					"World: walks the BVH of the casters (no skinned meshes), sees what is off screen.\n"
 					"Screen + world: the screen first, the BVH when it finds nothing.");
 			}
+			float shadow_blend = rs->GetShadowRayBlend();
+			ImGui::SetNextItemWidth(120.0f);
+			if (ImGui::SliderFloat("RT shadow blend", &shadow_blend, 0.01f, 1.0f, "%.2f", ImGuiSliderFlags_Logarithmic)) {
+				rs->SetShadowRayBlend(shadow_blend);
+			}
+			if (ImGui::IsItemHovered()) {
+				ImGui::SetTooltip("Weight of the newest frame in the running average of the ray traced shadows.\n"
+					"Low: smooth, but a moving shadow leaves a ghost for about 1/blend frames.\n"
+					"1: no averaging - no ghost, but the shadow edges are noisy.");
+			}
 			float gi_confidence = rs->GetGIMaxConfidence();
 			ImGui::SetNextItemWidth(120.0f);
 			if (ImGui::SliderFloat("GI max confidence", &gi_confidence, 0.0f, 1.0f)) {
@@ -150,11 +162,18 @@ namespace HotBiteEditor {
 					ImGui::SetTooltip("Not available: %s.", rs->DynamicResolutionReason().c_str());
 				}
 			}
-			if (drs_available && drs) {
+			if (drs_available) {
+				//Shown, greyed out, while the option is off: the level's target rate and size range are stored with it
+				//either way, and this is where they are set.
+				ImGui::BeginDisabled(!drs);
 				float hz = rs->GetDynamicResolutionTargetHz();
 				ImGui::SetNextItemWidth(120.0f);
-				if (ImGui::SliderFloat("Target Hz", &hz, 30.0f, 240.0f, "%.0f")) {
+				if (ImGui::SliderFloat("Target FPS", &hz, 24.0f, 360.0f, "%.0f")) {
 					rs->SetDynamicResolutionTargetHz(hz);
+				}
+				if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+					ImGui::SetTooltip("The frame rate the level holds: the render loop runs at it and the scene is drawn\n"
+						"as big as that allows. Applies while dynamic resolution is on.");
 				}
 				float min_scale = rs->GetDynamicResolutionMinScale();
 				float max_scale = rs->GetDynamicResolutionMaxScale();
@@ -167,6 +186,7 @@ namespace HotBiteEditor {
 				}
 				const RenderSystem::DynamicResolutionStats st = rs->GetDynamicResolutionStats();
 				ImGui::TextDisabled("%dx%d (%.0f%%)  GPU %.1f ms of %.1f", st.width, st.height, st.scale * 100.0f, st.gpu_ms, st.budget_ms);
+				ImGui::EndDisabled();
 			}
 
 			ImGui::Separator();
@@ -474,6 +494,14 @@ namespace HotBiteEditor {
 				else { error = "shadow_space must be screen|world|both"; return false; }
 				return true;
 			}
+			if (key == "shadow_blend") {
+				float v;
+				try { v = std::stof(value); }
+				catch (...) { error = key + " must be a float"; return false; }
+				if (v < 0.01f || v > 1.0f) { error = key + " must be within 0.01..1"; return false; }
+				rs->SetShadowRayBlend(v);
+				return true;
+			}
 			if (key == "rt_screen_steps") {
 				int v;
 				try { v = std::stoi(value); }
@@ -669,6 +697,7 @@ namespace HotBiteEditor {
 				j["rt_space"] = space_names[(int)rs->GetRayTracingSpace() - 1];
 				j["rt_screen_steps"] = rs->GetRayTracingScreenSteps();
 				j["shadow_space"] = space_names[(int)rs->GetShadowRaySpace() - 1];
+				j["shadow_blend"] = rs->GetShadowRayBlend();
 				j["gi_confidence"] = rs->GetGIMaxConfidence();
 				j["aa"] = rs->GetAA();
 				j["motion_blur"] = rs->GetMotionBlur();
@@ -735,6 +764,10 @@ namespace HotBiteEditor {
 				if (s == "screen") { rs->SetShadowRaySpace(RenderSystem::eRtSpace::SCREEN); }
 				else if (s == "world") { rs->SetShadowRaySpace(RenderSystem::eRtSpace::WORLD); }
 				else if (s == "both") { rs->SetShadowRaySpace(RenderSystem::eRtSpace::BOTH); }
+			}
+			//Absent from a level saved before the setting existed: the default (ApplyHighDefaults) stays.
+			if (j.contains("shadow_blend") && j["shadow_blend"].is_number()) {
+				rs->SetShadowRayBlend(j["shadow_blend"].get<float>());
 			}
 			if (j.contains("rt_screen_steps") && j["rt_screen_steps"].is_number_unsigned()) {
 				rs->SetRayTracingScreenSteps(j["rt_screen_steps"].get<uint32_t>());

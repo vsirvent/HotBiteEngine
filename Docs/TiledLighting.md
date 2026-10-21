@@ -138,7 +138,8 @@ low discrepancy sequence. That is noise, so the light of the ray traced lights g
 buffer and `ShadowAccumulateCS` averages it over the frames (reprojected through `prev_position_map`,
 depth validated, history clamped to the 3x3 neighbourhood so a moved caster snaps instead of fading)
 before adding it to the light map. Only the first lighting dispatch accumulates; water and splats add
-their ray traced light directly. Tune with the `shadow_rays [radius blend]` editor command.
+their ray traced light directly. Tune with the `shadow_rays [radius blend]` editor command. The `blend` (weight of the newest frame; a low one leaves a ghost behind a moving
+shadow for about 1/blend frames) is also a per-level setting: the Render menu's "RT shadow blend", `render shadow_blend`, `editor.render.shadow_blend`.
 
 **Not done:** skinned meshes do not cast (their BVH is the bind pose); water and lava ignore it;
 volumetric fog and the reflection / GI tracers do not see a ray traced sun's shadow.

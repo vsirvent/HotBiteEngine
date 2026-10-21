@@ -1141,7 +1141,7 @@ namespace HotBite {
 				void ProcessShadowBvhDebug();
 				int shadow_rt_history_read = 0;
 				bool shadow_rt_history_valid = false;
-				float shadow_ray_blend = 0.08f;
+				float shadow_ray_blend = DEFAULT_SHADOW_RAY_BLEND;
 				//Most point lights that trace their shadow that are traced for a pixel in a frame (1 by default; 1 to 4 are what the tests measure),
 				//0 for all of them: the frames take turns at the rest and ShadowAccumulateCS averages them (DeferredLightCS.hlsl,
 				//shadow_ray_max_lights). Can be changed at any frame (`shadow_rays lights <n>`).
@@ -1153,6 +1153,13 @@ namespace HotBite {
 				//tuning and for tests.
 				void SetShadowRaySettings(float radius, float blend) {
 					shadow_ray_radius = radius < 0.0f ? 0.0f : radius;
+					SetShadowRayBlend(blend);
+				}
+				//Only the blend: the weight of the newest frame in the shadow's running average, 0.01 to 1. A low weight averages
+				//many frames (smooth, but a shadow that moves leaves a ghost behind it for about 1/blend frames); 1 shows
+				//every frame as it is traced (no ghost, noisy). A level can set it (the Scene Editor's `shadow_blend`).
+				static constexpr float DEFAULT_SHADOW_RAY_BLEND = 0.08f;
+				void SetShadowRayBlend(float blend) {
 					shadow_ray_blend = blend < 0.01f ? 0.01f : (blend > 1.0f ? 1.0f : blend);
 				}
 				float GetShadowRayRadius() const { return shadow_ray_radius; }

@@ -58,6 +58,31 @@ Test 'the options are stored in the level and come back, request and all' {
     SendOk 'render drs 0', 'render drs_hz 60', 'render drs_min_scale 0.5', 'render drs_max_scale 1' | Out-Null
 }
 
+Test 'the ray traced shadows blend is a level setting: validated, saved, and back on reload' {
+    $r = Get-Drs
+    Assert-Near -Expected 0.08 -Actual $r.shadow_blend -Tolerance 0.001 -Message 'the default is the engine own'
+    Assert-Err -Result (Invoke-EditorCommand -Session $Session -Command 'render shadow_blend 0')[0] -Message 'no weight at all would freeze the shadow'
+    Assert-Err -Result (Invoke-EditorCommand -Session $Session -Command 'render shadow_blend 2')[0] -Message 'more than the whole frame'
+    Assert-Err -Result (Invoke-EditorCommand -Session $Session -Command 'render shadow_blend soft')[0] -Message 'not a number'
+    SendOk 'render shadow_blend 0.4' | Out-Null
+    Assert-Near -Expected 0.4 -Actual (Get-Drs).shadow_blend -Tolerance 0.001
+    # The command that tunes it for tests sees the same value.
+    Assert-True -Condition ((SendOk 'shadow_rays')[0].Text -match 'blend=0\.400') -Message 'shadow_rays reads the same blend'
+    SendOk 'menu "File/Save Level"' | Out-Null
+    $level = Get-Content $LevelPath -Raw | ConvertFrom-Json
+    Assert-Near -Expected 0.4 -Actual $level.editor.render.shadow_blend -Tolerance 0.001 -Message 'saved with the level'
+
+    $reloadDir = Join-Path (Split-Path -Parent $ShotDir) 'reload-shadow-blend'
+    $reloaded = New-EditorSession -Exe $Session.Exe -Level $LevelPath -AutomationDir $reloadDir
+    try {
+        Assert-Near -Expected 0.4 -Actual (Get-Render -Session $reloaded).shadow_blend -Tolerance 0.001 -Message 'reloaded'
+    }
+    finally {
+        Close-EditorSession -Session $reloaded
+    }
+    SendOk 'render shadow_blend 0.08' | Out-Null
+}
+
 Test 'the scene is drawn smaller than the picture and DLSS makes the picture' {
     if (-not [bool](Get-Drs).drs_available) { Skip-Test -Reason 'no DLSS on this machine' }
     SendOk 'render drs_fixed_scale 0.6', 'render drs 1' | Out-Null

@@ -27,7 +27,8 @@ namespace HotBiteEditor {
 
 		// Programmatic access, shared with the automation channel's `render` command.
 		// Keys: rt_quality (off|low|mid|high), rt_reflections, rt_refractions,
-		// rt_indirect, gi_confidence (float 0..1, ceiling on how much the GI
+		// rt_indirect, shadow_blend (0.01..1, weight of the newest frame in the ray traced shadows' running average: low is smooth
+		// but ghosts behind a moving shadow, 1 does not average), gi_confidence (float 0..1, ceiling on how much the GI
 		// trusts its history - see RenderSystem::SetGIMaxConfidence), aa, motion_blur, motion_blur_scale, dof, dof_autofocus, dof_focus, dof_amplitude,
 		// drs (dynamic resolution with DLSS: 0/1, refused where DLSS is not available), drs_hz (24..360), drs_min_scale / drs_max_scale (0.34..1),
 		// drs_fixed_scale (0..1, pins the scale; 0 = automatic; never saved),
