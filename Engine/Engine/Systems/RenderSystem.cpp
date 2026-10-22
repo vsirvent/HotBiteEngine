@@ -484,6 +484,18 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		if (shadow_accumulate == nullptr) {
 			throw std::exception("ShadowAccumulateCS shader.Init failed");
 		}
+		//Ambient occlusion is optional: a build without its shaders simply goes without (gtao_active stays false).
+		gtao_shader = ShaderFactory::Get()->GetShader<SimpleComputeShader>("GtaoCS.cso");
+		gtao_accumulate = ShaderFactory::Get()->GetShader<SimpleComputeShader>("GtaoAccumulateCS.cso");
+		if (gtao_shader == nullptr || gtao_accumulate == nullptr ||
+			FAILED(gtao_map.InitScaled(w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, GFX_BIND_UNORDERED_ACCESS)) ||
+			FAILED(gtao_history[0].InitScaled(w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, GFX_BIND_UNORDERED_ACCESS)) ||
+			FAILED(gtao_history[1].InitScaled(w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, GFX_BIND_UNORDERED_ACCESS))) {
+			printf("RenderSystem::Init: ambient occlusion is not available\n");
+			gtao_shader = nullptr;
+			gtao_accumulate = nullptr;
+		}
+		gtao_history_valid = false;
 		//A debug view only: not fatal, the buffer then shows black.
 		shadow_bvh_debug = ShaderFactory::Get()->GetShader<SimpleComputeShader>("ShadowBvhDebugCS.cso");
 		if (shadow_bvh_debug == nullptr || FAILED(shadow_bvh_map.InitScaled(w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, GFX_BIND_UNORDERED_ACCESS))) {
@@ -819,6 +831,9 @@ RenderSystem::~RenderSystem() {
 	shadow_bvh_map.Release();
 	shadow_rt_history[0].Release();
 	shadow_rt_history[1].Release();
+	gtao_map.Release();
+	gtao_history[0].Release();
+	gtao_history[1].Release();
 	bloom_map.Release();
 	dust_map.Release();
 	temp_map.Release();
@@ -3365,7 +3380,7 @@ void RenderSystem::ProcessHighZ() {
 	//world solver alone, or with no ray traced light to trace on the screen, has no use for them.
 	const bool reflections = (rt_enabled & RT_REFLEX_ENABLE) && rt_quality != eRtQuality::OFF && bvh_buffer != nullptr &&
 		(EffectiveRtSpace() & (uint32_t)eRtSpace::SCREEN);
-	if (!reflections && !ShadowScreenWanted()) {
+	if (!reflections && !ShadowScreenWanted() && !(gtao_enabled && gtao_shader != nullptr)) {
 		return;
 	}
 	high_z_valid = true;
@@ -5020,6 +5035,96 @@ void RenderSystem::ProcessShadowBvhDebug() {
 	shadow_bvh_debug->SetUnorderedAccessView("picture", nullptr);
 	dxcore->context->CSSetShader(nullptr);
 }
+void RenderSystem::ProcessGtao() {
+	gtao_active = false;
+	if (!gtao_enabled || gtao_shader == nullptr || gtao_accumulate == nullptr || !high_z_valid || cameras.GetData().empty()) {
+		//What was accumulated is frames behind by the time it is asked for again.
+		gtao_history_valid = false;
+		return;
+	}
+	CameraEntity& cam_entity = cameras.GetData()[0];
+	GfxContext* context = dxcore->context;
+	const int w = RenderWidth();
+	const int h = RenderHeight();
+	const Components::Camera& camera = *cam_entity.camera;
+	XMFLOAT4X4 projection;
+	XMStoreFloat4x4(&projection, camera.xm_projection);
+
+	//The frame's rays: `gtao_slices` directions of every pixel, walked through the Hi-Z pyramid.
+	gtao_shader->SetMatrix4x4("inverse_projection", camera.inverse_projection);
+	gtao_shader->SetMatrix4x4("inverse_view", camera.inverse_view);
+	gtao_shader->SetFloat3(CAMERA_POSITION, camera.world_position);
+	gtao_shader->SetInt(SCREEN_W, w);
+	gtao_shader->SetInt(SCREEN_H, h);
+	gtao_shader->SetFloat("hiz_ratio", (float)HIZ_RATIO);
+	gtao_shader->SetFloat("radius", gtao_radius);
+	gtao_shader->SetFloat("falloff", GTAO_FALLOFF);
+	gtao_shader->SetFloat("pixels_per_unit", 0.5f * (float)h * projection._22);
+	gtao_shader->SetFloat("max_radius_px", GTAO_MAX_RADIUS_SCREEN * (float)h);
+	gtao_shader->SetInt("slices", gtao_slices);
+	gtao_shader->SetInt("steps", gtao_steps);
+	gtao_shader->SetInt("frame", (int)frame_count);
+	gtao_shader->SetFloat("step_power", GTAO_STEP_POWER);
+	gtao_shader->SetFloat("final_power", GTAO_FINAL_POWER);
+	gtao_shader->SetShaderResourceView("positionTexture", position_map.SRV());
+	gtao_shader->SetShaderResourceView("normalTexture", rt_ray_sources1.SRV());
+	gtao_shader->SetShaderResourceView("materialTexture", material_map.SRV());
+	gtao_shader->SetShaderResourceViewArray("ssHiZ[0]", high_z_maps, HIZ_NTEXTURES);
+	gtao_shader->SetUnorderedAccessView("gtao_out", gtao_map.UAV());
+	gtao_shader->CopyAllBufferData();
+	gtao_shader->SetShader();
+	context->Dispatch((w + 7) / 8, (h + 7) / 8, 1);
+	gtao_shader->SetShaderResourceView("positionTexture", nullptr);
+	gtao_shader->SetShaderResourceView("normalTexture", nullptr);
+	gtao_shader->SetShaderResourceView("materialTexture", nullptr);
+	GfxSRV* no_hiz[HIZ_NTEXTURES] = {};
+	gtao_shader->SetShaderResourceViewArray("ssHiZ[0]", no_hiz, HIZ_NTEXTURES);
+	gtao_shader->SetUnorderedAccessView("gtao_out", nullptr);
+	context->CSSetShader(nullptr);
+
+	//The average over the frames, with the ray traced shadows' weight, and the ambient it hides out of the light map.
+	const int read = gtao_history_read;
+	const int write = 1 - read;
+	gtao_accumulate->SetMatrix4x4("view_proj", camera.view_projection);
+	gtao_accumulate->SetMatrix4x4("prev_view_proj", prev_view_projection);
+	gtao_accumulate->SetInt("screenW", w);
+	gtao_accumulate->SetInt("screenH", h);
+	gtao_accumulate->SetInt("history_valid", gtao_history_valid ? 1 : 0);
+	gtao_accumulate->SetFloat("blend", shadow_ray_blend);
+	gtao_accumulate->SetFloat("gtao_strength", gtao_strength);
+	gtao_accumulate->SetFloat("gtao_direct", gtao_direct);
+	for (auto& l : ambient_lights.GetData()) {
+		if (IsShown(coordinator, *l.base)) {
+			gtao_accumulate->SetData(AMBIENT_LIGHT, &l.light->GetData(), sizeof(AmbientLight::Data));
+			break;
+		}
+	}
+	gtao_accumulate->SetShaderResourceView("positionTexture", position_map.SRV());
+	gtao_accumulate->SetShaderResourceView("prevPositionTexture", prev_position_map.SRV());
+	gtao_accumulate->SetShaderResourceView("currentLight", gtao_map.SRV());
+	gtao_accumulate->SetShaderResourceView("history", gtao_history[read].SRV());
+	gtao_accumulate->SetShaderResourceView("normalTexture", rt_ray_sources1.SRV());
+	gtao_accumulate->SetShaderResourceView("materialTexture", material_map.SRV());
+	gtao_accumulate->SetSamplerState("basicSampler", dxcore->basic_sampler);
+	gtao_accumulate->SetUnorderedAccessView("history_out", gtao_history[write].UAV());
+	gtao_accumulate->SetUnorderedAccessView("light_out", current_light_map->UAV());
+	gtao_accumulate->CopyAllBufferData();
+	gtao_accumulate->SetShader();
+	context->Dispatch((w + 7) / 8, (h + 7) / 8, 1);
+	gtao_accumulate->SetShaderResourceView("positionTexture", nullptr);
+	gtao_accumulate->SetShaderResourceView("prevPositionTexture", nullptr);
+	gtao_accumulate->SetShaderResourceView("currentLight", nullptr);
+	gtao_accumulate->SetShaderResourceView("history", nullptr);
+	gtao_accumulate->SetShaderResourceView("normalTexture", nullptr);
+	gtao_accumulate->SetShaderResourceView("materialTexture", nullptr);
+	gtao_accumulate->SetUnorderedAccessView("history_out", nullptr);
+	gtao_accumulate->SetUnorderedAccessView("light_out", nullptr);
+	context->CSSetShader(nullptr);
+	gtao_history_read = write;
+	gtao_history_valid = true;
+	gtao_active = true;
+}
+
 void RenderSystem::ProcessDeferredLighting(int pass_filter) {
 	if (LightingShader(LIGHT_STANDARD) == nullptr || cameras.GetData().empty()) {
 		return;
@@ -5235,6 +5340,11 @@ void RenderSystem::ProcessDeferredLighting(int pass_filter) {
 	else if (pass_filter == 0) {
 		//A frame without ray traced lights leaves the history stale; the next one starts afresh.
 		shadow_rt_history_valid = false;
+	}
+	//After every light that goes into the map, so the ambient it takes the occlusion out of is all there. Only the first geometry
+	//pass's surfaces: the later passes light a few pixels each over a copy of this map.
+	if (pass_filter == 0) {
+		ProcessGtao();
 	}
 	if (first) {
 		GpuStamp(13);

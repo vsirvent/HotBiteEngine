@@ -59,6 +59,9 @@
     <ClCompile Include="CrashHandler.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="RenderOptionsPanel.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="RenderSettings.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -188,6 +191,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="CrashHandler.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="RenderOptionsPanel.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="RenderSettings.h">

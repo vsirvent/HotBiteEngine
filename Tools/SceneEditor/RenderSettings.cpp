@@ -1,4 +1,5 @@
 #include "RenderSettings.h"
+#include "RenderOptionsPanel.h"
 
 #include "imgui.h"
 
@@ -18,28 +19,16 @@ namespace HotBiteEditor {
 			return app.GetState().world->GetSystem<RenderSystem>().get();
 		}
 
-		//Menu labels, in RenderSystem::eDebugBuffer order. The engine's own
-		//DebugBufferName() gives the lower-case token the automation command takes;
-		//these are the readable versions, and the two lists must stay aligned.
-		static const char* DEBUG_BUFFER_LABELS[] = {
-			"Off", "Scene colour", "Direct light", "Bloom", "Emission",
-			"RT reflections", "RT refractions", "Indirect (GI)", "Volumetric light",
-			"Dust", "Lens flare", "Depth", "World position", "World normal", "Motion vectors",
-			"GI cache (world)", "GI cache confidence",
-			//The ray source pair. "Mask" first because it is the one that answers a
-			//question on its own; the four scalars are what it is made of.
-			"Ray sources (mask)", "Ray dispersion", "Ray reflex", "Ray density",
-			"Ray opacity",
-			//The geometry the ray traced shadows are traced through, by triangle size and by cost.
-			"Shadow BVH (triangle size)", "Shadow BVH (cost of a ray)"
-		};
-		static_assert(IM_ARRAYSIZE(DEBUG_BUFFER_LABELS) ==
-			(int)RenderSystem::eDebugBuffer::COUNT,
-			"DEBUG_BUFFER_LABELS must match RenderSystem::eDebugBuffer");
+		using RenderOptionsPanel::DEBUG_BUFFER_LABELS;
+		using RenderOptionsPanel::GI_QUALITY_NAMES;
+		using RenderOptionsPanel::GiDividerOfQuality;
+		using RenderOptionsPanel::GiQualityOfDivider;
 
 		void ApplyHighDefaults(SceneEditorApp& app)
 		{
 			RenderSystem* rs = GetRenderSystem(app);
+			//Before the ray tracing quality: that is what allocates the textures the divider sizes.
+			rs->SetGIResolutionDivider(GiDividerOfQuality(0));
 			rs->SetRayTracingQuality(RenderSystem::eRtQuality::HIGH);
 			rs->SetRayTracing(true, true, true);
 			rs->SetRayTracingSpace(RenderSystem::eRtSpace::WORLD);
@@ -47,6 +36,9 @@ namespace HotBiteEditor {
 			rs->SetShadowRaySpace(RenderSystem::eRtSpace::WORLD);
 			//How much of a frame's ray traced shadow joins the running average is the level's: back to the default for the next one.
 			rs->SetShadowRayBlend(RenderSystem::DEFAULT_SHADOW_RAY_BLEND);
+			//Ambient occlusion is the level's too: off, with the engine's reach, until a level says otherwise.
+			rs->SetAmbientOcclusion(false);
+			rs->SetAmbientOcclusionSettings(RenderSystem::DEFAULT_GTAO_RADIUS, 1.0f, 0.0f, 1, 6);
 			rs->SetAA(true);
 			rs->SetMotionBlur(true);
 			rs->SetMotionBlurScale(1.0f);
@@ -79,243 +71,7 @@ namespace HotBiteEditor {
 			}
 			RenderSystem* rs = GetRenderSystem(app);
 
-			static const char* quality_names[] = { "Off", "Low", "Mid", "High" };
-			int quality = (int)rs->GetRayTracingQuality();
-			ImGui::SetNextItemWidth(120.0f);
-			if (ImGui::Combo("Ray tracing", &quality, quality_names, IM_ARRAYSIZE(quality_names))) {
-				rs->SetRayTracingQuality((RenderSystem::eRtQuality)quality);
-			}
-
-			bool reflections, refractions, indirect;
-			rs->GetRayTracing(reflections, refractions, indirect);
-			bool rt_changed = false;
-			rt_changed |= ImGui::Checkbox("RT reflections", &reflections);
-			rt_changed |= ImGui::Checkbox("RT refractions", &refractions);
-			rt_changed |= ImGui::Checkbox("RT indirect light", &indirect);
-			if (rt_changed) {
-				rs->SetRayTracing(reflections, refractions, indirect);
-			}
-			static const char* space_names[] = { "Screen", "World", "Screen + world" };
-			//eRtSpace is a set of bits (1 screen, 2 world, 3 both): the combo is that minus one.
-			int space = (int)rs->GetRayTracingSpace() - 1;
-			ImGui::SetNextItemWidth(120.0f);
-			if (ImGui::Combo("RT solver", &space, space_names, IM_ARRAYSIZE(space_names))) {
-				rs->SetRayTracingSpace((RenderSystem::eRtSpace)(space + 1));
-			}
-			if (ImGui::IsItemHovered()) {
-				ImGui::SetTooltip("Where reflections are solved.\n"
-					"Screen: marches the depth buffer - cheap, but only sees what is on screen.\n"
-					"World: walks the BVH of the nearest objects - sees all of them, costs more.\n"
-					"Screen + world: the screen first, the world for the rays it could not answer.\n"
-					"Refractions are world only.");
-			}
-			int shadow_space = (int)rs->GetShadowRaySpace() - 1;
-			ImGui::SetNextItemWidth(120.0f);
-			if (ImGui::Combo("RT shadow solver", &shadow_space, space_names, IM_ARRAYSIZE(space_names))) {
-				rs->SetShadowRaySpace((RenderSystem::eRtSpace)(shadow_space + 1));
-			}
-			if (ImGui::IsItemHovered()) {
-				ImGui::SetTooltip("Where the ray traced lights' shadows are solved.\n"
-					"Screen: looks for a caster in the depth buffer - the only way a skinned mesh casts.\n"
-					"World: walks the BVH of the casters (no skinned meshes), sees what is off screen.\n"
-					"Screen + world: the screen first, the BVH when it finds nothing.");
-			}
-			float shadow_blend = rs->GetShadowRayBlend();
-			ImGui::SetNextItemWidth(120.0f);
-			if (ImGui::SliderFloat("RT shadow blend", &shadow_blend, 0.01f, 1.0f, "%.2f", ImGuiSliderFlags_Logarithmic)) {
-				rs->SetShadowRayBlend(shadow_blend);
-			}
-			if (ImGui::IsItemHovered()) {
-				ImGui::SetTooltip("Weight of the newest frame in the running average of the ray traced shadows.\n"
-					"Low: smooth, but a moving shadow leaves a ghost for about 1/blend frames.\n"
-					"1: no averaging - no ghost, but the shadow edges are noisy.");
-			}
-			float gi_confidence = rs->GetGIMaxConfidence();
-			ImGui::SetNextItemWidth(120.0f);
-			if (ImGui::SliderFloat("GI max confidence", &gi_confidence, 0.0f, 1.0f)) {
-				rs->SetGIMaxConfidence(gi_confidence);
-			}
-			if (ImGui::IsItemHovered()) {
-				ImGui::SetTooltip("Ceiling on how much the indirect light trusts its history.\n"
-					"1: a still camera converges fully - least noise, but it looks\n"
-					"different from a moving one. 0: every pixel is treated as\n"
-					"moving, so still and moving look alike, with more noise.");
-			}
-
-			ImGui::Separator();
-
-			//Dynamic resolution: the scene is drawn smaller when the GPU would miss the refresh rate and DLSS makes the
-			//native picture from it. No DLSS (not an RTX card, an old driver, no nvngx_dlss.dll), no option.
-			const bool drs_available = rs->DynamicResolutionAvailable();
-			bool drs = rs->GetDynamicResolution();
-			ImGui::BeginDisabled(!drs_available);
-			if (ImGui::Checkbox("Dynamic resolution (DLSS)", &drs)) {
-				rs->SetDynamicResolution(drs);
-			}
-			ImGui::EndDisabled();
-			if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-				if (drs_available) {
-					ImGui::SetTooltip("Draws the scene at a size that follows the GPU load, so the frame holds the target\n"
-						"refresh rate, and upscales it with DLSS before the interface is drawn.");
-				}
-				else {
-					ImGui::SetTooltip("Not available: %s.", rs->DynamicResolutionReason().c_str());
-				}
-			}
-			if (drs_available) {
-				//Shown, greyed out, while the option is off: the level's target rate and size range are stored with it
-				//either way, and this is where they are set.
-				ImGui::BeginDisabled(!drs);
-				float hz = rs->GetDynamicResolutionTargetHz();
-				ImGui::SetNextItemWidth(120.0f);
-				if (ImGui::SliderFloat("Target FPS", &hz, 24.0f, 360.0f, "%.0f")) {
-					rs->SetDynamicResolutionTargetHz(hz);
-				}
-				if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-					ImGui::SetTooltip("The frame rate the level holds: the render loop runs at it and the scene is drawn\n"
-						"as big as that allows. Applies while dynamic resolution is on.");
-				}
-				float min_scale = rs->GetDynamicResolutionMinScale();
-				float max_scale = rs->GetDynamicResolutionMaxScale();
-				ImGui::SetNextItemWidth(120.0f);
-				const bool min_changed = ImGui::SliderFloat("Min scale", &min_scale, 0.34f, 1.0f, "%.2f");
-				ImGui::SetNextItemWidth(120.0f);
-				const bool max_changed = ImGui::SliderFloat("Max scale", &max_scale, 0.34f, 1.0f, "%.2f");
-				if (min_changed || max_changed) {
-					rs->SetDynamicResolutionRange(min_scale, max_scale);
-				}
-				const RenderSystem::DynamicResolutionStats st = rs->GetDynamicResolutionStats();
-				ImGui::TextDisabled("%dx%d (%.0f%%)  GPU %.1f ms of %.1f", st.width, st.height, st.scale * 100.0f, st.gpu_ms, st.budget_ms);
-				ImGui::EndDisabled();
-			}
-
-			ImGui::Separator();
-
-			bool aa = rs->GetAA();
-			if (ImGui::Checkbox("Anti-aliasing", &aa)) {
-				rs->SetAA(aa);
-			}
-			bool motion_blur = rs->GetMotionBlur();
-			if (ImGui::Checkbox("Motion blur", &motion_blur)) {
-				rs->SetMotionBlur(motion_blur);
-			}
-			ImGui::BeginDisabled(!motion_blur);
-			float motion_blur_scale = rs->GetMotionBlurScale();
-			ImGui::SetNextItemWidth(120.0f);
-			if (ImGui::SliderFloat("Motion blur scale", &motion_blur_scale, 0.0f, 4.0f)) {
-				rs->SetMotionBlurScale(motion_blur_scale);
-			}
-			ImGui::EndDisabled();
-			bool lens_flare = rs->GetLensFlare();
-			if (ImGui::Checkbox("Lens flare", &lens_flare)) {
-				rs->SetLensFlare(lens_flare);
-			}
-
-			ImGui::Separator();
-
-			bool dof = rs->GetDOF();
-			if (ImGui::Checkbox("Depth of field", &dof)) {
-				rs->SetDOF(dof);
-			}
-			bool autofocus = rs->GetDofAutofocus();
-			if (ImGui::Checkbox("DOF autofocus", &autofocus)) {
-				rs->SetDofAutofocus(autofocus);
-			}
-			if (ImGui::IsItemHovered()) {
-				ImGui::SetTooltip("Focal distance is measured on the GPU from the depth\n"
-					"buffer: the distance to whatever is at the center of the view.");
-			}
-			Core::BaseDOFProcess* dof_effect = app.GetDofEffect();
-			if (dof_effect != nullptr) {
-				float focus = dof_effect->GetFocus();
-				ImGui::SetNextItemWidth(120.0f);
-				//Under autofocus the live distance never reaches the CPU - it is
-				//measured and consumed entirely on the GPU - so this slider holds
-				//only the manual value, inert until autofocus is switched off.
-				ImGui::BeginDisabled(autofocus);
-				if (ImGui::SliderFloat("DOF focus", &focus, 1.0f, 200.0f) && !autofocus) {
-					dof_effect->SetFocus(focus);
-				}
-				ImGui::EndDisabled();
-				//The aperture is authored by hand in both modes; autofocus only ever
-				//touches the focal distance.
-				float amplitude = dof_effect->GetAmplitude();
-				ImGui::SetNextItemWidth(120.0f);
-				if (ImGui::SliderFloat("DOF amplitude", &amplitude, 0.0f, 20.0f)) {
-					dof_effect->SetAmplitude(amplitude);
-				}
-			}
-
-			ImGui::Separator();
-
-			//Physical camera artifacts. All three are 0..1 amounts; the master
-			//checkbox zeroes them for an A/B without losing the settings.
-			bool lens = rs->GetLensEffects();
-			if (ImGui::Checkbox("Lens effects", &lens)) {
-				rs->SetLensEffects(lens);
-			}
-			ImGui::BeginDisabled(!lens);
-			float aberration = rs->GetLensAberration();
-			ImGui::SetNextItemWidth(120.0f);
-			if (ImGui::SliderFloat("Chromatic aberration", &aberration, 0.0f, 1.0f)) {
-				rs->SetLensAberration(aberration);
-			}
-			float grain = rs->GetLensGrain();
-			ImGui::SetNextItemWidth(120.0f);
-			if (ImGui::SliderFloat("Film grain", &grain, 0.0f, 1.0f)) {
-				rs->SetLensGrain(grain);
-			}
-			float vignette = rs->GetLensVignette();
-			ImGui::SetNextItemWidth(120.0f);
-			if (ImGui::SliderFloat("Vignette", &vignette, 0.0f, 1.0f)) {
-				rs->SetLensVignette(vignette);
-			}
-			ImGui::EndDisabled();
-
-			ImGui::Separator();
-
-			bool wireframe = rs->GetWireframe();
-			if (ImGui::Checkbox("Wireframe", &wireframe)) {
-				rs->SetWireframe(wireframe);
-			}
-
-			ImGui::Separator();
-
-			//Buffer inspection. The combo drives ProcessMix, which writes the chosen
-			//buffer to the screen in place of the mixed frame; the two bypasses turn
-			//their denoiser into a copy so the buffer carries the raw traced signal.
-			//Both are useful alone, and most useful together.
-			int buffer = (int)rs->GetDebugBuffer();
-			ImGui::SetNextItemWidth(140.0f);
-			if (ImGui::Combo("Debug buffer", &buffer, DEBUG_BUFFER_LABELS,
-				(int)RenderSystem::eDebugBuffer::COUNT)) {
-				rs->SetDebugBuffer((RenderSystem::eDebugBuffer)buffer);
-			}
-			if (ImGui::IsItemHovered()) {
-				ImGui::SetTooltip("Shows one of the buffers the frame is mixed from.\n"
-					"Anti-aliasing, motion blur, depth of field and the lens\n"
-					"effects are suppressed while a buffer is selected.");
-			}
-			//Meaningful for the HDR colour buffers, and for the motion and ray scalar
-			//ramps, whose ranges have no natural display scale. depth/position/normal
-			//and the two cache views are mapped, not exposed, so it does nothing there.
-			ImGui::BeginDisabled(!rs->IsDebugBufferActive());
-			float gain = rs->GetDebugGain();
-			ImGui::SetNextItemWidth(140.0f);
-			if (ImGui::SliderFloat("Debug gain", &gain, 0.0f, 32.0f, "%.2fx",
-				ImGuiSliderFlags_Logarithmic)) {
-				rs->SetDebugGain(gain);
-			}
-			ImGui::EndDisabled();
-
-			bool no_gi_denoise = rs->GetDebugFlag(RenderSystem::RT_DEBUG_NO_GI_DENOISE);
-			if (ImGui::Checkbox("Bypass GI denoise", &no_gi_denoise)) {
-				rs->SetDebugFlag(RenderSystem::RT_DEBUG_NO_GI_DENOISE, no_gi_denoise);
-			}
-			bool no_rt_denoise = rs->GetDebugFlag(RenderSystem::RT_DEBUG_NO_RT_DENOISE);
-			if (ImGui::Checkbox("Bypass RT denoise", &no_rt_denoise)) {
-				rs->SetDebugFlag(RenderSystem::RT_DEBUG_NO_RT_DENOISE, no_rt_denoise);
-			}
+			RenderOptionsPanel::Draw(rs, app.GetDofEffect());
 
 			ImGui::EndMenu();
 		}
@@ -480,6 +236,15 @@ namespace HotBiteEditor {
 				rs->SetRayTracingQuality(q);
 				return true;
 			}
+			if (key == "gi_quality") {
+				int q = -1;
+				for (int i = 0; i < IM_ARRAYSIZE(GI_QUALITY_NAMES); ++i) {
+					if (value == GI_QUALITY_NAMES[i]) { q = i; }
+				}
+				if (q < 0) { error = "gi_quality must be low|medium|high"; return false; }
+				rs->SetGIResolutionDivider(GiDividerOfQuality(q));
+				return true;
+			}
 			if (key == "rt_space") {
 				if (value == "screen") { rs->SetRayTracingSpace(RenderSystem::eRtSpace::SCREEN); }
 				else if (value == "world") { rs->SetRayTracingSpace(RenderSystem::eRtSpace::WORLD); }
@@ -500,6 +265,24 @@ namespace HotBiteEditor {
 				catch (...) { error = key + " must be a float"; return false; }
 				if (v < 0.01f || v > 1.0f) { error = key + " must be within 0.01..1"; return false; }
 				rs->SetShadowRayBlend(v);
+				return true;
+			}
+			if (key == "gtao_radius" || key == "gtao_strength" || key == "gtao_direct") {
+				float v;
+				try { v = std::stof(value); }
+				catch (...) { error = key + " must be a float"; return false; }
+				float radius = rs->GetAmbientOcclusionRadius();
+				float strength = rs->GetAmbientOcclusionStrength();
+				float direct = rs->GetAmbientOcclusionDirect();
+				if (key == "gtao_radius") {
+					if (v < 0.01f || v > 1000.0f) { error = key + " must be within 0.01..1000"; return false; }
+					radius = v;
+				}
+				else {
+					if (v < 0.0f || v > 1.0f) { error = key + " must be within 0..1"; return false; }
+					(key == "gtao_strength" ? strength : direct) = v;
+				}
+				rs->SetAmbientOcclusionSettings(radius, strength, direct, rs->GetAmbientOcclusionSlices(), rs->GetAmbientOcclusionSteps());
 				return true;
 			}
 			if (key == "rt_screen_steps") {
@@ -551,7 +334,7 @@ namespace HotBiteEditor {
 				return true;
 			}
 			if (key == "aa" || key == "motion_blur" || key == "dof" || key == "lens_flare" ||
-				key == "lens" || key == "wireframe") {
+				key == "lens" || key == "wireframe" || key == "gtao") {
 				bool enabled;
 				if (!ParseBool(value, enabled)) { error = key + " must be 0|1"; return false; }
 				if (key == "aa") { rs->SetAA(enabled); }
@@ -559,6 +342,7 @@ namespace HotBiteEditor {
 				else if (key == "dof") { rs->SetDOF(enabled); }
 				else if (key == "lens_flare") { rs->SetLensFlare(enabled); }
 				else if (key == "lens") { rs->SetLensEffects(enabled); }
+				else if (key == "gtao") { rs->SetAmbientOcclusion(enabled); }
 				else { rs->SetWireframe(enabled); }
 				return true;
 			}
@@ -675,6 +459,8 @@ namespace HotBiteEditor {
 				j["drs_changes"] = st.changes;
 				j["drs_upscaled_frames"] = st.upscaled_frames;
 				j["drs_fixed_scale"] = rs->GetDynamicResolutionFixedScale();
+				//Whether the last frame traced the ambient occlusion (on, the pyramid built, the shaders there): not part of a level.
+				j["gtao_active"] = rs->IsAmbientOcclusionActive();
 				j["gi_denoise"] = !rs->GetDebugFlag(RenderSystem::RT_DEBUG_NO_GI_DENOISE);
 				j["rt_denoise"] = !rs->GetDebugFlag(RenderSystem::RT_DEBUG_NO_RT_DENOISE);
 			}
@@ -688,6 +474,7 @@ namespace HotBiteEditor {
 				RenderSystem* rs = GetRenderSystem(app);
 				static const char* quality_names[] = { "off", "low", "mid", "high" };
 				j["rt_quality"] = quality_names[(int)rs->GetRayTracingQuality()];
+				j["gi_quality"] = GI_QUALITY_NAMES[GiQualityOfDivider(rs->GetGIResolutionDivider())];
 				bool reflections, refractions, indirect;
 				rs->GetRayTracing(reflections, refractions, indirect);
 				j["rt_reflections"] = reflections;
@@ -698,6 +485,10 @@ namespace HotBiteEditor {
 				j["rt_screen_steps"] = rs->GetRayTracingScreenSteps();
 				j["shadow_space"] = space_names[(int)rs->GetShadowRaySpace() - 1];
 				j["shadow_blend"] = rs->GetShadowRayBlend();
+				j["gtao"] = rs->GetAmbientOcclusion();
+				j["gtao_radius"] = rs->GetAmbientOcclusionRadius();
+				j["gtao_strength"] = rs->GetAmbientOcclusionStrength();
+				j["gtao_direct"] = rs->GetAmbientOcclusionDirect();
 				j["gi_confidence"] = rs->GetGIMaxConfidence();
 				j["aa"] = rs->GetAA();
 				j["motion_blur"] = rs->GetMotionBlur();
@@ -733,6 +524,13 @@ namespace HotBiteEditor {
 			}
 			RenderSystem* rs = GetRenderSystem(app);
 
+			//Before the ray tracing quality, which allocates what the divider sizes; absent from a level saved before it existed: low, as ApplyHighDefaults left it.
+			if (j.contains("gi_quality") && j["gi_quality"].is_string()) {
+				const std::string q = j["gi_quality"];
+				for (int i = 0; i < IM_ARRAYSIZE(GI_QUALITY_NAMES); ++i) {
+					if (q == GI_QUALITY_NAMES[i]) { rs->SetGIResolutionDivider(GiDividerOfQuality(i)); }
+				}
+			}
 			if (j.contains("rt_quality") && j["rt_quality"].is_string()) {
 				const std::string q = j["rt_quality"];
 				if (q == "off") { rs->SetRayTracingQuality(RenderSystem::eRtQuality::OFF); }
@@ -769,6 +567,13 @@ namespace HotBiteEditor {
 			if (j.contains("shadow_blend") && j["shadow_blend"].is_number()) {
 				rs->SetShadowRayBlend(j["shadow_blend"].get<float>());
 			}
+			//Likewise absent from levels saved before ambient occlusion: off, as ApplyHighDefaults left it.
+			if (j.contains("gtao_radius") || j.contains("gtao_strength") || j.contains("gtao_direct")) {
+				rs->SetAmbientOcclusionSettings(j.value("gtao_radius", rs->GetAmbientOcclusionRadius()),
+					j.value("gtao_strength", rs->GetAmbientOcclusionStrength()), j.value("gtao_direct", rs->GetAmbientOcclusionDirect()),
+					rs->GetAmbientOcclusionSlices(), rs->GetAmbientOcclusionSteps());
+			}
+			if (j.contains("gtao")) { rs->SetAmbientOcclusion(j.value("gtao", rs->GetAmbientOcclusion())); }
 			if (j.contains("rt_screen_steps") && j["rt_screen_steps"].is_number_unsigned()) {
 				rs->SetRayTracingScreenSteps(j["rt_screen_steps"].get<uint32_t>());
 			}

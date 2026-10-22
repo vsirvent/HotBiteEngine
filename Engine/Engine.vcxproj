@@ -314,6 +314,7 @@
   <ItemGroup>
     <None Include="Engine\Core\Shaders\Common\Complex.hlsli" />
     <None Include="Engine\Core\Shaders\Common\DeferredLighting.hlsli" />
+    <None Include="Engine\Core\Shaders\Common\AmbientShading.hlsli" />
     <None Include="Engine\Core\Shaders\Common\Defines.hlsli" />
     <None Include="Engine\Core\Shaders\Common\LightShadows.hlsli" />
     <None Include="Engine\Core\Shaders\Common\TiledLights.hlsli" />
@@ -438,6 +439,18 @@
       <HotBiteFxc>cs_5_0</HotBiteFxc>
     </FxCompile>
     <FxCompile Include="Engine\Core\Shaders\ComputeShaders\ShadowAccumulateCS.hlsl">
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Compute</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Compute</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|x64'">5.0</ShaderModel>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\ComputeShaders\GtaoAccumulateCS.hlsl">
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Compute</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Compute</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|x64'">5.0</ShaderModel>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\ComputeShaders\GtaoCS.hlsl">
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Compute</ShaderType>
       <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Compute</ShaderType>
@@ -1053,6 +1066,15 @@
     </PropertyGroup>
     <Touch Files="@(LightingDependent)" Condition="Exists('$(DeferredLightingLightHeader)') And $([System.IO.File]::GetLastWriteTime('$(DeferredLightingLightHeader)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('%(LightingDependent.FullPath)').Ticks)" />
     <PropertyGroup>
+      <AmbientShadingLightHeader>$(MSBuildThisFileDirectory)Engine\Core\Shaders\Common\AmbientShading.hlsli</AmbientShadingLightHeader>
+    </PropertyGroup>
+    <Touch Files="@(LightingDependent)" Condition="Exists('$(AmbientShadingLightHeader)') And $([System.IO.File]::GetLastWriteTime('$(AmbientShadingLightHeader)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('%(LightingDependent.FullPath)').Ticks)" />
+    <ItemGroup>
+      <AmbientShadingDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\ShadowAccumulateCS.hlsl" />
+      <AmbientShadingDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\GtaoAccumulateCS.hlsl" />
+    </ItemGroup>
+    <Touch Files="@(AmbientShadingDependent)" Condition="Exists('$(AmbientShadingLightHeader)') And $([System.IO.File]::GetLastWriteTime('$(AmbientShadingLightHeader)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('%(AmbientShadingDependent.FullPath)').Ticks)" />
+    <PropertyGroup>
       <GBufferLightHeader>$(MSBuildThisFileDirectory)Engine\Core\Shaders\Common\GBuffer.hlsli</GBufferLightHeader>
     </PropertyGroup>
     <Touch Files="@(LightingDependent)" Condition="Exists('$(GBufferLightHeader)') And $([System.IO.File]::GetLastWriteTime('$(GBufferLightHeader)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('%(LightingDependent.FullPath)').Ticks)" />
@@ -1111,6 +1133,7 @@
       <RayScreenSolverDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightRaysHwCS.hlsl" />
       <RayScreenSolverDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightFxcCS.hlsl" />
       <RayScreenSolverDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightRaysFxcCS.hlsl" />
+      <RayScreenSolverDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\GtaoCS.hlsl" />
     </ItemGroup>
     <Touch Files="@(RayScreenSolverDependent)" Condition="Exists('$(RayScreenSolverHeader)') And $([System.IO.File]::GetLastWriteTime('$(RayScreenSolverHeader)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('%(RayScreenSolverDependent.FullPath)').Ticks)" />
     <!-- The ray tracers (and their ray query twins) include these: a header newer than a shader touches it, so it is built again. -->
@@ -1135,6 +1158,7 @@
       <LightWrapper Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\RayTrace\GIRayTraceHwCS.hlsl"><Includes>$(MSBuildThisFileDirectory)Engine\Core\Shaders\RayTrace\GIRayTraceCS.hlsl</Includes></LightWrapper>
       <LightWrapper Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightWaterCS.hlsl"><Includes>$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightCS.hlsl</Includes></LightWrapper>
       <LightWrapper Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightLavaCS.hlsl"><Includes>$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\DeferredLightCS.hlsl</Includes></LightWrapper>
+      <LightWrapper Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\GtaoAccumulateCS.hlsl"><Includes>$(MSBuildThisFileDirectory)Engine\Core\Shaders\ComputeShaders\ShadowAccumulateCS.hlsl</Includes></LightWrapper>
     </ItemGroup>
     <Touch Files="@(LightWrapper)" Condition="Exists('%(LightWrapper.Includes)') And $([System.IO.File]::GetLastWriteTime('%(LightWrapper.Includes)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('%(LightWrapper.FullPath)').Ticks)" />
     <ItemGroup>

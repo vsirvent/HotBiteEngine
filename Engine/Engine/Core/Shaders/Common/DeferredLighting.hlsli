@@ -46,12 +46,7 @@ SOFTWARE.
 #include "GBuffer.hlsli"
 #include "LightShadows.hlsli"
 
-float3 ShadeAmbient(float3 normal)
-{
-	// Convert from [-1, 1] to [0, 1]
-	float up = normal.y * 0.5 + 0.5;
-	return ambientLight.AmbientDown + up * ambientLight.AmbientUp;
-}
+#include "AmbientShading.hlsli"
 
 float3 ShadeDirectional(float3 normal, float4 position, float spec_intensity, float bloom_scale,
                         DirLight light, float cloud_density, int index, inout float3 bloom)

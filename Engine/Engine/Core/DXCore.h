@@ -137,6 +137,12 @@ namespace HotBite {
 				// Default is a no-op, so consumers that don't override it are unaffected.
 				virtual void ForwardWindowMessage(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) { }
 
+				// Lets such an overlay keep the mouse and the keyboard to itself: when this says true for a mouse or keyboard
+				// message, the message is not sent on as an event (nothing under the overlay sees the click, the wheel or the key).
+				// The overlay decides per message, so it can let the key-ups of keys that went down before it opened through.
+				// Called after ForwardWindowMessage. Default false.
+				virtual bool OverlayCapturesInput(UINT uMsg) { return false; }
+
 				// Helper function for allocating a console window
 				void CreateConsoleWindow(int bufferLines, int bufferColumns, int windowLines, int windowColumns);
 				//Frame stats function

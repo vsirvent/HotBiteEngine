@@ -788,6 +788,9 @@ LRESULT DXCore::ProcessMessage(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPara
 	if (end) {
 		return DefWindowProc(hWnd, uMsg, wParam, lParam);
 	}
+	if (OverlayCapturesInput(uMsg)) {
+		return 0;
+	}
 	Coordinator* c = GetCoordinator();
 	RECT rect;
 	GetClientRect(wnd, &rect);

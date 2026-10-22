@@ -38,6 +38,18 @@ SOFTWARE.
 //
 //A pixel whose history is missing or from another surface keeps this frame's value alone
 //(noisy for a few frames) rather than a wrong one.
+//
+//GTAO_ACCUMULATE (GtaoAccumulateCS.hlsl) is the same pass for the ambient occlusion (GtaoCS.hlsl): the "light" it
+//averages is the visibility the frame traced (its alpha is 1 on every surface, so the history is never clamped to a
+//neighbourhood that holds one frame's directions), and what it does with the result is take the ambient light the
+//visibility hides out of the light map (and, by a share, of the rest of its light), instead of adding light to it.
+
+#ifdef GTAO_ACCUMULATE
+#include "../Common/Defines.hlsli"
+#include "../Common/ShaderStructs.hlsli"
+#include "../Common/PixelCommon.hlsli"
+#include "../Common/GBuffer.hlsli"
+#endif
 
 cbuffer externalData : register(b0)
 {
@@ -49,14 +61,32 @@ cbuffer externalData : register(b0)
 	int history_valid;
 	//Weight of this frame's value: 1 is no accumulation, 0.1 is about a ten frame average.
 	float blend;
+#ifdef GTAO_ACCUMULATE
+	//The ambient light of the frame, how much of the occlusion is taken out of it (1: all of it), and the share of the rest of the
+	//light (the sun, the lamps) that it dims as well (0: none, 1: the occlusion dims the whole map).
+	AmbientLight ambientLight;
+	float gtao_strength;
+	float gtao_direct;
+#endif
 }
+
+#ifdef GTAO_ACCUMULATE
+#include "../Common/AmbientShading.hlsli"
+#endif
 
 Texture2D<float4> positionTexture : register(t0);
 Texture2D<float4> prevPositionTexture : register(t1);
 Texture2D<float4> currentLight : register(t2);
 //rgb: accumulated light, a: the view depth of the surface it was accumulated on.
 Texture2D<float4> history : register(t3);
+#ifdef GTAO_ACCUMULATE
+//rt_ray_sources1: the world normal in xyz.
+Texture2D<float4> normalTexture : register(t4);
+Texture2D<float4> materialTexture : register(t5);
+//(basicSampler comes with PixelCommon.hlsli.)
+#else
 SamplerState basicSampler : register(s0);
+#endif
 
 RWTexture2D<float4> history_out : register(u0);
 RWTexture2D<float4> light_out : register(u1);
@@ -154,5 +184,16 @@ void main(uint3 dtid : SV_DispatchThreadID)
 	}
 	history_out[px] = float4(result, depth);
 	const float4 l = light_out[px];
+#ifdef GTAO_ACCUMULATE
+	//Only what the lighting gave ambient to: the ordinary surfaces of the first geometry pass.
+	const uint code = (uint)(materialTexture[px].w + 0.5f);
+	if ((code & GBUFFER_MODEL_MASK) == SHADING_STANDARD && (code & GBUFFER_PASS2) == 0) {
+		const float3 ambient = ShadeAmbient(normalTexture[px].xyz);
+		const float occlusion = 1.0f - saturate(result.r);
+		const float3 hidden = ambient * (occlusion * gtao_strength) + max(l.rgb - ambient, 0.0f) * (occlusion * gtao_direct);
+		light_out[px] = float4(max(l.rgb - hidden, 0.0f), l.a);
+	}
+#else
 	light_out[px] = float4(l.rgb + result, l.a);
+#endif
 }

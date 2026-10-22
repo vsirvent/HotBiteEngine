@@ -1146,6 +1146,32 @@ namespace HotBite {
 				//0 for all of them: the frames take turns at the rest and ShadowAccumulateCS averages them (DeferredLightCS.hlsl,
 				//shadow_ray_max_lights). Can be changed at any frame (`shadow_rays lights <n>`).
 				int shadow_ray_max_lights = 1;
+
+				//Ground truth ambient occlusion (GtaoCS.hlsl), traced against the Hi-Z pyramid. A frame traces `gtao_slices` of each pixel's
+				//directions into `gtao_map` (the frames take turns at the rest, as the ray traced lights do), GtaoAccumulateCS - the
+				//shadows' ShadowAccumulateCS, the same blur and the same running average with the same weight - averages them over the
+				//frames in the two history textures, and takes the share of the ambient light the visibility hides out of the light map.
+				Core::RenderTexture2D gtao_map;
+				Core::RenderTexture2D gtao_history[2];
+				Core::SimpleComputeShader* gtao_shader = nullptr;
+				Core::SimpleComputeShader* gtao_accumulate = nullptr;
+				int gtao_history_read = 0;
+				bool gtao_history_valid = false;
+				bool gtao_enabled = false;
+				bool gtao_active = false;
+				float gtao_radius = DEFAULT_GTAO_RADIUS;
+				float gtao_strength = 1.0f;
+				float gtao_direct = 0.0f;
+				int gtao_slices = 1;
+				int gtao_steps = 6;
+				//Where the pyramid's reach on the screen stops (a share of the screen's height) however near the surface is.
+				static constexpr float GTAO_MAX_RADIUS_SCREEN = 0.2f;
+				//The sample distribution (steps bunch up towards the pixel) and the exponent the finished visibility is raised to.
+				static constexpr float GTAO_STEP_POWER = 2.0f;
+				static constexpr float GTAO_FINAL_POWER = 1.5f;
+				//The share of the radius, at its far end, over which a sample fades out.
+				static constexpr float GTAO_FALLOFF = 0.6f;
+				void ProcessGtao();
 			public:
 				//How soft ray traced shadows are (the radius of the ball the rays aim into, in world
 				//units; 0 = hard) and how fast the result settles (the weight of the newest frame,
@@ -1184,6 +1210,34 @@ namespace HotBite {
 				float GetShadowRayBlend() const { return shadow_ray_blend; }
 				void SetShadowRayMaxLights(int count) { shadow_ray_max_lights = count < 0 ? 0 : (count > MAX_TILED_LIGHTS ? MAX_TILED_LIGHTS : count); }
 				int GetShadowRayMaxLights() const { return shadow_ray_max_lights; }
+
+				//Ambient occlusion: the ambient light is dimmed where the surroundings hide the sky (creases, the foot of a wall, under a roof),
+				//with rays walked through the Hi-Z pyramid of the depth map. Off by default (a host turns it on). `radius` is how far the
+				//surroundings count, in world units (a few times the size of the detail that should darken); `strength` 0..1 how much of the
+				//occlusion is taken out of the ambient light; `direct` 0..1 the share of the rest of the light (the sun's and the lamps') that
+				//it dims too - 0 is physical (only the sky's light is hidden), 1 darkens the whole light map; `slices` how many of a pixel's directions are traced in a frame (1 is enough:
+				//the frames take turns at the rest and the temporal accumulation, the weight of which is the ray traced shadows', averages
+				//them) and `steps` the samples on each side of a direction.
+				void SetAmbientOcclusion(bool enabled) {
+					gtao_enabled = enabled;
+					gtao_history_valid = false;
+				}
+				bool GetAmbientOcclusion() const { return gtao_enabled; }
+				static constexpr float DEFAULT_GTAO_RADIUS = 1.0f;
+				void SetAmbientOcclusionSettings(float radius, float strength, float direct, int slices, int steps) {
+					gtao_radius = radius < 0.01f ? 0.01f : radius;
+					gtao_strength = strength < 0.0f ? 0.0f : (strength > 1.0f ? 1.0f : strength);
+					gtao_direct = direct < 0.0f ? 0.0f : (direct > 1.0f ? 1.0f : direct);
+					gtao_slices = slices < 1 ? 1 : (slices > 8 ? 8 : slices);
+					gtao_steps = steps < 1 ? 1 : (steps > 16 ? 16 : steps);
+				}
+				float GetAmbientOcclusionRadius() const { return gtao_radius; }
+				float GetAmbientOcclusionStrength() const { return gtao_strength; }
+				float GetAmbientOcclusionDirect() const { return gtao_direct; }
+				int GetAmbientOcclusionSlices() const { return gtao_slices; }
+				int GetAmbientOcclusionSteps() const { return gtao_steps; }
+				//Whether the last frame traced it: on, with the pyramid built and the shaders there.
+				bool IsAmbientOcclusionActive() const { return gtao_active; }
 
 				//Who answers a shadow ray - "is something in the way of this segment": the hardware (the default): an inline ray
 				//query (shader model 6.5) against acceleration structures the engine builds each frame (Core::AccelStructure), or

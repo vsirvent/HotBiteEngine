@@ -26,8 +26,11 @@ namespace HotBiteEditor {
 		void DrawOverlay(SceneEditorApp& app);
 
 		// Programmatic access, shared with the automation channel's `render` command.
-		// Keys: rt_quality (off|low|mid|high), rt_reflections, rt_refractions,
-		// rt_indirect, shadow_blend (0.01..1, weight of the newest frame in the ray traced shadows' running average: low is smooth
+		// Keys: rt_quality (off|low|mid|high), gi_quality (low|medium|high: the indirect light's texture at 1/3, 1/2 or the whole
+		// screen's resolution on each side), rt_reflections, rt_refractions,
+		// rt_indirect, gtao (0/1: ambient occlusion, the engine's GTAO against the Hi-Z pyramid), gtao_radius (world units), gtao_strength
+		// (0..1, how much of the occlusion is taken out of the ambient light), gtao_direct (0..1, the share of the rest of the light
+		// it dims too), shadow_blend (0.01..1, weight of the newest frame in the ray traced shadows' running average: low is smooth
 		// but ghosts behind a moving shadow, 1 does not average), gi_confidence (float 0..1, ceiling on how much the GI
 		// trusts its history - see RenderSystem::SetGIMaxConfidence), aa, motion_blur, motion_blur_scale, dof, dof_autofocus, dof_focus, dof_amplitude,
 		// drs (dynamic resolution with DLSS: 0/1, refused where DLSS is not available), drs_hz (24..360), drs_min_scale / drs_max_scale (0.34..1),

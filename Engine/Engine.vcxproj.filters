@@ -830,6 +830,12 @@
     <FxCompile Include="Engine\Core\Shaders\ComputeShaders\ShadowAccumulateCS.hlsl">
       <Filter>Engine\Core\Shaders\Lights</Filter>
     </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\ComputeShaders\GtaoAccumulateCS.hlsl">
+      <Filter>Engine\Core\Shaders\Lights</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\ComputeShaders\GtaoCS.hlsl">
+      <Filter>Engine\Core\Shaders\Lights</Filter>
+    </FxCompile>
     <FxCompile Include="Engine\Core\Shaders\ComputeShaders\ShadowBvhDebugCS.hlsl">
       <Filter>Engine\Core\Shaders\Lights</Filter>
     </FxCompile>

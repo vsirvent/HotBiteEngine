@@ -55,6 +55,7 @@
     <ClCompile Include="ComponentOps.cpp" />
     <ClCompile Include="EditorCamera.cpp" />
     <ClCompile Include="CrashHandler.cpp" />
+    <ClCompile Include="RenderOptionsPanel.cpp" />
     <ClCompile Include="RenderSettings.cpp" />
     <ClCompile Include="RenderDocIntegration.cpp" />
     <ClCompile Include="SelectionGizmo.cpp" />
@@ -105,6 +106,7 @@
     <ClInclude Include="ComponentOps.h" />
     <ClInclude Include="EditorCamera.h" />
     <ClInclude Include="CrashHandler.h" />
+    <ClInclude Include="RenderOptionsPanel.h" />
     <ClInclude Include="RenderSettings.h" />
     <ClInclude Include="RenderDocIntegration.h" />
     <ClInclude Include="SelectionGizmo.h" />
