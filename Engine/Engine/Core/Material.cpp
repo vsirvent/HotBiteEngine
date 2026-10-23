@@ -630,6 +630,9 @@ namespace HotBite {
 				if (j.value("world_uv_enabled", false)) {
 					props.flags |= WORLD_UV_ENABLED_FLAG;
 				}
+				if (j.value("tint_enabled", false)) {
+					props.flags |= TINT_ENABLED_FLAG;
+				}
 				SetTexture(diffuse, texture_names.diffuse_texname, root, j.value("diffuse_textname", ""));
 				SetTexture(high, texture_names.high_textname, root, j.value("high_textname", ""));
 				SetTexture(normal, texture_names.normal_textname, root, j.value("normal_textname", ""));
@@ -787,6 +790,9 @@ namespace HotBite {
 				j["blend_enabled"] = (props.flags & BLEND_ENABLED_FLAG) != 0;
 				j["parallax_shadows"] = (props.flags & PARALLAX_SHADOW_ENABLED_FLAG) != 0;
 				j["world_uv_enabled"] = (props.flags & WORLD_UV_ENABLED_FLAG) != 0;
+				if (props.flags & TINT_ENABLED_FLAG) {
+					j["tint_enabled"] = true;
+				}
 
 				j["diffuse_textname"] = relative(texture_names.diffuse_texname);
 				j["high_textname"] = relative(texture_names.high_textname);

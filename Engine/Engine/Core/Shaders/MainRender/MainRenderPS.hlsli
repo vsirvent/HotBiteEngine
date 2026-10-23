@@ -172,7 +172,15 @@ RenderTargetRT MainRenderPS(GSOutput input)
 				calculated_values, multi_texture_uv_scales, input.uv, multi_diffuseTexture).rgb;
 		}
 		else {
-			text_color = diffuseTexture.Sample(basicSampler, input.uv).rgb;
+			const float4 sampled = diffuseTexture.Sample(basicSampler, input.uv);
+			text_color = sampled.rgb;
+			if (material.flags & TINT_ACTIVE_FLAG) {
+				//The team's hue on the masked texels (the mask is 1 - alpha), at the brightness the texel had.
+				const float3 luma_weights = float3(0.299f, 0.587f, 0.114f);
+				const float3 team = material.diffuseColor.rgb;
+				const float3 recoloured = team * (dot(text_color, luma_weights) / max(dot(team, luma_weights), 0.05f));
+				text_color = lerp(text_color, recoloured, saturate(1.0f - sampled.a));
+			}
 		}
 		if (material.flags & ALPHA_ENABLED_FLAG) {
 			//Colour key against black. This used to subtract material.alphaColor, but

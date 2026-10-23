@@ -255,6 +255,16 @@ namespace HotBite {
 //texture across it - see world_uv_scale below. Ordinary materials only; a
 //multi-material's own per-layer uv_scale is unaffected.
 #define WORLD_UV_ENABLED_FLAG (1 << 9)
+//Team colour. TINT_ENABLED_FLAG ("tint_enabled": true in the .mat) says the diffuse
+//map's alpha channel is a tint mask, stored inverted so that a texture with no alpha (1
+//everywhere) has none: a texel is tinted by 1 - alpha. It only marks the material; what
+//turns the tint on is TINT_ACTIVE_FLAG, set by game code on a per-team copy of the
+//material together with the team colour in props.diffuseColor.rgb (a textured material
+//never uses diffuseColor otherwise). The shader (MainRenderPS.hlsli) then gives the
+//masked texels the hue of that colour and keeps their brightness and detail. Ordinary
+//materials with a diffuse map only; the ray tracers see the untinted map.
+#define TINT_ENABLED_FLAG (1 << 13)
+#define TINT_ACTIVE_FLAG (1 << 14)
 				unsigned int flags = RAY_TRACING_ENABLED_FLAG;
 				//World units per texture repeat when WORLD_UV_ENABLED_FLAG is set (a
 				//tile size, not a frequency - bigger is coarser). Unused, and safely
