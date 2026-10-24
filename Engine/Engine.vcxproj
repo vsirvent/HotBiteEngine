@@ -271,6 +271,7 @@
     <ClInclude Include="Engine\ECS\Coordinator.h" />
     <ClInclude Include="Engine\ECS\Serialization.h" />
     <ClInclude Include="Engine\ECS\EntityManager.h" />
+    <ClInclude Include="Engine\ECS\EntityFilter.h" />
     <ClInclude Include="Engine\ECS\EntityVector.h" />
     <ClInclude Include="Engine\ECS\Event.h" />
     <ClInclude Include="Engine\ECS\EventManager.h" />

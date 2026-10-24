@@ -25,8 +25,12 @@ SOFTWARE.
 #pragma once
 
 #include "Types.h"
+#include <algorithm>
 #include <map>
+#include <iterator>
+#include <numeric>
 #include <utility>
+#include <vector>
 
 namespace HotBite {
     namespace Engine {
@@ -90,6 +94,26 @@ namespace HotBite {
                         indexes[entity] = index;
                     }
                     return index;
+                }
+
+                // Puts the entries in the order `less` gives (on two entries) and keeps every entity pointing at its own entry.
+                // Insert appends and Remove moves the last entry into the freed slot, so a system that must walk its
+                // entities in an order of its own (the lock-step sim: by SimId) sorts after the set changes.
+                template <class Less> void Sort(Less less) {
+                    const size_t count = data.size();
+                    std::vector<Entity> owner(count, INVALID_ENTITY_ID);
+                    for (const auto& it : indexes) {
+                        owner[it.second] = it.first;
+                    }
+                    std::vector<size_t> order(count);
+                    std::iota(order.begin(), order.end(), size_t(0));
+                    std::stable_sort(order.begin(), order.end(), [&](size_t a, size_t b) { return less(data[a], data[b]); });
+                    // In place: the buffer (reserved for MAX_ENTITIES, so that Insert never moves an entry) keeps its address.
+                    std::vector<T> before(std::make_move_iterator(data.begin()), std::make_move_iterator(data.end()));
+                    for (size_t i = 0; i < count; ++i) {
+                        data[i] = std::move(before[order[i]]);
+                        indexes[owner[order[i]]] = i;
+                    }
                 }
 
                 bool Remove(Entity entity) {

@@ -391,6 +391,9 @@
     <ClInclude Include="Engine\Systems\RenderSystem.h">
       <Filter>Engine\Systems</Filter>
     </ClInclude>
+    <ClInclude Include="Engine\ECS\EntityFilter.h">
+      <Filter>Engine\ECS</Filter>
+    </ClInclude>
     <ClInclude Include="Engine\ECS\EntityVector.h">
       <Filter>Engine\ECS</Filter>
     </ClInclude>
