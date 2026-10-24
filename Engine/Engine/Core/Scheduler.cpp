@@ -104,6 +104,12 @@ void Scheduler::Idle() {
 			NanoSleep(sleep_time);
 		}
 	}
+	else {
+		//Nothing scheduled (a thread nobody has registered a timer on yet, such as the lock-step tick thread before a
+		//session exists): without a sleep this loop spun Update flat out, one whole core for nothing. A timer registered
+		//meanwhile waits at most this long for its first run.
+		NanoSleep(MSEC_TO_NSEC(NO_TIMERS_SLEEP_MSEC));
+	}
 }
 
 int64_t Scheduler::GetNanoSeconds() {

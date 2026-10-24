@@ -100,6 +100,7 @@ namespace HotBite {
 
 			private:
 				static int constexpr MAX_SLEEP_NSEC_TIME = 100000000; //Maximum sleep 100 msec.
+				static int constexpr NO_TIMERS_SLEEP_MSEC = 2; //Sleep of a thread with no timer at all.
 				static int constexpr MAX_TIMERS = 256;
 
 				static std::vector<Scheduler*> instances;
