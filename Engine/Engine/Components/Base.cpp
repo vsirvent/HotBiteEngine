@@ -344,7 +344,13 @@ namespace HotBite {
 					float w0 = 1.0f - w1;
 					matrix m0 = XMLoadFloat4x4(&animation->key_frames[k0].transform);
 					matrix m1 = XMLoadFloat4x4(&animation->key_frames[k1].transform);
-					matrix bp = XMLoadFloat4x4(&data->skeletons[0]->CpuData()[joint_id].model_to_bindpose);
+					//The model the mesh was made from can be gone while this runs (a model imported again under the same name takes the old one's
+					//data away; the mesh's animation is updated on its own thread): no bind pose then, and the joint stays where it was.
+					matrix bp = DirectX::XMMatrixIdentity();
+					if (data != nullptr && !data->skeletons.empty() && data->skeletons[0] != nullptr &&
+						joint_id < (int)data->skeletons[0]->CpuData().size()) {
+						bp = XMLoadFloat4x4(&data->skeletons[0]->CpuData()[joint_id].model_to_bindpose);
+					}
 
 					const matrix joint_pose = m0 * w0 + m1 * w1;
 					if (pose != nullptr) {
