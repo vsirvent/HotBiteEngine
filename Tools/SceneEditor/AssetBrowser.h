@@ -85,5 +85,13 @@ namespace HotBiteEditor {
 		// has to reproduce that naming, so it lives here rather than in each caller.
 		std::vector<std::string> InstancePartNames(EditorState& state,
 			const std::string& instance_name, const std::string& template_name);
+
+		// Gives every entity of an instance the game components its templates carry (the
+		// root's own, each part's from its template and the overrides above it): SpawnInstance
+		// skips them, as the editor has no type for them, so without this a placed instance
+		// shows none of them - not even the ones its template has. A component the entity
+		// already holds in the editor's bookkeeping is left as it is.
+		void AdoptTemplateGameComponents(EditorState& state,
+			const std::string& instance_name, const std::string& template_name);
 	}
 }

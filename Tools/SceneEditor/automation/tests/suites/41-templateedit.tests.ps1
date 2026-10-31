@@ -116,6 +116,50 @@ Test 'the session goes on after a save, and ends cleanly' {
     Assert-Contains -Collection $names -Value "$($placed.Name)__lamp" -Message 'a fresh instance has the part'
 }
 
+Test 'a game component added to a part of a placed instance reaches the template with apply_to_template, and stays on the instance' {
+    SendOk 'create_template lantern', 'template_add_part lantern lamp' | Out-Null
+    $placed = Get-PlacedInstance -Result (Send 'place lantern')[0]
+    $part = "$($placed.Name)__lamp"
+    SendOk "add_component $part NightLight" | Out-Null
+    SendOk "set_component $part NightLight ""{'fade_minutes':20}""" | Out-Null
+    SendOk "apply_to_template $($placed.Name)" | Out-Null
+    SendOk 'save_templates' | Out-Null
+    $tpl = Get-Content (Join-Path $Assets 'Templates\lantern.tpl') -Raw | ConvertFrom-Json
+    Assert-Near -Expected 20 -Actual $tpl.parts[0].components.NightLight.fade_minutes -Tolerance 0.001 -Message 'the part carries it, as an override'
+    Assert-NotMatch -Pattern 'fade_minutes":20' -Actual ((SendOk 'template_info lamp')[0].Payload -join "`n") -Message 'the shared part template is not changed'
+    # Applying does not make the component vanish from the instance it was added to.
+    Assert-Contains -Collection (SendOk "components $part")[0].Payload -Value 'NightLight' -Message 'the instance still shows it'
+    # One undo step: the template is as it was.
+    SendOk 'undo' | Out-Null
+    SendOk 'save_templates' | Out-Null
+    $tpl = Get-Content (Join-Path $Assets 'Templates\lantern.tpl') -Raw | ConvertFrom-Json
+    Assert-True -Condition ($null -eq $tpl.parts[0].components.NightLight) -Message 'undo takes it out of the template'
+}
+
+Test 'a placed instance carries the game components of its template and of each part template, overrides on top' {
+    # A part template with a game component of its own, under a root that has none.
+    SendOk 'create_template torch' | Out-Null
+    SendOk 'edit_template torch', 'add_component torch_editing NightLight' | Out-Null
+    SendOk "set_component torch_editing NightLight ""{'fade_minutes':7}""" | Out-Null
+    SendOk 'end_template_edit save' | Out-Null
+    SendOk 'create_template bearer', 'template_add_part bearer torch' | Out-Null
+    $placed = Get-PlacedInstance -Result (Send 'place bearer')[0]
+    $part = "$($placed.Name)__torch"
+    Assert-Contains -Collection (SendOk "components $part")[0].Payload -Value 'NightLight' -Message 'the part has its template''s NightLight'
+    $value = (SendOk "component $part NightLight")[0].Payload -join '' | ConvertFrom-Json
+    Assert-Near -Expected 7 -Actual $value.fade_minutes -Tolerance 0.001 -Message 'with its value'
+    Assert-NotContains -Collection (SendOk "components $($placed.Name)")[0].Payload -Value 'NightLight' -Message 'the root, whose template has none, does not'
+    # The template alone: its root carries it too.
+    $alone = Get-PlacedInstance -Result (Send 'place torch')[0]
+    Assert-Contains -Collection (SendOk "components $($alone.Name)")[0].Payload -Value 'NightLight' -Message 'placed on its own'
+    # hut: its root's own, and the override its part has.
+    $hut = Get-PlacedInstance -Result (Send 'place hut')[0]
+    $value = (SendOk "component $($hut.Name) NightLight")[0].Payload -join '' | ConvertFrom-Json
+    Assert-Near -Expected 12 -Actual $value.fade_minutes -Tolerance 0.001 -Message 'the hut root'
+    $value = (SendOk "component $($hut.Name)__lamp NightLight")[0].Payload -join '' | ConvertFrom-Json
+    Assert-Near -Expected 45 -Actual $value.fade_minutes -Tolerance 0.001 -Message 'the hut part, from the override'
+}
+
 Test 'the level never sees the session: saved, it holds no session instance and nothing is hidden' {
     SendOk 'edit_template hut' | Out-Null
     SendOk 'end_template_edit' | Out-Null

@@ -713,9 +713,9 @@ namespace HotBiteEditor {
 				error = "a template named '" + name + "' already exists";
 				return false;
 			}
-			//An empty component block is not empty in effect: World::CreateTemplate
-			//turns the absent Mesh and Material into the default cube and white
-			//material, so a brand new template is immediately placeable and visible.
+			//An empty component block is just Base and Transform: no Mesh, Material or
+			//Bounds. It places an invisible object; add what it should be (a mesh, a
+			//light, a game component) from the Components list.
 			if (!MutateTemplate(state, name, nlohmann::json::object(), false, error)) {
 				return false;
 			}
@@ -1202,6 +1202,18 @@ namespace HotBiteEditor {
 		//The component edits made to a part's entity, folded into the part's overrides.
 		static void FoldPartEdits(EditorState& state, const std::string& entity_name,
 			TemplatePart& part) {
+			//A game's own components (a NightLight on a light) are not registered, so adding
+			//or editing one never reaches the deltas below: the editor keeps them in
+			//opaque_components. They are edits just the same, or they would stay on the
+			//instance and never reach the template. They stay on the instance afterwards
+			//too: an instance does not show the game components its template gives it, so
+			//clearing them would make the component look deleted.
+			const auto opaque = state.opaque_components.find(entity_name);
+			if (opaque != state.opaque_components.end()) {
+				for (const auto& [component, value] : opaque->second) {
+					part.components[component] = value;
+				}
+			}
 			const auto delta = state.component_deltas.find(entity_name);
 			if (delta == state.component_deltas.end()) {
 				return;
@@ -1241,8 +1253,8 @@ namespace HotBiteEditor {
 				const auto delta = state.component_deltas.find(entity_name);
 				if (delta != state.component_deltas.end()) {
 					fold.deltas.push_back({ entity_name, delta->second });
-					FoldPartEdits(state, entity_name, part);
 				}
+				FoldPartEdits(state, entity_name, part);
 				if (state.overridden_entities.count(entity_name) != 0) {
 					fold.overridden.push_back(entity_name);
 				}
@@ -2986,8 +2998,17 @@ namespace HotBiteEditor {
 						}
 
 						ImGui::TableSetColumnIndex(1);
-						ImGui::TextUnformatted(part.template_name.c_str());
-						if (state.world != nullptr && !state.world->IsTemplateLoaded(part.template_name)) {
+						if (part.template_name.empty()) {
+							//An inline part holds its own definition in this template's file
+							//instead of pointing at another template, so there is no name to
+							//show and nothing that can be missing. X removes it like any other.
+							ImGui::TextDisabled("(inline)");
+						}
+						else {
+							ImGui::TextUnformatted(part.template_name.c_str());
+						}
+						if (state.world != nullptr && !part.template_name.empty() &&
+							!state.world->IsTemplateLoaded(part.template_name)) {
 							ImGui::SameLine();
 							ImGui::TextColored(ImVec4(0.9f, 0.5f, 0.35f, 1.0f), "(missing)");
 						}

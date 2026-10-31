@@ -325,13 +325,15 @@ namespace HotBiteEditor {
 
 		//Edit: turn the selected entity into a placeable template. The naming happens
 		//in the Templates panel's modal, so this opens the panel with the request
-		//pending rather than inventing a name of its own.
+		//pending rather than inventing a name of its own. Any entity will do, mesh or
+		//no mesh (a light, a marker): the Templates panel's From Selection button asks
+		//for the same thing, and TemplateOps::CreateFromEntity needs nothing more.
 		menu_commands.push_back({ "Edit/Create Template from Selection",
 			[this]() {
 				Coordinator* c = world->GetCoordinator();
 				return level_loaded && c != nullptr &&
 					state.selected_entity != INVALID_ENTITY_ID &&
-					c->ContainsComponent<Components::Mesh>(state.selected_entity);
+					c->ContainsComponent<Components::Base>(state.selected_entity);
 			},
 			[this]() {
 				state.show_template_panel = true;

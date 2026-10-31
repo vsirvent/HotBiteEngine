@@ -158,6 +158,15 @@ Test 'template_from_entity carries only what the source entity actually has' {
     Assert-Ok -Result (Send 'place from_marker')[0] -Message 'a mesh-less template is still placeable'
 }
 
+Test 'Edit/Create Template from Selection is enabled for an entity with no mesh' {
+    # The menu entry used to be gated on the selection having a Mesh, so a light or a
+    # marker could only be made into a template from the Templates panel's button. The
+    # commands above skip that gate, which is how it went unnoticed.
+    SendOk 'menu "Add/Point Light"' | Out-Null
+    $entry = @((SendOk 'menus')[0].Payload) | Where-Object { $_ -like 'Edit/Create Template from Selection*' }
+    Assert-False -Condition ($entry -like '*(disabled)') -Message 'enabled with a point light selected'
+}
+
 Test 'template_storage moves a template between .tpl and inline' {
     $tpl = Join-Path $Assets 'Templates\widget.tpl'
     SendOk 'template_storage widget file' | Out-Null

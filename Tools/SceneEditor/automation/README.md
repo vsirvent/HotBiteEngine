@@ -131,7 +131,7 @@ directory so relative asset paths in level files resolve the same way the other 
 | `import_template <.tpl path>` | same as File/Import Template..., minus the file dialog: copies the `.tpl` into `<assets>/Templates/` and registers it. Importing an `.fbx` is the other import, `import_model` |
 | `template_storage <name> file\|level` | moves a template between its own `.tpl` file and an inline definition in the level's `templates` array. Moving to `level` unlinks the `.tpl` at the next save; moving to `file` writes one |
 | `template_info <name>` | the template's component blocks as JSON, one per line |
-| `create_template <name>` | a new authored template: default cube, white material, immediately placeable |
+| `create_template <name>` | a new authored template with only Base and Transform (no mesh, material or bounds): placeable, but invisible until a component such as Mesh is added with `template_set` |
 | `template_from_entity <entity> <template>` | builds a template from a scene entity's components — the "make a prefab out of this" path, and the fastest way to get an imported object's components into something editable |
 | `duplicate_template <source> <new name>` | copies an authored template |
 | `remove_template <name>` | unregisters it. Objects already placed stay for the session but will not reload; the `.tpl` file is unlinked only when templates are saved, so this is undoable until then |

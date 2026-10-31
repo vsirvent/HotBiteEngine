@@ -297,6 +297,7 @@ namespace HotBiteEditor {
 			}
 			state.placed_instances.push_back(inst);
 			state.instance_entity_ids.insert(e);
+			AdoptTemplateGameComponents(state, inst.name, inst.template_name);
 			//An instance that is spawned again - undo of a delete, or of an apply - is a fresh
 			//entity from its template, but the edits made to it are still in the editor's
 			//bookkeeping (keyed by name, and kept current by every edit). Put them back, as
@@ -334,6 +335,30 @@ namespace HotBiteEditor {
 			const std::string& instance_name, const std::string& template_name)
 		{
 			return state.world->InstanceEntityNames(instance_name, template_name);
+		}
+
+		void AdoptTemplateGameComponents(EditorState& state,
+			const std::string& instance_name, const std::string& template_name)
+		{
+			ECS::Coordinator* c = state.world->GetCoordinator();
+			if (c == nullptr) {
+				return;
+			}
+			for (const auto& [entity_name, components] :
+				state.world->InstanceEntityComponents(instance_name, template_name)) {
+				if (!components.is_object() || c->GetEntityByName(entity_name) == ECS::INVALID_ENTITY_ID) {
+					continue;
+				}
+				for (const auto& [component, value] : components.items()) {
+					if (ECS::ComponentRegistry::Instance().Find(component) != nullptr) {
+						continue;
+					}
+					auto& held = state.opaque_components[entity_name];
+					if (held.count(component) == 0) {
+						held[component] = value;
+					}
+				}
+			}
 		}
 
 		//Undo of a place / cut of an instance: destroys the instance's entities

@@ -925,6 +925,9 @@ namespace HotBiteEditor {
 								state.instance_entity_ids.insert(e);
 							}
 						}
+						//Before the records' own blocks below, which replace these where an
+						//instance changed one.
+						AssetBrowser::AdoptTemplateGameComponents(state, inst.name, inst.template_name);
 						state.placed_instances.push_back(inst);
 					}
 				}
