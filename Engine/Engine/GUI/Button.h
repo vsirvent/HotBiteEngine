@@ -126,7 +126,8 @@ namespace HotBite {
 				virtual void SetClickSound(const std::string& sound) {
 					auto audio_system = coordinator->GetSystem<Systems::AudioSystem>();					
 					audio_system->RemoveSound(click_sound_id);
-					click_sound = root + "\\" + sound;
+					//A button with no sound has an empty name; test that, not the joined path (never empty: it would open the folder).
+					click_sound = sound.empty() ? sound : root + "\\" + sound;
 					if (!click_sound.empty()) {
 						click_sound_id = audio_system->LoadSound(click_sound, Core::GetId<Button, Systems::AudioSystem::SoundId>(this, 0x01)).value_or(Systems::AudioSystem::INVALID_SOUND_ID);
 					}
@@ -138,7 +139,7 @@ namespace HotBite {
 				virtual void SetHoverSound(const std::string& sound) {
 					auto audio_system = coordinator->GetSystem<Systems::AudioSystem>();
 					audio_system->RemoveSound(hover_sound_id);
-					hover_sound = root + "\\" + sound;
+					hover_sound = sound.empty() ? sound : root + "\\" + sound;
 					if (!hover_sound.empty()) {
 						hover_sound_id = audio_system->LoadSound(hover_sound, Core::GetId<Button, Systems::AudioSystem::SoundId>(this, 0x02)).value_or(Systems::AudioSystem::INVALID_SOUND_ID);
 					}

@@ -3104,6 +3104,65 @@ std::vector<std::string> World::InstanceEntityNames(const std::string& instance_
 	return names;
 }
 
+void World::CollectInstanceComponents(const std::string& instance_name, const std::string& template_name,
+	std::set<std::string>& chain, int depth, std::vector<std::pair<std::string, nlohmann::json>>& out)
+{
+	//Mirrors SpawnComposed: every node of a template gets its authored block
+	//(SpawnTemplateEntities), and a referenced part's "components" are laid over every
+	//entity that part spawned, its own parts included.
+	const nlohmann::json* authored = GetTemplateComponents(template_name);
+	const nlohmann::json block = (authored != nullptr && authored->is_object()) ? *authored : nlohmann::json::object();
+	const size_t nodes = GetTemplateEntities(template_name).size();
+	if (nodes > 1) {
+		for (size_t i = 0; i < nodes; ++i) {
+			out.push_back({ instance_name + "_" + std::to_string(i), block });
+		}
+	}
+	else {
+		out.push_back({ instance_name, block });
+	}
+	const nlohmann::json* parts = GetTemplateParts(template_name);
+	if (parts == nullptr || !parts->is_array() || depth >= MAX_COMPOSED_DEPTH) {
+		return;
+	}
+	chain.insert(template_name);
+	for (const auto& part : *parts) {
+		const std::string part_name = part.value("name", std::string());
+		const std::string part_template = PartTemplateOf(template_name, part);
+		if (part_name.empty() || part_template.empty() || chain.count(part_template) != 0) {
+			continue;
+		}
+		const size_t first = out.size();
+		CollectInstanceComponents(instance_name + PART_NAME_SEPARATOR + part_name, part_template,
+			chain, depth + 1, out);
+		if (IsInlinePart(part) || !part.contains("components") || !part["components"].is_object()) {
+			continue;
+		}
+		for (size_t i = first; i < out.size(); ++i) {
+			for (const auto& [component, value] : part["components"].items()) {
+				nlohmann::json& current = out[i].second[component];
+				//Field by field, as ApplyComponents' FromJson reads an override.
+				if (current.is_object() && value.is_object()) {
+					current.update(value);
+				}
+				else {
+					current = value;
+				}
+			}
+		}
+	}
+	chain.erase(template_name);
+}
+
+std::vector<std::pair<std::string, nlohmann::json>> World::InstanceEntityComponents(
+	const std::string& instance_name, const std::string& template_name)
+{
+	std::vector<std::pair<std::string, nlohmann::json>> components;
+	std::set<std::string> chain;
+	CollectInstanceComponents(instance_name, template_name, chain, 0, components);
+	return components;
+}
+
 ECS::Entity World::SpawnInstance(const std::string& name, const std::string& template_name,
 	const float3& position, const float4& rotation, const float3& scale,
 	const std::string& material_name, const nlohmann::json* physics_json,

@@ -1938,15 +1938,25 @@ void RenderSystem::LatchPreviousFrame(const Components::Camera& camera) {
 	}
 }
 
-void RenderSystem::DrawParticles(int w, int h, const float3& camera_position, const matrix& view, const matrix& projection, RenderParticleTree& tree) {
+void RenderSystem::DrawParticles(int w, int h, const float3& camera_position, const matrix& view, const matrix& projection, Core::IRenderTarget* target, RenderParticleTree& tree) {
 
+	if (tree.empty() || target == nullptr || cameras.GetData().empty()) {
+		return;
+	}
 	GfxContext* context = dxcore->context;
-	
+
 	context->GSSetShader(nullptr);
 	context->HSSetShader(nullptr);
 	context->DSSetShader(nullptr);
 	context->VSSetShader(nullptr);
 	context->PSSetShader(nullptr);
+
+	//One target and no G-buffer: the blend state below acts on target 0 only, and the particle pixel shaders' second output (the
+	//light map) has nowhere to go and is dropped.
+	GfxRTV* rv[1] = { target->RenderTarget() };
+	context->OMSetRenderTargets(1, rv, depth_view.Depth());
+	context->RSSetViewports(1, &render_viewport);
+	context->RSSetState(dxcore->drawing_rasterizer);
 
 	SimpleVertexShader* vs = nullptr;
 	SimpleHullShader* hs = nullptr;
@@ -2100,6 +2110,8 @@ void RenderSystem::DrawParticles(int w, int h, const float3& camera_position, co
 	context->OMSetDepthStencilState(dxcore->normal_depth, 1);
 	DXCore::Get()->context->OMSetBlendState(dxcore->no_blend, NULL, ~0U);
 	vertex_buffer->SetBuffers();
+	GfxRTV* rv_zero[1] = { nullptr };
+	context->OMSetRenderTargets(1, rv_zero, nullptr);
 }
 
 
@@ -2395,10 +2407,6 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 		gs->SetShaderResourceView(DEPTH_TEXTURE, nullptr);
 	}
 	
-	if (prev_pass_texture != nullptr) {
-		//DrawParticles(w, h, camera_position, view, projection, particle_tree);
-	}
-
 	context->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 	context->GSSetShader(nullptr);
 	context->HSSetShader(nullptr);
@@ -5763,6 +5771,12 @@ void RenderSystem::Draw() {
 		PostProcessLight();
 		GpuStamp(7);
 		ProcessMix();
+		//The particles go over the mixed picture, before the anti-aliasing (or DLSS) and the post-process chain read it. Not into the
+		//geometry passes' colour target: that is the surfaces' colour, which the mix multiplies by the light that reaches them, so a flame
+		//drawn there came out bright over a lit surface and faint over a dark one. A particle is light of its own, blended over the
+		//picture behind it.
+		DrawParticles(w, h, camera_position, view, projection, post_process_pipeline != nullptr ? (Core::IRenderTarget*)&temp_map : first_pass_target,
+			particle_tree);
 				DumpNow(frame_count, "1_mix_temp", temp_map);
 				GpuStamp(8);
 				//With dynamic resolution DLSS is the anti-aliasing as well as the upscale: it makes the native picture.

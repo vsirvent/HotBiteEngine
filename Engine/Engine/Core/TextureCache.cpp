@@ -402,6 +402,10 @@ namespace {
 	//textures than the card holds loading (every one a little blurrier) instead of running the process out of memory:
 	//Windows moves what does not fit to system memory, and the commit limit ends that with std::bad_alloc.
 	constexpr double TEXTURE_BUDGET_SHARE = 0.80;
+
+	//A texture this small (a HUD icon, a button's picture) is never made without its largest mips: it saves next to nothing, and it is the
+	//one the player looks at straight (a 64 x 64 icon came out as 4 x 4 whenever the HUD was built with the video memory nearly full).
+	constexpr UINT64 TEXTURE_KEEP_WHOLE_PIXELS = 512ull * 512ull;
 }
 
 GfxSRV* Core::CreateTextureFromImage(const DirectX::ScratchImage& image) {
@@ -416,7 +420,7 @@ GfxSRV* Core::CreateTextureFromImage(const DirectX::ScratchImage& image) {
 	size_t skip = 0;
 	UINT64 usage = 0;
 	UINT64 budget = 0;
-	if (!meta.IsCubemap() && meta.mipLevels > 1 && VideoMemory(usage, budget)) {
+	if (!meta.IsCubemap() && meta.mipLevels > 1 && (UINT64)meta.width * meta.height > TEXTURE_KEEP_WHOLE_PIXELS && VideoMemory(usage, budget)) {
 		const UINT64 limit = (UINT64)(budget * TEXTURE_BUDGET_SHARE);
 		while (skip + 1 < meta.mipLevels && (meta.width >> (skip + 1)) >= 4 && (meta.height >> (skip + 1)) >= 4) {
 			UINT64 bytes = 0;

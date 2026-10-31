@@ -38,6 +38,9 @@ namespace HotBite {
 					Components::Base* base;
 					Components::Transform* transform;
 					Components::Particles* particles;
+					//True when nobody else keeps this entity's world matrix (it has no mesh and no rigid body: a part of a template where
+					//a fire burns, say), so ParticleSystem composes it from the entity's own pose and its parent's.
+					bool owns_matrix = false;
 					ParticleEntity(ECS::Coordinator* c, ECS::Entity entity) {
 						base = &(c->GetComponent<Components::Base>(entity));
 						transform = &(c->GetComponent<Components::Transform>(entity));
@@ -45,6 +48,9 @@ namespace HotBite {
 					}
 				};
 				ECS::Signature particles_signature;
+				//What keeps an entity's world matrix elsewhere: StaticMeshSystem (Mesh and Bounds) and PhysicsSystem (a body).
+				ECS::Signature mesh_signature;
+				ECS::Signature physics_signature;
 
 				ECS::Coordinator* coordinator = nullptr;
 				ECS::EntityVector<ParticleEntity> particles;
@@ -59,6 +65,11 @@ namespace HotBite {
 				virtual ~ParticleSystem() {}
 				//System methods
 				void Update(int64_t elapsed_nsec, int64_t total_nsec);
+
+			private:
+				//The world matrix of an entity this system owns, as SplatCloudSystem composes it: scale, rotation and position, then the
+				//parent's rotation and position (not its scale), so a flame placed in a template's part stands where the part does.
+				void ComposeWorldMatrix(ParticleEntity& entity);
 			};
 		}
 	}

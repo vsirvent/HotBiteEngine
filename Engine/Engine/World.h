@@ -316,6 +316,9 @@ namespace HotBite {
 			bool ComposedWorldPose(ECS::Entity e, float3& position, float4& rotation) const;
 			void CollectInstanceNames(const std::string& instance_name, const std::string& template_name,
 							std::set<std::string>& chain, int depth, std::vector<std::string>& out);
+			void CollectInstanceComponents(const std::string& instance_name, const std::string& template_name,
+							std::set<std::string>& chain, int depth,
+							std::vector<std::pair<std::string, nlohmann::json>>& out);
 			ECS::Entity SpawnComposed(const std::string& name, const std::string& template_name,
 							const float3& position, const float4& rotation, const float3& scale,
 							const std::string& material_name, const nlohmann::json* physics_json,
@@ -530,6 +533,14 @@ namespace HotBite {
 			// reproduce the rule and drift from it.
 			virtual std::vector<std::string> InstanceEntityNames(const std::string& instance_name,
 							const std::string& template_name);
+			// The same entities, each with the component block its templates give it: its
+			// own template's authored components, then, for a referenced part, the
+			// "components" overrides of the template it is a part of, laid over every
+			// entity that part spawns - exactly what SpawnInstance applies. Including the
+			// components this binary has no type for, which SpawnInstance skips: the editor
+			// needs those to show a game's components on what it places.
+			virtual std::vector<std::pair<std::string, nlohmann::json>> InstanceEntityComponents(
+							const std::string& instance_name, const std::string& template_name);
 			// What separates an instance from the part of it a name belongs to. Doubled
 			// so it cannot be confused with the "_<n>" a multi-part FBX template appends.
 			static constexpr const char* PART_NAME_SEPARATOR = "__";

@@ -1453,7 +1453,10 @@ namespace HotBite {
 				void UpdateTemporalJitter(const Components::Camera& camera, int w, int h);
 				void ProcessAutoFocus();
 
-				void DrawParticles(int w, int h, const float3& camera_position, const matrix& view, const matrix& projection, RenderParticleTree& tree);
+				//Draws the Particles components over the mixed picture in `target` (temp_map, what ProcessMix writes), after the lighting and
+				//before the anti-aliasing: the particle shaders are emissive and write no G-buffer, so they are blended on top, depth tested
+				//against what the geometry passes left in depth_view and not writing it.
+				void DrawParticles(int w, int h, const float3& camera_position, const matrix& view, const matrix& projection, Core::IRenderTarget* target, RenderParticleTree& tree);
 				bool IsVisible(const float3& camera_pos, const DrawableEntity& drawable, const matrix& view_projection, int w, int h) const;
 				void CheckSceneVisibility(RenderTree& tree);
 				//Picks the level of detail every drawable is drawn at this frame, from

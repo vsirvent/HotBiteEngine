@@ -164,8 +164,11 @@ Tests: editor suites `46-raytracedshadows` (point) and `47-raytracedsun`.
   G-buffer, so it keeps the light of what is behind it.
 * `MaterialPreviewPS` (the editor's thumbnail studio) has its own three fixed lights and is not
   part of the scene render.
-* Particle shaders (`DrawParticles` is not called by anything) take the ambient colour and the
-  directional colour, with no shadow lookup.
+* Particles (`DrawParticles`, 2026-10-31) take no light at all: they are drawn after `ProcessMix`, blended over the mixed
+  picture (`temp_map`) with the depth test on and depth writes off, before the anti-aliasing. Not into the geometry passes'
+  colour target: the mix multiplies that by the light map, so a flame there was bright over a lit surface and faint over a
+  dark one. `ParticleSystem` composes the world matrix of a particle entity nobody else owns (no mesh, no body: a template's
+  part), like `SplatCloudSystem`: the part's pose, then its parent's rotation and position.
 
 ## Looking at it
 

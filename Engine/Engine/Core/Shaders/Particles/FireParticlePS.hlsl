@@ -111,9 +111,13 @@ RenderTarget main(GSParticleOutput input)
 
 	float3 col = float3(1.5 * c1, 1.5 * c1 * c1 * c1, c1 * c1 * c1 * c1 * c1 * c1);
 
-	float a = c * (1. - pow(uv.y, 3.));
-	finalColor.rgb = lerp(float3(0., 0., 0.), col, a);
-	finalColor.a = border * input.life * fade_in * length(finalColor.rgb);
+	float a = saturate(c * (1. - pow(uv.y, 3.)));
+	finalColor.rgb = col;
+	//Opaque where the flame burns bright and see-through where it fades to its dark edge and its tip. The alpha used to be scaled by the
+	//particle's life, but a flame that never dies is at life 0.5 forever (Particles.h), so it was never more than half there: the life now
+	//only fades a particle out over the last half of it, and in over its first tenth (fade_in).
+	float life_fade = saturate(input.life * 2.0f);
+	finalColor.a = saturate(c1 * 2.0f) * a * saturate(border * 4.0f) * fade_in * life_fade;
 	output.light_map = saturate(lightColor);
 	output.scene = saturate(finalColor);
 	return output;

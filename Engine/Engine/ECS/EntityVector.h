@@ -39,10 +39,14 @@ namespace HotBite {
             private:
                 std::map<Entity, size_t> indexes;
                 std::vector<T> data;
+                // owners[i] is the entity data[i] belongs to: Remove moves the last entry into the freed slot and has to find that
+                // entry's entity without walking `indexes` (a walk per Remove made hiding thousands of nodes quadratic).
+                std::vector<Entity> owners;
 
             public:
                 EntityVector() {
                     data.reserve(MAX_ENTITIES);
+                    owners.reserve(MAX_ENTITIES);
                 }
 
                 std::vector<T>& GetData() { return data; }
@@ -75,6 +79,7 @@ namespace HotBite {
                     }
                     else {
                         data.push_back(entry);
+                        owners.push_back(entity);
                         index = data.size() - 1;
                         indexes[entity] = index;
                     }
@@ -90,6 +95,7 @@ namespace HotBite {
                     }
                     else {
                         data.emplace_back(std::forward<T>(entry));
+                        owners.push_back(entity);
                         index = data.size() - 1;
                         indexes[entity] = index;
                     }
@@ -101,10 +107,7 @@ namespace HotBite {
                 // entities in an order of its own (the lock-step sim: by SimId) sorts after the set changes.
                 template <class Less> void Sort(Less less) {
                     const size_t count = data.size();
-                    std::vector<Entity> owner(count, INVALID_ENTITY_ID);
-                    for (const auto& it : indexes) {
-                        owner[it.second] = it.first;
-                    }
+                    const std::vector<Entity> owner = owners;
                     std::vector<size_t> order(count);
                     std::iota(order.begin(), order.end(), size_t(0));
                     std::stable_sort(order.begin(), order.end(), [&](size_t a, size_t b) { return less(data[a], data[b]); });
@@ -112,6 +115,7 @@ namespace HotBite {
                     std::vector<T> before(std::make_move_iterator(data.begin()), std::make_move_iterator(data.end()));
                     for (size_t i = 0; i < count; ++i) {
                         data[i] = std::move(before[order[i]]);
+                        owners[i] = owner[order[i]];
                         indexes[owner[order[i]]] = i;
                     }
                 }
@@ -123,22 +127,19 @@ namespace HotBite {
                         if (indexes.size() == 1) {
                             indexes.clear();
                             data.clear();
+                            owners.clear();
                         }
                         else {
                             size_t index_to_erase = it->second;
                             size_t index_to_move = data.size() - 1;
-                            Entity key_to_move;
-                            for (auto& it_to_move : indexes) {
-                                if (it_to_move.second == index_to_move) {
-                                    key_to_move = it_to_move.first;
-                                    break;
-                                }
-                            }
-                            if (index_to_erase != data.size() - 1) {
+                            if (index_to_erase != index_to_move) {
+                                const Entity key_to_move = owners[index_to_move];
                                 data[index_to_erase] = data[index_to_move];
+                                owners[index_to_erase] = key_to_move;
                                 indexes[key_to_move] = index_to_erase;
                             }
                             data.pop_back();
+                            owners.pop_back();
                             indexes.erase(it);
                             ret = true;
                         }
