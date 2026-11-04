@@ -231,22 +231,33 @@ function Invoke-EditorCommand {
         [int]$TimeoutSec = 90
     )
     $response = Join-Path $Session.Dir 'response.txt'
-    if (Test-Path $response) { Remove-Item $response -Force }
+    if ([IO.File]::Exists($response)) { [IO.File]::Delete($response) }
     $pending = Join-Path $Session.Dir 'command.pending'
     [IO.File]::WriteAllLines($pending, [string[]]$Command, (New-Object Text.ASCIIEncoding))
-    Move-Item $pending (Join-Path $Session.Dir 'command.txt') -Force
+    [IO.File]::Move($pending, (Join-Path $Session.Dir 'command.txt'))
 
     $deadline = (Get-Date).AddSeconds($TimeoutSec)
-    while (-not (Test-Path $response)) {
-        if ($Session.Process.HasExited) {
-            throw "editor exited (code $($Session.Process.ExitCode)) while running: $($Command -join ' | ')" + (Get-CrashReport $Session)
+    $polls = 0
+    while (-not [IO.File]::Exists($response)) {
+        # The exit and the deadline are looked at every 50 polls (about 100 ms): the answer is the common case, and a poll must cost little.
+        if (++$polls % 50 -eq 0) {
+            if ($Session.Process.HasExited) {
+                throw "editor exited (code $($Session.Process.ExitCode)) while running: $($Command -join ' | ')" + (Get-CrashReport $Session)
+            }
+            if ((Get-Date) -gt $deadline) {
+                throw "editor did not answer within ${TimeoutSec}s: $($Command -join ' | ')" + (Get-CrashReport $Session)
+            }
         }
-        if ((Get-Date) -gt $deadline) {
-            throw "editor did not answer within ${TimeoutSec}s: $($Command -join ' | ')" + (Get-CrashReport $Session)
-        }
-        Start-Sleep -Milliseconds 40
+        [Threading.Thread]::Sleep(2)
     }
-    $lines = @([IO.File]::ReadAllLines($response))
+    # The file exists as soon as the editor has renamed it into place, and for a moment after that the read can be refused ("in use by
+    # another process"): ask again, which is how long the write takes.
+    $lines = $null
+    for ($attempt = 0; $attempt -lt 100 -and $null -eq $lines; $attempt++) {
+        try { $lines = @([IO.File]::ReadAllLines($response)) }
+        catch [System.IO.IOException] { [Threading.Thread]::Sleep(10) }
+    }
+    if ($null -eq $lines) { $lines = @([IO.File]::ReadAllLines($response)) }
     return (ConvertTo-EditorResults -Lines $lines)
 }
 
@@ -255,6 +266,16 @@ function Invoke-EditorCommand {
 # temporal passes accumulate), and a test that reads it in the same batch reads
 # the frame before.
 function Step-EditorFrames {
+    param($Session, [int]$Count = 1)
+    if ($Count -lt 1) { return }
+    # One batch the editor answers after $Count frames (`wait_frames`), where $Count pings cost a round trip each.
+    $r = Invoke-EditorCommand -Session $Session -Command "wait_frames $Count" -TimeoutSec ([Math]::Max(90, 30 + $Count))
+    Assert-Ok -Result $r
+}
+
+# The same wait as one `ping` round trip per step, the way Step-EditorFrames used to wait: slower, and a frame is followed by the driver's
+# turn before the next. For a test whose subject comes out of a wait differently (the first screenshot after a `wait_frames` can be black).
+function Step-EditorPings {
     param($Session, [int]$Count = 1)
     for ($i = 0; $i -lt $Count; $i++) {
         Invoke-EditorCommand -Session $Session -Command 'ping' | Out-Null

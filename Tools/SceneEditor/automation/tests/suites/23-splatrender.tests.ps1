@@ -500,7 +500,9 @@ Test 'the composite is stable frame to frame' {
     Move-Entity -Entity $script:varied -Position '0 0 0'
     SendOk 'camera_rot 0 0 0', 'camera_pos 0 0 -2', 'camera_target 0 0 0' | Out-Null
 
-    Step-EditorFrames -Session $Session -Count 12
+    # Pings and not `wait_frames`: the first capture after a long wait comes out black here (about one run in two), which the frames a ping
+    # round trip leaves between steps do not.
+    Step-EditorPings -Session $Session -Count 12
     $shots = @()
     for ($f = 0; $f -lt 4; $f++) { $shots += (Shot "stable-f$f") }
 

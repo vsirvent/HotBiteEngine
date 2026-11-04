@@ -308,8 +308,13 @@ Test 'the cache still answers after turning away and back' {
     $after = Wait-CacheStat { param($i) $i.live -gt 0 }
     Assert-True -Condition ($after.live -gt 0) -Message 'the cache emptied while the camera looked away'
     # Nothing should have aged out over a couple of seconds - that is the whole point
-    # of RC_MAX_AGE being 512 frames rather than the 64 it started at.
-    Assert-Equal -Expected 0 -Actual $after.evicted -Message 'cells aged out during a short look-away'
+    # of RC_MAX_AGE being 512 frames rather than the 64 it started at. A few cells can
+    # be at the end of their age already when the test begins (the ones the earlier
+    # tests looked at and left), which is why it is a share of the cells and not zero:
+    # with the age at 64 the look-away drops most of them.
+    $aged = $after.evicted - $before.evicted
+    Assert-True -Condition ($aged -le [Math]::Max(4, $before.live * 0.01)) `
+        -Message "cells aged out during a short look-away: $aged of $($before.live)"
 }
 
 Test 'a still scene settles to a steady frame' {

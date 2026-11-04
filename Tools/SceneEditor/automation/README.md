@@ -40,6 +40,7 @@ directory so relative asset paths in level files resolve the same way the other 
 | Command | Effect |
 |---|---|
 | `ping` | liveness check, answers `OK pong` |
+| `wait_frames <n>` | answers `OK waiting n frames` after `n` frames have been drawn (1 to 100000), the one the batch ran in counted as the first: `Step-EditorFrames` waits for the engine to settle in one batch instead of `n` `ping` round trips (a frame each, plus the driver's polling) |
 | `state` | one-line JSON dump: project, level, selection, gizmo mode, status message, entity/template counts |
 | `open_project <dir>` | same as choosing a project root |
 | `open_level <path>` | same as File/Open Level..., minus the file dialog (one level per session) |

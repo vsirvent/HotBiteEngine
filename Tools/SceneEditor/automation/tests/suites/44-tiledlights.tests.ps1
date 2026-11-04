@@ -58,7 +58,9 @@ function Get-GpuTimings {
 function Measure-Gpu {
     param([int]$Frames = 60)
     Get-GpuTimings | Out-Null
-    Step-EditorFrames -Session $Session -Count 30
+    # The timings are read back a few frames late, and what was cleared or changed is still in the last of them: the frames before
+    # the window are the ones that let them go.
+    Step-EditorFrames -Session $Session -Count 60
     $a = Get-GpuTimings
     Step-EditorFrames -Session $Session -Count $Frames
     Step-EditorFrames -Session $Session -Count 10

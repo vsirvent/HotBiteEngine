@@ -23,7 +23,7 @@ function Get-RtStats {
 function Wait-RtStats {
     param([scriptblock]$Until, [string]$What)
     for ($i = 0; $i -lt 40; $i++) {
-        Step-EditorFrames -Session $Session -Count 5
+        Step-EditorFrames -Session $Session -Count 10
         $s = Get-RtStats
         if (& $Until $s) { return $s }
     }
@@ -33,7 +33,7 @@ function Wait-RtStats {
 function Use-Space {
     param([string]$Space, [int]$Steps = 0)
     SendOk "render rt_space $Space", "render rt_screen_steps $Steps" | Out-Null
-    Step-EditorFrames -Session $Session -Count 20
+    Step-EditorFrames -Session $Session -Count 120
 }
 
 # The reflection buffer under the tall box: its mirror image, seen from here.

@@ -199,15 +199,15 @@ Test 'a platform with no rigid body moves too - that is what NonPhysicPlatform w
 }
 
 Test 'delay holds the platform still, then it moves' {
-    SendOk "set_component box_b Platform ""{'linear_dir':{'x':1,'y':0,'z':0},'amplitude':2,'freq':2,'delay':2.5}""" | Out-Null
+    SendOk "set_component box_b Platform ""{'linear_dir':{'x':1,'y':0,'z':0},'amplitude':2,'freq':2,'delay':0.5}""" | Out-Null
     $authored = Get-Position -Session $Session -Entity 'box_b'
     Simulate -Frames 10
     $early = Get-Position -Session $Session -Entity 'box_b'
     Assert-Near -Expected $authored.x -Actual $early.x -Tolerance 0.05 `
         -Message "still waiting out the delay (authored $($authored.x), now $($early.x))"
     # The systems' clocks advance only on the ticks they run, so the wait is in frames of
-    # simulation rather than in wall time.
-    $travel = Measure-Travel -Entity 'box_b' -Frames 400
+    # simulation rather than in wall time. (The delay is short on purpose: the run is as long as it, and 10 frames are not.)
+    $travel = Measure-Travel -Entity 'box_b' -Frames 120
     StopSimulating
     Assert-True -Condition (($travel.MaxX - $travel.MinX) -gt 0.5) `
         -Message "and then it moves (min $($travel.MinX), max $($travel.MaxX))"

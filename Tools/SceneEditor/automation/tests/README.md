@@ -66,7 +66,7 @@ In scope inside a suite:
 | `$Session` `$Project` `$Assets` `$LevelPath` `$ShotDir` | the live editor and its project |
 | `Get-State` `Get-Render` `Get-Camera` `Get-Component` `Get-Position` `Get-TemplateInfo` `Get-EntityNames` `Get-PlacedInstance` | typed readers |
 | `Assert-True/False/Equal/NotEqual/Near/Vector3Near/Match/NotMatch/Contains/NotContains/Ok/Err/FileExists/FileNotExists` | assertions; failure = a thrown message naming expected vs actual |
-| `Step-EditorFrames` | render N frames without changing anything |
+| `Step-EditorFrames` | render N frames without changing anything: one `wait_frames N` batch, answered after the Nth frame (`Step-EditorPings` is the old wait, one `ping` round trip per step) |
 | `Get-ImageStats` `Get-ImageDifference` | screenshot statistics |
 | `Skip-Test -Reason` | end the test as not-applicable rather than as a failure |
 
@@ -154,6 +154,24 @@ both halves.
 accumulates temporally (GI/ReSTIR/autofocus), so two captures of the same settled
 scene differ by a few percent of pixels. `Step-EditorFrames` before capturing, and
 compare shares rather than exact images.
+
+**`Step-EditorFrames` is N frames, and not the time N pings used to take.** It used to be N `ping`
+round trips, each about two and a half frames and 50 ms; it is now one `wait_frames N` batch, so
+the same count is a third of the wall time (2026-11-01: the suite went from 22 to 11 minutes with
+it, the faster polling of the channel and a few shorter waits). What advances with the clock and
+not with frames - the physics and background threads at 60 Hz, the readback of GPU counters a few
+frames late, the async build of a splat cloud - has had less time at a given count: a test that
+reads one of those counts more frames (`Measure-Gpu`, `Use-Space` in `48-screenspacert`) or
+waits on the state it reads. The first screenshot after a long `wait_frames` can come out black
+(about one run in two in `23-splatrender`'s stable-composite test, which therefore waits with
+`Step-EditorPings`): a test whose first capture must be good waits that way, or takes one and
+throws it away.
+
+**Test time is mostly latency, not work.** A batch is read in one frame and answered at its end;
+a test that sends a hundred single commands waits a hundred frames. Put commands that do not
+depend on each other's answers in one `Send`/`SendOk` array, and `Step-EditorFrames` once rather
+than between every pair. The channel polls every 2 ms (it was 40) and retries a response that
+the editor is still closing.
 
 **A commanded camera pose can be lost, not just late - wait for it.** `camera_pos`
 is applied by `EditorCamera` on its own tick, and if the suite moves on before that

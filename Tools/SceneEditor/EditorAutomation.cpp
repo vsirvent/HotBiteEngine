@@ -64,6 +64,8 @@ namespace HotBiteEditor {
 			bool batch_open = false;
 			std::vector<std::string> response_lines;
 			std::vector<PendingScreenshot> pending_screenshots;
+			//Frames still to be drawn before the open batch is answered (`wait_frames`); 0 answers it at the end of the frame it ran in.
+			int wait_frames = 0;
 		};
 		static std::vector<Root> roots; //[0] is the --automation one, when there is one
 		static bool enabled = false;
@@ -74,6 +76,8 @@ namespace HotBiteEditor {
 		//their slot is reserved here and filled in later.
 		static std::vector<std::string> response_lines;
 		static std::vector<PendingScreenshot> pending_screenshots;
+		//What `wait_frames` asked for in the batch being executed; ProcessCommands hands it to the batch's Root.
+		static int wait_frames_request = 0;
 
 		void Init(const std::string& dir)
 		{
@@ -1324,6 +1328,23 @@ namespace HotBiteEditor {
 			}
 			const std::string& cmd = args[0];
 			std::string error;
+
+			//Ahead of the ladder below, which is at the compiler's limit of nested blocks.
+			if (cmd == "wait_frames") {
+				//The batch is answered after N frames have been drawn, not after one: a test that lets the engine settle (a temporal pass
+				//accumulating, a physics body falling) waits for N frames in one batch, where N `ping`s cost a round trip each.
+				int frames = 0;
+				try { frames = args.size() > 1 ? std::stoi(args[1]) : 0; }
+				catch (...) { frames = 0; }
+				if (frames < 1 || frames > 100000) {
+					response_lines.push_back("ERR usage: wait_frames <1..100000>");
+				}
+				else {
+					wait_frames_request = (std::max)(wait_frames_request, frames);
+					response_lines.push_back("OK waiting " + std::to_string(frames) + " frames");
+				}
+				return;
+			}
 
 			if (cmd == "ping") {
 				response_lines.push_back("OK pong");
@@ -3784,10 +3805,13 @@ namespace HotBiteEditor {
 
 				response_lines.clear();
 				pending_screenshots.clear();
+				wait_frames_request = 0;
 				for (const auto& l : lines) {
 					Execute(l, state, app);
 				}
 				roots[i].batch_open = true;
+				roots[i].wait_frames = wait_frames_request;
+				wait_frames_request = 0;
 				roots[i].response_lines = std::move(response_lines);
 				roots[i].pending_screenshots = std::move(pending_screenshots);
 				response_lines.clear();
@@ -3801,6 +3825,12 @@ namespace HotBiteEditor {
 				if (!root.batch_open) {
 					continue;
 				}
+				//A batch that asked to wait is answered at the end of the Nth frame, the one it ran in counted as the first.
+				if (root.wait_frames > 1) {
+					--root.wait_frames;
+					continue;
+				}
+				root.wait_frames = 0;
 				for (const auto& shot : root.pending_screenshots) {
 					std::string error;
 					if (app.CaptureBackBuffer(shot.path, error)) {
