@@ -24,6 +24,8 @@ SOFTWARE.
 
 #pragma once
 
+#include <atomic>
+#include <stdexcept>
 #include <ECS\Coordinator.h>
 #include <ECS\EntityVector.h>
 #include <Components\Base.h>
@@ -64,6 +66,8 @@ namespace HotBite {
 				CollisionData contacts_by_body;
 				std::unordered_map<reactphysics3d::CollisionBody*, PhysicsEntity*> entity_by_body;
 				std::unordered_map<ECS::Entity, std::unordered_map<int32_t, int64_t>> last_event_by_entity;
+				//Pairs the physics world reported for a body it no longer holds, which the callbacks skipped.
+				std::atomic<uint64_t> stale_pairs = 0;
 
 				PhysicsEntity* GetEntity(const reactphysics3d::CollisionBody* body);
 			public:
@@ -88,6 +92,8 @@ namespace HotBite {
 				std::unordered_set<ECS::Entity> GetContacts(ECS::Entity entity) const;
 				bool IsContact(ECS::Entity entity1, ECS::Entity entity2) const;
 				void ClearContact(ECS::Entity entity);
+					//How many contact / trigger pairs named a body the physics world had already destroyed (skipped, not reported).
+					uint64_t GetStalePairs() const { return stale_pairs; }
 				const CollisionData&
 					GetCollisions() {
 					return contacts_by_body;

@@ -127,6 +127,15 @@ void PhysicsSystem::onTrigger(const reactphysics3d::OverlapCallback::CallbackDat
 	// For each contact pair
 	for (uint32_t p = 0; p < callbackData.getNbOverlappingPairs(); ++p) {
 		const reactphysics3d::OverlapCallback::OverlapPair& contactPair = callbackData.getOverlappingPair(p);
+		//As in onContact: a pair that names a body the world no longer holds is skipped.
+		try {
+			contactPair.getBody1();
+			contactPair.getBody2();
+		}
+		catch (const std::runtime_error&) {
+			++stale_pairs;
+			continue;
+		}
 		if (contactPair.getEventType() == reactphysics3d::OverlapCallback::OverlapPair::EventType::OverlapExit) {
 			auto it1 = contacts_by_body.find(contactPair.getBody1());
 			if (it1 != contacts_by_body.end()) {
@@ -172,8 +181,18 @@ void PhysicsSystem::onContact(const reactphysics3d::CollisionCallback::CallbackD
 	for (uint32_t p = 0; p < callbackData.getNbContactPairs(); ++p) {
 
 		const ContactPair& contactPair = callbackData.getContactPair(p);
-		const auto b1 = contactPair.getBody1();
-		const auto b2 = contactPair.getBody2();
+		//A pair can name a body the world has already destroyed (the map of bodies throws for it, and an exception out of this
+		//callback ends the process): there is nothing left to report for it.
+		reactphysics3d::CollisionBody* b1 = nullptr;
+		reactphysics3d::CollisionBody* b2 = nullptr;
+		try {
+			b1 = contactPair.getBody1();
+			b2 = contactPair.getBody2();
+		}
+		catch (const std::runtime_error&) {
+			++stale_pairs;
+			continue;
+		}
 		if (contactPair.getEventType() == ContactPair::EventType::ContactExit) {
 			auto it1 = contacts_by_body.find(b1);
 			if (it1 != contacts_by_body.end()) {
