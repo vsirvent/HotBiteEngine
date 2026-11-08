@@ -157,13 +157,13 @@ namespace HotBite {
 				virtual void SetHoverImage(const std::string& filename, bool absolute_path = false) {
 					ReleaseTexture(hover_image);
 					std::string file = (absolute_path ? "" : root + "\\") + filename;
-					hover_image = LoadTexture(file);
+					hover_image = LoadTexture(file, true);
 				}
 
 				virtual void SetPressedImage(const std::string& filename, bool absolute_path = false) {
 					ReleaseTexture(click_image);
 					std::string file = (absolute_path ? "" : root + "\\") + filename;
-					click_image = LoadTexture(file);
+					click_image = LoadTexture(file, true);
 				}
 			};
 		}

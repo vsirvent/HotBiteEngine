@@ -141,6 +141,35 @@ Test 'set_shader rejects an unknown slot and an unknown material' {
     Assert-Err -Result (Send 'set_shader Nope draw_ps MainRenderPS.cso')[0] -Pattern 'material not found'
 }
 
+#--- Only the stages a material uses (Core::MaterialData::DrawShaders): no hull, domain or
+#geometry name means the stage is left out, the engine's old default names read as none,
+#and tessellation brings its own stages back.
+Test 'a material draws VS + PS only unless it names more or tessellates' {
+    $d = (SendOk 'shaders TestRed draw')[0].Payload
+    Assert-Contains -Collection $d -Value 'vs=MainRenderDirectVS.cso' -Message 'the direct form of the engine VS'
+    foreach ($stage in 'hs', 'ds', 'gs') {
+        Assert-Contains -Collection $d -Value "$stage=" -Message "no $stage stage"
+    }
+    Assert-Contains -Collection $d -Value 'ps=MainRenderPS.cso'
+
+    SendOk 'set_shader TestRed draw_hs MainRenderHS.cso' | Out-Null
+    Assert-Contains -Collection (SendOk 'shaders TestRed')[0].Payload -Value 'draw_hs=' -Message 'the old default name reads as none'
+
+    SendOk 'material_surface TestRed distance 16' | Out-Null
+    $d = (SendOk 'shaders TestRed draw')[0].Payload
+    Assert-Contains -Collection $d -Value 'vs=MainRenderVS.cso' -Message 'tessellated: the VS that feeds the hull stage'
+    Assert-Contains -Collection $d -Value 'hs=MainRenderHS.cso'
+    Assert-Contains -Collection $d -Value 'ds=MainRenderDS.cso'
+    Assert-Contains -Collection $d -Value 'gs=MainRenderGS.cso'
+    SendOk 'material_surface TestRed off 0' | Out-Null
+    Assert-Contains -Collection (SendOk 'shaders TestRed draw')[0].Payload -Value 'hs=' -Message 'tessellation off drops them again'
+
+    SendOk 'set_shader TestRed draw_gs ShadowMapCubeGS.cso' | Out-Null
+    Assert-Contains -Collection (SendOk 'shaders TestRed draw')[0].Payload -Value 'vs=MainRenderVS.cso' -Message 'a named GS keeps the VS that feeds it'
+    SendOk 'set_shader TestRed draw_gs none' | Out-Null
+    Assert-Contains -Collection (SendOk 'shaders TestRed')[0].Payload -Value 'draw_gs=' -Message 'none clears the stage'
+}
+
 #--- new_shader: introducing a shader that has no .cso yet (MaterialOps::
 #CreateShaderFile) - the automation surface for the Materials panel's "New..."
 #button, since it has no other scriptable form. Draw_ps is TestRed's own since the

@@ -37,6 +37,7 @@ SOFTWARE.
 #include <Core\Material.h>
 #include <Core\Mesh.h>
 #include <Core\PostProcess.h>
+#include <Core\GBufferEffect.h>
 #include <Core\BVH.h>
 #include <Core\RWBuffer.h>
 #include <Core\TiledLights.h>
@@ -502,6 +503,9 @@ namespace HotBite {
 				Core::RenderTexture2D motion_blur_map;
 				
 				Core::PostProcess* post_process_pipeline = nullptr;				
+				Core::GBufferEffect* gbuffer_pipeline = nullptr;
+				//The surface colour copied before the G-buffer chain runs (GBufferViews::scene_source).
+				Core::RenderTexture2D gbuffer_scene_copy;
 				Core::IRenderTarget* first_pass_target = nullptr;
 				Core::IRenderTarget* second_pass_target = nullptr;
 
@@ -772,6 +776,15 @@ namespace HotBite {
 				bool CanInstanceBucket(InstancePass pass, const Core::MaterialData* material, Core::SimpleVertexShader* vs, Core::SimpleHullShader* hs,
 					Core::SimpleDomainShader* ds, Core::SimpleGeometryShader* gs, Core::SimplePixelShader* ps);
 				static bool CanInstanceEntity(const DrawableEntity& entity);
+				//The shader tuple a material draws with in the scene passes: only the stages it uses
+				//(Core::MaterialData::DrawShaders), with tessellation's when it is tessellated and the
+				//tessellation setting is on. The key the scene trees file an entity under.
+				Core::ShaderKey SceneShaderKey(const Core::MaterialData* material) const;
+				//Re-files the entities whose material's pipeline changed since they were filed (its
+				//tessellation was switched on or off, or the tessellation setting was): nothing else
+				//notices, since those are plain fields. Called before the pass walks `tree`.
+				void RefileChangedPipelines(RenderTree& tree);
+				std::vector<ECS::Entity> refile_entities;
 				//Draws the entities `accept` lets through, in groups where they are alike.
 				template <class Accept>
 				void DrawBucket(ECS::EntityVector<DrawableEntity>& bucket, InstancePass pass, bool can_instance, Core::SimpleVertexShader* vs,
@@ -1172,6 +1185,8 @@ namespace HotBite {
 				//The share of the radius, at its far end, over which a sample fades out.
 				static constexpr float GTAO_FALLOFF = 0.6f;
 				void ProcessGtao();
+				//Runs the G-buffer chain over what the first geometry pass drew (see SetGBufferPipeline).
+				void ProcessGBufferEffects();
 			public:
 				//How soft ray traced shadows are (the radius of the ball the rays aim into, in world
 				//units; 0 = hard) and how fast the result settles (the weight of the newest frame,
@@ -1526,6 +1541,10 @@ namespace HotBite {
 				bool Init(Core::DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::BVHBuffer* bvh = nullptr);
 				void Clear(const float color[4]);
 				void SetPostProcessPipeline(Core::PostProcess* pipeline);
+				//The G-buffer chain (Core::GBufferEffect): compute stages run between the geometry pass and the deferred
+				//lighting. Null removes it. Not owned.
+				void SetGBufferPipeline(Core::GBufferEffect* pipeline) { gbuffer_pipeline = pipeline; }
+				Core::GBufferEffect* GetGBufferPipeline() const { return gbuffer_pipeline; }
 				void Draw();
 				void Update();
 				

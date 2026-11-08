@@ -179,6 +179,7 @@
     <ClCompile Include="Engine\Core\MeshSimplify.cpp" />
     <ClCompile Include="Engine\Core\PhysicsCommon.cpp" />
     <ClCompile Include="Engine\Core\PostProcess.cpp" />
+    <ClCompile Include="Engine\Core\GBufferEffect.cpp" />
     <ClCompile Include="Engine\Core\RGBANoise.cpp" />
     <ClCompile Include="Engine\Core\Scheduler.cpp" />
     <ClCompile Include="Engine\Core\DxcSupport.cpp" />
@@ -248,6 +249,7 @@
     <ClInclude Include="Engine\Core\Particles.h" />
     <ClInclude Include="Engine\Core\PhysicsCommon.h" />
     <ClInclude Include="Engine\Core\PostProcess.h" />
+    <ClInclude Include="Engine\Core\GBufferEffect.h" />
     <ClInclude Include="Engine\Core\Scheduler.h" />
     <ClInclude Include="Engine\Core\DxcSupport.h" />
     <ClInclude Include="Engine\Core\ShaderCompiler.h" />
@@ -347,6 +349,7 @@
     <None Include="Engine\Core\Shaders\Common\Utils.hlsli" />
     <None Include="Engine\Core\Shaders\GUI\GUICommon.hlsli" />
     <None Include="Engine\Core\Shaders\MainRender\MainRenderPS.hlsli" />
+    <None Include="Engine\Core\Shaders\MainRender\MainRenderVS.hlsli" />
     <None Include="Engine\Core\Shaders\Splats\SplatCommon.hlsli" />
     <None Include="packages.config" />
   </ItemGroup>
@@ -663,6 +666,12 @@
       <DisableOptimizations Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</DisableOptimizations>
     </FxCompile>
     <FxCompile Include="Engine\Core\Shaders\MainRender\MainRenderVS.hlsl">
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Vertex</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Vertex</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|x64'">5.0</ShaderModel>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\MainRender\MainRenderDirectVS.hlsl">
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Vertex</ShaderType>
       <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Vertex</ShaderType>
@@ -1016,6 +1025,14 @@
       <MainRenderPSDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\MainRender\MainRenderPS.hlsl" />
     </ItemGroup>
     <Touch Files="@(MainRenderPSDependent)" Condition="Exists('$(MainRenderPSHeader)') And $([System.IO.File]::GetLastWriteTime('$(MainRenderPSHeader)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('%(MainRenderPSDependent.FullPath)').Ticks)" />
+    <PropertyGroup>
+      <MainRenderVSHeader>$(MSBuildThisFileDirectory)Engine\Core\Shaders\MainRender\MainRenderVS.hlsli</MainRenderVSHeader>
+    </PropertyGroup>
+    <ItemGroup>
+      <MainRenderVSDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\MainRender\MainRenderVS.hlsl" />
+      <MainRenderVSDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\MainRender\MainRenderDirectVS.hlsl" />
+    </ItemGroup>
+    <Touch Files="@(MainRenderVSDependent)" Condition="Exists('$(MainRenderVSHeader)') And $([System.IO.File]::GetLastWriteTime('$(MainRenderVSHeader)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('%(MainRenderVSDependent.FullPath)').Ticks)" />
     <PropertyGroup>
       <MaterialUVHeader>$(MSBuildThisFileDirectory)Engine\Core\Shaders\Common\MaterialUV.hlsli</MaterialUVHeader>
     </PropertyGroup>

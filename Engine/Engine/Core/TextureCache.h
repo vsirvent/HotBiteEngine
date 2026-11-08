@@ -64,12 +64,14 @@ namespace HotBite {
 			// owns. Null when the file cannot be cooked (unreadable, a format the cooker
 			// does not keep, the cache off): load it the plain way. Thread-safe, and uses
 			// no device context.
-						GfxSRV* LoadCookedTexture(const std::string& filename);
+						GfxSRV* LoadCookedTexture(const std::string& filename, bool keep_mips = false);
 
 						// A texture (with all its mips, array slices or cube faces) from a decoded image, as an SRV of a
 						// new GPU texture left in the shader-read state. One reference, the caller's. Null for an image
 						// that is not 2D. Thread-safe: the upload runs on a private command list (GfxDevice::ExecuteImmediate).
-						GfxSRV* CreateTextureFromImage(const DirectX::ScratchImage& image);
+						// With `keep_mips` the texture keeps its whole chain whatever the video memory (a picture the player looks at
+						// straight, a widget's image); without it the largest mips go while the budget is short (never below 512 px).
+						GfxSRV* CreateTextureFromImage(const DirectX::ScratchImage& image, bool keep_mips = false);
 
 									// Debugging: writes subresource 0 of a texture to a PNG (floats are clamped to 0..1, depth shows as red),
 									// waiting for the GPU, and logs how many of its pixels are not zero. For finding which stage of a frame

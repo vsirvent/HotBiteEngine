@@ -95,6 +95,63 @@ MeshData::MeshData() {
 MeshData::~MeshData() {	
 }
 
+//Gives the vertices that came without a tangent frame (Tangent and Bitangent both zero:
+//geometry a game builds in code rarely fills them) the one their triangles' UVs define -
+//the derivation the importer uses (FBXLoader) and MainRenderGS used to repeat for every
+//triangle every frame, summed over the triangles that share the vertex. The vertex shader
+//of the plain VS + PS pipeline reads these directly (MainRenderDirectVS), so without this
+//a normal map on such a mesh would have no orientation. Vertices that have a frame are
+//left exactly as they are.
+static void FillMissingTangents(std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices) {
+	const auto zero = [](const float3& v) { return v.x == 0.0f && v.y == 0.0f && v.z == 0.0f; };
+	std::vector<uint8_t> missing(vertices.size(), 0);
+	bool any = false;
+	for (size_t i = 0; i < vertices.size(); ++i) {
+		if (zero(vertices[i].Tangent) && zero(vertices[i].Bitangent)) {
+			missing[i] = 1;
+			any = true;
+		}
+	}
+	if (!any) {
+		return;
+	}
+	for (size_t t = 0; t + 2 < indices.size(); t += 3) {
+		const uint32_t i0 = indices[t], i1 = indices[t + 1], i2 = indices[t + 2];
+		if (i0 >= vertices.size() || i1 >= vertices.size() || i2 >= vertices.size() ||
+			!(missing[i0] || missing[i1] || missing[i2])) {
+			continue;
+		}
+		const Vertex& v0 = vertices[i0];
+		const Vertex& v1 = vertices[i1];
+		const Vertex& v2 = vertices[i2];
+		const float3 edge1 = { v1.Position.x - v0.Position.x, v1.Position.y - v0.Position.y, v1.Position.z - v0.Position.z };
+		const float3 edge2 = { v2.Position.x - v0.Position.x, v2.Position.y - v0.Position.y, v2.Position.z - v0.Position.z };
+		const float2 duv1 = { v1.UV.x - v0.UV.x, v1.UV.y - v0.UV.y };
+		const float2 duv2 = { v2.UV.x - v0.UV.x, v2.UV.y - v0.UV.y };
+		const float dev = duv1.x * duv2.y - duv1.y * duv2.x;
+		if (dev == 0.0f) {
+			//UVs that span no area define no direction; the vertex shader makes one up.
+			continue;
+		}
+		const float r = 1.0f / dev;
+		const float3 tangent = {
+			r * (duv2.y * edge1.x - duv1.y * edge2.x),
+			r * (duv2.y * edge1.y - duv1.y * edge2.y),
+			r * (duv2.y * edge1.z - duv1.y * edge2.z) };
+		const float3 bitangent = {
+			r * (-duv2.x * edge1.x + duv1.x * edge2.x),
+			r * (-duv2.x * edge1.y + duv1.x * edge2.y),
+			r * (-duv2.x * edge1.z + duv1.x * edge2.z) };
+		for (uint32_t i : { i0, i1, i2 }) {
+			if (missing[i]) {
+				Vertex& v = vertices[i];
+				v.Tangent.x += tangent.x; v.Tangent.y += tangent.y; v.Tangent.z += tangent.z;
+				v.Bitangent.x += bitangent.x; v.Bitangent.y += bitangent.y; v.Bitangent.z += bitangent.z;
+			}
+		}
+	}
+}
+
 //Applies `smooth` to `vertices` from the flat frames and the grouping. Returns false
 //when there is nothing to apply, which is how a mesh loaded without grouping (the
 //built-in cube, a game building its own geometry) stays pinned to what it was given.
@@ -153,13 +210,15 @@ void MeshData::Init(VertexBuffer<Core::Vertex>* vb, const std::string& mesh_name
 	this->indices = indices;
 	this->vertex_buffer = vb;
 	this->smooth = smooth;
+	//Before the flat frames are taken, so smoothing on and off keeps them.
+	FillMissingTangents(this->vertices, indices);
 
 	//Held before anything fuses them, so the flat shading stays recoverable.
 	if (smooth_groups != nullptr && smooth_groups->size() == vertices.size()) {
 		this->smooth_groups = *smooth_groups;
 		flat_frames.resize(vertices.size());
 		for (size_t i = 0; i < vertices.size(); ++i) {
-			flat_frames[i] = { vertices[i].Normal, vertices[i].Tangent, vertices[i].Bitangent };
+			flat_frames[i] = { this->vertices[i].Normal, this->vertices[i].Tangent, this->vertices[i].Bitangent };
 		}
 		//Before the boxes below and before the upload: BuildSkinnedBoxes reads the
 		//bone ids this pass hands to the cloned vertices.

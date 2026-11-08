@@ -113,6 +113,9 @@
     <ClCompile Include="Engine\Core\PostProcess.cpp">
       <Filter>Engine\Core</Filter>
     </ClCompile>
+    <ClCompile Include="Engine\Core\GBufferEffect.cpp">
+      <Filter>Engine\Core</Filter>
+    </ClCompile>
     <ClCompile Include="Engine\Core\Material.cpp">
       <Filter>Engine\Core</Filter>
     </ClCompile>
@@ -343,6 +346,9 @@
     <ClInclude Include="Engine\Core\PostProcess.h">
       <Filter>Engine\Core</Filter>
     </ClInclude>
+    <ClInclude Include="Engine\Core\GBufferEffect.h">
+      <Filter>Engine\Core</Filter>
+    </ClInclude>
     <ClInclude Include="Engine\Core\Material.h">
       <Filter>Engine\Core</Filter>
     </ClInclude>
@@ -556,6 +562,9 @@
     <None Include="Engine\Core\Shaders\MainRender\MainRenderPS.hlsli">
       <Filter>Engine\Core\Shaders\MainRender</Filter>
     </None>
+    <None Include="Engine\Core\Shaders\MainRender\MainRenderVS.hlsli">
+      <Filter>Engine\Core\Shaders\MainRender</Filter>
+    </None>
     <None Include="Engine\Core\Shaders\Common\MaterialUV.hlsli">
       <Filter>Engine\Core\Shaders\Common</Filter>
     </None>
@@ -611,6 +620,9 @@
       <Filter>Engine\Core\Shaders\MainRender</Filter>
     </FxCompile>
     <FxCompile Include="Engine\Core\Shaders\MainRender\MainRenderVS.hlsl">
+      <Filter>Engine\Core\Shaders\MainRender</Filter>
+    </FxCompile>
+    <FxCompile Include="Engine\Core\Shaders\MainRender\MainRenderDirectVS.hlsl">
       <Filter>Engine\Core\Shaders\MainRender</Filter>
     </FxCompile>
     <FxCompile Include="Engine\Core\Shaders\ShadowRender\ShadowMapCubeGS.hlsl">

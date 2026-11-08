@@ -343,6 +343,9 @@ namespace HotBite {
 			virtual bool Load(const std::string& scene_file, float* progress = nullptr, std::function<void(float)> OnLoadProgress = nullptr, float progress_unit = 1.0f);
 			virtual void Init();
 			virtual void SetPostProcessPipeline(Core::PostProcess* pipeline);
+			//The G-buffer chain: compute stages that write the G-buffer after the geometry pass and before the lighting
+			//(Core::GBufferEffect). Null removes it; the caller keeps ownership and removes it before deleting it.
+			void SetGBufferPipeline(Core::GBufferEffect* pipeline);
 			// auto_render: when false, skips registering the main-thread render timer
 			// (RenderSystem::Update, i.e. Clear/Draw/Present) while still starting the
 			// physics/background/audio timers. Lets a host that hasn't loaded any scene

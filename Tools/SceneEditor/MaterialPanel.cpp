@@ -1421,11 +1421,22 @@ namespace HotBiteEditor {
 				//is not a free-text field.
 				Core::MaterialShaderNames names = m->shader_names;
 				bool shader_changed = false;
+				//`optional`: a stage the material may leave out (hull, domain, geometry of
+				//the draw pass) - empty means the pipeline does not have it, see
+				//Core::MaterialShaderNames.
 				auto shader_row = [&](const char* label, const char* stage,
-					std::string& value) {
+					std::string& value, bool optional = false) {
 					const std::vector<std::string>& options = MaterialOps::ListShaders(stage);
 					ImGui::PushID(label);
-					if (ImGui::BeginCombo(label, value.c_str())) {
+					if (ImGui::BeginCombo(label, (optional && value.empty()) ? "(none)" : value.c_str())) {
+						if (optional && ImGui::Selectable("(none)", value.empty()) && !value.empty()) {
+							value.clear();
+							shader_changed = true;
+						}
+						if (optional && ImGui::IsItemHovered()) {
+							ImGui::SetTooltip("No %s stage: the material draws without it (VS + PS is\n"
+								"the usual pipeline). Tessellation adds the engine's own when it is on.", stage);
+						}
 						for (const std::string& option : options) {
 							if (ImGui::Selectable(option.c_str(), option == value) &&
 								option != value) {
@@ -1521,9 +1532,9 @@ namespace HotBiteEditor {
 
 				ImGui::TextDisabled("Draw pass");
 				shader_row("Vertex", "VS", names.draw_vs);
-				shader_row("Hull", "HS", names.draw_hs);
-				shader_row("Domain", "DS", names.draw_ds);
-				shader_row("Geometry", "GS", names.draw_gs);
+				shader_row("Hull", "HS", names.draw_hs, true);
+				shader_row("Domain", "DS", names.draw_ds, true);
+				shader_row("Geometry", "GS", names.draw_gs, true);
 				shader_row("Pixel", "PS", names.draw_ps);
 				ImGui::TextDisabled("Shadow pass");
 				shader_row("Shadow vertex", "VS", names.shadow_vs);

@@ -341,7 +341,7 @@ void RenderSystem::OnEntitySignatureChanged(ECS::Entity entity, const Signature&
 	{
 		DrawableEntity drawable{ coordinator, entity };
 		MaterialData* mat = drawable.mat->data;
-		ShaderKey key{ mat->shaders.vs, mat->shaders.hs, mat->shaders.ds, mat->shaders.gs, mat->shaders.ps };
+		const ShaderKey key = SceneShaderKey(mat);
 		//A shadow-caster-only entity (a splat cloud's inferred proxy mesh, see
 		//World::AttachSplatProxy) still needs its pass tracked below so it joins
 		//shadow_tree, but must never reach the main color pass or the camera's depth
@@ -567,8 +567,12 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		if (FAILED(depth_view.InitScaled(w, h))) {
 			throw std::exception("depth_view.Init failed");
 		}
-		if (FAILED(first_pass_texture.InitScaled(w, h))) {
+		//Unordered access for the G-buffer chain (ProcessGBufferEffects), which writes the surface colour from compute.
+		if (FAILED(first_pass_texture.InitScaled(w, h, DXGI_FORMAT::DXGI_FORMAT_R8G8B8A8_UNORM, GFX_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("first_pass_texture.Init failed");
+		}
+		if (FAILED(gbuffer_scene_copy.InitScaled(w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, GFX_BIND_UNORDERED_ACCESS))) {
+			throw std::exception("gbuffer_scene_copy.Init failed");
 		}
 		if (FAILED(motion_texture.InitScaled(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32_FLOAT, GFX_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("motion_texture.Init failed");
@@ -840,6 +844,7 @@ RenderSystem::~RenderSystem() {
 	taa_history[0].Release();
 	taa_history[1].Release();
 	first_pass_texture.Release();
+	gbuffer_scene_copy.Release();
 	rgba_noise_texture.Release();
 	motion_texture.Release();
 	depth_map.Release();
@@ -1211,11 +1216,33 @@ bool RenderSystem::CanInstanceBucket(InstancePass pass, const Core::MaterialData
 		//Opaque, one texture set, no tessellation and a UV mapping that does not look at the world matrix.
 		return material->multi_material == nullptr && material->tessellation_type == 0
 			&& !(material->props.flags & (ALPHA_ENABLED_FLAG | BLEND_ENABLED_FLAG | WORLD_UV_ENABLED_FLAG))
-			&& vs == factory->GetShader<SimpleVertexShader>("MainRenderVS.cso") && hs == factory->GetShader<SimpleHullShader>("MainRenderHS.cso")
-			&& ds == factory->GetShader<SimpleDomainShader>("MainRenderDS.cso") && gs == factory->GetShader<SimpleGeometryShader>("MainRenderGS.cso")
-			&& ps == factory->GetShader<SimplePixelShader>("MainRenderPS.cso");
+			&& hs == nullptr && ds == nullptr && gs == nullptr
+			&& vs == factory->GetShader<SimpleVertexShader>(MaterialData::MAIN_DIRECT_VS)
+			&& ps == factory->GetShader<SimplePixelShader>(MaterialData::MAIN_PS);
 	}
 	return false;
+}
+
+Core::ShaderKey RenderSystem::SceneShaderKey(const Core::MaterialData* material) const {
+	const MaterialShaders s = material->DrawShaders(tess_enabled && material->Tessellated());
+	return ShaderKey{ s.vs, s.hs, s.ds, s.gs, s.ps };
+}
+
+void RenderSystem::RefileChangedPipelines(RenderTree& tree) {
+	refile_entities.clear();
+	for (auto& shaders : tree) {
+		for (auto& mat : shaders.second) {
+			if (mat.second.second.GetData().empty() || SceneShaderKey(mat.first) == shaders.first) {
+				continue;
+			}
+			for (const DrawableEntity& de : mat.second.second.GetData()) {
+				refile_entities.push_back(de.base->id);
+			}
+		}
+	}
+	for (ECS::Entity e : refile_entities) {
+		RefreshDrawable(e);
+	}
 }
 
 bool RenderSystem::CanInstanceEntity(const DrawableEntity& entity) {
@@ -1323,9 +1350,8 @@ void RenderSystem::DrawInstanceGroup(InstancePass pass, const InstanceRef* first
 		ps->SetInt(MESH_NORMAL_MAP_ENABLE, mesh_normal_map != nullptr);
 		ps->CopyAllBufferData();
 	}
-	//The hull and domain stages stay in the pipeline: handing the vertex shader's output straight to the geometry
-	//shader (a plain triangle list) was tried and measured, and it saved nothing while turning parts of the foliage
-	//black.
+	//Only the plain VS + PS pipeline is instanced (CanInstanceBucket): MainRenderDirectVS does everything the hull,
+	//domain and geometry stages used to, the projection and the tangent frame included.
 	context->DrawIndexedInstanced((UINT)mesh->index_count, (UINT)count, (UINT)mesh->index_offset, (INT)mesh->vertex_offset, 0);
 	//Back to what the entities drawn one by one expect.
 	vs->SetInt(INSTANCED, 0);
@@ -2130,6 +2156,7 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 	//fully shaded several times over. The rasterizer culls nothing (CULL_NONE), which
 	//alone means every closed mesh shades its far side too.
 	GfxDSV* depth_target_view = depth_view.Depth();
+	RefileChangedPipelines(tree);
 	context->GSSetShader(nullptr);
 	context->HSSetShader(nullptr);
 	context->DSSetShader(nullptr);
@@ -2227,13 +2254,26 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 	scene_has_lava[render_pass - 1] = false;
 	int ps_light_model = 0;
 
-	context->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST);
+	//Patches only for a pipeline that tessellates: the hull stage needs them, and a pipeline
+	//without one cannot be built for them (the topology type is part of the D3D12 pipeline).
+	D3D_PRIMITIVE_TOPOLOGY topology = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+	context->IASetPrimitiveTopology(topology);
 	for (auto &shaders : tree) {
+		const D3D_PRIMITIVE_TOPOLOGY group_topology = (std::get<SHADER_KEY_HS>(shaders.first) != nullptr)
+			? D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST : D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+		if (group_topology != topology) {
+			topology = group_topology;
+			context->IASetPrimitiveTopology(topology);
+		}
 
 		SimpleVertexShader* new_vs = std::get<SHADER_KEY_VS>(shaders.first);
 		if (vs != new_vs) {
 			vs = new_vs;
 			if (vs) {
+				//The direct vertex shader projects (MainRenderDirectVS: no geometry stage after it);
+				//the others have no such variables and these do nothing.
+				vs->SetMatrix4x4(VIEW, cam_entity.camera->view);
+				vs->SetMatrix4x4(PROJECTION, geometry_projection);
 				vs->SetFloat3(CAMERA_POSITION, cam_entity.camera->world_position);
 				//The view direction, like every other shader gets it. Not Camera::direction: that is the
 				//point the camera looks *at* (CameraSystem subtracts the position to get the vector), so
@@ -2378,7 +2418,9 @@ void RenderSystem::DrawScene(int w, int h, const float3& camera_position, const 
 				//of layer constants, so there is only one stack it could ever apply.
 				if (mat.first->multi_material != nullptr) {
 					PrepareMultiMaterial(mat.first, vs, hs, ds, gs, ps);
-					ds->CopyAllBufferData();
+					if (ds != nullptr) {
+						ds->CopyAllBufferData();
+					}
 				}
 				//An entity that is hidden or outside the view is not drawn, so it is not prepared either:
 				//PrepareEntity sends an event and uploads the constant buffers of every shader stage, which
@@ -5133,6 +5175,54 @@ void RenderSystem::ProcessGtao() {
 	gtao_active = true;
 }
 
+void RenderSystem::ProcessGBufferEffects() {
+	if (gbuffer_pipeline == nullptr || cameras.GetData().empty() || current_light_map == nullptr) {
+		return;
+	}
+	//The surface colour is whatever the first pass drew into: its own texture when a second pass follows it, the
+	//post-process chain's first texture when not, the back buffer (no unordered access, so no chain) with no post-process.
+	GfxUAV* scene_uav = nullptr;
+	GfxSRV* scene_srv = nullptr;
+	if (first_pass_target == &first_pass_texture) {
+		scene_uav = first_pass_texture.UAV();
+		scene_srv = first_pass_texture.SRV();
+	}
+	else if (post_process_pipeline != nullptr && first_pass_target == post_process_pipeline) {
+		scene_uav = post_process_pipeline->RenderUAV();
+		scene_srv = post_process_pipeline->RenderResource();
+	}
+	if (scene_uav == nullptr || scene_srv == nullptr) {
+		return;
+	}
+	//The colour as the geometry pass left it, for the stages that read other pixels than their own.
+	copy_texture->SetShaderResourceView("input", scene_srv);
+	copy_texture->SetUnorderedAccessView("output", gbuffer_scene_copy.UAV());
+	copy_texture->CopyAllBufferData();
+	copy_texture->SetShader();
+	dxcore->context->Dispatch((gbuffer_scene_copy.Width() + 7) / 8, (gbuffer_scene_copy.Height() + 7) / 8, 1);
+	copy_texture->SetShaderResourceView("input", nullptr);
+	copy_texture->SetUnorderedAccessView("output", nullptr);
+	copy_texture->CopyAllBufferData();
+	dxcore->context->CSSetShader(nullptr);
+	Core::GBufferViews views;
+	views.scene = scene_uav;
+	views.light = current_light_map->UAV();
+	views.bloom = bloom_map.UAV();
+	views.ray0 = rt_ray_sources0.UAV();
+	views.ray1 = rt_ray_sources1.UAV();
+	views.prev_position = prev_position_map.UAV();
+	views.position = position_map.UAV();
+	views.material = material_map.UAV();
+	views.depth = depth_map.UAV();
+	views.scene_source = gbuffer_scene_copy.SRV();
+	views.sampler = dxcore->basic_sampler;
+	views.width = RenderWidth();
+	views.height = RenderHeight();
+	views.time = (float)Scheduler::Get()->GetElapsedNanoSeconds() / 1000000000.0f;
+	views.camera = cameras.GetData()[0].camera;
+	gbuffer_pipeline->Process(dxcore->context, views);
+}
+
 void RenderSystem::ProcessDeferredLighting(int pass_filter) {
 	if (LightingShader(LIGHT_STANDARD) == nullptr || cameras.GetData().empty()) {
 		return;
@@ -5695,6 +5785,9 @@ void RenderSystem::Draw() {
 		DrawScene(w, h, camera_position, view, projection, nullptr, first_pass_target, render_tree);
 		EndTessStats(tess_query_open);
 		ResolveTessStats();
+		//The game's compute stages over the G-buffer the first pass left, before anything reads it: what they write is
+		//lit, shadowed and moved (motion vectors) like the surfaces the geometry pass drew.
+		ProcessGBufferEffects();
 		//Motion vectors and global illumination read the G-buffer and not the light computed from it, so once the last pass that
 		//writes the G-buffer is done (this one, the second geometry pass if there is one, the splat clouds if there are any) they
 		//can be recorded on the compute queue and run beside the lighting instead of after it. Motion goes first even when only

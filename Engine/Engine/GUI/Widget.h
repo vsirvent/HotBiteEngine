@@ -223,7 +223,7 @@ namespace HotBite {
 
 				virtual void SetBackGroundImage(const std::string& filename) {
 					ReleaseTexture(background_image);
-					background_image = LoadTexture(filename);
+					background_image = LoadTexture(filename, true);
 				}
 
 				virtual void SetBackgroundAlphaColor(const float3& color) {

@@ -1,0 +1,229 @@
+/*
+The HotBite Game Engine
+
+Copyright(c) 2023 Vicente Sirvent Orts
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+*/
+
+//The engine's vertex shader, in the two forms a material's pipeline can need
+//(Core::MaterialData::DrawShaders picks one):
+//
+// - MainRenderVS.cso (MAIN_RENDER_DIRECT undefined): for a pipeline with stages after it
+//   (tessellation, a geometry shader). It hands them VertexOutput: the position and the
+//   normal still in the object's space, the tessellation factor, and leaves projecting and
+//   the tangent frame to the stages that follow (MainRenderDS, MainRenderGS).
+//
+// - MainRenderDirectVS.cso (MAIN_RENDER_DIRECT defined): for the usual VS + PS pipeline,
+//   no hull, domain or geometry stage. It does what those did and writes the pixel shader's
+//   input, GSOutput, itself: the clip position, everything in the world, and the tangent
+//   frame from the mesh's own tangents (MainRenderGS derived it per triangle; the mesh's
+//   are the same derivation, summed per vertex - Core::MeshData::Init fills in the ones a
+//   mesh comes without).
+
+#include "../Common/Matrix.hlsli"
+#include "../Common/ShaderStructs.hlsli"
+#include "../Common/Instancing.hlsli"
+
+cbuffer externalData : register(b0)
+{
+	matrix world;
+	float3 cameraPosition;
+	float3 cameraDirection;
+	bool tessEnabled;
+	matrix joints[MAX_JOINTS];
+	//The same skinning matrices as of the previous *rendered* frame
+	//(Components::Mesh::prev_joint_gpu_data, latched by RenderSystem once per Draw).
+	//Skinning the vertex a second time with these is the only way an animation that
+	//plays in place produces a motion vector: the object's world matrix does not change,
+	//so without this the whole rig reads as static however fast it moves.
+	matrix prev_joints[MAX_JOINTS];
+	uint njoints;
+	int tessType;
+	float tessFactor;
+	//An instanced draw (see Common/Instancing.hlsli): a static mesh, no tessellation, drawn once for
+	//many objects. The object's matrices come from `instances` and this shader does the whole of
+	//what the later stages would do with them - the world position, the previous position and
+	//the normal leave here in world space - while the hull, domain, geometry and pixel stages are
+	//given an identity `world`, so they leave those alone.
+	int instanced;
+	uint instance_base;
+#ifdef MAIN_RENDER_DIRECT
+	//What MainRenderGS projected with (RenderSystem::DrawScene sets both, the projection
+	//with the frame's jitter): with no stage after this one, the projection is done here.
+	matrix view;
+	matrix projection;
+#endif
+};
+
+//The vertex in the object's own space after skinning, this frame and the previous one.
+struct SkinnedVertex
+{
+	float4 pos;
+	float4 prev_pos;
+	float3 normal;
+	float3 tangent;
+	float3 bitangent;
+};
+
+SkinnedVertex Skin(VertexShaderInput input)
+{
+	SkinnedVertex v;
+	int use_bones = 0;
+	//Both accumulate a weighted sum, so both have to start at zero - stated rather than
+	//left to the compiler (DXC leaves an uninitialised local as garbage).
+	matrix m = (matrix)0;
+	matrix prev_m = (matrix)0;
+	for (int i = 0; i < 4; ++i) {
+		if (input.bone_ids[i] >= 0 && input.weights[i] > 0.0f && (int)njoints > input.bone_ids[i]) {
+			m += joints[input.bone_ids[i]] * input.weights[i];
+			prev_m += prev_joints[input.bone_ids[i]] * input.weights[i];
+			use_bones = 1;
+		}
+	}
+	if (use_bones) {
+		v.pos = mul(float4(input.position, 1.0f), m);
+		v.prev_pos = mul(float4(input.position, 1.0f), prev_m);
+		v.normal = mul(input.normal, (float3x3)m);
+		v.tangent = mul(input.tangent, (float3x3)m);
+		v.bitangent = mul(input.bitangent, (float3x3)m);
+	}
+	else {
+		v.pos = float4(input.position, 1.0f);
+		v.prev_pos = v.pos;
+		v.normal = input.normal;
+		v.tangent = input.tangent;
+		v.bitangent = input.bitangent;
+	}
+	return v;
+}
+
+#ifdef MAIN_RENDER_DIRECT
+
+GSOutput main(VertexShaderInput input, uint instance_id : SV_InstanceID)
+{
+	GSOutput output;
+	const SkinnedVertex v = Skin(input);
+	float4 world_pos;
+	float3 normal;
+	float3 tangent;
+	float3 bitangent;
+	if (instanced != 0) {
+		//The pixel stage is given an identity `world` and `prevWorld` for an instanced draw
+		//(RenderSystem::DrawInstanceGroup), so the previous position leaves in the world too.
+		const InstanceData instance = instances[instance_base + instance_id];
+		world_pos = mul(v.pos, instance.world);
+		output.prevObjectPos = mul(v.prev_pos, instance.prev_world);
+		normal = mul(v.normal, (float3x3)instance.world);
+		tangent = mul(v.tangent, (float3x3)instance.world);
+		bitangent = mul(v.bitangent, (float3x3)instance.world);
+	}
+	else {
+		world_pos = mul(v.pos, world);
+		output.prevObjectPos = v.prev_pos;
+		normal = mul(v.normal, (float3x3)world);
+		tangent = mul(v.tangent, (float3x3)world);
+		bitangent = mul(v.bitangent, (float3x3)world);
+	}
+	normal = normalize(normal);
+	//A vertex with no tangent frame (a triangle whose UVs do not span an area, or geometry
+	//made in code before MeshData::Init filled them) still gets a valid one: the pixel shader
+	//normalizes these, and a zero vector there is a NaN in the G-buffer, which the
+	//denoiser's history then keeps for good.
+	if (dot(tangent, tangent) < 1e-12f) {
+		const float3 axis = (abs(normal.y) < 0.99f) ? float3(0.0f, 1.0f, 0.0f) : float3(1.0f, 0.0f, 0.0f);
+		tangent = normalize(cross(axis, normal));
+	}
+	if (dot(bitangent, bitangent) < 1e-12f) {
+		bitangent = cross(normal, tangent);
+	}
+	output.position = mul(world_pos, mul(view, projection));
+	output.worldPos = world_pos;
+	output.normal = normal;
+	output.uv = input.uv;
+	output.mesh_uv = input.mesh_uv;
+	output.tangent = tangent;
+	output.bitangent = bitangent;
+	return output;
+}
+
+#else
+
+VertexOutput main(VertexShaderInput input, uint instance_id : SV_InstanceID)
+{
+	VertexOutput output;
+	const SkinnedVertex v = Skin(input);
+	const float4 pos = v.pos;
+	const float4 prev_pos = v.prev_pos;
+	const float3 normal = v.normal;
+	if (instanced != 0) {
+		const InstanceData instance = instances[instance_base + instance_id];
+		const float4 instance_pos = mul(pos, instance.world);
+		//The position, too, is in the world: the geometry shader builds the tangent frame from
+		//the triangle's edges, and its own `world` is the identity here.
+		output.position = instance_pos;
+		output.worldPos = instance_pos;
+		output.prevPos = mul(prev_pos, instance.prev_world);
+		output.normal = mul(normal, (float3x3)instance.world);
+	}
+	else {
+		output.position = pos;
+		output.worldPos = mul(pos, world);
+		output.prevPos = prev_pos;
+		output.normal = normal;
+	}
+	output.uv = input.uv;
+	output.mesh_uv = input.mesh_uv;
+
+	float factor = 1.0f;
+	if (tessEnabled && tessType > 0) {
+		float depth = length(output.worldPos.xyz - cameraPosition);
+		float silhouette = dot(cameraDirection, output.normal);
+		float angle = acos(silhouette);
+		if (depth < 0.0f || (angle < PI / 2.0f - 1.0f)) {
+			//culling hidden normals
+			factor = 0.0f;
+		}
+		else {			
+			switch (tessType) {
+			case 1: {
+				silhouette = sin(angle);
+				factor = clamp(tessFactor * saturate((10000.0f - depth * depth) / 10000.0f) * pow(silhouette, 6.0f), 1.0f, tessFactor);
+				break;
+			}
+			case 2: {
+				factor = clamp(tessFactor * saturate((10000.0f - depth * depth) / 10000.0f), 0.1f, tessFactor);
+				break;
+			}
+			//Always on: the material's factor as it is, whatever the distance or the angle.
+			//The other two spend the factor where it is most visible; this one is for a
+			//surface whose detail (a height map) has to be there at every range.
+			case 3: {
+				factor = max(tessFactor, 1.0f);
+				break;
+			}
+			}
+		}
+	}
+	output.tessFactor = factor;
+
+	return output;
+}
+
+#endif

@@ -2154,6 +2154,23 @@ namespace HotBiteEditor {
 					if (m == nullptr || state.world->IsMaterialRemoved(args[1])) {
 						response_lines.push_back("ERR material not found: " + args[1]);
 					}
+					else if (args.size() >= 3 && args[2] == "draw") {
+						//"shaders <material> draw": the pipeline the scene pass really builds for
+						//it (Core::MaterialData::DrawShaders), one line per stage, empty where
+						//the stage is left out.
+						Systems::RenderSystem* rs = state.world->GetSystem<Systems::RenderSystem>().get();
+						const bool tessellate = rs != nullptr && rs->IsEnabledTessellation() && m->Tessellated();
+						const Core::MaterialShaders d = m->DrawShaders(tessellate);
+						auto stage_name = [](Core::ISimpleShader* shader) {
+							return (shader != nullptr) ? shader->GetName() : std::string();
+						};
+						response_lines.push_back("OK draw stages for " + args[1]);
+						response_lines.push_back("vs=" + stage_name(d.vs));
+						response_lines.push_back("hs=" + stage_name(d.hs));
+						response_lines.push_back("ds=" + stage_name(d.ds));
+						response_lines.push_back("gs=" + stage_name(d.gs));
+						response_lines.push_back("ps=" + stage_name(d.ps));
+					}
 					else {
 						const Core::MaterialShaderNames& s = m->shader_names;
 						response_lines.push_back("OK shaders for " + args[1]);
@@ -2173,7 +2190,7 @@ namespace HotBiteEditor {
 				if (args.size() < 4) {
 					response_lines.push_back("ERR usage: set_shader <material> <slot> <file.cso>"
 						" (slots: draw_vs draw_hs draw_ds draw_gs draw_ps shadow_vs shadow_gs"
-						" depth_vs depth_ps)");
+						" depth_vs depth_ps; 'none' for draw_hs/draw_ds/draw_gs leaves the stage out)");
 				}
 				else {
 					Core::MaterialData* m = state.world->GetMaterials().Get(args[1]);
@@ -2183,11 +2200,14 @@ namespace HotBiteEditor {
 					else {
 						Core::MaterialShaderNames names = m->shader_names;
 						const std::string& slot = args[2];
+						//"none" leaves an optional stage (hull, domain, geometry) out of the
+						//pipeline - see Core::MaterialShaderNames.
+						const std::string optional_value = (args[3] == "none") ? std::string() : args[3];
 						bool known = true;
 						if (slot == "draw_vs") { names.draw_vs = args[3]; }
-						else if (slot == "draw_hs") { names.draw_hs = args[3]; }
-						else if (slot == "draw_ds") { names.draw_ds = args[3]; }
-						else if (slot == "draw_gs") { names.draw_gs = args[3]; }
+						else if (slot == "draw_hs") { names.draw_hs = optional_value; }
+						else if (slot == "draw_ds") { names.draw_ds = optional_value; }
+						else if (slot == "draw_gs") { names.draw_gs = optional_value; }
 						else if (slot == "draw_ps") { names.draw_ps = args[3]; }
 						else if (slot == "shadow_vs") { names.shadow_vs = args[3]; }
 						else if (slot == "shadow_gs") { names.shadow_gs = args[3]; }

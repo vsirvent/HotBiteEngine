@@ -329,6 +329,10 @@ bool World::Release() {
 	return true;
 }
 
+void World::SetGBufferPipeline(Core::GBufferEffect* pipeline) {
+	render_system->SetGBufferPipeline(pipeline);
+}
+
 void World::SetPostProcessPipeline(Core::PostProcess* pipeline) {
 	render_system->SetPostProcessPipeline(pipeline);
 }

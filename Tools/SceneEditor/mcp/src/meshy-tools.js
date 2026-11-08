@@ -36,6 +36,11 @@ function imageMimeType(filePath) {
 	return (ext === '.jpg' || ext === '.jpeg') ? 'image/jpeg' : 'image/png';
 }
 
+// How long one Meshy stage (a preview, a refine, an image-to-3d, a retexture) may take before the tool stops waiting.
+// Meshy's queue can be slow: a 300 s wait gave up on a preview at 49% (2026-11-07) and the charged task was lost to the
+// tool. HOTBITE_MESHY_STAGE_TIMEOUT_MS overrides it.
+const STAGE_TIMEOUT_MS = Number(process.env.HOTBITE_MESHY_STAGE_TIMEOUT_MS) || 30 * 60 * 1000;
+
 function downloadDir(token) {
 	const d = path.join(credits.dir(), 'downloads', token);
 	fs.mkdirSync(d, { recursive: true });
@@ -219,26 +224,37 @@ const MESHY_TOOLS = [
 				ai_model: { type: 'string', enum: ['meshy-6-lite', 'meshy-6', 'meshy-7', 'meshy-7.1', 'latest'], description: 'Defaults to "latest". The -lite model is cheaper.' },
 				art_style: { type: 'string', description: 'e.g. "realistic", "cartoon", "low-poly".' },
 				texture_resolution: { type: 'string', enum: ['2k', '4k', '8k'], description: 'Defaults to 2k.' },
+				preview_task_id: { type: 'string', description: 'Resume: the id of a preview task an earlier call started ' +
+					'and stopped waiting for (its error names it). No new preview is made (that one is already paid); the ' +
+					'quote is the refine only. `prompt` is still required, for the name.' },
 				...CONFIRM_TOKEN_PROP,
 			},
 			required: ['prompt'],
 			additionalProperties: false,
 		},
 		async handler(args, ctx) {
-			const g = await gate('text_to_3d', args);
+			const resuming = !!args.preview_task_id;
+			const g = await gate(resuming ? 'text_to_3d_refine' : 'text_to_3d', args);
 			if (g.pending) return result(text(g.message));
 
 			const name = args.name || slugify(args.prompt);
 			const previewParams = { prompt: args.prompt, ai_model: args.ai_model, art_style: args.art_style };
-			const previewId = await meshyClient.createTextTo3DPreview(g.key, previewParams);
-			const preview = await meshyClient.pollTask(g.key, 'text_to_3d', previewId, { timeoutMs: 300000 });
+			const previewId = resuming ? args.preview_task_id : await meshyClient.createTextTo3DPreview(g.key, previewParams);
+			let preview;
+			try {
+				preview = await meshyClient.pollTask(g.key, 'text_to_3d', previewId, { timeoutMs: STAGE_TIMEOUT_MS });
+			}
+			catch (e) {
+				return result(text(`${e.message}. The preview keeps running at Meshy and is already charged: call again ` +
+					`with preview_task_id="${previewId}" to finish it instead of paying for a new one.`), true);
+			}
 			if (preview.status !== 'SUCCEEDED') {
 				return result(text(`Meshy's preview stage did not succeed (${preview.status}): ` +
 					`${(preview.task_error && preview.task_error.message) || ''}`), true);
 			}
 			const refineParams = { texture_resolution: args.texture_resolution, target_formats: ['fbx'] };
 			const refineId = await meshyClient.createTextTo3DRefine(g.key, previewId, refineParams);
-			const refined = await meshyClient.pollTask(g.key, 'text_to_3d', refineId, { timeoutMs: 300000 });
+			const refined = await meshyClient.pollTask(g.key, 'text_to_3d', refineId, { timeoutMs: STAGE_TIMEOUT_MS });
 			if (refined.status !== 'SUCCEEDED') {
 				return result(text(`Meshy's refine stage did not succeed (${refined.status}): ` +
 					`${(refined.task_error && refined.task_error.message) || ''}`), true);
@@ -301,7 +317,7 @@ const MESHY_TOOLS = [
 				target_formats: ['fbx'],
 			};
 			const taskId = await meshyClient.createImageTo3D(g.key, params);
-			const task = await meshyClient.pollTask(g.key, 'image_to_3d', taskId, { timeoutMs: 300000 });
+			const task = await meshyClient.pollTask(g.key, 'image_to_3d', taskId, { timeoutMs: STAGE_TIMEOUT_MS });
 			if (task.status !== 'SUCCEEDED') {
 				return result(text(`Meshy did not succeed (${task.status}): ${(task.task_error && task.task_error.message) || ''}`), true);
 			}
@@ -360,7 +376,7 @@ const MESHY_TOOLS = [
 				target_formats: ['fbx'],
 			};
 			const taskId = await meshyClient.createRetexture(g.key, params);
-			const task = await meshyClient.pollTask(g.key, 'retexture', taskId, { timeoutMs: 300000 });
+			const task = await meshyClient.pollTask(g.key, 'retexture', taskId, { timeoutMs: STAGE_TIMEOUT_MS });
 			if (task.status !== 'SUCCEEDED') {
 				return result(text(`Meshy did not succeed (${task.status}): ${(task.task_error && task.task_error.message) || ''}`), true);
 			}

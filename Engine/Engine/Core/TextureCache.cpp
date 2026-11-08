@@ -406,9 +406,13 @@ namespace {
 	//A texture this small (a HUD icon, a button's picture) is never made without its largest mips: it saves next to nothing, and it is the
 	//one the player looks at straight (a 64 x 64 icon came out as 4 x 4 whenever the HUD was built with the video memory nearly full).
 	constexpr UINT64 TEXTURE_KEEP_WHOLE_PIXELS = 512ull * 512ull;
+
+	//Mips are never dropped past this size of the longest side: with the memory already full the loop used to run on to 4 x 4, and a
+	//terrain texture or a save's picture made then was one flat colour. Over budget is better than unreadable.
+	constexpr size_t TEXTURE_MIN_DROPPED_SIDE = 512;
 }
 
-GfxSRV* Core::CreateTextureFromImage(const DirectX::ScratchImage& image) {
+GfxSRV* Core::CreateTextureFromImage(const DirectX::ScratchImage& image, bool keep_mips) {
 	const DirectX::TexMetadata& meta = image.GetMetadata();
 	if (meta.dimension != DirectX::TEX_DIMENSION_TEXTURE2D || meta.width == 0 || meta.height == 0) {
 		return nullptr;
@@ -420,9 +424,9 @@ GfxSRV* Core::CreateTextureFromImage(const DirectX::ScratchImage& image) {
 	size_t skip = 0;
 	UINT64 usage = 0;
 	UINT64 budget = 0;
-	if (!meta.IsCubemap() && meta.mipLevels > 1 && (UINT64)meta.width * meta.height > TEXTURE_KEEP_WHOLE_PIXELS && VideoMemory(usage, budget)) {
+	if (!keep_mips && !meta.IsCubemap() && meta.mipLevels > 1 && (UINT64)meta.width * meta.height > TEXTURE_KEEP_WHOLE_PIXELS && VideoMemory(usage, budget)) {
 		const UINT64 limit = (UINT64)(budget * TEXTURE_BUDGET_SHARE);
-		while (skip + 1 < meta.mipLevels && (meta.width >> (skip + 1)) >= 4 && (meta.height >> (skip + 1)) >= 4) {
+		while (skip + 1 < meta.mipLevels && (std::max)(meta.width >> (skip + 1), meta.height >> (skip + 1)) >= TEXTURE_MIN_DROPPED_SIDE) {
 			UINT64 bytes = 0;
 			for (size_t item = 0; item < meta.arraySize; ++item) {
 				for (size_t mip = skip; mip < meta.mipLevels; ++mip) {
@@ -556,7 +560,7 @@ bool Core::DumpTexture(GfxTexture* texture, const std::string& png_path, float g
 	return ok;
 }
 
-GfxSRV* Core::LoadCookedTexture(const std::string& filename) {
+GfxSRV* Core::LoadCookedTexture(const std::string& filename, bool keep_mips) {
 	if (filename.empty() || !TextureCacheEnabled() || IsUncookable(filename)) {
 		return nullptr;
 	}
@@ -583,7 +587,7 @@ GfxSRV* Core::LoadCookedTexture(const std::string& filename) {
 	DirectX::ScratchImage image;
 	GfxSRV* srv = nullptr;
 	if (FAILED(DirectX::LoadFromDDSMemory(dds, dds_size, DirectX::DDS_FLAGS_NONE, nullptr, image)) ||
-		(srv = CreateTextureFromImage(image)) == nullptr) {
+		(srv = CreateTextureFromImage(image, keep_mips)) == nullptr) {
 		++failures;
 		return nullptr;
 	}

@@ -299,11 +299,16 @@ namespace HotBite {
 			//to show or change a material's shaders needs the names kept alongside them.
 			//These are the defaults MaterialData's constructor installs; Load() overwrites
 			//them from the file and Save() writes them back.
+			//
+			//An empty hull, domain or geometry name means the material does not use that
+			//stage: the pipeline is only the stages a material names, usually VS + PS.
+			//The one exception is tessellation, which cannot happen without its stages: a
+			//tessellated material that names none draws with the engine's (DrawShaders).
 			struct MaterialShaderNames {
 				std::string draw_vs = "MainRenderVS.cso";
-				std::string draw_hs = "MainRenderHS.cso";
-				std::string draw_ds = "MainRenderDS.cso";
-				std::string draw_gs = "MainRenderGS.cso";
+				std::string draw_hs;
+				std::string draw_ds;
+				std::string draw_gs;
 				std::string draw_ps = "MainRenderPS.cso";
 				std::string shadow_vs = "ShadowVS.cso";
 				std::string shadow_gs = "ShadowMapCubeGS.cso";
@@ -342,6 +347,9 @@ namespace HotBite {
 				//Absolute paths (root + file), not the bare file names the .mat carries.
 				//Save() turns them back into root-relative names.
 				MaterialTextures texture_names;
+				//The stages the material names (shader_names), null where it names none.
+				//What actually draws is DrawShaders(), which can add the tessellation stages
+				//and picks the form of the engine's vertex shader that fits the pipeline.
 				MaterialShaders shaders;
 				MaterialShaders shadow_shaders;
 				MaterialShaders depth_shaders;
@@ -409,12 +417,39 @@ namespace HotBite {
 				// render system afterwards (World::SetMaterialShaders does): its draw
 				// trees are keyed by shader tuple, and nothing else notices the change.
 				bool SetShaders(const MaterialShaderNames& names);
+
+				//Whether this material asks for tessellation: its own type, or its layer
+				//stack's when it has one (that one is what the vertex shader is given, see
+				//RenderSystem::PrepareMultiMaterial). A mesh's own tess_type only applies
+				//under a material whose pipeline already has the tessellation stages.
+				bool Tessellated() const;
+
+				//The shaders this material draws with in the scene pass, from `shaders`:
+				// - `tessellate` (RenderSystem passes Tessellated() and its tessellation
+				//   setting) and no hull/domain named: the engine's tessellation chain,
+				//   MainRenderHS + MainRenderDS, and MainRenderGS too unless a geometry
+				//   shader is named (the domain stage's output still has to be projected).
+				// - otherwise only the stages named. With no hull, domain or geometry stage
+				//   the engine's vertex shader (MainRenderVS.cso) is swapped for its direct
+				//   form, MainRenderDirectVS.cso, which writes the pixel shader's input.
+				//RenderSystem files entities under this tuple and re-files them when it
+				//changes (tessellation switched on or off).
+				MaterialShaders DrawShaders(bool tessellate) const;
+
+				//The engine's default shaders of the scene pass, by the names a .mat uses.
+				static constexpr const char* MAIN_VS = "MainRenderVS.cso";
+				static constexpr const char* MAIN_DIRECT_VS = "MainRenderDirectVS.cso";
+				static constexpr const char* MAIN_HS = "MainRenderHS.cso";
+				static constexpr const char* MAIN_DS = "MainRenderDS.cso";
+				static constexpr const char* MAIN_GS = "MainRenderGS.cso";
+				static constexpr const char* MAIN_PS = "MainRenderPS.cso";
 				bool Init();
 				void Release();
 			};
 
 			void ReleaseTexture(GfxSRV* srv);
-			GfxSRV* LoadTexture(const std::string& filename);
+			//`keep_mips`: the whole mip chain whatever the video memory (Core/TextureCache.h); the GUI asks for it.
+			GfxSRV* LoadTexture(const std::string& filename, bool keep_mips = false);
 			//Puts the cooked textures of `filenames` in LoadTexture's cache, loading them on every
 			//core at once (Core/TextureCache.h), so the LoadTexture calls a material load then
 			//makes find them. Anything not cookable is left for LoadTexture to load as ever.

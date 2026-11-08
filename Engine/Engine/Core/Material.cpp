@@ -184,7 +184,7 @@ namespace HotBite {
 				return files;
 			}
 
-			GfxSRV* LoadTexture(const std::string& filename)
+			GfxSRV* LoadTexture(const std::string& filename, bool keep_mips)
 			{
 				TextureLock l;
 				GfxSRV* srv = nullptr;
@@ -208,7 +208,7 @@ namespace HotBite {
 					if (!cached) {
 						//A cooked texture first: no decode, no GPU mip build, a quarter of the memory.
 						if (!IsDdsName(filename)) {
-							srv = LoadCookedTexture(filename);
+							srv = LoadCookedTexture(filename, keep_mips);
 						}
 						try {
 							std::wstring ws(filename.begin(), filename.end());
@@ -219,7 +219,7 @@ namespace HotBite {
 								DirectX::ScratchImage image;
 									ret = DirectX::LoadFromDDSFile(ws.c_str(), DirectX::DDS_FLAGS_NONE, nullptr, image);
 									if (SUCCEEDED(ret)) {
-										srv = CreateTextureFromImage(image);
+										srv = CreateTextureFromImage(image, keep_mips);
 									}
 									if (srv == nullptr) {
 										throw std::exception("CreateDDSTextureFromFile failed");
@@ -236,10 +236,10 @@ namespace HotBite {
 										if (image.GetMetadata().mipLevels == 1 &&
 											SUCCEEDED(DirectX::GenerateMipMaps(image.GetImages(), image.GetImageCount(), image.GetMetadata(),
 												DirectX::TEX_FILTER_DEFAULT, 0, chain))) {
-											srv = CreateTextureFromImage(chain);
+											srv = CreateTextureFromImage(chain, keep_mips);
 										}
 										else {
-											srv = CreateTextureFromImage(image);
+											srv = CreateTextureFromImage(image, keep_mips);
 										}
 									}
 									if (srv == nullptr) {
@@ -481,6 +481,25 @@ namespace HotBite {
 				return true;
 			}
 
+			//The engine's hull, domain and geometry shaders used to be every material's
+			//defaults, so nearly every .mat names them although they did nothing but carry
+			//the vertices on (MainRenderHS/DS without tessellation) and project them
+			//(MainRenderGS). Read as "no stage": the material then draws VS + PS, and
+			//tessellation brings them back when it is on (DrawShaders). Only the pair
+			//together: a material with its own domain shader still needs a hull stage in
+			//front of it, and the geometry shader only while the tessellation stages stay.
+			static void NormalizeStageNames(MaterialShaderNames& names) {
+				const bool default_hs = names.draw_hs.empty() || names.draw_hs == MaterialData::MAIN_HS;
+				const bool default_ds = names.draw_ds.empty() || names.draw_ds == MaterialData::MAIN_DS;
+				if (default_hs && default_ds) {
+					names.draw_hs.clear();
+					names.draw_ds.clear();
+					if (names.draw_gs == MaterialData::MAIN_GS) {
+						names.draw_gs.clear();
+					}
+				}
+			}
+
 			void MaterialData::_MaterialData() {
 				//Logged once: the layout Engine.lib itself compiled MaterialData with,
 				//to compare against what any other binary linking against it (a stale
@@ -493,12 +512,14 @@ namespace HotBite {
 					LOG_INFO("Engine: sizeof(MaterialData)=%zu alignof(MaterialData)=%zu offsetof(props)=%zu",
 						sizeof(MaterialData), alignof(MaterialData), offsetof(MaterialData, props));
 				}
-				//Set default shaders, after loading the scene the shaders can be changed
-				shaders.vs = ShaderFactory::Get()->GetShader<SimpleVertexShader>("MainRenderVS.cso");
-				shaders.hs = ShaderFactory::Get()->GetShader<SimpleHullShader>("MainRenderHS.cso");
-				shaders.ds = ShaderFactory::Get()->GetShader<SimpleDomainShader>("MainRenderDS.cso");
-				shaders.gs = ShaderFactory::Get()->GetShader<SimpleGeometryShader>("MainRenderGS.cso");
-				shaders.ps = ShaderFactory::Get()->GetShader<SimplePixelShader>("MainRenderPS.cso");
+				//Set default shaders, after loading the scene the shaders can be changed. No
+				//hull, domain or geometry stage: a material uses only the stages it names
+				//(see MaterialShaderNames and DrawShaders).
+				shaders.vs = ShaderFactory::Get()->GetShader<SimpleVertexShader>(MAIN_VS);
+				shaders.hs = nullptr;
+				shaders.ds = nullptr;
+				shaders.gs = nullptr;
+				shaders.ps = ShaderFactory::Get()->GetShader<SimplePixelShader>(MAIN_PS);
 
 				shadow_shaders.vs = ShaderFactory::Get()->GetShader<SimpleVertexShader>("ShadowVS.cso");
 				shadow_shaders.gs = ShaderFactory::Get()->GetShader<SimpleGeometryShader>("ShadowMapCubeGS.cso");
@@ -653,6 +674,7 @@ namespace HotBite {
 				shader_names.shadow_gs = j.value("shadow_gs", shader_names.shadow_gs);
 				shader_names.depth_vs = j.value("depth_vs", shader_names.depth_vs);
 				shader_names.depth_ps = j.value("depth_ps", shader_names.depth_ps);
+				NormalizeStageNames(shader_names);
 
 				shaders.vs = ShaderFactory::Get()->GetShader<SimpleVertexShader>(shader_names.draw_vs);
 				shaders.hs = ShaderFactory::Get()->GetShader<SimpleHullShader>(shader_names.draw_hs);
@@ -679,19 +701,25 @@ namespace HotBite {
 				MaterialShaders shadow;
 				MaterialShaders depth;
 				ShaderFactory* factory = ShaderFactory::Get();
+				MaterialShaderNames n = names;
+				NormalizeStageNames(n);
 
-				draw.vs = factory->GetShader<SimpleVertexShader>(names.draw_vs);
-				draw.hs = factory->GetShader<SimpleHullShader>(names.draw_hs);
-				draw.ds = factory->GetShader<SimpleDomainShader>(names.draw_ds);
-				draw.gs = factory->GetShader<SimpleGeometryShader>(names.draw_gs);
-				draw.ps = factory->GetShader<SimplePixelShader>(names.draw_ps);
-				shadow.vs = factory->GetShader<SimpleVertexShader>(names.shadow_vs);
-				shadow.gs = factory->GetShader<SimpleGeometryShader>(names.shadow_gs);
-				depth.vs = factory->GetShader<SimpleVertexShader>(names.depth_vs);
-				depth.ps = factory->GetShader<SimplePixelShader>(names.depth_ps);
+				draw.vs = factory->GetShader<SimpleVertexShader>(n.draw_vs);
+				draw.hs = factory->GetShader<SimpleHullShader>(n.draw_hs);
+				draw.ds = factory->GetShader<SimpleDomainShader>(n.draw_ds);
+				draw.gs = factory->GetShader<SimpleGeometryShader>(n.draw_gs);
+				draw.ps = factory->GetShader<SimplePixelShader>(n.draw_ps);
+				shadow.vs = factory->GetShader<SimpleVertexShader>(n.shadow_vs);
+				shadow.gs = factory->GetShader<SimpleGeometryShader>(n.shadow_gs);
+				depth.vs = factory->GetShader<SimpleVertexShader>(n.depth_vs);
+				depth.ps = factory->GetShader<SimplePixelShader>(n.depth_ps);
 
-				if (draw.vs == nullptr || draw.hs == nullptr || draw.ds == nullptr ||
-					draw.gs == nullptr || draw.ps == nullptr || shadow.vs == nullptr ||
+				//An empty hull, domain or geometry name is a stage the material does not use;
+				//a name that does not load as its stage is a bad pick.
+				const bool stages_ok = (n.draw_hs.empty() || draw.hs != nullptr) &&
+					(n.draw_ds.empty() || draw.ds != nullptr) &&
+					(n.draw_gs.empty() || draw.gs != nullptr);
+				if (draw.vs == nullptr || !stages_ok || draw.ps == nullptr || shadow.vs == nullptr ||
 					shadow.gs == nullptr || depth.vs == nullptr || depth.ps == nullptr) {
 					printf("MaterialData::SetShaders: %s - one or more shaders failed to "
 						"load as the requested stage; material left unchanged\n", name.c_str());
@@ -701,8 +729,50 @@ namespace HotBite {
 				shaders = draw;
 				shadow_shaders = shadow;
 				depth_shaders = depth;
-				shader_names = names;
+				shader_names = n;
 				return true;
+			}
+
+			bool MaterialData::Tessellated() const {
+				if (multi_material != nullptr) {
+					return multi_material->tessellation_type > 0;
+				}
+				return tessellation_type > 0;
+			}
+
+			MaterialShaders MaterialData::DrawShaders(bool tessellate) const {
+				MaterialShaders s = shaders;
+				ShaderFactory* factory = ShaderFactory::Get();
+				//The two tessellation stages come together: one named alone gets the engine's
+				//other half, since a pipeline with only one of them does not build.
+				if (s.hs != nullptr && s.ds == nullptr) {
+					s.ds = factory->GetShader<SimpleDomainShader>(MAIN_DS);
+				}
+				else if (s.hs == nullptr && s.ds != nullptr) {
+					s.hs = factory->GetShader<SimpleHullShader>(MAIN_HS);
+				}
+				if (tessellate && s.hs == nullptr && s.ds == nullptr) {
+					s.hs = factory->GetShader<SimpleHullShader>(MAIN_HS);
+					s.ds = factory->GetShader<SimpleDomainShader>(MAIN_DS);
+					if (s.gs == nullptr) {
+						s.gs = factory->GetShader<SimpleGeometryShader>(MAIN_GS);
+					}
+				}
+				if (s.hs == nullptr && s.ds == nullptr && s.gs == nullptr && s.vs != nullptr &&
+					shader_names.draw_vs == MAIN_VS) {
+					SimpleVertexShader* direct = factory->GetShader<SimpleVertexShader>(MAIN_DIRECT_VS);
+					//Without the direct form (shaders older than the engine) the material keeps the
+					//old pipeline rather than one whose vertex shader the pixel shader cannot read.
+					if (direct != nullptr) {
+						s.vs = direct;
+					}
+					else {
+						s.hs = factory->GetShader<SimpleHullShader>(MAIN_HS);
+						s.ds = factory->GetShader<SimpleDomainShader>(MAIN_DS);
+						s.gs = factory->GetShader<SimpleGeometryShader>(MAIN_GS);
+					}
+				}
+				return s;
 			}
 
 			nlohmann::json MaterialData::Save(const std::string& root) const {
