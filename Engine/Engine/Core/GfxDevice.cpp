@@ -969,7 +969,9 @@ namespace HotBite {
 				texture->format = desc.Format;
 				texture->heap_type = D3D12_HEAP_TYPE_DEFAULT;
 				const UINT planes = PlaneCount(device.Get(), desc.Format);
-				texture->subresource_count = (UINT)desc.MipLevels * (UINT)desc.DepthOrArraySize * planes;
+				//A volume's depth is not array slices: its subresources are its mips.
+				const bool volume = desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D;
+				texture->subresource_count = (UINT)desc.MipLevels * (volume ? 1u : (UINT)desc.DepthOrArraySize) * planes;
 
 				const D3D12_RESOURCE_STATES creation_state = has_data ? D3D12_RESOURCE_STATE_COPY_DEST : initial_state;
 				if (has_data) {
@@ -1013,10 +1015,16 @@ namespace HotBite {
 							continue;
 						}
 						const UINT src_pitch = (data[i].row_pitch != 0) ? data[i].row_pitch : (UINT)row_sizes[i];
-						uint8_t* dst = mapped + layouts[i].Offset;
-						for (UINT r = 0; r < rows[i]; ++r) {
-							memcpy(dst + (size_t)r * layouts[i].Footprint.RowPitch, src + (size_t)r * src_pitch,
-								(size_t)row_sizes[i]);
+						//A volume's subresource is `Footprint.Depth` slices of `rows` rows each (1 slice for a 2D texture).
+						const size_t src_slice = (data[i].slice_pitch != 0) ? data[i].slice_pitch : (size_t)src_pitch * rows[i];
+						const size_t dst_slice = (size_t)layouts[i].Footprint.RowPitch * rows[i];
+						for (UINT z = 0; z < layouts[i].Footprint.Depth; ++z) {
+							uint8_t* dst = mapped + layouts[i].Offset + z * dst_slice;
+							const uint8_t* from = src + z * src_slice;
+							for (UINT r = 0; r < rows[i]; ++r) {
+								memcpy(dst + (size_t)r * layouts[i].Footprint.RowPitch, from + (size_t)r * src_pitch,
+									(size_t)row_sizes[i]);
+							}
 						}
 					}
 					staging->Unmap(0, nullptr);

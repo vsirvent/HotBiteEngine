@@ -12,7 +12,7 @@ at `Draw`/`Dispatch` into a cached PSO, descriptor tables and barriers. `Core/Gf
 the objects (each tracks its own `D3D12_RESOURCE_STATES`), deferred release and immediate uploads.
 Binding keeps HLSL register numbers (per-stage CBV/SRV/sampler tables + a compute set with UAVs), and
 shaders are still bound by name through reflection. **Game code never calls D3D/Gfx directly**: use the
-engine's classes (`Texture`s, `DynamicTexture2D`, `DXCore::SaveBackBuffer`, widgets). Minimum: feature
+engine's classes (`Texture`s, `DynamicTexture2D`, `DynamicTexture3D` for a baked volume, `DXCore::SaveBackBuffer`, widgets). Minimum: feature
 level 12_0, SM6.0, resource binding tier 2. Direct2D cannot target D3D12, so `Label` text is drawn
 by Direct2D on a WIC bitmap on the CPU and uploaded (`Direct2D::RenderText` + `DynamicTexture2D`).
 Diagnostics: `HOTBITE_D3D12_DEBUG=1` (debug layer), `HOTBITE_LOG=<file>`, `HOTBITE_GFX_TRACE=<serial>`,

@@ -631,6 +631,64 @@ namespace HotBite {
 				height = 0;
 			}
 
+			DynamicTexture3D::~DynamicTexture3D() {
+				Release();
+			}
+
+			HRESULT DynamicTexture3D::Init(int w, int h, int d, TextureFormat texture_format, const void* voxels) {
+				Release();
+				const int limit = D3D12_REQ_TEXTURE3D_U_V_OR_W_DIMENSION;
+				if (w <= 0 || h <= 0 || d <= 0 || w > limit || h > limit || d > limit || voxels == nullptr) {
+					return E_INVALIDARG;
+				}
+				const DXGI_FORMAT dxgi = texture_format == TextureFormat::R8 ? DXGI_FORMAT_R8_UNORM : DXGI_FORMAT_R8G8B8A8_UNORM;
+				const UINT texel = texture_format == TextureFormat::R8 ? 1u : 4u;
+				D3D12_RESOURCE_DESC desc = Texture2DDesc(w, h, d, 1, dxgi, D3D12_RESOURCE_FLAG_NONE);
+				desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE3D;
+				GfxSubresourceData data;
+				data.data = voxels;
+				data.row_pitch = (UINT)w * texel;
+				data.slice_pitch = data.row_pitch * (UINT)h;
+				GfxDevice* device = DXCore::Get()->device;
+				//CreateTexture2D makes any texture its description names, a volume too.
+				HRESULT hr = device->CreateTexture2D(desc, D3D12_RESOURCE_STATE_COMMON, nullptr, &data, 1, &texture);
+				if (FAILED(hr)) {
+					texture = nullptr;
+					return hr;
+				}
+				D3D12_SHADER_RESOURCE_VIEW_DESC view = {};
+				view.Format = dxgi;
+				view.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE3D;
+				view.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+				view.Texture3D.MostDetailedMip = 0;
+				view.Texture3D.MipLevels = 1;
+				hr = device->CreateSRV(texture, &view, &shader_resource_view);
+				if (FAILED(hr)) {
+					shader_resource_view = nullptr;
+					Release();
+					return hr;
+				}
+				width = w;
+				height = h;
+				depth = d;
+				format = texture_format;
+				return S_OK;
+			}
+
+			void DynamicTexture3D::Release() {
+				if (shader_resource_view != nullptr) {
+					shader_resource_view->Release();
+					shader_resource_view = nullptr;
+				}
+				if (texture != nullptr) {
+					texture->Release();
+					texture = nullptr;
+				}
+				width = 0;
+				height = 0;
+				depth = 0;
+			}
+
 			void RenderTexture2D::Release() {
 				ReleaseVariants();
 				UnregisterScaled();

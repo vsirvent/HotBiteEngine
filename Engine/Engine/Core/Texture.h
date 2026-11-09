@@ -68,6 +68,33 @@ namespace HotBite {
 				GfxSRV* SRV() const { return shader_resource_view; }
 			};
 
+			//A volume made by the CPU once (a baked distance field, a 3D noise, a lookup table) that shaders read as a
+			//Texture3D: Load by texel, or SampleLevel with the engine's samplers (filtered between slices too). Like
+			//DynamicTexture2D it names no graphics API. The contents are given at Init; to change them, Init again.
+			class DynamicTexture3D {
+			private:
+				GfxTexture* texture = nullptr;
+				GfxSRV* shader_resource_view = nullptr;
+				int width = 0;
+				int height = 0;
+				int depth = 0;
+				TextureFormat format = TextureFormat::RGBA8;
+			public:
+				DynamicTexture3D() = default;
+				DynamicTexture3D(const DynamicTexture3D&) = delete;
+				DynamicTexture3D& operator=(const DynamicTexture3D&) = delete;
+				~DynamicTexture3D();
+				//Creates the volume (replacing a previous one) from `voxels`: `d` slices of `h` rows of `w` texels, tightly
+				//packed, x fastest (a shader's u), then the row (v), then the slice (w). Each side at most 2048.
+				HRESULT Init(int w, int h, int d, TextureFormat texture_format, const void* voxels);
+				void Release();
+				bool Valid() const { return texture != nullptr; }
+				int Width() const { return width; }
+				int Height() const { return height; }
+				int Depth() const { return depth; }
+				GfxSRV* SRV() const { return shader_resource_view; }
+			};
+
 			//Dynamic resolution. The textures of the frame (the G-buffer, the lights, the post-process chain up to the
 			//upscale) are the size of the *internal* image, which a controller changes while the game runs; the interface
 			//and the back buffer stay native. A texture that follows the scale (InitScaled) is made once for every size
