@@ -50,7 +50,8 @@ namespace HotBite {
 			{
 			private:
 				HotBite::Engine::ECS::Coordinator* coordinator = nullptr;
-				HotBite::Engine::Core::RenderTexture2D text;
+				//Transient (FrameGraph): the stage before it covers it with a full screen draw.
+				HotBite::Engine::Core::FrameTexture text;
 				virtual void ClearData(const float color[4]);
 				std::map<ECS::Entity, std::shared_ptr<Widget>> widgets;
 
@@ -61,6 +62,7 @@ namespace HotBite {
 
 				virtual GfxSRV* RenderResource() override;
 				virtual GfxRTV* RenderTarget() const override;
+				virtual HotBite::Engine::Core::FrameTexture* OwnFrameTexture() override { return &text; }
 				virtual void Prepare() override;
 				virtual void UnPrepare() override;
 

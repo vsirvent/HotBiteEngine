@@ -34,7 +34,8 @@ namespace HotBite {
 
 			
 			void GUI::ClearData(const float color[4]) {
-				context->ClearRenderTargetView(text.RenderTarget(), color);
+				//Carried out when the texture's first pass starts (FrameTexture::Clear), or dropped when that pass covers it.
+				text.Clear(color);
 			}
 
 			GUI::GUI(GfxContext* dxcontext,
@@ -44,7 +45,8 @@ namespace HotBite {
 					ShaderFactory::Get()->GetShader<SimplePixelShader>("GUIPS.cso")),
 				coordinator(c)
 			{
-				text.Init(width, height, DXGI_FORMAT_R32G32B32A32_FLOAT);
+				text.Init("gui", width, height, DXGI_FORMAT_R32G32B32A32_FLOAT, GFX_BIND_UNORDERED_ACCESS);
+				text.SetFullyWritten(true);
 			}
 
 			GUI::~GUI() {

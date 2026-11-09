@@ -437,9 +437,7 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		
 		for (int i = 0; i < 2; ++i)
 		{
-			if (FAILED(light_map[i].InitScaled(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, GFX_BIND_UNORDERED_ACCESS))) {
-				throw std::exception("light_map.Init failed");
-			}
+			light_map[i].InitScaled(i == 0 ? "light" : "light (second pass)", w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, GFX_BIND_UNORDERED_ACCESS, Core::FrameTextureLifetime::Transient);
 		}
 		if (FAILED(vol_light_map.InitScaled(w / 2, h / 2, DXGI_FORMAT::DXGI_FORMAT_R11G11B10_FLOAT, GFX_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("vol_light_map.Init failed");
@@ -450,9 +448,7 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		if (FAILED(dust_render_map.InitScaled(w / 2, h / 2, DXGI_FORMAT::DXGI_FORMAT_R11G11B10_FLOAT, GFX_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("dust_render_map.Init failed");
 		}
-		if (FAILED(vol_light_map2.InitScaled(w / 2, h / 2, DXGI_FORMAT::DXGI_FORMAT_R11G11B10_FLOAT, GFX_BIND_UNORDERED_ACCESS))) {
-			throw std::exception("vol_light_map2.Init failed");
-		}
+		vol_light_map2.InitScaled("volumetric blur", w / 2, h / 2, DXGI_FORMAT::DXGI_FORMAT_R11G11B10_FLOAT, GFX_BIND_UNORDERED_ACCESS, Core::FrameTextureLifetime::Transient);
 		//UNORDERED_ACCESS because the Gaussian splat rasterizer (SplatRasterCS) writes
 		//this from compute. It stays an RTV in DrawScene's seven-target set - the flag
 		//only adds a second way to bind it, and the two are never bound at once.
@@ -475,11 +471,9 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		if (!tiled_lights.Init(w, h)) {
 			throw std::exception("tiled_lights.Init failed");
 		}
-		if (FAILED(shadow_rt_light.InitScaled(w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, GFX_BIND_UNORDERED_ACCESS)) ||
-			FAILED(shadow_rt_history[0].InitScaled(w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, GFX_BIND_UNORDERED_ACCESS)) ||
-			FAILED(shadow_rt_history[1].InitScaled(w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, GFX_BIND_UNORDERED_ACCESS))) {
-			throw std::exception("shadow ray accumulation textures Init failed");
-		}
+		shadow_rt_light.InitScaled("rt shadow light", w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, GFX_BIND_UNORDERED_ACCESS, Core::FrameTextureLifetime::Transient);
+		shadow_rt_history[0].InitScaled("rt shadow history 0", w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, GFX_BIND_UNORDERED_ACCESS, Core::FrameTextureLifetime::Persistent);
+		shadow_rt_history[1].InitScaled("rt shadow history 1", w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, GFX_BIND_UNORDERED_ACCESS, Core::FrameTextureLifetime::Persistent);
 		shadow_accumulate = ShaderFactory::Get()->GetShader<SimpleComputeShader>("ShadowAccumulateCS.cso");
 		if (shadow_accumulate == nullptr) {
 			throw std::exception("ShadowAccumulateCS shader.Init failed");
@@ -487,10 +481,10 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		//Ambient occlusion is optional: a build without its shaders simply goes without (gtao_active stays false).
 		gtao_shader = ShaderFactory::Get()->GetShader<SimpleComputeShader>("GtaoCS.cso");
 		gtao_accumulate = ShaderFactory::Get()->GetShader<SimpleComputeShader>("GtaoAccumulateCS.cso");
-		if (gtao_shader == nullptr || gtao_accumulate == nullptr ||
-			FAILED(gtao_map.InitScaled(w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, GFX_BIND_UNORDERED_ACCESS)) ||
-			FAILED(gtao_history[0].InitScaled(w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, GFX_BIND_UNORDERED_ACCESS)) ||
-			FAILED(gtao_history[1].InitScaled(w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, GFX_BIND_UNORDERED_ACCESS))) {
+		gtao_map.InitScaled("gtao", w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, GFX_BIND_UNORDERED_ACCESS, Core::FrameTextureLifetime::Transient);
+		gtao_history[0].InitScaled("gtao history 0", w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, GFX_BIND_UNORDERED_ACCESS, Core::FrameTextureLifetime::Persistent);
+		gtao_history[1].InitScaled("gtao history 1", w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, GFX_BIND_UNORDERED_ACCESS, Core::FrameTextureLifetime::Persistent);
+		if (gtao_shader == nullptr || gtao_accumulate == nullptr) {
 			printf("RenderSystem::Init: ambient occlusion is not available\n");
 			gtao_shader = nullptr;
 			gtao_accumulate = nullptr;
@@ -498,7 +492,8 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		gtao_history_valid = false;
 		//A debug view only: not fatal, the buffer then shows black.
 		shadow_bvh_debug = ShaderFactory::Get()->GetShader<SimpleComputeShader>("ShadowBvhDebugCS.cso");
-		if (shadow_bvh_debug == nullptr || FAILED(shadow_bvh_map.InitScaled(w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, GFX_BIND_UNORDERED_ACCESS))) {
+		shadow_bvh_map.InitScaled("shadow bvh debug", w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, GFX_BIND_UNORDERED_ACCESS, Core::FrameTextureLifetime::Transient);
+		if (shadow_bvh_debug == nullptr) {
 			printf("RenderSystem::Init: the shadow_bvh debug view is not available\n");
 			shadow_bvh_debug = nullptr;
 		}
@@ -528,13 +523,11 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		if (FAILED(bloom_map.InitScaled(w, h, DXGI_FORMAT::DXGI_FORMAT_R11G11B10_FLOAT, GFX_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("bloom_map.Init failed");
 		}
-		if (FAILED(temp_map.InitScaled(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, GFX_BIND_UNORDERED_ACCESS))) {
-			throw std::exception("temp_map.Init failed");
-		}
-		if (FAILED(taa_history[0].InitScaled(w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, GFX_BIND_UNORDERED_ACCESS)) ||
-			FAILED(taa_history[1].InitScaled(w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, GFX_BIND_UNORDERED_ACCESS))) {
-			throw std::exception("taa_history.Init failed");
-		}
+		temp_map.InitScaled("mix", w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, GFX_BIND_UNORDERED_ACCESS, Core::FrameTextureLifetime::Transient);
+		//Its first pass (PostProcessLight's bloom blur) draws all of it.
+		temp_map.SetFullyWritten(true);
+		taa_history[0].InitScaled("taa history 0", w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, GFX_BIND_UNORDERED_ACCESS, Core::FrameTextureLifetime::Persistent);
+		taa_history[1].InitScaled("taa history 1", w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, GFX_BIND_UNORDERED_ACCESS, Core::FrameTextureLifetime::Persistent);
 		taa_history_valid = false;
 		if (FAILED(depth_map.InitScaled(w, h, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT, GFX_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("depth_map.Init failed");
@@ -571,9 +564,7 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		if (FAILED(first_pass_texture.InitScaled(w, h, DXGI_FORMAT::DXGI_FORMAT_R8G8B8A8_UNORM, GFX_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("first_pass_texture.Init failed");
 		}
-		if (FAILED(gbuffer_scene_copy.InitScaled(w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, GFX_BIND_UNORDERED_ACCESS))) {
-			throw std::exception("gbuffer_scene_copy.Init failed");
-		}
+		gbuffer_scene_copy.InitScaled("gbuffer scene copy", w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, GFX_BIND_UNORDERED_ACCESS, Core::FrameTextureLifetime::Transient);
 		if (FAILED(motion_texture.InitScaled(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32_FLOAT, GFX_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("motion_texture.Init failed");
 		}
@@ -581,9 +572,7 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 			throw std::exception("rgba_noise_texture.Init failed");
 		}
 
-		if (FAILED(motion_blur_map.InitScaled(w, h, DXGI_FORMAT::DXGI_FORMAT_R11G11B10_FLOAT, GFX_BIND_UNORDERED_ACCESS))) {
-			throw std::exception("texture_tmp.Init failed");
-		}
+		motion_blur_map.InitScaled("anti-aliased", w, h, DXGI_FORMAT::DXGI_FORMAT_R11G11B10_FLOAT, GFX_BIND_UNORDERED_ACCESS, Core::FrameTextureLifetime::Transient);
 
 		if (FAILED(rt_ray_sources0.InitScaled(w, h, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, GFX_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("rt_ray_sources0.Init failed");
@@ -900,9 +889,7 @@ void RenderSystem::LoadRTResources() {
 		int div = RT_TEXTURE_RESOLUTION_DIVIDER;
 		for (int n = 0; n < 2; ++n) {
 			rt_textures_di[n][x].Release();
-			if (FAILED(rt_textures_di[n][x].InitScaled(w / div, h / div, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, GFX_BIND_UNORDERED_ACCESS, DivideBy((int)div)))) {
-				throw std::exception("rt_texture.Init failed");
-			}
+			rt_textures_di[n][x].InitScaled(("rt di " + std::to_string(n) + "." + std::to_string(x)).c_str(), w / div, h / div, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, GFX_BIND_UNORDERED_ACCESS, Core::FrameTextureLifetime::Persistent, (int)div);
 		}
 	}
 
@@ -910,34 +897,29 @@ void RenderSystem::LoadRTResources() {
 
 	for (int n = 0; n < RT_GI_NTEXTURES; ++n) {
 		rt_textures_gi[n].Release();
-		if (FAILED(rt_textures_gi[n].InitScaled(w / restir_div, h / restir_div, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, GFX_BIND_UNORDERED_ACCESS, DivideBy((int)restir_div)))) {
-			throw std::exception("rt_texture.Init failed");
-		}
+		rt_textures_gi[n].InitScaled(("rt gi " + std::to_string(n)).c_str(), w / restir_div, h / restir_div, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, GFX_BIND_UNORDERED_ACCESS, Core::FrameTextureLifetime::Persistent, (int)restir_div);
 	}
 		
 	uint32_t tile_div = min(restir_div, RT_TEXTURE_RESOLUTION_DIVIDER) * RESTIR_KERNEL;
 	rt_textures_gi_tiles.Release();
 	rt_textures_di_tiles.Release();
-	if (FAILED(rt_textures_gi_tiles.InitScaled(w / tile_div + 1, h / tile_div + 1, DXGI_FORMAT::DXGI_FORMAT_R8_UINT, GFX_BIND_UNORDERED_ACCESS, DivideByPlusOne((int)tile_div))) ||
-		FAILED(rt_textures_di_tiles.InitScaled(w / tile_div + 1, h / tile_div + 1, DXGI_FORMAT::DXGI_FORMAT_R8_UINT, GFX_BIND_UNORDERED_ACCESS, DivideByPlusOne((int)tile_div)))) {
-		throw std::exception("rt_texture.Init failed");
-	}
+	rt_textures_gi_tiles.InitScaled("rt gi tiles", w / tile_div + 1, h / tile_div + 1, DXGI_FORMAT::DXGI_FORMAT_R8_UINT, GFX_BIND_UNORDERED_ACCESS, Core::FrameTextureLifetime::Persistent, (int)tile_div, true);
+	rt_textures_di_tiles.InitScaled("rt di tiles", w / tile_div + 1, h / tile_div + 1, DXGI_FORMAT::DXGI_FORMAT_R8_UINT, GFX_BIND_UNORDERED_ACCESS, Core::FrameTextureLifetime::Persistent, (int)tile_div, true);
 
 	for (int n = 0; n < 2; ++n) {
 		restir_pdf[n].Release();
-		if (FAILED(restir_pdf[n].InitScaled(w / restir_div, h / restir_div, DXGI_FORMAT_R32G32B32A32_UINT, GFX_BIND_UNORDERED_ACCESS, DivideBy((int)restir_div)))) {
-			throw std::exception("restir_pdf.Init failed");
-		}
+		restir_pdf[n].InitScaled(n == 0 ? "restir pdf 0" : "restir pdf 1", w / restir_div, h / restir_div, DXGI_FORMAT_R32G32B32A32_UINT, GFX_BIND_UNORDERED_ACCESS, Core::FrameTextureLifetime::Persistent, (int)restir_div);
 	}
 	restir_w.Release();
-	if (FAILED(restir_w.InitScaled(w / restir_div, h / restir_div, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT, GFX_BIND_UNORDERED_ACCESS, DivideBy((int)restir_div)))) {
-		throw std::exception("restir_w.Init failed");
+	restir_w.InitScaled("restir w", w / restir_div, h / restir_div, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT, GFX_BIND_UNORDERED_ACCESS, Core::FrameTextureLifetime::Persistent, (int)restir_div);
+	{
+		//What ResetRTBBuffers clears it to: a texture made again starts from it.
+		static const float nrays[4] = { RESTIR_PIXEL_RAYS, RESTIR_PIXEL_RAYS, RESTIR_PIXEL_RAYS, RESTIR_PIXEL_RAYS };
+		restir_w.SetInitialValue(nrays);
 	}
 
 	texture_tmp.Release();
-	if (FAILED(texture_tmp.InitScaled(w / RT_TEXTURE_RESOLUTION_DIVIDER, h / RT_TEXTURE_RESOLUTION_DIVIDER, DXGI_FORMAT::DXGI_FORMAT_R11G11B10_FLOAT, GFX_BIND_UNORDERED_ACCESS, DivideBy((int)RT_TEXTURE_RESOLUTION_DIVIDER)))) {
-		throw std::exception("texture_tmp.Init failed");
-	}
+	texture_tmp.InitScaled("rt denoise temp", w / RT_TEXTURE_RESOLUTION_DIVIDER, h / RT_TEXTURE_RESOLUTION_DIVIDER, DXGI_FORMAT::DXGI_FORMAT_R11G11B10_FLOAT, GFX_BIND_UNORDERED_ACCESS, Core::FrameTextureLifetime::Transient, (int)RT_TEXTURE_RESOLUTION_DIVIDER);
 
 	//The rays the screen solver leaves for the world tracer: two lists with room for every
 	//pixel of the DI textures each (a refracting plane can list all of them), side by side
@@ -3123,19 +3105,22 @@ void RenderSystem::ProcessMix() {
 	//last time reflections were on) but null-derefs on the very first frame of a
 	//session that starts with both flags off - e.g. a level whose saved render
 	//settings load that way.
-	if (rt_texture_di_curr != nullptr) {
+	//Only what this frame's passes made: a texture of a ray tracing pass that is off is not kept alive (and made again) by
+	//the mix, whose shader does not read it then (rt_enabled above).
+	if (rt_texture_di_curr != nullptr && rt_di_frame == frame_count) {
 		mixer_shader->SetShaderResourceView("emissionTexture", rt_texture_di_curr[RT_TEXTURE_EMISSION].SRV());
 		mixer_shader->SetShaderResourceView("rtTexture0", rt_texture_di_curr[RT_TEXTURE_REFLEX].SRV());
 		mixer_shader->SetShaderResourceView("rtTexture1", rt_texture_di_curr[RT_TEXTURE_REFRACT].SRV());
 	}
-	if (rt_texture_gi_curr != nullptr)
+	if (rt_texture_gi_curr != nullptr && rt_gi_frame == frame_count)
 	{
 		mixer_shader->SetShaderResourceView("rtTexture2", rt_texture_gi_curr->SRV());
 	}
 	mixer_shader->SetShaderResourceView("positions", rt_ray_sources0.SRV());
 	mixer_shader->SetShaderResourceView("normals", rt_ray_sources1.SRV());
 	mixer_shader->SetShaderResourceView("motionTexture", motion_texture.SRV());
-	mixer_shader->SetShaderResourceView("bvhDebugTexture", shadow_bvh_map.SRV());
+	//Only made in a frame the debug view is up (it is a transient of the frame graph).
+	mixer_shader->SetShaderResourceView("bvhDebugTexture", ShadowBvhDebugWanted() ? shadow_bvh_map.SRV() : nullptr);
 	mixer_shader->SetShaderResourceView("input", post_process_pipeline->RenderResource());
 	//For the two radiance cache views only. Bound every frame rather than behind a
 	//test on the debug value: the branch that reads them is uniform and costs
@@ -3182,7 +3167,9 @@ void RenderSystem::ProcessMotionBlur() {
 	CameraEntity& cam_entity = cameras.GetData()[0];
 	//From DLSS's native picture to the second native one, which the chain starts from; otherwise from the anti-aliased
 	//picture to the chain's own first texture.
-	const Core::RenderTexture2D& source = drs_frame_upscaled ? drs_native_color : motion_blur_map;
+	GfxSRV* source = drs_frame_upscaled ? drs_native_color.SRV() : motion_blur_map.SRV();
+	const int source_w = drs_frame_upscaled ? drs_native_color.Width() : motion_blur_map.Width();
+	const int source_h = drs_frame_upscaled ? drs_native_color.Height() : motion_blur_map.Height();
 	GfxUAV* destination = drs_frame_upscaled ? drs_native_post.UAV() : post_process_pipeline->RenderUAV();
 	const int dest_w = drs_frame_upscaled ? drs_native_post.Width() : post_process_pipeline->GetW();
 	const int dest_h = drs_frame_upscaled ? drs_native_post.Height() : post_process_pipeline->GetH();
@@ -3191,10 +3178,10 @@ void RenderSystem::ProcessMotionBlur() {
 	motion_blur->SetMatrix4x4("view_proj", cam_entity.camera->view_projection);
 	motion_blur->SetMatrix4x4("prev_view_proj", prev_view_projection);
 	//The motion vectors are the size of the scene, which is smaller than the picture when it was upscaled.
-	const float motion_ratio[2] = { (float)motion_texture.Width() / (float)(std::max)(source.Width(), 1),
-		(float)motion_texture.Height() / (float)(std::max)(source.Height(), 1) };
+	const float motion_ratio[2] = { (float)motion_texture.Width() / (float)(std::max)(source_w, 1),
+		(float)motion_texture.Height() / (float)(std::max)(source_h, 1) };
 	motion_blur->SetFloat2("motion_ratio", motion_ratio);
-	motion_blur->SetShaderResourceView("input", source.SRV());
+	motion_blur->SetShaderResourceView("input", source);
 	motion_blur->SetInt("enabled", motion_blur_enabled && !IsDebugBufferActive());
 	motion_blur->SetFloat("blur_scale", motion_blur_scale);
 	motion_blur->SetUnorderedAccessView("output", destination);
@@ -3359,12 +3346,12 @@ void RenderSystem::ProcessLensFlare() {
 	}
 }
 
-void RenderSystem::CopyTexture(const Core::RenderTexture2D& input, Core::RenderTexture2D& output)
+void RenderSystem::CopyTexture(GfxSRV* input, GfxUAV* output, int width, int height)
 {
-	int32_t  groupsX = (int32_t)(ceil((float)output.Width() / 8.0f));
-	int32_t  groupsY = (int32_t)(ceil((float)output.Height() / 8.0f));
-	copy_texture->SetShaderResourceView("input", input.SRV());
-	copy_texture->SetUnorderedAccessView("output", output.UAV());
+	int32_t  groupsX = (int32_t)(ceil((float)width / 8.0f));
+	int32_t  groupsY = (int32_t)(ceil((float)height / 8.0f));
+	copy_texture->SetShaderResourceView("input", input);
+	copy_texture->SetUnorderedAccessView("output", output);
 	copy_texture->CopyAllBufferData();
 	copy_texture->SetShader();
 	dxcore->context->Dispatch(groupsX, groupsY, 1);
@@ -3645,6 +3632,7 @@ void RenderSystem::ProcessGI() {
 		rt_texture_gi_tmp[1] = &rt_textures_gi[3];
 		rt_texture_gi_trace = &rt_textures_gi[4];
 		rt_textures_gi_tiles.Clear(zero);
+		rt_gi_frame = frame_count;
 
 		std::lock_guard<std::mutex> lock(rt_mutex);
 		CameraEntity& cam_entity = cameras.GetData()[0];
@@ -3919,6 +3907,7 @@ void RenderSystem::ProcessRT() {
 		if (rt_quality != eRtQuality::OFF && rt_enabled && bvh_buffer != nullptr) {
 
 			rt_textures_di_tiles.Clear(zero);
+			rt_di_frame = frame_count;
 
 			std::lock_guard<std::mutex> lock(rt_mutex);
 			CameraEntity& cam_entity = cameras.GetData()[0];
@@ -4361,20 +4350,36 @@ void RenderSystem::PrepareMultiMaterial(Core::MaterialData* material, Core::Simp
 		return;
 	}
 	const uint32_t count = mm->multi_texture_count;
+	//The layers' maps go to the shaders as numbers in the persistent bindless table (GfxContext::BindlessIndex), not as 56
+	//slots copied into the ring for every draw: a texture gets its place the first time it is drawn and keeps it.
+	GfxContext* context = DXCore::Get()->context;
+	uint32_t used = 0;
+	const auto map = [&](GfxSRV* srv) -> uint32_t {
+		if (srv == nullptr) {
+			return 0;
+		}
+		multitext_used[used++] = srv;
+		return context->BindlessIndex(srv);
+	};
 	for (uint32_t i = 0; i < count; ++i) {
-		//A layer whose source material is missing contributes nothing, but its slot
-		//still has to be cleared: leaving the previous draw's texture bound there
-		//would blend an unrelated surface in, and the layer's op bits say the map
-		//does not exist so nothing would ever sample it back out.
+		//A layer whose source material is missing contributes nothing, but its maps
+		//still have to be none (0, a null texture): the previous draw's numbers would
+		//blend an unrelated surface in, and the layer's op bits say the map does not
+		//exist so nothing would ever sample it back out.
 		Core::MaterialData* source = mm->multi_texture_data[i];
-		multitext_diff[i] = (source != nullptr) ? source->diffuse : nullptr;
-		multitext_norm[i] = (source != nullptr) ? source->normal : nullptr;
-		multitext_spec[i] = (source != nullptr) ? source->spec : nullptr;
-		multitext_ao[i] = (source != nullptr) ? source->ao : nullptr;
-		multitext_arm[i] = (source != nullptr) ? source->arm : nullptr;
-		multitext_disp[i] = (source != nullptr) ? source->high : nullptr;
-		multitext_mask[i] = mm->multi_texture_mask[i];
+		uint32_t* m = &multitext_maps[i * MULTI_MAPS_PER_LAYER];
+		//In the order of the MULTITEXT_* map bits (MultiTexture.hlsli): diffuse, normal, specular, arm, displacement, ao, mask.
+		m[0] = map(source != nullptr ? source->diffuse : nullptr);
+		m[1] = map(source != nullptr ? source->normal : nullptr);
+		m[2] = map(source != nullptr ? source->spec : nullptr);
+		m[3] = map(source != nullptr ? source->arm : nullptr);
+		m[4] = map(source != nullptr ? source->high : nullptr);
+		m[5] = map(source != nullptr ? source->ao : nullptr);
+		m[6] = map(mm->multi_texture_mask[i]);
+		m[7] = 0;
 	}
+	context->SetGraphicsBindlessUses(used, multitext_used);
+	const uint32_t maps_bytes = count * MULTI_MAPS_PER_LAYER * (uint32_t)sizeof(uint32_t);
 	if (vs != nullptr) {
 		vs->SetInt(TESS_TYPE, mm->tessellation_type);
 		vs->SetFloat(TESS_FACTOR, mm->tessellation_factor);
@@ -4392,8 +4397,7 @@ void RenderSystem::PrepareMultiMaterial(Core::MaterialData* material, Core::Simp
 			ds->SetData("multi_texture_slope", mm->multi_texture_slope.data(), count * sizeof(float4));
 			ds->SetData("multi_texture_height", mm->multi_texture_height.data(), count * sizeof(float4));
 			ds->SetData("multi_texture_mask_uv", mm->multi_texture_mask_uv.data(), count * sizeof(float4));
-			ds->SetShaderResourceViewArray("multi_highTexture[0]", multitext_disp.data(), count);
-			ds->SetShaderResourceViewArray("multi_maskTexture[0]", multitext_mask.data(), count);
+			ds->SetData("multi_texture_maps", multitext_maps, maps_bytes);
 			ds->SetFloat(DISPLACEMENT_SCALE, mm->displacement_scale);
 		}
 	}
@@ -4408,13 +4412,7 @@ void RenderSystem::PrepareMultiMaterial(Core::MaterialData* material, Core::Simp
 			ps->SetData("multi_texture_slope", mm->multi_texture_slope.data(), count * sizeof(float4));
 			ps->SetData("multi_texture_height", mm->multi_texture_height.data(), count * sizeof(float4));
 			ps->SetData("multi_texture_mask_uv", mm->multi_texture_mask_uv.data(), count * sizeof(float4));
-			ps->SetShaderResourceViewArray("multi_diffuseTexture[0]", multitext_diff.data(), count);
-			ps->SetShaderResourceViewArray("multi_normalTexture[0]", multitext_norm.data(), count);
-			ps->SetShaderResourceViewArray("multi_specularTexture[0]", multitext_spec.data(), count);
-			ps->SetShaderResourceViewArray("multi_aoTexture[0]", multitext_ao.data(), count);
-			ps->SetShaderResourceViewArray("multi_armTexture[0]", multitext_arm.data(), count);
-			ps->SetShaderResourceViewArray("multi_highTexture[0]", multitext_disp.data(), count);
-			ps->SetShaderResourceViewArray("multi_maskTexture[0]", multitext_mask.data(), count);
+			ps->SetData("multi_texture_maps", multitext_maps, maps_bytes);
 		}
 	}
 }
@@ -4426,24 +4424,13 @@ void RenderSystem::UnprepareMultiMaterial(Core::MaterialData* material, Core::Si
 	if (mm == nullptr || mm->multi_texture_count == 0) {
 		return;
 	}
-	const uint32_t count = mm->multi_texture_count;
-	static GfxSRV* zero_text[MAX_MULTI_TEXTURE] = {};
-
+	//The maps were numbers in the persistent table: nothing to unbind, only the textures the draws read to forget.
+	DXCore::Get()->context->SetGraphicsBindlessUses(0, nullptr);
 	if (ps) {
 		ps->SetInt(SimpleShaderKeys::MULTI_TEXTURE_COUNT, 0);
-
-		ps->SetShaderResourceViewArray("multi_diffuseTexture[0]", zero_text, count);
-		ps->SetShaderResourceViewArray("multi_normalTexture[0]", zero_text, count);
-		ps->SetShaderResourceViewArray("multi_specularTexture[0]", zero_text, count);
-		ps->SetShaderResourceViewArray("multi_aoTexture[0]", zero_text, count);
-		ps->SetShaderResourceViewArray("multi_armTexture[0]", zero_text, count);
-		ps->SetShaderResourceViewArray("multi_highTexture[0]", zero_text, count);
-		ps->SetShaderResourceViewArray("multi_maskTexture[0]", zero_text, count);
 	}
 	if (ds) {
 		ds->SetInt(SimpleShaderKeys::MULTI_TEXTURE_COUNT, 0);
-		ds->SetShaderResourceViewArray("multi_highTexture[0]", zero_text, count);
-		ds->SetShaderResourceViewArray("multi_maskTexture[0]", zero_text, count);
 	}
 }
 
@@ -5439,12 +5426,27 @@ void RenderSystem::ProcessDeferredLighting(int pass_filter) {
 		//A frame without ray traced lights leaves the history stale; the next one starts afresh.
 		shadow_rt_history_valid = false;
 	}
-	//After every light that goes into the map, so the ambient it takes the occlusion out of is all there. Only the first geometry
-	//pass's surfaces: the later passes light a few pixels each over a copy of this map.
-	if (pass_filter == 0) {
+	//The GTAO goes after every light that goes into the map, so the ambient it takes the occlusion out of is all there, and only
+	//over the first geometry pass's surfaces: the later passes light a few pixels each over a copy of this map. After the first
+	//pass it is a frame graph pass of its own (ProcessLightingTail), so the GTAO's texture does not live through this one.
+	lighting_tail_first = first;
+	lighting_tail_gtao = (pass_filter == 0);
+	lighting_tail_pending = true;
+	if (pass_filter != 0) {
+		ProcessLightingTail();
+	}
+}
+
+void RenderSystem::ProcessLightingTail() {
+	if (!lighting_tail_pending) {
+		return;
+	}
+	lighting_tail_pending = false;
+	const bool want_stats = tiled_stats_requested && frame_count - tiled_stats_request_frame < TILED_STATS_KEEPALIVE;
+	if (lighting_tail_gtao) {
 		ProcessGtao();
 	}
-	if (first) {
+	if (lighting_tail_first) {
 		GpuStamp(13);
 		if (want_stats) {
 			tiled_lights.ReadStats(tiled_stats);
@@ -5492,6 +5494,12 @@ void RenderSystem::SetPostProcessPipeline(Core::PostProcess* pipeline) {
 	//Dynamic resolution puts the override on the new chain at the start of the next frame.
 	drs_active = false;
 	if (pipeline != nullptr) {
+		//The scene is drawn into the first stage's texture and read outside the stages' passes (the mix, the G-buffer
+		//chain, the motion blur): it keeps its texture from frame to frame, and the frame's clear is done.
+		if (Core::FrameTexture* head = pipeline->OwnFrameTexture()) {
+			head->SetLifetime(Core::FrameTextureLifetime::Persistent);
+			head->SetFullyWritten(false);
+		}
 		if (render_pass2_tree.empty()) {
 			first_pass_target = pipeline;
 			second_pass_target = nullptr;			
@@ -5589,6 +5597,8 @@ void RenderSystem::PostProcessLight() {
 	context->OMSetRenderTargets(1, rv, nullptr);
 	context->RSSetViewports(1, &render_viewport);
 	context->RSSetState(dxcore->drawing_rasterizer);
+	//The first pass that writes temp_map in the frame: it covers all of it, which is why the frame does not clear it first.
+	context->OMSetBlendState(dxcore->no_blend, nullptr, ~0U);
 	SimpleVertexShader* vs = ShaderFactory::Get()->GetShader<SimpleVertexShader>("PostMainVS.cso");
 	SimplePixelShader* ps = ShaderFactory::Get()->GetShader<SimplePixelShader>("PostBlur.cso");
 	vs->SetShader();
@@ -5620,7 +5630,7 @@ void RenderSystem::PostProcessLight() {
 }
 
 //HOTBITE_DUMP_DIR=<folder>: once, a couple of seconds into a run, the frame's main targets are written to PNGs there.
-static void DumpFrameTargets(uint32_t frame, const std::vector<std::pair<const char*, Core::RenderTexture2D*>>& targets) {
+static void DumpFrameTargets(uint32_t frame, const std::vector<std::pair<const char*, GfxTexture*>>& targets) {
 	static bool done = false;
 	char dir[512] = {};
 	size_t len = 0;
@@ -5629,39 +5639,75 @@ static void DumpFrameTargets(uint32_t frame, const std::vector<std::pair<const c
 	}
 	done = true;
 	for (const auto& t : targets) {
-		Core::DumpTexture(t.second->Texture(), std::string(dir) + "\\" + t.first + ".png");
-	}
-		Core::DumpTexture(DXCore::Get()->BackBufferTexture(), std::string(dir) + "\\backbuffer.png");
-	}
-
-	//One texture, right now, on the frame HOTBITE_DUMP_FRAME (default 200) - for looking between two passes of a frame.
-	static void DumpNow(uint32_t frame, const char* name, Core::RenderTexture2D& texture) {
-		char dir[512] = {};
-		size_t len = 0;
-		if (frame != 200 || getenv_s(&len, dir, sizeof(dir), "HOTBITE_DUMP_DIR") != 0 || len == 0) {
-			return;
-		}
-		Core::DumpTexture(texture.Texture(), std::string(dir) + "\\step_" + name + ".png");
-	}
-
-	//The textures the post-process chain passes along, in order.
-	static void DumpPostChain(Core::PostProcess* first, uint32_t frame) {
-		static bool done = false;
-		char dir[512] = {};
-		size_t len = 0;
-		if (done || frame < 200 || getenv_s(&len, dir, sizeof(dir), "HOTBITE_DUMP_DIR") != 0 || len == 0) {
-			return;
-		}
-		done = true;
-		int n = 0;
-		for (Core::PostProcess* p = first; p != nullptr; p = p->GetNext(), ++n) {
-			GfxSRV* srv = p->RenderResource();
-			if (srv != nullptr && srv->Resource() != nullptr) {
-				Core::DumpTexture(static_cast<GfxTexture*>(srv->Resource()), std::string(dir) + "\\post" + std::to_string(n) + ".png");
-			}
+		if (t.second != nullptr) {
+			Core::DumpTexture(t.second, std::string(dir) + "\\" + t.first + ".png");
 		}
 	}
+	Core::DumpTexture(DXCore::Get()->BackBufferTexture(), std::string(dir) + "\\backbuffer.png");
+}
 
+//One texture, right now, on the frame HOTBITE_DUMP_FRAME (default 200) - for looking between two passes of a frame. Called
+//in a pass that uses the texture (a transient of the frame graph has memory only there).
+static void DumpNow(uint32_t frame, const char* name, const Core::FrameTexture& texture) {
+	char dir[512] = {};
+	size_t len = 0;
+	if (frame != 200 || getenv_s(&len, dir, sizeof(dir), "HOTBITE_DUMP_DIR") != 0 || len == 0) {
+		return;
+	}
+	Core::DumpTexture(texture.Texture(), std::string(dir) + "\\step_" + name + ".png");
+}
+
+//The textures the post-process chain passes along, in order.
+static void DumpPostChain(Core::PostProcess* first, uint32_t frame) {
+	static bool done = false;
+	char dir[512] = {};
+	size_t len = 0;
+	if (done || frame < 200 || getenv_s(&len, dir, sizeof(dir), "HOTBITE_DUMP_DIR") != 0 || len == 0) {
+		return;
+	}
+	done = true;
+	int n = 0;
+	for (Core::PostProcess* p = first; p != nullptr; p = p->GetNext(), ++n) {
+		GfxSRV* srv = p->RenderResource();
+		if (srv != nullptr && srv->Resource() != nullptr) {
+			Core::DumpTexture(static_cast<GfxTexture*>(srv->Resource()), std::string(dir) + "\\post" + std::to_string(n) + ".png");
+		}
+	}
+}
+
+bool RenderSystem::ShadowBvhDebugWanted() const {
+	const eDebugBuffer view = GetDebugBuffer();
+	return (view == eDebugBuffer::SHADOW_BVH || view == eDebugBuffer::SHADOW_BVH_COST) && shadow_bvh_debug != nullptr;
+}
+
+bool RenderSystem::GtaoWanted() const {
+	return gtao_enabled && gtao_shader != nullptr && gtao_accumulate != nullptr;
+}
+
+bool RenderSystem::ReflectionsWanted() const {
+	return (rt_enabled & (RT_REFLEX_ENABLE | RT_REFRACT_ENABLE)) && rt_quality != eRtQuality::OFF && bvh_buffer != nullptr;
+}
+
+RenderSystem::FrameGraphStats RenderSystem::GetFrameGraphStats() {
+	std::lock_guard<std::recursive_mutex> lock(mutex);
+	FrameGraphStats s;
+	s.frame = frame_graph.GetStats();
+	s.pool = Core::TexturePool::Get().GetStats();
+	return s;
+}
+
+std::string RenderSystem::DescribeFrameGraph() {
+	std::lock_guard<std::recursive_mutex> lock(mutex);
+	return frame_graph.Describe();
+}
+
+//The frame. What only the CPU does (visibility, levels of detail, the lights of the frame, whether the static shadows are
+//redrawn) is done first, as it always was; the GPU work is then described as the passes of the frame graph, in the order they
+//are recorded, each with the frame textures it uses (Core/FrameGraph.h), and recorded by Execute. The transients get their
+//memory from the pool for the passes they live through; a pass that is not added (a feature that is off) costs its textures
+//nothing. What can only be decided while the frame is recorded (the order of the reflections and the indirect light under
+//async compute, a GI pass launched early) is still decided inside the passes; a pass declares the textures it may use, a
+//superset of what it uses in the frame.
 void RenderSystem::Draw() {
 	DXCore* dxcore = DXCore::Get();
 	//Which size this frame is drawn at, before anything is sized from it.
@@ -5669,35 +5715,58 @@ void RenderSystem::Draw() {
 	DrsBegin();
 	int w = RenderWidth();
 	int h = RenderHeight();
-	
-	if (!cameras.GetData().empty() && scene_enabled) {
-		
+	frame_graph.Begin();
+
+	//The CPU time of each part of the frame (CpuTimings): each lap adds what has passed since the last one.
+	auto cpu_last = std::chrono::steady_clock::now();
+	const auto cpu_lap = [&cpu_last](double& slot) {
+		const auto now = std::chrono::steady_clock::now();
+		slot += std::chrono::duration<double, std::milli>(now - cpu_last).count();
+		cpu_last = now;
+	};
+	const bool scene_frame = !cameras.GetData().empty() && scene_enabled;
+	CameraEntity* cam_entity_ptr = nullptr;
+	matrix view{};
+	matrix projection{};
+	float3 camera_position{};
+	bool motion_launched = false;
+	bool gi_launched = false;
+	bool has_second_pass = false;
+	bool early_compute = false;
+	GfxQueryHeap* tess_query_open = nullptr;
+	const auto launch_gbuffer_compute = [&]() {
+		if (!early_compute || motion_launched) {
+			return;
+		}
+		ProcessMotion();
+		motion_launched = true;
+		if (Async(ASYNC_GI)) {
+			ProcessGI();
+			gi_launched = true;
+		}
+	};
+
+	if (scene_frame) {
 		rt_mutex.lock();
 		rt_prepare = true;
 		rt_signal.notify_all();
 		rt_mutex.unlock();
 
-		CameraEntity& cam_entity = cameras.GetData()[0];
+		cam_entity_ptr = &cameras.GetData()[0];
+		CameraEntity& cam_entity = *cam_entity_ptr;
 		//First frame: no previous frame to have moved from.
 		if (!prev_view_projection_valid) {
 			prev_view_projection = cam_entity.camera->view_projection;
 			prev_view_projection_valid = true;
 		}
 
-		matrix view = XMMatrixTranspose(XMLoadFloat4x4(&cam_entity.camera->view));
-		matrix projection = XMMatrixTranspose(XMLoadFloat4x4(&cam_entity.camera->projection));
-		float3 camera_position = cam_entity.camera->world_position;
+		view = XMMatrixTranspose(XMLoadFloat4x4(&cam_entity.camera->view));
+		projection = XMMatrixTranspose(XMLoadFloat4x4(&cam_entity.camera->projection));
+		camera_position = cam_entity.camera->world_position;
 		//The projection the geometry of this frame is drawn with: the camera's own, or with
 		//TAA's sub-pixel offset.
 		UpdateTemporalJitter(*(cam_entity.camera), w, h);
 
-		//The CPU time of each part of the frame (CpuTimings): each lap adds what has passed since the last one.
-		auto cpu_last = std::chrono::steady_clock::now();
-		const auto cpu_lap = [&cpu_last](double& slot) {
-			const auto now = std::chrono::steady_clock::now();
-			slot += std::chrono::duration<double, std::milli>(now - cpu_last).count();
-			cpu_last = now;
-		};
 		GpuResolve();
 		GpuBegin();
 		GpuStamp(0);
@@ -5742,8 +5811,10 @@ void RenderSystem::Draw() {
 		if ((count++ % STATIC_SHADOW_REFRESH_PERIOD) == 0 || static_stale ||
 			static_shadow_signature != last_static_shadow_signature) {
 			last_static_shadow_signature = static_shadow_signature;
-			CastShadows(w, h, camera_position, view, projection, true);
-			cpu_lap(cpu_timings.static_shadows);
+			frame_graph.AddPass("static shadows", [&]() {
+				CastShadows(w, h, camera_position, view, projection, true);
+				cpu_lap(cpu_timings.static_shadows);
+			});
 		}
 		//Both effects are re-enabled from the stored flags every frame, which is what
 		//lets a debug buffer view suppress them for as long as it is up without
@@ -5762,147 +5833,221 @@ void RenderSystem::Draw() {
 
 		current_light_map = &light_map[0];
 		prev_light_map = nullptr;
+		has_second_pass = second_pass_target != nullptr && !render_pass2_tree.empty();
+		//Motion vectors and global illumination read the G-buffer and not the light computed from it, so once the last pass that
+		//writes the G-buffer is done (the first pass, the second geometry pass if there is one, the splat clouds if there are any) they
+		//can be recorded on the compute queue and run beside the lighting instead of after it. Motion goes first even when only
+		//GI is on the compute queue: GI reads it.
+		early_compute = GetAsyncCompute() && (Async(ASYNC_MOTION) || Async(ASYNC_GI)) && splat_clouds.GetData().empty();
+		//The light map the passes after the second geometry pass add to.
+		Core::FrameTexture* final_light = has_second_pass ? &light_map[1] : &light_map[0];
+		const bool post = post_process_pipeline != nullptr;
+		const bool bvh_debug = ShadowBvhDebugWanted();
 
-		cpu_lap(cpu_timings.post);
-		CastShadows(w, h, camera_position, view, projection, false);
-		cpu_lap(cpu_timings.shadows);
-		GpuStamp(1);
-		DrawDepth(w, h, camera_position, view, projection);
-		cpu_lap(cpu_timings.depth);
-		GpuStamp(2);
-		ProcessAutoFocus();
+		frame_graph.AddPass("shadows", [&]() {
+			cpu_lap(cpu_timings.post);
+			CastShadows(w, h, camera_position, view, projection, false);
+			cpu_lap(cpu_timings.shadows);
+			GpuStamp(1);
+		});
+		frame_graph.AddPass("depth", [&]() {
+			DrawDepth(w, h, camera_position, view, projection);
+			cpu_lap(cpu_timings.depth);
+			GpuStamp(2);
+		});
+		frame_graph.AddPass("autofocus", [&]() { ProcessAutoFocus(); });
 		//The pyramid of the opaque depth the screen space solvers march through: the reflections'
 		//and the ray traced lights' shadows (the lighting below asks for it, so it cannot wait for
 		//the reflections). What draws into depth_map after this - the clouds - is not in it.
-		ProcessHighZ();
-		DrawSky(w, h, camera_position, view, projection);
-		//The main pass is the one that draws every tessellated surface, so it is what the
-		//tessellation counters wrap. Only while something is reading them.
-		GfxQueryHeap* tess_query_open = nullptr;
-		if (tess_stats_requested && frame_count - tess_stats_request_frame < TESS_STATS_KEEPALIVE) {
-			tess_query_open = BeginTessStats();
-		}
-		DrawScene(w, h, camera_position, view, projection, nullptr, first_pass_target, render_tree);
-		EndTessStats(tess_query_open);
-		ResolveTessStats();
+		frame_graph.AddPass("hi-z", [&]() { ProcessHighZ(); });
+		frame_graph.AddPass("sky", [&]() {
+			DrawSky(w, h, camera_position, view, projection);
+		}).Write(light_map[0]);
+		frame_graph.AddPass("scene", [&]() {
+			//The main pass is the one that draws every tessellated surface, so it is what the
+			//tessellation counters wrap. Only while something is reading them.
+			if (tess_stats_requested && frame_count - tess_stats_request_frame < TESS_STATS_KEEPALIVE) {
+				tess_query_open = BeginTessStats();
+			}
+			DrawScene(w, h, camera_position, view, projection, nullptr, first_pass_target, render_tree);
+			EndTessStats(tess_query_open);
+			ResolveTessStats();
+		}).Write(light_map[0]);
 		//The game's compute stages over the G-buffer the first pass left, before anything reads it: what they write is
 		//lit, shadowed and moved (motion vectors) like the surfaces the geometry pass drew.
-		ProcessGBufferEffects();
-		//Motion vectors and global illumination read the G-buffer and not the light computed from it, so once the last pass that
-		//writes the G-buffer is done (this one, the second geometry pass if there is one, the splat clouds if there are any) they
-		//can be recorded on the compute queue and run beside the lighting instead of after it. Motion goes first even when only
-		//GI is on the compute queue: GI reads it.
-		bool motion_launched = false;
-		bool gi_launched = false;
-		const bool has_second_pass = second_pass_target != nullptr && !render_pass2_tree.empty();
-		const bool early_compute = GetAsyncCompute() && (Async(ASYNC_MOTION) || Async(ASYNC_GI)) && splat_clouds.GetData().empty();
-		const auto launch_gbuffer_compute = [&]() {
-			if (!early_compute || motion_launched) {
-				return;
+		{
+			FrameGraph::PassBuilder pass = frame_graph.AddPass("gbuffer effects", [&]() {
+				ProcessGBufferEffects();
+				if (!has_second_pass) {
+					launch_gbuffer_compute();
+				}
+			});
+			pass.Write(light_map[0]);
+			if (gbuffer_pipeline != nullptr) {
+				pass.Write(gbuffer_scene_copy);
 			}
-			ProcessMotion();
-			motion_launched = true;
-			if (Async(ASYNC_GI)) {
-				ProcessGI();
-				gi_launched = true;
-			}
-		};
-		if (!has_second_pass) {
-			launch_gbuffer_compute();
 		}
 		//Light what the first pass drew. This is where the frame's light is computed - the
 		//geometry passes above evaluated none - and it runs before the second pass because
 		//water reads the lit result of what lies under it (prevLightTexture).
-		ProcessDeferredLighting(0);
-		if (second_pass_target != nullptr && !render_pass2_tree.empty()) {
-			CheckSceneVisibility(render_pass2_tree);
-			current_light_map = &light_map[1];
-			prev_light_map = &light_map[0];
-			CopyTexture(*prev_light_map, *current_light_map);
-			DrawScene(w, h, camera_position, view, projection, first_pass_texture.SRV(), second_pass_target, render_pass2_tree);
-			launch_gbuffer_compute();
+		{
+			FrameGraph::PassBuilder pass = frame_graph.AddPass("lighting", [&]() { ProcessDeferredLighting(0); });
+			pass.Write(light_map[0]);
+			//The ray traced lights' light, accumulated over the frames: only with a light that traces.
+			if (raytraced_light_count + raytraced_directional_count > 0) {
+				pass.Write(shadow_rt_light);
+			}
+		}
+		{
+			FrameGraph::PassBuilder pass = frame_graph.AddPass("gtao", [&]() { ProcessLightingTail(); });
+			pass.Write(light_map[0]);
+			if (GtaoWanted()) {
+				pass.Write(gtao_map);
+			}
+		}
+		if (has_second_pass) {
+			frame_graph.AddPass("scene (second pass)", [&]() {
+				CheckSceneVisibility(render_pass2_tree);
+				current_light_map = &light_map[1];
+				prev_light_map = &light_map[0];
+				CopyTexture(prev_light_map->SRV(), current_light_map->UAV(), current_light_map->Width(), current_light_map->Height());
+				DrawScene(w, h, camera_position, view, projection, first_pass_texture.SRV(), second_pass_target, render_pass2_tree);
+				launch_gbuffer_compute();
+			}).Read(light_map[0]).Write(light_map[1]);
 			//Only what that pass drew: the rest is already lit in the map it was copied from.
-			ProcessDeferredLighting(1);
+			frame_graph.AddPass("lighting (second pass)", [&]() { ProcessDeferredLighting(1); }).Write(light_map[1]);
 		}
 		//After every DrawScene, so the clouds test against a complete depth buffer and
 		//composite over the finished scene colour; before ProcessMotion and everything
 		//after it, which build the frame out of the buffers this writes into. It lights
 		//the clouds itself (a third lighting dispatch, filtered to them).
-		DrawSplats(w, h, camera_position, view, projection);
-		ProcessShadowBvhDebug();
-		//GpuResolve waits for every stamp of a frame, so a frame that ran no lighting at all
-		//still has to issue the three it timed.
-		if (lighting_passes_this_frame == 0) {
-			GpuStamp(11);
-			GpuStamp(12);
-			GpuStamp(13);
+		frame_graph.AddPass("splats", [&]() { DrawSplats(w, h, camera_position, view, projection); }).Write(final_light);
+		if (bvh_debug) {
+			frame_graph.AddPass("shadow bvh debug", [&]() { ProcessShadowBvhDebug(); }).Write(shadow_bvh_map);
 		}
-		cpu_lap(cpu_timings.scene);
-		GpuStamp(3);
-		if (!motion_launched) {
-			ProcessMotion();
-		}
-		GpuStamp(4);
+		frame_graph.AddPass("motion", [&]() {
+			//GpuResolve waits for every stamp of a frame, so a frame that ran no lighting at all
+			//still has to issue the three it timed.
+			if (lighting_passes_this_frame == 0) {
+				GpuStamp(11);
+				GpuStamp(12);
+				GpuStamp(13);
+			}
+			cpu_lap(cpu_timings.scene);
+			GpuStamp(3);
+			if (!motion_launched) {
+				ProcessMotion();
+			}
+			GpuStamp(4);
+		});
 		//The reflections and the indirect light read what the G-buffer and the lighting wrote and share nothing with each other
 		//(each has its own tiles), so when one of them is on the compute queue it goes first and the other, recorded after it on
 		//the direct queue, runs beside it. (Already recorded, if the G-buffer was final before the lighting: see above.)
-		if (gi_launched) {
-			ProcessRT();
-			GpuStamp(5);
+		{
+			FrameGraph::PassBuilder pass = frame_graph.AddPass("reflections and indirect light", [&]() {
+				if (gi_launched) {
+					ProcessRT();
+					GpuStamp(5);
+				}
+				else if (Async(ASYNC_GI) && !AsyncReflections() && GetAsyncCompute()) {
+					ProcessGI();
+					GpuStamp(5);
+					ProcessRT();
+				}
+				else {
+					ProcessRT();
+					GpuStamp(5);
+					ProcessGI();
+				}
+				GpuStamp(6);
+			});
+			pass.Read(final_light);
+			if (ReflectionsWanted()) {
+				pass.Write(texture_tmp);
+			}
 		}
-		else if (Async(ASYNC_GI) && !AsyncReflections() && GetAsyncCompute()) {
-			ProcessGI();
-			GpuStamp(5);
-			ProcessRT();
+		frame_graph.AddPass("light effects", [&]() {
+			PostProcessLight();
+			GpuStamp(7);
+		}).Write(temp_map).Write(vol_light_map2);
+		{
+			FrameGraph::PassBuilder pass = frame_graph.AddPass("mix", [&]() { ProcessMix(); });
+			pass.Read(final_light).Write(temp_map);
+			if (bvh_debug) {
+				pass.Read(shadow_bvh_map);
+			}
 		}
-		else {
-			ProcessRT();
-			GpuStamp(5);
-			ProcessGI();
-		}
-		GpuStamp(6);
-		PostProcessLight();
-		GpuStamp(7);
-		ProcessMix();
 		//The particles go over the mixed picture, before the anti-aliasing (or DLSS) and the post-process chain read it. Not into the
 		//geometry passes' colour target: that is the surfaces' colour, which the mix multiplies by the light that reaches them, so a flame
 		//drawn there came out bright over a lit surface and faint over a dark one. A particle is light of its own, blended over the
 		//picture behind it.
-		DrawParticles(w, h, camera_position, view, projection, post_process_pipeline != nullptr ? (Core::IRenderTarget*)&temp_map : first_pass_target,
-			particle_tree);
-				DumpNow(frame_count, "1_mix_temp", temp_map);
+		{
+			FrameGraph::PassBuilder pass = frame_graph.AddPass("particles", [&]() {
+				DrawParticles(w, h, camera_position, view, projection, post ? (Core::IRenderTarget*)&temp_map : first_pass_target,
+					particle_tree);
+				if (post) {
+					DumpNow(frame_count, "1_mix_temp", temp_map);
+				}
 				GpuStamp(8);
+			});
+			if (post) {
+				pass.Write(temp_map);
+			}
+		}
+		{
+			FrameGraph::PassBuilder pass = frame_graph.AddPass("anti-aliasing", [&]() {
 				//With dynamic resolution DLSS is the anti-aliasing as well as the upscale: it makes the native picture.
 				drs_frame_upscaled = drs_active && ProcessDlss();
 				if (!drs_frame_upscaled) {
 					ProcessAntiAlias();
 				}
-				DumpNow(frame_count, "2_aa_motion_blur_map", motion_blur_map);
+				if (post) {
+					DumpNow(frame_count, "2_aa_motion_blur_map", motion_blur_map);
+				}
 				GpuStamp(9);
-				ProcessMotionBlur();
-
-		if (post_process_pipeline != nullptr) {
-			post_process_pipeline->SetShaderResourceView(DEPTH_TEXTURE, depth_map.SRV());
-			post_process_pipeline->SetShaderResourceView(AUTOFOCUS_TEXTURE, autofocus_map.SRV());
-			post_process_pipeline->SetView(*(cam_entity.camera));
+			});
+			if (post) {
+				pass.Read(temp_map).Write(motion_blur_map);
+			}
 		}
-		cpu_lap(cpu_timings.post);
-		GpuStamp(10);
-		GpuEnd();
-		LatchPreviousFrame(*(cam_entity.camera));
-				DumpFrameTargets(frame_count, { { "first_pass", &first_pass_texture }, { "depth_map", &depth_map }, { "light0", &light_map[0] },
-					{ "position", &position_map }, { "material", &material_map }, { "temp", &temp_map }, { "motion_blur", &motion_blur_map } });
-							DumpPostChain(post_process_pipeline, frame_count);
-		cpu_lap(cpu_timings.latch);
-		++cpu_timings.frames;
-		instancing_stats_last = instancing_stats_frame;
+		{
+			FrameGraph::PassBuilder pass = frame_graph.AddPass("motion blur", [&]() { ProcessMotionBlur(); });
+			if (post) {
+				pass.Read(motion_blur_map);
+			}
+		}
+		frame_graph.AddPass("end of scene", [&]() {
+			if (post_process_pipeline != nullptr) {
+				post_process_pipeline->SetShaderResourceView(DEPTH_TEXTURE, depth_map.SRV());
+				post_process_pipeline->SetShaderResourceView(AUTOFOCUS_TEXTURE, autofocus_map.SRV());
+				post_process_pipeline->SetView(*(cam_entity_ptr->camera));
+			}
+			cpu_lap(cpu_timings.post);
+			GpuStamp(10);
+			GpuEnd();
+			LatchPreviousFrame(*(cam_entity_ptr->camera));
+			cpu_lap(cpu_timings.latch);
+			++cpu_timings.frames;
+			instancing_stats_last = instancing_stats_frame;
+		});
 	}
 	if (post_process_pipeline != nullptr) {
-		//The chain is native under dynamic resolution too: DLSS has already made the picture it starts from.
-		DXCore::Get()->context->RSSetViewports(1, &dxcore->viewport);
-		coordinator->SendEvent(this, EVENT_ID_PREPARE_POST);
-		post_process_pipeline->Process();
-		coordinator->SendEvent(this, EVENT_ID_UNPREPARE_POST);
+		//The chain is native under dynamic resolution too: DLSS has already made the picture it starts from. One pass per stage.
+		frame_graph.AddPass("post begin", [&]() {
+			DXCore::Get()->context->RSSetViewports(1, &dxcore->viewport);
+			coordinator->SendEvent(this, EVENT_ID_PREPARE_POST);
+		});
+		post_process_pipeline->AddPasses(frame_graph);
+		frame_graph.AddPass("post end", [&]() { coordinator->SendEvent(this, EVENT_ID_UNPREPARE_POST); });
+	}
+	frame_graph.Compile();
+	frame_graph.Execute(dxcore->context);
+	if (scene_frame) {
+		//Outside the passes: what the dump reads is the last frame's, whatever memory a transient shares.
+		DumpFrameTargets(frame_count, { { "first_pass", first_pass_texture.Texture() }, { "depth_map", depth_map.Texture() },
+			{ "light0", light_map[0].Texture() }, { "position", position_map.Texture() }, { "material", material_map.Texture() },
+			{ "temp", temp_map.Texture() }, { "motion_blur", motion_blur_map.Texture() } });
+		DumpPostChain(post_process_pipeline, frame_count);
 	}
 	DrsEnd();
 }

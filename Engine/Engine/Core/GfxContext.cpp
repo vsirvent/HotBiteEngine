@@ -153,7 +153,11 @@ namespace HotBite {
 				constexpr UINT COMPUTE_UAV = 2;
 				constexpr UINT COMPUTE_SAMPLER = 3;
 				constexpr UINT COMPUTE_BINDLESS = 4;
+				//Graphics: after the five stages' tables, the persistent bindless table, visible to every stage.
+				constexpr UINT GRAPHICS_BINDLESS = 5 * 3;
 			}
+
+			GfxContext* GfxContext::bindless_owner = nullptr;
 
 			GfxContext::~GfxContext() {
 				Shutdown();
@@ -256,6 +260,12 @@ namespace HotBite {
 				for (StageState& st : stages) {
 					st = StageState();
 				}
+				for (auto& v : graphics_bindless) { v = nullptr; }
+				graphics_bindless_count = 0;
+				if (bindless_owner == this) {
+					bindless_owner = nullptr;
+					GfxSRV::release_bindless = nullptr;
+				}
 				for (auto& v : vertex_buffers) { v = nullptr; }
 				for (auto& r : render_targets) { r = nullptr; }
 				index_buffer = nullptr;
@@ -297,18 +307,21 @@ namespace HotBite {
 				D3D12_DESCRIPTOR_RANGE1 uav = Range(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, GFX_UAV_SLOTS);
 				D3D12_DESCRIPTOR_RANGE1 smp = Range(D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, GFX_SAMPLER_SLOTS);
 
-				D3D12_ROOT_PARAMETER1 gp[5 * 3];
+				//An unbounded array of textures in register space 1, for the shaders that pick a texture by number (the ray tracers' hit
+				//shading, the multi-materials' layers): resource binding tier 2 allows it, and the device is asked for that tier.
+				D3D12_DESCRIPTOR_RANGE1 bindless = Range(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, UINT_MAX);
+				bindless.RegisterSpace = 1;
+
+				D3D12_ROOT_PARAMETER1 gp[5 * 3 + 1];
 				for (UINT s = 0; s < 5; ++s) {
 					gp[s * 3 + PARAM_CBV] = TableParam(&cbv, STAGE_VISIBILITY[s]);
 					gp[s * 3 + PARAM_SRV] = TableParam(&srv, STAGE_VISIBILITY[s]);
 					gp[s * 3 + PARAM_SAMPLER] = TableParam(&smp, STAGE_VISIBILITY[s]);
 				}
+				//The persistent table (BindlessIndex), set once on every list.
+				gp[GRAPHICS_BINDLESS] = TableParam(&bindless, D3D12_SHADER_VISIBILITY_ALL);
 				graphics_root = SerializeRoot(device, gp, _countof(gp), D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
-				//An unbounded array of textures in register space 1, for the shaders that pick a texture by number (the ray tracers' hit
-				//shading): resource binding tier 2 allows it, and the device is asked for that tier.
-				D3D12_DESCRIPTOR_RANGE1 bindless = Range(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, UINT_MAX);
-				bindless.RegisterSpace = 1;
 				D3D12_ROOT_PARAMETER1 cp[5];
 				cp[COMPUTE_CBV] = TableParam(&cbv, D3D12_SHADER_VISIBILITY_ALL);
 				cp[COMPUTE_SRV] = TableParam(&srv, D3D12_SHADER_VISIBILITY_ALL);
@@ -328,7 +341,9 @@ namespace HotBite {
 					const UINT region = 262144;
 					D3D12_DESCRIPTOR_HEAP_DESC d = {};
 					d.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-					d.NumDescriptors = region * GFX_FRAMES_IN_FLIGHT;
+					//The persistent bindless table first, then a region per frame in flight (851968 in all, under the 1000000 a
+					//shader-visible heap may hold).
+					d.NumDescriptors = GFX_PERSISTENT_DESCRIPTORS + region * GFX_FRAMES_IN_FLIGHT;
 					d.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 					if (FAILED(device->CreateDescriptorHeap(&d, IID_PPV_ARGS(&ring_srv.heap)))) {
 						LOG_ERROR("GfxContext: could not create the shader-visible descriptor heap");
@@ -338,6 +353,15 @@ namespace HotBite {
 					ring_srv.gpu_base = ring_srv.heap->GetGPUDescriptorHandleForHeapStart();
 					ring_srv.increment = gfx->CbvSrvUavIncrement();
 					ring_srv.region_size = region;
+					ring_srv.reserved = GFX_PERSISTENT_DESCRIPTORS;
+					//Place 0 of the table: a null texture (what a missing map reads).
+					device->CopyDescriptorsSimple(1, ring_srv.cpu_base, gfx->NullSRV(D3D12_SRV_DIMENSION_TEXTURE2D),
+						D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+					bindless_next = 1;
+					bindless_count = 0;
+					bindless_free.clear();
+					bindless_owner = this;
+					GfxSRV::release_bindless = &GfxContext::ReleaseBindless;
 				}
 				//Samplers: a persistent heap of tables, see BuildSamplerTable.
 				{
@@ -434,6 +458,7 @@ namespace HotBite {
 				direct_used = 0;
 				async_used = 0;
 				ResetRings();
+				last_stats = stats;
 				stats = Stats();
 				async_stats = AsyncStats();
 				segments.clear();
@@ -923,6 +948,62 @@ namespace HotBite {
 				}
 			}
 
+			UINT GfxContext::BindlessIndex(GfxSRV* srv) {
+				if (srv == nullptr || ring_srv.heap == nullptr) {
+					return 0;
+				}
+				if (srv->bindless_index != 0) {
+					return srv->bindless_index;
+				}
+				std::lock_guard<std::mutex> lock(bindless_mutex);
+				UINT index = 0;
+				if (!bindless_free.empty()) {
+					index = bindless_free.back();
+					bindless_free.pop_back();
+				}
+				else if (bindless_next < GFX_PERSISTENT_DESCRIPTORS) {
+					index = bindless_next++;
+				}
+				else {
+					static bool reported = false;
+					if (!reported) {
+						reported = true;
+						LOG_ERROR("GfxContext: the persistent bindless table is full (%u textures): the next ones read as black",
+							GFX_PERSISTENT_DESCRIPTORS);
+					}
+					return 0;
+				}
+				//A place no frame in flight reads: it was free, and a place is given back only once the GPU is done with its view.
+				const D3D12_CPU_DESCRIPTOR_HANDLE dst = { ring_srv.cpu_base.ptr + (SIZE_T)index * ring_srv.increment };
+				gfx->Device()->CopyDescriptorsSimple(1, dst, srv->Cpu(), D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+				srv->bindless_index = index;
+				++bindless_count;
+				return index;
+			}
+
+			void GfxContext::ReleaseBindless(UINT index) {
+				GfxContext* owner = bindless_owner;
+				if (owner == nullptr || index == 0 || index >= GFX_PERSISTENT_DESCRIPTORS) {
+					return;
+				}
+				std::lock_guard<std::mutex> lock(owner->bindless_mutex);
+				owner->bindless_free.push_back(index);
+				if (owner->bindless_count > 0) {
+					--owner->bindless_count;
+				}
+			}
+
+			void GfxContext::SetGraphicsBindlessUses(UINT count, GfxSRV* const* views) {
+				count = (std::min)(count, GFX_GRAPHICS_BINDLESS_USES);
+				for (UINT i = 0; i < count; ++i) {
+					graphics_bindless[i] = views != nullptr ? views[i] : nullptr;
+				}
+				for (UINT i = count; i < graphics_bindless_count; ++i) {
+					graphics_bindless[i] = nullptr;
+				}
+				graphics_bindless_count = count;
+			}
+
 			void GfxContext::CSSetBindlessSRVs(UINT count, GfxSRV* const* views) {
 				count = (std::min)(count, GFX_BINDLESS_SLOTS);
 				for (UINT i = 0; i < count; ++i) {
@@ -1161,7 +1242,7 @@ namespace HotBite {
 				if (ring.head + count + TABLE_MARGIN > ring.region_size) {
 					return false;
 				}
-				const UINT64 index = (UINT64)ring.region * ring.region_size + ring.head;
+				const UINT64 index = (UINT64)ring.reserved + (UINT64)ring.region * ring.region_size + ring.head;
 				cpu = { ring.cpu_base.ptr + (SIZE_T)(index * ring.increment) };
 				gpu = { ring.gpu_base.ptr + index * ring.increment };
 				ring.head += count;
@@ -1892,6 +1973,7 @@ namespace HotBite {
 					EnsureOpen();
 					if (!graphics_root_set) {
 						list->SetGraphicsRootSignature(graphics_root.Get());
+						list->SetGraphicsRootDescriptorTable(GRAPHICS_BINDLESS, ring_srv.gpu_base);
 						graphics_root_set = true;
 					}
 
@@ -2114,8 +2196,18 @@ namespace HotBite {
 				if (index_buffer != nullptr) {
 					UseResource(index_buffer, D3D12_RESOURCE_STATE_INDEX_BUFFER);
 				}
+				bool reads_bindless = false;
 				for (UINT s = 0; s < 5; ++s) {
 					UseStageSRVs((GfxShader::Stage)s);
+					reads_bindless = reads_bindless || (stages[s].shader != nullptr && stages[s].shader->bindless);
+				}
+				//What the draw reads through the persistent table is kept in a read state like a bound slot.
+				if (reads_bindless) {
+					for (UINT i = 0; i < graphics_bindless_count; ++i) {
+						if (graphics_bindless[i] != nullptr) {
+							UseView(graphics_bindless[i], GFX_STATE_SHADER_READ);
+						}
+					}
 				}
 				return cut_counter == cuts;
 			}

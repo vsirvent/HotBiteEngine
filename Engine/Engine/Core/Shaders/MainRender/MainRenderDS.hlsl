@@ -52,6 +52,8 @@ cbuffer externalData : register(b0)
 	//offset v). Separate from the uv_scale that tiles the detail maps: a splat
 	//map covers the surface once, the rock on it repeats tens of times.
 	float4 multi_texture_mask_uv[MAX_MULTI_TEXTURE];
+	//Per layer, the bindless indices of its maps (see MultiTexture.hlsli).
+	uint4 multi_texture_maps[MAX_MULTI_TEXTURE * 2];
 }
 
 #include "../Common/MultiTexture.hlsli"
@@ -92,9 +94,9 @@ DomainOutput main(
 			//below), and the layer rules are world-space ones - passing it as-is would
 			//tilt every slope rule with the model's own rotation.
 			const float3 world_normal = normalize(mul(output.normal, (float3x3)world));
-			getValues(calculated_values, basicSampler, output.uv, multi_texture_count, multi_texture_operations, multi_maskTexture, multi_texture_values, output.worldPos.xyz, world_normal);
+			getValues(calculated_values, basicSampler, output.uv, multi_texture_count, multi_texture_operations, multi_texture_values, output.worldPos.xyz, world_normal);
 			h = getMutliTextureValueLevel(basicSampler, 1, MULTITEXT_DISP, multi_texture_count, multi_texture_operations,
-				calculated_values, multi_texture_uv_scales, output.uv, multi_highTexture).r;
+				calculated_values, multi_texture_uv_scales, output.uv).r;
 		}
 		else if (highTextureEnable) {
 			//The same UV the pixel shader colours with: world-aligned tiling and the UV scale

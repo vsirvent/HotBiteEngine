@@ -192,6 +192,14 @@ namespace HotBite {
 				}
 			}
 
+			void (*GfxSRV::release_bindless)(UINT index) = nullptr;
+
+			GfxSRV::~GfxSRV() {
+				if (bindless_index != 0 && release_bindless != nullptr) {
+					release_bindless(bindless_index);
+				}
+			}
+
 			GfxSampler::GfxSampler() {
 				gpu_owned = false;
 			}

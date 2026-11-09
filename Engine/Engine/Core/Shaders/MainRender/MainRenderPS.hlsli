@@ -67,7 +67,7 @@ RenderTargetRT MainRenderPS(GSOutput input)
 		//about how the surface sits in the world, and the rock detail in a normal map
 		//would otherwise speckle the snow line.
 		getValues(calculated_values, basicSampler, input.uv, multi_texture_count,
-			multi_texture_operations, multi_maskTexture, multi_texture_values,
+			multi_texture_operations, multi_texture_values,
 			input.worldPos.xyz, input.normal);
 	}
 
@@ -131,7 +131,7 @@ RenderTargetRT MainRenderPS(GSOutput input)
 		float3 texture_normal;
 		if (multi_texture_count > 0) {
 			texture_normal = normalize(getMutliTextureValueLevel(basicSampler, 2, MULTITEXT_NORM, multi_texture_count, multi_texture_operations,
-				calculated_values, multi_texture_uv_scales, input.uv, multi_normalTexture).xyz);
+				calculated_values, multi_texture_uv_scales, input.uv).xyz);
 		}
 		else {
 			texture_normal = normalTexture.Sample(basicSampler, input.uv).xyz;
@@ -146,7 +146,7 @@ RenderTargetRT MainRenderPS(GSOutput input)
 	spec_intensity = material.specIntensity;
 	if (multi_texture_count > 0) {
 		spec_intensity *= getMutliTextureValueLevel(basicSampler, 2, MULTITEXT_SPEC, multi_texture_count, multi_texture_operations,
-			calculated_values, multi_texture_uv_scales, input.uv, multi_specularTexture).r;
+			calculated_values, multi_texture_uv_scales, input.uv).r;
 
 	}
 	else {
@@ -169,7 +169,7 @@ RenderTargetRT MainRenderPS(GSOutput input)
 		float3 text_color;
 		if (multi_texture_count > 0) {
 			text_color = getMutliTextureValue(basicSampler, MULTITEXT_DIFF, multi_texture_count, multi_texture_operations,
-				calculated_values, multi_texture_uv_scales, input.uv, multi_diffuseTexture).rgb;
+				calculated_values, multi_texture_uv_scales, input.uv).rgb;
 		}
 		else {
 			const float4 sampled = diffuseTexture.Sample(basicSampler, input.uv);
@@ -205,7 +205,7 @@ RenderTargetRT MainRenderPS(GSOutput input)
 	// Apply ambient occlusion
 	if (multi_texture_count > 0) {
 		finalColor *= getMutliTextureValueLevel(basicSampler, 2, MULTITEXT_AO, multi_texture_count, multi_texture_operations,
-			calculated_values, multi_texture_uv_scales, input.uv, multi_aoTexture).r;
+			calculated_values, multi_texture_uv_scales, input.uv).r;
 	}
 	else {
 		if (material.flags & AO_MAP_ENABLED_FLAG) {

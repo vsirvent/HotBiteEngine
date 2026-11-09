@@ -27,6 +27,7 @@ SOFTWARE.
 #include "Defines.h"
 #include "SimpleShader.h"
 #include "Texture.h"
+#include "FrameGraph.h"
 #include <Core/GfxDevice.h>
 
 #include <VertexTypes.h>
@@ -115,6 +116,15 @@ namespace HotBite {
 				//Execute post-chain and render from source texture to final target renderer
 				//of the full chain
 				void Process();
+				//This stage alone: draws its input into its target.
+				void ProcessStage();
+				//The chain from this stage on as passes of a frame graph, one per stage, in order (what Process draws).
+				void AddPasses(FrameGraph& graph);
+				//The frame texture the stage draws from (what the stage before it draws into), when it has one of its own.
+				virtual FrameTexture* OwnFrameTexture() { return nullptr; }
+				//What the stage's pass reads and writes: its own texture and the next stage's. A stage with textures of its
+				//own for the steps of its draw adds them.
+				virtual void DeclareFrameTextures(FrameGraph::PassBuilder& pass);
 			
 				//The stage draws this instead of its own texture, which stays what the scene is drawn into. Dynamic resolution
 				//uses it: the first stage's texture is the size of the internal image, and what the chain starts from is the
@@ -151,7 +161,9 @@ namespace HotBite {
 			{
 			private:
 				HotBite::Engine::ECS::Coordinator* coordinator = nullptr;
-				HotBite::Engine::Core::RenderTexture2D text;
+				//Transient: the stage before this one covers all of it with a full screen draw, so the frame graph gives it
+				//memory from that pass to this stage's only, shared with the other stages' (see FrameGraph).
+				HotBite::Engine::Core::FrameTexture text;
 
 				//This is pure abstract from HotBite::Engine::Core::PostProcess to clean internal process texture
 				virtual void ClearData(const float color[4]);
@@ -165,6 +177,7 @@ namespace HotBite {
 				virtual GfxSRV* RenderResource() override;
 				virtual GfxRTV* RenderTarget() const override;
 				virtual GfxUAV* RenderUAV() override;
+				virtual FrameTexture* OwnFrameTexture() override { return &text; }
 			};
 			
 			class MainEffect : public PostProcess
@@ -188,11 +201,11 @@ namespace HotBite {
 			class MotionBlurEffect : public PostProcess
 			{
 			private:
-				RenderTexture2D text{ 3 };
+				FrameTexture text;
 
 				float4x4 current_view{};
 				float4x4 prev_view{};
-				
+
 				virtual void ClearData(const float color[4]);
 
 			public:
@@ -202,6 +215,7 @@ namespace HotBite {
 				virtual ~MotionBlurEffect();
 				virtual GfxSRV* RenderResource() override;
 				virtual GfxRTV* RenderTarget() const override;
+				virtual FrameTexture* OwnFrameTexture() override { return &text; }
 
 				virtual void Prepare() override;
 
@@ -326,7 +340,8 @@ namespace HotBite {
 			class DOFProcess : public BaseDOFProcess
 			{
 			private:
-				HotBite::Engine::Core::RenderTexture2D temp;
+				//The first blur's result, read by the second: alive within the stage's pass only.
+				HotBite::Engine::Core::FrameTexture temp;
 
 			public:
 
@@ -334,11 +349,15 @@ namespace HotBite {
 					int width, int height, HotBite::Engine::ECS::Coordinator* c) : 
 					BaseDOFProcess(dxcontext, width, height, c, "PostMainVS.cso", "PostDOP.cso")
 				{
-					temp.Init(width, height, DXGI_FORMAT_R32G32B32A32_FLOAT);
+					temp.Init("dof temp", width, height, DXGI_FORMAT_R32G32B32A32_FLOAT, GFX_BIND_UNORDERED_ACCESS);
 				}
 
 				virtual ~DOFProcess() {
 					temp.Release();
+				}
+				void DeclareFrameTextures(FrameGraph::PassBuilder& pass) override {
+					BaseDOFProcess::DeclareFrameTextures(pass);
+					pass.Write(temp);
 				}
 
 				
@@ -368,7 +387,8 @@ namespace HotBite {
 			private:
 				int32_t KERNEL_SIZE;
 
-				HotBite::Engine::Core::RenderTexture2D temp;
+				//The first blur's result, read by the second: alive within the stage's pass only.
+				HotBite::Engine::Core::FrameTexture temp;
 				HotBite::Engine::Core::RenderTexture2D kernel;
 
 				void InitKernels() {
@@ -393,7 +413,7 @@ namespace HotBite {
 					int width, int height, HotBite::Engine::ECS::Coordinator* c) :
 					BaseDOFProcess(dxcontext, width, height, c, "PostMainVS.cso", "PostDOFBoke.cso")
 				{
-					temp.Init(width, height, DXGI_FORMAT_R32G32B32A32_FLOAT);
+					temp.Init("dof temp", width, height, DXGI_FORMAT_R32G32B32A32_FLOAT, GFX_BIND_UNORDERED_ACCESS);
 
 					KERNEL_SIZE = min(41, (width / 32) - 3) | 0x1;
 					int32_t size = (KERNEL_SIZE + 1 + 15) & ~15; // Round to upper multiple of 16
@@ -409,6 +429,10 @@ namespace HotBite {
 				virtual ~DOFBokeProcess() {
 					temp.Release();
 					kernel.Release();
+				}
+				void DeclareFrameTextures(FrameGraph::PassBuilder& pass) override {
+					BaseDOFProcess::DeclareFrameTextures(pass);
+					pass.Write(temp);
 				}
 
 				void Render() override {

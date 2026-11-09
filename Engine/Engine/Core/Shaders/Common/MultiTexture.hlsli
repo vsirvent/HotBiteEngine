@@ -65,15 +65,28 @@ SOFTWARE.
 #define MULTITEXT_MASK_CHANNEL_SHIFT 17
 #define MULTITEXT_MASK_CHANNEL_MASK (3 << MULTITEXT_MASK_CHANNEL_SHIFT)
 
-Texture2D multi_diffuseTexture[MAX_MULTI_TEXTURE];
-Texture2D multi_normalTexture[MAX_MULTI_TEXTURE];
-Texture2D multi_specularTexture[MAX_MULTI_TEXTURE];
-Texture2D multi_aoTexture[MAX_MULTI_TEXTURE];
-Texture2D multi_armTexture[MAX_MULTI_TEXTURE];
-Texture2D multi_highTexture[MAX_MULTI_TEXTURE];
-//Four channels, not one: a mask image is a splat map, and MULTITEXT_MASK_CHANNEL_*
-//says which of its channels a given layer reads.
-Texture2D multi_maskTexture[MAX_MULTI_TEXTURE];
+//The layers' maps are read by number from the persistent bindless table (GfxContext::BindlessIndex): a texture gets its
+//place there once, so a draw of a multi-material copies no descriptor for its up to 56 maps (7 per layer) - it hands over
+//their numbers in the constant buffer instead. `multi_texture_maps` (declared by the including shader, with the other
+//per-layer constants) holds two uint4 per layer: diffuse, normal, specular, arm, then displacement, ao, mask and an unused
+//one, in the order of the MULTITEXT_* map bits below (MULTITEXT_DIFF is map 0 ... MULTITEXT_MASK map 6). 0 is a null
+//texture, which reads zero, as an unbound slot did. A mask image has four channels, not one: it is a splat map, and
+//MULTITEXT_MASK_CHANNEL_* says which of its channels a given layer reads.
+//The index is the same for the whole draw (a constant), so no NonUniformResourceIndex is needed.
+Texture2D multiTextures[] : register(t0, space1);
+
+//The map of a MULTITEXT_* map bit: MULTITEXT_DIFF (bit 3) is map 0, MULTITEXT_MASK (bit 9) map 6. A literal at every call
+//site, so it folds.
+uint multiMapOf(uint type) {
+	return firstbitlow(type) - 3;
+}
+
+//The bindless index of one map of one layer.
+uint multiMapIndex(uint layer, uint map) {
+	const uint4 v = multi_texture_maps[layer * 2 + (map >> 2)];
+	const uint c = map & 3;
+	return c == 0 ? v.x : (c == 1 ? v.y : (c == 2 ? v.z : v.w));
+}
 
 //Packed array: the constant buffer holds them four to a register (uint4[2], float4[2]) and the layer code wants
 //one flat array. Spelled out element by element rather than as an array cast, `(const uint[8])packed`: fxc
@@ -113,7 +126,7 @@ float multiRangeMask(float x, float4 range) {
 //`world_normal` is the geometric normal *in world space* - the rules are about how
 //the surface sits in the world, so a normal still in object space (which is what the
 //domain shader has before it transforms it) would rotate the snow line with the model.
-void getValues(out float output_values[MAX_MULTI_TEXTURE], SamplerState basicSampler, float2 uv, uint count, const uint op[MAX_MULTI_TEXTURE], const Texture2D mask[MAX_MULTI_TEXTURE], const float val[MAX_MULTI_TEXTURE], const float3 world_position, const float3 world_normal) {
+void getValues(out float output_values[MAX_MULTI_TEXTURE], SamplerState basicSampler, float2 uv, uint count, const uint op[MAX_MULTI_TEXTURE], const float val[MAX_MULTI_TEXTURE], const float3 world_position, const float3 world_normal) {
 	const float3 up = float3(0.0f, 1.0f, 0.0f);
 	const float slope = dot(normalize(world_normal), up);
 	for (uint i = 0; i < count; ++i) {
@@ -127,7 +140,7 @@ void getValues(out float output_values[MAX_MULTI_TEXTURE], SamplerState basicSam
 				//second - so sampling a mask at raw uv tiles it across the terrain. The
 				//identity transform (1, 0, 0) is what every mask had before this existed.
 				const float2 mask_uv = uv * multi_texture_mask_uv[i].xy + multi_texture_mask_uv[i].zw;
-				const float4 texel = mask[i].SampleLevel(basicSampler, mask_uv, 0);
+				const float4 texel = multiTextures[multiMapIndex(i, multiMapOf(MULTITEXT_MASK))].SampleLevel(basicSampler, mask_uv, 0);
 				const uint channel = (op[i] & MULTITEXT_MASK_CHANNEL_MASK) >> MULTITEXT_MASK_CHANNEL_SHIFT;
 				float c = texel.r;
 				if (channel == 1) { c = texel.g; }
@@ -182,7 +195,8 @@ float3 MultiTextureNotEnabledDefault(uint type) {
 }
 
 float3 getMutliTextureValue(SamplerState basicSampler, uint type, uint count, const uint op[MAX_MULTI_TEXTURE], const float val[MAX_MULTI_TEXTURE],
-	const float uv_scales[MAX_MULTI_TEXTURE], float2 uv, const Texture2D text[MAX_MULTI_TEXTURE]) {
+	const float uv_scales[MAX_MULTI_TEXTURE], float2 uv) {
+	const uint map = multiMapOf(type);
 	float3 color = { 0.0f, 0.0f, 0.0f };
 	uint i;
 	bool enabled = false;
@@ -194,7 +208,7 @@ float3 getMutliTextureValue(SamplerState basicSampler, uint type, uint count, co
 			if (val[i] > 0.0f) {
 				float v = val[i];
 				float uv_scale = uv_scales[i];
-				float3 tcolor = PF_SAMPLE(text[i], basicSampler, uv * uv_scale).rgb;
+				float3 tcolor = PF_SAMPLE(multiTextures[multiMapIndex(i, map)], basicSampler, uv * uv_scale).rgb;
 				switch (op[i] & MULTITEXT_OP_MASK) {
 				case MULTITEXT_MIX: {
 					color = (1.0f - v) * color + v * tcolor;
@@ -218,8 +232,9 @@ float3 getMutliTextureValue(SamplerState basicSampler, uint type, uint count, co
 
 float3 getMutliTextureValueLevel(SamplerState basicSampler, uint level, uint type,
 	uint count, const uint op[MAX_MULTI_TEXTURE], const float val[MAX_MULTI_TEXTURE],
-	const float uv_scales[MAX_MULTI_TEXTURE], float2 uv, const Texture2D text[MAX_MULTI_TEXTURE]) {
+	const float uv_scales[MAX_MULTI_TEXTURE], float2 uv) {
 
+	const uint map = multiMapOf(type);
 	float3 color = { 0.0f, 0.0f, 0.0f };
 	uint i;
 	bool enabled = false;
@@ -231,7 +246,7 @@ float3 getMutliTextureValueLevel(SamplerState basicSampler, uint level, uint typ
 			if (val[i] > 0.0f) {
 				float v = val[i];
 				float uv_scale = uv_scales[i];
-				float3 tcolor = text[i].SampleLevel(basicSampler, uv * uv_scale, level).rgb;
+				float3 tcolor = multiTextures[multiMapIndex(i, map)].SampleLevel(basicSampler, uv * uv_scale, level).rgb;
 				switch (op[i] & MULTITEXT_OP_MASK) {
 				case MULTITEXT_MIX: {
 					color = (1.0f - v) * color + v * tcolor;

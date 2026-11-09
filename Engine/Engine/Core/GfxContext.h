@@ -126,6 +126,22 @@ namespace HotBite {
 				//NonUniformResourceIndex): element i of `views` is t[i]. Replaces the previous list; a null is a texture that reads zero.
 				//Its own descriptor table, so it costs none of the 128 SRV slots - and no shader has to pick a texture with a switch.
 				void CSSetBindlessSRVs(UINT count, GfxSRV* const* views);
+				//---- the persistent bindless table (graphics) ---------------------------------------------
+				//
+				//A texture a draw reads by number. The first time its SRV is asked for it gets a place of its own at the start of the
+				//shader-visible heap, kept until the view is destroyed, so a draw that reads it copies no descriptor: the shader
+				//indexes an unbounded array in register space 1 (Texture2D t[] : register(t0, space1)) with the number it is given
+				//(a constant). 0 is a null texture, which reads zero. The table is bound to every graphics stage for the whole frame.
+				//The multi-materials' layers use it (RenderSystem::PrepareMultiMaterial): up to 56 maps a draw that used to be
+				//copied into the ring for every draw.
+				static constexpr UINT GFX_PERSISTENT_DESCRIPTORS = 65536;
+				UINT BindlessIndex(GfxSRV* srv);
+				//The textures the next draws read through the table: they are kept in the state a shader reads them in, as the
+				//slots' are (a texture the CPU or a pass writes between draws). Replaces the previous list.
+				static constexpr UINT GFX_GRAPHICS_BINDLESS_USES = 64;
+				void SetGraphicsBindlessUses(UINT count, GfxSRV* const* views);
+				//Places in use and the table's size.
+				UINT BindlessCount() const { return bindless_count; }
 
 				void VSSetConstantBuffers(UINT start, UINT count, GfxBuffer* const* buffers) { SetCBs(GfxShader::VS, start, count, buffers); }
 				void HSSetConstantBuffers(UINT start, UINT count, GfxBuffer* const* buffers) { SetCBs(GfxShader::HS, start, count, buffers); }
@@ -278,6 +294,8 @@ namespace HotBite {
 										uint32_t skipped = 0;
 									};
 				Stats stats;
+				//The counters of the last frame that was recorded whole.
+				Stats last_stats;
 				size_t PipelineCount() const { return graphics_pipelines.size() + compute_pipelines.size(); }
 
 				//Async compute counters of the frame being recorded; the engine reads them through RenderSystem.
@@ -311,6 +329,15 @@ namespace HotBite {
 					D3D12_GPU_DESCRIPTOR_HANDLE uav_table = {};
 				};
 
+				//The persistent table: the next free place, the places given back, and how many are in use.
+				std::mutex bindless_mutex;
+				UINT bindless_next = 1;
+				UINT bindless_count = 0;
+				std::vector<UINT> bindless_free;
+				static GfxContext* bindless_owner;
+				static void ReleaseBindless(UINT index);
+				GfxRef<GfxSRV> graphics_bindless[GFX_GRAPHICS_BINDLESS_USES];
+				UINT graphics_bindless_count = 0;
 				//The compute stage's bindless table (see CSSetBindlessSRVs).
 				GfxRef<GfxSRV> cs_bindless[GFX_BINDLESS_SLOTS];
 				UINT cs_bindless_count = 0;
@@ -321,6 +348,8 @@ namespace HotBite {
 					Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> heap;
 					D3D12_CPU_DESCRIPTOR_HANDLE cpu_base = {};
 					D3D12_GPU_DESCRIPTOR_HANDLE gpu_base = {};
+					//Descriptors at the start of the heap that are not the ring's (the persistent bindless table).
+					UINT reserved = 0;
 					UINT increment = 0;
 					UINT region_size = 0;
 					UINT head = 0;

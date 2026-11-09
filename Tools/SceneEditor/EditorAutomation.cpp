@@ -292,7 +292,7 @@ namespace HotBiteEditor {
 		{
 			if (cmd != "spawn_lights" && cmd != "clear_lights" && cmd != "lights_info" && cmd != "lights_validate" &&
 				cmd != "lights_packed" && cmd != "tile_culling" && cmd != "gpu_timings" && cmd != "shadow_rays" && cmd != "rt_stats" && cmd != "rt_tracer" &&
-				cmd != "async_compute" && cmd != "lighting_shaders") {
+				cmd != "async_compute" && cmd != "lighting_shaders" && cmd != "frame_graph") {
 				return false;
 			}
 			Systems::RenderSystem* rs =
@@ -404,6 +404,32 @@ namespace HotBiteEditor {
 						(l.flags & Core::PACKED_LIGHT_SHADOW) ? (int)((l.flags >> Core::PACKED_LIGHT_SLOT_SHIFT) & 15u) : -1,
 						(l.flags & Core::PACKED_LIGHT_RAYTRACED) ? 1 : 0);
 					response_lines.push_back(text);
+				}
+			}
+			else if (cmd == "frame_graph") {
+				//frame_graph [describe]: the last frame's frame graph (Core/FrameGraph.h) -> OK passes= culled= transient= physical=
+				//transient_mb= physical_mb= aliased_mb= persistent= persistent_mb= idle= idle_mb= pool= pool_mb= clears_done=
+				//clears_dropped= violations= draws= descriptors_copied=. transient_mb is what the frame's transient textures would
+				//take with a texture each, physical_mb what the pool textures they shared take; idle is the persistent textures with
+				//nothing behind them now (a feature that is off). `describe` adds a line per pass and per transient texture.
+				const Systems::RenderSystem::FrameGraphStats fg = rs->GetFrameGraphStats();
+				const GfxContext::Stats gs = Core::DXCore::Get() != nullptr ? Core::DXCore::Get()->context->last_stats : GfxContext::Stats();
+				const auto mb = [](uint64_t bytes) { return (double)bytes / (1024.0 * 1024.0); };
+				char text[640];
+				snprintf(text, sizeof(text), "OK passes=%u culled=%u transient=%u physical=%u transient_mb=%.1f physical_mb=%.1f aliased_mb=%.1f "
+					"persistent=%u persistent_mb=%.1f idle=%u idle_mb=%.1f pool=%u pool_mb=%.1f clears_done=%u clears_dropped=%u violations=%u "
+					"draws=%u descriptors_copied=%u",
+					fg.frame.passes, fg.frame.culled, fg.frame.transient_textures, fg.frame.physical_textures, mb(fg.frame.transient_bytes),
+					mb(fg.frame.physical_bytes), mb(fg.frame.aliased_bytes), fg.pool.persistent_alive, mb(fg.pool.persistent_bytes),
+					fg.pool.persistent_idle, mb(fg.pool.persistent_idle_bytes), fg.pool.pool_textures, mb(fg.pool.pool_bytes),
+					fg.frame.clears_done, fg.frame.clears_dropped, fg.frame.violations, gs.draws, gs.descriptors_copied);
+				response_lines.push_back(text);
+				if (args.size() > 1 && args[1] == "describe") {
+					std::istringstream lines(rs->DescribeFrameGraph());
+					std::string line;
+					while (std::getline(lines, line)) {
+						response_lines.push_back(line);
+					}
 				}
 			}
 			else if (cmd == "rt_stats") {

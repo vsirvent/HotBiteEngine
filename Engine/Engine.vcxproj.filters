@@ -110,6 +110,9 @@
     <ClCompile Include="Engine\Core\ShaderCompiler.cpp">
       <Filter>Engine\Core</Filter>
     </ClCompile>
+    <ClCompile Include="Engine\Core\FrameGraph.cpp">
+      <Filter>Engine\Core</Filter>
+    </ClCompile>
     <ClCompile Include="Engine\Core\PostProcess.cpp">
       <Filter>Engine\Core</Filter>
     </ClCompile>
@@ -320,6 +323,9 @@
       <Filter>Engine\Core</Filter>
     </ClInclude>
     <ClInclude Include="Engine\Core\Interfaces.h">
+      <Filter>Engine\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\Core\FrameGraph.h">
       <Filter>Engine\Core</Filter>
     </ClInclude>
     <ClInclude Include="Engine\Core\Texture.h">

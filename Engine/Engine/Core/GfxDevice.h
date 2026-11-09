@@ -322,7 +322,13 @@ namespace HotBite {
 
 			class GfxSRV : public GfxView {
 			public:
+				~GfxSRV() override;
 				D3D12_SRV_DIMENSION dimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+				//Its place in the persistent bindless table (GfxContext::BindlessIndex), 0 while it has none. Given back when the
+				//view is destroyed, which is after the GPU has finished every frame that could have read it.
+				UINT bindless_index = 0;
+				//Set by the context that owns the table.
+				static void (*release_bindless)(UINT index);
 			};
 
 			class GfxUAV : public GfxView {

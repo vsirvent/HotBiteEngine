@@ -69,6 +69,8 @@ cbuffer externalData : register(b0)
 	//offset v). Separate from the uv_scale that tiles the detail maps: a splat
 	//map covers the surface once, the rock on it repeats tens of times.
 	float4 multi_texture_mask_uv[MAX_MULTI_TEXTURE];
+	//Per layer, the bindless indices of its maps (see MultiTexture.hlsli).
+	uint4 multi_texture_maps[MAX_MULTI_TEXTURE * 2];
 }
 
 cbuffer objectData : register(b1)

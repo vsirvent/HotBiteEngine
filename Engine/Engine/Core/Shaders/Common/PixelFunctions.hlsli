@@ -56,7 +56,7 @@ float GetHeight(float2 pos, const float calculated_values[MAX_MULTI_TEXTURE]) {
 	float h = 0.0f;
 	if (multi_texture_count > 0) {
 		h = getMutliTextureValueLevel(basicSampler, 2, MULTITEXT_DISP, multi_texture_count, multi_texture_operations,
-			calculated_values, multi_texture_uv_scales, pos, multi_highTexture).r;
+			calculated_values, multi_texture_uv_scales, pos).r;
 	}
 	else {
 		h = highTexture.SampleLevel(basicSampler, pos, 0).r;

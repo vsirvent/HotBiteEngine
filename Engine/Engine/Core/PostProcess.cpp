@@ -24,6 +24,8 @@ SOFTWARE.
 
 #include "PostProcess.h"
 
+#include <typeinfo>
+
 using namespace HotBite::Engine;
 using namespace HotBite::Engine::Core;
 
@@ -92,6 +94,9 @@ GfxDSV* PostProcess::TargetDepthView() {
 void PostProcess::Prepare() {
 	GfxRTV* rv[1] = { TargetRenderView() };
 	context->OMSetRenderTargets(1, rv, TargetDepthView());
+	//The stage's quad covers all of its target and replaces what was there: the next stage's texture is not cleared
+	//before the frame (FrameTexture::SetFullyWritten), so nothing a pass before left set may blend into it.
+	context->OMSetBlendState(DXCore::Get()->no_blend, nullptr, ~0U);
 	vs->SetShader();
 	ps->SetShader();
 	ps->SetShaderResourceView("renderTexture", input_override != nullptr ? input_override : RenderResource());
@@ -156,7 +161,7 @@ void PostProcess::Clear(const float color[4]) {
 	}
 }
 
-void PostProcess::Process() {
+void PostProcess::ProcessStage() {
 	Prepare();
 	vs->CopyAllBufferData();
 	ps->CopyAllBufferData();
@@ -164,8 +169,30 @@ void PostProcess::Process() {
 	UnPrepare();
 	vs->CopyAllBufferData();
 	ps->CopyAllBufferData();
+}
+
+void PostProcess::Process() {
+	ProcessStage();
 	if (next != nullptr) {
 		next->Process();
+	}
+}
+
+void PostProcess::DeclareFrameTextures(FrameGraph::PassBuilder& pass) {
+	pass.Read(OwnFrameTexture());
+	if (next != nullptr) {
+		pass.Write(next->OwnFrameTexture());
+	}
+}
+
+void PostProcess::AddPasses(FrameGraph& graph) {
+	for (PostProcess* stage = this; stage != nullptr; stage = stage->next) {
+		//"class HotBite::Engine::Core::LensEffect" -> "post LensEffect": what a PIX marker and the graph's description show.
+		std::string name = typeid(*stage).name();
+		const size_t colon = name.rfind(':');
+		name = "post " + (colon != std::string::npos ? name.substr(colon + 1) : name);
+		FrameGraph::PassBuilder pass = graph.AddPass(name.c_str(), [stage]() { stage->ProcessStage(); });
+		stage->DeclareFrameTextures(pass);
 	}
 }
 
@@ -221,7 +248,8 @@ GenericPostProcess::GenericPostProcess(GfxContext* dxcontext,
 		ShaderFactory::Get()->GetShader<SimplePixelShader>(ps)), //This is the custom post-process pixel shader of the demo
 	coordinator(c)
 {
-	text.Init(width, height, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, nullptr, 0, GFX_BIND_UNORDERED_ACCESS);
+	text.Init(("post " + ps).c_str(), width, height, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, GFX_BIND_UNORDERED_ACCESS);
+	text.SetFullyWritten(true);
 }
 
 GenericPostProcess::~GenericPostProcess() {
@@ -229,7 +257,9 @@ GenericPostProcess::~GenericPostProcess() {
 }
 
 void GenericPostProcess::ClearData(const float color[4]) {
-	context->ClearRenderTargetView(text.RenderTarget(), color);
+	//A request for the frame (FrameTexture::Clear): carried out when the texture's first pass starts, or dropped when that
+	//pass covers it anyway.
+	text.Clear(color);
 }
 
 GfxSRV* GenericPostProcess::RenderResource() {
@@ -292,7 +322,7 @@ GfxDSV* MainEffect::DepthView() {
 }
 
 void MotionBlurEffect::ClearData(const float color[4]) {
-	context->ClearRenderTargetView(RenderTarget(), color);
+	text.Clear(color);
 }
 
 GfxSRV* MotionBlurEffect::RenderResource() {
@@ -308,7 +338,8 @@ MotionBlurEffect::MotionBlurEffect(GfxContext* dxcontext,
 	PostProcess(dxcontext,
 		ShaderFactory::Get()->GetShader<SimpleVertexShader>("PostMainVS.cso"),
 		ShaderFactory::Get()->GetShader<SimplePixelShader>("PostMotionBlurPS.cso")) {
-	text.Init(width, height, DXGI_FORMAT_R32G32B32A32_FLOAT);
+	text.Init("post motion blur", width, height, DXGI_FORMAT_R32G32B32A32_FLOAT, GFX_BIND_UNORDERED_ACCESS);
+	text.SetFullyWritten(true);
 	matrix id = DirectX::XMMatrixIdentity();
 	XMStoreFloat4x4(&prev_view, id);
 	XMStoreFloat4x4(&current_view, id);

@@ -178,6 +178,7 @@
     <ClCompile Include="Engine\Core\MeshRaycast.cpp" />
     <ClCompile Include="Engine\Core\MeshSimplify.cpp" />
     <ClCompile Include="Engine\Core\PhysicsCommon.cpp" />
+    <ClCompile Include="Engine\Core\FrameGraph.cpp" />
     <ClCompile Include="Engine\Core\PostProcess.cpp" />
     <ClCompile Include="Engine\Core\GBufferEffect.cpp" />
     <ClCompile Include="Engine\Core\RGBANoise.cpp" />
@@ -257,6 +258,7 @@
     <ClInclude Include="Engine\Core\SpinLock.h" />
     <ClInclude Include="Engine\Core\SplatCloud.h" />
     <ClInclude Include="Engine\Core\SplatMeshReconstruction.h" />
+    <ClInclude Include="Engine\Core\FrameGraph.h" />
     <ClInclude Include="Engine\Core\Texture.h" />
     <ClInclude Include="Engine\Core\Dlss.h" />
     <ClInclude Include="Engine\Core\DynamicResolution.h" />
@@ -1018,6 +1020,19 @@
       <PixelCommonDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\SkyRender\SkyPS.hlsl" />
     </ItemGroup>
     <Touch Files="@(PixelCommonDependent)" Condition="Exists('$(PixelCommonHeader)') And $([System.IO.File]::GetLastWriteTime('$(PixelCommonHeader)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('%(PixelCommonDependent.FullPath)').Ticks)" />
+    <PropertyGroup>
+      <MultiTextureHeader>$(MSBuildThisFileDirectory)Engine\Core\Shaders\Common\MultiTexture.hlsli</MultiTextureHeader>
+    </PropertyGroup>
+    <ItemGroup>
+      <MultiTextureDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\MainRender\MainRenderPS.hlsl" />
+      <MultiTextureDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\MainRender\MainRenderDS.hlsl" />
+      <MultiTextureDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\Effects\Lava\LavaPS.hlsl" />
+      <MultiTextureDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\Effects\Water\WaterPS.hlsl" />
+      <MultiTextureDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\Particles\FireBallParticlePS.hlsl" />
+      <MultiTextureDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\Particles\SmokeParticlePS.hlsl" />
+      <MultiTextureDependent Include="$(MSBuildThisFileDirectory)Engine\Core\Shaders\SkyRender\SkyPS.hlsl" />
+    </ItemGroup>
+    <Touch Files="@(MultiTextureDependent)" Condition="Exists('$(MultiTextureHeader)') And $([System.IO.File]::GetLastWriteTime('$(MultiTextureHeader)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('%(MultiTextureDependent.FullPath)').Ticks)" />
     <PropertyGroup>
       <MainRenderPSHeader>$(MSBuildThisFileDirectory)Engine\Core\Shaders\MainRender\MainRenderPS.hlsli</MainRenderPSHeader>
     </PropertyGroup>

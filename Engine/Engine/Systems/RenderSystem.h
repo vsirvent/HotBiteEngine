@@ -37,6 +37,7 @@ SOFTWARE.
 #include <Core\Material.h>
 #include <Core\Mesh.h>
 #include <Core\PostProcess.h>
+#include <Core\FrameGraph.h>
 #include <Core\GBufferEffect.h>
 #include <Core\BVH.h>
 #include <Core\RWBuffer.h>
@@ -444,14 +445,11 @@ namespace HotBite {
 				Core::VertexBuffer<Vertex>* vertex_buffer = nullptr;
 				ECS::Coordinator* coordinator = nullptr;
 
-				//Temporal buffers for storing multi-texture maps
-				std::array<GfxSRV*, MAX_MULTI_TEXTURE> multitext_diff = {};
-				std::array<GfxSRV*, MAX_MULTI_TEXTURE> multitext_norm = {};
-				std::array<GfxSRV*, MAX_MULTI_TEXTURE> multitext_spec = {};
-				std::array<GfxSRV*, MAX_MULTI_TEXTURE> multitext_ao = {};
-				std::array<GfxSRV*, MAX_MULTI_TEXTURE> multitext_arm = {};
-				std::array<GfxSRV*, MAX_MULTI_TEXTURE> multitext_disp = {};
-				std::array<GfxSRV*, MAX_MULTI_TEXTURE> multitext_mask = {};
+				//The multi-material being drawn: the bindless index of every map of every layer (MultiTexture.hlsli's
+				//multi_texture_maps, two uint4 a layer) and the textures behind them, which the draw reads through the table.
+				static constexpr uint32_t MULTI_MAPS_PER_LAYER = 8;
+				uint32_t multitext_maps[MAX_MULTI_TEXTURE * MULTI_MAPS_PER_LAYER] = {};
+				GfxSRV* multitext_used[MAX_MULTI_TEXTURE * MULTI_MAPS_PER_LAYER] = {};
 
 				
 
@@ -475,12 +473,19 @@ namespace HotBite {
 				Core::DXCore* dxcore = nullptr;
 				Core::RenderTexture2D depth_map;
 				
-				Core::RenderTexture2D* current_light_map = nullptr;
-				Core::RenderTexture2D* prev_light_map = nullptr;
-				Core::RenderTexture2D light_map[2];
+				//The frame graph (Core/FrameGraph.h): Draw describes the frame as its passes and the frame textures each of them
+				//uses, and records them through it. The textures below that are FrameTexture are its: the transient ones live
+				//from the first pass that uses them to the last and share the memory of the pool with the others of their
+				//kind; the persistent ones (histories) are made when first used and given back while their feature is off.
+				Core::FrameGraph frame_graph;
+				//Transient: the light of this frame (the second one only with a second geometry pass, over a copy of the first).
+				Core::FrameTexture* current_light_map = nullptr;
+				Core::FrameTexture* prev_light_map = nullptr;
+				Core::FrameTexture light_map[2];
 
 				Core::RenderTexture2D vol_light_map;
-				Core::RenderTexture2D vol_light_map2;
+				//Transient: the volumetric light's blur goes through it.
+				Core::FrameTexture vol_light_map2;
 				Core::RenderTexture2D position_map;
 				Core::RenderTexture2D prev_position_map;
 				//The G-buffer's eighth target: how each surface takes light (spec, bloom, the
@@ -489,7 +494,8 @@ namespace HotBite {
 				//UNORDERED_ACCESS so SplatRasterCS can write it from compute.
 				Core::RenderTexture2D material_map;
 				Core::RenderTexture2D bloom_map;
-				Core::RenderTexture2D temp_map;
+				//Transient: the bloom blur's middle step, then the mixed picture the anti-aliasing reads.
+				Core::FrameTexture temp_map;
 				Core::RenderTexture2D rgba_noise_texture;
 				Core::RenderTexture2D first_pass_texture;
 				//The frame's one depth buffer. DrawDepth fills it, then DrawSky and
@@ -498,14 +504,17 @@ namespace HotBite {
 				//the back buffer's and any post-process pipeline's go unused.
 				Core::DepthTexture2D depth_view;
 
-				Core::RenderTexture2D texture_tmp;
+				//Transient: the reflections' denoiser goes through it.
+				Core::FrameTexture texture_tmp;
 
-				Core::RenderTexture2D motion_blur_map;
+				//Transient: the anti-aliased picture the motion blur reads.
+				Core::FrameTexture motion_blur_map;
 				
 				Core::PostProcess* post_process_pipeline = nullptr;				
 				Core::GBufferEffect* gbuffer_pipeline = nullptr;
 				//The surface colour copied before the G-buffer chain runs (GBufferViews::scene_source).
-				Core::RenderTexture2D gbuffer_scene_copy;
+				//Transient: only alive within ProcessGBufferEffects.
+				Core::FrameTexture gbuffer_scene_copy;
 				Core::IRenderTarget* first_pass_target = nullptr;
 				Core::IRenderTarget* second_pass_target = nullptr;
 
@@ -591,19 +600,25 @@ namespace HotBite {
 				static constexpr int RT_TEXTURE_EMISSION = 2;
 
 				static constexpr int RT_NTEXTURES = 3;
-				Core::RenderTexture2D rt_textures_di[2][RT_NTEXTURES];
+				//Persistent: two frames of each, the denoisers blend with the last one. Made the first frame the reflections run
+				//and given back once they have been off for a while (FrameTexture), like every texture of the ray tracing.
+				Core::FrameTexture rt_textures_di[2][RT_NTEXTURES];
 
 				static constexpr int RT_GI_NTEXTURES = 5;
-				Core::RenderTexture2D rt_textures_gi[RT_GI_NTEXTURES];
-				Core::RenderTexture2D rt_textures_gi_tiles;
+				Core::FrameTexture rt_textures_gi[RT_GI_NTEXTURES];
+				Core::FrameTexture rt_textures_gi_tiles;
 				//The same tiles for the reflections: they are cleared, written and read by ProcessRT alone, so ProcessRT and
 				//ProcessGI share no resource and can run at the same time (one of them on the compute queue).
-				Core::RenderTexture2D rt_textures_di_tiles;
+				Core::FrameTexture rt_textures_di_tiles;
 
-				Core::RenderTexture2D restir_pdf[2];
-				Core::RenderTexture2D restir_w;
-				Core::RenderTexture2D* restir_pdf_curr = nullptr;
-				Core::RenderTexture2D* restir_pdf_prev = nullptr;
+				Core::FrameTexture restir_pdf[2];
+				Core::FrameTexture restir_w;
+				Core::FrameTexture* restir_pdf_curr = nullptr;
+				Core::FrameTexture* restir_pdf_prev = nullptr;
+				//The frame_count of the last frame ProcessRT / ProcessGI produced their pictures in: the mix reads them only then,
+				//so a texture of a pass that is off is not kept alive by the mix.
+				uint32_t rt_di_frame = 0;
+				uint32_t rt_gi_frame = 0;
 
 				//The world radiance cache. Sizes and the record layout are in
 				//Shaders/Common/RadianceCache.hlsli and MUST stay in step with
@@ -642,12 +657,12 @@ namespace HotBite {
 				//to construct RenderSystem on fresh (so OS-zeroed) heap memory, but that
 				//is not something the type should rely on - see the null-guards in
 				//ProcessMix, which is exactly the code that was silently depending on it.
-				Core::RenderTexture2D* rt_texture_di_prev = nullptr;
-				Core::RenderTexture2D* rt_texture_di_curr = nullptr;
-				Core::RenderTexture2D* rt_texture_gi_prev = nullptr;
-				Core::RenderTexture2D* rt_texture_gi_curr = nullptr;
-				Core::RenderTexture2D* rt_texture_gi_tmp[2] = { nullptr, nullptr };
-				Core::RenderTexture2D* rt_texture_gi_trace = nullptr;
+				Core::FrameTexture* rt_texture_di_prev = nullptr;
+				Core::FrameTexture* rt_texture_di_curr = nullptr;
+				Core::FrameTexture* rt_texture_gi_prev = nullptr;
+				Core::FrameTexture* rt_texture_gi_curr = nullptr;
+				Core::FrameTexture* rt_texture_gi_tmp[2] = { nullptr, nullptr };
+				Core::FrameTexture* rt_texture_gi_trace = nullptr;
 
 				Core::RenderTexture2D rt_ray_sources0;
 				Core::RenderTexture2D rt_ray_sources1;
@@ -1142,13 +1157,15 @@ namespace HotBite {
 				//lights is accumulated over the frames (ShadowAccumulateCS): `shadow_rt_light` is
 				//this frame's, the two history textures hold the running average (one read, one
 				//written, swapped every frame). `shadow_ray_blend` is the weight of the new frame.
-				Core::RenderTexture2D shadow_rt_light;
-				Core::RenderTexture2D shadow_rt_history[2];
+				//shadow_rt_light is transient (within the first lighting pass), the histories persistent.
+				Core::FrameTexture shadow_rt_light;
+				Core::FrameTexture shadow_rt_history[2];
 				Core::SimpleComputeShader* shadow_accumulate = nullptr;
 				//The shadow_bvh debug buffers: the picture (ShadowBvhDebugCS), and the scene it traces, which
 				//BuildShadowRays makes while one is selected (everything that casts, within SHADOW_BVH_VIEW_RANGE).
 				Core::SimpleComputeShader* shadow_bvh_debug = nullptr;
-				Core::RenderTexture2D shadow_bvh_map;
+				//Transient: only made in a frame the debug view is up.
+				Core::FrameTexture shadow_bvh_map;
 				uint32_t shadow_bvh_scene = Core::ShadowRays::NO_SCENE;
 				static constexpr float SHADOW_BVH_VIEW_RANGE = 300.0f;
 				void ProcessShadowBvhDebug();
@@ -1164,8 +1181,9 @@ namespace HotBite {
 				//directions into `gtao_map` (the frames take turns at the rest, as the ray traced lights do), GtaoAccumulateCS - the
 				//shadows' ShadowAccumulateCS, the same blur and the same running average with the same weight - averages them over the
 				//frames in the two history textures, and takes the share of the ambient light the visibility hides out of the light map.
-				Core::RenderTexture2D gtao_map;
-				Core::RenderTexture2D gtao_history[2];
+				//gtao_map is transient (within the GTAO pass), the histories persistent.
+				Core::FrameTexture gtao_map;
+				Core::FrameTexture gtao_history[2];
 				Core::SimpleComputeShader* gtao_shader = nullptr;
 				Core::SimpleComputeShader* gtao_accumulate = nullptr;
 				int gtao_history_read = 0;
@@ -1185,6 +1203,16 @@ namespace HotBite {
 				//The share of the radius, at its far end, over which a sample fades out.
 				static constexpr float GTAO_FALLOFF = 0.6f;
 				void ProcessGtao();
+				//What follows the first lighting pass in its own frame graph pass (the GTAO, the lighting's last timestamp
+				//and statistics), so the GTAO's texture and the ray traced shadows' do not live through the same pass.
+				void ProcessLightingTail();
+				bool lighting_tail_first = false;
+				bool lighting_tail_gtao = false;
+				//The passes of this frame that use these transients run (decided before the frame is described).
+				bool ShadowBvhDebugWanted() const;
+				bool GtaoWanted() const;
+				bool ReflectionsWanted() const;
+				bool lighting_tail_pending = false;
 				//Runs the G-buffer chain over what the first geometry pass drew (see SetGBufferPipeline).
 				void ProcessGBufferEffects();
 			public:
@@ -1349,7 +1377,8 @@ namespace HotBite {
 				//Written by TemporalAACS and read by the next frame's: ping-pong, since a
 				//texture cannot be read and written by the same dispatch. Half float, because
 				//a history that is blended every frame loses a bit of precision each time.
-				Core::RenderTexture2D taa_history[2];
+				//Persistent: made the first frame the TAA runs, given back while it is off.
+				Core::FrameTexture taa_history[2];
 				uint32_t taa_history_index = 0;
 				//Nothing in the history is worth blending with (first frame, a resize, a frame
 				//the pass did not run): the next resolve takes the current frame as it is.
@@ -1442,7 +1471,7 @@ namespace HotBite {
 
 				void LoadRTResources();
 				void ResetRTBBuffers();
-				void CopyTexture(const Core::RenderTexture2D& input, Core::RenderTexture2D& output);
+				void CopyTexture(GfxSRV* input, GfxUAV* output, int width, int height);
 				void ProcessMotion();
 				//The depth pyramid the screen solvers march through. Built from depth_map, so after
 				//everything that writes it.
@@ -1878,6 +1907,15 @@ namespace HotBite {
 					uint32_t upscaled_frames = 0;
 				};
 				DynamicResolutionStats GetDynamicResolutionStats() const;
+				//The frame graph of the last frame (Core/FrameGraph.h): its passes, the transient textures and the pool textures
+				//they shared, and the persistent ones alive or given back. Read on the render thread or under its lock.
+				struct FrameGraphStats {
+					Core::FrameGraph::Stats frame;
+					Core::TexturePool::Stats pool;
+				};
+				FrameGraphStats GetFrameGraphStats();
+				//One line per pass and per transient texture of the last frame.
+				std::string DescribeFrameGraph();
 				// How often the level has to render for dynamic resolution to hold its target: the target itself while it is on, and
 				// 0 (the level's own rate) while it is not. World::Run's render timer follows it - a timer at a lower rate would cap
 				// the frame rate under the target however small the picture is drawn, and one at a higher rate renders frames
