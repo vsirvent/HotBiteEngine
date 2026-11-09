@@ -51,6 +51,26 @@ cbuffer externalData : register(b0)
     int auxLightCount;
 
     int disable_vol;
+
+    //The directional light's shafts (DirShaftLight): the scale height of the air over shaftBase (0 keeps the classic march), the phase's
+    //anisotropy, the cloud shadows' gain, the soft cap on the light scattered and the steps of the march.
+    float shaftHeight;
+    float shaftBase;
+    float shaftAnisotropy;
+    float shaftMax;
+    int shaftSteps;
+    //The clouds that shade the shafts: strength, size, edge, layer height, drift and time (ShaftCloudShadow).
+    float shaftCloud;
+    float shaftCloudScale;
+    float shaftCloudEdge;
+    float shaftCloudHeight;
+    float2 shaftCloudDrift;
+    float shaftCloudTime;
+    //Where on the screen the shafts show (VolumetricShafts::screen_*).
+    float shaftScreenTop;
+    float shaftScreenSide;
+    float shaftScreenFade;
+    float shaftScreenFloor;
 }
 
 #include "../Common/VolumetricLights.hlsli"
@@ -94,7 +114,31 @@ void main(uint3 DTid : SV_DispatchThreadID)
     // Calculate the directional light
     for (i = 0; i < dirLightsCount; ++i) {
         if (dirLights[i].density > 0.0f && disable_vol == 0) {
-            lightColor.rgb += DirVolumetricLight(wpos, dirLights[i], i, time, cloud_density);
+            if (shaftHeight > 0.0f) {
+                    ShaftParams shaft;
+                    shaft.height = shaftHeight;
+                    shaft.base = shaftBase;
+                    shaft.anisotropy = shaftAnisotropy;
+                    shaft.max_light = shaftMax;
+                    shaft.steps = shaftSteps;
+                    shaft.cloud_strength = shaftCloud;
+                    shaft.cloud_scale = shaftCloudScale;
+                    shaft.cloud_edge = shaftCloudEdge;
+                    shaft.cloud_height = shaftCloudHeight;
+                    shaft.cloud_drift = shaftCloudDrift;
+                    shaft.cloud_time = shaftCloudTime;
+                    float3 shafts = DirShaftLight(wpos, dirLights[i], i, cloud_density, output_pixel, shaft);
+                    //Kept to the top of the screen and its sides: 1 inside, shaftScreenFloor in the middle.
+                    float2 screen_uv = (output_pixel + 0.5f) / float2(output_dimensions);
+                    float fade = max(shaftScreenFade, 0.0001f);
+                    float top_mask = 1.0f - smoothstep(shaftScreenTop - fade, shaftScreenTop + fade, screen_uv.y);
+                    float side_mask = 1.0f - smoothstep(shaftScreenSide - fade, shaftScreenSide + fade, min(screen_uv.x, 1.0f - screen_uv.x));
+                    shafts *= lerp(shaftScreenFloor, 1.0f, max(top_mask, side_mask));
+                    lightColor.rgb += shafts;
+            }
+            else {
+                lightColor.rgb += DirVolumetricLight(wpos, dirLights[i], i, time, cloud_density);
+            }
         }
     }
 

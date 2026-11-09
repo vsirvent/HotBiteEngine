@@ -3246,6 +3246,7 @@ void RenderSystem::ProcessDust() {
 		dust_render->SetFloat3("cameraDirection", dir);
 		dust_render->SetFloat("focusZ", dof_effect ? dof_effect->GetFocus() : -1.0f);
 		dust_render->SetFloat("amplitude", dof_effect ? dof_effect->GetAmplitude() : 0.0f);
+		dust_render->SetFloat("totalScale", volumetric_total_scale);
 		dust_render->SetSamplerState(PCF_SAMPLER, dxcore->shadow_sampler);
 		dust_render->SetSamplerState(BASIC_SAMPLER, dxcore->basic_sampler);
 		PrepareLights(dust_render);
@@ -4523,6 +4524,21 @@ void RenderSystem::PrepareVolumetricShader(Core::ISimpleShader* s) {
 	if (sky != nullptr) {
 		s->SetFloat("cloud_density", sky->sky->cloud_density);
 	}
+	s->SetFloat("shaftHeight", volumetric_shafts.height);
+	s->SetFloat("shaftBase", volumetric_shafts.base);
+	s->SetFloat("shaftAnisotropy", volumetric_shafts.anisotropy);
+	s->SetFloat("shaftCloud", volumetric_shafts.cloud_strength);
+	s->SetFloat("shaftCloudScale", volumetric_shafts.cloud_scale);
+	s->SetFloat("shaftCloudEdge", volumetric_shafts.cloud_edge);
+	s->SetFloat("shaftCloudHeight", volumetric_shafts.cloud_height);
+	s->SetFloat2("shaftCloudDrift", { volumetric_shafts.cloud_drift[0], volumetric_shafts.cloud_drift[1] });
+	s->SetFloat("shaftCloudTime", volumetric_shafts.cloud_time);
+	s->SetFloat("shaftScreenTop", volumetric_shafts.screen_top);
+	s->SetFloat("shaftScreenSide", volumetric_shafts.screen_side);
+	s->SetFloat("shaftScreenFade", volumetric_shafts.screen_fade);
+	s->SetFloat("shaftScreenFloor", volumetric_shafts.screen_floor);
+	s->SetFloat("shaftMax", volumetric_shafts.max_light);
+	s->SetInt("shaftSteps", volumetric_shafts.steps);
 	s->SetShaderResourceView("worldTexture", position_map.SRV());
 	//The fog of the nearest lights that have a density, not just the nearest lights: a
 	//lamp with no fog would otherwise take the place of one with.
@@ -5576,6 +5592,7 @@ void RenderSystem::PostProcessLight() {
 		groupsX = (int32_t)(ceil((float)vol_light_map.Width() / 8.0f));
 		groupsY = (int32_t)(ceil((float)vol_light_map.Height() / 8.0f));
 		blur_shader->SetFloat("variance", 5.0f);
+		blur_shader->SetFloat("totalScale", volumetric_total_scale);
 		blur_shader->SetInt("type", 1);
 		blur_shader->CopyAllBufferData();
 		blur_shader->SetShader();
@@ -6352,6 +6369,24 @@ RenderSystem::eRtQuality RenderSystem::GetRayTracingQuality() const {
 	return rt_quality;
 }
 
+void RenderSystem::SetVolumetricTotalScale(float scale) {
+	volumetric_total_scale = scale < 0.0f ? 0.0f : scale;
+}
+
+float RenderSystem::GetVolumetricTotalScale() const {
+	return volumetric_total_scale;
+}
+
+void RenderSystem::SetVolumetricShafts(const VolumetricShafts& shafts) {
+	volumetric_shafts = shafts;
+	volumetric_shafts.height = shafts.height < 0.0f ? 0.0f : shafts.height;
+	volumetric_shafts.steps = shafts.steps < 4 ? 4 : (shafts.steps > 128 ? 128 : shafts.steps);
+}
+
+const VolumetricShafts& RenderSystem::GetVolumetricShafts() const {
+	return volumetric_shafts;
+}
+
 void RenderSystem::SetDustEnabled(bool enabled) {
 	dust_enabled = enabled;
 }
@@ -6362,6 +6397,11 @@ bool RenderSystem::GetDustEnabled() const {
 
 void RenderSystem::SetDustEffectArea(int32_t num_particles, const float3& area, const float3& offset) {
 	std::lock_guard l(mutex);
+	//The particles are placed in the box once (ProcessDust): a box that moved or changed size needs them placed in it again.
+	if (area.x != dust_area.x || area.y != dust_area.y || area.z != dust_area.z ||
+		offset.x != dust_offset.x || offset.y != dust_offset.y || offset.z != dust_offset.z) {
+		is_dust_init = false;
+	}
 	dust_area = area;
 	dust_offset = offset;
 	int particles_texture_size = ((((int32_t)sqrt((float)num_particles) + 31) / 32) * 32); //Make it multiple of 32 to perfect fit computer shaders

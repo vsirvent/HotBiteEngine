@@ -13,6 +13,9 @@ cbuffer externalData : register(b0)
 {
     uint type;
     float variance;
+    //Scales the mean volumetric light (vol_data) before the global attenuation below: 1 is the original curve, less lets a bright
+    //volumetric light through instead of fading it out, more fades it sooner.
+    float totalScale;
 }
 
 void FillGaussianArray(out float array[KERNEL_SIZE])
@@ -67,7 +70,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
     uint w, h;
     input.GetDimensions(w, h);
     float2 pixel = float2(DTid.x, DTid.y);
-    float global = (float)vol_data[uint2(0, 0)] / (float)(w * h * 1000);
+    float global = (float)vol_data[uint2(0, 0)] / (float)(w * h * 1000) * totalScale;
     //Linear function for global atenuation y = −x + (1 + (MAX_GLOBAL_ILLUMINATION)
 #define MAX_GLOBAL_ILLUMINATION 0.6f
     float att = 1.0f;

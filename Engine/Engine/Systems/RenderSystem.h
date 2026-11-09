@@ -49,6 +49,43 @@ SOFTWARE.
 namespace HotBite {
 	namespace Engine {
 		namespace Systems {
+			//How a directional light's volumetric light is marched (VolumetricLights.hlsli, DirShaftLight): light shafts through the shadows
+			//of the buildings, the trees and the clouds, instead of the classic uniform veil. `height` 0 keeps the classic march.
+			struct VolumetricShafts {
+				//The scale height of the scattering air over `base` (world units): the light is scattered near the ground, where shadows fall.
+				float height = 0.0f;
+				float base = 0.0f;
+				//0 scatters evenly, more glows when the camera looks towards the sun (0..0.95).
+				float anisotropy = 0.3f;
+				//The light the shafts scatter saturates smoothly towards this instead of burning to white.
+				float max_light = 0.6f;
+				int steps = 32;
+				//The clouds that shade the shafts (a layer at `cloud_height`, sharp-edged noise, thresholded by the Sky's cloud_density): how much
+				//of the sun they take out (0..1), their size, the width of their edge (small makes clear beams), how they drift (world units a
+				//second) and the time they drift by, which a game sets so another effect can use the very same clouds.
+				float cloud_strength = 1.0f;
+				float cloud_scale = 120.0f;
+				float cloud_edge = 0.08f;
+				float cloud_height = 200.0f;
+				float cloud_drift[2] = { 3.0f, 2.0f };
+				float cloud_time = 0.0f;
+				//Where on the screen the shafts show, so a game can keep them off the middle (where the player looks): `screen_top` is how far down
+				//from the top edge they reach and `screen_side` how far in from the left and right edges (shares of the screen's height and
+				//width; 0 none), `screen_fade` the width of the soft edge and `screen_floor` the share of the light left everywhere else
+				//(1 = no mask, the shafts show all over the screen).
+				float screen_top = 0.0f;
+				float screen_side = 0.0f;
+				float screen_fade = 0.2f;
+				float screen_floor = 1.0f;
+				bool operator==(const VolumetricShafts& o) const {
+					return height == o.height && base == o.base && anisotropy == o.anisotropy && max_light == o.max_light && steps == o.steps &&
+						cloud_strength == o.cloud_strength && cloud_scale == o.cloud_scale && cloud_edge == o.cloud_edge &&
+						cloud_height == o.cloud_height && cloud_drift[0] == o.cloud_drift[0] && cloud_drift[1] == o.cloud_drift[1] &&
+						cloud_time == o.cloud_time && screen_top == o.screen_top && screen_side == o.screen_side && screen_fade == o.screen_fade &&
+							screen_floor == o.screen_floor;
+				}
+			};
+
 			class RenderSystem : public ECS::System {
 			public:
 				static inline ECS::EventId EVENT_ID_PREPARE_ENTITY = ECS::GetEventId<RenderSystem>(0x00);
@@ -1021,6 +1058,9 @@ namespace HotBite {
 
 				//Dust shader
 				bool dust_enabled = false;
+				//Scales the mean volumetric light the blur and the dust normalize by (BlurCS, RenderDustCS): 1 is the original curve.
+				float volumetric_total_scale = 1.0f;
+				VolumetricShafts volumetric_shafts;
 				bool is_dust_init = false;
 				float3 dust_area{};
 				float3 dust_offset{};
@@ -1772,6 +1812,14 @@ namespace HotBite {
 					rt_stats_requested = true;
 					return rt_stats_cpu;
 				}
+				//The volumetric light's blur and the dust fade out as the picture's mean volumetric light rises (a dense volumetric light
+				//used to go black once the mean passed about 1.2); this scales that mean first. 1 keeps the original curve, less lets more
+				//volumetric light through, more fades it sooner.
+				void SetVolumetricTotalScale(float scale);
+				//How the directional lights that have a volume density are marched (see VolumetricShafts).
+				void SetVolumetricShafts(const VolumetricShafts& shafts);
+				const VolumetricShafts& GetVolumetricShafts() const;
+				float GetVolumetricTotalScale() const;
 				void SetDustEnabled(bool enabled);
 				bool GetDustEnabled() const;
 				void SetDustEffectArea(int32_t num_particles, const float3& area, const float3& offset);

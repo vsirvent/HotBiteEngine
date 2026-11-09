@@ -56,6 +56,8 @@ cbuffer externalData : register(b0)
     uint dirLightsCount;
     uint auxLightCount;
 
+    //Scales the mean volumetric light before the dust is dimmed by it (see BlurCS.hlsl).
+    float totalScale;
 }
 
 Texture2DArray<float> DirShadowMapTexture[MAX_LIGHTS];
@@ -150,7 +152,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
                         }
                     }
 #define MAX_GLOBAL_ILLUMINATION 1.0f
-                    float global = (float)vol_data[uint2(0, 0)] / (float)(dimensions.x * dimensions.y * 1000);
+                    float global = (float)vol_data[uint2(0, 0)] / (float)(dimensions.x * dimensions.y * 1000) * totalScale;
                     float att = 1.0f;
                     global *= global;
                     global *= global;
