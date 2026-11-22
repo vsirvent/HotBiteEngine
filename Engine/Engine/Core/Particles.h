@@ -60,9 +60,25 @@ namespace HotBite {
 				std::shared_ptr<Core::VertexBuffer<ParticleVertex>> vertex_buffer = std::make_shared<VertexBuffer<ParticleVertex>>();
 				//The entity that owns this particle
 				ECS::Entity parent = ECS::INVALID_ENTITY_ID;
+				//The parent's mesh and transform, looked up again (Resolve) every time they are used: a component array keeps its data
+				//dense by moving its last element into a removed one's place, so a pointer kept from Init would, after any other entity
+				//loses that component, read another entity's (a flame drawn wherever that one is, or nowhere).
 				Components::Mesh* mesh = nullptr;
 				Components::Transform* transform = nullptr;
+				bool has_mesh = false;
 				ECS::Coordinator* coordinator = nullptr;
+
+				//Looks the parent's transform and mesh up now; false when the parent has no transform any more.
+				bool Resolve() {
+					if (coordinator == nullptr || parent == ECS::INVALID_ENTITY_ID || !coordinator->ContainsComponent<Components::Transform>(parent)) {
+						transform = nullptr;
+						mesh = nullptr;
+						return false;
+					}
+					transform = &coordinator->GetComponent<Components::Transform>(parent);
+					mesh = has_mesh && coordinator->ContainsComponent<Components::Mesh>(parent) ? &coordinator->GetComponent<Components::Mesh>(parent) : nullptr;
+					return true;
+				}
 				Core::UnorderedVector<Particle> particles_info;
 				Core::UnorderedVector<ParticleVertex> particles_vertex;
 				Core::UnorderedVector<uint32_t> particles_indices;
@@ -122,6 +138,7 @@ namespace HotBite {
 					transform = c->GetComponentPtr<Components::Transform>(parent);
 					assert(transform != nullptr);
 					if (c->ContainsComponent<Components::Mesh>(parent)) {
+						has_mesh = true;
 						mesh = c->GetComponentPtr<Components::Mesh>(parent);						
 						particles_info.GetData().reserve(max_particles);
 						particles_vertex.GetData().reserve(max_particles);
@@ -130,6 +147,9 @@ namespace HotBite {
 				}
 
 				void PrepareParticle(Core::SimpleVertexShader* vs, Core::SimpleHullShader* hs, Core::SimpleDomainShader* ds, Core::SimpleGeometryShader* gs, Core::SimplePixelShader* ps) {
+					if (!Resolve()) {
+						return;
+					}
 					if (vs != nullptr) {
 						if (mesh != nullptr) {
 							mesh->Prepare(vs);
@@ -150,6 +170,7 @@ namespace HotBite {
 				}
 
 				void UnprepareParticle(Core::SimpleVertexShader* vs, Core::SimpleHullShader* hs, Core::SimpleDomainShader* ds, Core::SimpleGeometryShader* gs, Core::SimplePixelShader* ps) {
+					Resolve();
 					if (vs != nullptr) {
 						if (mesh != nullptr) {
 							mesh->Unprepare(vs);
@@ -167,6 +188,9 @@ namespace HotBite {
 				 * of the particles.
 				 */
 				virtual void Update(int64_t elapsed_nsec, int64_t total_nsec) {
+					if (!Resolve()) {
+						return;
+					}
 					if (visible) {
 						if ((total_nsec - last_update) > MSEC_TO_NSEC(100)) {
 							last_update = total_nsec;

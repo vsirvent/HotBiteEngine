@@ -224,6 +224,7 @@
     <ClCompile Include="Engine\Systems\StaticMeshSystem.cpp" />
     <ClCompile Include="Engine\Utils\AStar.cpp" />
     <ClCompile Include="Engine\World.cpp" />
+    <ClCompile Include="Engine\WorldDeferred.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Engine\Components\Base.h" />

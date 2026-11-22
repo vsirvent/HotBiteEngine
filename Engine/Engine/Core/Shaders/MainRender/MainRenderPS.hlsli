@@ -225,7 +225,10 @@ RenderTargetRT MainRenderPS(GSOutput input)
 	emission *= material.emission;
 	emission = climit4(emission);
 	finalColor += emission;
-	lightColor += emission;
+	//NO_EMISSION_BLOOM_FLAG: the emission is in the picture and in the light map but not in the bloom.
+	if (!(material.flags & NO_EMISSION_BLOOM_FLAG)) {
+		lightColor += emission;
+	}
 	lumColor += emission;
 
 	float opacity = material.opacity;

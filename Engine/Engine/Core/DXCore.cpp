@@ -965,7 +965,17 @@ Direct2D::Direct2D() {
 	printf("write_factory init hr = %d => %p\n", hr, write_factory);
 }
 
+void Direct2D::ReleaseTextTargets() {
+	for (auto& [key, t] : text_targets) {
+		if (t.brush != nullptr) { t.brush->Release(); }
+		if (t.target != nullptr) { t.target->Release(); }
+		if (t.bitmap != nullptr) { t.bitmap->Release(); }
+	}
+	text_targets.clear();
+}
+
 Direct2D::~Direct2D() {
+	ReleaseTextTargets();
 	d2d_factory->Release();
 	write_factory->Release();
 	if (wic_factory != nullptr) {
@@ -1047,27 +1057,37 @@ bool Direct2D::RenderText(IDWriteTextLayout* layout, const D2D1_COLOR_F& color, 
 		FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wic_factory)))) {
 		return false;
 	}
-	IWICBitmap* bitmap = nullptr;
-	if (FAILED(wic_factory->CreateBitmap(w, h, GUID_WICPixelFormat32bppPBGRA, WICBitmapCacheOnDemand, &bitmap))) {
-		return false;
-	}
-	bool ok = false;
-	ID2D1RenderTarget* target = nullptr;
-	const D2D1_RENDER_TARGET_PROPERTIES props = D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_SOFTWARE,
-		D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED), dpi, dpi);
-	if (SUCCEEDED(d2d_factory->CreateWicBitmapRenderTarget(bitmap, props, &target))) {
-		ID2D1SolidColorBrush* brush = nullptr;
-		if (SUCCEEDED(target->CreateSolidColorBrush(color, &brush))) {
-			//Grayscale: ClearType needs to know what is behind the text, and what is behind it here is transparency.
-			target->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
-			target->BeginDraw();
-			target->Clear(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f));
-			target->DrawTextLayout(D2D1::Point2F(0.0f, 0.0f), layout, brush, D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
-			ok = SUCCEEDED(target->EndDraw());
-			brush->Release();
+	//One bitmap + render target per size, kept: the labels of a HUD come in a handful of sizes.
+	const auto key = std::make_tuple(w, h, dpi);
+	auto cached = text_targets.find(key);
+	if (cached == text_targets.end()) {
+		if (text_targets.size() >= 64) {
+			ReleaseTextTargets();
 		}
-		target->Release();
+		TextTarget created;
+		const D2D1_RENDER_TARGET_PROPERTIES props = D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_SOFTWARE,
+			D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED), dpi, dpi);
+		if (FAILED(wic_factory->CreateBitmap(w, h, GUID_WICPixelFormat32bppPBGRA, WICBitmapCacheOnDemand, &created.bitmap)) ||
+			FAILED(d2d_factory->CreateWicBitmapRenderTarget(created.bitmap, props, &created.target)) ||
+			FAILED(created.target->CreateSolidColorBrush(color, &created.brush))) {
+			if (created.brush != nullptr) { created.brush->Release(); }
+			if (created.target != nullptr) { created.target->Release(); }
+			if (created.bitmap != nullptr) { created.bitmap->Release(); }
+			return false;
+		}
+		//Grayscale: ClearType needs to know what is behind the text, and what is behind it here is transparency.
+		created.target->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
+		cached = text_targets.emplace(key, created).first;
 	}
+	IWICBitmap* bitmap = cached->second.bitmap;
+	ID2D1RenderTarget* target = cached->second.target;
+	ID2D1SolidColorBrush* brush = cached->second.brush;
+	bool ok = false;
+	brush->SetColor(color);
+	target->BeginDraw();
+	target->Clear(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f));
+	target->DrawTextLayout(D2D1::Point2F(0.0f, 0.0f), layout, brush, D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
+	ok = SUCCEEDED(target->EndDraw());
 	if (ok) {
 		ok = false;
 		IWICBitmapLock* lock = nullptr;
@@ -1100,6 +1120,5 @@ bool Direct2D::RenderText(IDWriteTextLayout* layout, const D2D1_COLOR_F& color, 
 			lock->Release();
 		}
 	}
-	bitmap->Release();
 	return ok;
 }

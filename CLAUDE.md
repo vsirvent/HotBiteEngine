@@ -2418,6 +2418,44 @@ for them one by one.
   mismatch, so they load plain once and are cooked behind. Same stamp rule as models: size + time.
 
 
+## Memory: assets on first use, paged components (2026-11-14)
+
+Survival's New Game peaked above 8.5 GB of commit and died with `std::bad_alloc` in `World::LoadGeneratedMeshes` on a 16 GB
+machine with a dozen apps open. Measured stage by stage (below), it was not a leak but everything at once:
+
+- **The ECS reserved 50,000 slots for every component type, per coordinator** (`ComponentArray` was a `std::vector`
+  reserved for `MAX_ENTITIES`, so that adding never moved a component systems point at). On Windows a reservation is
+  committed memory whether it is touched or not: about 0.5 GB per World before anything was in it. Now `PagedArray`
+  (ECS/ComponentArray.h): pages of 256, allocated as entities arrive, which never move. Main menu 1.42 -> 0.96 GB, a new
+  game world +0.88 -> +0.35 GB. `ComponentArray::Array()` is gone (it had one user); `Size()`/`At(i)` walk them.
+  `EntityVector` still reserves `MAX_ENTITIES` (its `GetData()` vector is used by many systems): the next candidate.
+- **Every model, material (texture) and generated mesh of a level was loaded whether the scene used it or not.**
+  `World::DeferAssets(world_json, root, index_file)` (`WorldDeferred.cpp`) registers a level's lists and reads only the
+  template files; a template loads the first time `SpawnTemplateEntities` asks for it (or `EnsureTemplate`), with the
+  models its meshes come from, its materials (and so their textures), its generated levels of detail and the templates its
+  parts name. `GetTemplateComponents` / `GetTemplateParts` / `GetTemplateBaseTransform` answer from the file without
+  loading. `EnsureMaterial` / `EnsureMesh` for things looked up by name; `IsTemplateAvailable` (loaded or deferred) for a
+  game's "can I spawn this"; `SetOnMaterialsLoaded` for a game's own copies of new materials (Survival's team colours and
+  build-reveal copies); `EnsureAllAssets` loads everything (tests that compare all models); `GetDeferredStats`. Which
+  model holds which mesh is read from the cooked models once and kept in `index_file` (Survival:
+  `Levels/buildings.json.index.cooked`), remade for a model whose cooked file changed; an animation-only model (no mesh) is
+  loaded at registration. A load after `World::Init` initializes its materials and rebuilds the world buffers itself
+  (`FinishDeferredLoad`), under the render lock, then this lock. Survival: 58 of 150 templates, 132 of 222 models at New
+  Game; the worst first-use load ~200-300 ms.
+- **The world vertex/index and BVH buffers kept their CPU copy after upload.** `RefreshMeshBuffers` now rebuilds them
+  from each `MeshData`'s own vertices (in collection order, which reassigns the offsets) and `Clean()`s after every
+  upload; `Clean()` also gives the memory back now (`clear()` kept the capacity). -0.35 GB at Survival's `World::Init`.
+- **Textures:** `Core::SetTextureMaxSize(side)` (TextureCache.h): a texture larger than that is made from its first mip
+  that fits (a cooked one has them all, so it costs only resolution); `keep_mips` (UI pictures) is never limited. Survival
+  exposes it as the `texture_quality` setting. Upload staging is let go past 64 MB pending (was 256).
+- **Measuring:** `HOTBITE_MEMORY_LOG=<file>` makes `Core::NoteMemory(stage)` (GfxDevice.h) append a line per stage:
+  process commit, local and non-local video memory against their budgets; `GfxDevice::QueryMemory` is the same as a
+  struct. Video memory counts against the commit limit too (Windows charges every GPU allocation), which is why a
+  texture-heavy load ran out of commit with the GPU half empty.
+
+Still open: streaming textures by distance (load low mips first, the top ones near the camera) and unloading templates
+nobody uses any more; per-template CPU cost (an animated animal ~150 MB of animation data).
+
 ## Tiled deferred lighting (2026-10-11)
 
 The geometry passes evaluate **no light**. `MainRenderPS`, `WaterPS`, `LavaPS` and

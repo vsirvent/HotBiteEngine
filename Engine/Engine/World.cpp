@@ -1345,12 +1345,28 @@ bool World::IsAuthoredTemplate(const std::string& name) const {
 
 const nlohmann::json* World::GetTemplateComponents(const std::string& name) const {
 	auto it = authored_templates.find(name);
-	return (it != authored_templates.end()) ? &it->second : nullptr;
+	if (it != authored_templates.end()) {
+		return &it->second;
+	}
+	//A template registered for loading on first use is known by its file already (DeferAssets).
+	std::lock_guard<std::recursive_mutex> lock(deferred_mutex);
+	auto deferred_it = deferred.templates.find(name);
+	return (deferred_it != deferred.templates.end()) ? &deferred_it->second.components : nullptr;
 }
 
 const nlohmann::json* World::GetTemplateParts(const std::string& name) const {
 	auto it = template_parts.find(name);
-	return (it != template_parts.end()) ? &it->second : nullptr;
+	if (it != template_parts.end()) {
+		return &it->second;
+	}
+	std::lock_guard<std::recursive_mutex> lock(deferred_mutex);
+	auto deferred_it = deferred.templates.find(name);
+	if (deferred_it == deferred.templates.end() || deferred_it->second.loaded) {
+		//A loaded template with no parts has none in template_parts either.
+		return nullptr;
+	}
+	const nlohmann::json& parts = deferred_it->second.parts;
+	return (parts.is_array() && !parts.empty()) ? &parts : nullptr;
 }
 
 bool World::IsComposedTemplate(const std::string& name) const {
@@ -1648,7 +1664,19 @@ bool World::GetTemplateBaseTransform(const std::string& name, float3& position,
 	ECS::Entity te = GetTemplateEntity(name);
 	if (te == ECS::INVALID_ENTITY_ID ||
 		!templates_coordinator->ContainsComponent<Components::Transform>(te)) {
-		return false;
+		//Not loaded yet (DeferAssets): its file's Transform block says the same, without loading it.
+		const nlohmann::json* components = GetTemplateComponents(name);
+		if (components == nullptr) {
+			return false;
+		}
+		const nlohmann::json t = components->value("Transform", nlohmann::json::object());
+		const nlohmann::json p = t.value("position", nlohmann::json::object());
+		const nlohmann::json r = t.value("rotation", nlohmann::json::object());
+		const nlohmann::json s = t.value("scale", nlohmann::json::object());
+		position = { p.value("x", 0.0f), p.value("y", 0.0f), p.value("z", 0.0f) };
+		rotation = { r.value("x", 0.0f), r.value("y", 0.0f), r.value("z", 0.0f), r.value("w", 1.0f) };
+		scale = { s.value("x", 1.0f), s.value("y", 1.0f), s.value("z", 1.0f) };
+		return true;
 	}
 	//The primary part's transform, which is the one SpawnInstance composes into a
 	//single-part instance - and into part 0 of a multi-part one.
@@ -1782,14 +1810,25 @@ std::string World::FindAnimationSet(const std::string& clip) const {
 }
 
 void World::RefreshMeshBuffers() {
+	//Rebuilt from the meshes' own vertices, not from a copy kept for the purpose: the world's buffers hold every mesh, and keeping
+	//their CPU side after each upload doubled the memory of all the geometry for the sake of this rebuild. Each mesh is laid in
+	//again in the collection's order, which also gives it its (possibly new) offsets.
 	vertex_buffer->Unprepare();
+	vertex_buffer->Clean();
+	for (auto& m : meshes.GetData()) {
+		if (m.init && m.vertex_buffer == vertex_buffer) {
+			vertex_buffer->AddMesh(m.vertices, m.indices, &m.vertexOffset, &m.indexOffset);
+		}
+	}
 	vertex_buffer->Prepare();
+	vertex_buffer->Clean();
 	bvh_buffer->Unprepare();
 	bvh_buffer->Clean();
 	for (auto& m : meshes.GetData()) {
 		bvh_buffer->Add(m.bvh.Root(), m.bvh.Size(), &m.bvhOffset);
 	}
 	bvh_buffer->Prepare();
+	bvh_buffer->Clean();
 	mesh_buffers_dirty = false;
 }
 
@@ -3337,6 +3376,10 @@ ECS::Entity World::SpawnTemplateEntities(const std::string& name, const std::str
 	std::vector<ECS::Entity>* out_parts)
 {
 	ECS::Entity primary = ECS::INVALID_ENTITY_ID;
+	//A template registered for loading on first use is loaded now (DeferAssets).
+	if (!IsTemplateLoaded(template_name)) {
+		EnsureTemplate(template_name);
+	}
 	const std::set<ECS::Entity>& parts = GetTemplateEntities(template_name);
 	if (parts.empty()) {
 		//Reported rather than asserted: a level can name a template whose file has
@@ -4241,11 +4284,14 @@ void World::Init() {
 		}
 	}	
 	vertex_buffer->Prepare();
+	//The GPU has it now: the CPU side goes (RefreshMeshBuffers rebuilds it from the meshes when one is added or changed).
+	vertex_buffer->Clean();
 	for (auto& m : meshes.GetData()) {
 		size_t offset = 0;
 		bvh_buffer->Add(m.bvh.Root(), m.bvh.Size(), &m.bvhOffset);
 	}
 	bvh_buffer->Prepare();
+	bvh_buffer->Clean();
 	//The upload above is the first one, so it already carries whatever the level's
 	//records re-smoothed on the way in.
 	mesh_buffers_dirty = false;

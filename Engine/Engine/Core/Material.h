@@ -265,6 +265,11 @@ namespace HotBite {
 //materials with a diffuse map only; the ray tracers see the untinted map.
 #define TINT_ENABLED_FLAG (1 << 13)
 #define TINT_ACTIVE_FLAG (1 << 14)
+//What the material emits still lights the surface (it is in the picture, and in the light the global
+//illumination gathers) but does not bloom: MainRenderPS.hlsli leaves it out of bloom_map. For glowing
+//markers (a selection ring, a highlight) that have to read in the dark without a halo. "no_bloom": true
+//in the .mat. Only the emission: a material's own bloom_scale (the specular highlight's bloom) is untouched.
+#define NO_EMISSION_BLOOM_FLAG (1 << 15)
 				unsigned int flags = RAY_TRACING_ENABLED_FLAG;
 				//World units per texture repeat when WORLD_UV_ENABLED_FLAG is set (a
 				//tile size, not a frequency - bigger is coarser). Unused, and safely

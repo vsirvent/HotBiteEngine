@@ -30,6 +30,9 @@ SOFTWARE.
 #include "Defines.h"
 #include <memory>
 #include <set>
+#include <functional>
+#include <mutex>
+#include <unordered_map>
 #include <map>
 #include <Loader\FBXLoader.h>
 #include <Loader\ModelCache.h>
@@ -237,6 +240,55 @@ namespace HotBite {
 			//A mesh's vertices changed on the CPU side and the GPU buffers no longer
 			//match; see SetMeshSmooth / FlushMeshBuffers.
 			bool mesh_buffers_dirty = false;
+			//What DeferAssets registered and what has been loaded of it (see the public section).
+			struct DeferredTemplate {
+				nlohmann::json components;
+				nlohmann::json parts;
+				bool loaded = false;
+			};
+			struct DeferredMaterial {
+				nlohmann::json node;
+				std::string texture_root;
+				std::string file;
+				bool loaded = false;
+			};
+			struct DeferredAssets {
+				std::string root;
+				struct Model {
+					std::string file;
+					std::string name;
+					bool triangulate = false;
+					bool use_animation_names = false;
+				};
+				std::vector<Model> models;
+				std::vector<bool> model_loaded;
+				//The materials each model brings in itself (the material files' versions follow it in).
+				std::vector<std::vector<std::string>> model_materials;
+				std::unordered_map<std::string, size_t> mesh_model;
+				std::unordered_map<std::string, DeferredMaterial> materials;
+				std::unordered_map<std::string, std::pair<nlohmann::json, std::string>> multi_materials;
+				std::unordered_map<std::string, nlohmann::json> generated;
+				std::set<std::string> generated_loaded;
+				std::map<std::string, DeferredTemplate> templates;
+				std::function<void(const std::vector<std::string>&)> on_materials;
+				double load_ms = 0.0;
+				double longest_ms = 0.0;
+				std::string longest;
+			};
+			DeferredAssets deferred;
+			mutable std::recursive_mutex deferred_mutex;
+			//One deferred load's work: what came in, so the end of it can initialize and upload.
+			struct DeferredBatch {
+				std::vector<std::string> materials;
+				size_t meshes_before = 0;
+				bool meshes_added = false;
+				bool multi_materials = false;
+			};
+			bool LoadDeferredModel(size_t index, DeferredBatch& batch);
+			bool LoadDeferredMesh(const std::string& name, DeferredBatch& batch);
+			bool LoadDeferredMaterial(const std::string& name, DeferredBatch& batch);
+			bool LoadDeferredTemplate(const std::string& name, DeferredBatch& batch, std::set<std::string>& visiting);
+			void FinishDeferredLoad(DeferredBatch& batch);
 			std::unordered_map<std::string, std::shared_ptr<ECS::System>> systems_by_name;
 			std::list<int> run_timer_ids[Core::DXCore::NTHREADS];
 			//The render rate Run was given, and the one the render timer is set to now: dynamic resolution asks for its target
@@ -866,6 +918,61 @@ namespace HotBite {
 				LoadGeneratedMeshes(entries);
 				path = saved;
 			}
+
+			// --- Assets loaded on first use ---------------------------------------------------
+			//
+			// A game that reads its asset level itself (rather than through Load) may register
+			// it instead of loading it all: DeferAssets keeps the level's lists - models,
+			// material files, generated meshes, templates - and reads only the template files.
+			// A template is then loaded the first time it is spawned (SpawnInstance) or asked
+			// for (EnsureTemplate), together with what it needs: the models its meshes come
+			// from, its materials (and so their textures), its generated levels of detail and
+			// the templates its parts name. Until then it costs nothing but its JSON; what it
+			// is (GetTemplateComponents, GetTemplateParts, GetTemplateBaseTransform) is known
+			// without loading it. Only what a scene uses ever reaches memory.
+			//
+			// `root` is the assets folder with its trailing separator (as LoadGeneratedMeshesFrom
+			// takes it). Which model holds which mesh is read from the cooked models once and
+			// kept in `index_file` (remade for any model whose cooked file changed). A model
+			// with no mesh (an animation set) is loaded at once: a skeleton can be asked for
+			// by clip name, which no template names.
+			void DeferAssets(const nlohmann::json& world_json, const std::string& root, const std::string& index_file);
+			// Loads `name` now if it was deferred. True when the template is there (loaded
+			// before, or now).
+			bool EnsureTemplate(const std::string& name);
+			// A material by name, loaded now (with its textures) if it was deferred; null when
+			// there is no such material.
+			Core::MaterialData* EnsureMaterial(const std::string& name);
+			// A mesh by name, loaded now (its model, or its generated level of detail) if it
+			// was deferred; false when there is no such mesh.
+			bool EnsureMesh(const std::string& name);
+			// Loaded, or deferred and loadable on first use: what a game checks before it spawns.
+			bool IsTemplateAvailable(const std::string& name) const;
+			// Loads everything DeferAssets registered (every model, material, generated mesh and template) in one go, as a
+			// full load had it: for a test that compares models, or a tool that wants the whole level.
+			void EnsureAllAssets();
+			// Called with the names of the materials a deferred load has just brought in,
+			// before any entity uses them and before they are initialized: where a game makes
+			// its own copies of them (team colours, effect variants...).
+			void SetOnMaterialsLoaded(std::function<void(const std::vector<std::string>&)> callback) {
+				deferred.on_materials = std::move(callback);
+			}
+			struct DeferredStats {
+				size_t templates = 0;
+				size_t templates_loaded = 0;
+				size_t models = 0;
+				size_t models_loaded = 0;
+				size_t materials = 0;
+				size_t materials_loaded = 0;
+				size_t generated = 0;
+				size_t generated_loaded = 0;
+				// The time spent loading on first use, and the longest single load (the hitch a
+				// player feels when a new kind of thing first appears).
+				double load_ms = 0.0;
+				double longest_ms = 0.0;
+				std::string longest;
+			};
+			DeferredStats GetDeferredStats() const;
 
 			// Stand-in assets for a Mesh or Material component created from nothing -
 			// added in the editor, or a level record carrying an empty block.

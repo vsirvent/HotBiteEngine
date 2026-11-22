@@ -1419,6 +1419,11 @@ namespace HotBite {
 				//a history that is blended every frame loses a bit of precision each time.
 				//Persistent: made the first frame the TAA runs, given back while it is off.
 				Core::FrameTexture taa_history[2];
+				//The world distance of the surface each pixel shows, resolved over time the way the colour is (TemporalAACS): depth_map is drawn
+				//through the jittered projection, so what it holds at an edge changes from frame to frame while the resolved colour does not. Same
+				//ping-pong as taa_history (the one just written is taa_depth[taa_history_index]); the post-process stages read it in place of
+				//depth_map while the TAA runs. 0 where there is no surface (the sky), as in depth_map.
+				Core::FrameTexture taa_depth[2];
 				uint32_t taa_history_index = 0;
 				//Nothing in the history is worth blending with (first frame, a resize, a frame
 				//the pass did not run): the next resolve takes the current frame as it is.
@@ -1834,6 +1839,10 @@ namespace HotBite {
 				//indirect light, which a single frame's filter cannot hide and the history can.
 				void SetTemporalAA(bool enabled);
 				bool GetTemporalAA() const;
+				//Whether the depth the post-process stages read is the TAA's resolved one (stable) and not depth_map's own (jittered, and with
+				//the sub-pixel noise of an edge): true while the TAA runs. A stage that needs a depth that agrees with the resolved colour (the
+				//game's fog) may skip its own neighbourhood search then.
+				bool IsDepthResolved() const { return taa_active; }
 				//Whether the frame being drawn is jittered: TemporalAA on and no debug view up.
 				bool IsTemporalAAActive() const;
 				//How many times smaller than the screen, on each side, the indirect light is

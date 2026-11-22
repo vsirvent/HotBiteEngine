@@ -28,6 +28,9 @@ SOFTWARE.
 #include <array>
 #include <cassert>
 #include <unordered_map>
+#include <new>
+#include <stdexcept>
+#include <vector>
 
 namespace HotBite {
 	namespace Engine {
@@ -39,6 +42,58 @@ namespace HotBite {
 				virtual Entity EntityDestroyed(Entity entity) = 0;
 			};
 
+
+			//The storage of a component type: elements in pages that are allocated as entities need them and never move.
+			//It used to be a vector reserved for MAX_ENTITIES elements so that adding one never moved the others (systems keep
+			//pointers to components) - and on Windows a reservation is committed memory whether or not it is used: every
+			//component type of every coordinator held 50,000 slots, which was most of the memory of an empty world. The
+			//pages keep the addresses as still as the reservation did, and cost only what is in them.
+			template<typename T, size_t PAGE = 256>
+			class PagedArray {
+			public:
+				PagedArray() = default;
+				PagedArray(const PagedArray&) = delete;
+				PagedArray& operator=(const PagedArray&) = delete;
+				~PagedArray() {
+					while (count > 0) {
+						pop_back();
+					}
+					for (T* page : pages) {
+						::operator delete(page, std::align_val_t(alignof(T)));
+					}
+				}
+				size_t size() const { return count; }
+				T& operator[](size_t i) { return pages[i / PAGE][i % PAGE]; }
+				const T& operator[](size_t i) const { return pages[i / PAGE][i % PAGE]; }
+				const T& at(size_t i) const {
+					if (i >= count) {
+						throw std::out_of_range("PagedArray::at");
+					}
+					return (*this)[i];
+				}
+				void push_back(const T& value) {
+					new (Next()) T(value);
+					++count;
+				}
+				void emplace_back(T&& value) {
+					new (Next()) T(std::forward<T>(value));
+					++count;
+				}
+				void pop_back() {
+					--count;
+					(*this)[count].~T();
+				}
+			private:
+				//Where the next element goes: a new page when the last one is full.
+				T* Next() {
+					if (count == pages.size() * PAGE) {
+						pages.push_back(static_cast<T*>(::operator new(sizeof(T) * PAGE, std::align_val_t(alignof(T)))));
+					}
+					return &pages[count / PAGE][count % PAGE];
+				}
+				std::vector<T*> pages;
+				size_t count = 0;
+			};
 
 			template<typename T>
 			class ComponentArray : public IComponentArray
@@ -52,10 +107,6 @@ namespace HotBite {
 					entity_to_index_map[entity] = new_index;
 					index_to_entity_map[new_index] = entity;
 					component_array.push_back(component);
-				}
-
-				std::vector<T>& Array() {
-					return component_array;
 				}
 
 				void EmplaceData(Entity entity, T&& component)
@@ -123,11 +174,13 @@ namespace HotBite {
 					return e;
 				}
 
-				ComponentArray() {
-					component_array.reserve(MAX_ENTITIES);
-				}
+				ComponentArray() = default;
+
+				//The components there are, by position (0 to Size() - 1): for a walk over all of them.
+				size_t Size() const { return component_array.size(); }
+				const T& At(size_t index) const { return component_array.at(index); }
 			private:
-				std::vector<T> component_array;
+				PagedArray<T> component_array;
 				std::unordered_map<Entity, size_t> entity_to_index_map;
 				std::unordered_map<size_t, Entity> index_to_entity_map;
 			};

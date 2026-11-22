@@ -147,6 +147,7 @@ struct MaterialColor
 #define WORLD_UV_ENABLED_FLAG 1 << 9
 #define TINT_ENABLED_FLAG 1 << 13
 #define TINT_ACTIVE_FLAG 1 << 14
+#define NO_EMISSION_BLOOM_FLAG 1 << 15
 	uint flags;
 	//World units per texture repeat when WORLD_UV_ENABLED_FLAG is set - see
 	//Core::MaterialProps::world_uv_scale.

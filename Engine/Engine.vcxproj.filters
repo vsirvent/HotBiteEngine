@@ -194,6 +194,9 @@
     <ClCompile Include="Engine\World.cpp">
       <Filter>Engine</Filter>
     </ClCompile>
+    <ClCompile Include="Engine\WorldDeferred.cpp">
+      <Filter>Engine</Filter>
+    </ClCompile>
     <ClCompile Include="Engine\Systems\RenderSystem.cpp">
       <Filter>Engine\Systems</Filter>
     </ClCompile>

@@ -156,9 +156,10 @@ namespace HotBite {
 					return hr;
 				}
 
+				//Gives the memory back too (clear alone keeps the capacity): the world drops its CPU copy after each upload.
 				void Clean() {
-					vindex.clear();
-					vvertex.clear();
+					std::vector<uint32_t>().swap(vindex);
+					std::vector<T>().swap(vvertex);
 				}
 
 				void Refresh() {

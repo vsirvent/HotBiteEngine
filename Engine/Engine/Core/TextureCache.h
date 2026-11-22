@@ -78,6 +78,13 @@ namespace HotBite {
 									// produced nothing. Returns false if the format cannot be read back.
 									bool DumpTexture(GfxTexture* texture, const std::string& png_path, float gain = 1.0f);
 
+			// The largest texture side a texture is made with (0: no limit, the default): a larger one is made from the
+			// first of its mips that fits, which a cooked texture already carries, so the limit costs nothing but
+			// resolution. What a game's "texture quality" sets; it applies to the textures made from then on. A picture the
+			// player looks at straight (keep_mips) is never limited.
+			void SetTextureMaxSize(uint32_t max_side);
+			uint32_t TextureMaxSize();
+
 			// Writes `filename`'s cooked file, with no device: what a build step runs.
 			// `force` rebuilds a current one. False (and `error`) when it cannot be cooked.
 			bool CookTexture(const std::string& filename, bool force, std::string* error = nullptr);

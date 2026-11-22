@@ -271,8 +271,9 @@ namespace HotBite {
 					return hr;
 				}
 
+				//Gives the memory back too (clear alone keeps the capacity, and the whole point is the memory).
 				void Clean() {
-					nodes.clear();
+					std::vector<T>().swap(nodes);
 				}
 
 				void Refresh(uint32_t start = 0, uint32_t len = 0) {

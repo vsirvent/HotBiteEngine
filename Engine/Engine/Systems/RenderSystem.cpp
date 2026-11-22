@@ -528,6 +528,8 @@ bool RenderSystem::Init(DXCore* dx_core, Core::VertexBuffer<Vertex>* vb, Core::B
 		temp_map.SetFullyWritten(true);
 		taa_history[0].InitScaled("taa history 0", w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, GFX_BIND_UNORDERED_ACCESS, Core::FrameTextureLifetime::Persistent);
 		taa_history[1].InitScaled("taa history 1", w, h, DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT, GFX_BIND_UNORDERED_ACCESS, Core::FrameTextureLifetime::Persistent);
+		taa_depth[0].InitScaled("taa depth 0", w, h, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT, GFX_BIND_UNORDERED_ACCESS, Core::FrameTextureLifetime::Persistent);
+		taa_depth[1].InitScaled("taa depth 1", w, h, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT, GFX_BIND_UNORDERED_ACCESS, Core::FrameTextureLifetime::Persistent);
 		taa_history_valid = false;
 		if (FAILED(depth_map.InitScaled(w, h, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT, GFX_BIND_UNORDERED_ACCESS))) {
 			throw std::exception("depth_map.Init failed");
@@ -832,6 +834,8 @@ RenderSystem::~RenderSystem() {
 	temp_map.Release();
 	taa_history[0].Release();
 	taa_history[1].Release();
+	taa_depth[0].Release();
+	taa_depth[1].Release();
 	first_pass_texture.Release();
 	gbuffer_scene_copy.Release();
 	rgba_noise_texture.Release();
@@ -3029,18 +3033,24 @@ void RenderSystem::ProcessTemporalAA() {
 	taa_shader->SetShaderResourceView("input", temp_map.SRV());
 	taa_shader->SetShaderResourceView("history", taa_history[read].SRV());
 	taa_shader->SetShaderResourceView("motionTexture", motion_texture.SRV());
+	taa_shader->SetShaderResourceView("depthTexture", depth_map.SRV());
+	taa_shader->SetShaderResourceView("depthHistory", taa_depth[read].SRV());
 	taa_shader->SetSamplerState("linearSampler", dxcore->basic_sampler);
 	taa_shader->SetInt("history_valid", taa_history_valid ? 1 : 0);
 	taa_shader->SetUnorderedAccessView("output", motion_blur_map.UAV());
 	taa_shader->SetUnorderedAccessView("history_out", taa_history[write].UAV());
+	taa_shader->SetUnorderedAccessView("depth_out", taa_depth[write].UAV());
 	taa_shader->CopyAllBufferData();
 	taa_shader->SetShader();
 	dxcore->context->Dispatch(groupsX, groupsY, 1);
 	taa_shader->SetUnorderedAccessView("output", nullptr);
 	taa_shader->SetUnorderedAccessView("history_out", nullptr);
+	taa_shader->SetUnorderedAccessView("depth_out", nullptr);
 	taa_shader->SetShaderResourceView("input", nullptr);
 	taa_shader->SetShaderResourceView("history", nullptr);
 	taa_shader->SetShaderResourceView("motionTexture", nullptr);
+	taa_shader->SetShaderResourceView("depthTexture", nullptr);
+	taa_shader->SetShaderResourceView("depthHistory", nullptr);
 	taa_shader->CopyAllBufferData();
 
 	taa_history_index = write;
@@ -6035,7 +6045,8 @@ void RenderSystem::Draw() {
 		}
 		frame_graph.AddPass("end of scene", [&]() {
 			if (post_process_pipeline != nullptr) {
-				post_process_pipeline->SetShaderResourceView(DEPTH_TEXTURE, depth_map.SRV());
+				//The TAA's resolved distance when it ran this frame (stable, agrees with the resolved colour), else the drawn one.
+				post_process_pipeline->SetShaderResourceView(DEPTH_TEXTURE, taa_active ? taa_depth[taa_history_index].SRV() : depth_map.SRV());
 				post_process_pipeline->SetShaderResourceView(AUTOFOCUS_TEXTURE, autofocus_map.SRV());
 				post_process_pipeline->SetView(*(cam_entity_ptr->camera));
 			}

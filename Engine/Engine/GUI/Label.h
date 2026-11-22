@@ -84,6 +84,54 @@ namespace HotBite {
 				DWRITE_TEXT_ALIGNMENT align = DWRITE_TEXT_ALIGNMENT_LEADING;
 				DWRITE_PARAGRAPH_ALIGNMENT valign = DWRITE_PARAGRAPH_ALIGNMENT_CENTER;
 
+				//What the label's font and layout were built from. Moving a label (its position) changes none of it, and
+				//Widget::SetPosition/SetWidth/SetHeight all call Refresh: a HUD that moves its labels every frame (bars,
+				//speech bubbles and boards that follow units) used to re-create the font and layout and re-rasterize the
+				//text with a new software Direct2D device each time (a quarter of the main thread in Survival).
+				struct LayoutKey {
+					std::string text;
+					std::string font_name;
+					float font_size = 0.0f;
+					float width = 0.0f;
+					float height = 0.0f;
+					float margin = 0.0f;
+					float screen_width = 0.0f;
+					float screen_height = 0.0f;
+					int weight = 0;
+					int style = 0;
+					int align = 0;
+					int valign = 0;
+					const void* target = nullptr;
+					bool operator==(const LayoutKey&) const = default;
+				};
+				LayoutKey layout_key;
+				bool layout_key_valid = false;
+
+				LayoutKey MakeLayoutKey() const {
+					LayoutKey k;
+					k.text = text;
+					k.font_name = font_name;
+					k.font_size = font_size;
+					k.width = width;
+					k.height = height;
+					k.margin = margin;
+					k.screen_width = (float)DXCore::Get()->GetScreenWidth();
+					k.screen_height = (float)DXCore::Get()->GetScreenHeight();
+					k.weight = (int)weight;
+					k.style = (int)style;
+					k.align = (int)align;
+					k.valign = (int)valign;
+					k.target = d3d_render_target;
+					return k;
+				}
+
+				void UpdateOrigin() {
+					if (text_layout != nullptr) {
+						origin.x = ((1.0f + position.x + margin) * 0.5f) * DXCore::Get()->GetScreenWidth();
+						origin.y = DXCore::Get()->GetScreenHeight() * (1.0f - (1.0f + position.y) * 0.5f) - text_layout->GetMaxHeight();
+					}
+				}
+
 				void Release() {
 					if (text_format != nullptr) {
 						text_format->Release();
@@ -235,18 +283,29 @@ namespace HotBite {
 
 				virtual void Refresh() override {
 					Widget::Refresh();
+					const bool buildable = d3d_render_target != nullptr &&
+						width > 0.0f && height > 0.0f &&
+						font_size > 0.0f && !font_name.empty() && !text.empty();
+					if (buildable) {
+						const LayoutKey key = MakeLayoutKey();
+						if (layout_key_valid && text_format != nullptr && text_layout != nullptr && key == layout_key) {
+							//Only the position moved (or nothing): the font, the layout and the texture are still right.
+							UpdateOrigin();
+							return;
+						}
+						layout_key = key;
+						layout_key_valid = true;
+					}
+					else {
+						layout_key_valid = false;
+					}
 					Release();
 					text_dirty = true;
-					if (d3d_render_target != nullptr &&
-						width > 0.0f && height > 0.0f &&
-						font_size > 0.0f && !font_name.empty() && !text.empty()) {
+					if (buildable) {
 						Direct2D* d2d = Direct2D::Get();
 						text_format = d2d->GetFont(font_name, font_size, weight, style, align, valign);
 						RefreshTextLayout();
-						if (text_layout != nullptr) {
-							origin.x = ((1.0f + position.x + margin) * 0.5f) * DXCore::Get()->GetScreenWidth();
-							origin.y = DXCore::Get()->GetScreenHeight() * (1.0f - (1.0f + position.y) * 0.5f) - text_layout->GetMaxHeight();
-						}
+						UpdateOrigin();
 					}
 				}
 
@@ -271,6 +330,7 @@ namespace HotBite {
 					// Save the parameters in a vector
 					parameters = { text_param(&args)... };
 					text = txt;
+					layout_key_valid = false;
 					Refresh();
 				}
 
@@ -281,6 +341,7 @@ namespace HotBite {
 					vsnprintf(tmp_text, 1024, format, arg);
 					va_end(arg);
 					text = tmp_text;
+					layout_key_valid = false;
 					Refresh();
 				}
 
@@ -293,11 +354,15 @@ namespace HotBite {
 				}
 
 				virtual void SetTextColor(const float4& color) {
+					if (text_color.r == color.x && text_color.g == color.y && text_color.b == color.z && text_color.a == color.w) {
+						return;
+					}
 					text_color.r = color.x;
 					text_color.g = color.y;
 					text_color.b = color.z;
 					text_color.a = color.w;
-					Refresh();
+					//The layout does not depend on the colour: only the texture is drawn again.
+					text_dirty = true;
 				}
 
 				virtual float4 GetTextColor(void) const {

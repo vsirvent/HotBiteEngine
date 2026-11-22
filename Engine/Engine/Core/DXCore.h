@@ -28,6 +28,8 @@ SOFTWARE.
 #include <Windows.h>
 #include "GfxContext.h"
 #include <string>
+#include <map>
+#include <tuple>
 #include <filesystem>
 
 #include "../Defines.h"
@@ -264,6 +266,16 @@ namespace HotBite {
 				ID2D1Factory* d2d_factory = nullptr;
 				IDWriteFactory* write_factory = nullptr;
 								IWICImagingFactory* wic_factory = nullptr;
+
+				//The bitmap and software render target RenderText draws into, per size: creating the target costs a
+				//software D3D device each time (EnumDisplayDevices, adapter open), more than drawing the text.
+				struct TextTarget {
+					IWICBitmap* bitmap = nullptr;
+					ID2D1RenderTarget* target = nullptr;
+					ID2D1SolidColorBrush* brush = nullptr;
+				};
+				std::map<std::tuple<uint32_t, uint32_t, float>, TextTarget> text_targets;
+				void ReleaseTextTargets();
 
 				Direct2D();
 				~Direct2D();

@@ -412,6 +412,18 @@ namespace {
 	constexpr size_t TEXTURE_MIN_DROPPED_SIDE = 512;
 }
 
+namespace {
+	std::atomic<uint32_t> texture_max_side{ 0 };
+}
+
+void Core::SetTextureMaxSize(uint32_t max_side) {
+	texture_max_side = max_side;
+}
+
+uint32_t Core::TextureMaxSize() {
+	return texture_max_side;
+}
+
 GfxSRV* Core::CreateTextureFromImage(const DirectX::ScratchImage& image, bool keep_mips) {
 	const DirectX::TexMetadata& meta = image.GetMetadata();
 	if (meta.dimension != DirectX::TEX_DIMENSION_TEXTURE2D || meta.width == 0 || meta.height == 0) {
@@ -419,9 +431,16 @@ GfxSRV* Core::CreateTextureFromImage(const DirectX::ScratchImage& image, bool ke
 	}
 	GfxDevice* device = DXCore::Get()->device;
 
-	// The mips left out: the largest ones, while the texture would not fit the video memory budget. They are already
-	// in the chain, so this costs nothing but the resolution of the mips that are used.
+	// The mips left out: the largest ones, while the texture is larger than the game's limit (its texture quality), and
+	// while it would not fit the video memory budget. They are already in the chain, so this costs nothing but the
+	// resolution of the mips that are used.
 	size_t skip = 0;
+	const uint32_t max_side = texture_max_side;
+	if (!keep_mips && max_side > 0 && !meta.IsCubemap()) {
+		while (skip + 1 < meta.mipLevels && (std::max)(meta.width >> skip, meta.height >> skip) > max_side) {
+			++skip;
+		}
+	}
 	UINT64 usage = 0;
 	UINT64 budget = 0;
 	if (!keep_mips && !meta.IsCubemap() && meta.mipLevels > 1 && (UINT64)meta.width * meta.height > TEXTURE_KEEP_WHOLE_PIXELS && VideoMemory(usage, budget)) {

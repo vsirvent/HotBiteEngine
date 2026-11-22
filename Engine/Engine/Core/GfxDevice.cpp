@@ -23,6 +23,9 @@ SOFTWARE.
 */
 
 #include "GfxDevice.h"
+#include "DXCore.h"
+#include <psapi.h>
+#include <dxgi1_4.h>
 #include "DxcSupport.h"
 #include <chrono>
 #include "Log.h"
@@ -1560,6 +1563,64 @@ namespace HotBite {
 					}
 				}
 				info->ClearStoredMessages();
+			}
+		}
+	}
+}
+
+namespace HotBite {
+	namespace Engine {
+		namespace Core {
+			bool GfxDevice::QueryMemory(MemorySample& out) const {
+				out = MemorySample();
+				PROCESS_MEMORY_COUNTERS_EX counters = {};
+				if (GetProcessMemoryInfo(GetCurrentProcess(), reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&counters), sizeof(counters))) {
+					out.process_commit = counters.PrivateUsage;
+				}
+				Microsoft::WRL::ComPtr<IDXGIAdapter3> adapter3;
+				if (adapter == nullptr || FAILED(adapter.As(&adapter3))) {
+					return false;
+				}
+				DXGI_QUERY_VIDEO_MEMORY_INFO local = {};
+				DXGI_QUERY_VIDEO_MEMORY_INFO nonlocal = {};
+				if (FAILED(adapter3->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &local)) ||
+					FAILED(adapter3->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_NON_LOCAL, &nonlocal))) {
+					return false;
+				}
+				out.local_usage = local.CurrentUsage;
+				out.local_budget = local.Budget;
+				out.nonlocal_usage = nonlocal.CurrentUsage;
+				out.nonlocal_budget = nonlocal.Budget;
+				return true;
+			}
+
+			void NoteMemory(const char* stage) {
+				static const std::string path = []() {
+					char* value = nullptr;
+					size_t length = 0;
+					std::string p;
+					if (_dupenv_s(&value, &length, "HOTBITE_MEMORY_LOG") == 0 && value != nullptr) {
+						p = value;
+						free(value);
+					}
+					return p;
+				}();
+				DXCore* dx = DXCore::Get();
+				if (path.empty() || dx == nullptr || dx->device == nullptr) {
+					return;
+				}
+				GfxDevice::MemorySample s;
+				dx->device->QueryMemory(s);
+				static std::mutex file_mutex;
+				std::lock_guard<std::mutex> lock(file_mutex);
+				FILE* f = nullptr;
+				if (fopen_s(&f, path.c_str(), "a") != 0 || f == nullptr) {
+					return;
+				}
+				constexpr double MB = 1024.0 * 1024.0;
+				fprintf(f, "%-44s commit %8.0f MB | video local %7.0f / %7.0f MB | non-local %7.0f / %7.0f MB\n", stage != nullptr ? stage : "",
+					s.process_commit / MB, s.local_usage / MB, s.local_budget / MB, s.nonlocal_usage / MB, s.nonlocal_budget / MB);
+				fclose(f);
 			}
 		}
 	}

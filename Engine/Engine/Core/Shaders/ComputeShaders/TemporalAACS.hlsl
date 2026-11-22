@@ -55,8 +55,14 @@ Texture2D<float4> history : register(t1);
 Texture2D<float2> motionTexture : register(t2);
 SamplerState linearSampler : register(s0);
 
+// The world distance of the surface each pixel shows, as the renderer drew it (0 where it drew nothing: the sky) and as this pass
+// resolved it a frame ago; depth_out is this frame's resolved one, which the post-process stages read in place of the drawn one.
+Texture2D<float> depthTexture : register(t3);
+Texture2D<float> depthHistory : register(t4);
+
 RWTexture2D<float4> output : register(u0);
 RWTexture2D<float4> history_out : register(u1);
+RWTexture2D<float> depth_out : register(u2);
 
 // How wide, in standard deviations, the colour box the history is clipped to is.
 #define CLIP_GAMMA 1.25f
@@ -104,6 +110,25 @@ float3 FromYCoCg(float3 c)
 float3 Sanitize(float3 c)
 {
     return (all(isfinite(c))) ? clamp(c, 0.0f, MAX_HDR) : float3(0.0f, 0.0f, 0.0f);
+}
+
+// The distance the resolved colour of this pixel is mostly of. The drawn distance belongs to the jittered frame, the colour to the resolve:
+// on a branch a pixel wide the colour shows the branch and the distance is the ground behind it (or nothing, where a leaf is cut out), so
+// whatever reads the distance next to the colour would see the wrong surface at every edge, a different one every frame as the jitter
+// moves. The farthest distance of the 3x3 around the pixel is the surface the resolved colour is mostly of (a thin branch is a few percent
+// of its pixel, the ground behind it the rest; the nearest instead haloes every tree). Exact texels: a filtered tap would blend "no
+// distance" into a real one and invent a nearer surface.
+float FarthestDistance(int2 p, int2 size)
+{
+    float d = 0.0f;
+    [unroll]
+    for (int y = -1; y <= 1; ++y) {
+        [unroll]
+        for (int x = -1; x <= 1; ++x) {
+            d = max(d, depthTexture.Load(int3(clamp(p + int2(x, y), int2(0, 0), size - 1), 0)).r);
+        }
+    }
+    return d;
 }
 
 float3 LoadColor(int2 p, int2 size)
@@ -169,9 +194,11 @@ void main(uint3 DTid : SV_DispatchThreadID)
     int2 pixel = int2(DTid.xy);
 
     float3 current = LoadColor(pixel, size);
+    float distanceNow = FarthestDistance(pixel, size);
     if (history_valid == 0) {
         output[DTid.xy] = float4(current, 1.0f);
         history_out[DTid.xy] = float4(current, 1.0f);
+        depth_out[DTid.xy] = distanceNow;
         return;
     }
 
@@ -212,7 +239,18 @@ void main(uint3 DTid : SV_DispatchThreadID)
     bool onScreen = all(previousUv >= 0.0f) && all(previousUv <= 1.0f);
 
     float3 result = current;
+    float distanceResult = distanceNow;
     if (onScreen) {
+        // The distance the same way as the colour: the one of a frame ago where the surface was, blended with this frame's at the colour's
+        // weight, so the jitter of an edge averages out instead of flickering. Where the history is a different surface (a disocclusion, a
+        // sky pixel that is not sky any more, or the other way) it is not used: this frame's stands.
+        float previousDistance = depthHistory.Load(int3(clamp(int2(previousUv * float2(size)), int2(0, 0), size - 1), 0)).r;
+        float tolerance = 0.02f * distanceNow + 0.25f;
+        if (previousDistance > 0.001f && distanceNow > 0.001f && abs(previousDistance - distanceNow) <= tolerance) {
+            float distanceBlend = lerp(BLEND_STILL, BLEND_MOVING, saturate(length(0.5f * motion * float2(size)) / SPEED_FULL));
+            distanceResult = lerp(previousDistance, distanceNow, distanceBlend);
+        }
+
         float3 hist = ToYCoCg(Warp(SampleHistoryCatmullRom(previousUv, float2(size))));
         hist = ClipToBox(boxCenter, boxExtents, hist);
 
@@ -223,4 +261,5 @@ void main(uint3 DTid : SV_DispatchThreadID)
     }
     output[DTid.xy] = float4(result, 1.0f);
     history_out[DTid.xy] = float4(result, 1.0f);
+    depth_out[DTid.xy] = distanceResult;
 }

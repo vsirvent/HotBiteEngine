@@ -95,6 +95,11 @@ namespace HotBite {
 
 			class GfxDevice;
 
+			//A line with what memory the process holds (GfxDevice::QueryMemory) and `stage`, appended to the file the
+			//environment variable HOTBITE_MEMORY_LOG names: how a load is measured stage by stage (World's loading calls it
+			//between its steps, a game may call it too). Nothing at all without the variable, or before the device exists.
+			void NoteMemory(const char* stage);
+
 			//Reference counted, like the COM objects it replaces (`x->Release()` stays valid at every call
 			//site). The last Release() of an object that owns GPU memory hands it to the device, which
 			//destroys it once the GPU has finished the frames that could have used it.
@@ -504,6 +509,19 @@ namespace HotBite {
 				bool AllowTearing() const { return allow_tearing; }
 				const std::string& AdapterName() const { return adapter_name; }
 
+				//What the process holds now: its committed (private) memory, and the video memory it uses against the budget
+				//Windows gives it, in the card's own memory (local) and in system memory the card reads through the bus
+				//(non-local: what does not fit the card, and the upload heaps). False when the adapter cannot say (the
+				//commit is still filled).
+				struct MemorySample {
+					uint64_t process_commit = 0;
+					uint64_t local_usage = 0;
+					uint64_t local_budget = 0;
+					uint64_t nonlocal_usage = 0;
+					uint64_t nonlocal_budget = 0;
+				};
+				bool QueryMemory(MemorySample& out) const;
+
 				//---- resources --------------------------------------------------------------------
 
 				//`initial_data` (size bytes) fills the buffer. A Static buffer is created in COPY_DEST, filled
@@ -730,7 +748,9 @@ namespace HotBite {
 				//CollectGarbage notices once a frame; a load that creates many textures between two frames would otherwise hold
 				//every staging buffer of all of them (as much memory again as the textures), so past this ExecuteImmediate waits.
 				uint64_t pending_upload_bytes = 0;
-				static constexpr uint64_t MAX_PENDING_UPLOAD_BYTES = 256ull * 1024 * 1024;
+				//Staging buffers are system memory (and count against the commit limit): a load of many textures used to pile up
+				//256 MB of them before letting any go; 64 MB keeps the peak down for the price of a wait every few textures.
+				static constexpr uint64_t MAX_PENDING_UPLOAD_BYTES = 64ull * 1024 * 1024;
 
 				std::atomic<uint64_t> state_id{ 0 };
 
