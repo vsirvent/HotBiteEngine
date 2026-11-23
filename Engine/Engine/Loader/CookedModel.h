@@ -117,7 +117,8 @@ namespace HotBite {
 			struct CookedModel {
 				// Bumped whenever extraction changes what it produces, or this layout does.
 				// A file of another version is not read, it is made again.
-				static constexpr uint32_t VERSION = 1;
+				//2: the texture coordinates of a mesh whose UV set is not named "UVMap" (FBXLoader).
+				static constexpr uint32_t VERSION = 2;
 				static constexpr const char* EXTENSION = ".cooked";
 
 				// What the file was made with: the loader options that change the result.

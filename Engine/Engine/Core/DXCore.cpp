@@ -467,9 +467,14 @@ HRESULT DXCore::InitDirectX()
 	if (FAILED(hr = device->CreateRasterizerState(shadowRenderStateDesc, false, &shadow_rasterizer))) {
 		return hr;
 	}
+	//Directional (cascade) maps. The bias is what separates a shadow from its caster ("peter
+	//panning"): with D32 it is DepthBias * 2^-24 of the light's depth range plus the slope
+	//term times the surface's depth slope per texel. 1000 / 2.0 put a ball's contact shadow
+	//a sixth of a unit away from it on a 2048 map; these keep it within a few hundredths on
+	//today's finer maps, and the PCF kernel absorbs the acne a smaller bias would otherwise show.
 	shadowRenderStateDesc.CullMode = D3D12_CULL_MODE_BACK;
-	shadowRenderStateDesc.SlopeScaledDepthBias = 2.0f;
-	shadowRenderStateDesc.DepthBias = 1000;
+	shadowRenderStateDesc.SlopeScaledDepthBias = 1.25f;
+	shadowRenderStateDesc.DepthBias = 150;
 	if (FAILED(hr = device->CreateRasterizerState(shadowRenderStateDesc, false, &dir_shadow_rasterizer))) {
 		return hr;
 	}
@@ -1049,7 +1054,7 @@ IDWriteTextFormat* Direct2D::GetFont(const std::string& font_name, float font_si
 }
 
 bool Direct2D::RenderText(IDWriteTextLayout* layout, const D2D1_COLOR_F& color, uint32_t w, uint32_t h, float dpi,
-	std::vector<uint8_t>& rgba) {
+	std::vector<uint8_t>& rgba, const D2D1_COLOR_F& outline_color, float outline_px, float shadow_px) {
 	if (layout == nullptr || w == 0 || h == 0) {
 		return false;
 	}
@@ -1086,6 +1091,30 @@ bool Direct2D::RenderText(IDWriteTextLayout* layout, const D2D1_COLOR_F& color, 
 	brush->SetColor(color);
 	target->BeginDraw();
 	target->Clear(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f));
+	if (outline_px > 0.0f && outline_color.a > 0.0f) {
+		//The outline is the text stamped around a ring of offsets (and a disc inside it for a wide one), in
+		//the outline colour, then the text itself on top. Offsets are in DIPs: the target is at `dpi`.
+		//A translucent outline colour builds up where the stamps overlap: dense next to the glyph, thin at the rim - a glow.
+		brush->SetColor(outline_color);
+		const float px_to_dip = 96.0f / dpi;
+		const float radius = outline_px * px_to_dip;
+		const int rings = (std::max)(1, (int)std::ceil(outline_px / 2.0f));
+		const int steps = (std::max)(12, (int)std::ceil(outline_px * 6.0f));
+		auto stamp = [&](float dy) {
+			for (int r = 1; r <= rings; ++r) {
+				const float rr = radius * (float)r / (float)rings;
+				for (int i = 0; i < steps; ++i) {
+					const float a = 6.2831853f * (float)i / (float)steps;
+					target->DrawTextLayout(D2D1::Point2F(rr * cosf(a), dy + rr * sinf(a)), layout, brush, D2D1_DRAW_TEXT_OPTIONS_NONE);
+				}
+			}
+		};
+		if (shadow_px > 0.0f) {
+			stamp(shadow_px * px_to_dip);
+		}
+		stamp(0.0f);
+		brush->SetColor(color);
+	}
 	target->DrawTextLayout(D2D1::Point2F(0.0f, 0.0f), layout, brush, D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
 	ok = SUCCEEDED(target->EndDraw());
 	if (ok) {

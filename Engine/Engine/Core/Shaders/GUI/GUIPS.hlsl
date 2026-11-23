@@ -33,6 +33,7 @@ SamplerState basicSampler : register(s0);
 #define BACKGROUND_ALPHA (1 << 2)
 #define INVERT_UV_X (1 << 3)
 #define INVERT_UV_Y (1 << 4)
+#define SRGB_IMAGE (1 << 5)
 
 cbuffer externalData : register(b0)
 {
@@ -56,6 +57,11 @@ float4 main(VertexOutput input) : SV_TARGET
 	if (ui_flags & WIDGET) {
 		if (ui_flags & BACKGROUND_IMAGE) {
 			color = background_texture.Sample(basicSampler, input.uv.xy);
+			if (ui_flags & SRGB_IMAGE) {
+				//An sRGB texture samples as linear; the UI target is not sRGB, so encode it back.
+				float3 c = saturate(color.rgb);
+				color.rgb = lerp(1.055f * pow(c, 1.0f / 2.4f) - 0.055f, c * 12.92f, step(c, 0.0031308f));
+			}
 			if (ui_flags & BACKGROUND_ALPHA) {
 				texture_alpha = length(background_alpha_color.rgb - color.rgb);
 				if (texture_alpha < 0.3f) {

@@ -166,10 +166,16 @@ namespace HotBite {
 				virtual void Render() override {
 					PostProcess::Render();
 					DXCore::Get()->context->OMSetBlendState(DXCore::Get()->blend, NULL, ~0U);
+					//The widgets are drawn with whatever depth buffer the last stage targets, so the depth test is set here
+					//rather than left as the pass before had it. Less-or-equal: a label's text is drawn at its own widget's
+					//layer right after that widget's background, and under a plain "less" (the scene's state) the text of
+					//every label with an opaque background failed the test and was never seen.
+					DXCore::Get()->context->OMSetDepthStencilState(DXCore::Get()->depth_prepass, 1);
 					for (auto const& widget : widgets) {
 						widget.second->Render(ps);
 					}
 					DXCore::Get()->context->OMSetBlendState(DXCore::Get()->no_blend, NULL, ~0U);
+					DXCore::Get()->context->OMSetDepthStencilState(DXCore::Get()->normal_depth, 1);
 				}
 				
 			};

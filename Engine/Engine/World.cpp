@@ -3994,6 +3994,11 @@ bool World::Load(const std::string& scene_file, float* progress, std::function<v
 					Components::DirectionalLight::CascadeSettings cascades;
 					cascades.FromJson(light);
 					directional.Init(ColorRGBFromStr(light["color"]), float3{ light["direction"]["x"], light["direction"]["y"], light["direction"]["z"] }, light["cast_shadow"], light["resolution"], light["density"], cascades);
+					//The component's own FromJson reads this too, but a level's lights are built here: without it
+					//a level could never ask for a traced shadow. After Init, as it replaces the cascades.
+					if (light.value("raytraced_shadow", false)) {
+						directional.SetRayTracedShadow(true);
+					}
 					if (light.contains("parent")) {
 						ECS::Entity p = coordinator->GetEntityByName(light["parent"]);
 						directional.SetParent(p);
@@ -4032,6 +4037,9 @@ bool World::Load(const std::string& scene_file, float* progress, std::function<v
 					base.name = name;
 					base.id = e;
 					point.Init(ColorRGBFromStr(light["color"]), light["range"], light["cast_shadow"], light["resolution"], light["density"]);
+					if (light.value("raytraced_shadow", false)) {
+						point.SetRayTracedShadow(true);
+					}
 					if (light.contains("position")) {
 						transform.position = { light["position"]["x"], light["position"]["y"], light["position"]["z"] };
 					}

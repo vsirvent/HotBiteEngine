@@ -60,6 +60,19 @@ namespace HotBite {
 #define BACKGROUND_IMAGE_ALPHA_FLAG (1 << 2)				
 #define WIDGET_INVERT_UV_X (1 << 3)
 #define WIDGET_INVERT_UV_Y (1 << 4)
+#define WIDGET_SRGB_IMAGE (1 << 5)
+
+				//Images are loaded (and cooked) as sRGB when the file says so, which makes the sampler hand back linear
+				//colour; the UI target is not sRGB, so those have to be encoded again or every image is drawn darker.
+				static bool IsSRGBFormat(DXGI_FORMAT f) {
+					switch (f) {
+					case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB: case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB: case DXGI_FORMAT_B8G8R8X8_UNORM_SRGB:
+					case DXGI_FORMAT_BC1_UNORM_SRGB: case DXGI_FORMAT_BC2_UNORM_SRGB: case DXGI_FORMAT_BC3_UNORM_SRGB: case DXGI_FORMAT_BC7_UNORM_SRGB:
+						return true;
+					default:
+						return false;
+					}
+				}
 
 				using VertexType = VertexPositionColorTexture;
 				float4 background_color;
@@ -301,6 +314,9 @@ namespace HotBite {
 							int ui_flags = WIDGET_FLAG;
 							if (background_image != nullptr) {
 								ui_flags |= BACKGROUND_IMAGE_FLAG;
+								if (IsSRGBFormat(background_image->Format())) {
+									ui_flags |= WIDGET_SRGB_IMAGE;
+								}
 								ps->SetShaderResourceView("background_texture", background_image);
 							}
 							if (background_alpha_color_enabled) {

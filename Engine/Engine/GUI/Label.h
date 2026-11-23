@@ -72,6 +72,11 @@ namespace HotBite {
 				float font_size_orig = 0.0f;
 				float font_size = 0.0f;
 				D2D1_COLOR_F text_color = D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f);
+				//Optional outline around the glyphs and its drop shadow, both as a fraction of the font size
+				//(json "outline", "shadow"; 0 = none), in "outline_color". The outline fades with the text.
+				D2D1_COLOR_F outline_color = D2D1::ColorF(0.0f, 0.0f, 0.0f, 1.0f);
+				float outline = 0.0f;
+				float shadow = 0.0f;
 				D2D1_POINT_2F origin = D2D1::Point2F(0.0f, 0.0f);
 				float rotation = 0.0f;
 				std::vector<text_param> parameters;
@@ -155,7 +160,9 @@ namespace HotBite {
 					const uint32_t h = (uint32_t)std::ceil(text_layout->GetMaxHeight() * scale);
 					std::vector<uint8_t> rgba;
 					if (w == 0 || h == 0 || w > 8192 || h > 8192 ||
-						!Direct2D::Get()->RenderText(text_layout, text_color, w, h, (float)DXCore::Get()->GetDpi(), rgba)) {
+						!Direct2D::Get()->RenderText(text_layout, text_color, w, h, (float)DXCore::Get()->GetDpi(), rgba,
+							D2D1::ColorF(outline_color.r, outline_color.g, outline_color.b, outline_color.a * text_color.a),
+							outline * font_size * scale, shadow * font_size * scale)) {
 						return;
 					}
 					if (text_texture.Width() != (int)w || text_texture.Height() != (int)h) {
@@ -197,6 +204,9 @@ namespace HotBite {
 					SetText(config["text"]);
 					SetTextColor(parseColorStringF4(config["text_color"]));
 					ShowText(config["show_text"]);
+					if (config.contains("outline_color")) {
+						SetOutline(parseColorStringF4(config["outline_color"]), config.value("outline", 0.0f), config.value("shadow", 0.0f));
+					}
 					Refresh();
 				}
 
@@ -362,6 +372,13 @@ namespace HotBite {
 					text_color.b = color.z;
 					text_color.a = color.w;
 					//The layout does not depend on the colour: only the texture is drawn again.
+					text_dirty = true;
+				}
+
+				virtual void SetOutline(const float4& color, float size, float shadow_size = 0.0f) {
+					outline_color = D2D1::ColorF(color.x, color.y, color.z, color.w);
+					outline = size;
+					shadow = shadow_size;
 					text_dirty = true;
 				}
 

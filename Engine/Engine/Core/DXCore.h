@@ -315,7 +315,11 @@ namespace HotBite {
 								//D3D12 resource, and the label that wants the text keeps it as a texture and draws it as a quad like any
 								//other widget (Label.h). `dpi` is the scale the layout was made for.
 								bool RenderText(IDWriteTextLayout* layout, const D2D1_COLOR_F& color, uint32_t w, uint32_t h, float dpi,
-									std::vector<uint8_t>& rgba);
+									std::vector<uint8_t>& rgba,
+									//An outline around the glyphs, `outline_px` pixels wide (0: none), drawn under the text in
+									//`outline_color`, and the same outline again `shadow_px` pixels lower as a drop shadow.
+									const D2D1_COLOR_F& outline_color = D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f), float outline_px = 0.0f,
+									float shadow_px = 0.0f);
 			};
 		}
 	}

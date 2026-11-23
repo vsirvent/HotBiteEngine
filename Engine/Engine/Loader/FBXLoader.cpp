@@ -252,6 +252,26 @@ int FBXLoader::ExtractMeshes(CookedModel& out, FbxNode* node) {
 			smooth_groups.push_back((uint32_t)i);
 		}
 
+		//The texture coordinates come from the set named "UVMap" (Blender's default) - or, when there
+		//is none, from the mesh's first set that is not the "MeshUVMap" one read below: exporters
+		//name the set after whatever the mesh calls it (Blender 5 writes a bmesh-made layer as
+		//"Float2"), and a mesh whose coordinates were silently dropped draws every texture as the
+		//one texel at (0, 0).
+		std::string uv_set = "UVMap";
+		{
+			FbxStringList uv_sets;
+			fbxMesh->GetUVSetNames(uv_sets);
+			bool has_uvmap = false;
+			std::string first;
+			for (int k = 0; k < uv_sets.GetCount(); ++k) {
+				const std::string set_name = uv_sets[k].Buffer();
+				if (set_name == "UVMap") { has_uvmap = true; }
+				if (first.empty() && set_name != "MeshUVMap") { first = set_name; }
+			}
+			if (!has_uvmap && !first.empty()) {
+				uv_set = first;
+			}
+		}
 		int polygonCount = fbxMesh->GetPolygonCount();
 		for (int i = 0; i < polygonCount; i++)
 		{
@@ -275,7 +295,7 @@ int FBXLoader::ExtractMeshes(CookedModel& out, FbxNode* node) {
 
 				FbxVector2 uvCoord(0, 0);
 				bool uvFlag = false;
-				if (fbxMesh->GetPolygonVertexUV(i, j, "UVMap", uvCoord, uvFlag)) {
+				if (fbxMesh->GetPolygonVertexUV(i, j, uv_set.c_str(), uvCoord, uvFlag)) {
 					vertices[ind].UV.x = (float)uvCoord.mData[0];
 					vertices[ind].UV.y = 1.0f - (float)uvCoord.mData[1];
 				}
